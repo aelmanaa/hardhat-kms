@@ -1,13 +1,11 @@
-// Exercises config loading, adapter creation, SDK loading and signing with planted secrets, so the
+// Exercises config loading, adapter creation and signing with planted secrets, so the
 // debug test can check that none of them reach the debug output. Run with DEBUG=hardhat:kms:*.
-// HHKMS_DEBUG_PROJECT names a throwaway project with a fake AWS SDK installed.
 import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import hardhatKms from "../../src/index.ts";
 import { createKeyAdapter } from "../../src/internal/providers/create-adapter.ts";
-import { loadSdk } from "../../src/internal/providers/sdk.ts";
 import { KmsSigner } from "../../src/internal/signer/kms-signer.ts";
 import type { KmsKeyAdapter, KmsKeyUserConfig } from "../../src/types.ts";
 import { fakeAdapter } from "../helpers/fake-adapter.ts";
@@ -34,7 +32,7 @@ const keysValue: unknown = {
     token: configVariable("HHKMS_DEBUG_VAULT_TOKEN"),
     literal: "hhkms-secret-literal-field",
   },
-  // No adapter exists for GCP yet, so this key stops at the built-in step without a network call.
+  // No plugin claims this key, so it stops at the end of the hook chain without a network call.
   builtin: {
     provider: "gcp",
     keyVersionName: "projects/p/locations/l/keyRings/r/cryptoKeys/builtin/cryptoKeyVersions/1",
@@ -60,8 +58,8 @@ const hre = await createHardhatRuntimeEnvironment({
   },
 });
 
-// Each key gets an adapter that fails or succeeds in a different way. "builtin" goes to the
-// built-in provider, which is not available yet.
+// Each key gets an adapter that fails or succeeds in a different way. No handler claims
+// "builtin".
 const behaviours: Record<string, () => KmsKeyAdapter> = {
   aws: () => fakeAdapter({ secretKey, wrongKeyForCalls: 1 }),
   gcp: () => {
@@ -116,10 +114,3 @@ clearInterval(keepAlive);
 // --kms, with the planted AWS key id in Foundry's variable.
 process.env.AWS_KMS_KEY_ID = process.env.HHKMS_DEBUG_AWS_KEY_ID;
 await createHardhatRuntimeEnvironment({ plugins: [hardhatKms] }, { kms: "aws" });
-
-// SDK loading, from a project with a fake SDK.
-await loadSdk(
-  { packageName: "@aws-sdk/client-kms", range: "^3.0.0" },
-  process.env.HHKMS_DEBUG_PROJECT ?? "",
-  "aws",
-);

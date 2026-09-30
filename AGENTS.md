@@ -11,7 +11,7 @@ Status: in development, not on npm. Most user-facing behaviour is still planned,
 - Configure keys and networks: [docs/user/reference/configuration.md](docs/user/reference/configuration.md)
 - Which JSON-RPC methods are handled, and which transaction types: [docs/user/reference/rpc-methods.md](docs/user/reference/rpc-methods.md)
 - The `kms` tasks (list accounts, sign, verify): [docs/user/reference/tasks.md](docs/user/reference/tasks.md)
-- Set up an AWS KMS key (key spec, IAM policy, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
+- Set up an AWS KMS key (key spec, IAM policy, the `hardhat-kms-aws` package, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
 - Turn on and read the debug output: [docs/user/guides/debug-output.md](docs/user/guides/debug-output.md)
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - What the plugin protects against and what it does not: [docs/contributor/signing-pipeline.md#threat-model-summary](docs/contributor/signing-pipeline.md#threat-model-summary)
@@ -37,11 +37,14 @@ pnpm run docs:check  # doc snippets typecheck, every page is indexed
 
 Where things are:
 
+- `packages/hardhat-kms`: the core plugin. Its public entry points are `hardhat-kms`, `hardhat-kms/types` (config and provider types) and `hardhat-kms/provider-utils` (helpers for provider plugins, `@experimental`).
+- `packages/hardhat-kms-aws`: the AWS KMS provider plugin, which depends on `@aws-sdk/client-kms`. Google Cloud and Azure get their own packages in M6.
+
 | Topic                                                | Page                                                                                             |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Module map, code map, request flows                  | [docs/contributor/architecture.md](docs/contributor/architecture.md)                             |
 | Signature checks, key pinning, threat model          | [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md)                     |
-| Adapter interface for providers                      | [docs/contributor/providers.md](docs/contributor/providers.md)                                   |
+| Adapter interface, provider packages                 | [docs/contributor/providers.md](docs/contributor/providers.md)                                   |
 | Transaction filling, nonces, send lock               | [docs/contributor/transactions.md](docs/contributor/transactions.md)                             |
 | Test layers and conventions                          | [docs/contributor/testing.md](docs/contributor/testing.md)                                       |
 | Quality gates, hooks, CI                             | [docs/contributor/tooling.md](docs/contributor/tooling.md)                                       |
@@ -57,7 +60,7 @@ Decision records:
 - [0002: Fill transactions in the plugin](docs/contributor/decisions/0002-fill-transactions-in-plugin.md)
 - [0003: No RPC method signs a bare digest](docs/contributor/decisions/0003-no-bare-digest-over-rpc.md)
 - [0004: Recover the parity against the known key and verify every signature](docs/contributor/decisions/0004-verify-every-signature.md)
-- [0005: Load cloud SDKs lazily from the user's project](docs/contributor/decisions/0005-lazy-sdk-loading.md)
+- [0005: Load cloud SDKs lazily from the user's project](docs/contributor/decisions/0005-lazy-sdk-loading.md) (superseded by 0009)
 - [0006: A plugin-owned `kms` hook for third-party providers](docs/contributor/decisions/0006-kms-hook-for-providers.md)
 - [0007: oxlint, oxfmt and TypeScript 7](docs/contributor/decisions/0007-toolchain.md)
 - [0008: Choose KMS keys from the command line with `--kms`](docs/contributor/decisions/0008-kms-command-line-option.md)

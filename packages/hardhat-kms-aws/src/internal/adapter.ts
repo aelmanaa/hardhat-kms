@@ -1,54 +1,29 @@
-import type { AwsKmsKeyConfig, KmsKeyConfig } from "../../../types.ts";
-import { publicKeyFromSpkiDer } from "../../crypto/public-key.ts";
-import type { SignatureOutput } from "../../crypto/signature.ts";
-import { kmsError } from "../../errors.ts";
-import type { KmsKeyAdapter, SignContext } from "../../signer/types.ts";
-import type { ProviderDeps, ProviderModule } from "../types.ts";
-import { wrongProvider } from "../wrong-provider.ts";
-import { parseAwsKeyId } from "./key-id.ts";
+import type {
+  GetPublicKeyCommand,
+  KMSClient,
+  KMSClientConfig,
+  SignCommand,
+} from "@aws-sdk/client-kms";
+import { kmsError, parseAwsKeyId, publicKeyFromSpkiDer } from "hardhat-kms/provider-utils";
+import type {
+  AwsKmsKeyConfig,
+  KmsKeyAdapter,
+  SignatureOutput,
+  SignContext,
+} from "hardhat-kms/types";
 
-const SDK_PACKAGE = "@aws-sdk/client-kms";
 const KEY_SPEC = "ECC_SECG_P256K1";
 const KEY_USAGE = "SIGN_VERIFY";
 const SIGNING_ALGORITHM = "ECDSA_SHA_256";
 
-// The few parts of @aws-sdk/client-kms the adapter uses. They are declared here, not imported,
-// so the plugin's published types do not depend on a package most users do not install.
-
-/** The client, as the adapter uses it. */
-interface KmsClient {
-  send(command: unknown, options?: { abortSignal?: AbortSignal }): Promise<unknown>;
-  destroy(): void;
+/** The parts of @aws-sdk/client-kms the adapter uses; tests pass a fake with the same shape. */
+export interface AwsKmsSdk {
+  KMSClient: new (config: KMSClientConfig) => Pick<KMSClient, "send" | "destroy">;
+  GetPublicKeyCommand: typeof GetPublicKeyCommand;
+  SignCommand: typeof SignCommand;
 }
 
-/** The SDK module, as the adapter uses it. */
-interface KmsSdk {
-  KMSClient: new (config: { region?: string; profile?: string; endpoint?: string }) => KmsClient;
-  GetPublicKeyCommand: new (input: { KeyId: string }) => unknown;
-  SignCommand: new (input: {
-    KeyId: string;
-    Message: Uint8Array;
-    MessageType: "DIGEST";
-    SigningAlgorithm: typeof SIGNING_ALGORITHM;
-  }) => unknown;
-}
-
-function isKmsSdk(module: unknown): module is KmsSdk {
-  return (
-    typeof module === "object" &&
-    module !== null &&
-    ["KMSClient", "GetPublicKeyCommand", "SignCommand"].every(
-      (name) => typeof Reflect.get(module, name) === "function",
-    )
-  );
-}
-
-/** Reads a field of an SDK response without trusting its shape. */
-function field(response: unknown, name: string): unknown {
-  return typeof response === "object" && response !== null
-    ? Reflect.get(response, name)
-    : undefined;
-}
+type KmsClient = InstanceType<AwsKmsSdk["KMSClient"]>;
 
 /**
  * The AWS KMS adapter for one key.
@@ -62,10 +37,10 @@ class AwsKeyAdapter implements KmsKeyAdapter {
   readonly #key: AwsKmsKeyConfig;
   readonly #keyId: string;
   readonly #client: KmsClient;
-  readonly #sdk: KmsSdk;
+  readonly #sdk: AwsKmsSdk;
   #keyArn: string | undefined;
 
-  public constructor(key: AwsKmsKeyConfig, keyId: string, sdk: KmsSdk, client: KmsClient) {
+  public constructor(key: AwsKmsKeyConfig, keyId: string, sdk: AwsKmsSdk, client: KmsClient) {
     this.#key = key;
     this.#keyId = keyId;
     this.#sdk = sdk;
@@ -78,29 +53,32 @@ class AwsKeyAdapter implements KmsKeyAdapter {
 
   public async getPublicKey(ctx: SignContext): Promise<Uint8Array> {
     const response = await this.#send(
-      new this.#sdk.GetPublicKeyCommand({ KeyId: this.#keyId }),
-      ctx,
+      async () =>
+        await this.#client.send(new this.#sdk.GetPublicKeyCommand({ KeyId: this.#keyId }), {
+          abortSignal: ctx.signal,
+        }),
     );
-    const keySpec = field(response, "KeySpec");
+    // The checks below do not trust the SDK's types: every field of a response is optional.
+    const keySpec = response.KeySpec;
     if (keySpec !== KEY_SPEC) {
       throw this.#error(
         "get public key",
         `the key spec is ${String(keySpec)}, not ${KEY_SPEC} (secp256k1). Create the key with --key-spec ${KEY_SPEC} --key-usage ${KEY_USAGE}`,
       );
     }
-    const keyUsage = field(response, "KeyUsage");
+    const keyUsage = response.KeyUsage;
     if (keyUsage !== KEY_USAGE) {
       throw this.#error("get public key", `the key usage is ${String(keyUsage)}, not ${KEY_USAGE}`);
     }
-    const algorithms = field(response, "SigningAlgorithms");
+    const algorithms: unknown = response.SigningAlgorithms;
     if (!Array.isArray(algorithms) || !algorithms.includes(SIGNING_ALGORITHM)) {
       throw this.#error("get public key", `the key does not support ${SIGNING_ALGORITHM}`);
     }
-    const keyArn = field(response, "KeyId");
+    const keyArn = response.KeyId;
     if (typeof keyArn !== "string" || parseAwsKeyId(keyArn)?.kind !== "keyArn") {
       throw this.#error("get public key", "the response has no key ARN");
     }
-    const publicKey = field(response, "PublicKey");
+    const publicKey: unknown = response.PublicKey;
     if (!(publicKey instanceof Uint8Array)) {
       throw this.#error("get public key", "the response has no public key");
     }
@@ -129,31 +107,31 @@ class AwsKeyAdapter implements KmsKeyAdapter {
         "the key lookup did not finish, so there is no key ARN to sign with",
       );
     }
+    const command = new this.#sdk.SignCommand({
+      KeyId: keyArn,
+      Message: request.digest,
+      MessageType: "DIGEST",
+      SigningAlgorithm: SIGNING_ALGORITHM,
+    });
     const response = await this.#send(
-      new this.#sdk.SignCommand({
-        KeyId: keyArn,
-        Message: request.digest,
-        MessageType: "DIGEST",
-        SigningAlgorithm: SIGNING_ALGORITHM,
-      }),
-      ctx,
+      async () => await this.#client.send(command, { abortSignal: ctx.signal }),
     );
-    if (field(response, "KeyId") !== keyArn) {
+    if (response.KeyId !== keyArn) {
       throw this.#error("sign", "the response is for another key than the one requested");
     }
-    if (field(response, "SigningAlgorithm") !== SIGNING_ALGORITHM) {
+    if (response.SigningAlgorithm !== SIGNING_ALGORITHM) {
       throw this.#error("sign", `the response does not use ${SIGNING_ALGORITHM}`);
     }
-    const signature = field(response, "Signature");
+    const signature: unknown = response.Signature;
     if (!(signature instanceof Uint8Array)) {
       throw this.#error("sign", "the response has no signature");
     }
     return { format: "der", bytes: signature };
   }
 
-  async #send(command: unknown, ctx: SignContext): Promise<unknown> {
+  async #send<Output>(send: () => Promise<Output>): Promise<Output> {
     try {
-      return await this.#client.send(command, { abortSignal: ctx.signal });
+      return await send();
     } catch (error) {
       // The SDK reports a missing region with a plain Error, which the signer would show only as
       // "Error". Its message holds no request details, so it is safe to recognise.
@@ -181,24 +159,13 @@ class AwsKeyAdapter implements KmsKeyAdapter {
  * Builds the adapter for an AWS KMS key.
  *
  * @param key - The resolved key.
- * @param deps - What the plugin provides, including the SDK loader.
+ * @param sdk - The @aws-sdk/client-kms module.
  * @returns The adapter.
  */
-async function createAwsKeyAdapter(
+export async function createAwsKeyAdapter(
   key: AwsKmsKeyConfig,
-  deps: ProviderDeps,
+  sdk: AwsKmsSdk,
 ): Promise<KmsKeyAdapter> {
-  const sdk = await deps.loadSdk(SDK_PACKAGE);
-  if (!isKmsSdk(sdk)) {
-    throw kmsError(
-      `the installed ${SDK_PACKAGE} does not export KMSClient, GetPublicKeyCommand and SignCommand`,
-      {
-        provider: "aws",
-        operation: "load SDK",
-        key: key.displayId,
-      },
-    );
-  }
   const keyId = await key.keyId.get();
   // A key ARN names its region; it wins over the configured one, which the config checks already
   // compared with it.
@@ -210,11 +177,3 @@ async function createAwsKeyAdapter(
   });
   return new AwsKeyAdapter(key, keyId, sdk, client);
 }
-
-/** The AWS provider's adapter module, loaded when an AWS key is first used. */
-export const awsModule: ProviderModule = {
-  createKeyAdapter: async (key: KmsKeyConfig, deps) =>
-    key.provider === "aws"
-      ? await createAwsKeyAdapter(key, deps)
-      : wrongProvider("aws", key.provider),
-};

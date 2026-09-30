@@ -1,43 +1,39 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import type { HardhatUserConfig } from "hardhat/config";
-import { configVariable } from "hardhat/config";
+import { secp256k1 } from "@noble/curves/secp256k1.js";
+import type { AwsKmsKeyConfig } from "hardhat-kms/types";
 import { HardhatPluginError } from "hardhat/plugins";
 
-import { resolveKmsConfig } from "../../../../src/internal/config/resolve.ts";
-import { awsModule } from "../../../../src/internal/providers/aws/adapter.ts";
-import { KmsSigner } from "../../../../src/internal/signer/kms-signer.ts";
-import type { AwsKmsKeyConfig } from "../../../../src/types.ts";
-import { fakeResolver } from "../../../helpers/config-variables.ts";
-import { fakeAwsKmsSdk, type FakeKmsOptions, KEY_ARN } from "../../../helpers/fake-aws-kms.ts";
-import { HARDHAT_ACCOUNT_0, PERSONAL_SIGN_VECTORS } from "../../../helpers/vectors.ts";
+import { createAwsKeyAdapter } from "../../src/internal/adapter.ts";
+import { fakeAwsKmsSdk, type FakeKmsOptions, KEY_ARN } from "../helpers/fake-aws-kms.ts";
 
-const hex = (value: string) => new Uint8Array(Buffer.from(value, "hex"));
-const secretKey = hex(HARDHAT_ACCOUNT_0.secretKey);
+const secretKey = secp256k1.utils.randomSecretKey();
 const context = () => ({
   signal: new AbortController().signal,
   displayMessage: async () => {},
   requestId: "r1",
 });
 
+/** A resolved AWS key, as hardhat-kms passes it to the adapter. */
 function awsKey(
-  key: Record<string, unknown>,
-  values: Record<string, string> = {},
-  defaults = {},
+  keyId: string,
+  settings: Partial<Pick<AwsKmsKeyConfig, "region" | "profile" | "endpoint">> = {},
+  display = keyId,
 ): AwsKmsKeyConfig {
-  const config: unknown = { kms: { defaults, keys: { k: { provider: "aws", ...key } } } };
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- test configs are valid AWS keys
-  const resolved = resolveKmsConfig(config as HardhatUserConfig, fakeResolver(values)).keys.k;
-  assert.ok(resolved?.provider === "aws");
-  return resolved;
+  return {
+    provider: "aws",
+    name: "deployer",
+    keyId: { get: async () => await Promise.resolve(keyId), display },
+    timeoutMs: 1000,
+    displayId: `aws:${display}`,
+    ...settings,
+  };
 }
 
 async function adapterFor(key: AwsKmsKeyConfig, options: Partial<FakeKmsOptions> = {}) {
   const fake = fakeAwsKmsSdk({ secretKey, ...options });
-  const adapter = await awsModule.createKeyAdapter(key, {
-    loadSdk: async () => await Promise.resolve(fake.sdk),
-  });
+  const adapter = await createAwsKeyAdapter(key, fake.sdk);
   return { adapter, ...fake };
 }
 
@@ -52,20 +48,29 @@ async function assertAwsError(promise: Promise<unknown>, includes: string[]): Pr
 }
 
 describe("AWS KMS adapter", () => {
-  it("signs exactly like Hardhat's local accounts, even from high-S DER signatures", async () => {
+  it("returns the key's public key and KMS's DER signature of the digest, unchanged", async () => {
     for (const highS of [false, true]) {
-      const { adapter } = await adapterFor(awsKey({ keyId: "alias/deployer" }), { highS });
-      const signer = new KmsSigner(adapter, { timeoutMs: 1000, displayMessage: async () => {} });
+      const { adapter } = await adapterFor(awsKey("alias/deployer"), { highS });
+      const ctx = context();
+      const digest = new Uint8Array(32).fill(9);
 
-      assert.equal(await signer.getAddress(), HARDHAT_ACCOUNT_0.address);
-      for (const vector of PERSONAL_SIGN_VECTORS) {
-        assert.equal(await signer.signPersonalMessage(hex(vector.message)), vector.signature);
-      }
+      assert.deepEqual(await adapter.getPublicKey?.(ctx), secp256k1.getPublicKey(secretKey, false));
+      const signature = await adapter.signDigest?.({ digest }, ctx);
+      assert.ok(signature !== undefined && "format" in signature && signature.format === "der");
+      const parsed = secp256k1.Signature.fromBytes(signature.bytes, "der");
+      // The core signer folds high S; the adapter must pass KMS's answer on as it came.
+      assert.equal(parsed.hasHighS(), highS);
+      assert.ok(
+        secp256k1.verify(parsed.toBytes("compact"), digest, secp256k1.getPublicKey(secretKey), {
+          prehash: false,
+          lowS: false,
+        }),
+      );
     }
   });
 
   it("signs digests with the key ARN from GetPublicKey, never the alias, and MessageType DIGEST", async () => {
-    const { adapter, calls } = await adapterFor(awsKey({ keyId: "alias/deployer" }));
+    const { adapter, calls } = await adapterFor(awsKey("alias/deployer"));
     const ctx = context();
     await adapter.getPublicKey?.(ctx);
     await adapter.signDigest?.({ digest: new Uint8Array(32).fill(7) }, ctx);
@@ -85,7 +90,7 @@ describe("AWS KMS adapter", () => {
   });
 
   it("looks the ARN up first if asked to sign before the public key", async () => {
-    const { adapter, calls } = await adapterFor(awsKey({ keyId: "alias/deployer" }));
+    const { adapter, calls } = await adapterFor(awsKey("alias/deployer"));
     await adapter.signDigest?.({ digest: new Uint8Array(32) }, context());
 
     assert.deepEqual(
@@ -94,36 +99,27 @@ describe("AWS KMS adapter", () => {
     );
   });
 
-  it("uses the region from a key ARN, the key or the defaults, and passes profile and endpoint", async () => {
-    const arnKey = awsKey({ keyId: KEY_ARN }, {}, { aws: { region: "us-east-1" } });
-    const variableArn = awsKey(
-      { keyId: configVariable("KEY") },
-      { KEY: KEY_ARN },
-      { aws: { region: "us-east-1" } },
-    );
-    const plain = awsKey(
-      { keyId: "alias/a", profile: "ci", endpoint: "http://localhost:4566" },
-      {},
-      { aws: { region: "us-east-1" } },
-    );
-    const noRegion = awsKey({ keyId: "alias/a" });
+  it("uses the region of a key ARN over the key's, and passes profile and endpoint", async () => {
+    // A key id read from a variable (or --kms) can hold an ARN: its region wins when it is read.
+    const arn = awsKey(KEY_ARN, { region: "us-east-1" });
+    const plain = awsKey("alias/a", {
+      region: "us-east-1",
+      profile: "ci",
+      endpoint: "http://localhost:4566",
+    });
 
-    assert.deepEqual((await adapterFor(arnKey)).clients[0]?.config, { region: "eu-west-1" });
-    // A key id from a variable (or --kms) that holds an ARN: the ARN's region wins when it is read.
-    assert.deepEqual((await adapterFor(variableArn)).clients[0]?.config, { region: "eu-west-1" });
+    assert.deepEqual((await adapterFor(arn)).clients[0]?.config, { region: "eu-west-1" });
     assert.deepEqual((await adapterFor(plain)).clients[0]?.config, {
       region: "us-east-1",
       profile: "ci",
       endpoint: "http://localhost:4566",
     });
     // No region anywhere: the SDK's own chain (AWS_REGION, profiles) decides.
-    assert.deepEqual((await adapterFor(noRegion)).clients[0]?.config, {});
+    assert.deepEqual((await adapterFor(awsKey("alias/a"))).clients[0]?.config, {});
   });
 
-  it("describes the key without its values, and closes the client", async () => {
-    const { adapter, clients } = await adapterFor(
-      awsKey({ keyId: configVariable("KEY") }, { KEY: "alias/secret" }),
-    );
+  it("describes the key by its display values, and closes the client", async () => {
+    const { adapter, clients } = await adapterFor(awsKey("alias/secret", {}, "<KEY>"));
 
     assert.deepEqual(adapter.describe(), {
       provider: "aws",
@@ -157,7 +153,7 @@ describe("AWS KMS adapter", () => {
     ];
     for (const [name, options, message] of cases) {
       it(`on GetPublicKey: ${name}`, async () => {
-        const { adapter } = await adapterFor(awsKey({ keyId: "alias/deployer" }), options);
+        const { adapter } = await adapterFor(awsKey("alias/deployer"), options);
         await assertAwsError(adapter.getPublicKey?.(context()) ?? Promise.resolve(), [
           "aws, get public key, key aws:alias/deployer:",
           message,
@@ -172,6 +168,11 @@ describe("AWS KMS adapter", () => {
         "for another key",
       ],
       [
+        "another key id that differs only in case",
+        { signResponseKeyId: KEY_ARN.toUpperCase() },
+        "for another key",
+      ],
+      [
         "another algorithm",
         { signResponseAlgorithm: "ECDSA_SHA_384" },
         "does not use ECDSA_SHA_256",
@@ -180,7 +181,7 @@ describe("AWS KMS adapter", () => {
     ];
     for (const [name, options, message] of signCases) {
       it(`on Sign: ${name}`, async () => {
-        const { adapter } = await adapterFor(awsKey({ keyId: "alias/deployer" }), options);
+        const { adapter } = await adapterFor(awsKey("alias/deployer"), options);
         await assertAwsError(
           adapter.signDigest?.({ digest: new Uint8Array(32) }, context()) ?? Promise.resolve(),
           ["aws, sign, key aws:alias/deployer:", message],
@@ -191,28 +192,14 @@ describe("AWS KMS adapter", () => {
 
   it("works with multi-region keys, whose ARNs use mrk- ids", async () => {
     const mrkArn = `arn:aws:kms:eu-west-1:111122223333:key/mrk-${"a".repeat(32)}`;
-    const { adapter, calls } = await adapterFor(awsKey({ keyId: "alias/deployer" }), {
-      keyArn: mrkArn,
-    });
-    const signer = new KmsSigner(adapter, { timeoutMs: 1000, displayMessage: async () => {} });
+    const { adapter, calls } = await adapterFor(awsKey("alias/deployer"), { keyArn: mrkArn });
+    await adapter.signDigest?.({ digest: new Uint8Array(32).fill(1) }, context());
 
-    assert.equal(await signer.getAddress(), HARDHAT_ACCOUNT_0.address);
-    await signer.signDigest(new Uint8Array(32).fill(1));
     assert.equal(calls.at(-1)?.input.KeyId, mrkArn);
   });
 
-  it("rejects a Sign response whose key id differs, even only in case", async () => {
-    const { adapter } = await adapterFor(awsKey({ keyId: "alias/deployer" }), {
-      signResponseKeyId: KEY_ARN.toUpperCase(),
-    });
-    await assertAwsError(
-      adapter.signDigest?.({ digest: new Uint8Array(32) }, context()) ?? Promise.resolve(),
-      ["for another key"],
-    );
-  });
-
   it("says when no region is configured, instead of a bare error class", async () => {
-    const { adapter } = await adapterFor(awsKey({ keyId: "alias/deployer" }), {
+    const { adapter } = await adapterFor(awsKey("alias/deployer"), {
       sendError: new Error("Region is missing"),
     });
     await assertAwsError(adapter.getPublicKey?.(context()) ?? Promise.resolve(), [
@@ -220,8 +207,17 @@ describe("AWS KMS adapter", () => {
     ]);
   });
 
+  it("passes other SDK errors on unchanged", async () => {
+    const error = new Error("AccessDeniedException");
+    const { adapter } = await adapterFor(awsKey("alias/deployer"), { sendError: error });
+    await assert.rejects(
+      adapter.getPublicKey?.(context()) ?? Promise.resolve(),
+      (thrown) => thrown === error,
+    );
+  });
+
   it("does not keep the ARN from a call that was abandoned", async () => {
-    const { adapter, calls } = await adapterFor(awsKey({ keyId: "alias/deployer" }), {
+    const { adapter, calls } = await adapterFor(awsKey("alias/deployer"), {
       answerAfterAbort: true,
     });
     const controller = new AbortController();
@@ -236,33 +232,11 @@ describe("AWS KMS adapter", () => {
       { ...context(), signal: retry.signal },
     );
     retry.abort();
-    await signing?.catch(() => undefined);
+    await assertAwsError(signing ?? Promise.resolve(), ["the key lookup did not finish"]);
 
     assert.deepEqual(
       calls.map((call) => call.command),
       ["GetPublicKey", "GetPublicKey"],
-    );
-  });
-
-  it("rejects an SDK module that does not look like @aws-sdk/client-kms", async () => {
-    await assertAwsError(
-      awsModule.createKeyAdapter(awsKey({ keyId: "alias/a" }), {
-        loadSdk: async () => await Promise.resolve({}),
-      }),
-      ["the installed @aws-sdk/client-kms does not export KMSClient"],
-    );
-  });
-
-  it("refuses keys of other providers", async () => {
-    const config: unknown = {
-      kms: { keys: { k: { provider: "azure", keyId: "https://v.vault.azure.net/keys/k" } } },
-    };
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a valid Azure key
-    const azure = resolveKmsConfig(config as HardhatUserConfig, fakeResolver({})).keys.k;
-    assert.ok(azure);
-    await assert.rejects(
-      awsModule.createKeyAdapter(azure, { loadSdk: async () => await Promise.resolve({}) }),
-      /Expected a "aws" key, got "azure"/,
     );
   });
 });

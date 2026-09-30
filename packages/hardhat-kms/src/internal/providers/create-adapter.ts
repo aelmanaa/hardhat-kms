@@ -4,7 +4,6 @@ import type { KmsKeyConfig } from "../../types.ts";
 import { kmsDebug } from "../debug.ts";
 import { errorName, kmsError } from "../errors.ts";
 import type { KmsKeyAdapter } from "../signer/types.ts";
-import { createProviderDeps } from "./deps.ts";
 import { builtinProvider } from "./registry.ts";
 
 const log = kmsDebug("providers");
@@ -85,8 +84,34 @@ function describeProblem(adapter: object): string | undefined {
 }
 
 /**
- * Builds the adapter for a key: runs the `kms.createKeyAdapter` hook chain, whose last step
- * handles the built-in providers.
+ * Explains why no handler claimed a key: its provider package is missing, its adapter is not
+ * written yet, or no plugin provides its provider.
+ */
+function unclaimedKeyError(key: KmsKeyConfig): Error {
+  const details = { provider: key.provider, operation: "create adapter", key: key.displayId };
+  const provider = builtinProvider(key.provider);
+  if (provider === undefined) {
+    return kmsError(
+      `no plugin provides "${key.provider}" keys. Add the plugin for this provider to \`plugins\` in your Hardhat config, or check the \`provider\` field`,
+      details,
+    );
+  }
+  if ("issue" in provider.adapter) {
+    return kmsError(
+      `signing with ${provider.name} keys is not available yet (https://github.com/aelmanaa/hardhat-kms/issues/${provider.adapter.issue})`,
+      details,
+    );
+  }
+  const name = provider.adapter.package;
+  return kmsError(
+    `${provider.name} keys need the ${name} plugin. Install it with \`npm install --save-dev ${name}\` and add it to \`plugins\` in your Hardhat config`,
+    details,
+  );
+}
+
+/**
+ * Builds the adapter for a key: runs the `kms.createKeyAdapter` hook chain. Provider plugins,
+ * first-party ones included, claim their keys there; a key that no handler claims fails.
  *
  * @param context - The Hardhat runtime.
  * @param key - The resolved key.
@@ -101,20 +126,9 @@ export async function createKeyAdapter(
     "kms",
     "createKeyAdapter",
     [key],
-    async (finalContext, finalKey) => {
-      const provider = builtinProvider(finalKey.provider);
-      if (provider === undefined) {
-        throw kmsError(
-          `no plugin provides "${finalKey.provider}" keys. Add the plugin for this provider to \`plugins\` in your Hardhat config, or check the \`provider\` field`,
-          { provider: finalKey.provider, operation: "create adapter", key: finalKey.displayId },
-        );
-      }
-      log("%s: using the built-in %s provider", finalKey.displayId, provider.id);
-      const module = await provider.load();
-      return await module.createKeyAdapter(
-        finalKey,
-        createProviderDeps(provider, finalContext.config.paths.root),
-      );
+    async (_finalContext, finalKey) => {
+      log("%s: no plugin claimed the key", finalKey.displayId);
+      return await Promise.reject(unclaimedKeyError(finalKey));
     },
   );
   return checkAdapter(adapter, key);

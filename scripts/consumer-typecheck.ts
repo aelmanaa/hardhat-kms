@@ -1,4 +1,4 @@
-// Type-check a fresh consumer project against the packed plugin with a given TypeScript version.
+// Type-check a fresh consumer project against the packed packages with a given TypeScript version.
 // Proves the published .d.ts files work for users who are not on TypeScript 7.
 //
 // Usage: node scripts/consumer-typecheck.ts <typescript-version>
@@ -16,6 +16,9 @@ if (typescriptVersion === undefined) {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pluginPackage = path.join(root, "packages", "hardhat-kms");
+const packages = ["hardhat-kms", "hardhat-kms-aws"].map((name) =>
+  path.join(root, "packages", name),
+);
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
@@ -26,10 +29,11 @@ const run = (command: string, args: string[], cwd: string): void => {
 
 run(pnpm, ["run", "build"], root);
 // pnpm pack replaces workspace: ranges with real versions, as publishing does.
-const packOutput = execFileSync(pnpm, ["pack", "--json", "--pack-destination", tmpdir()], {
-  cwd: pluginPackage,
-  shell,
-});
+const pack = (directory: string): string =>
+  execFileSync(pnpm, ["pack", "--json", "--pack-destination", tmpdir()], {
+    cwd: directory,
+    shell,
+  }).toString();
 /**
  * Extracts the tarball path from `pnpm pack --json` output.
  *
@@ -48,7 +52,7 @@ function tarballPath(output: string): string {
   }
   throw new Error("pnpm pack did not report a tarball filename");
 }
-const tarball = tarballPath(packOutput.toString());
+const tarballs = packages.map((directory) => tarballPath(pack(directory)));
 
 const consumer = mkdtempSync(path.join(tmpdir(), "hardhat-kms-consumer-"));
 try {
@@ -129,6 +133,34 @@ try {
       "",
     ].join("\n"),
   );
+  // A user of the AWS package, who imports nothing from hardhat-kms: the `kms` config types must
+  // come with hardhat-kms-aws.
+  writeFileSync(
+    path.join(consumer, "tsconfig.aws.json"),
+    JSON.stringify({ extends: "./tsconfig.json", include: ["aws-only.config.ts"] }, null, 2),
+  );
+  writeFileSync(
+    path.join(consumer, "aws-only.config.ts"),
+    [
+      'import { configVariable, defineConfig } from "hardhat/config";',
+      'import hardhatKmsAws from "hardhat-kms-aws";',
+      "",
+      "export default defineConfig({",
+      "  plugins: [hardhatKmsAws],",
+      "  kms: {",
+      "    keys: {",
+      '      deployer: { provider: "aws", keyId: "alias/deployer", region: "eu-west-1" },',
+      "      // @ts-expect-error -- `keyID` is not a field; the user meant `keyId`.",
+      '      typo: { provider: "aws", keyID: "alias/x" },',
+      "    },",
+      "  },",
+      "  networks: {",
+      '    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },',
+      "  },",
+      "});",
+      "",
+    ].join("\n"),
+  );
   writeFileSync(
     path.join(consumer, "hardhat.config.ts"),
     [
@@ -202,7 +234,7 @@ try {
       "--no-audit",
       "--no-fund",
       "--ignore-scripts",
-      tarball,
+      ...tarballs,
       `hardhat@${hardhatVersion}`,
       `typescript@${typescriptVersion}`,
       "@types/node@22",
@@ -215,11 +247,13 @@ try {
     ".bin",
     process.platform === "win32" ? "tsc.cmd" : "tsc",
   );
-  for (const project of ["tsconfig.json", "tsconfig.plugin.json"]) {
+  for (const project of ["tsconfig.json", "tsconfig.plugin.json", "tsconfig.aws.json"]) {
     execFileSync(tsc, ["-p", project], { cwd: consumer, stdio: "inherit", shell });
   }
   process.stdout.write(`consumer typecheck passed with TypeScript ${typescriptVersion}\n`);
 } finally {
   rmSync(consumer, { recursive: true, force: true });
-  rmSync(tarball, { force: true });
+  for (const tarball of tarballs) {
+    rmSync(tarball, { force: true });
+  }
 }

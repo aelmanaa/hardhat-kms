@@ -4,12 +4,23 @@
     ".": {
       "entry": ["scripts/*.ts"],
       "project": ["scripts/*.ts"],
-      "ignoreDependencies": ["tsx", "hardhat-kms", "publint", "@arethetypeswrong/cli"]
+      "ignoreDependencies": [
+        "tsx",
+        "hardhat-kms",
+        "publint",
+        "@arethetypeswrong/cli",
+        "hardhat-kms-aws"
+      ]
     },
     "packages/hardhat-kms": {
-      "entry": ["test/**/*.test.ts", "test/fixtures/*.ts", "test/helpers/*.mjs"],
+      "entry": ["test/**/*.test.ts", "test/fixtures/*.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"],
       "ignore": ["src/internal/vendor/**"],
+      "ignoreDependencies": ["tsx"]
+    },
+    "packages/hardhat-kms-aws": {
+      "entry": ["test/**/*.test.ts", "test/fixtures/*.ts", "test/helpers/*.mjs"],
+      "project": ["src/**/*.ts", "test/**/*.ts"],
       "ignoreDependencies": ["tsx"]
     }
   }
