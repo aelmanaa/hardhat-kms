@@ -98,6 +98,12 @@
           "ArrowFunctionExpression": true
         }
       }
+    ],
+    "eslint/no-underscore-dangle": [
+      "error",
+      {
+        "allow": ["_getHash"]
+      }
     ]
   },
   "overrides": [

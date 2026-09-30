@@ -1,6 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["scripts/*.ts"],
-  "project": ["src/**/*.ts", "scripts/*.ts"],
-  "ignoreDependencies": ["tsx"]
+  "entry": ["scripts/*.ts", "test/**/*.test.ts"],
+  "project": ["src/**/*.ts", "scripts/*.ts", "test/**/*.ts"],
+  "ignoreDependencies": ["tsx"],
+  "ignore": ["src/internal/vendor/**"]
 }

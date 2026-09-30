@@ -1,0 +1,188 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { keccak_256 } from "@noble/hashes/sha3.js";
+import * as fc from "fast-check";
+
+import {
+  InvalidSignatureError,
+  normalizeSignature,
+  parseSignature,
+  recoverPublicKey,
+  recoverYParity,
+  toLowS,
+  toRpcSignature,
+} from "../../../src/internal/crypto/signature.ts";
+
+const N = secp256k1.Point.CURVE().n;
+
+function signCompact(digest: Uint8Array, secretKey: Uint8Array) {
+  return secp256k1.Signature.fromBytes(
+    secp256k1.sign(digest, secretKey, { prehash: false, lowS: true, format: "compact" }),
+    "compact",
+  );
+}
+
+const digestArb = fc.uint8Array({ minLength: 32, maxLength: 32 });
+const secretKeyArb = fc
+  .uint8Array({ minLength: 32, maxLength: 32 })
+  .filter((bytes) => secp256k1.utils.isValidSecretKey(bytes));
+
+describe("signatures", () => {
+  it("normalizes DER, compact and split signatures, high-S or not, to the same result", () => {
+    fc.assert(
+      fc.property(digestArb, secretKeyArb, fc.boolean(), (digest, secretKey, highS) => {
+        const publicKey = secp256k1.getPublicKey(secretKey, false);
+        const signature = signCompact(digest, secretKey);
+        const s = highS ? N - signature.s : signature.s;
+        const variant = new secp256k1.Signature(signature.r, s);
+
+        const fromDer = normalizeSignature(
+          { format: "der", bytes: variant.toBytes("der") },
+          digest,
+          publicKey,
+        );
+        const fromCompact = normalizeSignature(
+          { format: "compact", bytes: variant.toBytes("compact") },
+          digest,
+          publicKey,
+        );
+        const fromSplit = normalizeSignature({ r: signature.r, s }, digest, publicKey);
+
+        assert.deepEqual(fromDer, fromCompact);
+        assert.deepEqual(fromDer, fromSplit);
+        assert.equal(fromDer.s, signature.s);
+        assert.ok(fromDer.s <= N >> 1n);
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it("recovers the right parity for every signature", () => {
+    fc.assert(
+      fc.property(digestArb, secretKeyArb, (digest, secretKey) => {
+        const recovered = secp256k1.sign(digest, secretKey, {
+          prehash: false,
+          lowS: true,
+          format: "recovered",
+        });
+        const expectedParity = recovered[0];
+        const signature = signCompact(digest, secretKey);
+
+        assert.equal(
+          recoverYParity(
+            digest,
+            signature.r,
+            signature.s,
+            secp256k1.getPublicKey(secretKey, false),
+          ),
+          expectedParity,
+        );
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it("throws, never guesses, when the signature is from another key", () => {
+    fc.assert(
+      fc.property(digestArb, secretKeyArb, secretKeyArb, (digest, signingKey, expectedKey) => {
+        fc.pre(!signingKey.every((byte, index) => byte === expectedKey[index]));
+        const signature = signCompact(digest, signingKey);
+
+        assert.throws(
+          () =>
+            normalizeSignature(
+              { format: "compact", bytes: signature.toBytes("compact") },
+              digest,
+              secp256k1.getPublicKey(expectedKey, false),
+            ),
+          InvalidSignatureError,
+        );
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it("throws from recoverYParity when neither parity gives the expected key", () => {
+    const digest = keccak_256(Uint8Array.of(3));
+    const signature = signCompact(digest, secp256k1.utils.randomSecretKey());
+    const otherKey = secp256k1.getPublicKey(secp256k1.utils.randomSecretKey(), false);
+
+    assert.throws(
+      () => recoverYParity(digest, signature.r, signature.s, otherKey),
+      InvalidSignatureError,
+    );
+  });
+
+  it("rejects random bytes as DER", () => {
+    fc.assert(
+      fc.property(fc.uint8Array({ minLength: 0, maxLength: 80 }), (bytes) => {
+        let parsed: { r: bigint; s: bigint } | undefined;
+        try {
+          parsed = parseSignature({ format: "der", bytes });
+        } catch (error) {
+          assert.ok(error instanceof InvalidSignatureError);
+          return;
+        }
+        // The rare random input that is valid DER must round-trip exactly.
+        assert.deepEqual(new secp256k1.Signature(parsed.r, parsed.s).toBytes("der"), bytes);
+      }),
+      { numRuns: 500 },
+    );
+  });
+
+  it("rejects DER with trailing bytes and compact signatures of the wrong length", () => {
+    const signature = signCompact(keccak_256(Uint8Array.of(1)), secp256k1.utils.randomSecretKey());
+    const der = signature.toBytes("der");
+
+    assert.throws(
+      () => parseSignature({ format: "der", bytes: Uint8Array.from([...der, 0]) }),
+      InvalidSignatureError,
+    );
+    assert.throws(
+      () => parseSignature({ format: "compact", bytes: new Uint8Array(65) }),
+      InvalidSignatureError,
+    );
+  });
+
+  it("rejects scalars outside [1, n - 1]", () => {
+    for (const [r, s] of [
+      [0n, 1n],
+      [1n, 0n],
+      [N, 1n],
+      [1n, N],
+    ] as const) {
+      assert.throws(() => parseSignature({ r, s }), InvalidSignatureError);
+    }
+  });
+
+  it("leaves low S untouched and folds high S", () => {
+    assert.equal(toLowS(1n), 1n);
+    assert.equal(toLowS(N >> 1n), N >> 1n);
+    assert.equal(toLowS((N >> 1n) + 1n), N - ((N >> 1n) + 1n));
+  });
+
+  it("returns undefined when no public key can be recovered", () => {
+    const digest = keccak_256(Uint8Array.of(2));
+    // x = r must be on the curve for recovery to work; find the first r that is not.
+    let r = 1n;
+    while (recoverPublicKey(digest, r, 1n, 0) !== undefined) {
+      r++;
+    }
+
+    assert.equal(recoverPublicKey(digest, r, 1n, 1), undefined);
+  });
+
+  it("rejects digests that are not 32 bytes", () => {
+    assert.throws(() => recoverPublicKey(new Uint8Array(31), 1n, 1n, 0), InvalidSignatureError);
+  });
+
+  it("encodes RPC signatures as r || s || v with v = 27 + yParity, left-padded", () => {
+    const r = "0".repeat(63) + "1";
+    const s = "0".repeat(63) + "2";
+
+    assert.equal(toRpcSignature({ r: 1n, s: 2n, yParity: 1 }), `0x${r}${s}1c`);
+    assert.equal(toRpcSignature({ r: 1n, s: 2n, yParity: 0 }), `0x${r}${s}1b`);
+  });
+});
