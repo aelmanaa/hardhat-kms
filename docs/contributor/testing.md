@@ -34,7 +34,7 @@ Tests form a pyramid. The lower layers are fast and pure; the upper layers exerc
    - `hardhat run` exits.
    - Error messages never contain the injected fake secrets.
 5. Emulated AWS: LocalStack `4.14.0`, pinned by digest and bound to a random host port, with the real `@aws-sdk/client-kms` against an `ECC_SECG_P256K1` key. About half of its signatures come back high-S, which exercises normalization. This layer runs on Ubuntu CI only.
-6. Live tests (`npm run test:live`) use real AWS, GCP and Azure keys on Sepolia. A developer runs them locally with their own `aws`, `gcloud` and `az` logins; nothing is stored in the repository, and providers without a configured key are skipped. They deploy, send every transaction type, and verify message and typed-data signatures on chain. Transaction hashes are recorded in `docs/live-proof.md`. Running them in GitHub Actions with OIDC federation is planned before the repository goes public ([#79](https://github.com/aelmanaa/hardhat-kms/issues/79)).
+6. Live tests (`pnpm run test:live`) use real AWS, GCP and Azure keys on Sepolia. A developer runs them locally with their own `aws`, `gcloud` and `az` logins; nothing is stored in the repository, and providers without a configured key are skipped. They deploy, send every transaction type, and verify message and typed-data signatures on chain. Transaction hashes are recorded in `docs/live-proof.md`. Running them in GitHub Actions with OIDC federation is planned before the repository goes public ([#79](https://github.com/aelmanaa/hardhat-kms/issues/79)).
 7. Mutation testing runs Stryker (tap-runner) on `crypto/` and `signer/`. It becomes a nightly job after milestone M9.
 
 Test code follows a few conventions:
@@ -42,6 +42,6 @@ Test code follows a few conventions:
 - Each test opens a fresh connection with `hre.network.create()` (`connect()` is deprecated since Hardhat 3.18; `getOrCreate()` reuses cached connections, so per-connection state must tolerate reuse).
 - HRE test files run with `concurrency:false`.
 - Test globs are quoted in scripts, so the shell does not expand them.
-- Helpers live in the repo's own `test/helpers`, because `hardhat-test-utils` is private.
+- Helpers live in the repo's own `packages/hardhat-kms/test/helpers`, because `hardhat-test-utils` is private.
 
-Coverage uses c8 on native TypeScript (Node 24), with a global threshold of 95% for lines, branches, functions and statements across `src/`. Provider adapters are tested with fake SDK clients, so they are held to the same bar. `types.ts` and `type-extensions.ts` are excluded.
+Coverage uses c8 on native TypeScript (Node 24), with a global threshold of 95% for lines, branches, functions and statements across `packages/hardhat-kms/src/`. Provider adapters are tested with fake SDK clients, so they are held to the same bar. `types.ts` and `type-extensions.ts` are excluded.

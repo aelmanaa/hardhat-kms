@@ -32,24 +32,34 @@ The rules behind the arrows:
 - Adapters translate between the provider's wire format and `SignatureOutput`, and run the provider-specific identity checks listed in [Key identity and pinning](signing-pipeline.md#key-identity-and-pinning). They never decide whether a signature belongs to the key.
 - Only provider adapters load a cloud SDK, lazily (see [SDK loading](#sdk-loading)). Provider descriptors, which the config hook handler imports, never import one, so loading a config never loads a cloud SDK.
 
+## Packages
+
+The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspaces.md)). Following [decision 0009](decisions/0009-one-package-per-provider.md), each cloud provider moves into its own package around an SDK-free core:
+
+| Package                                                  | Holds                                                     | Status                                                                                                    |
+| -------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `packages/hardhat-kms`                                   | The core: config, signing checks, the `kms` hook, `--kms` | Implemented                                                                                               |
+| `packages/hardhat-kms-aws`                               | The AWS adapter, depending on `@aws-sdk/client-kms`       | Planned ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)); the adapter is in the core until then |
+| `packages/hardhat-kms-gcp`, `packages/hardhat-kms-azure` | The Google Cloud and Azure adapters                       | Planned (M6)                                                                                              |
+
 ## Code map
 
-| Concept                                     | Where                                                                                      | Milestone |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------ | --------- |
-| Plugin definition                           | `src/index.ts`                                                                             | M0        |
-| Public keys, signatures, digests            | `src/internal/crypto/`                                                                     | M1        |
-| Signer and adapter interface                | `src/internal/signer/kms-signer.ts`, `src/internal/signer/types.ts`                        | M1        |
-| Per-call timeout                            | `src/internal/signer/timeout.ts`                                                           | M1        |
-| Error builder                               | `src/internal/errors.ts`                                                                   | M1        |
-| Vendored EIP-712 encoder                    | `src/internal/vendor/micro-eth-signer/`                                                    | M1        |
-| Config schema and resolution                | `src/internal/config/`                                                                     | M2        |
-| Provider descriptors, registry, SDK loading | `src/internal/providers/{registry,sdk,types}.ts`, `src/internal/providers/*/descriptor.ts` | M2        |
-| `kms` hook for third-party providers        | `src/internal/providers/create-adapter.ts`, `KmsHooks` in `src/types.ts`                   | M2        |
-| `--kms` option (Foundry's variables)        | `src/internal/config/env-keys.ts`, `src/internal/hook-handlers/hre.ts`                     | M2, M4    |
-| AWS adapter                                 | `src/internal/providers/aws/adapter.ts`                                                    | M3        |
-| GCP and Azure adapters                      | `src/internal/providers/{gcp,azure}/`                                                      | M6        |
-| RPC dispatcher and methods                  | `src/internal/rpc/`                                                                        | M4, M5    |
-| Tasks                                       | `src/internal/tasks/`                                                                      | M7        |
+| Concept                                     | Where                                                                                                                                | Milestone |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| Plugin definition                           | `packages/hardhat-kms/src/index.ts`                                                                                                  | M0        |
+| Public keys, signatures, digests            | `packages/hardhat-kms/src/internal/crypto/`                                                                                          | M1        |
+| Signer and adapter interface                | `packages/hardhat-kms/src/internal/signer/kms-signer.ts`, `packages/hardhat-kms/src/internal/signer/types.ts`                        | M1        |
+| Per-call timeout                            | `packages/hardhat-kms/src/internal/signer/timeout.ts`                                                                                | M1        |
+| Error builder                               | `packages/hardhat-kms/src/internal/errors.ts`                                                                                        | M1        |
+| Vendored EIP-712 encoder                    | `packages/hardhat-kms/src/internal/vendor/micro-eth-signer/`                                                                         | M1        |
+| Config schema and resolution                | `packages/hardhat-kms/src/internal/config/`                                                                                          | M2        |
+| Provider descriptors, registry, SDK loading | `packages/hardhat-kms/src/internal/providers/{registry,sdk,types}.ts`, `packages/hardhat-kms/src/internal/providers/*/descriptor.ts` | M2        |
+| `kms` hook for third-party providers        | `packages/hardhat-kms/src/internal/providers/create-adapter.ts`, `KmsHooks` in `packages/hardhat-kms/src/types.ts`                   | M2        |
+| `--kms` option (Foundry's variables)        | `packages/hardhat-kms/src/internal/config/env-keys.ts`, `packages/hardhat-kms/src/internal/hook-handlers/hre.ts`                     | M2, M4    |
+| AWS adapter                                 | `packages/hardhat-kms/src/internal/providers/aws/adapter.ts`                                                                         | M3        |
+| GCP and Azure adapters                      | `packages/hardhat-kms/src/internal/providers/{gcp,azure}/`                                                                           | M6        |
+| RPC dispatcher and methods                  | `packages/hardhat-kms/src/internal/rpc/`                                                                                             | M4, M5    |
+| Tasks                                       | `packages/hardhat-kms/src/internal/tasks/`                                                                                           | M7        |
 
 ## Signing a message
 
@@ -188,7 +198,7 @@ Signing has no side effects, so the plugin retries throttling errors and GCP CRC
 
 The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so optional peers would not work. Users install the SDK for their provider, as the [configuration reference](../user/reference/configuration.md#provider-sdks) documents. The plugin's own tests use a fake SDK; the real SDKs become devDependencies only for the tests that run them against an emulator or the cloud, starting with the AWS LocalStack suite ([#17](https://github.com/aelmanaa/hardhat-kms/issues/17)).
 
-`loadSdk` in `src/internal/providers/sdk.ts` (M2) loads an SDK the first time an adapter needs it. The AWS adapter (M3) is the first to call it. Adapters reach it through `createProviderDeps` (`src/internal/providers/deps.ts`), which only loads the packages their descriptor declares. It runs four steps:
+`loadSdk` in `packages/hardhat-kms/src/internal/providers/sdk.ts` (M2) loads an SDK the first time an adapter needs it. The AWS adapter (M3) is the first to call it. Adapters reach it through `createProviderDeps` (`packages/hardhat-kms/src/internal/providers/deps.ts`), which only loads the packages their descriptor declares. It runs four steps:
 
 1. It resolves the package with `createRequire(<project root>/package.json).resolve(pkg)`. This works with npm, pnpm and workspaces because the user installs the SDK in their own project.
 2. It checks that the resolved file sits in a `node_modules` folder of the project root or one of its ancestors. Node also searches `NODE_PATH` and global folders, and a package found there is rejected. Under Yarn Plug'n'Play, which has no `node_modules`, this check is skipped; Plug'n'Play support is untested.
@@ -197,4 +207,4 @@ The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores
 
 Each failure raises a `HardhatPluginError` with the exact `npm install` command to fix it: a missing SDK, one that is installed but cannot be resolved (with Node's error code), one found outside the project, an unreadable version, a version outside the range, or a prerelease. Because step 1 uses `require.resolve`, the package needs a CommonJS entry (`main` or a `require` export). The AWS, Google Cloud and Azure SDKs all publish one; `loadSdk` then imports that file.
 
-`test/integration/sdk-loading.test.ts` runs `test/fixtures/load-config.ts`, which loads a config with a key for every built-in provider, in a child process. `test/helpers/import-recorder.mjs` records the file URL of every module the process loads: through `module.registerHooks` where Node has it, which also sees `require`, and otherwise through asynchronous hooks plus the CommonJS module cache at exit. The test fails if any file under a cloud SDK's folder is among them. Positive controls load a fake SDK through `loadSdk` and through `require`, with both hook kinds, and must be recorded.
+`packages/hardhat-kms/test/integration/sdk-loading.test.ts` runs `packages/hardhat-kms/test/fixtures/load-config.ts`, which loads a config with a key for every built-in provider, in a child process. `packages/hardhat-kms/test/helpers/import-recorder.mjs` records the file URL of every module the process loads: through `module.registerHooks` where Node has it, which also sees `require`, and otherwise through asynchronous hooks plus the CommonJS module cache at exit. The test fails if any file under a cloud SDK's folder is among them. Positive controls load a fake SDK through `loadSdk` and through `require`, with both hook kinds, and must be recorded.

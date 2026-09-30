@@ -10,7 +10,7 @@ The alternative, `ox`, pulls in about 30 MB of transitive dependencies (zod 4, p
 
 ## Decision
 
-Copy `src/core/typed-data.ts` and `src/advanced/abi-mapper.ts` from micro-eth-signer 0.19.0 into `src/internal/vendor/micro-eth-signer/`, changing only import paths. Keep the MIT notice in each file and in `THIRD_PARTY_NOTICES.md`. Declare `micro-packed`, which the copied code imports, as an explicit dependency.
+Copy `src/core/typed-data.ts` and `src/advanced/abi-mapper.ts` from micro-eth-signer 0.19.0 into `packages/hardhat-kms/src/internal/vendor/micro-eth-signer/`, changing only import paths. Keep the MIT notice in each file and in `THIRD_PARTY_NOTICES.md`. Declare `micro-packed`, which the copied code imports, as an explicit dependency.
 
 ## Consequences
 

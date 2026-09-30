@@ -22,12 +22,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci --ignore-scripts
-      - run: npm run check
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run check
 
   docs:
     name: Docs
@@ -37,17 +38,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci --ignore-scripts
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Snippets typecheck and every page is indexed
-        run: npm run docs:check
+        run: pnpm run docs:check
       - name: Internal links and anchors
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
-          args: --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'docs/**/*.md'
+          args: --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'docs/**/*.md'
 
   test:
     name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
@@ -68,17 +70,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
-          cache: npm
-      - run: npm ci --ignore-scripts
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       # Node 22.13.0 cannot strip TypeScript types natively; load tsx there only.
       - name: Test
         shell: bash
         env:
           NODE_OPTIONS: ${{ matrix.node == '22.13.0' && '--import tsx' || '' }}
-        run: npm test
+        run: pnpm test
 
   coverage:
     name: Coverage
@@ -88,12 +91,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci --ignore-scripts
-      - run: npm run coverage
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run coverage
 
   package:
     name: Package checks
@@ -103,12 +107,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci --ignore-scripts
-      - run: npm run pkg:check
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run pkg:check
 
   consumer-types:
     name: Consumer typecheck (TypeScript ${{ matrix.typescript }})
@@ -122,11 +127,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci --ignore-scripts
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: node scripts/consumer-typecheck.ts "${TYPESCRIPT_VERSION}"
         env:
           TYPESCRIPT_VERSION: ${{ matrix.typescript }}

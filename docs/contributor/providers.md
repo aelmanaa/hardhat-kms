@@ -2,7 +2,7 @@
 
 Audience: Contributors adding or changing a KMS or HSM provider.
 
-Status: M1 implements `KmsKeyAdapter` and `SignContext` in `src/internal/signer/types.ts`, without `signTransaction` and `sendTransaction`. M2 adds the built-in providers' descriptors and the registry as internal code (see [Built-in descriptors](#built-in-descriptors)), and the `kms` hook with the adapter contract exported from `hardhat-kms/types` (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). The code below is the planned full contract; the types exported today are in `src/types.ts`. The transaction methods come with the transaction work (M5) and the providers that need them.
+Status: M1 implements `KmsKeyAdapter` and `SignContext` in `packages/hardhat-kms/src/internal/signer/types.ts`, without `signTransaction` and `sendTransaction`. M2 adds the built-in providers' descriptors and the registry as internal code (see [Built-in descriptors](#built-in-descriptors)), and the `kms` hook with the adapter contract exported from `hardhat-kms/types` (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). The code below is the planned full contract; the types exported today are in `packages/hardhat-kms/src/types.ts`. The transaction methods come with the transaction work (M5) and the providers that need them.
 
 ## Provider contract
 
@@ -67,7 +67,7 @@ Built-in providers are validated inside the root zod schema with `conditionalUni
 
 ## Built-in descriptors
 
-Each built-in provider has a descriptor in `src/internal/providers/<id>/descriptor.ts`, registered under its `id` in `src/internal/providers/registry.ts`. The internal shape, in `src/internal/providers/types.ts`, differs from the public contract above:
+Each built-in provider has a descriptor in `packages/hardhat-kms/src/internal/providers/<id>/descriptor.ts`, registered under its `id` in `packages/hardhat-kms/src/internal/providers/registry.ts`. The internal shape, in `packages/hardhat-kms/src/internal/providers/types.ts`, differs from the public contract above:
 
 | Field     | Meaning                                                                                                                                                                                       |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -134,4 +134,4 @@ The rules:
 - Nothing stops two plugins from claiming the same id, or a plugin from claiming `aws`, `gcp` or `azure`: the handler that runs first wins, silently. Plugin handlers run in reverse order of the resolved plugin list.
 - A handler must return an adapter or the result of `next`. Returning nothing fails with an error that names the `kms.createKeyAdapter` handler.
 
-The chain runs in `src/internal/providers/create-adapter.ts`. The hook and adapter types are marked `@experimental` until 1.0; transaction signing (M5) adds optional adapter methods.
+The chain runs in `packages/hardhat-kms/src/internal/providers/create-adapter.ts`. The hook and adapter types are marked `@experimental` until 1.0; transaction signing (M5) adds optional adapter methods.

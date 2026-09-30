@@ -2,15 +2,17 @@
 
 ## Setup
 
-Requirements: Node.js 24 (see `.nvmrc`) and npm. Development needs Node >= 22.18, which runs the TypeScript scripts and hooks natively; the published package supports Node >= 22.13. Installing the package from git is not supported; use the npm release. Releases are published from CI only, with npm provenance.
+Requirements: Node.js 24 (see `.nvmrc`) and pnpm (`npm i -g pnpm`; it switches to the version pinned in `packageManager`). Development needs Node >= 22.18, which runs the TypeScript scripts and hooks natively; the published packages support Node >= 22.13.
+
+The repository is a pnpm workspace ([decision 0010](docs/contributor/decisions/0010-pnpm-workspaces.md)). Packages live in `packages/`: `packages/hardhat-kms` is the core plugin. Commands at the root run across every package. Installing the package from git is not supported; use the npm release. Releases are published from CI only, with npm provenance.
 
 ```sh
-npm install        # also installs the git hooks (lefthook)
-npm run check      # format check, lint (type-aware) and typecheck
-npm test           # unit + integration tests
-npm run coverage   # tests with coverage thresholds
-npm run pkg:check  # build + publint + arethetypeswrong + knip
-npm run docs:check # doc snippets typecheck, every page is indexed
+pnpm install        # also installs the git hooks (lefthook)
+pnpm run check      # format check, lint (type-aware) and typecheck
+pnpm test           # unit + integration tests
+pnpm run coverage   # tests with coverage thresholds
+pnpm run pkg:check  # build + publint + arethetypeswrong + knip
+pnpm run docs:check # doc snippets typecheck, every page is indexed
 ```
 
 ## Issues first
@@ -30,7 +32,7 @@ Issues that affect what gets signed, keys or secrets also get `security`. New is
 
 - `main` only changes through pull requests (squash merge). The pre-push hook refuses direct pushes to `main`.
 - Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org) (checked by the commit-msg hook).
-- Every user-facing change needs a changeset: `npm run changeset`.
+- Every user-facing change needs a changeset: `pnpm changeset`.
 - The pre-commit hook formats (oxfmt) and lints (oxlint) staged files and typechecks the project.
 
 ## Code standards
@@ -39,6 +41,6 @@ Issues that affect what gets signed, keys or secrets also get `security`. New is
 - Every exported symbol has TSDoc (enforced by lint).
 - No `process.env` reads outside the few documented places (enforced by lint).
 - Errors are `HardhatPluginError`s built from an allow-list of fields; never include credentials or raw SDK errors.
-- Tests: `test/unit` (pure, fast) and `test/integration` (real Hardhat runtime). Emulated AWS KMS tests (`test/localstack`) and live cloud tests (`test/live`) arrive with the AWS adapter and the live-test milestone.
+- Tests: `packages/hardhat-kms/test/unit` (pure, fast) and `packages/hardhat-kms/test/integration` (real Hardhat runtime). Emulated AWS KMS tests (`packages/hardhat-kms/test/localstack`) and live cloud tests (`packages/hardhat-kms/test/live`) arrive with the AWS adapter and the live-test milestone.
 
 See [docs/contributor/architecture.md](docs/contributor/architecture.md) for how the code fits together, and [docs/README.md](docs/README.md) for all docs. [AGENTS.md](AGENTS.md) is the same index for coding agents. A guide to adding a KMS or HSM provider will ship with the first provider.

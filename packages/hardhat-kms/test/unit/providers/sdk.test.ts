@@ -162,8 +162,14 @@ describe("loadSdk", () => {
   });
 
   it("does not find packages that only this plugin depends on", async () => {
-    // zod is a dependency of the plugin, but not of the throwaway project.
-    await assertPluginError(loadSdk(sdk("zod"), project, "fake"), ["zod is not installed"]);
+    // zod is a dependency of the plugin, but not of the throwaway project. Node may still find the
+    // plugin's copy through NODE_PATH (pnpm sets it for scripts); then it must be refused as
+    // outside the project. Either way it is not loaded.
+    await assert.rejects(loadSdk(sdk("zod"), project, "fake"), (error: unknown) => {
+      assert.ok(error instanceof HardhatPluginError);
+      assert.match(error.message, /zod is not installed|zod was found outside this project/);
+      return true;
+    });
   });
 
   it("refuses a package that Node finds outside the project, through NODE_PATH", () => {

@@ -3,7 +3,7 @@
 //
 // Usage: node scripts/consumer-typecheck.ts <typescript-version>
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,42 +15,40 @@ if (typescriptVersion === undefined) {
 }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const pluginPackage = path.join(root, "packages", "hardhat-kms");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-// npm.cmd needs a shell on Windows (CVE-2024-27980 hardening in child_process).
+const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+// .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
 const shell = process.platform === "win32";
-const run = (args: string[], cwd: string): void => {
-  execFileSync(npm, args, { cwd, stdio: "inherit", shell });
+const run = (command: string, args: string[], cwd: string): void => {
+  execFileSync(command, args, { cwd, stdio: "inherit", shell });
 };
 
-run(["run", "build"], root);
-const packOutput = execFileSync(
-  npm,
-  ["pack", "--json", "--ignore-scripts", "--pack-destination", tmpdir()],
-  {
-    cwd: root,
-  },
-);
+run(pnpm, ["run", "build"], root);
+// pnpm pack replaces workspace: ranges with real versions, as publishing does.
+const packOutput = execFileSync(pnpm, ["pack", "--json", "--pack-destination", tmpdir()], {
+  cwd: pluginPackage,
+  shell,
+});
 /**
- * Extracts the tarball filename from `npm pack --json` output.
+ * Extracts the tarball path from `pnpm pack --json` output.
  *
- * @param output - The raw JSON printed by `npm pack --json`.
- * @returns The tarball filename.
+ * @param output - The raw JSON printed by `pnpm pack --json`.
+ * @returns The tarball path.
  */
-function tarballFilename(output: string): string {
+function tarballPath(output: string): string {
   const parsed: unknown = JSON.parse(output);
-  const first: unknown = Array.isArray(parsed) ? parsed[0] : undefined;
   if (
-    typeof first === "object" &&
-    first !== null &&
-    "filename" in first &&
-    typeof first.filename === "string"
+    typeof parsed === "object" &&
+    parsed !== null &&
+    "filename" in parsed &&
+    typeof parsed.filename === "string"
   ) {
-    return first.filename;
+    return parsed.filename;
   }
-  throw new Error("npm pack did not report a tarball filename");
+  throw new Error("pnpm pack did not report a tarball filename");
 }
-const filename = tarballFilename(packOutput.toString());
-const tarball = path.join(tmpdir(), filename);
+const tarball = tarballPath(packOutput.toString());
 
 const consumer = mkdtempSync(path.join(tmpdir(), "hardhat-kms-consumer-"));
 try {
@@ -189,17 +187,23 @@ try {
     ].join("\n"),
   );
 
-  const hardhatVersion: unknown = JSON.parse(
-    execFileSync(npm, ["pkg", "get", "devDependencies.hardhat"], { cwd: root }).toString(),
+  // The Hardhat version the plugin is developed against (the workspace catalog pins it).
+  const hardhatManifest: unknown = JSON.parse(
+    readFileSync(path.join(pluginPackage, "node_modules", "hardhat", "package.json"), "utf8"),
   );
+  const hardhatVersion =
+    typeof hardhatManifest === "object" && hardhatManifest !== null && "version" in hardhatManifest
+      ? String(hardhatManifest.version)
+      : "latest";
   run(
+    npm,
     [
       "install",
       "--no-audit",
       "--no-fund",
       "--ignore-scripts",
       tarball,
-      `hardhat@${String(hardhatVersion)}`,
+      `hardhat@${hardhatVersion}`,
       `typescript@${typescriptVersion}`,
       "@types/node@22",
     ],

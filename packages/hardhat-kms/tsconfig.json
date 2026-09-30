@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "include": ["src", "test"],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "test/fixture-projects/**/artifacts",
+    "test/fixture-projects/**/cache",
+    "src/internal/vendor"
+  ],
+  "references": [
+    {
+      "path": "./tsconfig.vendor.json"
+    }
+  ]
+}

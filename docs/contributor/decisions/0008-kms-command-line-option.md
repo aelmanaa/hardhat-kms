@@ -69,11 +69,11 @@ The option is `globalOption({ name: "kms", type: ArgumentType.STRING_WITHOUT_DEF
 - GCP loads one key, as in Foundry. More GCP keys go in the config.
 - The plugin reads these variables from `process.env` directly. It does not go through configuration variables, so `hardhat-keystore` never supplies them. A Foundry user's `.env` works unchanged.
 - Only the variables listed for the ids in `--kms` are read. Setting `AWS_KMS_KEY_ID` without `--kms aws` loads nothing. There is no `all` value and no auto-detection.
-- Turnkey and other third-party providers are out of scope. An id that is not built in is an error, with the existing did-you-mean check for misspelled built-in ids (`src/internal/config/schema.ts:43-58`). A later decision can let a `kms` hook handler declare its own variables.
+- Turnkey and other third-party providers are out of scope. An id that is not built in is an error, with the existing did-you-mean check for misspelled built-in ids (`packages/hardhat-kms/src/internal/config/schema.ts:43-58`). A later decision can let a `kms` hook handler declare its own variables.
 
 ### Checks and names
 
-- Each key goes through the same zod schema and the same provider `resolve()` as a config key, and inherits `kms.defaults` (AWS region, `timeoutMs`). Identifier checks (`src/internal/config/identifiers.ts`) run on the variable's value.
+- Each key goes through the same zod schema and the same provider `resolve()` as a config key, and inherits `kms.defaults` (AWS region, `timeoutMs`). Identifier checks (`packages/hardhat-kms/src/internal/config/identifiers.ts`) run on the variable's value.
 - A command-line key is named after its variable: `AWS_KMS_KEY_ID`, `AWS_KMS_KEY_IDS[1]` (0-based, like `kmsAccounts[<index>]`), `GCP_KEY_*`, `AZURE_KEY_VAULT_KEY_ID`. Its `displayId` shows the variable, never the value: `aws:<AWS_KMS_KEY_IDS[1]>`.
 - Errors name the option and the variable, never the value:
 
@@ -94,7 +94,7 @@ The option is `globalOption({ name: "kms", type: ArgumentType.STRING_WITHOUT_DEF
 
 ### Issue #13
 
-Close [#13](https://github.com/aelmanaa/hardhat-kms/issues/13) as superseded. The Foundry variable mapping lives in one internal module (`src/internal/config/env-keys.ts`), used by `--kms`. The Foundry migration guide shows the `--kms` form and the equivalent hand-written config, where each identifier is a `configVariable()` with the Foundry name. No `hardhat-kms/foundry` export ships in 1.0.
+Close [#13](https://github.com/aelmanaa/hardhat-kms/issues/13) as superseded. The Foundry variable mapping lives in one internal module (`packages/hardhat-kms/src/internal/config/env-keys.ts`), used by `--kms`. The Foundry migration guide shows the `--kms` form and the equivalent hand-written config, where each identifier is a `configVariable()` with the Foundry name. No `hardhat-kms/foundry` export ships in 1.0.
 
 ## Consequences
 

@@ -1,106 +1,45 @@
 {
-  "name": "hardhat-kms",
-  "version": "0.0.0",
-  "description": "Hardhat 3 plugin to sign transactions, messages and typed data with keys held in AWS KMS, GCP Cloud KMS and Azure Key Vault / Managed HSM.",
-  "keywords": [
-    "hardhat",
-    "hardhat-plugin",
-    "kms",
-    "hsm",
-    "aws-kms",
-    "gcp-kms",
-    "azure-key-vault",
-    "signer",
-    "ethereum"
-  ],
-  "homepage": "https://github.com/aelmanaa/hardhat-kms#readme",
-  "bugs": {
-    "url": "https://github.com/aelmanaa/hardhat-kms/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/aelmanaa/hardhat-kms.git"
-  },
-  "license": "MIT",
-  "author": "Amine El Manaa",
+  "name": "hardhat-kms-workspace",
+  "private": true,
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/src/index.d.ts",
-      "default": "./dist/src/index.js"
-    },
-    "./types": {
-      "types": "./dist/src/types.d.ts",
-      "default": "./dist/src/types.js"
-    },
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "dist/src/",
-    "src/",
-    "!**/*.test.*",
-    "README.md",
-    "LICENSE",
-    "CHANGELOG.md",
-    "THIRD_PARTY_NOTICES.md"
-  ],
+  "packageManager": "pnpm@12.8.1",
   "engines": {
-    "node": ">=22.13.0"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "node": ">=22.18.0"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.build.json",
-    "clean": "node -e \"for (const p of ['dist','coverage']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
+    "build": "pnpm -r run build",
+    "clean": "pnpm -r run clean",
     "typecheck": "tsc -b",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
-    "check": "npm run format:check && npm run lint && npm run typecheck",
-    "test": "npm run test:unit && npm run test:integration",
-    "test:unit": "node --test --test-timeout=30000 \"test/unit/**/*.test.ts\"",
-    "test:integration": "node --test --test-concurrency=1 --test-timeout=120000 \"test/integration/**/*.test.ts\"",
-    "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
-    "pkg:check": "npm run build && publint --strict && attw --pack . --profile esm-only && knip",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck",
+    "test": "pnpm -r run test",
+    "test:unit": "pnpm -r run test:unit",
+    "coverage": "pnpm -r run coverage",
+    "pkg:check": "pnpm run build && node scripts/check-packages.ts && knip",
+    "docs:check": "pnpm run build && node scripts/check-docs.ts",
     "prepare": "lefthook install && node scripts/install-git-hooks.ts",
     "changeset": "changeset",
-    "release": "npm run clean && npm run build && changeset publish",
-    "docs:check": "npm run build && node scripts/check-docs.ts"
-  },
-  "dependencies": {
-    "@noble/curves": "^2.4.0",
-    "@noble/hashes": "^2.4.0",
-    "@nomicfoundation/hardhat-utils": "^4.3.0",
-    "@nomicfoundation/hardhat-zod-utils": "^3.0.5",
-    "micro-eth-signer": "^0.19.0",
-    "micro-packed": "^0.9.0",
-    "semver": "^7.8.5",
-    "zod": "^3.23.8"
+    "release": "pnpm run clean && pnpm run build && changeset publish"
   },
   "devDependencies": {
-    "@arethetypeswrong/cli": "0.18.5",
-    "@changesets/changelog-github": "1.0.1",
-    "@changesets/cli": "3.0.3",
-    "@types/node": "^22.18.0",
-    "@types/semver": "7.8.0",
-    "c8": "12.0.0",
-    "eslint-plugin-jsdoc": "65.0.0",
-    "fast-check": "^4.10.2",
-    "hardhat": "3.18.0",
-    "knip": "6.38.0",
-    "lefthook": "2.1.15",
-    "oxfmt": "0.71.0",
-    "oxlint": "1.86.0",
-    "oxlint-tsgolint": "7.0.2003",
-    "publint": "0.3.24",
-    "tsx": "4.23.15",
-    "typescript": "7.0.2"
-  },
-  "peerDependencies": {
-    "hardhat": "^3.18.0"
+    "@arethetypeswrong/cli": "catalog:",
+    "@changesets/changelog-github": "catalog:",
+    "@changesets/cli": "catalog:",
+    "@types/node": "catalog:",
+    "eslint-plugin-jsdoc": "catalog:",
+    "hardhat": "catalog:",
+    "hardhat-kms": "workspace:*",
+    "knip": "catalog:",
+    "lefthook": "catalog:",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "publint": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:"
   },
   "devEngines": {
     "runtime": {
@@ -109,7 +48,7 @@
       "onFail": "error"
     },
     "packageManager": {
-      "name": "npm",
+      "name": "pnpm",
       "onFail": "warn"
     }
   }

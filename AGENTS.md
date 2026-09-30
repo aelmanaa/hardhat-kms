@@ -26,13 +26,13 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md), then [docs/contributor/architectu
 Commands (Node.js 24, see `.nvmrc`):
 
 ```sh
-npm install          # installs dependencies and git hooks
-npm run check        # format check, type-aware lint, typecheck
-npm run test:unit    # fast unit tests
-npm test             # unit and integration tests
-npm run coverage     # tests with the 95% coverage threshold
-npm run pkg:check    # build, publint, arethetypeswrong, knip
-npm run docs:check   # doc snippets typecheck, every page is indexed
+pnpm install         # installs dependencies and git hooks
+pnpm run check        # format check, type-aware lint, typecheck
+pnpm run test:unit    # fast unit tests
+pnpm test             # unit and integration tests
+pnpm run coverage     # tests with the 95% coverage threshold
+pnpm run pkg:check    # build, publint, arethetypeswrong, knip
+pnpm run docs:check   # doc snippets typecheck, every page is indexed
 ```
 
 Where things are:
@@ -70,6 +70,6 @@ Rules for every change:
 - `main` changes only through squash-merged pull requests. Commit subjects follow Conventional Commits.
 - Tests come with the change, and coverage stays at or above 95%.
 - Docs ship with the code: update the pages the change affects, and link any new page from this file and from [docs/README.md](docs/README.md).
-- Do not edit `src/internal/vendor/`. It is micro-eth-signer 0.19.0 code with only import paths changed; see [decision 0001](docs/contributor/decisions/0001-vendor-eip712-encoder.md).
-- Before changing code that decides what gets signed (`src/internal/crypto/`, `src/internal/signer/`), read [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md).
+- Do not edit `packages/hardhat-kms/src/internal/vendor/`. It is micro-eth-signer 0.19.0 code with only import paths changed; see [decision 0001](docs/contributor/decisions/0001-vendor-eip712-encoder.md).
+- Before changing code that decides what gets signed (`packages/hardhat-kms/src/internal/crypto/`, `packages/hardhat-kms/src/internal/signer/`), read [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md).
 - Never print or commit secrets, key ids from real accounts, or API-keyed RPC URLs, including in tests, logs and error messages.

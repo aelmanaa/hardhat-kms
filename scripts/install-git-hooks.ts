@@ -23,7 +23,7 @@ if (insideRepo) {
     "# Installed by scripts/install-git-hooks.ts. Do not edit.",
     "# Refuse direct pushes to main (git passes the pushed refs on stdin), then run unit tests.",
     "node scripts/block-push-to-main.ts || exit 1",
-    "npm run --silent test:unit",
+    "pnpm run --silent test:unit",
     "",
   ].join("\n");
   const marker = "Installed by scripts/install-git-hooks.ts";
