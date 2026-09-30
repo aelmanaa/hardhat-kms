@@ -1,0 +1,11 @@
+# Research 04 — Turnkey adoption (2026-09-30)
+
+Verdict: widely used and growing fast, but mostly embedded end-user wallets / app backends (much of the npm volume is transitive via Dynamic and Alchemy Account Kit). Reasonable second-tier provider after AWS/GCP/Azure (cheap to build, Foundry parity, policy engine good for ops keys); Fireblocks arguably equal/higher for institutional ops users.
+
+- Company: founded 2022 (NY) by ex-Coinbase Bryce Ferguson & Jack Kearney. Series A $15M (Apr 2024), Series B $30M (Jun 2025, Bain Capital Crypto; Sequoia, Lightspeed Faction, Galaxy, Wintermute, Variant), strategic $12.5M (2026-05-14, Archetype, Circle Ventures) → >$65M. Pricing: PAYG 25 free sigs/month then $0.10/sig; Pro $99/mo $0.05/sig; Enterprise from $0.0015/sig. Company claims: SOC 2 Type II, audits (Trail of Bits, Cure53, Zellic, Distrust), AWS Nitro Enclaves (TEE); enclave OS open source (tkhq/qos).
+- Named customers (company-sourced): Polymarket (corroborated by Polymarket docs), Flutterwave, World App, Anchorage Digital, Modern Treasury, Visa, Bridge, Squads, Mysten Labs, Offchain Labs, … Metrics ("millions of wallets") unverified.
+- npm last month (2026-08-30..09-28): @turnkey/api-key-stamper 1.42M, @turnkey/http 1.39M, @turnkey/sdk-server 1.12M, @turnkey/sdk-browser 850k, @turnkey/viem 480k, @turnkey/ethers 35k; vs @privy-io/react-auth 1.58M, @coinbase/cdp-sdk 3.96M, fireblocks-sdk 258k, @dynamic-labs/sdk-react-core 233k, magic-sdk 127k, @web3auth/modal 40k, @aws-sdk/client-kms 23.3M. Trend: @turnkey/sdk-server ~22k (Oct 2025) → ~1.2M (Aug 2026).
+- Hardhat signer plugin demand is small: @fireblocks/hardhat-fireblocks ~3.4k/month, @rumblefishdev/hardhat-kms-signer ~1.3k/month. No Turnkey Hardhat plugin exists.
+- Foundry `--turnkey` since #12026 (2025-10-08), low engagement. Turnkey documents a Foundry integration and a Smart Contract Management (deployer/operator wallets with policies) use case.
+- Landscape: Privy → Stripe (Jun 2025); Dynamic → Fireblocks (~$90M, 2025-10-23; Dynamic uses Turnkey under the hood); Magic independent; Coinbase CDP largest npm footprint.
+- Roadmap order suggested: AWS/GCP/Azure → Turnkey ≈ Fireblocks → Coinbase CDP server wallets → Privy server wallets → PKCS#11 on demand.
