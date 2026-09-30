@@ -37,6 +37,10 @@ const keysValue: unknown = {
   vault: { provider: "myvault", keyPath: "a/b" },
   aws: { provider: "aws", keyId: "alias/deployer" },
   nobody: { provider: "nobody" },
+  gcp: {
+    provider: "gcp",
+    keyVersionName: "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1",
+  },
 };
 // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- providers this package does not know
 const keys = keysValue as Record<string, KmsKeyUserConfig>;
@@ -78,10 +82,10 @@ describe("kms hook", () => {
   it("falls through to the built-in providers when no handler claims the key", async () => {
     const hre = await runtime();
 
-    // Building the AWS adapter creates an SDK client but makes no call.
-    const adapter = await createKeyAdapter(hre, key(hre, "aws"));
-    assert.equal(adapter.describe().provider, "aws");
-    assert.equal(adapter.describe().displayId, "aws:alias/deployer");
+    // The Google Cloud adapter does not exist yet, so reaching it is a deterministic error.
+    await assertPluginError(createKeyAdapter(hre, key(hre, "gcp")), [
+      "signing with Google Cloud KMS keys is not available yet",
+    ]);
   });
 
   it("fails clearly when no plugin provides the key's provider", async () => {
