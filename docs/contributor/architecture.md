@@ -34,20 +34,21 @@ The rules behind the arrows:
 
 ## Code map
 
-| Concept                          | Where                                                                     | Milestone |
-| -------------------------------- | ------------------------------------------------------------------------- | --------- |
-| Plugin definition                | `src/index.ts`                                                            | M0        |
-| Public keys, signatures, digests | `src/internal/crypto/`                                                    | M1        |
-| Signer and adapter interface     | `src/internal/signer/kms-signer.ts`, `src/internal/signer/types.ts`       | M1        |
-| Per-call timeout                 | `src/internal/signer/timeout.ts`                                          | M1        |
-| Error builder                    | `src/internal/errors.ts`                                                  | M1        |
-| Vendored EIP-712 encoder         | `src/internal/vendor/micro-eth-signer/`                                   | M1        |
-| Config schema and resolution     | `src/internal/config/`                                                    | M2        |
-| Provider registry and `kms` hook | `src/internal/providers/registry.ts`, `src/internal/hook-handlers/kms.ts` | M2        |
-| AWS adapter                      | `src/internal/providers/aws/`                                             | M3        |
-| GCP and Azure adapters           | `src/internal/providers/{gcp,azure}/`                                     | M6        |
-| RPC dispatcher and methods       | `src/internal/rpc/`                                                       | M4, M5    |
-| Tasks                            | `src/internal/tasks/`                                                     | M7        |
+| Concept                                     | Where                                                                                      | Milestone |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------ | --------- |
+| Plugin definition                           | `src/index.ts`                                                                             | M0        |
+| Public keys, signatures, digests            | `src/internal/crypto/`                                                                     | M1        |
+| Signer and adapter interface                | `src/internal/signer/kms-signer.ts`, `src/internal/signer/types.ts`                        | M1        |
+| Per-call timeout                            | `src/internal/signer/timeout.ts`                                                           | M1        |
+| Error builder                               | `src/internal/errors.ts`                                                                   | M1        |
+| Vendored EIP-712 encoder                    | `src/internal/vendor/micro-eth-signer/`                                                    | M1        |
+| Config schema and resolution                | `src/internal/config/`                                                                     | M2        |
+| Provider descriptors, registry, SDK loading | `src/internal/providers/{registry,sdk,types}.ts`, `src/internal/providers/*/descriptor.ts` | M2        |
+| `kms` hook for third-party providers        | `src/internal/hook-handlers/kms.ts`                                                        | M2        |
+| AWS adapter                                 | `src/internal/providers/aws/`                                                              | M3        |
+| GCP and Azure adapters                      | `src/internal/providers/{gcp,azure}/`                                                      | M6        |
+| RPC dispatcher and methods                  | `src/internal/rpc/`                                                                        | M4, M5    |
+| Tasks                                       | `src/internal/tasks/`                                                                      | M7        |
 
 ## Signing a message
 
@@ -183,12 +184,14 @@ Signing has no side effects, so the plugin retries throttling errors and GCP CRC
 
 ## SDK loading
 
-The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so optional peers would not work. Users install the SDK for their provider, as the README documents. The cloud SDKs are devDependencies of the plugin itself.
+The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so optional peers would not work. Users install the SDK for their provider, as the [configuration reference](../user/reference/configuration.md#provider-sdks) documents. The cloud SDKs become devDependencies of the plugin itself, for its own tests, with each adapter (M3, M6).
 
-An SDK is loaded on first use:
+An SDK is loaded on first use, by `loadSdk` in `src/internal/providers/sdk.ts` (M2):
 
 1. The plugin resolves the package with `createRequire(<project root>/package.json).resolve(pkg)`. This works with npm, pnpm and Yarn PnP because the user installs the SDK in their own project.
 2. It finds the installed version by walking up from the resolved path.
-3. It checks the version against the descriptor's `sdk: { packageName, range }` with `semver`, which is a runtime dependency.
+3. It checks the version against the range in the descriptor's `sdks` list with `semver`, a runtime dependency that Hardhat also uses.
 
-A missing or incompatible SDK raises a `HardhatPluginError` containing the exact `npm i` command to fix it.
+A missing or incompatible SDK raises a `HardhatPluginError` containing the exact `npm install` command to fix it. The resolved entry must be loadable with `require`; the AWS, Google Cloud and Azure SDKs all publish one.
+
+A test runs a full config load in a child process with an import hook that records every module Node resolves, and fails if any cloud SDK is among them (`test/integration/sdk-loading.test.ts`).

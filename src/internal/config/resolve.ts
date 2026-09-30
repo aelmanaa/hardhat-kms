@@ -7,7 +7,7 @@ import type {
   KmsKeyConfig,
   KmsKeyUserConfig,
 } from "../../types.ts";
-import { BUILTIN_PROVIDER_CONFIGS } from "../providers/builtin-config.ts";
+import { builtinProvider } from "../providers/registry.ts";
 import { DEFAULT_TIMEOUT_MS } from "./common.ts";
 import { isConfigurationVariable } from "./identifiers.ts";
 import { type KeyResolveContext, resolveCommonKeyConfig } from "./key-common.ts";
@@ -57,7 +57,7 @@ function resolveExternalKey(
 }
 
 function resolveKey(key: KmsKeyUserConfig, context: KeyResolveContext): KmsKeyConfig {
-  const builtin = BUILTIN_PROVIDER_CONFIGS[key.provider];
+  const builtin = builtinProvider(key.provider);
   if (builtin !== undefined) {
     return builtin.resolve(key, context);
   }

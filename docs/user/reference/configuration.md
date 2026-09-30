@@ -124,6 +124,18 @@ Identifiers are not secrets. Every identifier field still accepts `string | Conf
 
 Third-party providers extend the config types through the declaration-merged `KmsProviderUserConfigs` interface (see [Provider contract](../../contributor/providers.md#provider-contract)).
 
+## Provider SDKs
+
+The plugin loads a provider's SDK from your project the first time one of its keys is used, so install the SDK for each provider you use:
+
+| Provider         | Install                                                              |
+| ---------------- | -------------------------------------------------------------------- |
+| AWS KMS          | `npm install @aws-sdk/client-kms@"^3.0.0"`                           |
+| Google Cloud KMS | `npm install @google-cloud/kms@"^6.0.0"`                             |
+| Azure Key Vault  | `npm install @azure/keyvault-keys@"^4.0.0" @azure/identity@"^4.0.0"` |
+
+Loading the config never loads an SDK. If a key is used and its SDK is missing or outside the supported range, the error gives the command to install a supported version.
+
 ## Credentials
 
 No secrets live in the Hardhat config. Each provider takes credentials from its SDK's default chain:
