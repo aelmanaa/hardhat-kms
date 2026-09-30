@@ -13,3 +13,4 @@ To add a record, copy [template.md](template.md) to the next number and open a p
 | [0005](0005-lazy-sdk-loading.md)            | Load cloud SDKs lazily from the user's project                      | Accepted |
 | [0006](0006-kms-hook-for-providers.md)      | A plugin-owned `kms` hook for third-party providers                 | Accepted |
 | [0007](0007-toolchain.md)                   | oxlint, oxfmt and TypeScript 7                                      | Accepted |
+| [0008](0008-kms-command-line-option.md)     | Choose KMS keys from the command line with `--kms`                  | Accepted |

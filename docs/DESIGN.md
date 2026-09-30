@@ -24,7 +24,7 @@ Moved to [docs/user/reference/configuration.md](user/reference/configuration.md#
 
 ### Foundry migration helper
 
-Moved to [docs/user/guides/migrate-from-foundry.md](user/guides/migrate-from-foundry.md#foundry-migration-helper).
+Moved to [docs/user/guides/migrate-from-foundry.md](user/guides/migrate-from-foundry.md).
 
 ### RPC behaviour
 

@@ -2,20 +2,51 @@
 
 Audience: Foundry users moving KMS signing to Hardhat.
 
-Status: Planned: M2.
+Status: Planned ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). The design is settled in [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md); the option does not exist yet.
 
-## Foundry migration helper
+Foundry picks a KMS signer per command with `--aws`, `--gcp` or `--azure`, and reads the key from environment variables. hardhat-kms reads the same variables, in two ways.
 
-Users coming from Foundry can keep their environment variables. The helper expands them into `kms.keys` entries:
+## From the command line, as in Foundry
 
-```ts
-import { kmsKeysFromFoundryEnv } from "hardhat-kms/foundry";
+Add `--kms` with the providers to load, and keep your environment as it is:
+
+```sh
+# Foundry
+AWS_KMS_KEY_ID=alias/deployer forge script script/Deploy.s.sol --rpc-url "$SEPOLIA_RPC_URL" --aws --broadcast
+
+# Hardhat
+AWS_KMS_KEY_ID=alias/deployer npx hardhat run scripts/deploy.ts --network sepolia --kms aws
 ```
 
-It reads these variables:
+| `--kms` value | Variables read, as in Foundry                                                       |
+| ------------- | ----------------------------------------------------------------------------------- |
+| `aws`         | `AWS_KMS_KEY_IDS` (comma-separated) if set, else `AWS_KMS_KEY_ID`                   |
+| `gcp`         | `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME`, `GCP_KEY_VERSION` |
+| `azure`       | `AZURE_KEY_VAULT_KEY_IDS` (comma-separated) if set, else `AZURE_KEY_VAULT_KEY_ID`   |
 
-- `AWS_KMS_KEY_ID(S)`
-- `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME`, `GCP_KEY_VERSION`
-- `AZURE_KEY_VAULT_KEY_ID(S)`
+- Several providers: `--kms aws,azure`. In CI, `HARDHAT_KMS=aws` does the same as the option.
+- Nothing is read unless `--kms` names the provider.
+- The keys sign on the `--network` you select, after any keys the config gives that network.
 
-Lists are comma-split and trimmed, and blank entries are dropped. For single-value variables the helper emits `configVariable()`, so masking and lazy resolution work as they do for hand-written config. Only the comma-list expansion reads `process.env` directly; it is the one exception to the `node/no-process-env` lint rule. The README has the full mapping table.
+## In the config
+
+To keep the choice in `hardhat.config.ts`, point each key at the same variables with `configVariable()`:
+
+```ts
+import { configVariable, defineConfig } from "hardhat/config";
+import hardhatKms from "hardhat-kms";
+
+export default defineConfig({
+  plugins: [hardhatKms],
+  kms: {
+    keys: {
+      deployer: { provider: "aws", keyId: configVariable("AWS_KMS_KEY_ID") },
+    },
+  },
+  networks: {
+    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },
+  },
+});
+```
+
+The [configuration reference](../reference/configuration.md) covers every key form. Cloud credentials come from each provider's SDK in both cases, as in Foundry.
