@@ -1,0 +1,24 @@
+name: PR hygiene
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  linked-issue:
+    name: Links an issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Dependabot pull requests are tracked by their own labels.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    steps:
+      - name: Require a closing keyword or issue reference
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if ! printf '%s' "$PR_BODY" | grep -Eiq '(close[sd]?|fix(e[sd])?|resolve[sd]?|refs?) +#[0-9]+'; then
+            echo "::error::Link the issue this pull request addresses, for example 'Closes #12'."
+            exit 1
+          fi

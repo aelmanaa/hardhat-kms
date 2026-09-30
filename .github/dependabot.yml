@@ -44,6 +44,7 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    labels: ["dependencies", "type:chore", "priority:P2"]
     open-pull-requests-limit: 10
     ignore:
       # Type definitions must match the oldest supported Node.js major.
@@ -67,6 +68,7 @@ updates:
       default-days: 7
     commit-message:
       prefix: ci
+    labels: ["dependencies", "area:ci", "type:chore", "priority:P2"]
     groups:
       actions:
         patterns: ["*"]

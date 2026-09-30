@@ -12,6 +12,19 @@ npm run coverage   # tests with coverage thresholds
 npm run pkg:check  # build + publint + arethetypeswrong + knip
 ```
 
+## Issues first
+
+Every change starts from an issue, and every pull request links it with a closing keyword (`Closes #12`) or a reference (`Refs #12`). A CI check enforces the link; Dependabot pull requests are exempt.
+
+Maintainers triage each issue before work starts. A triaged issue has:
+
+- one type: `type:feature`, `type:bug`, `type:docs`, `type:test`, `type:chore`, `type:refactor`, or `type:epic` for a milestone tracker;
+- one priority: `priority:P0` (blocking or a security problem), `P1` (on the critical path to the next release), `P2` (needed, not blocking), `P3` (later);
+- a size (`size:S`, `M`, `L`) and at least one `area:*` label;
+- a milestone. Milestone epics list their work as sub-issues.
+
+Issues that affect what gets signed, keys or secrets also get `security`. New issues arrive with `status:needs-triage`.
+
 ## Workflow
 
 - `main` only changes through pull requests (squash merge). The pre-push hook refuses direct pushes to `main`.
