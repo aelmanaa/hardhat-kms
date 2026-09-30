@@ -47,7 +47,7 @@ jobs:
       - name: Internal links and anchors
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
-          args: --offline --config lychee.toml README.md AGENTS.md CONTRIBUTING.md SECURITY.md THIRD_PARTY_NOTICES.md 'docs/**/*.md'
+          args: --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'docs/**/*.md'
 
   test:
     name: Test (${{ matrix.os }}, Node ${{ matrix.node }})

@@ -1,7 +1,7 @@
 name: Docs links
 
-# External links break without any change here, so they are checked on a schedule rather than
-# on pull requests, where a flaky website would block merges.
+# External links can break without any change in this repository, so this workflow checks them
+# weekly instead of on pull requests, where a flaky website would block merges.
 on:
   schedule:
     - cron: "17 6 * * 1"
@@ -9,6 +9,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: docs-links
+  cancel-in-progress: true
 
 jobs:
   links:
@@ -21,4 +25,4 @@ jobs:
           persist-credentials: false
       - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
-          args: --config lychee.toml README.md AGENTS.md CONTRIBUTING.md SECURITY.md THIRD_PARTY_NOTICES.md 'docs/**/*.md'
+          args: --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'docs/**/*.md'

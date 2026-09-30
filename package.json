@@ -68,7 +68,7 @@
     "prepare": "lefthook install && node scripts/install-git-hooks.ts",
     "changeset": "changeset",
     "release": "npm run clean && npm run build && changeset publish",
-    "docs:check": "node scripts/check-docs.ts"
+    "docs:check": "npm run build && node scripts/check-docs.ts"
   },
   "dependencies": {
     "@noble/curves": "^2.4.0",
