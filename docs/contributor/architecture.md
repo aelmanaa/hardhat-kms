@@ -34,20 +34,21 @@ The rules behind the arrows:
 
 ## Code map
 
-| Concept                          | Where                                                                     | Milestone |
-| -------------------------------- | ------------------------------------------------------------------------- | --------- |
-| Plugin definition                | `src/index.ts`                                                            | M0        |
-| Public keys, signatures, digests | `src/internal/crypto/`                                                    | M1        |
-| Signer and adapter interface     | `src/internal/signer/kms-signer.ts`, `src/internal/signer/types.ts`       | M1        |
-| Per-call timeout                 | `src/internal/signer/timeout.ts`                                          | M1        |
-| Error builder                    | `src/internal/errors.ts`                                                  | M1        |
-| Vendored EIP-712 encoder         | `src/internal/vendor/micro-eth-signer/`                                   | M1        |
-| Config schema and resolution     | `src/internal/config/`                                                    | M2        |
-| Provider registry and `kms` hook | `src/internal/providers/registry.ts`, `src/internal/hook-handlers/kms.ts` | M2        |
-| AWS adapter                      | `src/internal/providers/aws/`                                             | M3        |
-| GCP and Azure adapters           | `src/internal/providers/{gcp,azure}/`                                     | M6        |
-| RPC dispatcher and methods       | `src/internal/rpc/`                                                       | M4, M5    |
-| Tasks                            | `src/internal/tasks/`                                                     | M7        |
+| Concept                                     | Where                                                                                      | Milestone |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------ | --------- |
+| Plugin definition                           | `src/index.ts`                                                                             | M0        |
+| Public keys, signatures, digests            | `src/internal/crypto/`                                                                     | M1        |
+| Signer and adapter interface                | `src/internal/signer/kms-signer.ts`, `src/internal/signer/types.ts`                        | M1        |
+| Per-call timeout                            | `src/internal/signer/timeout.ts`                                                           | M1        |
+| Error builder                               | `src/internal/errors.ts`                                                                   | M1        |
+| Vendored EIP-712 encoder                    | `src/internal/vendor/micro-eth-signer/`                                                    | M1        |
+| Config schema and resolution                | `src/internal/config/`                                                                     | M2        |
+| Provider descriptors, registry, SDK loading | `src/internal/providers/{registry,sdk,types}.ts`, `src/internal/providers/*/descriptor.ts` | M2        |
+| `kms` hook for third-party providers        | `src/internal/hook-handlers/kms.ts`                                                        | M2        |
+| AWS adapter                                 | `src/internal/providers/aws/`                                                              | M3        |
+| GCP and Azure adapters                      | `src/internal/providers/{gcp,azure}/`                                                      | M6        |
+| RPC dispatcher and methods                  | `src/internal/rpc/`                                                                        | M4, M5    |
+| Tasks                                       | `src/internal/tasks/`                                                                      | M7        |
 
 ## Signing a message
 
@@ -134,8 +135,9 @@ src/
       network.ts            onRequest / closeConnection
       kms.ts                default handler of the plugin-owned `kms` hook category
     providers/
-      registry.ts           provider id -> descriptor; adding a provider = one folder + one line here
-      aws/ gcp/ azure/      descriptor.ts (zod schema, resolve, sdk {packageName, range}, display id)
+      registry.ts           provider id -> descriptor; a built-in provider = one folder + its types + one entry here
+      sdk.ts                loadSdk: resolve an SDK from the project root, check its version range
+      aws/ gcp/ azure/      descriptor.ts (zod schema, resolve incl. displayId, sdks [{packageName, range}], lazy load)
                             adapter.ts (lazy: SDK client, credentials, version pinning)
                             wire.ts (pure decoding: SPKI/PEM/JWK, DER/compact, CRC32C)
     crypto/                 pure, no SDKs: public-key.ts, signature.ts, address.ts, crc32c.ts
@@ -183,12 +185,15 @@ Signing has no side effects, so the plugin retries throttling errors and GCP CRC
 
 ## SDK loading
 
-The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so optional peers would not work. Users install the SDK for their provider, as the README documents. The cloud SDKs are devDependencies of the plugin itself.
+The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so optional peers would not work. Users install the SDK for their provider, as the [configuration reference](../user/reference/configuration.md#provider-sdks) documents. Each adapter (M3, M6) adds its SDK to the plugin's devDependencies, for the plugin's own tests.
 
-An SDK is loaded on first use:
+`loadSdk` in `src/internal/providers/sdk.ts` (M2) loads an SDK the first time an adapter needs it. No adapter calls it until M3. Adapters reach it through `createProviderDeps` (`src/internal/providers/deps.ts`), which only loads the packages their descriptor declares. It runs four steps:
 
-1. The plugin resolves the package with `createRequire(<project root>/package.json).resolve(pkg)`. This works with npm, pnpm and Yarn PnP because the user installs the SDK in their own project.
-2. It finds the installed version by walking up from the resolved path.
-3. It checks the version against the descriptor's `sdk: { packageName, range }` with `semver`, which is a runtime dependency.
+1. It resolves the package with `createRequire(<project root>/package.json).resolve(pkg)`. This works with npm, pnpm and workspaces because the user installs the SDK in their own project.
+2. It checks that the resolved file sits in a `node_modules` folder of the project root or one of its ancestors. Node also searches `NODE_PATH` and global folders, and a package found there is rejected. Under Yarn Plug'n'Play, which has no `node_modules`, this check is skipped; Plug'n'Play support is untested.
+3. It walks up from the resolved file to the first `package.json` whose `name` is the package, and reads `version` there.
+4. It checks that version against the range in the descriptor's `sdks` list with `semver`, a runtime dependency that Hardhat also uses.
 
-A missing or incompatible SDK raises a `HardhatPluginError` containing the exact `npm i` command to fix it.
+Each failure raises a `HardhatPluginError` with the exact `npm install` command to fix it: a missing SDK, one that is installed but cannot be resolved (with Node's error code), one found outside the project, an unreadable version, a version outside the range, or a prerelease. Because step 1 uses `require.resolve`, the package needs a CommonJS entry (`main` or a `require` export). The AWS, Google Cloud and Azure SDKs all publish one; `loadSdk` then imports that file.
+
+`test/integration/sdk-loading.test.ts` runs `test/fixtures/load-config.ts`, which loads a config with a key for every built-in provider, in a child process. `test/helpers/import-recorder.mjs` records the file URL of every module the process loads: through `module.registerHooks` where Node has it, which also sees `require`, and otherwise through asynchronous hooks plus the CommonJS module cache at exit. The test fails if any file under a cloud SDK's folder is among them. Positive controls load a fake SDK through `loadSdk` and through `require`, with both hook kinds, and must be recorded.

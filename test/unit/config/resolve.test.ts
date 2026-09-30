@@ -6,7 +6,7 @@ import { configVariable } from "hardhat/config";
 import type { HardhatConfig } from "hardhat/types/config";
 
 import { resolveKmsConfig, resolveKmsUserConfig } from "../../../src/internal/config/resolve.ts";
-import { BUILTIN_PROVIDER_CONFIGS } from "../../../src/internal/providers/builtin-config.ts";
+import { BUILTIN_PROVIDERS } from "../../../src/internal/providers/registry.ts";
 import type {
   AwsKmsKeyConfig,
   AzureKmsKeyConfig,
@@ -124,15 +124,15 @@ describe("resolveKmsConfig", () => {
     const awsUserKey = { provider: "aws" as const, keyId: "alias/a" };
 
     assert.throws(
-      () => BUILTIN_PROVIDER_CONFIGS.aws?.resolve(gcpUserKey, context),
+      () => BUILTIN_PROVIDERS.aws?.resolve(gcpUserKey, context),
       /Expected a "aws" key, got "gcp"/,
     );
     assert.throws(
-      () => BUILTIN_PROVIDER_CONFIGS.gcp?.resolve(awsUserKey, context),
+      () => BUILTIN_PROVIDERS.gcp?.resolve(awsUserKey, context),
       /Expected a "gcp" key/,
     );
     assert.throws(
-      () => BUILTIN_PROVIDER_CONFIGS.azure?.resolve(awsUserKey, context),
+      () => BUILTIN_PROVIDERS.azure?.resolve(awsUserKey, context),
       /Expected a "azure" key/,
     );
   });

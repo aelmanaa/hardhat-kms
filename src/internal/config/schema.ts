@@ -1,7 +1,7 @@
 import { conditionalUnionType } from "@nomicfoundation/hardhat-zod-utils";
 import { z } from "zod";
 
-import { BUILTIN_PROVIDER_CONFIGS } from "../providers/builtin-config.ts";
+import { BUILTIN_PROVIDERS } from "../providers/registry.ts";
 import { commonKeyFields, nonEmptyString, timeoutSchema } from "./common.ts";
 
 /** Key names are kept simple because tasks will take them as command-line arguments. */
@@ -34,7 +34,7 @@ function editDistance(a: string, b: string): number {
  * @returns The built-in id, or `undefined`.
  */
 function builtinLookalike(provider: string): string | undefined {
-  return Object.keys(BUILTIN_PROVIDER_CONFIGS).find(
+  return Object.keys(BUILTIN_PROVIDERS).find(
     (id) => id === provider.toLowerCase() || editDistance(id, provider.toLowerCase()) <= 2,
   );
 }
@@ -56,7 +56,7 @@ const externalKeySchema = z.object({ provider: nonEmptyString, ...commonKeyField
 /** A key of any provider, dispatched on its `provider` field. */
 const keySchema: z.ZodTypeAny = conditionalUnionType(
   [
-    ...Object.entries(BUILTIN_PROVIDER_CONFIGS).map(
+    ...Object.entries(BUILTIN_PROVIDERS).map(
       ([id, provider]) =>
         [(data: unknown) => isObject(data) && data.provider === id, provider.schema] as [
           (data: unknown) => boolean,
