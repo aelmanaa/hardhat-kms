@@ -126,7 +126,6 @@ src/
   index.ts                  definePlugin: types, constants, lazy hook/task imports only (Hardhat plugin guideline)
   type-extensions.ts        augments HardhatUserConfig/HardhatConfig (kms) + Http/Edr Network(User)Config (kmsAccounts); no named exports
   types.ts                  public provider-author types (exported via the "hardhat-kms/types" subpath)
-  foundry.ts                kmsKeysFromFoundryEnv() (exported via the "hardhat-kms/foundry" subpath)
   internal/
     config/                 zod v3 schema rooted at HardhatUserConfig; conditionalUnionType on `provider`; superRefine for named-key refs
                             (path ["networks", n, "kmsAccounts", i]); pure resolve
