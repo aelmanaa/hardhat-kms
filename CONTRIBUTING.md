@@ -40,4 +40,4 @@ Issues that affect what gets signed, keys or secrets also get `security`. New is
 - Errors are `HardhatPluginError`s built from an allow-list of fields; never include credentials or raw SDK errors.
 - Tests: `test/unit` (pure, fast) and `test/integration` (real Hardhat runtime). Emulated AWS KMS tests (`test/localstack`) and live cloud tests (`test/live`) arrive with the AWS adapter and the live-test milestone.
 
-See `docs/DESIGN.md` for the architecture. A guide to adding a KMS or HSM provider will ship with the first provider.
+See [docs/contributor/architecture.md](docs/contributor/architecture.md) for how the code fits together, and [docs/README.md](docs/README.md) for all docs. [AGENTS.md](AGENTS.md) is the same index for coding agents. A guide to adding a KMS or HSM provider will ship with the first provider.
