@@ -77,11 +77,9 @@ class AwsKeyAdapter implements KmsKeyAdapter {
   }
 
   public async getPublicKey(ctx: SignContext): Promise<Uint8Array> {
-    const response = await this.#client.send(
+    const response = await this.#send(
       new this.#sdk.GetPublicKeyCommand({ KeyId: this.#keyId }),
-      {
-        abortSignal: ctx.signal,
-      },
+      ctx,
     );
     const keySpec = field(response, "KeySpec");
     if (keySpec !== KEY_SPEC) {
@@ -106,8 +104,13 @@ class AwsKeyAdapter implements KmsKeyAdapter {
     if (!(publicKey instanceof Uint8Array)) {
       throw this.#error("get public key", "the response has no public key");
     }
-    this.#keyArn = keyArn;
-    return publicKeyFromSpkiDer(publicKey);
+    const parsed = publicKeyFromSpkiDer(publicKey);
+    // Keep the ARN only for a validated key from a call that was not abandoned, so a late answer
+    // to a timed-out call cannot replace it.
+    if (!ctx.signal.aborted) {
+      this.#keyArn = keyArn;
+    }
+    return parsed;
   }
 
   public async signDigest(
@@ -118,15 +121,22 @@ class AwsKeyAdapter implements KmsKeyAdapter {
       // The signer always resolves the key first; this keeps the ARN rule if it ever does not.
       await this.getPublicKey(ctx);
     }
-    const keyArn = this.#keyArn ?? "";
-    const response = await this.#client.send(
+    const keyArn = this.#keyArn;
+    if (keyArn === undefined) {
+      // The lookup above was abandoned (its signal aborted): never sign without the ARN.
+      throw this.#error(
+        "sign",
+        "the key lookup did not finish, so there is no key ARN to sign with",
+      );
+    }
+    const response = await this.#send(
       new this.#sdk.SignCommand({
         KeyId: keyArn,
         Message: request.digest,
         MessageType: "DIGEST",
         SigningAlgorithm: SIGNING_ALGORITHM,
       }),
-      { abortSignal: ctx.signal },
+      ctx,
     );
     if (field(response, "KeyId") !== keyArn) {
       throw this.#error("sign", "the response is for another key than the one requested");
@@ -139,6 +149,22 @@ class AwsKeyAdapter implements KmsKeyAdapter {
       throw this.#error("sign", "the response has no signature");
     }
     return { format: "der", bytes: signature };
+  }
+
+  async #send(command: unknown, ctx: SignContext): Promise<unknown> {
+    try {
+      return await this.#client.send(command, { abortSignal: ctx.signal });
+    } catch (error) {
+      // The SDK reports a missing region with a plain Error, which the signer would show only as
+      // "Error". Its message holds no request details, so it is safe to recognise.
+      if (error instanceof Error && error.message.includes("Region is missing")) {
+        throw this.#error(
+          "connect",
+          "no AWS region is configured. Set `region` on the key, `kms.defaults.aws.region`, AWS_REGION, or a region in the AWS profile, or use a key ARN",
+        );
+      }
+      throw error;
+    }
   }
 
   public async close(): Promise<void> {

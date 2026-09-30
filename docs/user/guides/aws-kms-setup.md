@@ -17,7 +17,9 @@ aws kms create-key \
 aws kms create-alias --alias-name alias/deployer --target-key-id <KeyId from the output above>
 ```
 
-The plugin refuses keys with another spec or usage. Keep deletion protection in mind: a KMS key cannot be recovered after its deletion waiting period, and funds held by its address are lost with it.
+The plugin refuses keys with another spec or usage.
+
+Deleting the key loses its address for good, along with any funds it holds. AWS KMS deletes a key only after a waiting period of 7 to 30 days (30 by default). You can cancel the deletion during that period; after it, the key cannot be recovered. If you might need the key again, disable it instead, and deny `kms:ScheduleKeyDeletion` to identities that have no reason to delete it.
 
 ## 2. Allow signing, and nothing else
 
@@ -47,12 +49,14 @@ The identity that runs Hardhat needs two permissions on this key. The conditions
 }
 ```
 
-Use the key ARN as the resource, not the alias. Credentials come from the AWS SDK's default chain: environment variables, `~/.aws` profiles and SSO, or the role of the machine or CI job.
+Use the key ARN as the resource: an IAM policy cannot name a KMS key by its alias. This IAM policy takes effect only if the key policy lets IAM policies grant access. The default key policy of a key made with `create-key` does; if you set your own key policy, grant these permissions there instead.
+
+Credentials come from the AWS SDK's default chain: environment variables, `~/.aws` profiles and SSO, or the role of the machine or CI job. A key's `profile` option picks a named profile.
 
 ## 3. Install the SDK and configure the key
 
 ```sh
-npm install @aws-sdk/client-kms@"^3.0.0"
+npm install @aws-sdk/client-kms@"^3.714.0"
 ```
 
 ```ts
@@ -66,8 +70,8 @@ export default defineConfig({
       deployer: {
         provider: "aws",
         keyId: "alias/deployer",
-        // Optional, recommended: the plugin refuses to sign if the key derives to another address.
-        address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        // Optional, recommended: the address the key derives to. The plugin refuses to sign if they differ.
+        address: "0x…",
       },
     },
   },
@@ -77,25 +81,31 @@ export default defineConfig({
 });
 ```
 
-`keyId` accepts a key id, a key ARN, an alias name or an alias ARN; the [configuration reference](../reference/configuration.md) lists every option. The region comes from a key ARN if you give one, then the key's `region`, then `kms.defaults.aws.region`, then the SDK's own chain (`AWS_REGION`, the profile). Without a config entry, `--kms aws` reads `AWS_KMS_KEY_ID` instead; see [Migrate from Foundry](migrate-from-foundry.md).
+`keyId` accepts a key id, a key ARN, an alias name or an alias ARN; the [configuration reference](../reference/configuration.md) lists every option. The region comes from the ARN if `keyId` is one, then the key's `region`, then `kms.defaults.aws.region`, then the SDK's own chain (`AWS_REGION`, then the profile's region).
+
+To use a key without a config entry, set `AWS_KMS_KEY_ID` and pass `--kms aws`; see [Migrate from Foundry](migrate-from-foundry.md).
 
 ## How the plugin uses the key
 
 - It calls `GetPublicKey` once, checks the key spec, usage and algorithm, and takes the key ARN from the response.
-- It signs with that ARN, never with the alias you configured. An alias that is later pointed at another key cannot change which key signs, and an `address` pin catches it on the next run.
-- It sends `Sign` with `MessageType: DIGEST` and `ECDSA_SHA_256`, and checks that the response is for the same key and algorithm.
-- Every signature is then parsed, normalized to low-S and verified against the public key before it is used; see the [signing pipeline](../../contributor/signing-pipeline.md).
+- It signs with that ARN, never with the alias you configured. Repointing the alias cannot change which key signs during a run, and an `address` pin catches the change on the next run.
+- It sends `Sign` with `MessageType: DIGEST` and `ECDSA_SHA_256`, and checks that the response names the same key and algorithm.
+- It parses every signature, normalizes it to low-S and verifies it against the public key before using it; see the [signing pipeline](../../contributor/signing-pipeline.md).
 
 ## Errors
 
-| Error                                                       | Cause and fix                                                                                    |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `@aws-sdk/client-kms is not installed in this project`      | Run the install command it prints, in the Hardhat project.                                       |
-| `the key spec is …, not ECC_SECG_P256K1 (secp256k1)`        | The key is not a secp256k1 key. Create one as in step 1; a key's spec cannot be changed.         |
-| `the key usage is …, not SIGN_VERIFY`                       | The key is for encryption. Create a signing key as in step 1.                                    |
-| `the key derives to 0x…, but the configured address is 0x…` | The alias points at another key, or the pin is wrong. Check the alias, then update `address`.    |
-| `the provider call failed (AccessDeniedException)`          | The identity lacks `kms:GetPublicKey` or `kms:Sign` on this key, or the conditions do not match. |
-| `the provider call failed (NotFoundException)`              | The key id or alias does not exist in this account and region. Check `keyId` and the region.     |
-| `no answer within … ms`                                     | KMS did not answer in time. Check the network and region, or raise `timeoutMs`.                  |
+Each message starts with the provider, the operation and the key, for example `aws, sign, key aws:alias/deployer: the provider call failed (AccessDeniedException)`. The table lists the part after the colon.
+
+| Error                                                       | Cause and fix                                                                                                                                     |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@aws-sdk/client-kms is not installed in this project`      | Run the install command it prints, in the Hardhat project.                                                                                        |
+| `the key spec is …, not ECC_SECG_P256K1 (secp256k1)`        | The key is not a secp256k1 key. A key's spec cannot be changed, so create a new key as in step 1.                                                 |
+| `the key derives to 0x…, but the configured address is 0x…` | The alias points at another key, or the pin is wrong. Check the alias, then update `address`.                                                     |
+| `the provider call failed (AccessDeniedException)`          | The identity lacks `kms:GetPublicKey` or `kms:Sign` on this key, the `Sign` conditions do not match, or the key policy does not allow IAM access. |
+| `the provider call failed (NotFoundException)`              | The key id or alias does not exist in this account and region. Check `keyId` and the region.                                                      |
+| `the provider call failed (DisabledException)`              | The key is disabled. Enable it with `aws kms enable-key`.                                                                                         |
+| `the provider call failed (KMSInvalidStateException)`       | The key's state does not allow the call, usually because it is pending deletion. Run `aws kms cancel-key-deletion`, then `aws kms enable-key`.    |
+| `no AWS region is configured`                               | Set `region` on the key or `kms.defaults.aws.region`, set `AWS_REGION`, give the profile a region, or use a key ARN.                              |
+| `no answer within … ms`                                     | KMS did not answer in time. Check the network and region, or raise `timeoutMs`.                                                                   |
 
 Provider errors show only the error's class name, never its message, since SDK messages can carry request details. Run with `DEBUG=hardhat:kms:*` to see each call; see [Debug output](debug-output.md).

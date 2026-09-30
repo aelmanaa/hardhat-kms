@@ -21,6 +21,10 @@ export interface FakeKmsOptions {
   omitSignature?: boolean;
   /** Return the high-S twin of every signature, as KMS may. */
   highS?: boolean;
+  /** Fail every call with this error, as the SDK does, for example, without a region. */
+  sendError?: Error;
+  /** Answer GetPublicKey only after the call's signal aborts, like a late network response. */
+  answerAfterAbort?: boolean;
 }
 
 /** A recorded SDK call. */
@@ -98,6 +102,17 @@ export function fakeAwsKmsSdk(options: FakeKmsOptions): FakeAwsKms {
         input: command.input,
         abortSignal: sendOptions?.abortSignal,
       });
+      if (options.sendError !== undefined) {
+        throw options.sendError;
+      }
+      if (options.answerAfterAbort === true && command instanceof GetPublicKeyCommand) {
+        const signal = sendOptions?.abortSignal;
+        await new Promise<void>((resolve) => {
+          signal?.addEventListener("abort", () => {
+            resolve();
+          });
+        });
+      }
       if (command instanceof GetPublicKeyCommand) {
         return await Promise.resolve({
           KeyId: "keyArn" in options ? options.keyArn : KEY_ARN,

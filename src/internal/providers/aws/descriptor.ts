@@ -8,6 +8,7 @@ export const awsProvider: KmsProviderDescriptor = {
   schema: awsKeySchema,
   resolve: (key, context) =>
     key.provider === "aws" ? resolveAwsKey(key, context) : wrongProvider("aws", key.provider),
-  sdks: [{ packageName: "@aws-sdk/client-kms", range: "^3.0.0" }],
+  // 3.714.0 is the first version whose client takes the region from its `profile`.
+  sdks: [{ packageName: "@aws-sdk/client-kms", range: "^3.714.0" }],
   load: async () => (await import("./adapter.ts")).awsModule,
 };

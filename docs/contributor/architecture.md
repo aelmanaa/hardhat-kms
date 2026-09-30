@@ -186,9 +186,9 @@ Signing has no side effects, so the plugin retries throttling errors and GCP CRC
 
 ## SDK loading
 
-The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so optional peers would not work. Users install the SDK for their provider, as the [configuration reference](../user/reference/configuration.md#provider-sdks) documents. Each adapter (M3, M6) adds its SDK to the plugin's devDependencies, for the plugin's own tests.
+The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so optional peers would not work. Users install the SDK for their provider, as the [configuration reference](../user/reference/configuration.md#provider-sdks) documents. The plugin's own tests use a fake SDK; the real SDKs become devDependencies only for the tests that run them against an emulator or the cloud, starting with the AWS LocalStack suite ([#17](https://github.com/aelmanaa/hardhat-kms/issues/17)).
 
-`loadSdk` in `src/internal/providers/sdk.ts` (M2) loads an SDK the first time an adapter needs it. No adapter calls it until M3. Adapters reach it through `createProviderDeps` (`src/internal/providers/deps.ts`), which only loads the packages their descriptor declares. It runs four steps:
+`loadSdk` in `src/internal/providers/sdk.ts` (M2) loads an SDK the first time an adapter needs it. The AWS adapter (M3) is the first to call it. Adapters reach it through `createProviderDeps` (`src/internal/providers/deps.ts`), which only loads the packages their descriptor declares. It runs four steps:
 
 1. It resolves the package with `createRequire(<project root>/package.json).resolve(pkg)`. This works with npm, pnpm and workspaces because the user installs the SDK in their own project.
 2. It checks that the resolved file sits in a `node_modules` folder of the project root or one of its ancestors. Node also searches `NODE_PATH` and global folders, and a package found there is rejected. Under Yarn Plug'n'Play, which has no `node_modules`, this check is skipped; Plug'n'Play support is untested.

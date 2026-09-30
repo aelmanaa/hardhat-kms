@@ -64,6 +64,21 @@ describe("public keys", () => {
     }
   });
 
+  it("accepts only the canonical uncompressed SPKI encoding", () => {
+    const der = new Uint8Array(
+      secp256k1KeyPair().publicKey.export({ format: "der", type: "spki" }),
+    );
+    const point = secp256k1.getPublicKey(secp256k1.utils.randomSecretKey(), true);
+    const compressed = Uint8Array.from([
+      ...Buffer.from("3036301006072a8648ce3d020106052b8104000a032200", "hex"),
+      ...point,
+    ]);
+
+    assert.equal(publicKeyFromSpkiDer(der).length, 65);
+    assert.throws(() => publicKeyFromSpkiDer(Uint8Array.from([...der, 0])), InvalidPublicKeyError);
+    assert.throws(() => publicKeyFromSpkiDer(compressed), /canonical DER encoding/);
+  });
+
   it("rejects bytes that are not SPKI", () => {
     assert.throws(() => publicKeyFromSpkiDer(Uint8Array.of(1, 2, 3)), InvalidPublicKeyError);
     assert.throws(() => publicKeyFromSpkiPem("not a pem"), InvalidPublicKeyError);

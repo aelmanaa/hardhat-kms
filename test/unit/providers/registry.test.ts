@@ -13,7 +13,7 @@ describe("provider registry", () => {
     }
     // These ranges are published in the configuration reference; change both together.
     assert.deepEqual(builtinProvider("aws")?.sdks, [
-      { packageName: "@aws-sdk/client-kms", range: "^3.0.0" },
+      { packageName: "@aws-sdk/client-kms", range: "^3.714.0" },
     ]);
     assert.deepEqual(builtinProvider("gcp")?.sdks, [
       { packageName: "@google-cloud/kms", range: "^6.0.0" },

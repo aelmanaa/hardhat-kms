@@ -189,6 +189,61 @@ describe("AWS KMS adapter", () => {
     }
   });
 
+  it("works with multi-region keys, whose ARNs use mrk- ids", async () => {
+    const mrkArn = `arn:aws:kms:eu-west-1:111122223333:key/mrk-${"a".repeat(32)}`;
+    const { adapter, calls } = await adapterFor(awsKey({ keyId: "alias/deployer" }), {
+      keyArn: mrkArn,
+    });
+    const signer = new KmsSigner(adapter, { timeoutMs: 1000, displayMessage: async () => {} });
+
+    assert.equal(await signer.getAddress(), HARDHAT_ACCOUNT_0.address);
+    await signer.signDigest(new Uint8Array(32).fill(1));
+    assert.equal(calls.at(-1)?.input.KeyId, mrkArn);
+  });
+
+  it("rejects a Sign response whose key id differs, even only in case", async () => {
+    const { adapter } = await adapterFor(awsKey({ keyId: "alias/deployer" }), {
+      signResponseKeyId: KEY_ARN.toUpperCase(),
+    });
+    await assertAwsError(
+      adapter.signDigest?.({ digest: new Uint8Array(32) }, context()) ?? Promise.resolve(),
+      ["for another key"],
+    );
+  });
+
+  it("says when no region is configured, instead of a bare error class", async () => {
+    const { adapter } = await adapterFor(awsKey({ keyId: "alias/deployer" }), {
+      sendError: new Error("Region is missing"),
+    });
+    await assertAwsError(adapter.getPublicKey?.(context()) ?? Promise.resolve(), [
+      "aws, connect, key aws:alias/deployer: no AWS region is configured",
+    ]);
+  });
+
+  it("does not keep the ARN from a call that was abandoned", async () => {
+    const { adapter, calls } = await adapterFor(awsKey({ keyId: "alias/deployer" }), {
+      answerAfterAbort: true,
+    });
+    const controller = new AbortController();
+    const pending = adapter.getPublicKey?.({ ...context(), signal: controller.signal });
+    controller.abort();
+    await pending;
+    // Signing now has no ARN to trust, so it looks the key up again (the fake then hangs, which
+    // the aborted signal below ends).
+    const retry = new AbortController();
+    const signing = adapter.signDigest?.(
+      { digest: new Uint8Array(32) },
+      { ...context(), signal: retry.signal },
+    );
+    retry.abort();
+    await signing?.catch(() => undefined);
+
+    assert.deepEqual(
+      calls.map((call) => call.command),
+      ["GetPublicKey", "GetPublicKey"],
+    );
+  });
+
   it("rejects an SDK module that does not look like @aws-sdk/client-kms", async () => {
     await assertAwsError(
       awsModule.createKeyAdapter(awsKey({ keyId: "alias/a" }), {

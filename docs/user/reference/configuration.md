@@ -134,7 +134,7 @@ The plugin loads a provider's SDK from your project the first time one of its ke
 
 | Provider         | Install                                                              |
 | ---------------- | -------------------------------------------------------------------- |
-| AWS KMS          | `npm install @aws-sdk/client-kms@"^3.0.0"`                           |
+| AWS KMS          | `npm install @aws-sdk/client-kms@"^3.714.0"`                         |
 | Google Cloud KMS | `npm install @google-cloud/kms@"^6.0.0"`                             |
 | Azure Key Vault  | `npm install @azure/keyvault-keys@"^4.0.0" @azure/identity@"^4.0.0"` |
 
