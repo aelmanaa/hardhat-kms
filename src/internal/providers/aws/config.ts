@@ -6,6 +6,15 @@ import { resolveIdentifier } from "../../config/identifiers.ts";
 import { type KeyResolveContext, resolveCommonKeyConfig } from "../../config/key-common.ts";
 import { AWS_KEY_ID_FORMS, parseAwsKeyId } from "./key-id.ts";
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** Validates an AWS KMS key config. */
 export const awsKeySchema: z.ZodTypeAny = z
   .object({
@@ -13,7 +22,10 @@ export const awsKeySchema: z.ZodTypeAny = z
     keyId: identifierSchema,
     region: nonEmptyString.optional(),
     profile: nonEmptyString.optional(),
-    endpoint: z.string().url("Expected a URL").optional(),
+    endpoint: z
+      .string()
+      .refine(isHttpUrl, "Expected an http or https URL, such as http://localhost:4566")
+      .optional(),
     ...commonKeyFields,
   })
   .strict()

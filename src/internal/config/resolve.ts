@@ -118,7 +118,7 @@ export function resolveKmsUserConfig(
       const accounts = userConfig.networks?.[network]?.kmsAccounts ?? [];
       const kmsAccounts = accounts.map((account, index) => {
         if (typeof account === "string") {
-          const key = kms.keys[account];
+          const key = Object.hasOwn(kms.keys, account) ? kms.keys[account] : undefined;
           if (key === undefined) {
             // Validation rejects unknown names; this guards against resolving an unvalidated config.
             throw new Error(`Unknown key "${account}" in networks.${network}.kmsAccounts`);

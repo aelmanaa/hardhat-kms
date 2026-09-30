@@ -105,7 +105,10 @@ const kmsSchema = z
       .strict()
       .optional(),
     allowCrossChainTypedData: z.boolean().optional(),
-    simulatedBalance: z.bigint().nonnegative().optional(),
+    simulatedBalance: z
+      .bigint({ invalid_type_error: "Expected a bigint amount of wei, for example 10n ** 18n" })
+      .nonnegative("Expected a non-negative amount of wei")
+      .optional(),
   })
   .strict();
 

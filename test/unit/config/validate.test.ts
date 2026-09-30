@@ -1,32 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import type { HardhatUserConfig } from "hardhat/config";
 import { configVariable } from "hardhat/config";
 
-import { validateKmsUserConfig } from "../../../src/internal/config/validate.ts";
+import { assertError, validate } from "../../helpers/config-validation.ts";
 
 const ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const GCP_NAME = "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1";
-
-/** Validates an untyped config, as a user's JavaScript config would arrive. */
-function validate(config: unknown): Array<{ path: string; message: string }> {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- deliberately invalid configs
-  return validateKmsUserConfig(config as HardhatUserConfig).map(({ path, message }) => ({
-    path: path.join("."),
-    message,
-  }));
-}
-
-function assertError(config: unknown, path: string, messagePart: string): void {
-  const errors = validate(config);
-  const match = errors.find((error) => error.path === path);
-  assert.ok(match, `expected an error at ${path}, got ${JSON.stringify(errors)}`);
-  assert.ok(
-    match.message.includes(messagePart),
-    `"${match.message}" should include "${messagePart}"`,
-  );
-}
 
 describe("validateKmsUserConfig", () => {
   it("accepts a config without a kms section", () => {
@@ -161,7 +141,7 @@ describe("validateKmsUserConfig", () => {
         },
       },
       "kms.keys.a.keyVersion",
-      "",
+      "Expected a positive integer",
     );
     assertError(
       {
@@ -339,11 +319,17 @@ describe("validateKmsUserConfig", () => {
       "kms.keys.a.address",
       "20-byte",
     );
-    for (const timeoutMs of [0, 1.5, 2 ** 31, -1]) {
+    for (const [timeoutMs, message] of [
+      [0, "at least 1 ms"],
+      [-1, "at least 1 ms"],
+      [1.5, "integer number of milliseconds"],
+      [2 ** 31, "at most 2147483647 ms"],
+    ] as const) {
       assertError(
         { kms: { keys: { a: { provider: "aws", keyId: "alias/a", timeoutMs } } } },
         "kms.keys.a.timeoutMs",
-        "",
+        message,
+        1,
       );
     }
     assertError(
@@ -354,8 +340,18 @@ describe("validateKmsUserConfig", () => {
   });
 
   it("rejects unknown fields in the kms section and a negative simulated balance", () => {
-    assertError({ kms: { key: {} } }, "kms", "key");
-    assertError({ kms: { simulatedBalance: -1n } }, "kms.simulatedBalance", "");
-    assertError({ kms: { simulatedBalance: 1 } }, "kms.simulatedBalance", "bigint");
+    assertError({ kms: { key: {} } }, "kms", "Unrecognized key(s) in object: 'key'", 1);
+    assertError(
+      { kms: { simulatedBalance: -1n } },
+      "kms.simulatedBalance",
+      "non-negative amount of wei",
+      1,
+    );
+    assertError(
+      { kms: { simulatedBalance: 1 } },
+      "kms.simulatedBalance",
+      "bigint amount of wei",
+      1,
+    );
   });
 });
