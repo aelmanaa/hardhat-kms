@@ -1,0 +1,63 @@
+# Keep dependencies current (https://docs.github.com/code-security/dependabot).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Don't raise the minimum versions our users need unless required.
+    versioning-strategy: increase-if-necessary
+    # Let new releases settle before adopting them (security updates are not delayed).
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    groups:
+      tooling:
+        patterns:
+          - "oxlint*"
+          - "oxfmt"
+          - "typescript"
+          - "c8"
+          - "tsx"
+          - "knip"
+          - "publint"
+          - "@arethetypeswrong/*"
+          - "lefthook"
+          - "@changesets/*"
+          - "eslint-plugin-jsdoc"
+          - "fast-check"
+          - "@types/*"
+      hardhat:
+        patterns:
+          - "hardhat"
+          - "@nomicfoundation/*"
+      cloud-sdks:
+        patterns:
+          - "@aws-sdk/*"
+          - "@google-cloud/*"
+          - "@azure/*"
+      crypto:
+        patterns:
+          - "@noble/*"
+          - "micro-eth-signer"
+          - "micro-packed"
+    ignore:
+      # @nomicfoundation/hardhat-zod-utils has a peer dependency on zod ^3.
+      - dependency-name: zod
+        versions: [">=4"]
+      # Stay on the micro-eth-signer line that Hardhat core uses (byte-identical transactions).
+      - dependency-name: micro-eth-signer
+        versions: [">=0.20"]
+      # micro-packed must match the version micro-eth-signer 0.19 pins (vendored EIP-712 code).
+      - dependency-name: micro-packed
+        versions: [">=0.10"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]

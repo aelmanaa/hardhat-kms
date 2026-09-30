@@ -1,0 +1,24 @@
+// commit-msg hook. The subject line must follow Conventional Commits
+// (https://www.conventionalcommits.org). Subjects that git writes itself for merges and reverts pass unchanged.
+import { readFileSync } from "node:fs";
+
+const messageFile = process.argv[2];
+if (messageFile === undefined) {
+  process.stderr.write("check-commit-message: missing commit message file argument\n");
+  process.exit(1);
+}
+
+const subject = readFileSync(messageFile, "utf8").split("\n")[0] ?? "";
+const conventional =
+  /^(feat|fix|docs|chore|refactor|test|perf|build|ci|revert|style)(\([\w./-]+\))?!?: \S.{0,71}$/;
+
+if (
+  !conventional.test(subject) &&
+  !subject.startsWith("Merge ") &&
+  !subject.startsWith('Revert "')
+) {
+  process.stderr.write(
+    `Commit subject must follow Conventional Commits, e.g. "feat(aws): add key pinning" (max 72 chars).\nGot: ${subject}\n`,
+  );
+  process.exit(1);
+}
