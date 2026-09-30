@@ -229,12 +229,14 @@ export interface KmsHooks {
    * built-in providers; a key whose provider no handler claims fails with an error.
    *
    * The plugin validates only the fields every key shares. A handler validates the rest of an
-   * `ExternalKmsKeyConfig`'s `userConfig` itself, and every adapter it returns goes through the
-   * same signature checks as the built-in ones.
+   * `ExternalKmsKeyConfig`'s `userConfig` itself; configuration variables in it are
+   * `ResolvedConfigurationVariable` objects. The plugin rejects an adapter without `describe()`,
+   * without a signing method, or without `getPublicKey` or `getAddress` when the key has no
+   * `address` pin. It verifies the adapter's signatures like those of the built-in providers.
    *
    * @param context - The Hardhat runtime, without tasks.
    * @param key - The resolved key.
-   * @param next - Passes the key to the next handler.
+   * @param next - Passes the key to the next handler, or to the built-in providers after the last one.
    * @returns The key's adapter.
    */
   createKeyAdapter(
@@ -243,3 +245,7 @@ export interface KmsHooks {
     next: (nextContext: HookContext, nextKey: KmsKeyConfig) => Promise<KmsKeyAdapter>,
   ): Promise<KmsKeyAdapter>;
 }
+
+// Provider plugins often import only this module; this brings in the `kms` hook category and
+// the config type extensions.
+export type * from "./type-extensions.ts";

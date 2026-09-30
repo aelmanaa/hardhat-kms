@@ -10,10 +10,10 @@ Each arrow points from a module to a module it may import. Blue modules are impl
 
 ```mermaid
 flowchart TD
-  index["index.ts<br/>plugin definition"] --> hooks["hook-handlers/<br/>config, network, kms"]
+  index["index.ts<br/>plugin definition"] --> hooks["hook-handlers/<br/>config, network"]
   index --> tasks["tasks/"]
   hooks --> config["config/<br/>schema and resolution"]
-  hooks --> registry["providers/registry.ts"]
+  hooks --> registry["providers/registry.ts<br/>providers/create-adapter.ts"]
   hooks --> rpc["rpc/<br/>dispatcher, accounts,<br/>messages, transactions"]
   rpc --> signer["signer/<br/>KmsSigner, timeouts"]
   tasks --> signer
@@ -136,6 +136,8 @@ src/
     providers/
       registry.ts           provider id -> descriptor; a built-in provider = one folder + its types + one entry here
       sdk.ts                loadSdk: resolve an SDK from the project root, check its version range
+      deps.ts               ProviderDeps for an adapter: loadSdk limited to the descriptor's sdks
+      create-adapter.ts     runs the `kms` hook chain; the built-in providers are its last step; checks the adapter
       aws/ gcp/ azure/      descriptor.ts (zod schema, resolve incl. displayId, sdks [{packageName, range}], lazy load)
                             adapter.ts (lazy: SDK client, credentials, version pinning)
                             wire.ts (pure decoding: SPKI/PEM/JWK, DER/compact, CRC32C)

@@ -66,6 +66,7 @@ type SignRequest =
  */
 export class KmsSigner {
   readonly #adapter: KmsKeyAdapter;
+  readonly #description: KeyDescription;
   readonly #options: KmsSignerOptions;
   readonly #timers: Timers;
   #identity: Promise<KeyIdentity> | undefined;
@@ -75,6 +76,9 @@ export class KmsSigner {
    * @param options - Pinning, timeout and UI options.
    */
   public constructor(adapter: KmsKeyAdapter, options: KmsSignerOptions) {
+    // Described once: adapters come from third-party code, and error paths must not call back into it.
+    const description = adapter.describe();
+    const context = { provider: description.provider, key: description.displayId };
     if (
       adapter.getPublicKey === undefined &&
       adapter.getAddress === undefined &&
@@ -82,13 +86,9 @@ export class KmsSigner {
     ) {
       throw kmsError(
         "the adapter can neither return a public key nor an address; set an `address` pin",
-        {
-          provider: adapter.describe().provider,
-          key: adapter.describe().displayId,
-        },
+        context,
       );
     }
-    const context = { provider: adapter.describe().provider, key: adapter.describe().displayId };
     if (
       !Number.isInteger(options.timeoutMs) ||
       options.timeoutMs < 1 ||
@@ -111,6 +111,7 @@ export class KmsSigner {
       }
     }
     this.#adapter = adapter;
+    this.#description = Object.freeze({ ...description });
     this.#options = { ...options, expectedAddress };
     this.#timers = options.timers ?? systemTimers;
   }
@@ -121,7 +122,7 @@ export class KmsSigner {
    * @returns The provider, pinned id and display id.
    */
   public describe(): KeyDescription {
-    return this.#adapter.describe();
+    return this.#description;
   }
 
   /**
@@ -323,7 +324,7 @@ export class KmsSigner {
   }
 
   #error(operation: string, message: string): HardhatPluginError {
-    const { provider, displayId } = this.#adapter.describe();
+    const { provider, displayId } = this.#description;
     return kmsError(message, { provider, operation, key: displayId });
   }
 }
