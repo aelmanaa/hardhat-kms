@@ -34,18 +34,19 @@ npm run pkg:check    # build, publint, arethetypeswrong, knip
 
 Where things are:
 
-| Topic                                       | Page                                                                         |
-| ------------------------------------------- | ---------------------------------------------------------------------------- |
-| Module map, code map, request flows         | [docs/contributor/architecture.md](docs/contributor/architecture.md)         |
-| Signature checks, key pinning, threat model | [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md) |
-| Adapter interface for providers             | [docs/contributor/providers.md](docs/contributor/providers.md)               |
-| Transaction filling, nonces, send lock      | [docs/contributor/transactions.md](docs/contributor/transactions.md)         |
-| Test layers and conventions                 | [docs/contributor/testing.md](docs/contributor/testing.md)                   |
-| Quality gates, hooks, CI                    | [docs/contributor/tooling.md](docs/contributor/tooling.md)                   |
-| How the docs are organised                  | [docs/contributor/documentation.md](docs/contributor/documentation.md)       |
-| Why the main decisions were made            | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md) |
-| Roadmap and milestones                      | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                   |
-| Former design document (section redirects)  | [docs/DESIGN.md](docs/DESIGN.md)                                             |
+| Topic                                                | Page                                                                                             |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Module map, code map, request flows                  | [docs/contributor/architecture.md](docs/contributor/architecture.md)                             |
+| Signature checks, key pinning, threat model          | [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md)                     |
+| Adapter interface for providers                      | [docs/contributor/providers.md](docs/contributor/providers.md)                                   |
+| Transaction filling, nonces, send lock               | [docs/contributor/transactions.md](docs/contributor/transactions.md)                             |
+| Test layers and conventions                          | [docs/contributor/testing.md](docs/contributor/testing.md)                                       |
+| Quality gates, hooks, CI                             | [docs/contributor/tooling.md](docs/contributor/tooling.md)                                       |
+| How the docs are organised                           | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
+| Why the main decisions were made                     | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
+| How other signers compare, and why each check exists | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
+| Roadmap and milestones                               | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
+| Former design document (section redirects)           | [docs/DESIGN.md](docs/DESIGN.md)                                                                 |
 
 Decision records:
 

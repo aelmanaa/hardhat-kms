@@ -18,16 +18,17 @@ Tutorials and the remaining guides are listed under [Planned pages](contributor/
 
 ## Contributing
 
-| Page                                                             | What it covers                                    |
-| ---------------------------------------------------------------- | ------------------------------------------------- |
-| [CONTRIBUTING.md](../CONTRIBUTING.md)                            | Setup, commands, workflow, issue-first rule       |
-| [Architecture](contributor/architecture.md)                      | Module map, code map, request flows               |
-| [Signing pipeline and security](contributor/signing-pipeline.md) | Signature checks, key pinning, threat model       |
-| [Provider contract](contributor/providers.md)                    | The adapter interface for KMS and HSM providers   |
-| [Transactions](contributor/transactions.md)                      | Filling, nonces, the send lock, chain-id checks   |
-| [Testing](contributor/testing.md)                                | Test layers and conventions                       |
-| [Tooling](contributor/tooling.md)                                | Quality gates, hooks, CI                          |
-| [Documentation](contributor/documentation.md)                    | How the docs are organised and the rules for them |
-| [Decision records](contributor/decisions/README.md)              | Why the main decisions were made                  |
-| [Roadmap](contributor/roadmap.md)                                | Releases and milestones                           |
-| [SECURITY.md](../SECURITY.md)                                    | Reporting vulnerabilities                         |
+| Page                                                             | What it covers                                       |
+| ---------------------------------------------------------------- | ---------------------------------------------------- |
+| [CONTRIBUTING.md](../CONTRIBUTING.md)                            | Setup, commands, workflow, issue-first rule          |
+| [Architecture](contributor/architecture.md)                      | Module map, code map, request flows                  |
+| [Signing pipeline and security](contributor/signing-pipeline.md) | Signature checks, key pinning, threat model          |
+| [Provider contract](contributor/providers.md)                    | The adapter interface for KMS and HSM providers      |
+| [Transactions](contributor/transactions.md)                      | Filling, nonces, the send lock, chain-id checks      |
+| [Testing](contributor/testing.md)                                | Test layers and conventions                          |
+| [Tooling](contributor/tooling.md)                                | Quality gates, hooks, CI                             |
+| [Documentation](contributor/documentation.md)                    | How the docs are organised and the rules for them    |
+| [Decision records](contributor/decisions/README.md)              | Why the main decisions were made                     |
+| [Signing prior art](contributor/research/signing-prior-art.md)   | How other signers compare, and why each check exists |
+| [Roadmap](contributor/roadmap.md)                                | Releases and milestones                              |
+| [SECURITY.md](../SECURITY.md)                                    | Reporting vulnerabilities                            |
