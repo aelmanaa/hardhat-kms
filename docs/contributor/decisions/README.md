@@ -1,6 +1,6 @@
 # Decision records
 
-Each record explains one decision a contributor might otherwise question: the context, the decision, and what follows from it. Records are not edited after they are accepted. A later decision that changes one supersedes it, and both link to each other.
+Each record explains one decision a contributor might otherwise question: the context, the decision, and what follows from it. Once a record is accepted, its decision does not change; later evidence and references go in an Evidence section. A later decision that changes one supersedes it, and both link to each other.
 
 To add a record, copy [template.md](template.md) to the next number and open a pull request with its issue.
 

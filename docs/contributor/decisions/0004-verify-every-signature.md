@@ -15,3 +15,7 @@ Every signature goes through one pipeline in `signer/`: strict parse, range chec
 - No signature leaves the plugin unless it recovers to the account's address.
 - Each signature costs a few public-key recoveries and one verification, all local.
 - Adapters stay thin: they translate wire formats and never decide whether a signature belongs to the key.
+
+## Evidence
+
+A source comparison with Foundry and the most downloaded JavaScript KMS signers, made while the pipeline was in review, found unchecked recovery bits, panics when no recovery bit matched (since fixed), `s` values that lose a leading zero, lenient DER parsing and skipped integrity checks in published code. The versions, packages and details are in [Signing prior art](../research/signing-prior-art.md).
