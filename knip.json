@@ -4,7 +4,7 @@
     ".": {
       "entry": ["scripts/*.ts"],
       "project": ["scripts/*.ts"],
-      "ignoreDependencies": ["tsx", "hardhat-kms", "publint", "@arethetypeswrong/cli", "hardhat"]
+      "ignoreDependencies": ["tsx", "hardhat-kms", "publint", "@arethetypeswrong/cli"]
     },
     "packages/hardhat-kms": {
       "entry": ["test/**/*.test.ts", "test/fixtures/*.ts", "test/helpers/*.mjs"],

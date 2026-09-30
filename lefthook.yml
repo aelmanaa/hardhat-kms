@@ -5,7 +5,7 @@ pre-commit:
   jobs:
     - name: lint
       glob: "*.{ts,mts,js,mjs}"
-      run: pnpm exec oxlint --fix {staged_files}
+      run: pnpm exec oxlint --fix --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
     - name: format
       glob: "*.{ts,mts,js,mjs,json,jsonc,md,yml,yaml}"

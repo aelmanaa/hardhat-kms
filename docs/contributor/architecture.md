@@ -133,7 +133,7 @@ Private key material never leaves the KMS. The plugin sends a 32-byte digest (or
 ## Module layout
 
 ```
-src/
+packages/hardhat-kms/src/
   index.ts                  definePlugin: types, constants, lazy hook/task imports only (Hardhat plugin guideline)
   type-extensions.ts        augments HardhatUserConfig/HardhatConfig (kms) + Http/Edr Network(User)Config (kmsAccounts); no named exports
   types.ts                  public provider-author types (exported via the "hardhat-kms/types" subpath)

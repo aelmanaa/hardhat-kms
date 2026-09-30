@@ -31,14 +31,14 @@ export default defineConfig({
 });
 ```
 
-See the [configuration reference](docs/user/reference/configuration.md) for every option.
+See the [configuration reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/configuration.md) for every option.
 
 ## Docs
 
-- All docs, for users and contributors: [docs/README.md](docs/README.md)
-- For coding agents: [AGENTS.md](AGENTS.md)
-- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
-- Security reports: [SECURITY.md](SECURITY.md)
+- All docs, for users and contributors: [docs/README.md](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/README.md)
+- For coding agents: [AGENTS.md](https://github.com/aelmanaa/hardhat-kms/blob/main/AGENTS.md)
+- Contributing: [CONTRIBUTING.md](https://github.com/aelmanaa/hardhat-kms/blob/main/CONTRIBUTING.md)
+- Security reports: [SECURITY.md](https://github.com/aelmanaa/hardhat-kms/blob/main/SECURITY.md)
 
 ## License
 

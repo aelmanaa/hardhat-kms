@@ -49,12 +49,16 @@ jobs:
       - name: Internal links and anchors
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
-          args: --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'docs/**/*.md'
+          args: --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'packages/*/README.md' 'docs/**/*.md'
 
   test:
     name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    env:
+      # Developing needs Node >= 22.18 (root devEngines), but the published package supports 22.13;
+      # this job checks that, so pnpm must not refuse the older runtime.
+      pnpm_config_runtime_on_fail: ${{ matrix.node == '22.13.0' && 'ignore' || 'error' }}
     strategy:
       fail-fast: false
       matrix:

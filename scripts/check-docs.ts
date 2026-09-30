@@ -1,6 +1,6 @@
 // Keeps the docs in step with the code:
-// - every TypeScript snippet in the README and docs/ typechecks against the built package, the way
-//   a user's project imports it (run `npm run build` first; `npm run docs:check` does);
+// - every TypeScript snippet in the READMEs and docs/ typechecks against the built package, the way
+//   a user's project imports it (run `pnpm run build` first; `pnpm run docs:check` does);
 // - every page under docs/ is linked from AGENTS.md and docs/README.md, and every decision record
 //   from the decision index, with the exceptions listed in checkIndexes.
 // lychee checks the links themselves (see lychee.toml).
@@ -10,7 +10,7 @@
 //
 // Usage: node scripts/check-docs.ts
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -197,8 +197,19 @@ function checkIndexes(pages: string[]): string[] {
   return problems;
 }
 
+/** The README of each workspace package, which npm shows on the package page. */
+function packageReadmes(): string[] {
+  return readdirSync(path.join(root, "packages"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.posix.join("packages", entry.name, "README.md"))
+    .filter((file) => existsSync(path.join(root, file)));
+}
+
 const pages = markdownFiles("docs");
-const problems = [...checkIndexes(pages), ...checkSnippets(["README.md", ...pages])];
+const problems = [
+  ...checkIndexes(pages),
+  ...checkSnippets(["README.md", ...packageReadmes(), ...pages]),
+];
 if (problems.length > 0) {
   process.stderr.write(`${problems.join("\n")}\n`);
   process.exit(1);

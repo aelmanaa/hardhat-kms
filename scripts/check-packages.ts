@@ -3,12 +3,14 @@
 //
 // Usage: node scripts/check-packages.ts
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const shell = process.platform === "win32";
+const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const bin = (name: string): string =>
   path.join(root, "node_modules", ".bin", process.platform === "win32" ? `${name}.cmd` : name);
 
@@ -30,9 +32,28 @@ const packages = readdirSync(path.join(root, "packages"), { withFileTypes: true 
 for (const directory of packages) {
   process.stdout.write(`\n== ${path.relative(root, directory)}\n`);
   execFileSync(bin("publint"), ["--strict"], { cwd: directory, stdio: "inherit", shell });
-  execFileSync(bin("attw"), ["--pack", ".", "--profile", "esm-only"], {
-    cwd: directory,
-    stdio: "inherit",
-    shell,
-  });
+  // Check the tarball pnpm publishes (workspace: and catalog: ranges replaced), not an npm pack.
+  const packOutput: unknown = JSON.parse(
+    execFileSync(pnpm, ["pack", "--json", "--pack-destination", tmpdir()], {
+      cwd: directory,
+      shell,
+    }).toString(),
+  );
+  const filename =
+    typeof packOutput === "object" && packOutput !== null && "filename" in packOutput
+      ? String(packOutput.filename)
+      : "";
+  if (filename === "") {
+    throw new Error(`pnpm pack did not report a tarball for ${directory}`);
+  }
+  const packed = { filename };
+  try {
+    execFileSync(bin("attw"), [packed.filename, "--profile", "esm-only"], {
+      cwd: directory,
+      stdio: "inherit",
+      shell,
+    });
+  } finally {
+    rmSync(packed.filename, { force: true });
+  }
 }
