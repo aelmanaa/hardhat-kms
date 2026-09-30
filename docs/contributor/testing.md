@@ -34,7 +34,7 @@ Tests form a pyramid. The lower layers are fast and pure; the upper layers exerc
    - `hardhat run` exits.
    - Error messages never contain the injected fake secrets.
 5. Emulated AWS: LocalStack `4.14.0`, pinned by digest and bound to a random host port, with the real `@aws-sdk/client-kms` against an `ECC_SECG_P256K1` key. About half of its signatures come back high-S, which exercises normalization. This layer runs on Ubuntu CI only.
-6. Live tests (`test:live`, triggered manually in a protected environment) use real AWS, GCP and Azure keys on Sepolia, reached through GitHub OIDC. They deploy, send every transaction type, and verify message and typed-data signatures on chain. Transaction hashes are recorded in `docs/live-proof.md`.
+6. Live tests (`npm run test:live`) use real AWS, GCP and Azure keys on Sepolia. A developer runs them locally with their own `aws`, `gcloud` and `az` logins; nothing is stored in the repository, and providers without a configured key are skipped. They deploy, send every transaction type, and verify message and typed-data signatures on chain. Transaction hashes are recorded in `docs/live-proof.md`. Running them in GitHub Actions with OIDC federation is planned before the repository goes public ([#79](https://github.com/aelmanaa/hardhat-kms/issues/79)).
 7. Mutation testing runs Stryker (tap-runner) on `crypto/` and `signer/`. It becomes a nightly job after milestone M9.
 
 Test code follows a few conventions:
