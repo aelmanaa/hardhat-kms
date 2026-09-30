@@ -139,3 +139,16 @@ Options not taken:
 - Replacing the network's config keys with the command-line keys. Useful for "use this key instead", but a network whose config lists several keys would lose them silently. Appending with a duplicate check keeps both visible.
 - Loading keys whenever Foundry's variables are set. A leftover `AWS_KMS_KEY_ID` would then change who signs.
 - Attaching command-line keys to every connection in the process. A script that connects to a second network would sign there with a key chosen for the first.
+
+## Clarifications
+
+Added on 2026-09-30, while implementing the first part of [#84](https://github.com/aelmanaa/hardhat-kms/issues/84). They settle details the decision left open, without changing it.
+
+- **Empty values.** An empty or blank `--kms` or `HARDHAT_KMS` turns the option off, so `HARDHAT_KMS=` works as it does for other settings. An empty or blank list variable counts as unset, and the single variable is read instead. A list of only commas and spaces is an error.
+- **The single variable is split on commas too**, as Foundry's multi-key path does. `AWS_KMS_KEY_ID=alias/a,alias/b` loads two keys, named `AWS_KMS_KEY_ID[0]` and `AWS_KMS_KEY_ID[1]`. A single entry keeps the plain name.
+- **Repeated key ids** in one variable are an error when Hardhat starts, for example `--kms aws: AWS_KMS_KEY_IDS[2] repeats AWS_KMS_KEY_IDS[0]`.
+- **Help always works.** With `--help`, the option is not read, so a wrong `HARDHAT_KMS` cannot hide the help that explains it. Every other command, including a bare `npx hardhat`, reads and checks it.
+- **Error paths name the field**, as for config keys: `invalid value for --kms azure.keyId (<AZURE_KEY_VAULT_KEY_ID>): …`. A bad GCP value names the variable at fault, for example `--kms gcp.keyRing (<GCP_KEY_RING>)`.
+- **Typing.** `GlobalOptions.kms` is `string | undefined`, as Hardhat declares its own options without defaults.
+- **Hook contexts.** The keys are found from the runtime or from any hook context, which Hardhat builds with the runtime as its prototype. The network hook in M4 relies on this.
+- **ARN regions.** A `--kms` AWS key id is always read from the environment, so its region is taken from the ARN when the key is first used, as for configuration variables. The AWS adapter tests this case ([#16](https://github.com/aelmanaa/hardhat-kms/issues/16)).
