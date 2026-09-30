@@ -104,6 +104,12 @@
       {
         "allow": ["_getHash", "_type"]
       }
+    ],
+    "jsdoc/check-tag-names": [
+      "error",
+      {
+        "definedTags": ["experimental"]
+      }
     ]
   },
   "overrides": [

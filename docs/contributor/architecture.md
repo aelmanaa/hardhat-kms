@@ -2,7 +2,7 @@
 
 Audience: Contributors and reviewers who want to understand how the code fits together.
 
-Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 so far adds `config/` and the built-in providers' key formats (`providers/{aws,gcp,azure}/config.ts` and their key-id parsers). The other modules are planned; the code map gives each one's milestone.
+Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 so far adds `config/`, the built-in providers' descriptors and key formats, the registry, SDK loading and the `kms` hook (`providers/`). The other modules are planned; the code map gives each one's milestone.
 
 ## Module map
 
@@ -22,7 +22,7 @@ flowchart TD
   adapters --> crypto
   crypto --> vendor["vendor/micro-eth-signer<br/>EIP-712 encoder"]
   classDef done fill:#0847F7,color:#fff,stroke:#0847F7
-  class crypto,signer,vendor,config done
+  class crypto,signer,vendor,config,registry done
 ```
 
 The rules behind the arrows:
@@ -44,7 +44,7 @@ The rules behind the arrows:
 | Vendored EIP-712 encoder                    | `src/internal/vendor/micro-eth-signer/`                                                    | M1        |
 | Config schema and resolution                | `src/internal/config/`                                                                     | M2        |
 | Provider descriptors, registry, SDK loading | `src/internal/providers/{registry,sdk,types}.ts`, `src/internal/providers/*/descriptor.ts` | M2        |
-| `kms` hook for third-party providers        | `src/internal/hook-handlers/kms.ts`                                                        | M2        |
+| `kms` hook for third-party providers        | `src/internal/providers/create-adapter.ts`, `KmsHooks` in `src/types.ts`                   | M2        |
 | AWS adapter                                 | `src/internal/providers/aws/`                                                              | M3        |
 | GCP and Azure adapters                      | `src/internal/providers/{gcp,azure}/`                                                      | M6        |
 | RPC dispatcher and methods                  | `src/internal/rpc/`                                                                        | M4, M5    |
@@ -133,7 +133,6 @@ src/
     hook-handlers/
       config.ts             validate/resolve (imports provider *descriptors* only)
       network.ts            onRequest / closeConnection
-      kms.ts                default handler of the plugin-owned `kms` hook category
     providers/
       registry.ts           provider id -> descriptor; a built-in provider = one folder + its types + one entry here
       sdk.ts                loadSdk: resolve an SDK from the project root, check its version range

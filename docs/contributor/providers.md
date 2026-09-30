@@ -2,7 +2,7 @@
 
 Audience: Contributors adding or changing a KMS or HSM provider.
 
-Status: M1 implements `KmsKeyAdapter` and `SignContext` in `src/internal/signer/types.ts`, without `signTransaction` and `sendTransaction`. M2 adds the built-in providers' descriptors and the registry as internal code (see [Built-in descriptors](#built-in-descriptors)). Exporting the contract from `hardhat-kms/types` and the `kms` hook ([#12](https://github.com/aelmanaa/hardhat-kms/issues/12)) are planned for M2. The transaction methods come with the transaction work (M5) and the providers that need them.
+Status: M1 implements `KmsKeyAdapter` and `SignContext` in `src/internal/signer/types.ts`, without `signTransaction` and `sendTransaction`. M2 adds the built-in providers' descriptors and the registry as internal code (see [Built-in descriptors](#built-in-descriptors)), and the `kms` hook with the adapter contract exported from `hardhat-kms/types` (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). The code above is the planned full contract; the current exported types are in `src/types.ts`. The transaction methods come with the transaction work (M5) and the providers that need them.
 
 ## Provider contract
 
@@ -61,7 +61,7 @@ The core enforces these rules on adapters:
 - A missing capability produces a "provider X cannot do Y" error.
 - An adapter with `sendTransaction` broadcasts on its own. For those adapters the core skips the nonce high-water mark, rejects `eth_signTransaction` and EDR or fork networks with clear errors, passes the idempotency key (Fireblocks' `externalTxId`), and checks `from` against the receipt.
 
-Built-in providers are validated inside the root zod schema with `conditionalUnionType` on `provider`. The root schema accepts any other `provider` id as an opaque object. At runtime, the `kms` hook handler that claims that id validates it; an id that no handler claims produces a clear error. Third-party providers and tests plug in through the plugin-owned `kms` hook category with `createKeyAdapter(ctx, accountConfig, next)`. Tests register fakes with `hre.hooks.registerHandlers("kms", …)`; the package ships no public fake provider. The `kms` hook types are marked `@experimental`.
+Built-in providers are validated inside the root zod schema with `conditionalUnionType` on `provider`. The root schema accepts any other `provider` id as an opaque object. At runtime, the `kms` hook handler that claims that id validates it; an id that no handler claims produces a clear error. Third-party providers and tests plug in through the plugin-owned `kms` hook category with `createKeyAdapter(context, key, next)`. Tests register fakes with `hre.hooks.registerHandlers("kms", …)`; the package ships no public fake provider. The `kms` hook types are marked `@experimental`.
 
 ## Built-in descriptors
 
@@ -76,3 +76,45 @@ Each built-in provider has a descriptor in `src/internal/providers/<id>/descript
 | `load`    | Imports the adapter code. Until an adapter exists, it rejects with an error that links the tracking issue. |
 
 The config hook imports every descriptor through the registry, so a descriptor must never import an SDK. It imports its provider's config module and a few SDK-free helpers. The module that `load` returns exposes `createKeyAdapter(key, deps)`, and `deps.loadSdk(packageName)` loads one of the packages in `sdks` from the user's project (see [SDK loading](architecture.md#sdk-loading)).
+
+## Adding a provider from another plugin
+
+A third-party provider ships as its own Hardhat plugin. It adds its key types and handles its keys in the `kms` hook:
+
+```ts
+import type { HardhatPlugin } from "hardhat/types/plugins";
+import type { ExternalKmsKeyConfig, KmsHooks, KmsKeyCommonUserConfig } from "hardhat-kms/types";
+
+declare module "hardhat-kms/types" {
+  interface KmsProviderUserConfigs {
+    myvault: { provider: "myvault"; keyPath: string } & KmsKeyCommonUserConfig;
+  }
+  interface KmsProviderConfigs {
+    myvault: ExternalKmsKeyConfig<"myvault">;
+  }
+}
+
+const plugin: HardhatPlugin = {
+  id: "hardhat-kms-myvault",
+  hookHandlers: {
+    kms: async () => ({
+      default: async (): Promise<Partial<KmsHooks>> => ({
+        createKeyAdapter: async (context, key, next) =>
+          key.provider === "myvault"
+            ? await createMyVaultAdapter(key.userConfig)
+            : await next(context, key),
+      }),
+    }),
+  },
+};
+```
+
+The rules:
+
+- The handler builds adapters only for its own provider ids and passes every other key to `next`.
+- The plugin validates only `provider`, `address`, `timeoutMs` and `approvalTimeoutMs`. The handler validates the rest of `userConfig`, whose configuration variables are already resolved.
+- After the last handler, the plugin builds the built-in providers' adapters. A key whose provider no handler claims fails with an error that tells the user to add the provider's plugin.
+- The plugin checks every returned adapter: it must have `describe()`, a signing method, and either `getPublicKey`, `getAddress` or an `address` pin on the key. Its signatures then go through the same [signing pipeline](signing-pipeline.md) as the built-in providers.
+- Handlers registered at run time with `hre.hooks.registerHandlers("kms", …)` run before plugin handlers. Tests use this to replace a built-in provider with a fake.
+
+The chain runs in `src/internal/providers/create-adapter.ts`. The hook types are marked `@experimental` until 1.0.

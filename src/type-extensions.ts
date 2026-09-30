@@ -1,4 +1,10 @@
-import type { KmsAccountUserConfig, KmsConfig, KmsKeyConfig, KmsUserConfig } from "./types.ts";
+import type {
+  KmsAccountUserConfig,
+  KmsConfig,
+  KmsHooks,
+  KmsKeyConfig,
+  KmsUserConfig,
+} from "./types.ts";
 
 declare module "hardhat/types/config" {
   export interface HardhatUserConfig {
@@ -25,5 +31,11 @@ declare module "hardhat/types/config" {
 
   export interface EdrNetworkConfig {
     kmsAccounts: KmsKeyConfig[];
+  }
+}
+
+declare module "hardhat/types/hooks" {
+  export interface HardhatHooks {
+    kms: KmsHooks;
   }
 }
