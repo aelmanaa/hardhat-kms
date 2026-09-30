@@ -1,0 +1,17 @@
+# Link checking for the docs (https://lychee.cli.rs). Pull requests check internal links and
+# anchors offline; a weekly workflow also checks external links.
+
+include_fragments = "anchor-only"
+no_progress = true
+
+exclude = [
+  # The repository is private until release, so its issue and pull request links need a login.
+  '^https://github\.com/aelmanaa/hardhat-kms',
+  # Example hosts used in the docs, not real sites.
+  '^https://ops\.vault\.azure\.net',
+  '^https://<vault',
+  '^https://rpc\.example',
+]
+
+# GitHub rate-limits anonymous checks.
+accept = ["200", "206", "429"]

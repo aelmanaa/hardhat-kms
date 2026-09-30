@@ -24,6 +24,19 @@ User docs follow the Diátaxis split: each page is a tutorial, a how-to guide, r
 - Examples use the real API and must run. The live tests (M9) run each tutorial's steps on Sepolia.
 - Never put credentials, real key ids or API-keyed RPC URLs in docs. Use placeholders such as `alias/deployer` and `configVariable("SEPOLIA_RPC_URL")`.
 
+## Checks
+
+`npm run docs:check` (`scripts/check-docs.ts`) runs locally and in the CI Docs job:
+
+- Every ` ```ts ` snippet in the README and `docs/` is typechecked against the plugin's source, as a user's project would import it. A snippet that is not meant to compile, such as a sketch of a planned API, is preceded by `<!-- docs-check: skip -->` on its own line. Errors point at the Markdown file and line.
+- Every page under `docs/` must be linked from `AGENTS.md` and `docs/README.md`. Decision records are listed in their own index instead of `docs/README.md`.
+
+Links are checked with [lychee](https://lychee.cli.rs), configured in `lychee.toml`. The CI Docs job checks internal links and `#anchors` on every pull request. External links are checked by a weekly workflow (`docs-links.yml`), so a website that is briefly down cannot block a merge. Locally:
+
+```sh
+docker run --rm -v "$PWD:/repo" -w /repo lycheeverse/lychee --offline --config lychee.toml README.md AGENTS.md 'docs/**/*.md'
+```
+
 ## Planned pages
 
 The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/issues/38). Pages that do not exist yet:

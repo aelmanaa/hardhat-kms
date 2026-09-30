@@ -8,6 +8,8 @@ Status: M1 implements `KmsKeyAdapter` and `SignContext` in `src/internal/signer/
 
 The contract is exported from `hardhat-kms/types`. It is frozen before 1.0 so that Turnkey and Fireblocks adapters can be added later without breaking changes. A provider is a descriptor plus a lazily loaded key adapter:
 
+<!-- docs-check: skip -->
+
 ```ts
 interface KmsProviderDescriptor<UserCfg, ResolvedCfg> {
   id: string; // "aws" | "gcp" | "azure" | third-party ids

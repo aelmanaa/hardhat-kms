@@ -74,6 +74,9 @@
           },
           {
             "context": "Links an issue"
+          },
+          {
+            "context": "Docs"
           }
         ]
       }

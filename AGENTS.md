@@ -31,6 +31,7 @@ npm run test:unit    # fast unit tests
 npm test             # unit and integration tests
 npm run coverage     # tests with the 95% coverage threshold
 npm run pkg:check    # build, publint, arethetypeswrong, knip
+npm run docs:check   # doc snippets typecheck, every page is indexed
 ```
 
 Where things are:
