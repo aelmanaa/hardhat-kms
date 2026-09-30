@@ -2,11 +2,11 @@
 
 Audience: Contributors and reviewers who want to understand how the code fits together.
 
-Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). The other modules are planned; the code map gives each one's milestone.
+Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder), and M2 adds `config/` with the providers' key formats. The other modules are planned; the code map gives each one's milestone.
 
 ## Module map
 
-Each arrow points from a module to a module it may import. Blue modules exist in M1.
+Each arrow points from a module to a module it may import. Blue modules are implemented.
 
 ```mermaid
 flowchart TD
@@ -22,7 +22,7 @@ flowchart TD
   adapters --> crypto
   crypto --> vendor["vendor/micro-eth-signer<br/>EIP-712 encoder"]
   classDef done fill:#0847F7,color:#fff,stroke:#0847F7
-  class crypto,signer,vendor done
+  class crypto,signer,vendor,config done
 ```
 
 The rules behind the arrows:
