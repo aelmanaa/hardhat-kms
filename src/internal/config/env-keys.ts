@@ -14,7 +14,7 @@ import type {
 } from "../../types.ts";
 import { kmsError } from "../errors.ts";
 import { resolveKey } from "./resolve.ts";
-import { builtinLookalike, keySchema } from "./schema.ts";
+import { builtinLookalike } from "./schema.ts";
 
 /** The providers `--kms` accepts. Third-party providers are out of scope (decision 0008). */
 const PROVIDERS = ["aws", "gcp", "azure"] as const;
@@ -35,14 +35,23 @@ function variable(name: string): ConfigurationVariable {
 }
 
 function fail(provider: string, message: string): never {
-  throw kmsError(`--kms ${provider}: ${message}`);
+  throw kmsError(`--kms${provider === "" ? "" : ` ${provider}`}: ${message}`);
+}
+
+/** Splits a comma-separated variable, trimming entries and dropping blank ones. */
+function entries(value: string): string[] {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
 }
 
 /**
- * Reads a list variable, then its single-value fallback, as Foundry does. Entries are trimmed and
- * blank ones dropped.
+ * Reads a list variable, then its single-value fallback, as Foundry does. Both are split on
+ * commas; entries are trimmed and blank ones dropped. A repeated entry is an error.
  *
- * @returns Each entry with the name it is shown under, such as `AWS_KMS_KEY_IDS[1]`.
+ * @returns Each entry with the name it is shown under: `AWS_KMS_KEY_ID` for a single value,
+ * `AWS_KMS_KEY_IDS[1]` for a list entry.
  */
 function keyIds(
   provider: EnvProvider,
@@ -50,26 +59,33 @@ function keyIds(
   list: string,
   single: string,
 ): Array<[string, string]> {
-  const listed = env[list];
-  if (listed !== undefined) {
-    const entries = listed
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry !== "");
-    if (entries.length === 0) {
-      fail(provider, `${list} is set but holds no key ids`);
+  // An empty variable counts as unset, as `NAME=` does elsewhere in shells and CI.
+  const listSet = (env[list]?.trim() ?? "") !== "";
+  const variableName = listSet ? list : single;
+  const ids = entries(env[variableName] ?? "");
+  if (ids.length === 0) {
+    fail(
+      provider,
+      listSet ? `${list} holds no key ids` : `set ${single}, or ${list} for several keys`,
+    );
+  }
+  const named = ids.map((id, index): [string, string] => [
+    variableName === single && ids.length === 1 ? single : `${variableName}[${index}]`,
+    id,
+  ]);
+  const seen = new Map<string, string>();
+  for (const [name, id] of named) {
+    const first = seen.get(id);
+    if (first !== undefined) {
+      fail(provider, `${name} repeats ${first}`);
     }
-    return entries.map((entry, index) => [`${list}[${index}]`, entry]);
+    seen.set(id, name);
   }
-  const value = env[single]?.trim();
-  if (value === undefined || value === "") {
-    fail(provider, `set ${single}, or ${list} for several keys`);
-  }
-  return [[single, value]];
+  return named;
 }
 
 /**
- * Builds each provider's keys from Foundry's environment variables.
+ * Builds one provider's keys from Foundry's environment variables.
  *
  * @returns The keys, and the values their variables stand for.
  */
@@ -112,7 +128,7 @@ function envKeys(
   return { keys, values };
 }
 
-/** Resolves the stand-in variables to the environment values read above; nothing else is read. */
+/** Resolves the stand-in variables to the values `envKeys` read; nothing else is read. */
 function resolverFor(values: Map<string, string>): ConfigurationVariableResolver {
   return (valueOrVariable) => {
     const get = async (): Promise<string> => {
@@ -138,10 +154,11 @@ function resolverFor(values: Map<string, string>): ConfigurationVariableResolver
 }
 
 /**
- * Parses the `--kms` value: a comma-separated list of built-in provider ids.
+ * Parses the `--kms` value: a comma-separated list of built-in provider ids. Blank entries are
+ * ignored; an empty list, an unknown id or a repeated id is an error.
  *
  * @param option - The option's value.
- * @returns The provider ids, in order, without duplicates.
+ * @returns The provider ids, in order.
  */
 export function parseKmsOption(option: string): EnvProvider[] {
   const ids = option
@@ -189,13 +206,6 @@ export async function keysFromKmsOption(
     const { keys, values } = envKeys(provider, env);
     const resolveVariable = resolverFor(values);
     for (const key of keys) {
-      const parsed = keySchema.safeParse(key.userConfig);
-      if (!parsed.success) {
-        fail(
-          provider,
-          `${key.name}: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
-        );
-      }
       const resolvedKey = resolveKey(key.userConfig, {
         name: key.name,
         path: `--kms ${provider}`,

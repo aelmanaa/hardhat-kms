@@ -61,7 +61,7 @@ const misspelledProviderSchema = z
 const externalKeySchema = z.object({ provider: nonEmptyString, ...commonKeyFields }).passthrough();
 
 /** A key of any provider, dispatched on its `provider` field. */
-export const keySchema: z.ZodTypeAny = conditionalUnionType(
+const keySchema: z.ZodTypeAny = conditionalUnionType(
   [
     ...Object.entries(BUILTIN_PROVIDERS).map(
       ([id, provider]) =>

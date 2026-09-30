@@ -65,7 +65,7 @@ The plugin will warn when `kmsAccounts` is set on the `default` network (planned
 
 ## Keys from the command line
 
-Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. See [Migrate from Foundry](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry) and [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md).
+Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. These keys inherit `kms.defaults` and pass the same checks as config keys. See [Migrate from Foundry](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry) and [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md).
 
 ## Validation rules
 

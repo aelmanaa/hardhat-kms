@@ -100,6 +100,14 @@ const checkKeyVersionName = (value: string): string | undefined =>
     ? "expected projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>/cryptoKeyVersions/<version>"
     : undefined;
 
+const checkSegment = (value: string): string | undefined =>
+  isGcpSegment(value)
+    ? undefined
+    : "expected letters, digits, `_`, `.`, `:` or `-`, and not `.` or `..`";
+
+const checkKeyVersion = (value: string): string | undefined =>
+  isGcpKeyVersion(value) ? undefined : "expected a positive integer version";
+
 /**
  * Resolves a Google Cloud KMS key config into a key version name.
  *
@@ -111,11 +119,13 @@ export function resolveGcpKey(
   key: GcpKmsKeyUserConfig,
   context: KeyResolveContext,
 ): GcpKmsKeyConfig {
+  // Each part is checked on its own, so an error names the part (and its variable) at fault.
   const part = (field: string, value: KmsIdentifierUserConfig | number): KmsIdentifier =>
     resolveIdentifier(
       typeof value === "number" ? String(value) : value,
       context.resolveVariable,
       `${context.path}.${field}`,
+      field === "keyVersion" ? checkKeyVersion : checkSegment,
     );
   const keyVersionName =
     "keyVersionName" in key

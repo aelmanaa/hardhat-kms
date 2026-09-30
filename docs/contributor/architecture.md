@@ -45,6 +45,7 @@ The rules behind the arrows:
 | Config schema and resolution                | `src/internal/config/`                                                                     | M2        |
 | Provider descriptors, registry, SDK loading | `src/internal/providers/{registry,sdk,types}.ts`, `src/internal/providers/*/descriptor.ts` | M2        |
 | `kms` hook for third-party providers        | `src/internal/providers/create-adapter.ts`, `KmsHooks` in `src/types.ts`                   | M2        |
+| `--kms` option (Foundry's variables)        | `src/internal/config/env-keys.ts`, `src/internal/hook-handlers/hre.ts`                     | M2, M4    |
 | AWS adapter                                 | `src/internal/providers/aws/`                                                              | M3        |
 | GCP and Azure adapters                      | `src/internal/providers/{gcp,azure}/`                                                      | M6        |
 | RPC dispatcher and methods                  | `src/internal/rpc/`                                                                        | M4, M5    |

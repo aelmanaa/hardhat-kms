@@ -349,7 +349,7 @@ describe("values from configuration variables", () => {
     assert.match(await getOf(resolveWith(config, { RING: "ring" })), /keyRings\/ring\//);
     await assertRejectsWithout(
       resolveWith(config, { RING: "../../x" }),
-      ["kms.keys.a", "keyRings/<RING>"],
+      ["kms.keys.a.keyRing (<RING>)", "not `.` or `..`"],
       "../../x",
     );
   });

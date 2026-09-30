@@ -24,7 +24,7 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
     globalOption({
       name: "kms",
       description:
-        "Sign with KMS keys named by Foundry's environment variables: aws, gcp, azure, comma-separated",
+        "Load KMS keys from Foundry's environment variables for these providers: aws, gcp, azure (comma-separated)",
       type: ArgumentType.STRING_WITHOUT_DEFAULT,
       defaultValue: undefined,
     }),

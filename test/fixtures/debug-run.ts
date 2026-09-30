@@ -109,6 +109,10 @@ for (const name of ["aws", "gcp", "azure", "vault", "builtin"]) {
 
 clearInterval(keepAlive);
 
+// --kms, with the planted AWS key id in Foundry's variable.
+process.env.AWS_KMS_KEY_ID = process.env.HHKMS_DEBUG_AWS_KEY_ID;
+await createHardhatRuntimeEnvironment({ plugins: [hardhatKms] }, { kms: "aws" });
+
 // SDK loading, from a project with a fake SDK.
 await loadSdk(
   { packageName: "@aws-sdk/client-kms", range: "^3.0.0" },

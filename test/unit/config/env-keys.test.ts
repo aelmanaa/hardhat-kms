@@ -106,7 +106,7 @@ describe("keysFromKmsOption", () => {
       "--kms aws: set AWS_KMS_KEY_ID, or AWS_KMS_KEY_IDS for several keys",
     ]);
     await assertKmsError(keysFromKmsOption("aws", { AWS_KMS_KEY_IDS: " , " }, DEFAULTS), [
-      "--kms aws: AWS_KMS_KEY_IDS is set but holds no key ids",
+      "--kms aws: AWS_KMS_KEY_IDS holds no key ids",
     ]);
     await assertKmsError(keysFromKmsOption("azure", { AZURE_KEY_VAULT_KEY_ID: "  " }, DEFAULTS), [
       "--kms azure: set AZURE_KEY_VAULT_KEY_ID, or AZURE_KEY_VAULT_KEY_IDS for several keys",
@@ -134,8 +134,15 @@ describe("keysFromKmsOption", () => {
     );
     await assertKmsError(
       keysFromKmsOption("gcp", { ...GCP_ENV, GCP_KEY_VERSION: "0" }, DEFAULTS),
-      ["projects/<GCP_PROJECT_ID>/locations/<GCP_LOCATION>"],
+      [
+        "invalid value for --kms gcp.keyVersion (<GCP_KEY_VERSION>): expected a positive integer version",
+      ],
       ["my-project"],
+    );
+    await assertKmsError(
+      keysFromKmsOption("gcp", { ...GCP_ENV, GCP_KEY_RING: "hhkms-secret/ring" }, DEFAULTS),
+      ["invalid value for --kms gcp.keyRing (<GCP_KEY_RING>)"],
+      ["hhkms-secret"],
     );
   });
 
@@ -163,6 +170,60 @@ describe("keysFromKmsOption", () => {
       "https://ops.vault.azure.net/keys/a",
       "https://ops.vault.azure.net/keys/b/v1",
     ]);
+  });
+
+  it("splits the single variable on commas too, as Foundry does, and rejects repeated ids", async () => {
+    const keys = await keysFromKmsOption("aws", { AWS_KMS_KEY_ID: "alias/a, alias/b" }, DEFAULTS);
+
+    assert.deepEqual(
+      keys.map((key) => key.name),
+      ["AWS_KMS_KEY_ID[0]", "AWS_KMS_KEY_ID[1]"],
+    );
+    await assertKmsError(
+      keysFromKmsOption("aws", { AWS_KMS_KEY_IDS: "alias/a,alias/b, alias/a" }, DEFAULTS),
+      ["--kms aws: AWS_KMS_KEY_IDS[2] repeats AWS_KMS_KEY_IDS[0]"],
+    );
+  });
+
+  it("treats an empty list variable as unset, but a list of blanks as a mistake", async () => {
+    const keys = await keysFromKmsOption(
+      "aws",
+      { AWS_KMS_KEY_IDS: " ", AWS_KMS_KEY_ID: "alias/a" },
+      DEFAULTS,
+    );
+    assert.deepEqual(
+      keys.map((key) => key.name),
+      ["AWS_KMS_KEY_ID"],
+    );
+
+    await assertKmsError(
+      keysFromKmsOption("aws", { AWS_KMS_KEY_IDS: " , ", AWS_KMS_KEY_ID: "alias/a" }, DEFAULTS),
+      ["--kms aws: AWS_KMS_KEY_IDS holds no key ids"],
+    );
+  });
+
+  it("trims GCP values and treats blank ones as unset", async () => {
+    const [key] = await keysFromKmsOption(
+      "gcp",
+      { ...GCP_ENV, GCP_PROJECT_ID: " my-project " },
+      DEFAULTS,
+    );
+    assert.ok(key);
+    assert.match(await idOf(key), /^projects\/my-project\//);
+    await assertKmsError(keysFromKmsOption("gcp", { ...GCP_ENV, GCP_KEY_NAME: "  " }, DEFAULTS), [
+      "GCP_KEY_NAME is not set",
+    ]);
+  });
+
+  it("never shows list entries' values in names or display ids", async () => {
+    const keys = await keysFromKmsOption(
+      "azure",
+      { AZURE_KEY_VAULT_KEY_IDS: "https://hhkms-secret.vault.azure.net/keys/k" },
+      DEFAULTS,
+    );
+
+    assert.ok(!JSON.stringify(keys).includes("hhkms-secret"));
+    assert.equal(keys[0]?.displayId, "azure:<AZURE_KEY_VAULT_KEY_IDS[0]>");
   });
 
   it("reads only the variables of the providers named", async () => {

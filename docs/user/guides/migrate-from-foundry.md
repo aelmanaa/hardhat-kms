@@ -2,7 +2,7 @@
 
 Audience: Foundry users moving KMS signing to Hardhat.
 
-Status: In progress ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)), following [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md). `--kms` is accepted and its variables are read and checked when Hardhat starts. Signing with the keys needs the network hook (M4) and each provider's adapter (AWS in M3, Google Cloud and Azure in M6).
+Status: In progress ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)), following [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md). Hardhat accepts `--kms` and checks its variables, but nothing signs with the keys yet: that needs the network hook (M4) and each provider's adapter (AWS in M3, Google Cloud and Azure in M6).
 
 Foundry picks a KMS signer per command with `--aws`, `--gcp` or `--azure`, and reads the key from environment variables. hardhat-kms reads the same variables, in two ways.
 
@@ -24,8 +24,12 @@ AWS_KMS_KEY_ID=alias/deployer npx hardhat run scripts/deploy.ts --network sepoli
 | `gcp`         | `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME`, `GCP_KEY_VERSION` |
 | `azure`       | `AZURE_KEY_VAULT_KEY_IDS` (comma-separated) if set, else `AZURE_KEY_VAULT_KEY_ID`   |
 
-- Several providers: `--kms aws,azure`. In CI, `HARDHAT_KMS=aws` does the same as the option.
-- Nothing is read unless `--kms` names the provider. The variables are read and checked when Hardhat starts, so a missing or malformed one fails before any task runs, with an error that names the variable but never shows its value:
+- Several providers: `--kms aws,azure`.
+- In CI, `HARDHAT_KMS=aws` does the same as the option. Hardhat reads it for every command, so do not leave it in a shell profile unless every Hardhat command there should load KMS keys.
+- Nothing is read unless `--kms` names the provider.
+- As in Foundry, the single variable can also hold a comma-separated list. An empty variable counts as unset, and `HARDHAT_KMS=` turns the option off.
+- `npx hardhat --help` works even when `HARDHAT_KMS` is wrong.
+- Hardhat reads and checks the variables when it starts, so a missing or malformed one fails before any task runs. The error names the variable and never shows its value:
 
   ```text
   Error in community plugin hardhat-kms: --kms gcp: GCP_PROJECT_ID is not set
