@@ -213,9 +213,12 @@ export async function keysFromKmsOption(
         defaults,
       });
       // Read and check the value now, with the same rules as a value from the config.
-      await (resolvedKey.provider === "gcp"
-        ? resolvedKey.keyVersionName.get()
-        : resolvedKey.keyId.get());
+      // Narrowed by field, not by provider: third-party providers can add key types to the union.
+      if ("keyVersionName" in resolvedKey) {
+        await resolvedKey.keyVersionName.get();
+      } else if ("keyId" in resolvedKey) {
+        await resolvedKey.keyId.get();
+      }
       resolved.push(resolvedKey);
     }
   }

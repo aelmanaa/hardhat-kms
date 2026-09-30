@@ -10,6 +10,7 @@ npm run check      # format check, lint (type-aware) and typecheck
 npm test           # unit + integration tests
 npm run coverage   # tests with coverage thresholds
 npm run pkg:check  # build + publint + arethetypeswrong + knip
+npm run docs:check # doc snippets typecheck, every page is indexed
 ```
 
 ## Issues first

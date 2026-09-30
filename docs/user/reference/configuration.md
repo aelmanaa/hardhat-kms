@@ -148,6 +148,8 @@ No secrets live in the Hardhat config. Each provider takes credentials from its 
 - GCP uses Application Default Credentials.
 - Azure builds the chain below, which follows the order used by Foundry's Azure Key Vault signer (service principal, workload identity, `az`/`azd`, managed identity).
 
+<!-- docs-check: skip -->
+
 ```ts
 new ChainedTokenCredential(
   EnvironmentCredential,
