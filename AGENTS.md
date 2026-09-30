@@ -59,7 +59,7 @@ Decision records:
 
 Rules for every change:
 
-- Work from a GitHub issue, and link it from the pull request (`Closes #n`).
+- Work from a GitHub issue, and link it from the pull request (`Closes #n`). Labels, priorities and milestones are described in [CONTRIBUTING.md](CONTRIBUTING.md#issues-first).
 - `main` changes only through squash-merged pull requests. Commit subjects follow Conventional Commits.
 - Tests come with the change, and coverage stays at or above 95%.
 - Docs ship with the code: update the pages the change affects, and link any new page from this file and from [docs/README.md](docs/README.md).

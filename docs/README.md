@@ -20,7 +20,7 @@ Tutorials and the remaining guides are listed under [Planned pages](contributor/
 
 | Page                                                             | What it covers                                    |
 | ---------------------------------------------------------------- | ------------------------------------------------- |
-| [CONTRIBUTING.md](../CONTRIBUTING.md)                            | Setup, commands, workflow                         |
+| [CONTRIBUTING.md](../CONTRIBUTING.md)                            | Setup, commands, workflow, issue-first rule       |
 | [Architecture](contributor/architecture.md)                      | Module map, code map, request flows               |
 | [Signing pipeline and security](contributor/signing-pipeline.md) | Signature checks, key pinning, threat model       |
 | [Provider contract](contributor/providers.md)                    | The adapter interface for KMS and HSM providers   |
