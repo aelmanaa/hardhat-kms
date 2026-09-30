@@ -39,3 +39,10 @@ declare module "hardhat/types/hooks" {
     kms: KmsHooks;
   }
 }
+
+declare module "hardhat/types/global-options" {
+  export interface GlobalOptions {
+    /** Providers whose keys to load from Foundry's environment variables, such as `aws,azure`. */
+    kms: string | undefined;
+  }
+}

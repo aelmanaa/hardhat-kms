@@ -63,6 +63,10 @@ A network's `kmsAccounts` lists key names or inline key objects. The full set of
 
 The plugin will warn when `kmsAccounts` is set on the `default` network (planned for M4).
 
+## Keys from the command line
+
+Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. See [Migrate from Foundry](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry) and [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md).
+
 ## Validation rules
 
 Hardhat validates the config when it loads, and reports every problem with its path from the config root:

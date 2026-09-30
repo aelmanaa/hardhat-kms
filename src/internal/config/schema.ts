@@ -40,7 +40,7 @@ function editDistance(a: string, b: string): number {
  * @param provider - A provider id that is not built in.
  * @returns The built-in id, or `undefined`.
  */
-function builtinLookalike(provider: string): string | undefined {
+export function builtinLookalike(provider: string): string | undefined {
   return Object.keys(BUILTIN_PROVIDERS).find(
     (id) => id === provider.toLowerCase() || editDistance(id, provider.toLowerCase()) <= 1,
   );
@@ -61,7 +61,7 @@ const misspelledProviderSchema = z
 const externalKeySchema = z.object({ provider: nonEmptyString, ...commonKeyFields }).passthrough();
 
 /** A key of any provider, dispatched on its `provider` field. */
-const keySchema: z.ZodTypeAny = conditionalUnionType(
+export const keySchema: z.ZodTypeAny = conditionalUnionType(
   [
     ...Object.entries(BUILTIN_PROVIDERS).map(
       ([id, provider]) =>

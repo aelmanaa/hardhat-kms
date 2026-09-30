@@ -56,7 +56,14 @@ function resolveExternalKey(
   };
 }
 
-function resolveKey(key: KmsKeyUserConfig, context: KeyResolveContext): KmsKeyConfig {
+/**
+ * Resolves one validated key, whatever its provider.
+ *
+ * @param key - The key's user config.
+ * @param context - The key's name, config path, variable resolver and defaults.
+ * @returns The resolved key.
+ */
+export function resolveKey(key: KmsKeyUserConfig, context: KeyResolveContext): KmsKeyConfig {
   const builtin = builtinProvider(key.provider);
   if (builtin !== undefined) {
     return builtin.resolve(key, context);

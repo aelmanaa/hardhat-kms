@@ -2,7 +2,7 @@
 
 Audience: Foundry users moving KMS signing to Hardhat.
 
-Status: Planned ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). The design is settled in [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md); the option does not exist yet.
+Status: In progress ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)), following [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md). `--kms` is accepted and its variables are read and checked when Hardhat starts. Signing with the keys needs the network hook (M4) and each provider's adapter (AWS in M3, Google Cloud and Azure in M6).
 
 Foundry picks a KMS signer per command with `--aws`, `--gcp` or `--azure`, and reads the key from environment variables. hardhat-kms reads the same variables, in two ways.
 
@@ -25,7 +25,12 @@ AWS_KMS_KEY_ID=alias/deployer npx hardhat run scripts/deploy.ts --network sepoli
 | `azure`       | `AZURE_KEY_VAULT_KEY_IDS` (comma-separated) if set, else `AZURE_KEY_VAULT_KEY_ID`   |
 
 - Several providers: `--kms aws,azure`. In CI, `HARDHAT_KMS=aws` does the same as the option.
-- Nothing is read unless `--kms` names the provider.
+- Nothing is read unless `--kms` names the provider. The variables are read and checked when Hardhat starts, so a missing or malformed one fails before any task runs, with an error that names the variable but never shows its value:
+
+  ```text
+  Error in community plugin hardhat-kms: --kms gcp: GCP_PROJECT_ID is not set
+  ```
+
 - The keys sign on the `--network` you select, after any keys the config gives that network.
 
 ## In the config
