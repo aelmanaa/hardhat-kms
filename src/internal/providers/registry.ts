@@ -3,14 +3,22 @@ import { azureProvider } from "./azure/descriptor.ts";
 import { gcpProvider } from "./gcp/descriptor.ts";
 import type { KmsProviderDescriptor } from "./types.ts";
 
+function freezeDescriptor(descriptor: KmsProviderDescriptor): KmsProviderDescriptor {
+  for (const sdk of descriptor.sdks) {
+    Object.freeze(sdk);
+  }
+  Object.freeze(descriptor.sdks);
+  return Object.freeze(descriptor);
+}
+
 /**
- * The built-in providers, by id. Adding a provider means adding its folder and one line here.
- * Third-party providers plug in through the `kms` hook instead.
+ * The built-in providers, by id. A new built-in provider needs its folder, its config types in
+ * `src/types.ts` and an entry here. Third-party providers plug in through the `kms` hook instead.
  */
 export const BUILTIN_PROVIDERS: Readonly<Record<string, KmsProviderDescriptor>> = Object.freeze({
-  aws: awsProvider,
-  gcp: gcpProvider,
-  azure: azureProvider,
+  aws: freezeDescriptor(awsProvider),
+  gcp: freezeDescriptor(gcpProvider),
+  azure: freezeDescriptor(azureProvider),
 });
 
 /**

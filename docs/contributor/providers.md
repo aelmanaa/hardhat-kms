@@ -2,7 +2,7 @@
 
 Audience: Contributors adding or changing a KMS or HSM provider.
 
-Status: M1 implements `KmsKeyAdapter` and `SignContext` in `src/internal/signer/types.ts`, without `signTransaction` and `sendTransaction`. M2 adds the built-in providers' descriptors and the registry, internally (see [Built-in descriptors](#built-in-descriptors)). Exporting the contract from `hardhat-kms/types` and the `kms` hook are planned for M2 ([#12](https://github.com/aelmanaa/hardhat-kms/issues/12)). The transaction methods come with the transaction work (M5) and the providers that need them.
+Status: M1 implements `KmsKeyAdapter` and `SignContext` in `src/internal/signer/types.ts`, without `signTransaction` and `sendTransaction`. M2 adds the built-in providers' descriptors and the registry as internal code (see [Built-in descriptors](#built-in-descriptors)). Exporting the contract from `hardhat-kms/types` and the `kms` hook ([#12](https://github.com/aelmanaa/hardhat-kms/issues/12)) are planned for M2. The transaction methods come with the transaction work (M5) and the providers that need them.
 
 ## Provider contract
 
@@ -65,7 +65,7 @@ Built-in providers are validated inside the root zod schema with `conditionalUni
 
 ## Built-in descriptors
 
-Each built-in provider has a descriptor in `src/internal/providers/<id>/descriptor.ts`, registered in `src/internal/providers/registry.ts`. The internal shape (`src/internal/providers/types.ts`) is:
+Each built-in provider has a descriptor in `src/internal/providers/<id>/descriptor.ts`, registered under its `id` in `src/internal/providers/registry.ts`. The internal shape, in `src/internal/providers/types.ts`, differs from the public contract above:
 
 | Field     | Meaning                                                                                                    |
 | --------- | ---------------------------------------------------------------------------------------------------------- |
@@ -75,4 +75,4 @@ Each built-in provider has a descriptor in `src/internal/providers/<id>/descript
 | `sdks`    | The npm packages the adapter loads, each with a supported semver range.                                    |
 | `load`    | Imports the adapter code. Until an adapter exists, it rejects with an error that links the tracking issue. |
 
-A descriptor imports only its config and key-format modules, never an SDK: the config hook imports every descriptor. The adapter module that `load` returns receives a `loadSdk` function, which loads the provider's SDK packages from the user's project (see [SDK loading](architecture.md#sdk-loading)).
+The config hook imports every descriptor through the registry, so a descriptor must never import an SDK. It imports its provider's config module and a few SDK-free helpers. The module that `load` returns exposes `createKeyAdapter(key, deps)`, and `deps.loadSdk(packageName)` loads one of the packages in `sdks` from the user's project (see [SDK loading](architecture.md#sdk-loading)).

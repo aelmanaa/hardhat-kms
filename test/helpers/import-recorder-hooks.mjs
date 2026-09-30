@@ -7,6 +7,7 @@ export function initialize(data) {
 }
 
 export async function resolve(specifier, context, nextResolve) {
-  appendFileSync(log, `${specifier}\n`);
-  return nextResolve(specifier, context);
+  const result = await nextResolve(specifier, context);
+  appendFileSync(log, `${result.url}\n`);
+  return result;
 }

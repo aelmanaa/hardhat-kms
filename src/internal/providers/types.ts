@@ -12,7 +12,7 @@ export interface ProviderSdk {
 }
 
 /** What the plugin gives a provider when it builds a key adapter. */
-interface ProviderDeps {
+export interface ProviderDeps {
   /**
    * Loads one of the provider's SDK packages from the user's project, after checking that it is
    * installed and within the supported range.

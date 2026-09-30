@@ -135,8 +135,9 @@ src/
       network.ts            onRequest / closeConnection
       kms.ts                default handler of the plugin-owned `kms` hook category
     providers/
-      registry.ts           provider id -> descriptor; adding a provider = one folder + one line here
-      aws/ gcp/ azure/      descriptor.ts (zod schema, resolve, sdk {packageName, range}, display id)
+      registry.ts           provider id -> descriptor; a built-in provider = one folder + its types + one entry here
+      sdk.ts                loadSdk: resolve an SDK from the project root, check its version range
+      aws/ gcp/ azure/      descriptor.ts (zod schema, resolve incl. displayId, sdks [{packageName, range}], lazy load)
                             adapter.ts (lazy: SDK client, credentials, version pinning)
                             wire.ts (pure decoding: SPKI/PEM/JWK, DER/compact, CRC32C)
     crypto/                 pure, no SDKs: public-key.ts, signature.ts, address.ts, crc32c.ts
@@ -184,14 +185,15 @@ Signing has no side effects, so the plugin retries throttling errors and GCP CRC
 
 ## SDK loading
 
-The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so optional peers would not work. Users install the SDK for their provider, as the [configuration reference](../user/reference/configuration.md#provider-sdks) documents. The cloud SDKs become devDependencies of the plugin itself, for its own tests, with each adapter (M3, M6).
+The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so optional peers would not work. Users install the SDK for their provider, as the [configuration reference](../user/reference/configuration.md#provider-sdks) documents. Each adapter (M3, M6) adds its SDK to the plugin's devDependencies, for the plugin's own tests.
 
-An SDK is loaded on first use, by `loadSdk` in `src/internal/providers/sdk.ts` (M2):
+`loadSdk` in `src/internal/providers/sdk.ts` (M2) loads an SDK the first time an adapter needs it. No adapter calls it until M3. Adapters reach it through `createProviderDeps` (`src/internal/providers/deps.ts`), which only loads the packages their descriptor declares. It runs four steps:
 
-1. The plugin resolves the package with `createRequire(<project root>/package.json).resolve(pkg)`. This works with npm, pnpm and Yarn PnP because the user installs the SDK in their own project.
-2. It finds the installed version by walking up from the resolved path.
-3. It checks the version against the range in the descriptor's `sdks` list with `semver`, a runtime dependency that Hardhat also uses.
+1. It resolves the package with `createRequire(<project root>/package.json).resolve(pkg)`. This works with npm, pnpm and workspaces because the user installs the SDK in their own project.
+2. It checks that the resolved file sits in a `node_modules` folder of the project root or one of its ancestors. Node also searches `NODE_PATH` and global folders, and a package found there is rejected. Under Yarn Plug'n'Play, which has no `node_modules`, this check is skipped; Plug'n'Play support is untested.
+3. It walks up from the resolved file to the first `package.json` whose `name` is the package, and reads `version` there.
+4. It checks that version against the range in the descriptor's `sdks` list with `semver`, a runtime dependency that Hardhat also uses.
 
-A missing or incompatible SDK raises a `HardhatPluginError` containing the exact `npm install` command to fix it. The resolved entry must be loadable with `require`; the AWS, Google Cloud and Azure SDKs all publish one.
+Each failure raises a `HardhatPluginError` with the exact `npm install` command to fix it: a missing SDK, one that is installed but cannot be resolved (with Node's error code), one found outside the project, an unreadable version, a version outside the range, or a prerelease. Because step 1 uses `require.resolve`, the package needs a CommonJS entry (`main` or a `require` export). The AWS, Google Cloud and Azure SDKs all publish one; `loadSdk` then imports that file.
 
-A test runs a full config load in a child process with an import hook that records every module Node resolves, and fails if any cloud SDK is among them (`test/integration/sdk-loading.test.ts`).
+`test/integration/sdk-loading.test.ts` runs `test/fixtures/load-config.ts`, which loads a config with a key for every built-in provider, in a child process. `test/helpers/import-recorder.mjs` records the file URL of every module the process loads: through `module.registerHooks` where Node has it, which also sees `require`, and otherwise through asynchronous hooks plus the CommonJS module cache at exit. The test fails if any file under a cloud SDK's folder is among them. Positive controls load a fake SDK through `loadSdk` and through `require`, with both hook kinds, and must be recorded.

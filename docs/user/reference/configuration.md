@@ -126,7 +126,7 @@ Third-party providers extend the config types through the declaration-merged `Km
 
 ## Provider SDKs
 
-The plugin loads a provider's SDK from your project the first time one of its keys is used, so install the SDK for each provider you use:
+The plugin loads a provider's SDK from your project the first time one of its keys is used. Install the SDK for each provider you use as a dependency of your own project, because the plugin resolves it from your project's `package.json`:
 
 | Provider         | Install                                                              |
 | ---------------- | -------------------------------------------------------------------- |
@@ -134,7 +134,7 @@ The plugin loads a provider's SDK from your project the first time one of its ke
 | Google Cloud KMS | `npm install @google-cloud/kms@"^6.0.0"`                             |
 | Azure Key Vault  | `npm install @azure/keyvault-keys@"^4.0.0" @azure/identity@"^4.0.0"` |
 
-Loading the config never loads an SDK. If a key is used and its SDK is missing or outside the supported range, the error gives the command to install a supported version.
+Loading the config never loads an SDK. When a key is used, the SDK must be installed in the project (or hoisted to a workspace root above it), within the supported range and not a prerelease; otherwise the error says what is wrong and gives the command to install a supported version. A copy found only through `NODE_PATH` or a global folder is not used.
 
 ## Credentials
 
