@@ -1,4 +1,73 @@
-# hardhat-kms — design v1
+# hardhat-kms — design v1.1
+
+> **v1.1 amendments (round-2 reviews: `round2-traceability.md`, `round2-implementability.md`). Where they conflict with the body below, these win.**
+> 1. **Idempotency** (replaces §2.2.6):
+>    - Every failure *after* `next(eth_sendRawTransaction)` gets code -32000, which viem does not retry, and the error carries the local tx hash.
+>    - A narrow cache: an entry is created **only** in that post-broadcast failure path, keyed by (connection, chainId, from, canonical JSON of the caller's params), consumed on the first hit, with a 120 s TTL. Successful sends are never recorded, so deliberate duplicate sends are never dropped.
+>    - Proven by a hardhat-viem test over HTTP that injects a timeout.
+> 2. **Nonce high-water** (replaces §2.2.5):
+>    - Keyed by (connection, from) and disabled on `edr-simulated`, where the in-process pending count is authoritative.
+>    - After a send: `hw = max(hw, usedNonce)`. A caller-supplied nonce sets `hw = max(hw, nonce)`.
+>    - The lock stays process-global on `chainId:from`, and inside it any number of KMS signature attempts are allowed (retries).
+>    - Documented: separate processes are not coordinated.
+> 3. **`eth_signTransaction`** (fixes §2.2.4): no lock, never touches the high-water, on by default. It never broadcasts, matching `cast mktx` and viem json-rpc `signTransaction`.
+> 4. **RPC auto-signing of unsigned 7702 authorizations is dropped**: no client emits that format, and Hardhat's schema requires signed tuples.
+>    - Parity comes from `kms sign-auth [--self-broadcast]` producing a signed tuple that is used in a normal `authorizationList`, plus `getAccount().signAuthorization` in v1.1.
+>    - Pre-signed tuples in a KMS sender's tx are linted: low-S, and the authority must recover; otherwise a warning.
+> 5. **Client lifetime** (fixes §2.3): clients are shared per HRE and refcounted by connections, then closed by an idle timer (`unref`, about 5 s) and re-created lazily. They are never closed from `closeConnection`.
+>    - GCP uses `{ fallback: true }` (REST) by default, so no gRPC channel keeps `hardhat run` alive.
+> 6. **Chain-id check** (precision on §2.2.7):
+>    - One memoized promise per `NetworkConnection` (WeakMap), resolved before the first KMS signature (including the address-pin check). It fails closed and failures are never cached.
+>    - Fill reads already go through Hardhat's `ChainIdValidator` on http networks; message signing does not, hence this check.
+>    - `kms sign --typed-data` without `--network` requires `--chain` or `--allow-cross-chain`.
+> 7. **Third-party providers**: the root schema validates built-in providers with `conditionalUnionType`. Any other `provider` id is accepted as an opaque object and validated at runtime by the `kms` hook handler that claims it; unclaimed ids produce a clear error. The `kms` hook types are marked `@experimental`.
+> 8. **Turnkey-style adapters** without `getPublicKey` require an `address` pin. Trial recovery then compares against the pinned address instead of a public key.
+> 9. **SDK resolution**:
+>    - `createRequire(<project root>/package.json).resolve(pkg)`, which works with npm, pnpm and Yarn PnP because the user installs the SDK in their project.
+>    - The version is found by walking up from the resolved path, and ranges are checked with `semver` (a dependency).
+>    - Descriptor field name: `sdk: { packageName, range }`.
+> 10. **Masking**: `ResolvedConfigurationVariable` has no name, so descriptors capture `ConfigurationVariable.name` and produce `{ value, maskedAs: "<NAME>" }`. Derived ids (ARN, pinned version) inherit the mask. The Foundry helper emits `configVariable()` for single-value variables; only its comma-list expansion reads `process.env` (one lint exception).
+> 11. **Azure chain** (exact):
+>     ```
+>     new ChainedTokenCredential(
+>       EnvironmentCredential,
+>       WorkloadIdentityCredential,
+>       AzureCliCredential,
+>       AzureDeveloperCliCredential,
+>       ManagedIdentityCredential({ clientId: AZURE_CLIENT_ID })
+>     )
+>     ```
+>     Managed identity `getToken` has a 10 s timeout.
+>
+>     **AWS region precedence**: ARN region > `key.region` > `defaults.aws.region` > SDK chain. A conflict with the ARN is an error. `AWS_ENDPOINT_URL_KMS` is left to the SDK.
+> 12. **Key cache key**: (provider, canonical configured id after `.get()`), plus a secondary index by the resolved ARN or version.
+> 13. **New config fields**, documented and in the schema:
+>     - `kms.allowCrossChainTypedData` (default `false`)
+>     - `kms.simulatedBalance` (bigint wei, applied on `newConnection` for `edr-simulated` only)
+>     - `kms.defaults.timeoutMs`
+>
+>     Other details:
+>     - `npmPackage: "hardhat-kms"` is set.
+>     - `kms accounts` with no `--network` lists every network, deduplicated by key, and never silently skips a provider (a failure is shown per key).
+>     - `displayMessage` is used only on first resolution or for KMS calls longer than 2 s.
+>     - A pin mismatch prints both addresses plus a rotation/alias hint.
+>     - `eth_sign`/`personal_sign` data must be strict hex.
+> 14. **Vendored EIP-712**: the closure is micro-eth-signer 0.19 `core/typed-data` plus `advanced/abi-mapper`, about 500 lines. `micro-packed` is already a dependency of micro-eth-signer and is declared explicitly. The code lives in `src/internal/vendor/micro-eth-signer/` with SPDX MIT headers and `THIRD_PARTY_NOTICES.md`, and is excluded from oxfmt and the jsdoc lint.
+> 15. **Testing additions**:
+>     - fake adapter returning a signature from the wrong key
+>     - address-pin mismatch
+>     - AbortSignal timeout via an injected clock
+>     - bounded GCP CRC retries
+>     - no retry after send
+>     - LocalStack on a random host port
+>     - c8 excludes `types.ts`/`type-extensions.ts`
+>     - a fresh `connect()` per test, `concurrency:false` in HRE files, quoted globs
+>     - an SDK floor/latest CI job
+>     - the differential fill test run against the Hardhat floor (`^3.18.0` peer) and `latest`, which replaces the blob-hash drift watch
+>     - own `test/helpers` (`hardhat-test-utils` is private)
+>     - a consumer typecheck smoke test on TS 5.9 and 6 at M0
+> 16. **Deferred to v1.1**: `kms accounts --balances/--check-sign`, `getAccount()`. Stryker becomes a nightly job after M9.
+> 17. **Milestones**: M0–M10 as in `round2-implementability.md`.
 
 The best Hardhat 3 community plugin for signing with keys held in cloud KMS/HSMs — **AWS KMS, GCP Cloud KMS, Azure Key Vault / Managed HSM** — at least on par with Foundry's KMS support, and built so a new KMS/HSM is one adapter folder.
 
