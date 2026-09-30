@@ -1,0 +1,85 @@
+{
+  "name": "hardhat-kms",
+  "version": "0.0.0",
+  "description": "Hardhat 3 plugin to sign transactions, messages and typed data with keys held in AWS KMS, GCP Cloud KMS and Azure Key Vault / Managed HSM.",
+  "keywords": [
+    "hardhat",
+    "hardhat-plugin",
+    "kms",
+    "hsm",
+    "aws-kms",
+    "gcp-kms",
+    "azure-key-vault",
+    "signer",
+    "ethereum"
+  ],
+  "homepage": "https://github.com/aelmanaa/hardhat-kms#readme",
+  "bugs": {
+    "url": "https://github.com/aelmanaa/hardhat-kms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aelmanaa/hardhat-kms.git",
+    "directory": "packages/hardhat-kms"
+  },
+  "license": "MIT",
+  "author": "Amine El Manaa",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./types": {
+      "types": "./dist/src/types.d.ts",
+      "default": "./dist/src/types.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/src/",
+    "src/",
+    "!**/*.test.*",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "clean": "node -e \"for (const p of ['dist','coverage']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
+    "test": "pnpm run test:unit && pnpm run test:integration",
+    "test:unit": "node --test --test-timeout=30000 \"test/unit/**/*.test.ts\"",
+    "test:integration": "node --test --test-concurrency=1 --test-timeout=120000 \"test/integration/**/*.test.ts\"",
+    "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@nomicfoundation/hardhat-utils": "^4.3.0",
+    "@nomicfoundation/hardhat-zod-utils": "^3.0.5",
+    "micro-eth-signer": "^0.19.0",
+    "micro-packed": "^0.9.0",
+    "semver": "^7.8.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/semver": "catalog:",
+    "c8": "catalog:",
+    "fast-check": "catalog:",
+    "hardhat": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "hardhat": "^3.18.0"
+  }
+}

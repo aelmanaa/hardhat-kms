@@ -162,8 +162,13 @@ describe("loadSdk", () => {
   });
 
   it("does not find packages that only this plugin depends on", async () => {
-    // zod is a dependency of the plugin, but not of the throwaway project.
-    await assertPluginError(loadSdk(sdk("zod"), project, "fake"), ["zod is not installed"]);
+    // zod is a dependency of the plugin, but not of the throwaway project. When NODE_PATH is set
+    // (some pnpm-run binaries, such as c8, set it), Node can still find the plugin's copy there,
+    // and it must be refused as outside the project; otherwise it is simply not installed.
+    const expected = process.env.NODE_PATH
+      ? "zod was found outside this project"
+      : "zod is not installed";
+    await assertPluginError(loadSdk(sdk("zod"), project, "fake"), [expected]);
   });
 
   it("refuses a package that Node finds outside the project, through NODE_PATH", () => {

@@ -1,7 +1,16 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["scripts/*.ts", "test/**/*.test.ts"],
-  "project": ["src/**/*.ts", "scripts/*.ts", "test/**/*.ts"],
-  "ignoreDependencies": ["tsx"],
-  "ignore": ["src/internal/vendor/**"]
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.ts"],
+      "project": ["scripts/*.ts"],
+      "ignoreDependencies": ["tsx", "hardhat-kms", "publint", "@arethetypeswrong/cli"]
+    },
+    "packages/hardhat-kms": {
+      "entry": ["test/**/*.test.ts", "test/fixtures/*.ts", "test/helpers/*.mjs"],
+      "project": ["src/**/*.ts", "test/**/*.ts"],
+      "ignore": ["src/internal/vendor/**"],
+      "ignoreDependencies": ["tsx"]
+    }
+  }
 }

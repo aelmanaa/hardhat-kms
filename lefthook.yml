@@ -1,19 +1,19 @@
-# Git hooks (https://lefthook.dev). Installed by `npm install` (the `prepare` script).
+# Git hooks (https://lefthook.dev). Installed by `pnpm install` (the `prepare` script).
 pre-commit:
   # Sequential on purpose: lint --fix and format both rewrite staged files.
   piped: true
   jobs:
     - name: lint
       glob: "*.{ts,mts,js,mjs}"
-      run: npx oxlint --fix {staged_files}
+      run: pnpm exec oxlint --fix --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
     - name: format
       glob: "*.{ts,mts,js,mjs,json,jsonc,md,yml,yaml}"
-      run: npx oxfmt --no-error-on-unmatched-pattern {staged_files}
+      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
     - name: typecheck
       glob: "*.{ts,mts}"
-      run: npx tsc -b
+      run: pnpm exec tsc -b
 
 commit-msg:
   jobs:
@@ -22,4 +22,4 @@ commit-msg:
 
 # pre-push is NOT managed by lefthook: lefthook skips pre-push jobs when it computes no
 # "push files", which silently disabled the main-branch guard. scripts/install-git-hooks.ts
-# installs a plain git pre-push hook instead (runs on `npm install`).
+# installs a plain git pre-push hook instead (runs on `pnpm install`).

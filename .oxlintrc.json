@@ -17,10 +17,11 @@
     "suspicious": "error"
   },
   "ignorePatterns": [
-    "dist/**",
-    "coverage/**",
-    "src/internal/vendor/**",
-    "test/fixture-projects/**/artifacts/**"
+    "**/dist/**",
+    "**/coverage/**",
+    "packages/*/src/internal/vendor/**",
+    "packages/*/test/fixture-projects/**/artifacts/**",
+    "node_modules/**"
   ],
   "rules": {
     "eslint/no-console": "error",
@@ -114,7 +115,7 @@
   },
   "overrides": [
     {
-      "files": ["test/**"],
+      "files": ["packages/*/test/**"],
       "rules": {
         "jsdoc-js/require-jsdoc": "off",
         "node/no-process-env": "off",

@@ -25,4 +25,4 @@ jobs:
           persist-credentials: false
       - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
-          args: --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'docs/**/*.md'
+          args: --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'packages/*/README.md' 'docs/**/*.md'

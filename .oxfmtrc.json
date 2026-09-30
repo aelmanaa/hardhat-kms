@@ -5,10 +5,11 @@
   "sortPackageJson": false,
   "sortImports": {},
   "ignorePatterns": [
-    "dist/**",
-    "coverage/**",
-    "src/internal/vendor/**",
-    "CHANGELOG.md",
-    ".changeset/*.md"
+    "**/dist/**",
+    "**/coverage/**",
+    "packages/*/src/internal/vendor/**",
+    "**/CHANGELOG.md",
+    ".changeset/*.md",
+    "pnpm-lock.yaml"
   ]
 }
