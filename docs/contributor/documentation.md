@@ -1,0 +1,36 @@
+# Documentation
+
+Audience: Anyone writing or reviewing hardhat-kms docs.
+
+Status: The structure and rules apply now. The pages under [Planned pages](#planned-pages) arrive with their issues.
+
+User docs follow the Diátaxis split: each page is a tutorial, a how-to guide, reference or explanation, and does only that job. Contributor docs and decision records live in a separate tree.
+
+| Kind        | Answers                       | Where                         |
+| ----------- | ----------------------------- | ----------------------------- |
+| Tutorial    | "Show me, start to finish."   | `docs/user/tutorials/`        |
+| How-to      | "How do I do this one thing?" | `docs/user/guides/`           |
+| Reference   | "What exactly does X accept?" | `docs/user/reference/`        |
+| Explanation | "Why does it work this way?"  | `docs/user/explanation/`      |
+| Contributor | "How is the code built?"      | `docs/contributor/`           |
+| Decision    | "Why was it done this way?"   | `docs/contributor/decisions/` |
+
+## Rules
+
+- Docs ship with the code. A feature's issue lists the pages it adds or changes, and its pull request includes them.
+- Every page states its audience. A page about planned behaviour states which milestone delivers it.
+- Every page is linked from [docs/README.md](../README.md) and from [AGENTS.md](../../AGENTS.md). Decision records are linked from the [decision index](decisions/README.md) instead of docs/README.md.
+- Every exported symbol has TSDoc, enforced by lint.
+- Examples use the real API and must run. The live tests (M9) run each tutorial's steps on Sepolia.
+- Never put credentials, real key ids or API-keyed RPC URLs in docs. Use placeholders such as `alias/deployer` and `configVariable("SEPOLIA_RPC_URL")`.
+
+## Planned pages
+
+The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/issues/38). Pages that do not exist yet:
+
+- Tutorials: first deploy on Sepolia with AWS KMS ([#65](https://github.com/aelmanaa/hardhat-kms/issues/65)), Google Cloud KMS ([#66](https://github.com/aelmanaa/hardhat-kms/issues/66)) and Azure Key Vault ([#67](https://github.com/aelmanaa/hardhat-kms/issues/67)).
+- Guides: key setup per provider ([#16](https://github.com/aelmanaa/hardhat-kms/issues/16), [#29](https://github.com/aelmanaa/hardhat-kms/issues/29), [#30](https://github.com/aelmanaa/hardhat-kms/issues/30)), Ignition ([#26](https://github.com/aelmanaa/hardhat-kms/issues/26)), GitHub Actions with OIDC ([#68](https://github.com/aelmanaa/hardhat-kms/issues/68)), multiple keys ([#69](https://github.com/aelmanaa/hardhat-kms/issues/69)), key rotation ([#70](https://github.com/aelmanaa/hardhat-kms/issues/70)), loss of access to a key ([#71](https://github.com/aelmanaa/hardhat-kms/issues/71)).
+- Reference: errors ([#72](https://github.com/aelmanaa/hardhat-kms/issues/72)), public API ([#73](https://github.com/aelmanaa/hardhat-kms/issues/73)).
+- Explanation: how it works, security model ([#39](https://github.com/aelmanaa/hardhat-kms/issues/39)).
+- Contributor: adding a provider ([#40](https://github.com/aelmanaa/hardhat-kms/issues/40)).
+- Runnable examples ([#64](https://github.com/aelmanaa/hardhat-kms/issues/64)), docs checks in CI ([#63](https://github.com/aelmanaa/hardhat-kms/issues/63)), a docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).
