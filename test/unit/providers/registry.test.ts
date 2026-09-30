@@ -41,9 +41,13 @@ describe("provider registry", () => {
     }
   });
 
+  it("loads the AWS adapter module", async () => {
+    const module = await builtinProvider("aws")?.load();
+    assert.equal(typeof module?.createKeyAdapter, "function");
+  });
+
   it("says which issue tracks each adapter that is not written yet", async () => {
     for (const [id, issue, name] of [
-      ["aws", 16, "AWS KMS"],
       ["gcp", 29, "Google Cloud KMS"],
       ["azure", 30, "Azure Key Vault"],
     ] as const) {

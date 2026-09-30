@@ -2,7 +2,7 @@
 
 Audience: Users configuring the plugin.
 
-Status: M2 implements validation and resolution of this config. Signing is planned: it needs the network hook (M4) and the key's provider adapter (AWS in M3, Google Cloud and Azure in M6).
+Status: M2 implements validation and resolution of this config, and M3 the AWS adapter ([set up an AWS KMS key](../guides/aws-kms-setup.md)). Signing from scripts and tasks needs the network hook (M4); the Google Cloud and Azure adapters come in M6.
 
 ## Configuration
 

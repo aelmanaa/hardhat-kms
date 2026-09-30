@@ -52,7 +52,7 @@ describe("debug output", () => {
         "hardhat:kms:config network sepolia:",
         "hardhat:kms:config --kms aws: aws:<AWS_KMS_KEY_ID>",
         "hardhat:kms:providers creating the adapter for myvault:vault",
-        "hardhat:kms:providers aws:alias/builtin: using the built-in aws provider",
+        "cryptoKeys/builtin/cryptoKeyVersions/1: using the built-in gcp provider",
         "hardhat:kms:signer aws:<HHKMS_DEBUG_AWS_KEY_ID>: public key derives to 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
         "asking for a fresh one",
         "(TypeError)",

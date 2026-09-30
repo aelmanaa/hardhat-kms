@@ -78,9 +78,10 @@ describe("kms hook", () => {
   it("falls through to the built-in providers when no handler claims the key", async () => {
     const hre = await runtime();
 
-    await assertPluginError(createKeyAdapter(hre, key(hre, "aws")), [
-      "signing with AWS KMS keys is not available yet",
-    ]);
+    // Building the AWS adapter creates an SDK client but makes no call.
+    const adapter = await createKeyAdapter(hre, key(hre, "aws"));
+    assert.equal(adapter.describe().provider, "aws");
+    assert.equal(adapter.describe().displayId, "aws:alias/deployer");
   });
 
   it("fails clearly when no plugin provides the key's provider", async () => {

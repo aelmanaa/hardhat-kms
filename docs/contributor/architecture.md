@@ -2,7 +2,7 @@
 
 Audience: Contributors and reviewers who want to understand how the code fits together.
 
-Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 so far adds `config/`, the built-in providers' descriptors and key formats, the registry, SDK loading and the `kms` hook (`providers/`). The other modules are planned; the code map gives each one's milestone.
+Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry, SDK loading and the `kms` hook (`providers/`). M3 adds the AWS adapter (`providers/aws/adapter.ts`). The other modules are planned; the code map gives each one's milestone.
 
 ## Module map
 
@@ -46,7 +46,7 @@ The rules behind the arrows:
 | Provider descriptors, registry, SDK loading | `src/internal/providers/{registry,sdk,types}.ts`, `src/internal/providers/*/descriptor.ts` | M2        |
 | `kms` hook for third-party providers        | `src/internal/providers/create-adapter.ts`, `KmsHooks` in `src/types.ts`                   | M2        |
 | `--kms` option (Foundry's variables)        | `src/internal/config/env-keys.ts`, `src/internal/hook-handlers/hre.ts`                     | M2, M4    |
-| AWS adapter                                 | `src/internal/providers/aws/`                                                              | M3        |
+| AWS adapter                                 | `src/internal/providers/aws/adapter.ts`                                                    | M3        |
 | GCP and Azure adapters                      | `src/internal/providers/{gcp,azure}/`                                                      | M6        |
 | RPC dispatcher and methods                  | `src/internal/rpc/`                                                                        | M4, M5    |
 | Tasks                                       | `src/internal/tasks/`                                                                      | M7        |
