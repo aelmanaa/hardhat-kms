@@ -71,6 +71,9 @@
           },
           {
             "context": "Consumer typecheck (TypeScript 7.0.2)"
+          },
+          {
+            "context": "Links an issue"
           }
         ]
       }

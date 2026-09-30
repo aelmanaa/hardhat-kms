@@ -1,0 +1,33 @@
+name: Bug report
+description: Something does not work as documented.
+labels: ["type:bug", "status:needs-triage"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Include the full error message.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal config and the commands you ran. Remove key ids, credentials and RPC URLs.
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options: [AWS KMS, Google Cloud KMS, Azure Key Vault, Not provider-specific]
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: hardhat-kms, Hardhat and Node.js versions.
+      placeholder: hardhat-kms 1.0.0, hardhat 3.18.0, Node.js 24.16.0
+    validations:
+      required: true
