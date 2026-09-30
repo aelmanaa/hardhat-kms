@@ -1,6 +1,6 @@
 # 0005: Load cloud SDKs lazily from the user's project
 
-Status: Accepted
+Status: Superseded by [0009](0009-one-package-per-provider.md)
 
 ## Context
 
