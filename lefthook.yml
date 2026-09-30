@@ -1,14 +1,15 @@
 # Git hooks (https://lefthook.dev). Installed by `npm install` (the `prepare` script).
 pre-commit:
-  parallel: true
+  # Sequential on purpose: lint --fix and format both rewrite staged files.
+  piped: true
   jobs:
-    - name: format
-      glob: "*.{ts,mts,js,mjs,json,jsonc,md,yml,yaml}"
-      run: npx oxfmt --no-error-on-unmatched-pattern {staged_files}
-      stage_fixed: true
     - name: lint
       glob: "*.{ts,mts,js,mjs}"
       run: npx oxlint --fix {staged_files}
+      stage_fixed: true
+    - name: format
+      glob: "*.{ts,mts,js,mjs,json,jsonc,md,yml,yaml}"
+      run: npx oxfmt --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
     - name: typecheck
       glob: "*.{ts,mts}"

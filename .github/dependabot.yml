@@ -41,7 +41,14 @@ updates:
           - "@noble/*"
           - "micro-eth-signer"
           - "micro-packed"
+    commit-message:
+      prefix: chore
+      include: scope
+    open-pull-requests-limit: 10
     ignore:
+      # Type definitions must match the oldest supported Node.js major.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
       # @nomicfoundation/hardhat-zod-utils has a peer dependency on zod ^3.
       - dependency-name: zod
         versions: [">=4"]
@@ -58,6 +65,8 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    commit-message:
+      prefix: ci
     groups:
       actions:
         patterns: ["*"]

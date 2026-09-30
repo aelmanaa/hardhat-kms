@@ -1,7 +1,7 @@
 // Type-check a fresh consumer project against the packed plugin with a given TypeScript version.
 // Proves the published .d.ts files work for users who are not on TypeScript 7.
 //
-// Usage: node scripts/consumer-typecheck.mjs <typescript-version>
+// Usage: node scripts/consumer-typecheck.ts <typescript-version>
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,14 +10,16 @@ import { fileURLToPath } from "node:url";
 
 const typescriptVersion = process.argv[2];
 if (typescriptVersion === undefined) {
-  process.stderr.write("usage: node scripts/consumer-typecheck.mjs <typescript-version>\n");
+  process.stderr.write("usage: node scripts/consumer-typecheck.ts <typescript-version>\n");
   process.exit(1);
 }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+// npm.cmd needs a shell on Windows (CVE-2024-27980 hardening in child_process).
+const shell = process.platform === "win32";
 const run = (args: string[], cwd: string): void => {
-  execFileSync(npm, args, { cwd, stdio: "inherit" });
+  execFileSync(npm, args, { cwd, stdio: "inherit", shell });
 };
 
 run(["run", "build"], root);

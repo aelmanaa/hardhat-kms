@@ -49,7 +49,7 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.build.json",
-    "clean": "rm -rf dist coverage .tsbuildinfo tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo",
+    "clean": "node -e \"for (const p of ['dist','coverage']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
     "typecheck": "tsc -b --noEmit",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
@@ -59,20 +59,18 @@
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "node --test \"test/unit/**/*.test.ts\"",
     "test:integration": "node --test --test-concurrency=1 \"test/integration/**/*.test.ts\"",
-    "test:localstack": "node --test --test-concurrency=1 \"test/localstack/**/*.test.ts\"",
-    "test:live": "node --test --test-concurrency=1 \"test/live/**/*.test.ts\"",
     "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
     "pkg:check": "npm run build && publint --strict && attw --pack . --profile esm-only && knip",
     "prepare": "lefthook install && node scripts/install-git-hooks.ts",
     "changeset": "changeset",
-    "release": "npm run build && changeset publish"
+    "release": "npm run clean && npm run build && changeset publish"
   },
   "dependencies": {},
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
     "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.3",
-    "@types/node": "^24.19.0",
+    "@types/node": "^22.18.0",
     "c8": "12.0.0",
     "eslint-plugin-jsdoc": "65.0.0",
     "hardhat": "3.18.0",
@@ -87,5 +85,16 @@
   },
   "peerDependencies": {
     "hardhat": "^3.18.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=22.18.0",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "onFail": "warn"
+    }
   }
 }

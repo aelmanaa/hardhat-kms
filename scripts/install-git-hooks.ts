@@ -3,7 +3,7 @@
 // exist on the remote under another branch), which silently disabled the main-branch guard.
 // This plain hook always runs: it refuses pushes to main, then runs the unit tests.
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const insideRepo = (() => {
@@ -26,6 +26,11 @@ if (insideRepo) {
     "npm run --silent test:unit",
     "",
   ].join("\n");
+  const marker = "Installed by scripts/install-git-hooks.ts";
+  if (existsSync(hookPath) && !readFileSync(hookPath, "utf8").includes(marker)) {
+    process.stderr.write(`not overwriting ${hookPath}: it was not installed by this script\n`);
+    process.exit(1);
+  }
   writeFileSync(hookPath, hook);
   chmodSync(hookPath, 0o755);
   process.stdout.write(`installed ${existsSync(hookPath) ? hookPath : "(failed)"}\n`);

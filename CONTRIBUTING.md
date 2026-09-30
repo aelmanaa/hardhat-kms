@@ -2,7 +2,7 @@
 
 ## Setup
 
-Requirements: Node.js 24 (see `.nvmrc`; the package supports Node >= 22.13 at runtime) and npm.
+Requirements: Node.js 24 (see `.nvmrc`) and npm. Development needs Node >= 22.18, which runs the TypeScript scripts and hooks natively; the published package supports Node >= 22.13. Installing the package from git is not supported; use the npm release. Releases are published from CI only, with npm provenance.
 
 ```sh
 npm install        # also installs the git hooks (lefthook)
@@ -25,6 +25,6 @@ npm run pkg:check  # build + publint + arethetypeswrong + knip
 - Every exported symbol has TSDoc (enforced by lint).
 - No `process.env` reads outside the few documented places (enforced by lint).
 - Errors are `HardhatPluginError`s built from an allow-list of fields; never include credentials or raw SDK errors.
-- Tests: `test/unit` (pure, fast), `test/integration` (real Hardhat runtime), `test/localstack` (emulated AWS KMS), `test/live` (real clouds, manual only).
+- Tests: `test/unit` (pure, fast) and `test/integration` (real Hardhat runtime). Emulated AWS KMS tests (`test/localstack`) and live cloud tests (`test/live`) arrive with the AWS adapter and the live-test milestone.
 
-See `docs/DESIGN.md` for the architecture and `docs/adding-a-provider.md` for adding a KMS/HSM provider.
+See `docs/DESIGN.md` for the architecture. A guide to adding a KMS or HSM provider will ship with the first provider.

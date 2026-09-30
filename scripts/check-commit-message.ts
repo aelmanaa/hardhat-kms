@@ -1,5 +1,6 @@
 // commit-msg hook. The subject line must follow Conventional Commits
-// (https://www.conventionalcommits.org). Subjects that git writes itself for merges and reverts pass unchanged.
+// (https://www.conventionalcommits.org) and fit in 72 characters. Subjects that git writes itself
+// (merges, reverts, fixup/squash/amend) pass unchanged.
 import { readFileSync } from "node:fs";
 
 const messageFile = process.argv[2];
@@ -8,17 +9,17 @@ if (messageFile === undefined) {
   process.exit(1);
 }
 
-const subject = readFileSync(messageFile, "utf8").split("\n")[0] ?? "";
+const subject = readFileSync(messageFile, "utf8").split(/\r?\n/)[0] ?? "";
 const conventional =
-  /^(feat|fix|docs|chore|refactor|test|perf|build|ci|revert|style)(\([\w./-]+\))?!?: \S.{0,71}$/;
+  /^(feat|fix|docs|chore|refactor|test|perf|build|ci|revert|style)(\([\w./-]+\))?!?: \S/;
+const generatedByGit = /^(Merge |Revert "|(fixup|squash|amend)! )/;
 
-if (
-  !conventional.test(subject) &&
-  !subject.startsWith("Merge ") &&
-  !subject.startsWith('Revert "')
-) {
+if (generatedByGit.test(subject)) {
+  process.exit(0);
+}
+if (!conventional.test(subject) || subject.length > 72) {
   process.stderr.write(
-    `Commit subject must follow Conventional Commits, e.g. "feat(aws): add key pinning" (max 72 chars).\nGot: ${subject}\n`,
+    `Commit subject must follow Conventional Commits and fit in 72 characters, e.g. "feat(aws): add key pinning".\nGot (${subject.length} chars): ${subject}\n`,
   );
   process.exit(1);
 }

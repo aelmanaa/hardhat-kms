@@ -1,7 +1,7 @@
 // Git pre-push guard: every change to `main` must go through a pull request.
 // Git passes "<local ref> <local sha> <remote ref> <remote sha>" lines on stdin.
-// GitHub cannot enforce this on a free private repo, so it is enforced locally
-// until the ruleset in .github/ruleset-protect-main.json is applied.
+// This complements the repository ruleset in .github/ruleset-protect-main.json and
+// catches the mistake before anything reaches the remote.
 import { readFileSync } from "node:fs";
 
 const updates = readFileSync(0, "utf8")
