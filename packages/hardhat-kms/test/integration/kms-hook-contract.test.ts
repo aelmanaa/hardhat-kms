@@ -120,7 +120,7 @@ describe("kms hook adapter contract", () => {
 });
 
 describe("kms hook chain", () => {
-  it("hands the key a handler passed to next on to the built-in step", async () => {
+  it("hands the key a handler passed to next on to the end of the chain", async () => {
     const hre = await createHardhatRuntimeEnvironment({
       plugins: [hardhatKms],
       kms: { keys: { aws: { provider: "aws", keyId: "alias/a" } } },

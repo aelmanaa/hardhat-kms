@@ -1,8 +1,13 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.1.1/schema.json",
-  "changelog": ["@changesets/changelog-github", { "repo": "aelmanaa/hardhat-kms" }],
+  "changelog": [
+    "@changesets/changelog-github",
+    {
+      "repo": "aelmanaa/hardhat-kms"
+    }
+  ],
   "commit": false,
-  "fixed": [],
+  "fixed": [["hardhat-kms", "hardhat-kms-aws"]],
   "linked": [],
   "access": "public",
   "baseBranch": "main",

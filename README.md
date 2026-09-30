@@ -8,14 +8,20 @@ The plugin works at the JSON-RPC layer, so viem, ethers, Ignition and plain scri
 
 ## Planned usage
 
+Each cloud has its own package, so signing with AWS KMS takes the core and `hardhat-kms-aws`:
+
+```sh
+npm install --save-dev hardhat-kms hardhat-kms-aws
+```
+
 Keys are declared once under `kms.keys` and attached to networks by name. Credentials come from each cloud SDK's default chain, not from the config.
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKms from "hardhat-kms";
+import hardhatKmsAws from "hardhat-kms-aws";
 
 export default defineConfig({
-  plugins: [hardhatKms],
+  plugins: [hardhatKmsAws],
   kms: {
     keys: {
       deployer: { provider: "aws", keyId: "alias/deployer", address: "0x…" },
@@ -31,7 +37,7 @@ export default defineConfig({
 });
 ```
 
-See the [configuration reference](docs/user/reference/configuration.md) for every option.
+`hardhat-kms-aws` loads `hardhat-kms` itself. The Google Cloud and Azure packages are planned ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29), [#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). See the [configuration reference](docs/user/reference/configuration.md) for every option.
 
 ## Docs
 

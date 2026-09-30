@@ -2,7 +2,7 @@
 
 Audience: Contributors writing or running tests.
 
-Status: M1 adds the signing core's unit tests: crypto vectors and properties, the signer against a fake adapter, and byte equivalence with Hardhat's message and typed-data vectors. The other tests arrive with their milestones.
+Status: M1 adds the signing core's unit tests: crypto vectors and properties, the signer against a fake adapter, and byte equivalence with Hardhat's message and typed-data vectors. M3 adds the AWS adapter's tests in `packages/hardhat-kms-aws/test`. The other tests arrive with their milestones.
 
 ## Testing strategy
 
@@ -19,6 +19,7 @@ Tests form a pyramid. The lower layers are fast and pure; the upper layers exerc
    - A fake adapter that returns a signature from the wrong key, and an address-pin mismatch.
    - An AbortSignal timeout, driven by an injected clock.
    - Bounded GCP CRC retries, and the Azure managed identity timeout.
+   - The AWS adapter's tests are in `packages/hardhat-kms-aws/test/unit/adapter.test.ts`, with the fake SDK in `packages/hardhat-kms-aws/test/helpers/fake-aws-kms.ts`.
 3. Byte equivalence:
    - A deterministic fake backend (RFC6979 with Hardhat's test key) must produce raw transactions and signatures byte-identical to Hardhat's `local-accounts.ts` vectors: legacy, 2930, 1559, 7702, eth_sign, personal_sign, 712.
    - Differential checks against viem `signTransaction` and ethers `Wallet.signTransaction`.
@@ -33,15 +34,20 @@ Tests form a pyramid. The lower layers are fast and pure; the upper layers exerc
    - Every task.
    - `hardhat run` exits.
    - Error messages never contain the injected fake secrets.
-5. Emulated AWS: LocalStack `4.14.0`, pinned by digest and bound to a random host port, with the real `@aws-sdk/client-kms` against an `ECC_SECG_P256K1` key. About half of its signatures come back high-S, which exercises normalization. This layer runs on Ubuntu CI only.
-6. Live tests (`pnpm run test:live`) use real AWS, GCP and Azure keys on Sepolia. A developer runs them locally with their own `aws`, `gcloud` and `az` logins; nothing is stored in the repository, and providers without a configured key are skipped. They deploy, send every transaction type, and verify message and typed-data signatures on chain. Transaction hashes are recorded in `docs/live-proof.md`. Running them in GitHub Actions with OIDC federation is planned before the repository goes public ([#79](https://github.com/aelmanaa/hardhat-kms/issues/79)).
-7. Mutation testing runs Stryker (tap-runner) on `crypto/` and `signer/`. It becomes a nightly job after milestone M9.
+5. Provider packages with their real SDK against a local endpoint:
+   - `packages/hardhat-kms-aws/test/integration/plugin.test.ts` loads `hardhat-kms-aws` in an HRE and signs through the real `@aws-sdk/client-kms`. The SDK talks to a local HTTP server that speaks the KMS JSON 1.1 protocol (`packages/hardhat-kms-aws/test/helpers/kms-server.ts`). The test checks the `X-Amz-Target` of each request, that `Sign` uses the key ARN from `GetPublicKey` with `MessageType: DIGEST`, and the region in the SigV4 credential scope. It also checks that the handler passes keys of other providers on, and that listing `hardhatKms` and `hardhatKmsAws` together works.
+   - `packages/hardhat-kms-aws/test/integration/sdk-loading.test.ts` checks that loading a config loads no AWS SDK module, and that creating an AWS adapter does (see [SDK loading](architecture.md#sdk-loading)).
+   - These tests run the SDK version in `pnpm-lock.yaml`. Testing the lowest version each package allows is tracked in [#94](https://github.com/aelmanaa/hardhat-kms/issues/94).
+6. Emulated AWS: LocalStack `4.14.0`, pinned by digest and bound to a random host port, with the real `@aws-sdk/client-kms` against an `ECC_SECG_P256K1` key. About half of its signatures come back high-S, which exercises normalization. This layer runs on Ubuntu CI only.
+7. Live tests (`pnpm run test:live`) use real AWS, GCP and Azure keys on Sepolia. A developer runs them locally with their own `aws`, `gcloud` and `az` logins; nothing is stored in the repository, and providers without a configured key are skipped. They deploy, send every transaction type, and verify message and typed-data signatures on chain. Transaction hashes are recorded in `docs/live-proof.md`. Running them in GitHub Actions with OIDC federation is planned before the repository goes public ([#79](https://github.com/aelmanaa/hardhat-kms/issues/79)).
+8. Mutation testing runs Stryker (tap-runner) on `crypto/` and `signer/`. It becomes a nightly job after milestone M9.
 
 Test code follows a few conventions:
 
 - Each test opens a fresh connection with `hre.network.create()` (`connect()` is deprecated since Hardhat 3.18; `getOrCreate()` reuses cached connections, so per-connection state must tolerate reuse).
 - HRE test files run with `concurrency:false`.
 - Test globs are quoted in scripts, so the shell does not expand them.
-- Helpers live in the repo's own `packages/hardhat-kms/test/helpers`, because `hardhat-test-utils` is private.
+- Helpers live in each package's own `test/helpers`, because `hardhat-test-utils` is private.
+- The root `test`, `test:unit` and `coverage` scripts run `pnpm run build` first, because provider packages import the core from its built `dist/`.
 
-Coverage uses c8 on native TypeScript (Node 24), with a global threshold of 95% for lines, branches, functions and statements across `packages/hardhat-kms/src/`. Provider adapters are tested with fake SDK clients, so they are held to the same bar. `types.ts` and `type-extensions.ts` are excluded.
+Coverage uses c8 on native TypeScript (Node 24), with a threshold of 95% for lines, branches, functions and statements across each package's `src/`, set in the package's `.c8rc.json`. Provider adapters are tested with fake SDK clients, so they are held to the same bar. `types.ts` and `type-extensions.ts` are excluded.

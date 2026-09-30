@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in AWS KMS.
 
-Status: the AWS adapter is implemented (M3). Signing from scripts and tasks needs the network hook (M4), so these steps prepare a key that the plugin checks and can sign with once M4 lands.
+Status: the AWS adapter is implemented (M3), in the `hardhat-kms-aws` package. Signing from scripts and tasks needs the network hook (M4), so these steps prepare a key that the plugin checks and can sign with once M4 lands.
 
 ## 1. Create a secp256k1 signing key
 
@@ -53,18 +53,20 @@ Use the key ARN as the resource: an IAM policy cannot name a KMS key by its alia
 
 Credentials come from the AWS SDK's default chain: environment variables, `~/.aws` profiles and SSO, or the role of the machine or CI job. A key's `profile` option picks a named profile.
 
-## 3. Install the SDK and configure the key
+## 3. Install the plugin and configure the key
 
 ```sh
-npm install @aws-sdk/client-kms@"^3.714.0"
+npm install --save-dev hardhat-kms hardhat-kms-aws
 ```
+
+`hardhat-kms-aws` brings the AWS SDK (`@aws-sdk/client-kms`) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKms from "hardhat-kms";
+import hardhatKmsAws from "hardhat-kms-aws";
 
 export default defineConfig({
-  plugins: [hardhatKms],
+  plugins: [hardhatKmsAws],
   kms: {
     keys: {
       deployer: {
@@ -98,7 +100,7 @@ Each message starts with the provider, the operation and the key, for example `a
 
 | Error                                                       | Cause and fix                                                                                                                                     |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@aws-sdk/client-kms is not installed in this project`      | Run the install command it prints, in the Hardhat project.                                                                                        |
+| `AWS KMS keys need the hardhat-kms-aws plugin`              | Run `npm install --save-dev hardhat-kms-aws` in the Hardhat project, and add `hardhatKmsAws` to `plugins` in the config.                          |
 | `the key spec is …, not ECC_SECG_P256K1 (secp256k1)`        | The key is not a secp256k1 key. A key's spec cannot be changed, so create a new key as in step 1.                                                 |
 | `the key derives to 0x…, but the configured address is 0x…` | The alias points at another key, or the pin is wrong. Check the alias, then update `address`.                                                     |
 | `the provider call failed (AccessDeniedException)`          | The identity lacks `kms:GetPublicKey` or `kms:Sign` on this key, the `Sign` conditions do not match, or the key policy does not allow IAM access. |

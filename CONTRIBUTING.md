@@ -4,7 +4,7 @@
 
 Requirements: Node.js 24 (see `.nvmrc`) and pnpm. Install pnpm with `npm i -g pnpm`; it then runs the version pinned in `packageManager`. Development needs Node >= 22.18, which runs the TypeScript scripts and hooks natively; the published packages support Node >= 22.13. Installing the package from git is not supported; use the npm release. Releases are published from CI only, with npm provenance.
 
-The repository is a pnpm workspace ([decision 0010](docs/contributor/decisions/0010-pnpm-workspaces.md)). The core plugin is in `packages/hardhat-kms`, and each cloud provider will move into its own package beside it ([decision 0009](docs/contributor/decisions/0009-one-package-per-provider.md)). Run the commands below from the repository root; they cover every package.
+The repository is a pnpm workspace ([decision 0010](docs/contributor/decisions/0010-pnpm-workspaces.md)). The core plugin is in `packages/hardhat-kms`, and each cloud provider has its own package beside it ([decision 0009](docs/contributor/decisions/0009-one-package-per-provider.md)): `packages/hardhat-kms-aws` today, Google Cloud and Azure in M6. Run the commands below from the repository root; they cover every package.
 
 ```sh
 pnpm install        # also installs the git hooks (lefthook)
@@ -41,6 +41,6 @@ Issues that affect what gets signed, keys or secrets also get `security`. New is
 - Every exported symbol has TSDoc (enforced by lint).
 - No `process.env` reads outside the few documented places (enforced by lint).
 - Errors are `HardhatPluginError`s built from an allow-list of fields; never include credentials or raw SDK errors.
-- Tests: `packages/hardhat-kms/test/unit` (pure, fast) and `packages/hardhat-kms/test/integration` (real Hardhat runtime). Emulated AWS KMS tests (`packages/hardhat-kms/test/localstack`) and live cloud tests (`packages/hardhat-kms/test/live`) arrive with the AWS adapter and the live-test milestone.
+- Tests: each package has `test/unit` (pure, fast) and `test/integration` (real Hardhat runtime; for a provider package, also its real SDK against a local endpoint). Emulated AWS KMS tests (LocalStack) and live cloud tests arrive with [#17](https://github.com/aelmanaa/hardhat-kms/issues/17) and the live-test milestone.
 
-See [docs/contributor/architecture.md](docs/contributor/architecture.md) for how the code fits together, and [docs/README.md](docs/README.md) for all docs. [AGENTS.md](AGENTS.md) is the same index for coding agents. A guide to adding a KMS or HSM provider will ship with the first provider.
+See [docs/contributor/architecture.md](docs/contributor/architecture.md) for how the code fits together, and [docs/README.md](docs/README.md) for all docs. [AGENTS.md](AGENTS.md) is the same index for coding agents. To add a KMS or HSM provider, see [docs/contributor/providers.md](docs/contributor/providers.md).

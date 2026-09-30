@@ -2,18 +2,18 @@
 
 Audience: Users configuring the plugin.
 
-Status: M2 implements validation and resolution of this config, and M3 the AWS adapter ([set up an AWS KMS key](../guides/aws-kms-setup.md)). Signing from scripts and tasks needs the network hook (M4); the Google Cloud and Azure adapters come in M6.
+Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `hardhat-kms-aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). Signing from scripts and tasks needs the network hook (M4); the Google Cloud and Azure adapters come in M6.
 
 ## Configuration
 
-Keys are declared once under `kms.keys` and referenced by name from any network:
+Keys are declared once under `kms.keys` and referenced by name from any network. Each provider's keys need its [provider package](#provider-packages) in `plugins`; the example lists `hardhat-kms-aws`, which loads `hardhat-kms` itself:
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKms from "hardhat-kms";
+import hardhatKmsAws from "hardhat-kms-aws";
 
 export default defineConfig({
-  plugins: [hardhatKms],
+  plugins: [hardhatKmsAws],
   kms: {
     defaults: { aws: { region: "eu-west-1" }, timeoutMs: 30_000 },
     keys: {
@@ -128,17 +128,23 @@ Identifiers are not secrets. Every identifier field still accepts `string | Conf
 
 Third-party providers extend the config types through the declaration-merged `KmsProviderUserConfigs` interface (see [Provider contract](../../contributor/providers.md#provider-contract)).
 
-## Provider SDKs
+## Provider packages
 
-The plugin loads a provider's SDK from your project the first time one of its keys is used. Install the SDK for each provider you use as a dependency of your own project, because the plugin resolves it from your project's `package.json`:
+`hardhat-kms` validates the keys of every provider, but signs only through a provider package. Each provider package is a Hardhat plugin that depends on its cloud SDK, so installing it installs the SDK:
 
-| Provider         | Install                                                              |
-| ---------------- | -------------------------------------------------------------------- |
-| AWS KMS          | `npm install @aws-sdk/client-kms@"^3.714.0"`                         |
-| Google Cloud KMS | `npm install @google-cloud/kms@"^6.0.0"`                             |
-| Azure Key Vault  | `npm install @azure/keyvault-keys@"^4.0.0" @azure/identity@"^4.0.0"` |
+| Provider         | Package                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------- |
+| AWS KMS          | `npm install --save-dev hardhat-kms hardhat-kms-aws`, then add `hardhatKmsAws` to `plugins` |
+| Google Cloud KMS | Not available yet ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29))                |
+| Azure Key Vault  | Not available yet ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30))                |
 
-Loading the config never loads an SDK. When a key is used, the SDK must be installed in the project (or hoisted to a workspace root above it), within the supported range and not a prerelease; otherwise the error says what is wrong and gives the command to install a supported version. A copy found only through `NODE_PATH` or a global folder is not used.
+A provider package loads `hardhat-kms` itself, so `plugins: [hardhatKmsAws]` is enough. Listing `hardhatKms` as well also works. Install `hardhat-kms` and the provider packages at the same version; they are released together.
+
+Loading the config never loads an SDK. A provider package loads its SDK the first time one of its keys is used. A key whose provider package is not in `plugins` fails when it is first used, and the error says which package to install:
+
+```text
+aws, create adapter, key aws:alias/deployer: AWS KMS keys need the hardhat-kms-aws plugin. Install it with `npm install --save-dev hardhat-kms-aws` and add it to `plugins` in your Hardhat config
+```
 
 ## Credentials
 

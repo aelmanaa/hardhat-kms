@@ -2,9 +2,34 @@ import { createPrivateKey, createPublicKey } from "node:crypto";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 
+import type { AwsKmsSdk } from "../../src/internal/adapter.ts";
+
 export const KEY_ARN =
   "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab";
 const CURVE_ORDER = secp256k1.Point.CURVE().n;
+
+/**
+ * Encodes a secp256k1 public key as the DER SubjectPublicKeyInfo KMS returns.
+ *
+ * @param secretKey - The private key.
+ * @returns The public key's SPKI, DER encoded.
+ */
+export function spkiDer(secretKey: Uint8Array): Uint8Array {
+  const point = secp256k1.getPublicKey(secretKey, false);
+  const jwk = {
+    kty: "EC",
+    crv: "secp256k1",
+    d: Buffer.from(secretKey).toString("base64url"),
+    x: Buffer.from(point.slice(1, 33)).toString("base64url"),
+    y: Buffer.from(point.slice(33)).toString("base64url"),
+  };
+  return new Uint8Array(
+    createPublicKey(createPrivateKey({ key: jwk, format: "jwk" })).export({
+      format: "der",
+      type: "spki",
+    }),
+  );
+}
 
 /** How the fake KMS behaves; defaults are a healthy secp256k1 signing key. */
 export interface FakeKmsOptions {
@@ -42,7 +67,7 @@ export interface RecordedClient {
 
 /** The fake SDK module, and what was done with it. */
 export interface FakeAwsKms {
-  sdk: { KMSClient: unknown; GetPublicKeyCommand: unknown; SignCommand: unknown };
+  sdk: AwsKmsSdk;
   calls: RecordedCall[];
   clients: RecordedClient[];
 }
@@ -67,25 +92,7 @@ export function fakeAwsKmsSdk(options: FakeKmsOptions): FakeAwsKms {
     }
   }
 
-  const spki = (): Uint8Array => {
-    const jwk = {
-      kty: "EC",
-      crv: "secp256k1",
-      d: Buffer.from(options.secretKey).toString("base64url"),
-      x: Buffer.from(secp256k1.getPublicKey(options.secretKey, false).slice(1, 33)).toString(
-        "base64url",
-      ),
-      y: Buffer.from(secp256k1.getPublicKey(options.secretKey, false).slice(33)).toString(
-        "base64url",
-      ),
-    };
-    return new Uint8Array(
-      createPublicKey(createPrivateKey({ key: jwk, format: "jwk" })).export({
-        format: "der",
-        type: "spki",
-      }),
-    );
-  };
+  const spki = (): Uint8Array => spkiDer(options.secretKey);
 
   class KMSClient {
     readonly #record: RecordedClient;
@@ -149,5 +156,7 @@ export function fakeAwsKmsSdk(options: FakeKmsOptions): FakeAwsKms {
     }
   }
 
-  return { sdk: { KMSClient, GetPublicKeyCommand, SignCommand }, calls, clients };
+  const sdk: unknown = { KMSClient, GetPublicKeyCommand, SignCommand };
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the fake has the shape the adapter uses, not the SDK's full types
+  return { sdk: sdk as AwsKmsSdk, calls, clients };
 }

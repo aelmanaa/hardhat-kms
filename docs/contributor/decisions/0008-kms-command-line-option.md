@@ -82,7 +82,7 @@ The option is `globalOption({ name: "kms", type: ArgumentType.STRING_WITHOUT_DEF
   invalid value for --kms azure (<AZURE_KEY_VAULT_KEY_ID>): expected an https URL on an Azure Key Vault or Managed HSM host (for example `*.vault.azure.net`) with the path /keys/<name> or /keys/<name>/<version>
   ```
 
-- The plugin parses `--kms` and checks every variable in an `hre` `created` hook handler, before any task runs. This step does no I/O and loads no SDK (0005). A task that opens no connection, such as `compile`, makes no KMS call.
+- The plugin parses `--kms` and checks every variable in an `hre` `created` hook handler, before any task runs. This step does no I/O and loads no SDK ([0009](0009-one-package-per-provider.md)). A task that opens no connection, such as `compile`, makes no KMS call.
 
 ### Networks and config keys
 

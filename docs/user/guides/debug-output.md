@@ -2,7 +2,7 @@
 
 Audience: users who want to see what the plugin does, for example when a key is slow or fails.
 
-Status: M2 adds the four namespaces below. Only `hardhat:kms:config` logs during a Hardhat run today, because nothing creates adapters or signs until the network hook (M4) arrives. The provider adapters (M3, M6) and the network hook add their own lines.
+Status: M2 adds the three namespaces below. Only `hardhat:kms:config` logs during a Hardhat run today, because nothing creates adapters or signs until the network hook (M4) arrives. The provider adapters (M3, M6) and the network hook add their own lines.
 
 Set `DEBUG` to turn on the plugin's debug output. It goes to standard error:
 
@@ -14,16 +14,15 @@ DEBUG=hardhat:kms:* npx hardhat run scripts/deploy.ts --network sepolia
 
 ## Namespaces
 
-| Namespace                   | What it logs                                                                                                                                   |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hardhat:kms:config`        | The display ids of the resolved keys, and of the keys each network uses.                                                                       |
-| `hardhat:kms:providers`     | Each key whose adapter is being created, and the built-in provider used when no `kms` hook handler supplies the adapter.                       |
-| `hardhat:kms:providers:sdk` | The name and version of each SDK package loaded, and its path inside the project.                                                              |
-| `hardhat:kms:signer`        | Each call to a key's adapter with its operation, request id, duration and, on failure, error class name. Also the derived address and retries. |
+| Namespace               | What it logs                                                                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hardhat:kms:config`    | The display ids of the resolved keys, and of the keys each network uses.                                                                                                              |
+| `hardhat:kms:providers` | Each key whose adapter is being created, and `<display id>: no plugin claimed the key` when no provider plugin handles it, for example because `hardhat-kms-aws` is not in `plugins`. |
+| `hardhat:kms:signer`    | Each call to a key's adapter with its operation, request id, duration and, on failure, error class name. Also the derived address and retries.                                        |
 
 ## What the output contains
 
-The output is meant to be pasted into an issue. It contains display ids (`aws:<AWS_KMS_KEY_ID>`), addresses, provider ids, operation names, request ids, timings, error class names and SDK paths relative to the project. Key and network names from your config are printed as written, with control characters escaped.
+The output is meant to be pasted into an issue. It contains display ids (`aws:<AWS_KMS_KEY_ID>`), addresses, provider ids, operation names, request ids, timings and error class names. Key and network names from your config are printed as written, with control characters escaped.
 
 It never contains:
 

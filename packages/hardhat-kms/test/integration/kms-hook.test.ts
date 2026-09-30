@@ -79,12 +79,19 @@ describe("kms hook", () => {
     assert.equal(await signer.signPersonalMessage(hex(vector.message)), vector.signature);
   });
 
-  it("falls through to the built-in providers when no handler claims the key", async () => {
+  it("names the package to install for a first-party key that no plugin claims", async () => {
     const hre = await runtime();
 
-    // The Google Cloud adapter does not exist yet, so reaching it is a deterministic error.
+    await assertPluginError(createKeyAdapter(hre, key(hre, "aws")), [
+      "aws, create adapter, key aws:alias/deployer:",
+      "AWS KMS keys need the hardhat-kms-aws plugin",
+      "`npm install --save-dev hardhat-kms-aws`",
+      "`plugins`",
+    ]);
+    // The Google Cloud package does not exist yet: the error links the issue instead.
     await assertPluginError(createKeyAdapter(hre, key(hre, "gcp")), [
       "signing with Google Cloud KMS keys is not available yet",
+      "issues/29",
     ]);
   });
 
@@ -101,7 +108,7 @@ describe("kms hook", () => {
     ]);
   });
 
-  it("lets a test replace a built-in provider with a handler registered at run time", async () => {
+  it("lets a test provide a first-party provider with a handler registered at run time", async () => {
     const hre = await runtime();
     const seen: string[] = [];
     hre.hooks.registerHandlers("kms", {
