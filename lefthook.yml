@@ -19,10 +19,6 @@ commit-msg:
     - name: conventional-commit
       run: node scripts/check-commit-message.ts {1}
 
-pre-push:
-  jobs:
-    - name: no-direct-push-to-main
-      run: node scripts/block-push-to-main.ts
-      use_stdin: true
-    - name: unit-tests
-      run: npm run test:unit
+# pre-push is NOT managed by lefthook: lefthook skips pre-push jobs when it computes no
+# "push files", which silently disabled the main-branch guard. scripts/install-git-hooks.ts
+# installs a plain git pre-push hook instead (runs on `npm install`).

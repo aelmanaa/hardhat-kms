@@ -63,7 +63,7 @@
     "test:live": "node --test --test-concurrency=1 \"test/live/**/*.test.ts\"",
     "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
     "pkg:check": "npm run build && publint --strict && attw --pack . --profile esm-only && knip",
-    "prepare": "lefthook install",
+    "prepare": "lefthook install && node scripts/install-git-hooks.ts",
     "changeset": "changeset",
     "release": "npm run build && changeset publish"
   },
