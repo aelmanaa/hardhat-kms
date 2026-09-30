@@ -61,6 +61,8 @@ Decision records:
 - [0006: A plugin-owned `kms` hook for third-party providers](docs/contributor/decisions/0006-kms-hook-for-providers.md)
 - [0007: oxlint, oxfmt and TypeScript 7](docs/contributor/decisions/0007-toolchain.md)
 - [0008: Choose KMS keys from the command line with `--kms`](docs/contributor/decisions/0008-kms-command-line-option.md)
+- [0009: Ship each cloud provider as its own package](docs/contributor/decisions/0009-one-package-per-provider.md)
+- [0010: Use pnpm workspaces](docs/contributor/decisions/0010-pnpm-workspaces.md)
 
 Rules for every change:
 
