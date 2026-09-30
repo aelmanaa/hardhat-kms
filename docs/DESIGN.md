@@ -49,7 +49,7 @@
 >     - `kms.allowCrossChainTypedData` (default `false`)
 >     - `kms.simulatedBalance` (bigint wei, applied on `newConnection` for `edr-simulated` only)
 >     - `kms.defaults.timeoutMs`
->     Other details:
+>       Other details:
 >     - `npmPackage: "hardhat-kms"` is set.
 >     - `kms accounts` with no `--network` lists every network, deduplicated by key, and never silently skips a provider (a failure is shown per key).
 >     - `displayMessage` is used only on first resolution or for KMS calls longer than 2 s.

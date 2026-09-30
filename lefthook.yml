@@ -1,0 +1,28 @@
+# Git hooks (https://lefthook.dev). Installed by `npm install` (the `prepare` script).
+pre-commit:
+  parallel: true
+  jobs:
+    - name: format
+      glob: "*.{ts,mts,js,mjs,json,jsonc,md,yml,yaml}"
+      run: npx oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+    - name: lint
+      glob: "*.{ts,mts,js,mjs}"
+      run: npx oxlint --fix {staged_files}
+      stage_fixed: true
+    - name: typecheck
+      glob: "*.{ts,mts}"
+      run: npx tsc -b --noEmit
+
+commit-msg:
+  jobs:
+    - name: conventional-commit
+      run: node scripts/check-commit-message.ts {1}
+
+pre-push:
+  jobs:
+    - name: no-direct-push-to-main
+      run: node scripts/block-push-to-main.ts
+      use_stdin: true
+    - name: unit-tests
+      run: npm run test:unit
