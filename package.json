@@ -1,0 +1,100 @@
+{
+  "name": "hardhat-kms",
+  "version": "0.0.0",
+  "description": "Hardhat 3 plugin to sign transactions, messages and typed data with keys held in AWS KMS, GCP Cloud KMS and Azure Key Vault / Managed HSM.",
+  "keywords": [
+    "hardhat",
+    "hardhat-plugin",
+    "kms",
+    "hsm",
+    "aws-kms",
+    "gcp-kms",
+    "azure-key-vault",
+    "signer",
+    "ethereum"
+  ],
+  "homepage": "https://github.com/aelmanaa/hardhat-kms#readme",
+  "bugs": {
+    "url": "https://github.com/aelmanaa/hardhat-kms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aelmanaa/hardhat-kms.git"
+  },
+  "license": "MIT",
+  "author": "Amine El Manaa",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/src/",
+    "src/",
+    "!**/*.test.*",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "clean": "node -e \"for (const p of ['dist','coverage']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
+    "typecheck": "tsc -b --noEmit",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "check": "npm run format:check && npm run lint && npm run typecheck",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "node --test \"test/unit/**/*.test.ts\"",
+    "test:integration": "node --test --test-concurrency=1 \"test/integration/**/*.test.ts\"",
+    "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
+    "pkg:check": "npm run build && publint --strict && attw --pack . --profile esm-only && knip",
+    "prepare": "lefthook install && node scripts/install-git-hooks.ts",
+    "changeset": "changeset",
+    "release": "npm run clean && npm run build && changeset publish"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@changesets/changelog-github": "1.0.1",
+    "@changesets/cli": "3.0.3",
+    "@types/node": "^22.18.0",
+    "c8": "12.0.0",
+    "eslint-plugin-jsdoc": "65.0.0",
+    "hardhat": "3.18.0",
+    "knip": "6.38.0",
+    "lefthook": "2.1.15",
+    "oxfmt": "0.71.0",
+    "oxlint": "1.86.0",
+    "oxlint-tsgolint": "7.0.2003",
+    "publint": "0.3.24",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  },
+  "peerDependencies": {
+    "hardhat": "^3.18.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=22.18.0",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "onFail": "warn"
+    }
+  }
+}
