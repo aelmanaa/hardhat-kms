@@ -1,12 +1,15 @@
-// Exercises config loading, adapter creation and signing with planted secrets, so the debug test
-// can check that none of them reach the debug output. Run with DEBUG=hardhat:kms:*.
+// Exercises config loading, adapter creation, SDK loading and signing with planted secrets, so the
+// debug test can check that none of them reach the debug output. Run with DEBUG=hardhat:kms:*.
+// HHKMS_DEBUG_PROJECT names a throwaway project with a fake AWS SDK installed.
 import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
+import { HardhatPluginError } from "hardhat/plugins";
 
 import hardhatKms from "../../src/index.ts";
 import { createKeyAdapter } from "../../src/internal/providers/create-adapter.ts";
+import { loadSdk } from "../../src/internal/providers/sdk.ts";
 import { KmsSigner } from "../../src/internal/signer/kms-signer.ts";
-import type { KmsKeyUserConfig } from "../../src/types.ts";
+import type { KmsKeyAdapter, KmsKeyUserConfig } from "../../src/types.ts";
 import { fakeAdapter } from "../helpers/fake-adapter.ts";
 import { HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
@@ -21,7 +24,17 @@ const keysValue: unknown = {
     keyName: "k",
     keyVersion: 1,
   },
-  vault: { provider: "myvault", token: configVariable("HHKMS_DEBUG_VAULT_TOKEN") },
+  azure: {
+    provider: "azure",
+    vaultUrl: configVariable("HHKMS_DEBUG_AZURE_VAULT"),
+    keyName: "deployer",
+  },
+  vault: {
+    provider: "myvault",
+    token: configVariable("HHKMS_DEBUG_VAULT_TOKEN"),
+    literal: "hhkms-secret-literal-field",
+  },
+  builtin: { provider: "aws", keyId: "alias/builtin" },
 };
 
 const hre = await createHardhatRuntimeEnvironment({
@@ -32,39 +45,73 @@ const hre = await createHardhatRuntimeEnvironment({
     sepolia: {
       type: "http",
       url: configVariable("HHKMS_DEBUG_RPC_URL"),
-      kmsAccounts: ["aws", "gcp", "vault"],
+      kmsAccounts: [
+        "aws",
+        "gcp",
+        "azure",
+        "vault",
+        { provider: "aws", keyId: configVariable("HHKMS_DEBUG_AWS_KEY_ID") },
+      ],
     },
   },
 });
 
-let calls = 0;
+// Each key gets an adapter that fails or succeeds in a different way. "builtin" goes to the
+// built-in provider, which is not available yet.
+const behaviours: Record<string, () => KmsKeyAdapter> = {
+  aws: () => fakeAdapter({ secretKey, wrongKeyForCalls: 1 }),
+  gcp: () => {
+    const error = new TypeError("hhkms-secret-sdk-message", {
+      cause: new Error("hhkms-secret-cause"),
+    });
+    Object.assign(error, { $metadata: { requestId: "hhkms-secret-request-id" } });
+    return fakeAdapter({ secretKey, throwError: error });
+  },
+  azure: () =>
+    fakeAdapter({
+      secretKey,
+      throwError: new HardhatPluginError("hardhat-kms-test", "hhkms-secret-plugin-message"),
+    }),
+  vault: () => fakeAdapter({ secretKey, hang: true }),
+};
 hre.hooks.registerHandlers("kms", {
-  createKeyAdapter: async () => {
-    calls++;
-    if (calls === 1) {
-      // A provider whose SDK error text carries a secret.
-      return fakeAdapter({ secretKey, throwError: new TypeError("HHKMS-SECRET-SDK-MESSAGE") });
-    }
-    // Signs with the wrong key once, so the signer retries.
-    return fakeAdapter({ secretKey, wrongKeyForCalls: 1 });
+  createKeyAdapter: async (context, key, next) => {
+    const behaviour = behaviours[key.name];
+    return behaviour === undefined ? await next(context, key) : behaviour();
   },
 });
 
-const options = { timeoutMs: 5000, displayMessage: async () => {} };
-for (const name of ["aws", "gcp", "vault"]) {
+// The plugin's timeout timers do not keep the process alive, and the hanging adapter holds no
+// handle either, so keep the process running until every case has finished.
+const keepAlive = setInterval(() => undefined, 1000);
+for (const name of ["aws", "gcp", "azure", "vault", "builtin"]) {
   const key = hre.config.kms.keys[name];
   if (key === undefined) {
     throw new Error(`missing key ${name}`);
   }
-  if (key.provider === "aws") {
-    await key.keyId.get();
-  } else if (key.provider === "gcp") {
+  if (key.provider === "gcp") {
     await key.keyVersionName.get();
+  } else if ("keyId" in key) {
+    await key.keyId.get();
   }
-  const signer = new KmsSigner(await createKeyAdapter(hre, key), options);
   try {
+    const adapter = await createKeyAdapter(hre, key);
+    const signer = new KmsSigner(adapter, {
+      timeoutMs: name === "vault" ? 50 : 5000,
+      displayId: key.displayId,
+      displayMessage: async () => {},
+    });
     await signer.signPersonalMessage(new TextEncoder().encode("hello"));
   } catch {
-    // The first adapter fails on purpose.
+    // Most keys fail on purpose.
   }
 }
+
+clearInterval(keepAlive);
+
+// SDK loading, from a project with a fake SDK.
+await loadSdk(
+  { packageName: "@aws-sdk/client-kms", range: "^3.0.0" },
+  process.env.HHKMS_DEBUG_PROJECT ?? "",
+  "aws",
+);

@@ -8,8 +8,9 @@ import { AWS_KEY_ID_FORMS, parseAwsKeyId } from "./key-id.ts";
 
 function isHttpUrl(value: string): boolean {
   try {
-    const { protocol } = new URL(value);
-    return protocol === "http:" || protocol === "https:";
+    const { protocol, username, password } = new URL(value);
+    // Credentials in the URL would end up in logs and errors; the SDK takes them from its own chain.
+    return (protocol === "http:" || protocol === "https:") && username === "" && password === "";
   } catch {
     return false;
   }
@@ -24,7 +25,10 @@ export const awsKeySchema: z.ZodTypeAny = z
     profile: nonEmptyString.optional(),
     endpoint: z
       .string()
-      .refine(isHttpUrl, "Expected an http or https URL, such as http://localhost:4566")
+      .refine(
+        isHttpUrl,
+        "Expected an http or https URL without credentials, such as http://localhost:4566",
+      )
       .optional(),
     ...commonKeyFields,
   })

@@ -104,7 +104,12 @@ export async function loadSdk(
       context,
     );
   }
-  log("loading %s %s from %s", sdk.packageName, version, entry);
+  log(
+    "loading %s %s from %s",
+    sdk.packageName,
+    version,
+    path.relative(realPath(projectRoot), entry),
+  );
   return (await import(pathToFileURL(entry).href)) as unknown;
 }
 

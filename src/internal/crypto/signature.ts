@@ -42,6 +42,10 @@ export function parseSignature(output: SignatureOutput): { r: bigint; s: bigint 
   let r: bigint;
   let s: bigint;
   if ("format" in output) {
+    // The adapter controls this value, and it ends up in error messages: allow only known formats.
+    if (output.format !== "der" && output.format !== "compact") {
+      throw new InvalidSignatureError("unsupported signature format; expected der or compact");
+    }
     if (output.format === "compact" && output.bytes.length !== COMPACT_LENGTH) {
       throw new InvalidSignatureError(
         `expected a 64-byte compact signature, got ${output.bytes.length} bytes`,

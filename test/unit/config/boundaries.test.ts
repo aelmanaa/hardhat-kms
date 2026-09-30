@@ -131,6 +131,12 @@ describe("string fields", () => {
       "http or https URL",
       1,
     );
+    assertError(
+      withKey(aws({ endpoint: "http://user:pass@localhost:4566" })),
+      "kms.keys.a.endpoint",
+      "without credentials",
+      1,
+    );
     assertError(withKey({ provider: "" }), "kms.keys.a.provider", "non-empty", 1);
   });
 });

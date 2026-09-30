@@ -2,7 +2,7 @@ import type { HookContext } from "hardhat/types/hooks";
 
 import type { KmsKeyConfig } from "../../types.ts";
 import { kmsDebug } from "../debug.ts";
-import { kmsError } from "../errors.ts";
+import { errorName, kmsError } from "../errors.ts";
 import type { KmsKeyAdapter } from "../signer/types.ts";
 import { createProviderDeps } from "./deps.ts";
 import { builtinProvider } from "./registry.ts";
@@ -69,7 +69,7 @@ function describeProblem(adapter: object): string | undefined {
     description = Reflect.apply(describe, adapter, []);
   } catch (error) {
     // Only the class name: a provider's error text may carry request details.
-    return `the adapter's describe() failed (${error instanceof Error ? error.constructor.name : typeof error})`;
+    return `the adapter's describe() failed (${errorName(error)})`;
   }
   const field = (name: string): unknown =>
     typeof description === "object" && description !== null
