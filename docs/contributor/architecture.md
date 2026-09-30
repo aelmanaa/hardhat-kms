@@ -2,7 +2,7 @@
 
 Audience: Contributors and reviewers who want to understand how the code fits together.
 
-Status: M1 ([pull request #4](https://github.com/aelmanaa/hardhat-kms/pull/4)) implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). The other modules are planned; the code map gives each one's milestone.
+Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). The other modules are planned; the code map gives each one's milestone.
 
 ## Module map
 

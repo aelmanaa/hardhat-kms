@@ -36,6 +36,12 @@
     "dist",
     "node_modules",
     "test/fixture-projects/**/artifacts",
-    "test/fixture-projects/**/cache"
+    "test/fixture-projects/**/cache",
+    "src/internal/vendor"
+  ],
+  "references": [
+    {
+      "path": "./tsconfig.vendor.json"
+    }
   ]
 }

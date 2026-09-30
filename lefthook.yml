@@ -13,7 +13,7 @@ pre-commit:
       stage_fixed: true
     - name: typecheck
       glob: "*.{ts,mts}"
-      run: npx tsc -b --noEmit
+      run: npx tsc -b
 
 commit-msg:
   jobs:

@@ -2,7 +2,13 @@
   "all": true,
   "src": ["src"],
   "include": ["src/**/*.ts"],
-  "exclude": ["src/type-extensions.ts", "src/types.ts", "src/internal/vendor/**", "test/**"],
+  "exclude": [
+    "src/type-extensions.ts",
+    "src/types.ts",
+    "src/internal/signer/types.ts",
+    "src/internal/vendor/**",
+    "test/**"
+  ],
   "reporter": ["text", "lcov"],
   "reports-dir": "coverage",
   "check-coverage": true,
