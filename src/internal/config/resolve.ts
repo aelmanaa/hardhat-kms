@@ -9,23 +9,61 @@ import type {
 } from "../../types.ts";
 import { BUILTIN_PROVIDER_CONFIGS } from "../providers/builtin-config.ts";
 import { DEFAULT_TIMEOUT_MS } from "./common.ts";
+import { isConfigurationVariable } from "./identifiers.ts";
 import { type KeyResolveContext, resolveCommonKeyConfig } from "./key-common.ts";
+
+/** Replaces configuration variables with resolved ones, recursively, and freezes the result. */
+function resolveVariablesDeep(
+  value: unknown,
+  resolveVariable: ConfigurationVariableResolver,
+): unknown {
+  if (isConfigurationVariable(value)) {
+    return resolveVariable(value);
+  }
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map((item: unknown) => resolveVariablesDeep(item, resolveVariable)));
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.freeze(
+      Object.fromEntries(
+        Object.entries(value).map(([field, item]) => [
+          field,
+          resolveVariablesDeep(item, resolveVariable),
+        ]),
+      ),
+    );
+  }
+  return value;
+}
 
 function resolveExternalKey(
   key: KmsKeyUserConfig,
   context: KeyResolveContext,
 ): ExternalKmsKeyConfig {
-  const { provider } = key as { provider: string };
+  const provider: string = key.provider;
+  const userConfig = Object.freeze(
+    Object.fromEntries(
+      Object.entries(key).map(([field, value]) => [
+        field,
+        resolveVariablesDeep(value, context.resolveVariable),
+      ]),
+    ),
+  );
   return {
     provider,
     ...resolveCommonKeyConfig(key, context, `${provider}:${context.name}`),
-    userConfig: Object.freeze({ ...key }),
+    userConfig,
   };
 }
 
 function resolveKey(key: KmsKeyUserConfig, context: KeyResolveContext): KmsKeyConfig {
   const builtin = BUILTIN_PROVIDER_CONFIGS[key.provider];
-  return builtin === undefined ? resolveExternalKey(key, context) : builtin.resolve(key, context);
+  if (builtin !== undefined) {
+    return builtin.resolve(key, context);
+  }
+  // Third-party providers augment KmsProviderConfigs with their resolved type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- see above
+  return resolveExternalKey(key, context) as unknown as KmsKeyConfig;
 }
 
 /**
@@ -50,7 +88,7 @@ export function resolveKmsConfig(
   const keys = Object.fromEntries(
     Object.entries(user.keys ?? {}).map(([name, key]) => [
       name,
-      resolveKey(key, { name, resolveVariable, defaults }),
+      resolveKey(key, { name, path: `kms.keys.${name}`, resolveVariable, defaults }),
     ]),
   );
   return {
@@ -89,6 +127,7 @@ export function resolveKmsUserConfig(
         }
         return resolveKey(account, {
           name: `${network}.kmsAccounts[${index}]`,
+          path: `networks.${network}.kmsAccounts.${index}`,
           resolveVariable,
           defaults: kms.defaults,
         });

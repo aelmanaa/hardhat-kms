@@ -42,6 +42,11 @@ function isVaultOrigin(url: URL): boolean {
 }
 
 function parseUrl(value: string): URL | undefined {
+  // `?`, `#` and `\` are rejected outright: URL parsing would drop an empty query or fragment
+  // and turn `\` into `/`, so the value used later would differ from the one checked.
+  if (/[?#\\]/.test(value)) {
+    return undefined;
+  }
   try {
     return new URL(value);
   } catch {

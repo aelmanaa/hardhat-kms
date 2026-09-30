@@ -18,7 +18,10 @@ export interface KmsKeyCommonUserConfig {
   address?: string;
   /** Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defaults.timeoutMs`. */
   timeoutMs?: number;
-  /** Time budget for providers with an asynchronous approval step, in milliseconds. */
+  /**
+   * Time budget for providers with an asynchronous approval step, in milliseconds. Overrides
+   * `kms.defaults.approvalTimeoutMs`.
+   */
   approvalTimeoutMs?: number;
 }
 
@@ -120,8 +123,8 @@ export interface KmsUserConfig {
 }
 
 /**
- * A resolved identifier: its value is read on demand, and `display` is safe to print. A value
- * read from a configuration variable displays as `<VARIABLE_NAME>`.
+ * A resolved identifier. `get()` reads its value on demand, trimmed of surrounding whitespace.
+ * `display` is safe to print: a value from a configuration variable displays as `<VARIABLE_NAME>`.
  */
 export interface KmsIdentifier {
   get(): Promise<string>;
@@ -136,7 +139,10 @@ export interface KmsKeyCommonConfig {
   address?: string;
   timeoutMs: number;
   approvalTimeoutMs?: number;
-  /** A description of the key that is safe to print. */
+  /**
+   * A description of the key that is safe to print, such as `aws:alias/deployer`. It never contains
+   * a configuration variable's value.
+   */
   displayId: string;
 }
 
@@ -144,7 +150,11 @@ export interface KmsKeyCommonConfig {
 export interface AwsKmsKeyConfig extends KmsKeyCommonConfig {
   provider: "aws";
   keyId: KmsIdentifier;
-  /** The region from the key ARN, the key, or `kms.defaults.aws.region`, in that order. */
+  /**
+   * The first region set among a literal key ARN, the key's `region` and `kms.defaults.aws.region`.
+   * When `keyId` comes from a configuration variable and holds an ARN, the ARN's region is used
+   * instead, and a conflicting `region` is an error when the key is first used.
+   */
   region?: string;
   profile?: string;
   endpoint?: string;
@@ -164,18 +174,29 @@ export interface AzureKmsKeyConfig extends KmsKeyCommonConfig {
   keyId: KmsIdentifier;
 }
 
-/** A resolved key of a third-party provider. Its provider validates `userConfig` when it loads. */
-export interface ExternalKmsKeyConfig extends KmsKeyCommonConfig {
-  provider: string;
+/**
+ * A resolved key of a third-party provider. The plugin validates only the fields every key shares;
+ * the rest of `userConfig` is left to the provider. Configuration variables inside `userConfig`
+ * are resolved, as Hardhat does for its own config.
+ */
+export interface ExternalKmsKeyConfig<Provider extends string = string> extends KmsKeyCommonConfig {
+  provider: Provider;
   userConfig: Readonly<Record<string, unknown>>;
 }
 
-/** A resolved key of any provider. */
-export type KmsKeyConfig =
-  | AwsKmsKeyConfig
-  | GcpKmsKeyConfig
-  | AzureKmsKeyConfig
-  | ExternalKmsKeyConfig;
+/**
+ * Resolved key config types by provider id. A third-party provider that augments
+ * {@link KmsProviderUserConfigs} augments this interface too, usually with
+ * `ExternalKmsKeyConfig<"its-id">`, so that resolved keys can be narrowed on `provider`.
+ */
+export interface KmsProviderConfigs {
+  aws: AwsKmsKeyConfig;
+  gcp: GcpKmsKeyConfig;
+  azure: AzureKmsKeyConfig;
+}
+
+/** A resolved key of any registered provider. Narrow it with `key.provider === "aws"`. */
+export type KmsKeyConfig = KmsProviderConfigs[keyof KmsProviderConfigs];
 
 /** The resolved `kms` section. */
 export interface KmsConfig {

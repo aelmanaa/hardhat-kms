@@ -2,7 +2,7 @@
 
 Audience: Contributors and reviewers who want to understand how the code fits together.
 
-Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder), and M2 adds `config/` with the providers' key formats. The other modules are planned; the code map gives each one's milestone.
+Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 so far adds `config/` and the built-in providers' key formats (`providers/{aws,gcp,azure}/config.ts` and their key-id parsers). The other modules are planned; the code map gives each one's milestone.
 
 ## Module map
 

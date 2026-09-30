@@ -120,6 +120,69 @@ describe("validateKmsUserConfig", () => {
     );
   });
 
+  it("rejects a misspelled built-in provider instead of treating it as a third-party one", () => {
+    assertError(
+      { kms: { keys: { a: { provider: "AWS", keyId: "alias/a" } } } },
+      "kms.keys.a.provider",
+      'Did you mean "aws"?',
+    );
+    assertError(
+      { kms: { keys: { a: { provider: "azrue", keyId: "https://attacker.example/keys/k" } } } },
+      "kms.keys.a.provider",
+      'Did you mean "azure"?',
+    );
+    assert.deepEqual(validate({ kms: { keys: { a: { provider: "myvault" } } } }), []);
+  });
+
+  it("rejects __proto__ as a key name", () => {
+    const keys: Record<string, unknown> = {};
+    Object.defineProperty(keys, "__proto__", {
+      value: { provider: "aws", keyId: "alias/a" },
+      enumerable: true,
+    });
+
+    assertError({ kms: { keys } }, "kms.keys.__proto__", "Key names");
+  });
+
+  it("rejects GCP versions beyond the safe integer range and `.` or `..` components", () => {
+    assertError(
+      {
+        kms: {
+          keys: {
+            a: {
+              provider: "gcp",
+              projectId: "p",
+              location: "l",
+              keyRing: "r",
+              keyName: "k",
+              keyVersion: 1e21,
+            },
+          },
+        },
+      },
+      "kms.keys.a.keyVersion",
+      "",
+    );
+    assertError(
+      {
+        kms: {
+          keys: {
+            a: {
+              provider: "gcp",
+              projectId: "..",
+              location: "l",
+              keyRing: "r",
+              keyName: "k",
+              keyVersion: 1,
+            },
+          },
+        },
+      },
+      "kms.keys.a.projectId",
+      "not `.` or `..`",
+    );
+  });
+
   it("rejects invalid key names", () => {
     assertError(
       { kms: { keys: { "my key": { provider: "aws", keyId: "alias/a" } } } },
@@ -194,7 +257,7 @@ describe("validateKmsUserConfig", () => {
         },
       },
       "kms.keys.a.projectId",
-      "without slashes",
+      "not `.` or `..`",
     );
     assertError(
       {

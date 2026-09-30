@@ -5,7 +5,12 @@ import {
 } from "@nomicfoundation/hardhat-zod-utils";
 import { z } from "zod";
 
-import type { GcpKmsKeyConfig, GcpKmsKeyUserConfig, KmsIdentifier } from "../../../types.ts";
+import type {
+  GcpKmsKeyConfig,
+  GcpKmsKeyUserConfig,
+  KmsIdentifier,
+  KmsIdentifierUserConfig,
+} from "../../../types.ts";
 import { commonKeyFields, identifierSchema } from "../../config/common.ts";
 import { joinIdentifiers, resolveIdentifier } from "../../config/identifiers.ts";
 import { type KeyResolveContext, resolveCommonKeyConfig } from "../../config/key-common.ts";
@@ -51,7 +56,7 @@ const componentsSchema = z
     keyRing: identifierSchema,
     keyName: identifierSchema,
     keyVersion: unionType(
-      [identifierSchema, z.number().int().positive()],
+      [identifierSchema, z.number().int().positive().max(Number.MAX_SAFE_INTEGER)],
       "Expected a positive integer, a string or a Configuration Variable",
     ),
     ...commonKeyFields,
@@ -64,7 +69,7 @@ const componentsSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: [field],
-          message: "Expected a non-empty value without slashes",
+          message: "Expected letters, digits, `_`, `.`, `:` or `-`, and not `.` or `..`",
         });
       }
     }
@@ -90,6 +95,11 @@ export const gcpKeySchema: z.ZodTypeAny = conditionalUnionType(
   EITHER_FORM,
 );
 
+const checkKeyVersionName = (value: string): string | undefined =>
+  parseGcpKeyVersionName(value) === undefined
+    ? "expected projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>/cryptoKeyVersions/<version>"
+    : undefined;
+
 /**
  * Resolves a Google Cloud KMS key config into a key version name.
  *
@@ -101,20 +111,32 @@ export function resolveGcpKey(
   key: GcpKmsKeyUserConfig,
   context: KeyResolveContext,
 ): GcpKmsKeyConfig {
-  const resolve = (
-    value: string | number | Parameters<typeof resolveIdentifier>[0],
-  ): KmsIdentifier =>
-    resolveIdentifier(typeof value === "number" ? String(value) : value, context.resolveVariable);
+  const part = (field: string, value: KmsIdentifierUserConfig | number): KmsIdentifier =>
+    resolveIdentifier(
+      typeof value === "number" ? String(value) : value,
+      context.resolveVariable,
+      `${context.path}.${field}`,
+    );
   const keyVersionName =
     "keyVersionName" in key
-      ? resolve(key.keyVersionName)
-      : joinIdentifiers(gcpKeyVersionName, {
-          projectId: resolve(key.projectId),
-          location: resolve(key.location),
-          keyRing: resolve(key.keyRing),
-          keyName: resolve(key.keyName),
-          keyVersion: resolve(key.keyVersion),
-        });
+      ? resolveIdentifier(
+          key.keyVersionName,
+          context.resolveVariable,
+          `${context.path}.keyVersionName`,
+          checkKeyVersionName,
+        )
+      : joinIdentifiers(
+          gcpKeyVersionName,
+          {
+            projectId: part("projectId", key.projectId),
+            location: part("location", key.location),
+            keyRing: part("keyRing", key.keyRing),
+            keyName: part("keyName", key.keyName),
+            keyVersion: part("keyVersion", key.keyVersion),
+          },
+          context.path,
+          checkKeyVersionName,
+        );
   return {
     provider: "gcp",
     ...resolveCommonKeyConfig(key, context, `gcp:${keyVersionName.display}`),

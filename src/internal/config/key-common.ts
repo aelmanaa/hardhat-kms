@@ -7,6 +7,8 @@ import { toChecksumAddress } from "../crypto/address.ts";
 export interface KeyResolveContext {
   /** The key's name, or `<network>.kmsAccounts[<index>]` for an inline key. */
   name: string;
+  /** The key's config path, such as `kms.keys.deployer`, for error messages. */
+  path: string;
   resolveVariable: ConfigurationVariableResolver;
   defaults: KmsConfig["defaults"];
 }

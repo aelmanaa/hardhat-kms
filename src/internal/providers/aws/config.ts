@@ -52,7 +52,21 @@ export function resolveAwsKey(
   key: AwsKmsKeyUserConfig,
   context: KeyResolveContext,
 ): AwsKmsKeyConfig {
-  const keyId = resolveIdentifier(key.keyId, context.resolveVariable);
+  const keyId = resolveIdentifier(
+    key.keyId,
+    context.resolveVariable,
+    `${context.path}.keyId`,
+    (value) => {
+      const parsed = parseAwsKeyId(value);
+      if (parsed === undefined) {
+        return `expected ${AWS_KEY_ID_FORMS}`;
+      }
+      if (parsed.region !== undefined && key.region !== undefined && parsed.region !== key.region) {
+        return `the key ARN's region conflicts with \`region\` (${key.region})`;
+      }
+      return undefined;
+    },
+  );
   const arnRegion = typeof key.keyId === "string" ? parseAwsKeyId(key.keyId)?.region : undefined;
   const region = arnRegion ?? key.region ?? context.defaults.aws.region;
   return {

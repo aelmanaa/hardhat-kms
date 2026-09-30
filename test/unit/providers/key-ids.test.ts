@@ -22,6 +22,13 @@ describe("AWS key ids", () => {
       kind: "keyArn",
       region: "eu-west-1",
     });
+    for (const partition of ["aws-cn", "aws-iso-f", "aws-eusc"]) {
+      assert.equal(
+        parseAwsKeyId(`arn:${partition}:kms:r-1:111122223333:alias/ops`)?.kind,
+        "aliasArn",
+        partition,
+      );
+    }
     assert.deepEqual(parseAwsKeyId("arn:aws-us-gov:kms:us-gov-west-1:111122223333:alias/ops"), {
       kind: "aliasArn",
       region: "us-gov-west-1",
@@ -60,12 +67,15 @@ describe("GCP key version names", () => {
     assert.equal(parsed && gcpKeyVersionName(parsed), name);
   });
 
-  it("rejects names without a numeric version or with extra segments", () => {
+  it("rejects names without a positive integer version or with extra segments", () => {
     for (const value of [
       "projects/p/locations/l/keyRings/r/cryptoKeys/k",
       "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/latest",
+      "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/0",
+      "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/01",
       "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1/extra",
       "projects//locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1",
+      "projects/../locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1",
     ]) {
       assert.equal(parseGcpKeyVersionName(value), undefined, value);
     }
@@ -100,6 +110,9 @@ describe("Azure key ids", () => {
       "https://ops.vault.azure.net/secrets/deployer",
       "https://ops.vault.azure.net/keys/deployer/v1/extra",
       "https://ops.vault.azure.net/keys/bad_name",
+      "https://ops.vault.azure.net/keys/k?",
+      "https://ops.vault.azure.net/keys/k#",
+      "https://ops.vault.azure.net\\keys\\k",
       "not a url",
     ]) {
       assert.equal(parseAzureKeyId(value), undefined, value);
@@ -110,5 +123,12 @@ describe("Azure key ids", () => {
     assert.equal(parseAzureVaultUrl("https://ops.vault.azure.net/"), "https://ops.vault.azure.net");
     assert.equal(parseAzureVaultUrl("https://ops.vault.azure.net/keys"), undefined);
     assert.equal(parseAzureVaultUrl("https://evil.example"), undefined);
+    for (const value of [
+      "https://ops.vault.azure.net/?",
+      "https://ops.vault.azure.net/#",
+      "https://ops.vault.azure.net\\",
+    ]) {
+      assert.equal(parseAzureVaultUrl(value), undefined, value);
+    }
   });
 });

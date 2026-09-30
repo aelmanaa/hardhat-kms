@@ -10,7 +10,7 @@ const ALIAS = String.raw`alias/[A-Za-z0-9/_-]{1,250}`;
 const KEY_ID_RE = new RegExp(`^${KEY_ID}$`);
 const ALIAS_RE = new RegExp(`^${ALIAS}$`);
 const ARN_RE = new RegExp(
-  String.raw`^arn:aws(?:-cn|-us-gov|-iso|-iso-b)?:kms:([a-z0-9-]+):\d{12}:(?:key/${KEY_ID}|(${ALIAS}))$`,
+  String.raw`^arn:aws(?:-[a-z]+)*:kms:([a-z0-9-]+):\d{12}:(?:key/${KEY_ID}|(${ALIAS}))$`,
 );
 
 /**

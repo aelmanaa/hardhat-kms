@@ -4,11 +4,51 @@ import { z } from "zod";
 import { BUILTIN_PROVIDER_CONFIGS } from "../providers/builtin-config.ts";
 import { commonKeyFields, nonEmptyString, timeoutSchema } from "./common.ts";
 
-/** Key names are used on the command line, so they are kept simple. */
+/** Key names are kept simple because tasks will take them as command-line arguments. */
 const KEY_NAME_PATTERN: RegExp = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
 const isObject = (data: unknown): data is Record<string, unknown> =>
   typeof data === "object" && data !== null && !Array.isArray(data);
+
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(
+        (previous[j] ?? 0) + 1,
+        (current[j - 1] ?? 0) + 1,
+        (previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    previous = current;
+  }
+  return previous[b.length] ?? 0;
+}
+
+/**
+ * Finds the built-in provider a misspelled id most likely meant: same id in another case, or at
+ * most two edits away.
+ *
+ * @param provider - A provider id that is not built in.
+ * @returns The built-in id, or `undefined`.
+ */
+function builtinLookalike(provider: string): string | undefined {
+  return Object.keys(BUILTIN_PROVIDER_CONFIGS).find(
+    (id) => id === provider.toLowerCase() || editDistance(id, provider.toLowerCase()) <= 2,
+  );
+}
+
+const misspelledProviderSchema = z
+  .object({ provider: z.string() })
+  .passthrough()
+  .superRefine((key, ctx) => {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["provider"],
+      message: `Unknown provider "${key.provider}". Did you mean "${builtinLookalike(key.provider) ?? ""}"?`,
+    });
+  });
 
 /** A third-party provider's key: only the shared fields are checked here; the provider checks the rest. */
 const externalKeySchema = z.object({ provider: nonEmptyString, ...commonKeyFields }).passthrough();
@@ -23,6 +63,13 @@ const keySchema: z.ZodTypeAny = conditionalUnionType(
           z.ZodTypeAny,
         ],
     ),
+    [
+      (data) =>
+        isObject(data) &&
+        typeof data.provider === "string" &&
+        builtinLookalike(data.provider) !== undefined,
+      misspelledProviderSchema,
+    ],
     [(data) => isObject(data) && typeof data.provider === "string", externalKeySchema],
   ],
   'Expected a key object with a `provider` field, for example { provider: "aws", keyId: "alias/deployer" }',
@@ -38,7 +85,17 @@ const accountSchema = conditionalUnionType(
 
 const kmsSchema = z
   .object({
-    keys: z.record(keySchema).optional(),
+    keys: z
+      .record(
+        z
+          .string()
+          .regex(
+            KEY_NAME_PATTERN,
+            "Key names start with a letter and use at most 64 letters, digits, `_` or `-`",
+          ),
+        keySchema,
+      )
+      .optional(),
     defaults: z
       .object({
         aws: z.object({ region: nonEmptyString.optional() }).strict().optional(),
@@ -66,15 +123,6 @@ export const kmsUserConfigSchema: z.ZodTypeAny = z
   .passthrough()
   .superRefine((config, ctx) => {
     const keys = config.kms?.keys ?? {};
-    for (const name of Object.keys(keys)) {
-      if (!KEY_NAME_PATTERN.test(name)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["kms", "keys", name],
-          message: "Key names start with a letter and use at most 64 letters, digits, `_` or `-`",
-        });
-      }
-    }
     for (const [network, networkConfig] of Object.entries(config.networks ?? {})) {
       const seen = new Set<string>();
       (networkConfig.kmsAccounts ?? []).forEach((account: unknown, index: number) => {

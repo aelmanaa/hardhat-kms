@@ -80,6 +80,14 @@ export const azureKeySchema: z.ZodTypeAny = conditionalUnionType(
   EITHER_FORM,
 );
 
+const checkKeyId = (value: string): string | undefined =>
+  parseAzureKeyId(value) === undefined
+    ? `expected ${HOSTS} with the path /keys/<name> or /keys/<name>/<version>`
+    : undefined;
+
+// A vault URL is used in its canonical form (its origin); an invalid one then fails `checkKeyId`.
+const canonicalVault = (value: string): string => parseAzureVaultUrl(value) ?? value;
+
 /**
  * Resolves an Azure key config into a key identifier URL.
  *
@@ -91,28 +99,34 @@ export function resolveAzureKey(
   key: AzureKmsKeyUserConfig,
   context: KeyResolveContext,
 ): AzureKmsKeyConfig {
-  const resolve = (value: Parameters<typeof resolveIdentifier>[0]) =>
-    resolveIdentifier(value, context.resolveVariable);
+  const part = (field: string, value: Parameters<typeof resolveIdentifier>[0]) =>
+    resolveIdentifier(value, context.resolveVariable, `${context.path}.${field}`);
   let keyId;
   if ("keyId" in key) {
-    keyId = resolve(key.keyId);
+    keyId = resolveIdentifier(
+      key.keyId,
+      context.resolveVariable,
+      `${context.path}.keyId`,
+      checkKeyId,
+    );
   } else if (key.keyVersion === undefined) {
     keyId = joinIdentifiers(
-      ({ vaultUrl, keyName }) => `${vaultUrl.replace(/\/$/, "")}/keys/${keyName}`,
-      {
-        vaultUrl: resolve(key.vaultUrl),
-        keyName: resolve(key.keyName),
-      },
+      ({ vaultUrl, keyName }) => `${canonicalVault(vaultUrl)}/keys/${keyName}`,
+      { vaultUrl: part("vaultUrl", key.vaultUrl), keyName: part("keyName", key.keyName) },
+      context.path,
+      checkKeyId,
     );
   } else {
     keyId = joinIdentifiers(
       ({ vaultUrl, keyName, keyVersion }) =>
-        `${vaultUrl.replace(/\/$/, "")}/keys/${keyName}/${keyVersion}`,
+        `${canonicalVault(vaultUrl)}/keys/${keyName}/${keyVersion}`,
       {
-        vaultUrl: resolve(key.vaultUrl),
-        keyName: resolve(key.keyName),
-        keyVersion: resolve(key.keyVersion),
+        vaultUrl: part("vaultUrl", key.vaultUrl),
+        keyName: part("keyName", key.keyName),
+        keyVersion: part("keyVersion", key.keyVersion),
       },
+      context.path,
+      checkKeyId,
     );
   }
   return {

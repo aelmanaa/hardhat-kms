@@ -32,7 +32,10 @@ const isAws = (k: KmsKeyConfig): k is AwsKmsKeyConfig => k.provider === "aws" &&
 const isGcp = (k: KmsKeyConfig): k is GcpKmsKeyConfig =>
   k.provider === "gcp" && "keyVersionName" in k;
 const isAzure = (k: KmsKeyConfig): k is AzureKmsKeyConfig => k.provider === "azure" && "keyId" in k;
-const isExternal = (k: KmsKeyConfig): k is ExternalKmsKeyConfig => "userConfig" in k;
+const isResolvedVariable = (value: unknown): value is { get(): Promise<string> } =>
+  typeof value === "object" && value !== null && "get" in value && typeof value.get === "function";
+const isExternal = (k: unknown): k is ExternalKmsKeyConfig =>
+  typeof k === "object" && k !== null && "userConfig" in k;
 
 function awsKey(config: HardhatUserConfig, name: string): AwsKmsKeyConfig {
   const k = key(config, name);
@@ -108,7 +111,12 @@ describe("resolveKmsConfig", () => {
   });
 
   it("refuses to resolve a key with a provider's resolver for another provider", () => {
-    const context = { name: "a", resolveVariable: resolver, defaults: { aws: {}, timeoutMs: 1 } };
+    const context = {
+      name: "a",
+      path: "kms.keys.a",
+      resolveVariable: resolver,
+      defaults: { aws: {}, timeoutMs: 1 },
+    };
     const gcpUserKey = {
       provider: "gcp" as const,
       keyVersionName: "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1",
@@ -219,26 +227,194 @@ describe("resolveKmsConfig", () => {
     );
   });
 
-  it("keeps a third-party key's config for its provider to validate", () => {
-    const userConfig: unknown = { kms: { keys: { v: { provider: "myvault", keyPath: "a/b" } } } };
+  it("keeps a third-party key's config, with configuration variables resolved, for its provider", async () => {
+    const userConfig: unknown = {
+      kms: {
+        keys: {
+          v: {
+            provider: "myvault",
+            keyPath: "a/b",
+            auth: { token: configVariable("AWS_KMS_KEY_ID") },
+          },
+        },
+      },
+    };
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a provider this package does not know
-    const external = key(userConfig as HardhatUserConfig, "v");
+    const external: unknown = key(userConfig as HardhatUserConfig, "v");
     assert.ok(isExternal(external));
 
     assert.equal(external.provider, "myvault");
-    assert.deepEqual(external.userConfig, { provider: "myvault", keyPath: "a/b" });
-    assert.ok(Object.isFrozen(external.userConfig));
+    assert.equal(external.userConfig.keyPath, "a/b");
     assert.equal(external.displayId, "myvault:v");
+    assert.ok(Object.isFrozen(external.userConfig));
+    const auth = external.userConfig.auth;
+    assert.ok(typeof auth === "object" && auth !== null && Object.isFrozen(auth));
+    const token: unknown = "token" in auth ? auth.token : undefined;
+    assert.ok(isResolvedVariable(token));
+    assert.equal(await token.get(), "alias/secret-name");
+  });
+
+  it("lets consumers narrow a resolved key on its provider", () => {
+    assert.equal(
+      describeKey(awsKey({ kms: { keys: { a: { provider: "aws", keyId: "alias/a" } } } }, "a")),
+      "aws:alias/a",
+    );
+  });
+});
+
+// Compiles only if `provider` narrows the union: `keyVersionName` exists on GCP keys alone.
+function describeKey(k: KmsKeyConfig): string {
+  return k.provider === "gcp" ? k.keyVersionName.display : `${k.provider}:${k.keyId.display}`;
+}
+
+const resolveWith = (
+  config: HardhatUserConfig,
+  values: Record<string, string>,
+  name = "a",
+): KmsKeyConfig => {
+  const resolved = resolveKmsConfig(config, fakeResolver(values)).keys[name];
+  assert.ok(resolved);
+  return resolved;
+};
+const getOf = async (k: KmsKeyConfig): Promise<string> =>
+  await (k.provider === "gcp" ? k.keyVersionName.get() : k.keyId.get());
+
+const awsVariableConfig = (region: string | undefined): HardhatUserConfig => ({
+  kms: {
+    keys: {
+      a: {
+        provider: "aws",
+        keyId: configVariable("KEY"),
+        ...(region === undefined ? {} : { region }),
+      },
+    },
+  },
+});
+
+/** A resolved Hardhat config with only `networks`, which is all the resolver reads. */
+function networksOnly(networks: Record<string, unknown>): HardhatConfig {
+  const config: unknown = { networks };
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- only `networks` is read
+  return config as HardhatConfig;
+}
+
+async function assertRejectsWithout(
+  k: KmsKeyConfig,
+  includes: string[],
+  secret: string,
+): Promise<void> {
+  await assert.rejects(getOf(k), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    for (const part of includes) {
+      assert.ok(error.message.includes(part), `"${error.message}" should include "${part}"`);
+    }
+    assert.ok(!error.message.includes(secret), `"${error.message}" must not include the value`);
+    return true;
+  });
+}
+
+describe("values from configuration variables", () => {
+  it("checks an AWS key id, and its ARN region against `region`, when read", async () => {
+    const arn = "arn:aws:kms:eu-west-1:111122223333:alias/deployer";
+
+    assert.equal(await getOf(resolveWith(awsVariableConfig(undefined), { KEY: arn })), arn);
+    await assertRejectsWithout(
+      resolveWith(awsVariableConfig(undefined), { KEY: "not-a-key" }),
+      ["kms.keys.a.keyId", "<KEY>", "alias name"],
+      "not-a-key",
+    );
+    await assertRejectsWithout(
+      resolveWith(awsVariableConfig("us-east-1"), { KEY: arn }),
+      ["conflicts", "us-east-1"],
+      "111122223333",
+    );
+  });
+
+  it("checks a joined GCP key version name when read", async () => {
+    const config: HardhatUserConfig = {
+      kms: {
+        keys: {
+          a: {
+            provider: "gcp",
+            projectId: "p",
+            location: "l",
+            keyRing: configVariable("RING"),
+            keyName: "k",
+            keyVersion: 1,
+          },
+        },
+      },
+    };
+
+    assert.match(await getOf(resolveWith(config, { RING: "ring" })), /keyRings\/ring\//);
+    await assertRejectsWithout(
+      resolveWith(config, { RING: "../../x" }),
+      ["kms.keys.a", "keyRings/<RING>"],
+      "../../x",
+    );
+  });
+
+  it("checks an Azure key id's host when read, so a variable cannot redirect signing requests", async () => {
+    const byId: HardhatUserConfig = {
+      kms: { keys: { a: { provider: "azure", keyId: configVariable("AZ") } } },
+    };
+    const byVault: HardhatUserConfig = {
+      kms: { keys: { a: { provider: "azure", vaultUrl: configVariable("VAULT"), keyName: "k" } } },
+    };
+
+    assert.equal(
+      await getOf(resolveWith(byId, { AZ: "https://ops.vault.azure.net/keys/k" })),
+      "https://ops.vault.azure.net/keys/k",
+    );
+    await assertRejectsWithout(
+      resolveWith(byId, { AZ: "https://attacker.example/keys/k" }),
+      ["kms.keys.a.keyId", "<AZ>"],
+      "attacker",
+    );
+    assert.equal(
+      await getOf(resolveWith(byVault, { VAULT: "https://ops.vault.azure.net/" })),
+      "https://ops.vault.azure.net/keys/k",
+    );
+    for (const bad of [
+      "https://ops.vault.azure.net/?",
+      "https://ops.vault.azure.net/#",
+      "https://attacker.example",
+    ]) {
+      await assertRejectsWithout(
+        resolveWith(byVault, { VAULT: bad }),
+        ["kms.keys.a", "<VAULT>/keys/k"],
+        "attacker",
+      );
+    }
+  });
+
+  it("names the network path for inline keys", async () => {
+    const userConfig: HardhatUserConfig = {
+      networks: {
+        sepolia: {
+          type: "http",
+          url: "http://x",
+          kmsAccounts: [{ provider: "aws", keyId: configVariable("KEY") }],
+        },
+      },
+    };
+    const resolved = resolveKmsUserConfig(
+      userConfig,
+      networksOnly({ sepolia: { type: "http" } }),
+      fakeResolver({ KEY: "nope" }),
+    );
+    const account = resolved.networks.sepolia?.kmsAccounts[0];
+    assert.ok(account);
+
+    await assertRejectsWithout(account, ["networks.sepolia.kmsAccounts.0.keyId"], "nope");
   });
 });
 
 describe("resolveKmsUserConfig", () => {
-  const resolvedBase = {
-    networks: {
-      default: { type: "edr-simulated" },
-      sepolia: { type: "http", chainId: 11155111 },
-    },
-  } as unknown as HardhatConfig; // oxlint-disable-line typescript/no-unsafe-type-assertion -- only networks matter here
+  const resolvedBase = networksOnly({
+    default: { type: "edr-simulated" },
+    sepolia: { type: "http", chainId: 11155111 },
+  });
 
   it("expands key names, resolves inline keys and gives every network kmsAccounts", () => {
     const userConfig: HardhatUserConfig = {

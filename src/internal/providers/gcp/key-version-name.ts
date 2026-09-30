@@ -9,7 +9,7 @@ export interface GcpKeyVersionComponents {
 
 const SEGMENT = String.raw`[A-Za-z0-9_.:-]+`;
 const NAME_RE = new RegExp(
-  `^projects/(${SEGMENT})/locations/(${SEGMENT})/keyRings/(${SEGMENT})/cryptoKeys/(${SEGMENT})/cryptoKeyVersions/(\\d+)$`,
+  `^projects/(${SEGMENT})/locations/(${SEGMENT})/keyRings/(${SEGMENT})/cryptoKeys/(${SEGMENT})/cryptoKeyVersions/([1-9]\\d*)$`,
 );
 
 /**
@@ -24,6 +24,9 @@ export function parseGcpKeyVersionName(value: string): GcpKeyVersionComponents |
     return undefined;
   }
   const [, projectId = "", location = "", keyRing = "", keyName = "", keyVersion = ""] = match;
+  if (![projectId, location, keyRing, keyName].every(isGcpSegment)) {
+    return undefined;
+  }
   return { projectId, location, keyRing, keyName, keyVersion };
 }
 
@@ -38,12 +41,18 @@ export function gcpKeyVersionName(components: GcpKeyVersionComponents): string {
   return `projects/${projectId}/locations/${location}/keyRings/${keyRing}/cryptoKeys/${keyName}/cryptoKeyVersions/${keyVersion}`;
 }
 
-/** Checks one component: no slashes, not empty. */
+/**
+ * Checks one component: a non-empty run of letters, digits, `_`, `.`, `:` or `-`, other than `.`
+ * and `..`.
+ *
+ * @param value - The component.
+ * @returns Whether it is valid.
+ */
 export function isGcpSegment(value: string): boolean {
-  return new RegExp(`^${SEGMENT}$`).test(value);
+  return new RegExp(`^${SEGMENT}$`).test(value) && value !== "." && value !== "..";
 }
 
-/** Checks a key version number. */
+/** Checks a key version: a positive integer without leading zeros. */
 export function isGcpKeyVersion(value: string): boolean {
   return /^[1-9]\d*$/.test(value);
 }
