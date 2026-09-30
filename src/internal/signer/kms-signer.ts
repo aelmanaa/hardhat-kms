@@ -26,9 +26,12 @@ import {
   toLowS,
   toRpcSignature,
 } from "../crypto/signature.ts";
-import { kmsError } from "../errors.ts";
+import { kmsDebug } from "../debug.ts";
+import { errorName, kmsError } from "../errors.ts";
 import { systemTimers, TimeoutError, type Timers, withTimeout } from "./timeout.ts";
 import type { KeyDescription, KmsKeyAdapter, SignContext } from "./types.ts";
+
+const log = kmsDebug("signer");
 
 /** Options for a {@link KmsSigner}. */
 export interface KmsSignerOptions {
@@ -38,6 +41,11 @@ export interface KmsSignerOptions {
   timeoutMs: number;
   /** Shows a status line to the user. */
   displayMessage(message: string): Promise<void>;
+  /**
+   * How to show the key in errors and logs, normally the resolved config's `displayId`. Taken
+   * from the configuration rather than from the adapter, which may be third-party code.
+   */
+  displayId?: string | undefined;
   /** Timer functions, for tests. */
   timers?: Timers | undefined;
 }
@@ -67,6 +75,7 @@ type SignRequest =
 export class KmsSigner {
   readonly #adapter: KmsKeyAdapter;
   readonly #description: KeyDescription;
+  readonly #displayId: string;
   readonly #options: KmsSignerOptions;
   readonly #timers: Timers;
   #identity: Promise<KeyIdentity> | undefined;
@@ -78,7 +87,10 @@ export class KmsSigner {
   public constructor(adapter: KmsKeyAdapter, options: KmsSignerOptions) {
     // Described once: adapters come from third-party code, and error paths must not call back into it.
     const description = adapter.describe();
-    const context = { provider: description.provider, key: description.displayId };
+    const context = {
+      provider: description.provider,
+      key: options.displayId ?? description.displayId,
+    };
     if (
       adapter.getPublicKey === undefined &&
       adapter.getAddress === undefined &&
@@ -112,6 +124,7 @@ export class KmsSigner {
     }
     this.#adapter = adapter;
     this.#description = Object.freeze({ ...description });
+    this.#displayId = options.displayId ?? description.displayId;
     this.#options = { ...options, expectedAddress };
     this.#timers = options.timers ?? systemTimers;
   }
@@ -200,6 +213,7 @@ export class KmsSigner {
         assertOnCurve(await getPublicKey(ctx)),
       );
       const address = addressFromPublicKey(publicKey);
+      log("%s: public key derives to %s", this.#displayId, address);
       this.#assertPin(address);
       return { address, publicKey };
     }
@@ -246,6 +260,7 @@ export class KmsSigner {
         throw error;
       }
       // A fresh signature once: a transient backend fault must not become a silent wrong key.
+      log("%s: invalid signature (%s), asking for a fresh one", this.#displayId, error.message);
       try {
         return await this.#signOnce(request, digest, identity);
       } catch (retryError) {
@@ -294,20 +309,27 @@ export class KmsSigner {
   }
 
   async #call<T>(operation: string, run: (ctx: SignContext) => Promise<T>): Promise<T> {
+    const requestId = randomUUID();
+    const started = Date.now();
+    const key = this.#displayId;
+    log("%s: %s (request %s)", key, operation, requestId);
     try {
-      return await withTimeout(
+      const result = await withTimeout(
         async (signal) =>
           await run({
             signal,
             displayMessage: async (message) => {
               await this.#options.displayMessage(message);
             },
-            requestId: randomUUID(),
+            requestId,
           }),
         this.#options.timeoutMs,
         this.#timers,
       );
+      log("%s: %s done in %d ms", key, operation, Date.now() - started);
+      return result;
     } catch (error) {
+      log("%s: %s failed after %d ms (%s)", key, operation, Date.now() - started, errorName(error));
       if (error instanceof HardhatPluginError || error instanceof InvalidSignatureError) {
         throw error;
       }
@@ -324,7 +346,8 @@ export class KmsSigner {
   }
 
   #error(operation: string, message: string): HardhatPluginError {
-    const { provider, displayId } = this.#description;
+    const { provider } = this.#description;
+    const displayId = this.#displayId;
     return kmsError(message, { provider, operation, key: displayId });
   }
 }
@@ -359,12 +382,4 @@ function recoverForAddress(
     }
   }
   throw new InvalidSignatureError("the signature does not recover to the configured address");
-}
-
-function errorName(error: unknown): string {
-  // The name comes from the provider SDK; keep it only if it looks like a class name.
-  if (error instanceof Error && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name)) {
-    return error.name;
-  }
-  return error instanceof Error ? "Error" : typeof error;
 }

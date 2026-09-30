@@ -31,3 +31,17 @@ export function kmsError(message: string, details: ErrorDetails = {}): HardhatPl
   const prefix = context.length > 0 ? `${context.join(", ")}: ` : "";
   return new HardhatPluginError(PLUGIN_ID, `${prefix}${message}`);
 }
+
+/**
+ * Names an error for messages and logs without its text, which can carry request details. The
+ * name is kept only if it looks like a class name.
+ *
+ * @param error - Anything thrown.
+ * @returns A short, safe name.
+ */
+export function errorName(error: unknown): string {
+  if (error instanceof Error && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name)) {
+    return error.name;
+  }
+  return error instanceof Error ? "Error" : typeof error;
+}

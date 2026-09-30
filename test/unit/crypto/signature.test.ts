@@ -146,6 +146,19 @@ describe("signatures", () => {
     );
   });
 
+  it("rejects signature formats other than der and compact, without echoing them", () => {
+    // What a buggy adapter might return; the type forbids it, so go around the type.
+    const output: unknown = { format: "hhkms-secret-format", bytes: new Uint8Array(64) };
+
+    assert.throws(
+      () => Reflect.apply(parseSignature, undefined, [output]),
+      (error: unknown) =>
+        error instanceof InvalidSignatureError &&
+        error.message.includes("unsupported signature format") &&
+        !error.message.includes("hhkms-secret"),
+    );
+  });
+
   it("rejects scalars outside [1, n - 1]", () => {
     for (const [r, s] of [
       [0n, 1n],

@@ -11,6 +11,7 @@ Status: in development, not on npm. Most user-facing behaviour is still planned,
 - Configure keys and networks: [docs/user/reference/configuration.md](docs/user/reference/configuration.md)
 - Which JSON-RPC methods are handled, and which transaction types: [docs/user/reference/rpc-methods.md](docs/user/reference/rpc-methods.md)
 - The `kms` tasks (list accounts, sign, verify): [docs/user/reference/tasks.md](docs/user/reference/tasks.md)
+- Turn on and read the debug output: [docs/user/guides/debug-output.md](docs/user/guides/debug-output.md)
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - What the plugin protects against and what it does not: [docs/contributor/signing-pipeline.md#threat-model-summary](docs/contributor/signing-pipeline.md#threat-model-summary)
 - Pages not written yet (tutorials, key setup guides, errors): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)

@@ -1,10 +1,13 @@
 import type { HookContext } from "hardhat/types/hooks";
 
 import type { KmsKeyConfig } from "../../types.ts";
-import { kmsError } from "../errors.ts";
+import { kmsDebug } from "../debug.ts";
+import { errorName, kmsError } from "../errors.ts";
 import type { KmsKeyAdapter } from "../signer/types.ts";
 import { createProviderDeps } from "./deps.ts";
 import { builtinProvider } from "./registry.ts";
+
+const log = kmsDebug("providers");
 
 const SIGNING_METHODS = ["signDigest", "signMessage", "signTypedData"] as const;
 const IDENTITY_METHODS = ["getPublicKey", "getAddress"] as const;
@@ -66,7 +69,7 @@ function describeProblem(adapter: object): string | undefined {
     description = Reflect.apply(describe, adapter, []);
   } catch (error) {
     // Only the class name: a provider's error text may carry request details.
-    return `the adapter's describe() failed (${error instanceof Error ? error.constructor.name : typeof error})`;
+    return `the adapter's describe() failed (${errorName(error)})`;
   }
   const field = (name: string): unknown =>
     typeof description === "object" && description !== null
@@ -93,6 +96,7 @@ export async function createKeyAdapter(
   context: HookContext,
   key: KmsKeyConfig,
 ): Promise<KmsKeyAdapter> {
+  log("creating the adapter for %s", key.displayId);
   const adapter: unknown = await context.hooks.runHandlerChain(
     "kms",
     "createKeyAdapter",
@@ -105,6 +109,7 @@ export async function createKeyAdapter(
           { provider: finalKey.provider, operation: "create adapter", key: finalKey.displayId },
         );
       }
+      log("%s: using the built-in %s provider", finalKey.displayId, provider.id);
       const module = await provider.load();
       return await module.createKeyAdapter(
         finalKey,

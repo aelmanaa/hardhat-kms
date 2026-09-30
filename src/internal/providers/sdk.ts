@@ -5,8 +5,11 @@ import { pathToFileURL } from "node:url";
 
 import semver from "semver";
 
+import { kmsDebug } from "../debug.ts";
 import { kmsError } from "../errors.ts";
 import type { ProviderSdk } from "./types.ts";
+
+const log = kmsDebug("providers:sdk");
 
 /**
  * Finds the installed version of a package from the path of one of its files.
@@ -101,6 +104,12 @@ export async function loadSdk(
       context,
     );
   }
+  log(
+    "loading %s %s from %s",
+    sdk.packageName,
+    version,
+    path.relative(realPath(projectRoot), entry),
+  );
   return (await import(pathToFileURL(entry).href)) as unknown;
 }
 
