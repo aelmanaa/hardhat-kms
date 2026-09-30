@@ -34,7 +34,7 @@ GCP responses get an integrity check. The plugin sends `digestCrc32c`, requires 
 
 Errors are `HardhatPluginError("hardhat-kms", …)` built from an allow-list of fields: provider, operation, display id, SDK error name or code, HTTP status and request id. Raw SDK errors are never attached as `cause`, and secrets are never included.
 
-`debug` output may contain digests, addresses and display ids only.
+`debug` output, created with `kmsDebug()` in `src/internal/debug.ts` under `hardhat:kms:*`, may contain digests, addresses, display ids, provider ids, timings and error class names only. `test/integration/debug.test.ts` plants secrets in configuration variables, a third-party key and a provider error, and fails if any of them reaches the output. See [Debug output](../user/guides/debug-output.md).
 
 `ResolvedConfigurationVariable` carries no name, so descriptors capture `ConfigurationVariable.name` at resolve time and produce `{ value, maskedAs: "<NAME>" }`. Ids derived from a masked value (an ARN, a pinned version) inherit the mask.
 

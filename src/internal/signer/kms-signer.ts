@@ -26,9 +26,12 @@ import {
   toLowS,
   toRpcSignature,
 } from "../crypto/signature.ts";
+import { kmsDebug } from "../debug.ts";
 import { kmsError } from "../errors.ts";
 import { systemTimers, TimeoutError, type Timers, withTimeout } from "./timeout.ts";
 import type { KeyDescription, KmsKeyAdapter, SignContext } from "./types.ts";
+
+const log = kmsDebug("signer");
 
 /** Options for a {@link KmsSigner}. */
 export interface KmsSignerOptions {
@@ -200,6 +203,7 @@ export class KmsSigner {
         assertOnCurve(await getPublicKey(ctx)),
       );
       const address = addressFromPublicKey(publicKey);
+      log("%s: public key derives to %s", this.#description.displayId, address);
       this.#assertPin(address);
       return { address, publicKey };
     }
@@ -246,6 +250,11 @@ export class KmsSigner {
         throw error;
       }
       // A fresh signature once: a transient backend fault must not become a silent wrong key.
+      log(
+        "%s: invalid signature (%s), asking for a fresh one",
+        this.#description.displayId,
+        error.message,
+      );
       try {
         return await this.#signOnce(request, digest, identity);
       } catch (retryError) {
@@ -294,20 +303,27 @@ export class KmsSigner {
   }
 
   async #call<T>(operation: string, run: (ctx: SignContext) => Promise<T>): Promise<T> {
+    const requestId = randomUUID();
+    const started = Date.now();
+    const key = this.#description.displayId;
+    log("%s: %s (request %s)", key, operation, requestId);
     try {
-      return await withTimeout(
+      const result = await withTimeout(
         async (signal) =>
           await run({
             signal,
             displayMessage: async (message) => {
               await this.#options.displayMessage(message);
             },
-            requestId: randomUUID(),
+            requestId,
           }),
         this.#options.timeoutMs,
         this.#timers,
       );
+      log("%s: %s done in %d ms", key, operation, Date.now() - started);
+      return result;
     } catch (error) {
+      log("%s: %s failed after %d ms (%s)", key, operation, Date.now() - started, errorName(error));
       if (error instanceof HardhatPluginError || error instanceof InvalidSignatureError) {
         throw error;
       }
