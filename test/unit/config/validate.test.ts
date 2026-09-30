@@ -111,7 +111,21 @@ describe("validateKmsUserConfig", () => {
       "kms.keys.a.provider",
       'Did you mean "azure"?',
     );
-    assert.deepEqual(validate({ kms: { keys: { a: { provider: "myvault" } } } }), []);
+    for (const provider of ["myvault", "kms", "hsm", "gcpx-hsm"]) {
+      assert.deepEqual(validate({ kms: { keys: { a: { provider } } } }), [], provider);
+    }
+    for (const [provider, meant] of [
+      ["gpc", "gcp"],
+      ["aw", "aws"],
+      ["azurre", "azure"],
+      ["Azure", "azure"],
+    ] as const) {
+      assertError(
+        { kms: { keys: { a: { provider } } } },
+        "kms.keys.a.provider",
+        `Did you mean "${meant}"?`,
+      );
+    }
   });
 
   it("rejects __proto__ as a key name", () => {

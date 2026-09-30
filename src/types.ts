@@ -5,6 +5,9 @@
  */
 
 import type { ConfigurationVariable } from "hardhat/types/config";
+import type { HookContext } from "hardhat/types/hooks";
+
+import type { KmsKeyAdapter } from "./internal/signer/types.ts";
 
 /** A value that can be written literally or read from a configuration variable. */
 export type KmsIdentifierUserConfig = string | ConfigurationVariable;
@@ -209,3 +212,40 @@ export interface KmsConfig {
   allowCrossChainTypedData: boolean;
   simulatedBalance?: bigint;
 }
+
+export type { KeyDescription, KmsKeyAdapter, SignContext } from "./internal/signer/types.ts";
+export type { SignatureOutput } from "./internal/crypto/signature.ts";
+export type { TypedData } from "./internal/crypto/digests.ts";
+
+/**
+ * The `kms` hook category, which third-party plugins use to add providers.
+ *
+ * @experimental The hook may change before 1.0.
+ */
+export interface KmsHooks {
+  /**
+   * Builds the adapter for one key. A handler builds adapters for its own provider ids and calls
+   * `next` for any other key. After the last handler, the plugin builds adapters for the
+   * built-in providers; a key whose provider no handler claims fails with an error.
+   *
+   * The plugin validates only the fields every key shares. A handler validates the rest of an
+   * `ExternalKmsKeyConfig`'s `userConfig` itself; configuration variables in it are
+   * `ResolvedConfigurationVariable` objects. The plugin rejects an adapter without `describe()`,
+   * without a signing method, or without `getPublicKey` or `getAddress` when the key has no
+   * `address` pin. It verifies the adapter's signatures like those of the built-in providers.
+   *
+   * @param context - The Hardhat runtime, without tasks.
+   * @param key - The resolved key.
+   * @param next - Passes the key to the next handler, or to the built-in providers after the last one.
+   * @returns The key's adapter.
+   */
+  createKeyAdapter(
+    context: HookContext,
+    key: KmsKeyConfig,
+    next: (nextContext: HookContext, nextKey: KmsKeyConfig) => Promise<KmsKeyAdapter>,
+  ): Promise<KmsKeyAdapter>;
+}
+
+// Provider plugins often import only this module; this brings in the `kms` hook category and
+// the config type extensions.
+export type * from "./type-extensions.ts";

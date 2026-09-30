@@ -10,32 +10,39 @@ const KEY_NAME_PATTERN: RegExp = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const isObject = (data: unknown): data is Record<string, unknown> =>
   typeof data === "object" && data !== null && !Array.isArray(data);
 
+/** Edit distance where swapping two adjacent letters counts as one edit (optimal string alignment). */
 function editDistance(a: string, b: string): number {
-  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  const rows = Array.from({ length: a.length + 1 }, (_row, i) =>
+    Array.from({ length: b.length + 1 }, (_column, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+  const at = (i: number, j: number): number => rows[i]?.[j] ?? 0;
   for (let i = 1; i <= a.length; i++) {
-    const current = [i];
     for (let j = 1; j <= b.length; j++) {
-      current[j] = Math.min(
-        (previous[j] ?? 0) + 1,
-        (current[j - 1] ?? 0) + 1,
-        (previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1),
-      );
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let best = Math.min(at(i - 1, j) + 1, at(i, j - 1) + 1, at(i - 1, j - 1) + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        best = Math.min(best, at(i - 2, j - 2) + 1);
+      }
+      const row = rows[i];
+      if (row !== undefined) {
+        row[j] = best;
+      }
     }
-    previous = current;
   }
-  return previous[b.length] ?? 0;
+  return at(a.length, b.length);
 }
 
 /**
- * Finds the built-in provider a misspelled id most likely meant: same id in another case, or at
- * most two edits away.
+ * Finds the built-in provider a misspelled id most likely meant: the same id in another case, or
+ * one edit away (a changed, added or removed letter, or two adjacent letters swapped). Short
+ * third-party ids such as `kms` or `hsm` stay valid.
  *
  * @param provider - A provider id that is not built in.
  * @returns The built-in id, or `undefined`.
  */
 function builtinLookalike(provider: string): string | undefined {
   return Object.keys(BUILTIN_PROVIDERS).find(
-    (id) => id === provider.toLowerCase() || editDistance(id, provider.toLowerCase()) <= 2,
+    (id) => id === provider.toLowerCase() || editDistance(id, provider.toLowerCase()) <= 1,
   );
 }
 

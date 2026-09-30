@@ -77,17 +77,75 @@ try {
       2,
     ),
   );
+  // A provider package, compiled on its own: it imports only hardhat-kms/types, so the hook types
+  // must come from that entry point. (Real plugins also declare `dependencies`, which would load
+  // the main entry point and hide a missing type extension, so this one does not.)
+  writeFileSync(
+    path.join(consumer, "tsconfig.plugin.json"),
+    JSON.stringify({ extends: "./tsconfig.json", include: ["provider-plugin.ts"] }, null, 2),
+  );
+  writeFileSync(
+    path.join(consumer, "provider-plugin.ts"),
+    [
+      'import type { HardhatPlugin } from "hardhat/types/plugins";',
+      'import type { ExternalKmsKeyConfig, KmsHooks, KmsKeyAdapter, KmsKeyCommonUserConfig } from "hardhat-kms/types";',
+      "",
+      'declare module "hardhat-kms/types" {',
+      "  interface KmsProviderUserConfigs {",
+      '    othervault: { provider: "othervault"; vaultPath: string } & KmsKeyCommonUserConfig;',
+      "  }",
+      "  interface KmsProviderConfigs {",
+      '    othervault: ExternalKmsKeyConfig<"othervault">;',
+      "  }",
+      "}",
+      "",
+      'declare function createOtherVaultAdapter(key: ExternalKmsKeyConfig<"othervault">): Promise<KmsKeyAdapter>;',
+      "",
+      "const plugin: HardhatPlugin = {",
+      '  id: "hardhat-kms-othervault",',
+      "  hookHandlers: {",
+      "    kms: async () => ({",
+      "      default: async (): Promise<Partial<KmsHooks>> => ({",
+      "        createKeyAdapter: async (context, key, next) => {",
+      "          // @ts-expect-error -- hook handlers get the runtime without tasks.",
+      "          void context.tasks;",
+      "          // @ts-expect-error -- provider-specific fields exist only after narrowing.",
+      "          void key.vaultPath;",
+      '          if (key.provider === "othervault") {',
+      "            // @ts-expect-error -- userConfig values are unknown until the provider validates them.",
+      "            const vaultPath: string = key.userConfig.vaultPath;",
+      "            void vaultPath;",
+      "            return await createOtherVaultAdapter(key);",
+      "          }",
+      "          // @ts-expect-error -- next returns an adapter, not a string.",
+      "          const wrong: string = await next(context, key);",
+      "          void wrong;",
+      "          return await next(context, key);",
+      "        },",
+      "      }),",
+      "    }),",
+      "  },",
+      "};",
+      "",
+      "export default plugin;",
+      "",
+    ].join("\n"),
+  );
   writeFileSync(
     path.join(consumer, "hardhat.config.ts"),
     [
       'import { configVariable, defineConfig } from "hardhat/config";',
       'import hardhatKms from "hardhat-kms";',
-      'import type { KmsKeyCommonUserConfig, KmsKeyConfig } from "hardhat-kms/types";',
+      'import type { HardhatPlugin } from "hardhat/types/plugins";',
+      'import type { ExternalKmsKeyConfig, KmsHooks, KmsKeyAdapter, KmsKeyCommonUserConfig, KmsKeyConfig } from "hardhat-kms/types";',
       "",
       "// A third-party provider adds its key type.",
       'declare module "hardhat-kms/types" {',
       "  interface KmsProviderUserConfigs {",
       '    myvault: { provider: "myvault"; keyPath: string } & KmsKeyCommonUserConfig;',
+      "  }",
+      "  interface KmsProviderConfigs {",
+      '    myvault: ExternalKmsKeyConfig<"myvault">;',
       "  }",
       "}",
       "",
@@ -108,6 +166,20 @@ try {
       '    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer", { provider: "aws", keyId: "alias/ops" }] },',
       "  },",
       "});",
+      "",
+      "// A third-party plugin adds the provider through the kms hook.",
+      "declare const vaultAdapter: KmsKeyAdapter;",
+      "export const myVaultPlugin: HardhatPlugin = {",
+      '  id: "hardhat-kms-myvault",',
+      "  hookHandlers: {",
+      "    kms: async () => ({",
+      "      default: async (): Promise<Partial<KmsHooks>> => ({",
+      "        createKeyAdapter: async (context, key, next) =>",
+      '          key.provider === "myvault" ? vaultAdapter : await next(context, key),',
+      "      }),",
+      "    }),",
+      "  },",
+      "};",
       "",
       "// Resolved configs are typed too.",
       "export function names(accounts: KmsKeyConfig[]): string[] {",
@@ -133,14 +205,15 @@ try {
     ],
     consumer,
   );
-  execFileSync(
-    path.join(consumer, "node_modules", ".bin", process.platform === "win32" ? "tsc.cmd" : "tsc"),
-    ["-p", "."],
-    {
-      cwd: consumer,
-      stdio: "inherit",
-    },
+  const tsc = path.join(
+    consumer,
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "tsc.cmd" : "tsc",
   );
+  for (const project of ["tsconfig.json", "tsconfig.plugin.json"]) {
+    execFileSync(tsc, ["-p", project], { cwd: consumer, stdio: "inherit", shell });
+  }
   process.stdout.write(`consumer typecheck passed with TypeScript ${typescriptVersion}\n`);
 } finally {
   rmSync(consumer, { recursive: true, force: true });

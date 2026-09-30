@@ -1,7 +1,11 @@
 import type { TypedData } from "../crypto/digests.ts";
 import type { SignatureOutput } from "../crypto/signature.ts";
 
-/** Per-call context passed to provider adapters. */
+/**
+ * Per-call context passed to provider adapters.
+ *
+ * @experimental May gain fields before 1.0.
+ */
 export interface SignContext {
   /** Aborted when the call times out or the caller gives up; adapters should pass it to their SDK. */
   signal: AbortSignal;
@@ -15,7 +19,11 @@ export interface SignContext {
   chainId?: bigint | undefined;
 }
 
-/** What a key is, in terms that are safe to print. */
+/**
+ * What a key is, in terms that are safe to print.
+ *
+ * @experimental May gain fields before 1.0.
+ */
 export interface KeyDescription {
   /** Provider id, for example `aws`. */
   provider: string;
@@ -31,6 +39,9 @@ export interface KeyDescription {
  * An adapter needs at least one way to identify the key (`getPublicKey` or `getAddress`) and
  * at least one way to sign. The core prefers the structured methods when present and falls back
  * to `signDigest`; it always verifies the returned signature against the key.
+ *
+ * @experimental Transaction methods are added in the transaction milestone; the contract is frozen
+ * at 1.0.
  */
 export interface KmsKeyAdapter {
   /** Describes the key for messages and logs. */
