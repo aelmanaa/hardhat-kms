@@ -2,7 +2,7 @@
 
 Audience: Contributors and reviewers who want to understand how the code fits together.
 
-Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 so far adds `config/`, the built-in providers' descriptors and key formats, the registry, SDK loading and the `kms` hook (`providers/`). The other modules are planned; the code map gives each one's milestone.
+Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry, SDK loading and the `kms` hook (`providers/`). M3 adds the AWS adapter (`providers/aws/adapter.ts`). The other modules are planned; the code map gives each one's milestone.
 
 ## Module map
 
@@ -46,7 +46,7 @@ The rules behind the arrows:
 | Provider descriptors, registry, SDK loading | `src/internal/providers/{registry,sdk,types}.ts`, `src/internal/providers/*/descriptor.ts` | M2        |
 | `kms` hook for third-party providers        | `src/internal/providers/create-adapter.ts`, `KmsHooks` in `src/types.ts`                   | M2        |
 | `--kms` option (Foundry's variables)        | `src/internal/config/env-keys.ts`, `src/internal/hook-handlers/hre.ts`                     | M2, M4    |
-| AWS adapter                                 | `src/internal/providers/aws/`                                                              | M3        |
+| AWS adapter                                 | `src/internal/providers/aws/adapter.ts`                                                    | M3        |
 | GCP and Azure adapters                      | `src/internal/providers/{gcp,azure}/`                                                      | M6        |
 | RPC dispatcher and methods                  | `src/internal/rpc/`                                                                        | M4, M5    |
 | Tasks                                       | `src/internal/tasks/`                                                                      | M7        |
@@ -186,9 +186,9 @@ Signing has no side effects, so the plugin retries throttling errors and GCP CRC
 
 ## SDK loading
 
-The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so optional peers would not work. Users install the SDK for their provider, as the [configuration reference](../user/reference/configuration.md#provider-sdks) documents. Each adapter (M3, M6) adds its SDK to the plugin's devDependencies, for the plugin's own tests.
+The only peer dependency is `hardhat`. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so optional peers would not work. Users install the SDK for their provider, as the [configuration reference](../user/reference/configuration.md#provider-sdks) documents. The plugin's own tests use a fake SDK; the real SDKs become devDependencies only for the tests that run them against an emulator or the cloud, starting with the AWS LocalStack suite ([#17](https://github.com/aelmanaa/hardhat-kms/issues/17)).
 
-`loadSdk` in `src/internal/providers/sdk.ts` (M2) loads an SDK the first time an adapter needs it. No adapter calls it until M3. Adapters reach it through `createProviderDeps` (`src/internal/providers/deps.ts`), which only loads the packages their descriptor declares. It runs four steps:
+`loadSdk` in `src/internal/providers/sdk.ts` (M2) loads an SDK the first time an adapter needs it. The AWS adapter (M3) is the first to call it. Adapters reach it through `createProviderDeps` (`src/internal/providers/deps.ts`), which only loads the packages their descriptor declares. It runs four steps:
 
 1. It resolves the package with `createRequire(<project root>/package.json).resolve(pkg)`. This works with npm, pnpm and workspaces because the user installs the SDK in their own project.
 2. It checks that the resolved file sits in a `node_modules` folder of the project root or one of its ancestors. Node also searches `NODE_PATH` and global folders, and a package found there is rejected. Under Yarn Plug'n'Play, which has no `node_modules`, this check is skipped; Plug'n'Play support is untested.

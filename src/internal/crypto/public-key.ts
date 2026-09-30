@@ -22,10 +22,24 @@ export class InvalidPublicKeyError extends Error {
  * @throws {InvalidPublicKeyError} If the key is not a valid secp256k1 key.
  */
 export function publicKeyFromSpkiDer(der: Uint8Array): Uint8Array {
-  return publicKeyFromKeyObject(() =>
+  const publicKey = publicKeyFromKeyObject(() =>
     createPublicKey({ key: Buffer.from(der), format: "der", type: "spki" }),
   );
+  // Node also accepts trailing bytes and compressed points; require the one canonical encoding,
+  // as the signature parser does for signatures.
+  const canonical = Uint8Array.from([...SECP256K1_SPKI_PREFIX, ...publicKey]);
+  if (der.length !== canonical.length || !der.every((byte, index) => byte === canonical[index])) {
+    throw new InvalidPublicKeyError(
+      "expected the canonical DER encoding of an uncompressed secp256k1 SubjectPublicKeyInfo",
+    );
+  }
+  return publicKey;
 }
+
+/** The DER prefix of an uncompressed secp256k1 SubjectPublicKeyInfo, before the 65-byte point. */
+const SECP256K1_SPKI_PREFIX = Uint8Array.from(
+  Buffer.from("3056301006072a8648ce3d020106052b8104000a034200", "hex"),
+);
 
 /**
  * Parses a PEM-encoded SubjectPublicKeyInfo (as returned by GCP Cloud KMS `getPublicKey`).

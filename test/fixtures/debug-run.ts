@@ -34,7 +34,11 @@ const keysValue: unknown = {
     token: configVariable("HHKMS_DEBUG_VAULT_TOKEN"),
     literal: "hhkms-secret-literal-field",
   },
-  builtin: { provider: "aws", keyId: "alias/builtin" },
+  // No adapter exists for GCP yet, so this key stops at the built-in step without a network call.
+  builtin: {
+    provider: "gcp",
+    keyVersionName: "projects/p/locations/l/keyRings/r/cryptoKeys/builtin/cryptoKeyVersions/1",
+  },
 };
 
 const hre = await createHardhatRuntimeEnvironment({

@@ -1,4 +1,3 @@
-import { notYetAvailable } from "../not-yet-available.ts";
 import type { KmsProviderDescriptor } from "../types.ts";
 import { wrongProvider } from "../wrong-provider.ts";
 import { awsKeySchema, resolveAwsKey } from "./config.ts";
@@ -9,6 +8,7 @@ export const awsProvider: KmsProviderDescriptor = {
   schema: awsKeySchema,
   resolve: (key, context) =>
     key.provider === "aws" ? resolveAwsKey(key, context) : wrongProvider("aws", key.provider),
-  sdks: [{ packageName: "@aws-sdk/client-kms", range: "^3.0.0" }],
-  load: async () => await notYetAvailable("AWS KMS", 16),
+  // 3.714.0 is the first version whose client takes the region from its `profile`.
+  sdks: [{ packageName: "@aws-sdk/client-kms", range: "^3.714.0" }],
+  load: async () => (await import("./adapter.ts")).awsModule,
 };

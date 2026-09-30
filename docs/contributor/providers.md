@@ -69,13 +69,13 @@ Built-in providers are validated inside the root zod schema with `conditionalUni
 
 Each built-in provider has a descriptor in `src/internal/providers/<id>/descriptor.ts`, registered under its `id` in `src/internal/providers/registry.ts`. The internal shape, in `src/internal/providers/types.ts`, differs from the public contract above:
 
-| Field     | Meaning                                                                                                    |
-| --------- | ---------------------------------------------------------------------------------------------------------- |
-| `id`      | The value of `provider` in a key's config.                                                                 |
-| `schema`  | The zod schema for a key's config, with the provider's format checks.                                      |
-| `resolve` | Turns a validated key config into its resolved form, including `displayId`.                                |
-| `sdks`    | The npm packages the adapter loads, each with a supported semver range.                                    |
-| `load`    | Imports the adapter code. Until an adapter exists, it rejects with an error that links the tracking issue. |
+| Field     | Meaning                                                                                                                                                                                       |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`      | The value of `provider` in a key's config.                                                                                                                                                    |
+| `schema`  | The zod schema for a key's config, with the provider's format checks.                                                                                                                         |
+| `resolve` | Turns a validated key config into its resolved form, including `displayId`.                                                                                                                   |
+| `sdks`    | The npm packages the adapter loads, each with a supported semver range.                                                                                                                       |
+| `load`    | Imports the adapter code. The AWS provider loads `aws/adapter.ts`; the Google Cloud and Azure providers reject with an error that links their tracking issue until their adapters exist (M6). |
 
 The config hook imports every descriptor through the registry, so a descriptor must never import an SDK. It imports its provider's config module and a few SDK-free helpers. The module that `load` returns exposes `createKeyAdapter(key, deps)`, and `deps.loadSdk(packageName)` loads one of the packages in `sdks` from the user's project (see [SDK loading](architecture.md#sdk-loading)).
 

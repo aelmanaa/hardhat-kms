@@ -27,7 +27,10 @@ export interface SignContext {
 export interface KeyDescription {
   /** Provider id, for example `aws`. */
   provider: string;
-  /** The exact key the adapter signs with (ARN, key version name, versioned key URL). */
+  /**
+   * The key the adapter signs with, as configured and safe to print. A provider that resolves a
+   * more exact id on first use, such as the AWS key ARN, signs with that id.
+   */
   pinnedId: string;
   /** How to show the key to users; identifiers that came from configuration variables are masked. */
   displayId: string;
