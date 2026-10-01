@@ -1,0 +1,5 @@
+{
+  "name": "hardhat-kms-fixture-live",
+  "private": true,
+  "type": "module"
+}

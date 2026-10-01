@@ -38,6 +38,7 @@ pnpm run test:localstack        # AWS adapter against LocalStack (needs Docker)
 pnpm run test:examples          # the projects in examples/ against LocalStack (needs Docker)
 pnpm run test:sdk-floors        # provider packages against their lowest SDK versions
 pnpm run test:hardhat-versions  # fill tests on the Hardhat floor and latest 3.x
+pnpm run test:live              # deploys, sends and signs on Sepolia with each configured key
 pnpm run test:live:aws          # AWS adapter against real KMS (needs HARDHAT_KMS_LIVE_AWS_KEY_ID)
 pnpm run coverage               # tests with the 95% coverage threshold
 pnpm run pkg:check              # build, publint, arethetypeswrong, knip
@@ -59,6 +60,7 @@ Where things are:
 | Adapter interface, provider packages                 | [docs/contributor/providers.md](docs/contributor/providers.md)                                   |
 | Transaction filling, nonces, send lock               | [docs/contributor/transactions.md](docs/contributor/transactions.md)                             |
 | Test layers and conventions                          | [docs/contributor/testing.md](docs/contributor/testing.md)                                       |
+| Transactions of the latest live run on Sepolia       | [docs/live-proof.md](docs/live-proof.md)                                                         |
 | Quality gates, hooks, CI                             | [docs/contributor/tooling.md](docs/contributor/tooling.md)                                       |
 | How the docs are organised                           | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
 | Why the main decisions were made                     | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |

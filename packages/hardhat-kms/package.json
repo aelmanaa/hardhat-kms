@@ -79,14 +79,14 @@
     "@nomicfoundation/hardhat-ignition": "catalog:",
     "@nomicfoundation/hardhat-ignition-viem": "catalog:",
     "@nomicfoundation/hardhat-ledger": "catalog:",
-    "@nomicfoundation/hardhat-viem": "^3.0.9",
+    "@nomicfoundation/hardhat-viem": "catalog:",
     "@types/node": "catalog:",
     "c8": "catalog:",
     "fast-check": "catalog:",
     "hardhat": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
-    "viem": "^2.57.1"
+    "viem": "catalog:"
   },
   "peerDependencies": {
     "hardhat": "^3.18.0"
