@@ -12,7 +12,7 @@
 // - HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL: optional; a public RPC without an API key is the default.
 //
 // The tests use the developer's own cloud logins and create no cloud resources. Each account must
-// hold at least MIN_BALANCE, and the gas price must be at most MAX_GAS_PRICE, or the test fails
+// hold at least MIN_BALANCE, and the legacy gas price must be at most MAX_GAS_PRICE, or the test fails
 // before sending anything. Key ids, resource names and URLs are redacted from every failure.
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -38,6 +38,7 @@ import {
   parseGwei,
   parseSignature,
   toHex,
+  WaitForTransactionReceiptTimeoutError,
   zeroAddress,
 } from "viem";
 
@@ -51,6 +52,7 @@ import hardhatKmsAzure from "../../packages/hardhat-kms-azure/src/index.ts";
 import hardhatKmsGcp from "../../packages/hardhat-kms-gcp/src/index.ts";
 import { authorizationDigest } from "../../packages/hardhat-kms/src/internal/crypto/digests.ts";
 import { KmsSigner } from "../../packages/hardhat-kms/src/internal/signer/kms-signer.ts";
+import { legacyGasPrice } from "./helpers/gas.ts";
 import { redact } from "./helpers/redact.ts";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixture-project");
@@ -63,6 +65,8 @@ const RPC_VARIABLE = "HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL";
 const MIN_BALANCE = parseEther("0.01");
 /** Above this gas price the test refuses to send, so a fee spike cannot drain the accounts. */
 const MAX_GAS_PRICE = parseGwei("20");
+/** How long to wait for each receipt: 25 Sepolia blocks. */
+const RECEIPT_TIMEOUT_MS = 300_000;
 /** Code of an account with no delegation, as viem returns it. */
 const NO_CODE = [undefined, "0x"];
 
@@ -286,20 +290,43 @@ async function runProvider(
           "Fund it with Sepolia ETH and run again.",
       );
     }
-    const gasPrice = await publicClient.getGasPrice();
+    // The legacy and EIP-2930 transactions pay this price; it must clear a rising base fee.
+    const nodeGasPrice = await publicClient.getGasPrice();
+    const { baseFeePerGas } = await publicClient.getBlock({ blockTag: "latest" });
+    const gasPrice = legacyGasPrice(nodeGasPrice, baseFeePerGas ?? 0n);
     if (gasPrice > MAX_GAS_PRICE) {
       assert.fail(
-        `the gas price is ${formatGwei(gasPrice)} gwei, above the cap of ${formatGwei(MAX_GAS_PRICE)} gwei. ` +
+        `the legacy gas price would be ${formatGwei(gasPrice)} gwei (eth_gasPrice ${formatGwei(nodeGasPrice)} gwei, ` +
+          `base fee ${formatGwei(baseFeePerGas ?? 0n)} gwei), above the cap of ${formatGwei(MAX_GAS_PRICE)} gwei. ` +
           "Run again when Sepolia is cheaper.",
       );
     }
     t.diagnostic(
-      `${provider.name}: ${account} holds ${formatEther(balance)} ETH, gas price ${formatGwei(gasPrice)} gwei`,
+      `${provider.name}: ${account} holds ${formatEther(balance)} ETH, legacy gas price ${formatGwei(gasPrice)} gwei`,
     );
 
     /** Waits for a transaction and checks it succeeded, from the KMS account, with this type. */
     const mined = async (label: string, type: string, hash: Hash): Promise<void> => {
-      const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 300_000 });
+      let receipt;
+      try {
+        receipt = await publicClient.waitForTransactionReceipt({
+          hash,
+          timeout: RECEIPT_TIMEOUT_MS,
+        });
+      } catch (error) {
+        if (!(error instanceof WaitForTransactionReceiptTimeoutError)) {
+          throw error;
+        }
+        const nonce = await publicClient
+          .getTransaction({ hash })
+          .then((tx) => String(tx.nonce))
+          .catch(() => "unknown");
+        return assert.fail(
+          `${label} was not mined within ${RECEIPT_TIMEOUT_MS / 1000} s: transaction ${hash}, nonce ${nonce}. ` +
+            `It may be priced below the base fee. Replace it: send a transaction from ${account} with nonce ` +
+            `${nonce} and a higher fee, for example 0 ETH to itself, before running again.`,
+        );
+      }
       assert.equal(receipt.status, "success", `${label} reverted (${hash})`);
       assert.equal(getAddress(receipt.from), account, `${label} was not sent by the KMS account`);
       assert.equal(receipt.type, type, `${label} is not ${type}`);
