@@ -26,6 +26,10 @@ function hardhat(
         // A black-box run: Hardhat loads the plugin through its own TypeScript loader, and that
         // coverage data would clash with the native runs of the same files.
         NODE_V8_COVERAGE: "",
+        // CI runs Node 22.13 with NODE_OPTIONS=--import tsx. The child would resolve that bare
+        // specifier from its cwd, the temporary project, and on Windows it does not find it there.
+        // The CLI does not need it: Hardhat registers tsx itself, as it does for a user.
+        NODE_OPTIONS: "",
         AWS_KMS_KEY_ID: "",
         AWS_KMS_KEY_IDS: "",
         HARDHAT_KMS: "",
