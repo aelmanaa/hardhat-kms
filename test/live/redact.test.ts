@@ -110,4 +110,21 @@ describe("live test redaction", () => {
     assert.match(text, /"r":"<signature>"/);
     assert.match(text, /"nonce":"0x5"/);
   });
+
+  it("removes bare r and s, signature argument lists and long hex without 0x", () => {
+    const r = "0d".repeat(32);
+    const s = "7e".repeat(32);
+    const hash = `0x${"ab".repeat(32)}`;
+    const address = "0x728743B36DE6236f6d03409563a7E2c39a00EE17";
+    const text = redact(
+      `r: ${r} s=${s}; args: (0x${r}, 28, 0x${s}); recoverPersonal(0x${"11".repeat(32)}, 27, 0x${r}, 0x${s}); ` +
+        `raw ${"5a".repeat(110)}; transaction ${hash} from ${address}`,
+      ENV,
+    );
+    for (const value of [r, s, "1111111111", "5a5a5a"]) {
+      assert.ok(!text.includes(value), `${value} survived in: ${text}`);
+    }
+    assert.ok(text.includes(`transaction ${hash} from ${address}`), text);
+    assert.match(text, /args: \(<signature>, 28, <signature>\)/);
+  });
 });

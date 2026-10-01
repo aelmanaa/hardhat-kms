@@ -11,6 +11,10 @@ import path from "node:path";
 const START_TIMEOUT_MS = 60_000;
 /** Lines of anvil's standard error kept for a start failure. */
 const STDERR_LINES = 20;
+/** How long anvil gets to exit after SIGTERM, and then after SIGKILL. */
+const STOP_TIMEOUT_MS = 5000;
+/** Signals that end the test process; each one also ends anvil. */
+const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
 /**
  * The anvil binary: the first `anvil` on PATH, else Foundry's default install.
@@ -64,20 +68,80 @@ async function answers(url: string): Promise<boolean> {
 export interface AnvilFork {
   /** Its JSON-RPC URL. */
   url: string;
+  /** Anvil's process id. */
+  pid: number | undefined;
   /** Stops anvil. */
   close: () => Promise<void>;
 }
 
-async function stop(child: ChildProcess): Promise<void> {
-  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
-    return;
+const running = (child: ChildProcess): boolean =>
+  child.pid !== undefined && child.exitCode === null && child.signalCode === null;
+
+/**
+ * Ends anvil when the test process ends, so it does not outlive the run holding transactions
+ * signed on the fork: on a normal exit and on SIGINT, SIGTERM or SIGHUP. Nothing can catch SIGKILL
+ * of the test process; anvil then keeps running until it is killed by hand.
+ *
+ * @returns A function that removes the handlers.
+ */
+function endWithProcess(child: ChildProcess): () => void {
+  const kill = (): void => {
+    if (running(child)) {
+      child.kill("SIGKILL");
+    }
+  };
+  const onSignal = (signal: NodeJS.Signals): void => {
+    kill();
+    remove();
+    // Raise the signal again, so the process ends as it would have without this handler.
+    process.kill(process.pid, signal);
+  };
+  const remove = (): void => {
+    process.off("exit", kill);
+    for (const signal of SIGNALS) {
+      process.off(signal, onSignal);
+    }
+  };
+  process.once("exit", kill);
+  for (const signal of SIGNALS) {
+    process.once(signal, onSignal);
   }
-  await new Promise<void>((resolve) => {
+  return remove;
+}
+
+/** Sends SIGTERM, then SIGKILL if anvil is still running after the timeout. */
+async function stop(child: ChildProcess): Promise<void> {
+  const exited = new Promise<void>((resolve) => {
+    if (!running(child)) {
+      resolve();
+      return;
+    }
     child.once("exit", () => {
       resolve();
     });
-    child.kill("SIGTERM");
   });
+  const within = async (ms: number): Promise<boolean> => {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => {
+        resolve(false);
+      }, ms);
+    });
+    const done = await Promise.race([exited.then(() => true), timeout]);
+    clearTimeout(timer);
+    return done;
+  };
+  if (!running(child)) {
+    return;
+  }
+  child.kill("SIGTERM");
+  if (await within(STOP_TIMEOUT_MS)) {
+    return;
+  }
+  child.kill("SIGKILL");
+  if (!(await within(STOP_TIMEOUT_MS))) {
+    throw new Error(`anvil (pid ${child.pid}) did not exit after SIGKILL`);
+  }
 }
 
 /**
@@ -114,6 +178,14 @@ export async function startAnvilFork(options: {
     // Standard output logs every transaction; nothing reads it.
     { stdio: ["ignore", "ignore", "pipe"] },
   );
+  const release = endWithProcess(child);
+  const close = async (): Promise<void> => {
+    try {
+      await stop(child);
+    } finally {
+      release();
+    }
+  };
   const stderr: string[] = [];
   child.stderr?.setEncoding("utf8");
   child.stderr?.on("data", (chunk: string) => {
@@ -129,7 +201,7 @@ export async function startAnvilFork(options: {
   while (!(await answers(url))) {
     const exited = child.exitCode !== null || child.signalCode !== null || spawnError !== undefined;
     if (exited || Date.now() > deadline) {
-      await stop(child);
+      await close();
       const reason =
         spawnError?.message ?? (exited ? "anvil exited" : "anvil did not answer in time");
       throw new Error(`${reason}: ${stderr.join(" | ") || "no output"}`);
@@ -138,5 +210,5 @@ export async function startAnvilFork(options: {
       setTimeout(resolve, 250);
     });
   }
-  return { url, close: async () => await stop(child) };
+  return { url, pid: child.pid, close };
 }

@@ -120,6 +120,18 @@ const PROVIDERS: Provider[] = [
 ];
 const configured = PROVIDERS.filter((provider) => env(provider.variable) !== "");
 
+/** The KMS accounts the fork run used, for the proxy check. */
+const forkAccounts = new Set<Address>();
+/** How many times the fork run mined a block itself with `evm_mine`. */
+let nudges = 0;
+/** Reads of an account's state that anvil sends upstream the first time it touches the account. */
+const ACCOUNT_READS = new Set([
+  "eth_getAccount",
+  "eth_getAccountInfo",
+  "eth_getBalance",
+  "eth_getTransactionCount",
+]);
+
 /**
  * Runs `step` and fails with any error's name and message redacted. The original error is not
  * passed on, since node:test would print it.
@@ -198,9 +210,13 @@ interface Sent {
 /**
  * The runtime, with one http network per configured provider.
  *
- * @param forkUrl - The anvil fork's URL in fork mode; the Sepolia RPC is used without it.
+ * @param forkUrl - The anvil fork's URL, required in fork mode; Sepolia mode uses the Sepolia RPC.
  */
 async function runtime(forkUrl?: string): Promise<HardhatRuntimeEnvironment> {
+  // Fail closed: fork mode never falls back to the Sepolia RPC.
+  if (onFork && forkUrl === undefined) {
+    throw new Error("fork mode has no fork URL");
+  }
   const url = forkUrl ?? (rpcUrl === "" ? DEFAULT_RPC_URL : configVariable(RPC_VARIABLE));
   return await createHardhatRuntimeEnvironment(
     {
@@ -297,6 +313,9 @@ async function runProvider(
   const signer = await coreSigner(hre, keyOf(hre, provider.name));
   try {
     const account = getAddress(await signer.getAddress());
+    if (onFork) {
+      forkAccounts.add(account);
+    }
     const { viem, provider: rpc } = await hre.network.create(provider.name);
     const publicClient = await viem.getPublicClient();
     const wallet = await viem.getWalletClient(account);
@@ -376,6 +395,7 @@ async function runProvider(
         // a valid transaction pending with no later send to trigger a block. One more block takes
         // it; a transaction that is not valid stays out and fails below as on Sepolia.
         await rpc.request({ method: "evm_mine" });
+        nudges++;
         t.diagnostic(`${provider.name}: ${label} was still pending; mined a block with evm_mine`);
         receipt = await waitFor(RECEIPT_TIMEOUT_MS - FORK_NUDGE_MS);
       }
@@ -728,10 +748,25 @@ describe(onFork ? "live on a Sepolia fork" : "live on Sepolia", () => {
   it("fork: no transaction reached the Sepolia RPC", { skip: skipProof }, (t) => {
     assert.ok(proxy !== undefined, "the proxy did not start");
     const methods = proxy.methods();
-    assert.ok(methods.size > 0, "anvil sent no request through the proxy");
-    assert.deepEqual(proxy.refused(), [], "a send reached the proxy, which refused it");
+    assert.deepEqual(proxy.refused(), [], "the proxy refused a request from anvil");
+    // Anvil's startup calls prove nothing about the accounts. Each account's state must have been
+    // read through the proxy, which shows the fork the suite sent through reads Sepolia via it.
+    assert.ok(forkAccounts.size > 0, "no provider reached the fork");
+    const read = new Set(
+      proxy
+        .forwarded()
+        .flatMap((call) =>
+          ACCOUNT_READS.has(call.method) && Array.isArray(call.params)
+            ? [String(call.params[0]).toLowerCase()]
+            : [],
+        ),
+    );
+    for (const account of forkAccounts) {
+      assert.ok(read.has(account.toLowerCase()), `anvil read ${account} without the proxy`);
+    }
     t.diagnostic(
       `upstream methods: ${[...methods].map(([method, count]) => `${method} ${count}`).join(", ")}`,
     );
+    t.diagnostic(`evm_mine nudges: ${nudges}`);
   });
 });

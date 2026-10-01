@@ -74,10 +74,20 @@ export function redact(message: string, env: Readonly<Record<string, string | un
   }
   return (
     text
-      // Signed data: raw transactions, 65-byte signatures and anything longer (transaction hashes
-      // are 32 bytes and stay), then the r and s of a signature or authorization written as fields.
-      .replaceAll(/0x[0-9a-f]{130,}/gi, "<signed data>")
-      .replaceAll(/(["']?\b[rs]["']?\s*[:=]\s*["']?)0x[0-9a-f]+/gi, "$1<signature>")
+      // Signed data: raw transactions, 65-byte signatures and anything longer, with or without
+      // `0x` (transaction hashes are 32 bytes and stay). Then the r and s of a signature or
+      // authorization written as fields, and 32-byte values in an argument list such as viem's
+      // `args: (message, v, r, s)`, where they are signature parts rather than hashes.
+      .replaceAll(/(?:0x)?[0-9a-f]{130,}/gi, "<signed data>")
+      .replaceAll(
+        /(["']?\b[rs]["']?\s*[:=]\s*["']?)(?:0x[0-9a-f]+|[0-9a-f]{32,64}\b)/gi,
+        "$1<signature>",
+      )
+      .replaceAll(
+        /(\bargs:\s*|\b[a-z_]\w*)\(([^()]*)\)/gi,
+        (_match, head: string, list: string) =>
+          `${head}(${list.replaceAll(/\b(?:0x)?[0-9a-f]{64}\b/gi, "<signature>")})`,
+      )
       // Patterns for identifiers that are not in the variables: other ARNs and aliases, the caller's account
       // and principal ids, the project number GCP reports, and any URL.
       .replaceAll(/arn:aws[^\s'"]*/g, "<arn>")
