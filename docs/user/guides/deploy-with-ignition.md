@@ -8,10 +8,10 @@ Ignition sees a KMS key as one more account of the network. It sends `eth_sendTr
 
 ## 1. Add Ignition and the KMS plugin to the config
 
-Install Ignition with the viem or ethers helpers, as for any Hardhat 3 project:
+Install Ignition and its viem helpers, as for any Hardhat 3 project. Modules import `buildModule` from `@nomicfoundation/hardhat-ignition`, so install both packages:
 
 ```sh
-npm install --save-dev @nomicfoundation/hardhat-ignition-viem
+npm install --save-dev @nomicfoundation/hardhat-ignition @nomicfoundation/hardhat-ignition-viem
 ```
 
 List the provider package and Ignition in `plugins`, and the key in the network's `kmsAccounts`:
@@ -52,13 +52,13 @@ export default buildModule("Counter", (m) => {
 
 Ignition sends from its default sender, the first address of `eth_accounts`. The plugin lists the network's own accounts first and the KMS accounts after them ([RPC methods](../reference/rpc-methods.md)), so a KMS account is the default sender only when the network has no accounts of its own. That is the case for an http network whose node lists no accounts, as public RPC endpoints do, and for a network with `accounts: []`.
 
-When the network has its own accounts, pass the KMS address to `ignition deploy`:
+The KMS account's position in `eth_accounts` therefore differs between networks. On `sepolia` above it is index 0; on the `rehearsal` network below, which has EDR's 20 default accounts, it is index 20. Choose the deployer by address with `--default-sender`, which works on every network the key is listed on:
 
 ```sh
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --default-sender 0x…
 ```
 
-To pick the account inside the module instead, use `m.getAccount(index)` with the account's position in `eth_accounts`. On an `edr-simulated` network with EDR's 20 default accounts, the first KMS account is index 20:
+`m.getAccount(index)` picks an account by its position instead, so a module that uses it only works on networks with the same accounts in the same order. Use it for a module that only ever runs on one local network. Here, index 20 is the first KMS account on an `edr-simulated` network with EDR's default accounts; the same module fails on `sepolia`, where Ignition refuses index 20 because the network lists fewer accounts:
 
 ```ts
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
@@ -101,11 +101,13 @@ npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --de
 
 Ignition keeps nothing from a deployment to an `edr-simulated` network. To rehearse against live state, add `forking` to the network, as in the [configuration reference](../reference/configuration.md).
 
-A key chosen with `--kms` instead of a config entry works the same way: it is added to the selected network, and `kms.simulatedBalance` funds it there.
+A key chosen with `--kms` instead of a config entry is added to the network selected with `--network`. On the `rehearsal` network, `kms.simulatedBalance` funds it as well:
 
 ```sh
-AWS_KMS_KEY_ID=alias/deployer npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --kms aws --default-sender 0x…
+AWS_KMS_KEY_ID=alias/deployer npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --kms aws --default-sender 0x…
 ```
+
+On a live network, `kms.simulatedBalance` does nothing: fund the key's address there yourself.
 
 ## 4. Deploy
 
@@ -113,7 +115,10 @@ Run `ignition deploy` with the live network. Ignition asks you to confirm the ne
 
 What changes with a KMS account:
 
-- Each transaction costs one KMS signing call, such as one `Sign` request to AWS KMS.
+- Each transaction costs one KMS signing call, such as one `Sign` request to AWS KMS, plus one per fee bump. With its default settings, Ignition resends a transaction that is still unconfirmed after 3 minutes, with the same nonce and higher fees, up to 4 times. Each resend is a new `eth_sendTransaction`, so the key signs again.
 - Ignition sets the nonce, gas limit and fees of each transaction, and sends them one at a time. The plugin fills nothing that Ignition already set.
 - The account pays for gas, so fund the KMS address on the live network before you deploy.
-- If a KMS call fails or times out, the plugin sends nothing for that transaction, and the deployment stops with an error.
+
+## 5. Resume after a KMS failure
+
+If a KMS call fails or times out, the plugin sends nothing for that transaction, and the deployment stops with an error. Ignition has already written the transaction's nonce to its journal in `ignition/deployments/chain-<chain id>` before asking for the signature. Fix the cause, such as an expired session or a missing permission, then run the same `ignition deploy` command again. Ignition reads the journal and resumes the deployment where it stopped.

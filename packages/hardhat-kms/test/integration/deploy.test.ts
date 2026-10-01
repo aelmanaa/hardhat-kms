@@ -321,8 +321,11 @@ describe("deploying from KMS accounts", { timeout: 300_000 }, () => {
 
     it("runs the ignition deploy task with a KMS account as default sender", async () => {
       const { hre, created } = await runtime({ network: "mixed" });
-      // The task prints Ignition's progress; keep the test output clean.
+      // Ignition's progress display prints its banner ("running Hardhat Ignition against an
+      // in-process instance") and the module name with process.stdout.write, and the rest with
+      // console.log. Silence both while the task runs.
       const log = mock.method(console, "log", () => {});
+      const write = mock.method(process.stdout, "write", () => true);
       let result: unknown;
       try {
         result = await hre.tasks.getTask(["ignition", "deploy"]).run({
@@ -330,13 +333,15 @@ describe("deploying from KMS accounts", { timeout: 300_000 }, () => {
           defaultSender: COW,
         });
       } finally {
+        write.mock.restore();
         log.mock.restore();
       }
 
       assert.ok(typeof result === "object" && result !== null && "type" in result);
       assert.equal(result.type, "SUCCESSFUL_DEPLOYMENT");
-      // The task's connection is gone with its simulated chain; the KMS signatures show that
-      // the deployment and the call were signed for the KMS account.
+      // The task's simulated chain is gone when it returns, so the contract cannot be read back.
+      // The KMS signature count is the guard instead: had Ignition fallen back to a local sender,
+      // EDR would have signed and the count would be 0.
       assert.deepEqual(signatures(created), { cow: 2 });
     });
   });

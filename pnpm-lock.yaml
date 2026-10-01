@@ -15,6 +15,12 @@ catalogs:
     '@changesets/cli':
       specifier: 3.0.3
       version: 3.0.3
+    '@nomicfoundation/hardhat-ignition':
+      specifier: ^3.1.8
+      version: 3.1.8
+    '@nomicfoundation/hardhat-ignition-viem':
+      specifier: ^3.1.6
+      version: 3.1.6
     '@types/node':
       specifier: ^22.18.0
       version: 22.20.4
@@ -69,10 +75,10 @@ importers:
         specifier: 'catalog:'
         version: 3.0.3
       '@nomicfoundation/hardhat-ignition':
-        specifier: ^3.1.8
+        specifier: 'catalog:'
         version: 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.18.0))(hardhat@3.18.0)
       '@nomicfoundation/hardhat-ignition-viem':
-        specifier: ^3.1.6
+        specifier: 'catalog:'
         version: 3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.18.0))(hardhat@3.18.0))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.18.0))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.18.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.18.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@types/node':
         specifier: 'catalog:'
@@ -145,10 +151,10 @@ importers:
         specifier: ^4.2.0
         version: 4.2.0(hardhat@3.18.0)
       '@nomicfoundation/hardhat-ignition':
-        specifier: ^3.1.8
+        specifier: 'catalog:'
         version: 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.18.0))(hardhat@3.18.0)
       '@nomicfoundation/hardhat-ignition-viem':
-        specifier: ^3.1.6
+        specifier: 'catalog:'
         version: 3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.18.0))(hardhat@3.18.0))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.18.0))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.18.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.18.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@nomicfoundation/hardhat-viem':
         specifier: ^3.0.9
