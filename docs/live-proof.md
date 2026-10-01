@@ -6,18 +6,18 @@ Status: M9. The latest run of the live suite on Sepolia ([#44](https://github.co
 
 ## Run
 
-| Field      | Value                                                                                               |
-| ---------- | --------------------------------------------------------------------------------------------------- |
-| Date       | 2026-10-01, blocks mined from 19:06:24 to 19:07:48 UTC                                              |
-| Commit     | `16cbd7a` (`test: pin live state checks to the receipt's block`), on the branch that adds the suite |
-| Chain id   | 11155111 (Sepolia)                                                                                  |
-| Blocks     | 11823789 to 11823796                                                                                |
-| Command    | `pnpm run test:live`                                                                                |
-| Providers  | AWS KMS, Google Cloud KMS and Azure Key Vault, in parallel                                          |
-| Result     | 16 tests passed, 0 failed, 0 skipped                                                                |
-| Gas prices | 2 gwei for the legacy and EIP-2930 transactions; 0.98 to 1.12 gwei effective for the others         |
+| Field      | Value                                                                                                          |
+| ---------- | -------------------------------------------------------------------------------------------------------------- |
+| Date       | 2026-10-01, blocks mined from 21:47:36 to 21:48:48 UTC                                                         |
+| Commit     | `809b55a` (`test: harden the fork proxy and tie anvil to the test process`), on the branch that adds fork mode |
+| Chain id   | 11155111 (Sepolia)                                                                                             |
+| Blocks     | 11824595 to 11824601                                                                                           |
+| Command    | `HARDHAT_KMS_LIVE_NETWORK=sepolia pnpm run test:live`                                                          |
+| Providers  | AWS KMS, Google Cloud KMS and Azure Key Vault, in parallel                                                     |
+| Result     | 35 tests: 34 passed, 0 failed, 1 skipped (the proxy check, which runs only in fork mode)                       |
+| Gas prices | 3 gwei for the legacy and EIP-2930 transactions; 1.33 to 1.43 gwei effective for the others                    |
 
-Every transaction below was signed by the provider's KMS key through the plugin. The suite waited for each receipt and checked status 1, the KMS account as `from`, and the transaction type. After the run, each receipt was read again from the RPC and matched: status, type, sender, block and, for the EIP-7702 transactions, the authorization's address. The legacy transactions' `v` values (22310258 for AWS and Google Cloud, 22310257 for Azure) carry chain id 11155111 (EIP-155).
+Every transaction below was signed by the provider's KMS key through the plugin. The suite waited for each receipt and checked status 1, the KMS account as `from`, and the transaction type. After the run, each receipt was read again from the RPC and matched: status, type, sender, block and, for the EIP-7702 transactions, the authorization's address. The legacy transactions' `v` value (22310258 for all three accounts) carries chain id 11155111 (EIP-155).
 
 The two EIP-7702 transactions of each account are self-sent. The first delegates the account to that run's `LiveCheck` and calls `add(1)` on it; the second authorizes the zero address, which clears the delegation. The same key signed both authorizations through the core signer. After the clear, a 1 wei transfer from the account to itself succeeded, and none of the three accounts has code:
 
@@ -39,49 +39,49 @@ The amounts spent are the sum of `gasUsed × effectiveGasPrice` over each accoun
 ## AWS KMS
 
 - Account: [`0x0b545a5a4cA04252184A7813D0D4D3fBA31Af2fd`](https://sepolia.etherscan.io/address/0x0b545a5a4cA04252184A7813D0D4D3fBA31Af2fd)
-- `LiveCheck`: [`0x82514318411770813B9FAEB166EeBccd2C77415a`](https://sepolia.etherscan.io/address/0x82514318411770813B9FAEB166EeBccd2C77415a)
-- Spent: 0.00102504703218161 ETH
+- `LiveCheck`: [`0xfCf784480EAC2e7b2b816f8affb8e2d1dD6Cb20C`](https://sepolia.etherscan.io/address/0xfCf784480EAC2e7b2b816f8affb8e2d1dD6Cb20C)
+- Spent: 0.00134478221061743 ETH
 
 | Step                                 | Type              | Block    | Transaction                                                                                                                                                                |
 | ------------------------------------ | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| deploy `LiveCheck`                   | EIP-1559 (type 2) | 11823789 | [`0xecbffeb0caa46b29634eaedd97aa5af32009fd38e11c5f67cb8076c639992b13`](https://sepolia.etherscan.io/tx/0xecbffeb0caa46b29634eaedd97aa5af32009fd38e11c5f67cb8076c639992b13) |
-| `add(1)`                             | Legacy (type 0)   | 11823790 | [`0x8d41489bb43e99fbe1810dfc5fcb988aa21aeee455de0a764b033604d9c6d6e5`](https://sepolia.etherscan.io/tx/0x8d41489bb43e99fbe1810dfc5fcb988aa21aeee455de0a764b033604d9c6d6e5) |
-| `add(1)` with an access list         | EIP-2930 (type 1) | 11823791 | [`0x4b8a0b2361b8ef05a5c73c395a9f2d2cb96ad0a2010a9d3e63eaa4ad28ca9fdc`](https://sepolia.etherscan.io/tx/0x4b8a0b2361b8ef05a5c73c395a9f2d2cb96ad0a2010a9d3e63eaa4ad28ca9fdc) |
-| `add(1)`                             | EIP-1559 (type 2) | 11823792 | [`0x0411bad9027e9d9235cf2e9576873cfa31f7c7ab94348cc3a31cc667442a4c97`](https://sepolia.etherscan.io/tx/0x0411bad9027e9d9235cf2e9576873cfa31f7c7ab94348cc3a31cc667442a4c97) |
-| delegate to `LiveCheck` and `add(1)` | EIP-7702 (type 4) | 11823794 | [`0xbf01d1f32e319ba0909c89e961668b959c6107213ac9beca75b099a66ec27a2c`](https://sepolia.etherscan.io/tx/0xbf01d1f32e319ba0909c89e961668b959c6107213ac9beca75b099a66ec27a2c) |
-| clear the delegation                 | EIP-7702 (type 4) | 11823795 | [`0x0bd996950625334cc8de61f251f7832503f57b834a9235ce9ff4ca0c3dd51696`](https://sepolia.etherscan.io/tx/0x0bd996950625334cc8de61f251f7832503f57b834a9235ce9ff4ca0c3dd51696) |
-| send 1 wei to itself                 | EIP-1559 (type 2) | 11823796 | [`0x9bbe04bd3442a31ef28cc178d3b1e8694996a13ee1aec0c7922de770b3a7c125`](https://sepolia.etherscan.io/tx/0x9bbe04bd3442a31ef28cc178d3b1e8694996a13ee1aec0c7922de770b3a7c125) |
+| deploy `LiveCheck`                   | EIP-1559 (type 2) | 11824595 | [`0xb2310a931050a5ad16dd8b62596bc24db09e7cd91fe588b3191c7f34d4fff9df`](https://sepolia.etherscan.io/tx/0xb2310a931050a5ad16dd8b62596bc24db09e7cd91fe588b3191c7f34d4fff9df) |
+| `add(1)`                             | Legacy (type 0)   | 11824596 | [`0xde4da390ee2443eeade08d097768c709662679b41620be6ad29e5fc1a505090d`](https://sepolia.etherscan.io/tx/0xde4da390ee2443eeade08d097768c709662679b41620be6ad29e5fc1a505090d) |
+| `add(1)` with an access list         | EIP-2930 (type 1) | 11824597 | [`0x62d78c014a39600ac9d9f8dc39b6659f49023fd3bd2a16bd7d605404f313e91c`](https://sepolia.etherscan.io/tx/0x62d78c014a39600ac9d9f8dc39b6659f49023fd3bd2a16bd7d605404f313e91c) |
+| `add(1)`                             | EIP-1559 (type 2) | 11824598 | [`0xb15e8650241279ea465c3eee70acc1c838e01fc27b4bd338def9f9a17e978808`](https://sepolia.etherscan.io/tx/0xb15e8650241279ea465c3eee70acc1c838e01fc27b4bd338def9f9a17e978808) |
+| delegate to `LiveCheck` and `add(1)` | EIP-7702 (type 4) | 11824599 | [`0xdca2fa457e3eba434622bd1972ad9e02bffb54d2c7fbc87d73dbc8c0e02cf348`](https://sepolia.etherscan.io/tx/0xdca2fa457e3eba434622bd1972ad9e02bffb54d2c7fbc87d73dbc8c0e02cf348) |
+| clear the delegation                 | EIP-7702 (type 4) | 11824600 | [`0x806e5548fc975aaf2d6483e96b951215167f107caaafade4b636f41ca41e1f0e`](https://sepolia.etherscan.io/tx/0x806e5548fc975aaf2d6483e96b951215167f107caaafade4b636f41ca41e1f0e) |
+| send 1 wei to itself                 | EIP-1559 (type 2) | 11824601 | [`0xa1e4212987eceaf54af068b3895b220f7418e5a7b0f0fc51f1cb3a6bb0f3ecf2`](https://sepolia.etherscan.io/tx/0xa1e4212987eceaf54af068b3895b220f7418e5a7b0f0fc51f1cb3a6bb0f3ecf2) |
 
 ## Google Cloud KMS
 
 - Account: [`0x728743B36DE6236f6d03409563a7E2c39a00EE17`](https://sepolia.etherscan.io/address/0x728743B36DE6236f6d03409563a7E2c39a00EE17)
-- `LiveCheck`: [`0x3fe50B6296ed165bb91fDe6F4eA08203c7260FBf`](https://sepolia.etherscan.io/address/0x3fe50B6296ed165bb91fDe6F4eA08203c7260FBf)
-- Spent: 0.00102504703218161 ETH
+- `LiveCheck`: [`0x359d6F0F102673097231EA618A8A8dc746A73D1f`](https://sepolia.etherscan.io/address/0x359d6F0F102673097231EA618A8A8dc746A73D1f)
+- Spent: 0.00134478221061743 ETH
 
 | Step                                 | Type              | Block    | Transaction                                                                                                                                                                |
 | ------------------------------------ | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| deploy `LiveCheck`                   | EIP-1559 (type 2) | 11823789 | [`0x1aca8b634fb8c643992786e374a7a133f49541c472eaf835a62d92f33d3ba239`](https://sepolia.etherscan.io/tx/0x1aca8b634fb8c643992786e374a7a133f49541c472eaf835a62d92f33d3ba239) |
-| `add(1)`                             | Legacy (type 0)   | 11823790 | [`0x22678a876fdfe0d38a7c629fc8659fb24a553c4aebc808a583c815f6d771f4e9`](https://sepolia.etherscan.io/tx/0x22678a876fdfe0d38a7c629fc8659fb24a553c4aebc808a583c815f6d771f4e9) |
-| `add(1)` with an access list         | EIP-2930 (type 1) | 11823791 | [`0x91fae3a20b72ab077eca81b6309ae9b5da16117598c0bad9362001a57083bfc9`](https://sepolia.etherscan.io/tx/0x91fae3a20b72ab077eca81b6309ae9b5da16117598c0bad9362001a57083bfc9) |
-| `add(1)`                             | EIP-1559 (type 2) | 11823792 | [`0x80c42c7cced20ec6b959c1b2452b71f0393fda501b4a1ad5c164034c08ef52c4`](https://sepolia.etherscan.io/tx/0x80c42c7cced20ec6b959c1b2452b71f0393fda501b4a1ad5c164034c08ef52c4) |
-| delegate to `LiveCheck` and `add(1)` | EIP-7702 (type 4) | 11823794 | [`0x2c01f45e877b90b1bf7fe58c299a147f96178c384b8989c2f64aa470c4d268a8`](https://sepolia.etherscan.io/tx/0x2c01f45e877b90b1bf7fe58c299a147f96178c384b8989c2f64aa470c4d268a8) |
-| clear the delegation                 | EIP-7702 (type 4) | 11823795 | [`0xe86161e466c917354c1cfaa46bb90b0bef4e1faeb4174f725d9c9d1b9f9fe7ae`](https://sepolia.etherscan.io/tx/0xe86161e466c917354c1cfaa46bb90b0bef4e1faeb4174f725d9c9d1b9f9fe7ae) |
-| send 1 wei to itself                 | EIP-1559 (type 2) | 11823796 | [`0x6fce8c498de02068e7f12302db6b3130aaf0b7ac35fcca056fd6e7f703640e50`](https://sepolia.etherscan.io/tx/0x6fce8c498de02068e7f12302db6b3130aaf0b7ac35fcca056fd6e7f703640e50) |
+| deploy `LiveCheck`                   | EIP-1559 (type 2) | 11824595 | [`0xcb1e0f5d2c52fd60d208ffca47cfcd01d043d8beb73d852eebc6fa302b811834`](https://sepolia.etherscan.io/tx/0xcb1e0f5d2c52fd60d208ffca47cfcd01d043d8beb73d852eebc6fa302b811834) |
+| `add(1)`                             | Legacy (type 0)   | 11824596 | [`0xebaa237baccac25f4796131367494ec5cd8fbacdbb5a4a090c7eaf1bda46653c`](https://sepolia.etherscan.io/tx/0xebaa237baccac25f4796131367494ec5cd8fbacdbb5a4a090c7eaf1bda46653c) |
+| `add(1)` with an access list         | EIP-2930 (type 1) | 11824597 | [`0xd6ab8d7747a544c16a1da18c3f50999dcec55a44fb1cfac38d6f35f50be8ae06`](https://sepolia.etherscan.io/tx/0xd6ab8d7747a544c16a1da18c3f50999dcec55a44fb1cfac38d6f35f50be8ae06) |
+| `add(1)`                             | EIP-1559 (type 2) | 11824598 | [`0xb85b525419b5a2ef0922baa66f55184c8b13364f52ce901f39912233193c6bcd`](https://sepolia.etherscan.io/tx/0xb85b525419b5a2ef0922baa66f55184c8b13364f52ce901f39912233193c6bcd) |
+| delegate to `LiveCheck` and `add(1)` | EIP-7702 (type 4) | 11824599 | [`0xd3b6a2c434b9d20bfa37a93d206bfb04bf523d1ee1bdb4585217f3b4c6c74557`](https://sepolia.etherscan.io/tx/0xd3b6a2c434b9d20bfa37a93d206bfb04bf523d1ee1bdb4585217f3b4c6c74557) |
+| clear the delegation                 | EIP-7702 (type 4) | 11824600 | [`0xd780c84516b662ea0743b6a3e3a943c04f06c3d77e88d957ef64761a56f2fb80`](https://sepolia.etherscan.io/tx/0xd780c84516b662ea0743b6a3e3a943c04f06c3d77e88d957ef64761a56f2fb80) |
+| send 1 wei to itself                 | EIP-1559 (type 2) | 11824601 | [`0x4a546baba9299a2d9c63e7e7d392be9449532bbad08264ed3c4a098b4547f9ee`](https://sepolia.etherscan.io/tx/0x4a546baba9299a2d9c63e7e7d392be9449532bbad08264ed3c4a098b4547f9ee) |
 
 ## Azure Key Vault
 
 - Account: [`0x9626Fb8498C69d88F8C080835C3Cd328453D3004`](https://sepolia.etherscan.io/address/0x9626Fb8498C69d88F8C080835C3Cd328453D3004)
-- `LiveCheck`: [`0xfE9F3d190E92d12D7f374eeBfff5d8eC48c1C760`](https://sepolia.etherscan.io/address/0xfE9F3d190E92d12D7f374eeBfff5d8eC48c1C760)
-- Spent: 0.00102504703218161 ETH
+- `LiveCheck`: [`0x0651514b24F5c788720A51768e952584665F22e3`](https://sepolia.etherscan.io/address/0x0651514b24F5c788720A51768e952584665F22e3)
+- Spent: 0.00134478221061743 ETH
 
 | Step                                 | Type              | Block    | Transaction                                                                                                                                                                |
 | ------------------------------------ | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| deploy `LiveCheck`                   | EIP-1559 (type 2) | 11823789 | [`0x33e0c30f9ceea5d22ebf4b338c90b9cfb34a00704125731b87d6c81764abc19c`](https://sepolia.etherscan.io/tx/0x33e0c30f9ceea5d22ebf4b338c90b9cfb34a00704125731b87d6c81764abc19c) |
-| `add(1)`                             | Legacy (type 0)   | 11823790 | [`0x320b7750b74b6481359e4e6b0648d7077bd574ef5441db1ed8455d7bd5f3d836`](https://sepolia.etherscan.io/tx/0x320b7750b74b6481359e4e6b0648d7077bd574ef5441db1ed8455d7bd5f3d836) |
-| `add(1)` with an access list         | EIP-2930 (type 1) | 11823791 | [`0x84e4a7f2527df6e5da0951125c5398ac360bb61721cdf188261073e75614c5c1`](https://sepolia.etherscan.io/tx/0x84e4a7f2527df6e5da0951125c5398ac360bb61721cdf188261073e75614c5c1) |
-| `add(1)`                             | EIP-1559 (type 2) | 11823792 | [`0x5df95dccc5d302f6339fdca4f95bba372e71857225bc1e3021538b227d2c51ab`](https://sepolia.etherscan.io/tx/0x5df95dccc5d302f6339fdca4f95bba372e71857225bc1e3021538b227d2c51ab) |
-| delegate to `LiveCheck` and `add(1)` | EIP-7702 (type 4) | 11823794 | [`0xf02445e183ef976ec6d9ca5d8a069f6d50eccdb8e970ba80c22fe4f4f2f6c221`](https://sepolia.etherscan.io/tx/0xf02445e183ef976ec6d9ca5d8a069f6d50eccdb8e970ba80c22fe4f4f2f6c221) |
-| clear the delegation                 | EIP-7702 (type 4) | 11823795 | [`0xadf69a662996394da885c5e6104045899f7fd788008bec2e44d85fdfaf7f8dc5`](https://sepolia.etherscan.io/tx/0xadf69a662996394da885c5e6104045899f7fd788008bec2e44d85fdfaf7f8dc5) |
-| send 1 wei to itself                 | EIP-1559 (type 2) | 11823796 | [`0x20c3c560defef0e6050ba67b6f765a63a70a5511e6ae8185be56d5554ca123a6`](https://sepolia.etherscan.io/tx/0x20c3c560defef0e6050ba67b6f765a63a70a5511e6ae8185be56d5554ca123a6) |
+| deploy `LiveCheck`                   | EIP-1559 (type 2) | 11824595 | [`0x7ea234804e8f8215ba411c0365f9734719749ea1203454c738f240053d12d188`](https://sepolia.etherscan.io/tx/0x7ea234804e8f8215ba411c0365f9734719749ea1203454c738f240053d12d188) |
+| `add(1)`                             | Legacy (type 0)   | 11824596 | [`0x33ec995470f2d9ed33f4866b13665fef097e366c6244695ae870bcb55e8a3e1f`](https://sepolia.etherscan.io/tx/0x33ec995470f2d9ed33f4866b13665fef097e366c6244695ae870bcb55e8a3e1f) |
+| `add(1)` with an access list         | EIP-2930 (type 1) | 11824597 | [`0x2072d36ac4889086fee802c697410f5e27fa115c2f9777b17aefd619f714fbbe`](https://sepolia.etherscan.io/tx/0x2072d36ac4889086fee802c697410f5e27fa115c2f9777b17aefd619f714fbbe) |
+| `add(1)`                             | EIP-1559 (type 2) | 11824598 | [`0xc684b2ec854b02a5b2e62d951d78a57609e3b91b7a81d53adb9af1e285362582`](https://sepolia.etherscan.io/tx/0xc684b2ec854b02a5b2e62d951d78a57609e3b91b7a81d53adb9af1e285362582) |
+| delegate to `LiveCheck` and `add(1)` | EIP-7702 (type 4) | 11824599 | [`0x692a0c580100019d63797b2ef88a257cb12febacaa10e92b5b25271a652bfa57`](https://sepolia.etherscan.io/tx/0x692a0c580100019d63797b2ef88a257cb12febacaa10e92b5b25271a652bfa57) |
+| clear the delegation                 | EIP-7702 (type 4) | 11824600 | [`0x0003b56fb586c155d7657da068be2c879d684e9f4d693fddd33eb0ed5edee0c5`](https://sepolia.etherscan.io/tx/0x0003b56fb586c155d7657da068be2c879d684e9f4d693fddd33eb0ed5edee0c5) |
+| send 1 wei to itself                 | EIP-1559 (type 2) | 11824601 | [`0x30b2c93c95ce0c1b33553350e3f96f26bc9f2a4309ef2c78abee4951c0bd99b5`](https://sepolia.etherscan.io/tx/0x30b2c93c95ce0c1b33553350e3f96f26bc9f2a4309ef2c78abee4951c0bd99b5) |
 
-The three providers together spent 0.00307514109654483 ETH.
+The three providers together spent 0.00403434663185229 ETH.
