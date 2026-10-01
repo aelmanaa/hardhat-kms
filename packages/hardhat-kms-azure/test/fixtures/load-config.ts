@@ -30,14 +30,20 @@ if (keyName !== "") {
   if (key === undefined) {
     throw new Error(`missing key ${keyName}`);
   }
+  // HHKMS_FIXTURE_TASK runs that kms task on the key instead, as `hardhat kms <task> <key>` does.
+  const taskName = process.env.HHKMS_FIXTURE_TASK ?? "";
   try {
-    const adapter = await hre.hooks.runHandlerChain(
-      "kms",
-      "createKeyAdapter",
-      [key],
-      async () => await Promise.reject(new Error("unclaimed")),
-    );
-    await adapter.close?.();
+    if (taskName === "") {
+      const adapter = await hre.hooks.runHandlerChain(
+        "kms",
+        "createKeyAdapter",
+        [key],
+        async () => await Promise.reject(new Error("unclaimed")),
+      );
+      await adapter.close?.();
+    } else {
+      await hre.tasks.getTask(["kms", taskName]).run({ key: keyName });
+    }
   } catch {
     // Keys of other providers reach the end of the chain; only the imports matter here.
   }

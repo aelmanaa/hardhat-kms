@@ -148,6 +148,24 @@ export class KmsSigner {
   }
 
   /**
+   * Returns the key's uncompressed public key, resolving and pin-checking it on first use.
+   *
+   * @returns The 65-byte public key, starting with `0x04`.
+   * @throws If the adapter returns only an address and the key has not signed yet, so the public
+   * key is unknown.
+   */
+  public async getPublicKey(): Promise<Uint8Array> {
+    const { publicKey } = await this.#resolveIdentity();
+    if (publicKey === undefined) {
+      throw this.#error(
+        "get public key",
+        "the provider returns only the key's address, not its public key",
+      );
+    }
+    return publicKey.slice();
+  }
+
+  /**
    * Signs a 32-byte digest.
    *
    * @param digest - The digest.
