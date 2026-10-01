@@ -25,11 +25,13 @@ When `from` (or the address param) is not a KMS address, the request passes thro
 Unknown account 0x1111111111111111111111111111111111111111. The KMS account on this network is 0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826.
 ```
 
-A mistyped address, or a key missing from `kmsAccounts`, then shows in the error. The error keeps its class, code and data. It lists at most 10 addresses, then "and N more", and never names a key id. The plugin recognizes three errors:
+The error then shows a mistyped address or a key missing from `kmsAccounts`. It keeps its class, code and data, and Hardhat's CLI prints the list too. At most 10 addresses are listed, then "and N more". No key id is ever named. The plugin recognizes these errors:
 
 - Hardhat's simulated network: `Unknown account <address>`, code -32000.
 - Hardhat's local accounts on a network with `accounts`: `HHE716: Account "<address>" is not managed by the node you are connected to.`
-- A remote node such as Geth or Reth: `unknown account`, code -32000.
+- Geth: `unknown account`, code -32000.
+- Reth: `unknown account`, code -32602.
+- Anvil: `No Signer available`, code -32602.
 
 Every other error passes through unchanged.
 

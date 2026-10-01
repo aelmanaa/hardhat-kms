@@ -379,17 +379,19 @@ async function passThrough(
     answer = await next(request);
   } catch (error) {
     if (error instanceof Error && isUnknownAccount(error)) {
-      const message = await listingKmsAddresses(accounts, error.message);
-      if (typeof error.stack === "string") {
-        error.stack = error.stack.replace(error.message, () => message);
+      const sentence = kmsAccountsSentence(await kmsAddressesOf(accounts));
+      if (sentence !== undefined) {
+        appendInPlace(error, sentence);
       }
-      error.message = message;
     }
     throw error;
   }
   if ("error" in answer && isUnknownAccount(answer.error)) {
-    const message = await listingKmsAddresses(accounts, answer.error.message);
-    return { ...answer, error: { ...answer.error, message } };
+    const sentence = kmsAccountsSentence(await kmsAddressesOf(accounts));
+    if (sentence !== undefined) {
+      const message = withSentence(answer.error.message, sentence);
+      return { ...answer, error: { ...answer.error, message } };
+    }
   }
   return answer;
 }
@@ -400,9 +402,11 @@ async function passThrough(
  * - Hardhat's `HardhatError` HHE716 (`NOT_LOCAL_ACCOUNT`), thrown by its local accounts on a
  *   network with `accounts` for an address that is not one of them: `Account "<address>" is not
  *   managed by the node you are connected to.`
- * - A JSON-RPC error with code -32000 whose message starts with "unknown account", in any case:
- *   Hardhat's simulated network (`Unknown account <address>`, thrown as a `ProviderError`), and
- *   Geth and Reth (`unknown account`, an error answer over http).
+ * - Code -32000 with a message that starts with "unknown account", in any case: Hardhat's
+ *   simulated network (`Unknown account <address>`, thrown as a `ProviderError`) and Geth
+ *   (`unknown account`, an error answer over http).
+ * - Code -32602 with a message that is exactly `unknown account`, in any case (Reth), or exactly
+ *   `No Signer available` (Anvil).
  *
  * @param error - A thrown error, or a JSON-RPC error answer.
  * @returns Whether it is.
@@ -411,35 +415,97 @@ export function isUnknownAccount(error: unknown): boolean {
   if (HardhatError.isHardhatError(error, HardhatError.ERRORS.CORE.NETWORK.NOT_LOCAL_ACCOUNT)) {
     return true;
   }
-  return (
-    isObject(error) &&
-    error.code === -32000 &&
-    typeof error.message === "string" &&
-    /^\s*unknown account\b/i.test(error.message)
-  );
+  if (!isObject(error) || typeof error.message !== "string") {
+    return false;
+  }
+  const { code, message } = error;
+  if (code === -32000) {
+    return /^\s*unknown account\b/i.test(message);
+  }
+  if (code === -32602) {
+    return /^\s*unknown account\s*$/i.test(message) || message.trim() === "No Signer available";
+  }
+  return false;
+}
+
+/** Reads the KMS addresses; a failed read gives none, so the error stays as it is. */
+async function kmsAddressesOf(accounts: ConnectionAccounts): Promise<string[]> {
+  try {
+    return await accounts.addresses();
+  } catch (error) {
+    log("listing the KMS accounts for an unknown account failed (%s)", errorName(error));
+    return [];
+  }
 }
 
 /**
- * Appends the connection's KMS addresses to an "unknown account" message: at most
- * {@link LISTED_KMS_ADDRESSES}, then "and N more". Only addresses, never key ids. If the
- * addresses cannot be read, the message is returned unchanged.
+ * The sentence an "unknown account" error gets: the KMS addresses, at most
+ * {@link LISTED_KMS_ADDRESSES}, then "and N more". Only addresses, never key ids.
+ *
+ * @param addresses - The checksummed KMS addresses.
+ * @returns The sentence, or `undefined` when there are no addresses.
  */
-async function listingKmsAddresses(accounts: ConnectionAccounts, message: string): Promise<string> {
-  let addresses: string[];
-  try {
-    addresses = await accounts.addresses();
-  } catch (error) {
-    log("listing the KMS accounts for an unknown account failed (%s)", errorName(error));
-    return message;
+export function kmsAccountsSentence(addresses: readonly string[]): string | undefined {
+  if (addresses.length === 0) {
+    return undefined;
   }
   const shown = addresses.slice(0, LISTED_KMS_ADDRESSES).join(", ");
   const more = addresses.length - LISTED_KMS_ADDRESSES;
   const list = more > 0 ? `${shown} and ${more} more` : shown;
+  return addresses.length === 1
+    ? `The KMS account on this network is ${list}.`
+    : `The KMS accounts on this network are ${list}.`;
+}
+
+/**
+ * Appends a sentence to a message, after a full stop when the message has none. A message that
+ * already holds the sentence, because the same error came through twice, is returned as it is.
+ *
+ * @param message - The error message.
+ * @param sentence - From {@link kmsAccountsSentence}.
+ * @returns The new message.
+ */
+export function withSentence(message: string, sentence: string): string {
+  if (message.includes(sentence)) {
+    return message;
+  }
   const text = message.trimEnd();
-  const end = /[.!?]$/.test(text) ? "" : ".";
-  const noun = addresses.length === 1 ? "The KMS account" : "The KMS accounts";
-  const verb = addresses.length === 1 ? "is" : "are";
-  return `${text}${end} ${noun} on this network ${verb} ${list}.`;
+  return `${text}${/[.!?]$/.test(text) ? "" : "."} ${sentence}`;
+}
+
+/**
+ * Appends a sentence to a thrown error's `message`, the first line of its `stack`, and, for a
+ * `HardhatError`, its `formattedMessage`, which Hardhat's CLI prints. The error object stays the
+ * same, so its class, code and data stay. If any write fails, as on a frozen error, the writes
+ * already made are undone and the error is left as it came.
+ */
+function appendInPlace(error: Error, sentence: string): void {
+  const { message, stack } = error;
+  const hardhat = HardhatError.isHardhatError(error) ? error : undefined;
+  let formattedSet = false;
+  let messageSet = false;
+  try {
+    if (hardhat !== undefined) {
+      Object.defineProperty(hardhat, "formattedMessage", {
+        value: withSentence(hardhat.formattedMessage, sentence),
+        configurable: true,
+      });
+      formattedSet = true;
+    }
+    error.message = withSentence(message, sentence);
+    messageSet = true;
+    if (typeof stack === "string") {
+      error.stack = stack.replace(message, () => error.message);
+    }
+  } catch (failure) {
+    log("could not add the KMS accounts to the error (%s)", errorName(failure));
+    if (messageSet) {
+      Reflect.set(error, "message", message);
+    }
+    if (formattedSet) {
+      Reflect.deleteProperty(error, "formattedMessage");
+    }
+  }
 }
 
 /** A transaction to sign with a KMS account. */

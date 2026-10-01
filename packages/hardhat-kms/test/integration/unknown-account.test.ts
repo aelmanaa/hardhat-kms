@@ -5,7 +5,9 @@ import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import hardhatEthers from "@nomicfoundation/hardhat-ethers";
 import hardhatViem from "@nomicfoundation/hardhat-viem";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
+import type { NetworkHooks } from "hardhat/types/hooks";
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
+import type { HardhatPlugin } from "hardhat/types/plugins";
 
 import hardhatKms from "../../src/index.ts";
 import { toChecksumAddress } from "../../src/internal/crypto/address.ts";
@@ -39,6 +41,11 @@ function transfer(from: string, value = "0x1"): Record<string, unknown> {
   return { from, to: COW_ACCOUNT.address, value, gas: "0x5208", gasPrice: "0x3b9aca00" };
 }
 
+/** An error shaped like the one Hardhat's simulated network throws. */
+function unknownAccount(): Error {
+  return Object.assign(new Error(`Unknown account ${UNKNOWN}`), { code: -32000 });
+}
+
 /** Asserts the error lists the KMS account, keeps its original message first and names no key. */
 function assertLists(error: Error, original: string): void {
   assert.equal(error.message, `${original}${/[.!?]$/.test(original) ? "" : "."} ${LISTED}`);
@@ -61,6 +68,7 @@ describe("an account that is neither a KMS account nor a local account", () => {
       kms: { keys },
       networks: {
         simulated: { type: "edr-simulated", kmsAccounts: [KEY_NAME] },
+        fromUnknown: { type: "edr-simulated", from: UNKNOWN, kmsAccounts: [KEY_NAME] },
         plainSimulated: { type: "edr-simulated" },
         local: {
           type: "http",
@@ -107,10 +115,10 @@ describe("an account that is neither a KMS account nor a local account", () => {
         HardhatError.isHardhatError(error, HardhatError.ERRORS.CORE.NETWORK.NOT_LOCAL_ACCOUNT),
         String(error),
       );
-      assertLists(
-        error,
-        `HHE716: Account "${UNKNOWN}" is not managed by the node you are connected to.`,
-      );
+      const original = `Account "${UNKNOWN}" is not managed by the node you are connected to.`;
+      assertLists(error, `HHE716: ${original}`);
+      // Hardhat's CLI prints `Error HHE716: <formattedMessage>`.
+      assert.equal(error.formattedMessage, `${original} ${LISTED}`);
     }
   });
 
@@ -123,13 +131,20 @@ describe("an account that is neither a KMS account nor a local account", () => {
     assert.equal(Object.getPrototypeOf(error), Object.getPrototypeOf(original), "same class");
     assert.equal(Reflect.get(error, "code"), -32000);
 
-    // Geth and Reth answer "unknown account".
+    // Geth answers "unknown account".
     node.faults.set("eth_sign", "unknown account");
     try {
       assertLists(await failure(provider, "eth_sign", [UNKNOWN, MESSAGE]), "unknown account");
     } finally {
       node.faults.delete("eth_sign");
     }
+  });
+
+  it("lists the KMS account when the network's `from` is unknown", async () => {
+    const { provider } = await hre.network.create("fromUnknown");
+    const { from: _from, ...withoutFrom } = transfer(UNKNOWN);
+    const error = await failure(provider, "eth_sendTransaction", [withoutFrom]);
+    assertLists(error, `Unknown account ${UNKNOWN}`);
   });
 
   it("shows the list through viem and ethers", async () => {
@@ -210,28 +225,116 @@ describe("an account that is neither a KMS account nor a local account", () => {
   });
 
   it("lists at most ten KMS addresses, then how many more", async () => {
-    const addresses = Array.from({ length: 12 }, (_, index) =>
-      toChecksumAddress(`0x${(index + 1).toString(16).padStart(40, "a")}`),
-    );
-    const many = await createHardhatRuntimeEnvironment({
-      plugins: [hardhatKms],
-      kms: {
-        keys: Object.fromEntries(
-          addresses.map((address, index) => [`key${index}`, vaultKey(`key${index}`, address)]),
-        ),
-      },
-      networks: {
-        simulated: {
-          type: "edr-simulated",
-          kmsAccounts: addresses.map((_, index) => `key${index}`),
+    for (const [count, more] of [
+      [10, ""],
+      [11, " and 1 more"],
+      [12, " and 2 more"],
+    ] as const) {
+      const addresses = Array.from({ length: count }, (_, index) =>
+        toChecksumAddress(`0x${(index + 1).toString(16).padStart(40, "a")}`),
+      );
+      const many = await createHardhatRuntimeEnvironment({
+        plugins: [hardhatKms],
+        kms: {
+          keys: Object.fromEntries(
+            addresses.map((address, index) => [`key${index}`, vaultKey(`key${index}`, address)]),
+          ),
         },
+        networks: {
+          simulated: {
+            type: "edr-simulated",
+            kmsAccounts: addresses.map((_, index) => `key${index}`),
+          },
+        },
+      });
+      const { provider } = await many.network.create("simulated");
+      const error = await failure(provider, "personal_sign", [MESSAGE, UNKNOWN]);
+      assert.equal(
+        error.message,
+        `Unknown account ${UNKNOWN}. The KMS accounts on this network are ${addresses.slice(0, 10).join(", ")}${more}.`,
+      );
+    }
+  });
+
+  describe("an error a later plugin throws", () => {
+    /** What the plugin below hardhat-kms throws for personal_sign. */
+    let toThrow: Error | undefined;
+    // Hardhat runs plugin handlers in reverse order of `plugins`: listed first, this plugin runs
+    // after hardhat-kms, where the node would answer.
+    const thrower: HardhatPlugin = {
+      id: "throw-downstream",
+      hookHandlers: {
+        network: async () => ({
+          default: async (): Promise<Partial<NetworkHooks>> => ({
+            onRequest: async (context, connection, request, next) => {
+              if (request.method === "personal_sign" && toThrow !== undefined) {
+                throw toThrow;
+              }
+              return await next(context, connection, request);
+            },
+          }),
+        }),
       },
+    };
+
+    async function connect(): Promise<Provider> {
+      const runtime = await createHardhatRuntimeEnvironment({
+        plugins: [thrower, hardhatKms],
+        kms: { keys: { cow: vaultKey("cow", COW_ACCOUNT.address) } },
+        networks: { simulated: { type: "edr-simulated", kmsAccounts: ["cow"] } },
+      });
+      return (await runtime.network.create("simulated")).provider;
+    }
+
+    it("is left as it came when it is frozen", async () => {
+      const provider = await connect();
+      const frozen = Object.freeze(unknownAccount());
+      toThrow = frozen;
+      const error = await failure(provider, "personal_sign", [MESSAGE, UNKNOWN]);
+      assert.equal(error, frozen);
+      assert.equal(error.message, `Unknown account ${UNKNOWN}`);
+
+      const hardhat = Object.freeze(
+        new HardhatError(HardhatError.ERRORS.CORE.NETWORK.NOT_LOCAL_ACCOUNT, { account: UNKNOWN }),
+      );
+      toThrow = hardhat;
+      const again = await failure(provider, "personal_sign", [MESSAGE, UNKNOWN]);
+      assert.equal(again, hardhat);
+      assert.ok(!again.message.includes(LISTED));
+      assert.ok(!hardhat.formattedMessage.includes(LISTED));
     });
-    const { provider } = await many.network.create("simulated");
-    const error = await failure(provider, "personal_sign", [MESSAGE, UNKNOWN]);
-    assert.equal(
-      error.message,
-      `Unknown account ${UNKNOWN}. The KMS accounts on this network are ${addresses.slice(0, 10).join(", ")} and 2 more.`,
-    );
+
+    it("undoes its writes when a later write fails", async () => {
+      const provider = await connect();
+      // The message can change, the stack cannot.
+      const fixedStack = unknownAccount();
+      Object.defineProperty(fixedStack, "stack", { value: fixedStack.stack, writable: false });
+      toThrow = fixedStack;
+      const error = await failure(provider, "personal_sign", [MESSAGE, UNKNOWN]);
+      assert.equal(error.message, `Unknown account ${UNKNOWN}`);
+
+      // formattedMessage can change, the message cannot.
+      const hardhat = new HardhatError(HardhatError.ERRORS.CORE.NETWORK.NOT_LOCAL_ACCOUNT, {
+        account: UNKNOWN,
+      });
+      const { message } = hardhat;
+      Object.defineProperty(hardhat, "message", { value: message, writable: false });
+      toThrow = hardhat;
+      await failure(provider, "personal_sign", [MESSAGE, UNKNOWN]);
+      assert.equal(hardhat.message, message);
+      assert.ok(!hardhat.formattedMessage.includes(LISTED));
+      assert.ok(!Object.hasOwn(hardhat, "formattedMessage"));
+    });
+
+    it("gets the list once when the same error comes through twice", async () => {
+      const provider = await connect();
+      const shared = unknownAccount();
+      toThrow = shared;
+      await failure(provider, "personal_sign", [MESSAGE, UNKNOWN]);
+      const error = await failure(provider, "personal_sign", [MESSAGE, UNKNOWN]);
+      assert.equal(error, shared);
+      assert.equal(error.message, `Unknown account ${UNKNOWN}. ${LISTED}`);
+      assert.equal(String(error.stack).split(LISTED).length, 2, "the stack holds the list once");
+    });
   });
 });
