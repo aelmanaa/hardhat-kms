@@ -11,7 +11,8 @@
         "@arethetypeswrong/cli",
         "hardhat-kms-aws",
         "@nomicfoundation/hardhat-ignition",
-        "@nomicfoundation/hardhat-ignition-viem"
+        "@nomicfoundation/hardhat-ignition-viem",
+        "@nomicfoundation/hardhat-ledger"
       ]
     },
     "packages/hardhat-kms": {

@@ -1,13 +1,16 @@
-// hardhat-kms next to @nomicfoundation/hardhat-ledger, in both plugin orders, on an edr-simulated
-// network with a KMS key and a Ledger address. Hardhat runs plugins' network hooks in reverse
+// hardhat-kms next to @nomicfoundation/hardhat-ledger, in both plugin orders, on edr-simulated
+// networks with a KMS key and a Ledger account. Hardhat runs plugins' network hooks in reverse
 // order of `plugins`, so each order puts the other plugin first in the request chain.
 //
-// No Ledger device is used. The Ledger plugin shows "Connecting to Ledger..." through Hardhat's
+// No Ledger device is used. hardhat-ledger shows "Connecting to Ledger..." through Hardhat's
 // `userInterruptions` hook right before it opens the device. The tests record that message and
-// throw from it, which ends the Ledger request with its connection error. Without this, a machine
-// without a device would retry for up to 30 minutes, and a machine with one would open it.
+// throw from it, which ends the request with hardhat-ledger's connection error. The message proves
+// the request reached hardhat-ledger's connect step. In this repository node-hid is never built,
+// so opening the device would fail at once anyway; the throw keeps the test from waiting for a
+// device, or opening one, if node-hid is ever built, for example after an upgrade to a version
+// with prebuilt binaries.
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { type TestContext, describe, it } from "node:test";
 
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import hardhatLedger from "@nomicfoundation/hardhat-ledger";
@@ -17,8 +20,8 @@ import type { HardhatPlugin } from "hardhat/types/plugins";
 import { type Hex, getAddress, isHex, verifyMessage } from "viem";
 
 import hardhatKms from "../../src/index.ts";
-import type { KmsKeyUserConfig } from "../../src/types.ts";
 import { type FakeAdapter, fakeAdapter } from "../helpers/fake-adapter.ts";
+import { vaultKey } from "../helpers/vault-key.ts";
 import { COW_ACCOUNT, PERSONAL_SIGN_VECTORS } from "../helpers/vectors.ts";
 
 const hex = (value: string) => new Uint8Array(Buffer.from(value, "hex"));
@@ -33,16 +36,10 @@ const LEDGER_CONNECTING = "Connecting to Ledger...";
 const STOP = "stopped before opening a Ledger device";
 const MESSAGE: Hex = `0x${PERSONAL_SIGN_VECTORS[0].message}`;
 
-/** A key of a fake third-party provider, which the tests serve through the `kms` hook. */
-function vaultKey(name: string): KmsKeyUserConfig {
-  const key: unknown = { provider: "myvault", name };
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a third-party provider's key
-  return key as KmsKeyUserConfig;
-}
-
 /**
  * A runtime with both plugins in the given order. Its `local` network keeps EDR's default
- * accounts, has the KMS key `cow`, funded by `kms.simulatedBalance`, and the Ledger address.
+ * accounts, has the KMS key `cow`, funded by `kms.simulatedBalance`, and the Ledger account.
+ * `kmsSender` is the same, with the KMS account as the default sender (`from`).
  *
  * @returns The runtime, the fake KMS behind `cow` once created, and the Ledger plugin's messages.
  */
@@ -52,6 +49,12 @@ async function runtime(plugins: HardhatPlugin[]) {
     kms: { keys: { cow: vaultKey("cow") }, simulatedBalance: ONE_ETHER },
     networks: {
       local: { type: "edr-simulated", kmsAccounts: ["cow"], ledgerAccounts: [LEDGER_ACCOUNT] },
+      kmsSender: {
+        type: "edr-simulated",
+        from: KMS_ACCOUNT,
+        kmsAccounts: ["cow"],
+        ledgerAccounts: [LEDGER_ACCOUNT],
+      },
     },
   });
   const kms: { adapter?: FakeAdapter } = {};
@@ -84,6 +87,15 @@ async function runtime(plugins: HardhatPlugin[]) {
 const kmsSignatures = (kms: { adapter?: FakeAdapter }): number =>
   kms.adapter?.calls.signDigest ?? 0;
 
+/** Opens a connection that is closed when the test ends, whether it passes or fails. */
+async function connect(t: TestContext, hre: HardhatRuntimeEnvironment, network: string) {
+  const connection = await hre.network.create(network);
+  t.after(async () => {
+    await connection.close();
+  });
+  return connection;
+}
+
 /** Asserts that a request reached the Ledger plugin, which then tried to open the device. */
 async function assertReachedLedger(request: Promise<unknown>, ledgerMessages: string[]) {
   await assert.rejects(request, (error: unknown) => {
@@ -109,9 +121,9 @@ const ORDERS = [
 
 for (const order of ORDERS) {
   describe(`hardhat-kms with hardhat-ledger, ${order.name}`, { timeout: 60_000 }, () => {
-    it("lists EDR's accounts, the KMS account and the Ledger account", async () => {
+    it("lists EDR's accounts, the KMS account and the Ledger account", async (t) => {
       const { hre, ledgerMessages } = await runtime(order.plugins);
-      const connection = await hre.network.create("local");
+      const connection = await connect(t, hre, "local");
 
       const accounts = await connection.provider.request({ method: "eth_accounts" });
       assert.ok(Array.isArray(accounts));
@@ -134,12 +146,11 @@ for (const order of ORDERS) {
         order.kmsFirst ? listed.filter((account) => account !== LEDGER_ACCOUNT) : listed,
       );
       assert.deepEqual(ledgerMessages, [], "listing accounts does not open the device");
-      await connection.close();
     });
 
-    it("answers personal_sign for the KMS account from hardhat-kms", async () => {
+    it("answers personal_sign for the KMS account from hardhat-kms", async (t) => {
       const { hre, kms, ledgerMessages } = await runtime(order.plugins);
-      const connection = await hre.network.create("local");
+      const connection = await connect(t, hre, "local");
 
       const signature = await connection.provider.request({
         method: "personal_sign",
@@ -152,12 +163,11 @@ for (const order of ORDERS) {
       );
       assert.equal(kmsSignatures(kms), 1);
       assert.deepEqual(ledgerMessages, [], "the Ledger plugin did not try to sign");
-      await connection.close();
     });
 
-    it("signs and sends eth_sendTransaction from the KMS account with hardhat-kms", async () => {
+    it("signs and sends eth_sendTransaction from the KMS account with hardhat-kms", async (t) => {
       const { hre, kms, ledgerMessages } = await runtime(order.plugins);
-      const connection = await hre.network.create("local");
+      const connection = await connect(t, hre, "local");
 
       const hash = await connection.provider.request({
         method: "eth_sendTransaction",
@@ -171,12 +181,11 @@ for (const order of ORDERS) {
       assert.equal(getAddress(String(receipt.from)), KMS_ACCOUNT);
       assert.equal(kmsSignatures(kms), 1, "EDR holds no key for this account; hardhat-kms signed");
       assert.deepEqual(ledgerMessages, [], "the Ledger plugin did not try to sign");
-      await connection.close();
     });
 
-    it("passes personal_sign and eth_sendTransaction for the Ledger account to hardhat-ledger", async () => {
+    it("passes personal_sign and eth_sendTransaction for the Ledger account to hardhat-ledger", async (t) => {
       const { hre, kms, ledgerMessages } = await runtime(order.plugins);
-      const connection = await hre.network.create("local");
+      const connection = await connect(t, hre, "local");
 
       await assertReachedLedger(
         connection.provider.request({ method: "personal_sign", params: [MESSAGE, LEDGER_ACCOUNT] }),
@@ -191,7 +200,36 @@ for (const order of ORDERS) {
         ledgerMessages,
       );
       assert.equal(kmsSignatures(kms), 0, "hardhat-kms signed nothing");
-      await connection.close();
+    });
+
+    it("sends a transaction without `from` from a KMS default sender only with hardhat-ledger listed first", async (t) => {
+      const { hre, kms, ledgerMessages } = await runtime(order.plugins);
+      const connection = await connect(t, hre, "kmsSender");
+      const request = connection.provider.request({
+        method: "eth_sendTransaction",
+        params: [{ to: LEDGER_ACCOUNT, value: "0x1" }],
+      });
+
+      if (order.kmsFirst) {
+        // hardhat-ledger's hook runs first and validates the transaction before it checks the
+        // sender. Hardhat sets the default sender after both plugins, so `from` is still missing.
+        await assert.rejects(request, (error: unknown) => {
+          assert.ok(error instanceof Error && error.name === "ZodError", String(error));
+          assert.match(error.message, /"path": \[\s*"from"\s*\]/);
+          return true;
+        });
+        assert.equal(kmsSignatures(kms), 0);
+      } else {
+        // hardhat-kms's hook runs first, sets the default sender and signs.
+        const receipt = await connection.provider.request({
+          method: "eth_getTransactionReceipt",
+          params: [await request],
+        });
+        assert.ok(typeof receipt === "object" && receipt !== null && "from" in receipt);
+        assert.equal(getAddress(String(receipt.from)), KMS_ACCOUNT);
+        assert.equal(kmsSignatures(kms), 1);
+      }
+      assert.deepEqual(ledgerMessages, [], "the Ledger plugin did not try to sign");
     });
   });
 }

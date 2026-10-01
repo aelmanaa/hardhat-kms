@@ -9,8 +9,8 @@ import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import { type Address, getAddress, hashMessage, hashTypedData, parseSignature } from "viem";
 
 import hardhatKms from "../../src/index.ts";
-import type { KmsKeyUserConfig } from "../../src/types.ts";
 import { fakeAdapter } from "../helpers/fake-adapter.ts";
+import { vaultKey } from "../helpers/vault-key.ts";
 import { COW_ACCOUNT } from "../helpers/vectors.ts";
 
 const root = path.join(
@@ -42,13 +42,11 @@ const secretKey = new Uint8Array(Buffer.from(COW_ACCOUNT.secretKey, "hex"));
  * it counts its signatures, so a retry cannot hide a signature the plugin rejected.
  */
 async function runtime() {
-  const keyConfig: unknown = { provider: "myvault", address: KMS_ACCOUNT };
   const hre = await createHardhatRuntimeEnvironment(
     {
       plugins: [hardhatKms, hardhatViem, hardhatEthers],
       solidity: "0.8.24",
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a third-party provider's key
-      kms: { keys: { cow: keyConfig as KmsKeyUserConfig } },
+      kms: { keys: { cow: vaultKey("cow", KMS_ACCOUNT) } },
       networks: { local: { type: "edr-simulated", kmsAccounts: ["cow"] } },
     },
     {},
