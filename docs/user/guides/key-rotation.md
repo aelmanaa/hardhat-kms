@@ -20,7 +20,7 @@ This guide covers:
 | Google Cloud KMS | None automatic. You create a new key version.                     | None: the config names a version                                            | Nothing changes until you edit it     |
 | Azure Key Vault  | A rotation policy or `az keyvault key rotate` adds a new version. | An id without a version (`/keys/<name>`), or `keyName` without `keyVersion` | The next run signs as the new address |
 
-Within one run, the built-in providers keep signing with the key they first resolved: AWS signs with the key ARN, and Azure with the version it read first. A signer closes 5 seconds after its last connection closes, and the next use, or the next run, resolves the alias or the current version again ([Security model](../explanation/security-model.md#what-the-plugin-protects-against)). Only the `address` pin carries across runs.
+While a signer is open, the built-in providers keep signing with the key they first resolved: AWS signs with the key ARN, and Azure with the version it read first. A signer closes 5 seconds after its last connection closes, and the next use, or the next run, resolves the alias or the current version again ([Security model](../explanation/security-model.md#what-the-plugin-protects-against)). Only the `address` pin carries across runs.
 
 ### AWS KMS
 
@@ -28,9 +28,9 @@ AWS KMS rotates key material only for symmetric encryption keys. Automatic rotat
 
 ```text
 $ aws kms enable-key-rotation --key-id <key-id>
-aws: [ERROR]: An error occurred (UnsupportedOperationException) when calling the EnableKeyRotation operation:
+aws: [ERROR]: An error occurred (UnsupportedOperationException) when calling the EnableKeyRotation operation: …
 $ aws kms rotate-key-on-demand --key-id <key-id>
-aws: [ERROR]: An error occurred (UnsupportedOperationException) when calling the RotateKeyOnDemand operation:
+aws: [ERROR]: An error occurred (UnsupportedOperationException) when calling the RotateKeyOnDemand operation: …
 ```
 
 Manual rotation means a new KMS key. AWS suggests referring to keys by alias and moving the alias to the new key with `UpdateAlias`, so applications do not change ([Rotate keys manually](https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys-manually.html)):
@@ -45,7 +45,7 @@ For a signing key, that is the case to guard against. A config that names `alias
 
 "Cloud KMS does not support automatic rotation for asymmetric keys". For a signing key, you create a new key version, distribute its public key, then "specify the new key version" in signing calls ([Considerations for asymmetric keys](https://docs.cloud.google.com/kms/docs/key-rotation#asymmetric)).
 
-The plugin always signs with the version in the config, `keyVersionName` or `keyVersion`, and never with the primary version ([Set up a Google Cloud KMS key](gcp-kms-setup.md)). A new version changes nothing until you change the config, and changing it changes the address.
+The plugin always signs with the version in the config, `keyVersionName` or `keyVersion`, and it never picks a version for you ([Set up a Google Cloud KMS key](gcp-kms-setup.md)). An asymmetric key has no primary version: Cloud KMS gives `primary` only to `ENCRYPT_DECRYPT` keys ([`CryptoKey.primary`](https://docs.cloud.google.com/kms/docs/reference/rest/v1/projects.locations.keyRings.cryptoKeys#CryptoKey.FIELDS.primary)). A new version changes nothing until you change the config, and changing it changes the address.
 
 ### Azure Key Vault
 
@@ -53,14 +53,14 @@ Key Vault can rotate a key on a schedule. A key rotation policy makes Key Vault 
 
 For a signing key, the versionless URI is the risk. The plugin accepts a key id without a version, `https://my-vault.vault.azure.net/keys/deployer`, and resolves it to the current version when it first reads the key ([Key forms per provider](../reference/configuration.md#key-forms-per-provider)). After a rotation, the next run signs as the new version's address.
 
-Use a versioned key id, an `address` pin, or both, and do not set a rotation policy on a signing key. To check that a key has no rotation action, run:
+Use a versioned key id, an `address` pin, or both, and do not give a signing key a rotation policy with a `Rotate` action. To check, run this as an identity that can read the rotation policy: the **Key Vault Crypto Officer** role, or the `Get Rotation Policy` key permission in a vault that uses access policies ([Permissions required](https://learn.microsoft.com/en-us/azure/key-vault/keys/how-to-configure-key-rotation#permissions-required)):
 
 ```sh
 az keyvault key rotation-policy show --vault-name my-vault --name deployer \
   --query "lifetimeActions[?action=='Rotate'] | length(@)" --output tsv
 ```
 
-It prints `0` when no rotation is scheduled. On 2026-10-02, a key created with `az keyvault key create` had a policy with only a `Notify` action.
+It prints `0` when no rotation is scheduled. On 2026-10-02, a key created with `az keyvault key create` had a policy with only a `Notify` action. If your organization assigns the Azure Policy that requires keys to have a rotation policy, it reports signing keys as non-compliant; exempt them rather than adding a rotation ([Configure key rotation policy governance](https://learn.microsoft.com/en-us/azure/key-vault/keys/how-to-configure-key-rotation#configure-key-rotation-policy-governance)).
 
 ## What a pin does
 
@@ -89,7 +89,7 @@ export default defineConfig({
     keys: {
       deployer: {
         provider: "aws",
-        keyId: "alias/deployer",
+        keyId: "alias/hardhat-kms-rotation-demo",
         address: "0x94640fE13D4C4e16CbeD96Ec794788893A4d64cD",
       },
     },
@@ -152,17 +152,34 @@ The id of the first version, with the same pin, still shows `matches` after the 
 The error means the key behind the id is not the key that holds your funds and roles. Do not update the pin to the new address to make it pass. First find out why the key changed:
 
 - If someone moved the alias or rotated the key by mistake, point the config back at the old key: the old key id or ARN on AWS, the old version's id on Azure. On AWS, `update-alias` can move the alias back. On Azure, the old version keeps working as long as it is enabled.
-- If the change was on purpose, follow [Move to a new key](#move-to-a-new-key) and change the pin as its last config step.
+- If the change was on purpose, point the old entry back at the old key, then follow [Move to a new key](#move-to-a-new-key), which gives the new key its own entry and pin.
 
 ## Move to a new key
 
-A new key starts with an empty address. Move to it in this order:
+A new key starts with an empty address, and the old key must keep signing until everything has moved. Move in this order:
 
-1. Create the new key as in the setup guide, add it to the config under a new name, and pin it with the address `kms accounts` prints. On Azure, a new version of the same key also works; use its versioned id.
-2. Fund the new address on every chain it will use.
-3. Transfer contract ownership and every role the old address holds, such as admin, minter or upgrade roles. Send each transfer from the old key, which still signs under its own pinned entry.
-4. Move the remaining funds from the old address to the new one.
-5. Point the networks' `kmsAccounts` and scripts at the new key, and remove the old entry. Run `kms accounts` again: every key should show `matches`.
-6. Disable the old key, or the old version on Azure, and leave it disabled while you confirm nothing still needs it ([Retire a key](key-loss.md#retire-a-key)). Delete it only when its address holds nothing on any chain and no contract gives it a role.
+1. **Take an inventory** of what the old address holds or controls, on every chain it has used:
+   - funds and tokens, including tokens still due to it, such as vesting or airdrops;
+   - contract ownership, roles and proxy admin rights, and which ones transfer in two steps;
+   - multisig seats, timelock proposer and executor sets, allowlists, and oracle, relayer or bridge configs that name it;
+   - token allowances it granted;
+   - ENS names and reverse records;
+   - an EIP-7702 delegation on the account;
+   - pending transactions and unfinished Hardhat Ignition deployments.
+2. **Freeze the old entry.** Make sure the old key's entry names exactly one key, with its pin. On AWS, use the key id or key ARN instead of an alias, or leave the alias alone. On Azure, change an unversioned id to the current versioned id before you create a new version: an unversioned entry follows the new version, which fails with a pin and signs as the new address without one.
+3. **Create the new key** as in the setup guide, add it under a new name, and pin it with the address `kms accounts` prints. On AWS, give it a new alias or use its key id. On Azure, use a new key name, or a new version under its versioned id. Run `kms accounts`: both keys should show `matches`.
+4. **Finish what is in flight** from the old key: let pending transactions confirm and complete Ignition deployments.
+5. **Fund the new address** on every chain it will use.
+6. **Transfer control**, signing each transfer with the old key:
+   - Two-step transfers, such as [`Ownable2Step`](https://docs.openzeppelin.com/contracts/5.x/api/access#Ownable2Step) and [`AccessControlDefaultAdminRules`](https://docs.openzeppelin.com/contracts/5.x/api/access#AccessControlDefaultAdminRules) with its delay, proxy admins and timelocks, finish only when the new key accepts. Keep the old key enabled until every transfer is accepted.
+   - Multisig seats, timelock roles, allowlists and service configs change through their own admins.
+   - Roles that cannot move, such as an address hard-coded or set as immutable in a contract, stay with the old address. Keep the old key for them.
+   - Update ENS records to the new address.
+7. **Clean up the old address** while its key can still sign:
+   - Revoke the token allowances it granted.
+   - Clear an EIP-7702 delegation: sign an authorization to the zero address with `kms sign-auth --self-broadcast`, and send it in a transaction from the old key to itself ([`kms sign-auth`](../reference/tasks.md#send-the-authorization)).
+   - Move the remaining funds and tokens to the new address, and sweep tokens that arrive later.
+8. **Switch the config**: point the networks' `kmsAccounts` and scripts at the new key. A contract deployed with `CREATE` gets an address from the sender and its nonce, so future deployments from the new key land at other addresses than they would have from the old one.
+9. **Retire the old key** as in [Retire a key](key-loss.md#retire-a-key): disable it, or the old version on Azure, and delete it only when its address holds nothing and no contract gives it a role.
 
-On AWS, give the new key its own alias or use its key id, rather than moving the old alias. A moved alias makes a pinned entry fail and an unpinned one switch addresses at once, while step 3 still needs the old key. Once the old entry is gone, you can move the alias to the new key and set the pin to the new address.
+Once nothing uses the old entry, you can point an AWS alias at the new key, and set that entry's pin to the new address.

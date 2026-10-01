@@ -19,7 +19,7 @@ gcloud kms keys create deployer \
   --protection-level hsm
 ```
 
-The key gets version `1`. The plugin always signs with the version you configure, never with whichever version is primary.
+The key gets version `1`. The plugin always signs with the version you configure; it never picks a version for you. An asymmetric key has no primary version: Cloud KMS gives `primary` only to `ENCRYPT_DECRYPT` keys ([`CryptoKey.primary`](https://docs.cloud.google.com/kms/docs/reference/rest/v1/projects.locations.keyRings.cryptoKeys#CryptoKey.FIELDS.primary)).
 
 Use `--protection-level hsm`. Creating this key at protection level `software` failed on 2026-10-01 with `ALGORITHM_NOT_SUPPORTED_FOR_PROTECTION_LEVEL`. An HSM key version costs more per month than a software one, and HSM operations are billed separately; see [Cloud KMS pricing](https://cloud.google.com/kms/pricing).
 
