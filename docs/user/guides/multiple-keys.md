@@ -2,13 +2,13 @@
 
 Audience: users who sign with more than one KMS key, on more than one network, or next to local or Ledger accounts. Assumes a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).
 
-Status: everything this guide describes is implemented. The `kms accounts` output below comes from a run on 2026-10-02 with a Google Cloud KMS key and an Azure Key Vault key ([#69](https://github.com/aelmanaa/hardhat-kms/issues/69)).
+Status: everything this guide describes is implemented. The `kms accounts` output below has the shape of a run on 2026-10-02 with a Google Cloud KMS key and an Azure Key Vault key, with the addresses replaced by test addresses ([#69](https://github.com/aelmanaa/hardhat-kms/issues/69)).
 
 This guide covers:
 
 - [Name each key once](#name-each-key-once) and use it on several networks.
 - [Mix providers](#mix-providers) in one project.
-- [Pick the sender](#pick-the-sender) when a network has several accounts.
+- [Choose the sender by address](#choose-the-sender-by-address) on every live network.
 - [Add local or Ledger accounts](#add-local-or-ledger-accounts) to a network with KMS keys.
 - [Add keys from the command line](#add-keys-from-the-command-line) with `--kms`.
 - [List each key once per network](#list-each-key-once-per-network).
@@ -48,7 +48,7 @@ export default defineConfig({
 
 `treasury` signs on both networks. The address comes from the key's public key alone, so one key has the same address on every EVM chain. Funds and contract roles on one chain do not carry over to another, but the address does.
 
-Pin each key's `address` once you know it, in `kms.keys`, and every network that names the key gets the pin. [Check the setup](#check-the-setup) prints the lines to paste. The [configuration reference](../reference/configuration.md) lists every field and key form.
+Pin each key's `address` once you know it, in `kms.keys`, and every network that names the key gets the pin. [Check the setup](#check-the-setup) prints the lines to paste, and [What a pin does](key-rotation.md#what-a-pin-does) explains what the pin protects against. The [configuration reference](../reference/configuration.md) lists every field and key form.
 
 ## Mix providers
 
@@ -56,13 +56,19 @@ Each provider's keys need its provider package in `plugins`: `hardhat-kms-aws`, 
 
 Each provider takes its credentials from its own SDK's default chain, so a project that mixes providers needs a sign-in for each one, such as `gcloud auth application-default login` and `az login` ([Credentials](../reference/configuration.md#credentials)).
 
-## Pick the sender
+## Choose the sender by address
 
-On a network with several accounts, `eth_accounts` lists the network's own accounts first, then the KMS addresses in `kmsAccounts` order, then the `--kms` keys. On `sepolia` above, whose node manages no accounts, the list is `treasury`, then `ops`. On an `edr-simulated` network, EDR's 20 default accounts come first.
+`eth_accounts` lists the network's own accounts first, then the KMS addresses in `kmsAccounts` order, then the `--kms` keys. On `sepolia` above, whose node manages no accounts, the list is `treasury`, then `ops`. On an `edr-simulated` network, EDR's 20 default accounts come first, unless the network sets `accounts`.
 
-A transaction without `from` goes from the network's `from` when the config sets one, otherwise from the first address of `eth_accounts` ([RPC methods](../reference/rpc-methods.md#rpc-behaviour)). On `sepolia` above, that is `treasury`.
+hardhat-viem, hardhat-ethers and Ignition send from the first address of that list unless you name another: viem's default wallet client and `deployContract`, ethers' `deployContract` and `getContractFactory`, and Ignition without `--default-sender` all take it. The network's `from` does not change their choice. It applies only to a raw `eth_sendTransaction` or `eth_signTransaction` request without `from` ([RPC methods](../reference/rpc-methods.md#rpc-behaviour)).
 
-To send from another key, choose it by address rather than by position, so that adding a key or an account does not change the sender. With hardhat-viem:
+On a live network, name the sender by its address every time, and pin each key's address. A default chosen by position moves when the network changes:
+
+- Adding a key to `kmsAccounts`, or `accounts` to the network, changes which address comes first.
+- The same key has a different position on different networks. `treasury` is index 0 on `sepolia`, and index 20 on an `edr-simulated` rehearsal network with EDR's default accounts.
+- With hardhat-ledger listed first in `plugins`, the first address on a node without accounts is the first Ledger address, not a KMS key.
+
+With hardhat-viem, get the wallet client for the address:
 
 ```ts
 // Loads the types of `connection.viem`. hardhat.config.ts already does this in a project.
@@ -71,15 +77,15 @@ import { network } from "hardhat";
 
 const { viem } = await network.create("sepolia");
 // The ops key's address, from `npx hardhat kms address ops`.
-const ops = await viem.getWalletClient("0x9626Fb8498C69d88F8C080835C3Cd328453D3004");
-await ops.sendTransaction({ to: "0x728743B36DE6236f6d03409563a7E2c39a00EE17", value: 1n });
+const ops = await viem.getWalletClient("0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB");
+await ops.sendTransaction({ to: "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826", value: 1n });
 ```
 
-With hardhat-ethers, `await ethers.getSigner("0x9626Fb8498C69d88F8C080835C3Cd328453D3004")` returns the signer for that address. `viem.getWalletClients()` and `ethers.getSigners()` return the accounts in `eth_accounts` order. For Ignition, pass the address as `--default-sender` ([Deploy with Hardhat Ignition](deploy-with-ignition.md)).
+Pass the same wallet client to `viem.deployContract` as `{ client: { wallet: ops } }`. With hardhat-ethers, `await ethers.getSigner("0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB")` returns the signer for the address; pass it to `deployContract` or `getContractFactory`. With Ignition, pass the address as `--default-sender`, or as `defaultSender` from a script ([Deploy with Hardhat Ignition](deploy-with-ignition.md)).
 
 ## Add local or Ledger accounts
 
-A network can have `accounts` and `kmsAccounts` together. Its local accounts then come first in `eth_accounts`, so the first local account is the default sender. Set the network's `from` to a KMS address to make that key the default:
+A network can have `accounts` and `kmsAccounts` together. Its local accounts then come first in `eth_accounts`, so the libraries' default sender is the first local account. Choose the KMS key by address, as above:
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
@@ -88,16 +94,21 @@ import hardhatKmsGcp from "hardhat-kms-gcp";
 export default defineConfig({
   plugins: [hardhatKmsGcp],
   kms: {
-    keys: { treasury: { provider: "gcp", keyVersionName: configVariable("TREASURY_KEY_VERSION") } },
+    keys: {
+      treasury: {
+        provider: "gcp",
+        keyVersionName: configVariable("TREASURY_KEY_VERSION"),
+        address: "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826",
+      },
+    },
   },
   networks: {
     sepolia: {
       type: "http",
       url: configVariable("SEPOLIA_RPC_URL"),
+      // The local account is first in eth_accounts: scripts must name the treasury address.
       accounts: [configVariable("TEST_PRIVATE_KEY")],
       kmsAccounts: ["treasury"],
-      // The treasury key's address: transactions without `from` go from it.
-      from: "0x728743B36DE6236f6d03409563a7E2c39a00EE17",
     },
   },
 });
@@ -105,11 +116,11 @@ export default defineConfig({
 
 The plugin signs only for KMS addresses. Requests from a local account go on to Hardhat, which signs them as usual.
 
-hardhat-kms also works next to `@nomicfoundation/hardhat-ledger`. List hardhat-ledger first in `plugins`, before the provider packages. In that order, `eth_accounts` lists the network's own accounts, then the Ledger addresses, then the KMS addresses, and a transaction without `from` gets its default sender. In the other order, hardhat-ledger rejects every transaction without `from` on a network with `ledgerAccounts` ([Other signing plugins](../reference/configuration.md#other-signing-plugins)).
+hardhat-kms also works next to `@nomicfoundation/hardhat-ledger`. List hardhat-ledger first in `plugins`, before the provider packages. In that order, `eth_accounts` lists the network's own accounts, then the Ledger addresses, then the KMS addresses. In the other order, hardhat-ledger rejects every raw transaction request without `from` on a network with `ledgerAccounts` ([Other signing plugins](../reference/configuration.md#other-signing-plugins)).
 
 ## Add keys from the command line
 
-`--kms` reads keys from Foundry's environment variables, without a config entry ([Migrate from Foundry](migrate-from-foundry.md#from-the-command-line-as-in-foundry)). These keys join the selected network only: the `--network` value, or `default` when there is none. They come after the network's own accounts and its `kmsAccounts`, so a `--kms` key is the default sender only on a network with no other accounts, or when the network's `from` is its address. Other networks do not get them.
+`--kms` reads keys from Foundry's environment variables, without a config entry ([Migrate from Foundry](migrate-from-foundry.md#from-the-command-line-as-in-foundry)). These keys join the selected network only: the `--network` value, or `default` when there is none. They come last in `eth_accounts`, after the network's own accounts and its `kmsAccounts`, so on a network with other accounts the libraries do not pick a `--kms` key by default. Name it by address. Other networks do not get these keys.
 
 ```sh
 AZURE_KEY_VAULT_KEY_ID=https://<vault>.vault.azure.net/keys/<name>/<version> \
@@ -122,11 +133,11 @@ Always pass `--network` with `--kms`. Without it, the keys join the `default` ne
 
 A network signs with each KMS key through one entry only. The plugin refuses a second entry for the same key, and its errors name the entries, never the key ids:
 
-| What the network lists                                | What happens                                                                                                                                                                                       |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The same name twice, as in `["ops", "ops"]`           | The config fails to load: `Key "ops" is listed twice`.                                                                                                                                             |
-| A named key and an inline copy of it                  | Using the network fails at its first request for the accounts: `<network>.kmsAccounts[1] and ops are the same account (0x…); list each key once`.                                                  |
-| A config key and a `--kms` key that holds the same id | Using the network fails: `AZURE_KEY_VAULT_KEY_ID is already networks.<network>.kmsAccounts[1] ("ops"); use one of them`. When `ops` has an `address` pin, the error is the same-account one above. |
+| What the network lists                                | What happens                                                                                                                                                                                                                                   |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The same name twice, as in `["ops", "ops"]`           | The config fails to load: `Key "ops" is listed twice`.                                                                                                                                                                                         |
+| A named key and an inline copy of it                  | The network's first request that needs the KMS accounts fails: `<entry> and <entry> are the same account (<address>); list each key once`, with the later entry named first.                                                                   |
+| A config key and a `--kms` key that holds the same id | The network's first request that needs the KMS accounts fails: `AZURE_KEY_VAULT_KEY_ID is already networks.<network>.kmsAccounts[<index>] ("ops"); use one of them`. When `ops` has an `address` pin, the error is the same-account one above. |
 
 Two entries for one key are the same account, so keep the one you want and remove the other. Listing a key on several networks is fine; that is what named keys are for.
 
@@ -140,13 +151,19 @@ npx hardhat --network baseSepolia kms accounts
 
 ```text
 NAME      PROVIDER  SOURCE    ADDRESS                                     PIN   KEY ID
-treasury  gcp       kms.keys  0x728743B36DE6236f6d03409563a7E2c39a00EE17  none  gcp:<TREASURY_KEY_VERSION>
+treasury  gcp       kms.keys  0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826  none  gcp:<TREASURY_KEY_VERSION>
 
 Address pins to add to each key's config:
-  kms.keys.treasury: address: "0x728743B36DE6236f6d03409563a7E2c39a00EE17",
+  kms.keys.treasury: address: "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826",
 ```
 
-Without `--network`, it lists every key in the project, each KMS key once. A key that is named in several places, here `ops` in `kms.keys` and the same key from `--kms azure`, gets one row, with its other names on an `also:` line:
+Two rows with the same address in a `--network` listing mean that connections to that network will be refused, as in [List each key once per network](#list-each-key-once-per-network). The task adds a note on standard error only when a `--kms` key repeats one of the network's entries:
+
+```text
+[hardhat-kms] AZURE_KEY_VAULT_KEY_ID names the same KMS key as ops; connections to sepolia refuse two entries for one key, so use one of them.
+```
+
+Without `--network`, the task lists every key in the project. Entries for the same KMS key with the same pin share one row, with the other names on an `also:` line. Here `ops` in `kms.keys` and the same key from `--kms azure` share a row:
 
 ```sh
 npx hardhat --kms azure kms accounts
@@ -154,19 +171,15 @@ npx hardhat --kms azure kms accounts
 
 ```text
 NAME      PROVIDER  SOURCE    ADDRESS                                     PIN   KEY ID
-treasury  gcp       kms.keys  0x728743B36DE6236f6d03409563a7E2c39a00EE17  none  gcp:<TREASURY_KEY_VERSION>
-ops       azure     kms.keys  0x9626Fb8498C69d88F8C080835C3Cd328453D3004  none  azure:<OPS_KEY_ID>
+treasury  gcp       kms.keys  0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826  none  gcp:<TREASURY_KEY_VERSION>
+ops       azure     kms.keys  0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB  none  azure:<OPS_KEY_ID>
   also: AZURE_KEY_VAULT_KEY_ID
 
 Address pins to add to each key's config:
-  kms.keys.treasury: address: "0x728743B36DE6236f6d03409563a7E2c39a00EE17",
-  kms.keys.ops: address: "0x9626Fb8498C69d88F8C080835C3Cd328453D3004",
+  kms.keys.treasury: address: "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826",
+  kms.keys.ops: address: "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB",
 ```
 
-With `--network sepolia --kms azure`, the same two entries are both listed, and a note on standard error says that a connection to `sepolia` refuses them:
+Entries with different pins, or keys of a third-party provider, are never merged and get a row each ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
-```text
-[hardhat-kms] AZURE_KEY_VAULT_KEY_ID names the same KMS key as ops; connections to sepolia refuse two entries for one key, so use one of them.
-```
-
-Run `kms accounts` for each network before you deploy, and again after you change a key. A key you cannot reach shows `FAILED`, and the command exits with code 1.
+Run `kms accounts` for each network before you deploy, and again after you change a key. A key you cannot reach shows `FAILED`, and the command exits with code 1. To replace a key with a new one, follow [Move to a new key](key-rotation.md#move-to-a-new-key).

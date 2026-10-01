@@ -160,7 +160,7 @@ export default defineConfig({
 });
 ```
 
-In this order, hardhat-kms gives a transaction without `from` its default sender, such as a KMS account set as the network's `from`, before hardhat-ledger checks it. In the other order, hardhat-ledger rejects every transaction without `from` on a network with `ledgerAccounts`, as it does when loaded alone. The order also sets where the KMS and Ledger accounts appear in `eth_accounts`; see [Other signing plugins](../../contributor/architecture.md#other-signing-plugins).
+In this order, hardhat-kms gives a raw `eth_sendTransaction` request without `from` its default sender ([RPC methods](rpc-methods.md#rpc-behaviour)) before hardhat-ledger checks it. In the other order, hardhat-ledger rejects every such request on a network with `ledgerAccounts`, as it does when loaded alone. hardhat-viem, hardhat-ethers and Ignition always set `from`, to the first address of `eth_accounts` unless you name another, so the order does not change their sender. The order also sets where the KMS and Ledger accounts appear in `eth_accounts`; see [Other signing plugins](../../contributor/architecture.md#other-signing-plugins).
 
 ## Credentials
 
