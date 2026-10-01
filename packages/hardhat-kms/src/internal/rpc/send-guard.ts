@@ -1,5 +1,7 @@
 // The send guard: the process-global send lock, the nonce high-water mark and the retry cache.
 // See "Nonces and the send lock" and "Retries after broadcast" in docs/contributor/transactions.md.
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { HardhatPluginError } from "hardhat/plugins";
 
 import { PLUGIN_ID } from "../constants.ts";
@@ -38,32 +40,145 @@ export class SendOutcomeUnknownError extends HardhatPluginError {
   }
 }
 
-/** The tail of each lock's queue, by lock key. Process-global: every runtime shares it. */
-const lockTails = new Map<string, Promise<void>>();
+/**
+ * How long a send waits in its account's queue with no progress before it fails. Progress is the
+ * lock passing to the next send. Not configurable in 1.0.
+ */
+export const SEND_LOCK_STALL_MS = 120_000;
+
+/** The most sends that may wait for one account's send lock. Not configurable in 1.0. */
+export const MAX_SEND_LOCK_WAITERS = 1024;
+
+/** A send waiting for its turn. */
+interface Waiter {
+  /** Gives the lock to this waiter. */
+  grant: () => void;
+  /** Starts this waiter's no-progress timer again. */
+  restart: () => void;
+}
+
+/** A held send lock and the sends waiting for it, in order. */
+interface SendLock {
+  readonly waiters: Waiter[];
+}
+
+/** One hold of a send lock, as the async context of its holder sees it. */
+interface Hold {
+  readonly key: string;
+  released: boolean;
+}
+
+/** The held send locks, by lock key. Process-global: every runtime shares it. */
+const locks = new Map<string, SendLock>();
+
+/**
+ * The locks the current async context holds. Work started inside a holder inherits its store,
+ * including work that outlives it, so a hold counts only until it is released.
+ */
+const holds = new AsyncLocalStorage<readonly Hold[]>();
+
+/**
+ * Names the account and chain of a lock key (`chainId:from`) for an error message.
+ *
+ * @param key - The lock key.
+ * @returns A description such as `0xabc… on chain 1`.
+ */
+function describeKey(key: string): string {
+  const colon = key.indexOf(":");
+  return colon === -1 ? key : `${key.slice(colon + 1)} on chain ${key.slice(0, colon)}`;
+}
+
+/**
+ * Waits for the turn of a send behind a held lock. Fails at once when {@link MAX_SEND_LOCK_WAITERS}
+ * sends already wait, and after {@link SEND_LOCK_STALL_MS} without the lock passing to a new holder.
+ *
+ * @param key - The lock key.
+ * @param lock - The held lock.
+ * @param timers - Timer functions for the no-progress limit.
+ */
+async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise<void> {
+  if (lock.waiters.length >= MAX_SEND_LOCK_WAITERS) {
+    throw new HardhatPluginError(
+      PLUGIN_ID,
+      `Too many sends from ${describeKey(key)} are waiting: the limit is ${MAX_SEND_LOCK_WAITERS}. This send was not signed or sent.`,
+    );
+  }
+  await new Promise<void>((resolve, reject) => {
+    let cancel: (() => void) | undefined;
+    const waiter: Waiter = {
+      grant: () => {
+        cancel?.();
+        resolve();
+      },
+      restart: () => {
+        cancel?.();
+        cancel = timers.setTimeout(() => {
+          const index = lock.waiters.indexOf(waiter);
+          if (index === -1) {
+            return;
+          }
+          lock.waiters.splice(index, 1);
+          reject(
+            new HardhatPluginError(
+              PLUGIN_ID,
+              `A send from ${describeKey(key)} waited ${SEND_LOCK_STALL_MS / 1000} s for the account's earlier sends, and none finished. This send was not signed or sent.`,
+            ),
+          );
+        }, SEND_LOCK_STALL_MS);
+      },
+    };
+    lock.waiters.push(waiter);
+    waiter.restart();
+  });
+}
 
 /**
  * Runs `run` while holding the process-global send lock for `key` (`chainId:from`). Callers with
  * the same key run one after the other, in the order they asked; other keys do not wait.
  *
+ * A send for a key that the current async context holds, such as one made by a hook during the
+ * holder's fill, fails at once: it would wait for itself. A waiting send fails after
+ * {@link SEND_LOCK_STALL_MS} with no progress, and no more than {@link MAX_SEND_LOCK_WAITERS} sends
+ * wait per key. None of these failures signs or sends anything. The holder's own work is not cut
+ * short.
+ *
  * @param key - The lock key.
  * @param run - The work to do under the lock.
+ * @param timers - Timer functions for the no-progress limit.
  * @returns What `run` returns.
  */
-export async function withSendLock<T>(key: string, run: () => Promise<T>): Promise<T> {
-  const previous = lockTails.get(key) ?? Promise.resolve();
-  const gate: { open?: () => void } = {};
-  const done = new Promise<void>((resolve) => {
-    gate.open = resolve;
-  });
-  const tail = previous.then(async () => await done);
-  lockTails.set(key, tail);
+export async function withSendLock<T>(
+  key: string,
+  run: () => Promise<T>,
+  timers: Timers = systemTimers,
+): Promise<T> {
+  const held = holds.getStore() ?? [];
+  if (held.some((hold) => hold.key === key && !hold.released)) {
+    throw new HardhatPluginError(
+      PLUGIN_ID,
+      `A send from ${describeKey(key)} was made from inside an earlier send from the same account on that chain, for example by a hook during its fill or broadcast. It would wait for itself, so it was not signed or sent.`,
+    );
+  }
+  let lock = locks.get(key);
+  if (lock === undefined) {
+    lock = { waiters: [] };
+    locks.set(key, lock);
+  } else {
+    await waitForTurn(key, lock, timers);
+  }
+  const hold: Hold = { key, released: false };
   try {
-    await previous;
-    return await run();
+    return await holds.run([...held, hold], run);
   } finally {
-    gate.open?.();
-    if (lockTails.get(key) === tail) {
-      lockTails.delete(key);
+    hold.released = true;
+    const next = lock.waiters.shift();
+    if (next === undefined) {
+      locks.delete(key);
+    } else {
+      next.grant();
+      for (const waiter of lock.waiters) {
+        waiter.restart();
+      }
     }
   }
 }
@@ -75,7 +190,7 @@ export async function withSendLock<T>(key: string, run: () => Promise<T>): Promi
  * @returns The number of lock keys in use.
  */
 export function sendLocksInUse(): number {
-  return lockTails.size;
+  return locks.size;
 }
 
 /**
