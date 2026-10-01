@@ -47,7 +47,9 @@ Hardhat fills `from` only for `eth_sendTransaction`; the plugin also does it for
 
 ### Copies
 
-The dispatcher copies the request's params with `structuredClone` before its first `await`, and the filler copies them again. A caller that changes the transaction object, including its access or authorization list, while the request runs cannot change what is signed. Params that are not plain data are refused with an error. `signTransaction` also checks that the filled transaction's `from` is the KMS account it signs for.
+Before its first `await`, the dispatcher reads `from` from the caller's transaction and copies the transaction and the other params with `structuredClone`; the filler copies them again. A caller that changes the transaction object, including its access or authorization list, while the request runs cannot change what is signed. `signTransaction` also checks that the filled transaction's `from` is the KMS account it signs for.
+
+When the copy fails, the dispatcher resolves the sender first (the `from` it read, or the default sender). A KMS sender gets the `the transaction must be plain data` error and nothing is sent. Any other sender's request passes on as it came, following rule 1; without `from`, the default sender is set on a shallow copy of the caller's transaction, so Hardhat's sender handlers still choose nothing. A first param that is not an object passes on without any copy.
 
 ### EIP-7702 authorization lint
 

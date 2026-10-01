@@ -20,6 +20,7 @@ import {
   rpcTransactionRequest,
   validateParams,
 } from "@nomicfoundation/hardhat-zod-utils/rpc";
+import type { HardhatPluginError } from "hardhat/plugins";
 import type { NetworkConnection } from "hardhat/types/network";
 import { addr, Transaction } from "micro-eth-signer";
 
@@ -347,14 +348,24 @@ export class HardhatTransactionFiller implements TransactionFiller {
  * @param method - The RPC method, for the error message.
  * @returns The copy.
  */
-export function copyParams(params: readonly unknown[], method: string): unknown[] {
+function copyParams(params: readonly unknown[], method: string): unknown[] {
   try {
     return structuredClone([...params]);
   } catch {
-    throw kmsError("the transaction must be plain data (JSON values, bigints and byte arrays)", {
-      operation: method,
-    });
+    throw notPlainData(method);
   }
+}
+
+/**
+ * The error for a KMS account's transaction that `structuredClone` cannot copy.
+ *
+ * @param method - The RPC method, for the error message.
+ * @returns The error to throw.
+ */
+export function notPlainData(method: string): HardhatPluginError {
+  return kmsError("the transaction must be plain data (JSON values, bigints and byte arrays)", {
+    operation: method,
+  });
 }
 
 /**

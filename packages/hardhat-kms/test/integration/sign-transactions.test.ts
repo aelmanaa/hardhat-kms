@@ -295,11 +295,72 @@ describe("signing transactions for KMS accounts", () => {
     const signatures = created.zero?.calls.signDigest ?? 0;
     const connection = await hre.network.create("kms");
     const methods = node.methods.length;
+    // The other params are not copied either: a function among them is not refused.
     await assert.rejects(
-      connection.provider.request({ method: "eth_signTransaction", params: [FROM] }),
+      connection.provider.request({ method: "eth_signTransaction", params: [FROM, () => 1] }),
+      (error: unknown) => !String(error).includes("plain data"),
     );
     await connection.close();
     assert.ok(node.methods.slice(methods).includes("eth_signTransaction"));
+    assert.equal(created.zero?.calls.signDigest ?? 0, signatures, "no KMS signature");
+  });
+
+  it("passes on a transaction that is not plain data when its sender is not a KMS account", async () => {
+    const connection = await hre.network.create("kms");
+    const start = node.requests.length;
+    // The node cannot sign for STRANGER, so it refuses; the request got there.
+    await assert.rejects(
+      connection.provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: STRANGER, to: TO, value: "0x1", extra: () => 1 }],
+      }),
+      (error: unknown) => !String(error).includes("plain data"),
+    );
+    await connection.close();
+    const sends = node.requests
+      .slice(start)
+      .filter(({ method }) => method === "eth_sendTransaction")
+      .map(({ params }): unknown => (Array.isArray(params) ? params.at(0) : undefined));
+    assert.equal(sends.length, 1);
+    const [send] = sends;
+    assert.ok(typeof send === "object" && send !== null);
+    assert.equal(Reflect.get(send, "from"), STRANGER);
+    assert.equal(Reflect.get(send, "to"), TO);
+  });
+
+  it("passes on a transaction whose `from` is not an address", async () => {
+    const signatures = created.zero?.calls.signDigest ?? 0;
+    const connection = await hre.network.create("kms");
+    await assert.rejects(
+      connection.provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: "not an address", to: TO }],
+      }),
+      (error: unknown) => !(error instanceof HardhatPluginError),
+    );
+    await connection.close();
+    assert.equal(created.zero?.calls.signDigest ?? 0, signatures, "no KMS signature");
+  });
+
+  it("refuses a KMS account's transaction that is not plain data, and sends nothing", async () => {
+    const signatures = created.zero?.calls.signDigest ?? 0;
+    const connection = await hre.network.create("kms");
+    const methods = node.methods.length;
+    for (const method of ["eth_sendTransaction", "eth_signTransaction"]) {
+      await assert.rejects(
+        connection.provider.request({
+          method,
+          params: [{ from: FROM, to: TO, value: "0x1", extra: () => 1 }],
+        }),
+        (error: unknown) => {
+          assert.ok(error instanceof HardhatPluginError, String(error));
+          assert.match(error.message, /the transaction must be plain data/);
+          return true;
+        },
+      );
+    }
+    await connection.close();
+    assert.deepEqual(node.methods.slice(methods), [], "nothing reached the node");
     assert.equal(created.zero?.calls.signDigest ?? 0, signatures, "no KMS signature");
   });
 
@@ -356,6 +417,18 @@ describe("signing transactions for KMS accounts", () => {
       const [send] = sends;
       assert.ok(typeof send === "object" && send !== null);
       assert.equal(String(Reflect.get(send, "from")).toLowerCase(), STRANGER.toLowerCase());
+    });
+
+    it("refuses a transaction that is not plain data when the default sender is a KMS account", async () => {
+      const connection = await hre.network.create("kmsFrom");
+      await assert.rejects(
+        connection.provider.request({
+          method: "eth_sendTransaction",
+          params: [{ to: TO, extra: () => 1 }],
+        }),
+        /the transaction must be plain data/,
+      );
+      await connection.close();
     });
 
     it("lets Hardhat's local account sign when it comes first", async () => {

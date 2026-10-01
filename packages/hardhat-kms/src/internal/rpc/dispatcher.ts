@@ -17,7 +17,7 @@ import { parseAwsKeyId } from "../providers/aws/key-id.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { type ConnectionChain, parseChainId } from "./chain-id.ts";
-import { copyParams, type TransactionFiller } from "./transaction-filler.ts";
+import { notPlainData, type TransactionFiller } from "./transaction-filler.ts";
 import { signTransaction } from "./transactions.ts";
 
 const log = kmsDebug("rpc");
@@ -116,6 +116,16 @@ export class ConnectionAccounts {
   public async addresses(): Promise<string[]> {
     const byAddress = await this.#resolve();
     return [...byAddress.keys()].map((address) => toChecksumAddress(address));
+  }
+
+  /**
+   * Tells whether an address is one of the KMS accounts.
+   *
+   * @param address - A lowercase address.
+   * @returns Whether it is.
+   */
+  public async isKmsAccount(address: string): Promise<boolean> {
+    return (await this.#resolve()).has(address);
   }
 
   /**
@@ -304,10 +314,13 @@ type TransactionOutcome = { raw: string } | { params: unknown[] | undefined };
  * Fills and signs a transaction whose sender is a KMS account.
  *
  * The transaction is copied before the first `await`, so a caller that changes its object
- * meanwhile cannot change what is signed. A transaction without `from` gets the sender Hardhat
- * would give it, and goes on with that sender set even when it is not a KMS account: Hardhat's
- * automatic sender caches its first answer per connection, and may otherwise pick a KMS address
- * the plugin did not see, so the transaction would reach the node unsigned.
+ * meanwhile cannot change what is signed. A transaction that cannot be copied is refused only
+ * when its sender is a KMS account; any other request passes on as it came (rule 1).
+ *
+ * A transaction without `from` gets the sender Hardhat would give it, and goes on with that sender
+ * set even when it is not a KMS account: Hardhat's automatic sender caches its first answer per
+ * connection, and may otherwise pick a KMS address the plugin did not see, so the transaction
+ * would reach the node unsigned. The sender is set on a shallow copy of the caller's transaction.
  *
  * @returns The signed raw transaction, or the params to pass on.
  */
@@ -317,33 +330,47 @@ async function signTransactionFor(
   params: unknown[],
   transactions: ConnectionTransactions,
 ): Promise<TransactionOutcome> {
-  const [transaction, ...rest] = copyParams(params, method);
-  if (!isObject(transaction)) {
+  const [original, ...originalRest] = params;
+  if (!isObject(original)) {
     return { params: undefined };
   }
+  const requestedFrom: unknown = original.from;
+  let copy: { transaction: Record<string, unknown>; rest: unknown[] } | undefined;
+  try {
+    copy = structuredClone({ transaction: original, rest: originalRest });
+  } catch {
+    copy = undefined;
+  }
+  let from = requestedFrom;
   let forward: unknown[] | undefined;
-  let from: unknown = transaction.from;
   if (from === undefined) {
     from = await transactions.defaultSender();
     if (from === undefined) {
       return { params: undefined };
     }
-    forward = [{ ...transaction, from }, ...rest];
+    forward = [{ ...original, from }, ...originalRest];
   }
   const address = addressParam(from);
-  const signed =
-    address === undefined
-      ? undefined
-      : await accounts.withSigner(
-          address,
-          async (signer) =>
-            await signTransaction(signer, {
-              filler: transactions.filler(),
-              method,
-              params: [{ ...transaction, from }, ...rest],
-              from: address,
-            }),
-        );
+  if (address === undefined) {
+    return { params: forward };
+  }
+  if (copy === undefined) {
+    if (await accounts.isKmsAccount(address)) {
+      throw notPlainData(method);
+    }
+    return { params: forward };
+  }
+  const { transaction, rest } = copy;
+  const signed = await accounts.withSigner(
+    address,
+    async (signer) =>
+      await signTransaction(signer, {
+        filler: transactions.filler(),
+        method,
+        params: [{ ...transaction, from }, ...rest],
+        from: address,
+      }),
+  );
   return signed === undefined ? { params: forward } : { raw: signed.result };
 }
 
