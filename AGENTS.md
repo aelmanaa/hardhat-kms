@@ -27,7 +27,7 @@ Commands (Node.js 24, see `.nvmrc`):
 
 ```sh
 pnpm install              # installs dependencies and git hooks
-pnpm run check            # format check, type-aware lint, typecheck
+pnpm run check            # format, type-aware lint, typecheck, no type escapes
 pnpm run test:unit        # fast unit tests
 pnpm test                 # unit and integration tests
 pnpm run test:localstack  # AWS adapter against LocalStack (needs Docker)
@@ -79,3 +79,4 @@ Rules for every change:
 - Do not edit `packages/hardhat-kms/src/internal/vendor/`. It is micro-eth-signer 0.19.0 code with only import paths changed; see [decision 0001](docs/contributor/decisions/0001-vendor-eip712-encoder.md).
 - Before changing code that decides what gets signed (`packages/hardhat-kms/src/internal/crypto/`, `packages/hardhat-kms/src/internal/signer/`), read [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md).
 - Never print or commit secrets, key ids from real accounts, or API-keyed RPC URLs, including in tests, logs and error messages.
+- Do not silence the type checker or the linter in shipped code: no `any`, no `@ts-` directives, no casts to get past a type. Use a type guard, an assertion function with real checks, narrowing on a discriminant, or a parse function that returns the checked type. `pnpm run check` runs `scripts/check-type-escapes.ts`, which fails on any escape, type predicate or assertion function not listed with its count and reason in `scripts/type-escapes.json`.

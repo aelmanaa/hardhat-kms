@@ -1,0 +1,65 @@
+{
+  "$comment": "Every lint escape in shipped code (packages/*/src, except vendored code). scripts/check-type-escapes.ts fails on any escape not listed here, and on any entry that no longer matches. Add one only when no typed alternative exists, with the reason.",
+  "allowed": [
+    {
+      "file": "packages/hardhat-kms/src/internal/config/resolve.ts",
+      "rule": "typescript/no-unsafe-type-assertion",
+      "reason": "KmsKeyConfig is an open union that third-party providers extend by augmentation, which TypeScript cannot see from the core.",
+      "count": 1
+    },
+    {
+      "file": "packages/hardhat-kms/src/internal/config/resolve.ts",
+      "rule": "as-unknown-as",
+      "count": 1,
+      "reason": "The same open-union cast as above: a single `as` is rejected (TS2352) because no member of the closed union overlaps a third-party key."
+    },
+    {
+      "file": "packages/hardhat-kms/src/internal/crypto/digests.ts",
+      "rule": "typescript/no-unsafe-type-assertion",
+      "reason": "For a schema known only at run time, the encoder's type says every field is a nested struct, so no real payload fits it; the encoder validates the payload itself, and the result also feeds micro-eth-signer's verifyTyped.",
+      "count": 1
+    },
+    {
+      "file": "packages/hardhat-kms/src/internal/debug.ts",
+      "rule": "eslint/no-control-regex",
+      "reason": "The debug output escapes control characters, so the pattern has to match them.",
+      "count": 1
+    },
+    {
+      "file": "packages/hardhat-kms/src/internal/hook-handlers/network.ts",
+      "rule": "eslint/no-console",
+      "reason": "The warning about KMS keys on the default network is printed for the user, as Hardhat plugins print warnings.",
+      "count": 1
+    },
+    {
+      "file": "packages/hardhat-kms/src/internal/hook-handlers/hre.ts",
+      "rule": "node/no-process-env",
+      "reason": "--kms reads Foundry's environment variables directly, as decision 0008 records.",
+      "count": 1
+    },
+    {
+      "file": "packages/hardhat-kms/src/internal/config/identifiers.ts",
+      "rule": "type-predicate",
+      "count": 2,
+      "reason": "isConfigurationVariable checks Hardhat's `_type` marker; hasEveryPart checks that every part has a string value, so mapParts needs no cast."
+    },
+    {
+      "file": "packages/hardhat-kms/src/internal/config/schema.ts",
+      "rule": "type-predicate",
+      "count": 1,
+      "reason": "isObject checks for a non-null object, for zod's conditional unions."
+    },
+    {
+      "file": "packages/hardhat-kms/src/internal/crypto/digests.ts",
+      "rule": "type-predicate",
+      "count": 2,
+      "reason": "isRecord and isField check the shape parseTypedData relies on, field by field."
+    },
+    {
+      "file": "packages/hardhat-kms/src/internal/providers/create-adapter.ts",
+      "rule": "type-predicate",
+      "count": 1,
+      "reason": "assertAdapter runs the adapter contract checks (describe(), signing and identity methods) before the adapter is used."
+    }
+  ]
+}

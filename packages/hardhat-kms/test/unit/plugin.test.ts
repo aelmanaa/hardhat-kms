@@ -16,7 +16,9 @@ describe("plugin definition", () => {
       readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
     );
     assert.ok(typeof manifest === "object" && manifest !== null);
-    const dependencies = Object.keys(Reflect.get(manifest, "dependencies") ?? {});
+    const declared: unknown = Reflect.get(manifest, "dependencies");
+    const dependencies =
+      typeof declared === "object" && declared !== null ? Object.keys(declared) : [];
     const cloud = dependencies.filter((name) => /^@(aws-sdk|google-cloud|azure)\//.test(name));
     assert.deepEqual(cloud, []);
   });

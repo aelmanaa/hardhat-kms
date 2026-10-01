@@ -68,8 +68,10 @@ export function resolveKey(key: KmsKeyUserConfig, context: KeyResolveContext): K
   if (builtin !== undefined) {
     return builtin.resolve(key, context);
   }
-  // Third-party providers augment KmsProviderConfigs with their resolved type.
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- see above
+  // KmsKeyConfig is an open union: third-party providers add their member by augmenting
+  // KmsProviderConfigs, which TypeScript cannot see from here. Adding ExternalKmsKeyConfig to the
+  // union instead would stop users from narrowing on `provider`.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- open union, allowed in scripts/type-escapes.json
   return resolveExternalKey(key, context) as unknown as KmsKeyConfig;
 }
 

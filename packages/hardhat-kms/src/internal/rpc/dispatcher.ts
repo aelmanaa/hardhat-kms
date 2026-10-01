@@ -237,7 +237,7 @@ async function listAccounts(
     // including Hardhat's simulated network, only implement eth_accounts.
     const downstream = await next({ ...request, method: "eth_accounts" });
     if ("result" in downstream && Array.isArray(downstream.result)) {
-      own = downstream.result.filter((item): item is string => typeof item === "string");
+      own = downstream.result.filter((item) => typeof item === "string");
     }
   } catch (error) {
     // Only the class name: a node's error text can include its URL, and with it an API key.

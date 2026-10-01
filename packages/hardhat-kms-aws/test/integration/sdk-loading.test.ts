@@ -24,7 +24,13 @@ function run(env: Record<string, string>): { urls: string[]; stdout: string } {
   const result = spawnSync(
     process.execPath,
     ["--import", recorder, path.join(here, "../fixtures/load-config.ts")],
-    { encoding: "utf8", env: { ...process.env, ...env, IMPORT_LOG: log }, timeout: 60_000 },
+    {
+      encoding: "utf8",
+      env: { ...process.env, ...env, IMPORT_LOG: log },
+      timeout: 60_000,
+      // A stuck child must not outlive the test: SIGTERM can be ignored while hooks are loading.
+      killSignal: "SIGKILL",
+    },
   );
   assert.equal(result.status, 0, result.stderr);
   return { urls: readFileSync(log, "utf8").split("\n").filter(Boolean), stdout: result.stdout };

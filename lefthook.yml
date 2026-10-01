@@ -14,6 +14,9 @@ pre-commit:
     - name: typecheck
       glob: "*.{ts,mts}"
       run: pnpm exec tsc -b
+    # Every commit: it takes a fraction of a second, and a glob would miss files directly in src/.
+    - name: type-escapes
+      run: node scripts/check-type-escapes.ts
 
 commit-msg:
   jobs:

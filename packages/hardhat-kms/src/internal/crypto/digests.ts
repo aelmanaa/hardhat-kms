@@ -132,6 +132,7 @@ function hexToBytes(hex: string): Uint8Array {
 // The encoder's types are derived from a statically known schema, which RPC requests never have.
 // It validates the payload against its own `types` at runtime and throws on any mismatch.
 function toEncoderInput(typedData: TypedData): EncoderInput {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- validated by the encoder
+  // For a schema known only at run time, the encoder's type says every field is a nested struct.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- schema-derived types, allowed in scripts/type-escapes.json
   return typedData as EncoderInput;
 }

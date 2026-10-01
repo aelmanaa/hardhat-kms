@@ -8,7 +8,7 @@ The repository is a pnpm workspace ([decision 0010](docs/contributor/decisions/0
 
 ```sh
 pnpm install              # also installs the git hooks (lefthook)
-pnpm run check            # format check, lint (type-aware) and typecheck
+pnpm run check            # format, type-aware lint, typecheck, no type escapes
 pnpm test                 # unit + integration tests
 pnpm run test:localstack  # AWS adapter against LocalStack (needs Docker)
 pnpm run test:sdk-floors  # provider packages against their lowest SDK versions
