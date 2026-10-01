@@ -361,6 +361,7 @@ function checkFeeFields(request: RpcTransactionRequest, method: string): void {
   const fail = (message: string): never => {
     throw kmsError(message, { operation: method });
   };
+  // Unreachable through fill, which always sets a fee; kept as Hardhat's defensive check.
   if (!hasGasPrice && !hasEip1559Fields) {
     fail("the transaction has no gasPrice, maxFeePerGas or maxPriorityFeePerGas");
   }

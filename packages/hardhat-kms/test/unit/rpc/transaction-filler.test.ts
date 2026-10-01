@@ -192,6 +192,21 @@ describe("HardhatTransactionFiller fees", () => {
     assert.equal(raised.filled.maxPriorityFeePerGas, 2n);
   });
 
+  it("keeps a maxFeePerGas equal to the priority fee", async () => {
+    const { filled } = await fill(
+      {
+        ...EIP1559_NODE,
+        eth_feeHistory: () => {
+          throw new Error("method not found");
+        },
+        eth_gasPrice: () => "0x2",
+      },
+      { maxFeePerGas: "0x2" },
+    );
+    assert.equal(filled.maxFeePerGas, 2n);
+    assert.equal(filled.maxPriorityFeePerGas, 2n);
+  });
+
   it("replaces a fee that is not a string, as Hardhat does", async () => {
     const { filled } = await fill(EIP1559_NODE, { maxFeePerGas: 5n });
     assert.equal(filled.maxFeePerGas, 81n);
@@ -343,6 +358,34 @@ describe("HardhatTransactionFiller gas", () => {
       ),
       "the latest block has no gasLimit",
     );
+  });
+
+  it("keeps a multiplied estimate equal to the cap", async () => {
+    // floor(100 * 0.95) = 95, and floor(95 * 1.001) = 95: not above the cap, so kept.
+    const { filled } = await fill(
+      {
+        ...EIP1559_NODE,
+        eth_getBlockByNumber: () => ({ baseFeePerGas: "0x1", gasLimit: "0x64" }),
+        eth_estimateGas: () => "0x5f",
+      },
+      {},
+      { gasMultiplier: 1.001 },
+    );
+    assert.equal(filled.gas, 0x5fn);
+  });
+
+  it("rounds the capped block gas limit down", async () => {
+    // 30_000_001 * 0.95 = 28_500_000.95, floored to 28_500_000; the gas is one below.
+    const { filled } = await fill(
+      {
+        ...EIP1559_NODE,
+        eth_getBlockByNumber: () => ({ baseFeePerGas: "0x1", gasLimit: "0x1c9c381" }),
+        eth_estimateGas: () => "0x1c9c380",
+      },
+      {},
+      { gasMultiplier: 2 },
+    );
+    assert.equal(filled.gas, 28_499_999n);
   });
 });
 
@@ -519,14 +562,14 @@ describe("buildUnsignedTransaction", () => {
       filledTx({ to: null, data: hex("0x6000"), gasPrice: 1n }),
     );
     assert.equal(rawOf(creation).to, "0x");
-    assert.throws(
-      () => {
-        const { to: _to, ...withoutTo } = filledTx({ gasPrice: 1n });
-        return buildUnsignedTransaction(withoutTo);
-      },
-      (error: unknown) =>
-        error instanceof HardhatPluginError && error.message.includes("contract creation"),
-    );
+    const { to: _to, ...withoutTo } = filledTx({ gasPrice: 1n });
+    for (const tx of [withoutTo, filledTx({ to: null, gasPrice: 1n })]) {
+      assert.throws(
+        () => buildUnsignedTransaction(tx),
+        (error: unknown) =>
+          error instanceof HardhatPluginError && error.message.includes("contract creation"),
+      );
+    }
   });
 
   it("refuses EIP-1559 and EIP-7702 transactions without both fee fields", () => {
