@@ -47,7 +47,7 @@ export default defineConfig({
 });
 ```
 
-A network's `kmsAccounts` lists key names or inline key objects. The full set of plugin config fields:
+A network's `kmsAccounts` lists key names or inline key objects. [Use several keys across networks](../guides/multiple-keys.md) shows how to combine keys, providers and networks, and how to pick the sender. The full set of plugin config fields:
 
 | Field                          | Meaning                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
