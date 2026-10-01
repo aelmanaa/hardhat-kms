@@ -11,7 +11,13 @@ import { Transaction } from "micro-eth-signer";
 
 import hardhatKms from "../../../src/index.ts";
 import { createNetworkHandlers } from "../../../src/internal/hook-handlers/network.ts";
-import { RETRY_TTL_MS, sendLocksInUse } from "../../../src/internal/rpc/send-guard.ts";
+import { isAlreadyKnown } from "../../../src/internal/rpc/dispatcher.ts";
+import {
+  MAX_RETRY_ENTRIES,
+  RETRY_TTL_MS,
+  SendOutcomeUnknownError,
+  sendLocksInUse,
+} from "../../../src/internal/rpc/send-guard.ts";
 import type { KmsKeyUserConfig } from "../../../src/types.ts";
 import { fakeAdapter } from "../../helpers/fake-adapter.ts";
 import { fakeTimers } from "../../helpers/fake-timers.ts";
@@ -108,6 +114,8 @@ async function setUp(type: "http" | "edr-simulated" = "http") {
     raw: [] as string[],
     onRaw: undefined as RawHandler | undefined,
     methods: [] as string[],
+    /** The node's answer to eth_getTransactionByHash; it throws when this throws. */
+    lookUp: (_hash: unknown): unknown => null,
   };
   const answer = async (request: JsonRpcRequest): Promise<JsonRpcResponse> => {
     node.methods.push(request.method);
@@ -117,6 +125,8 @@ async function setUp(type: "http" | "edr-simulated" = "http") {
         return ok("0x7a69");
       case "eth_getTransactionCount":
         return ok(`0x${node.pending.toString(16)}`);
+      case "eth_getTransactionByHash":
+        return ok(node.lookUp(Array.isArray(request.params) ? request.params[0] : undefined));
       case "eth_sendRawTransaction": {
         const [raw]: unknown[] = Array.isArray(request.params) ? request.params : [];
         assert.ok(typeof raw === "string");
@@ -186,6 +196,31 @@ function resultOf(response: JsonRpcResponse): unknown {
 function errorOf(response: JsonRpcResponse) {
   assert.ok("error" in response, JSON.stringify(response));
   return response.error;
+}
+
+/** Waits for a send whose outcome is unknown, and returns its error. */
+async function unknownOutcome(sending: Promise<unknown>): Promise<SendOutcomeUnknownError> {
+  const outcome = await sending.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  assert.ok(outcome instanceof SendOutcomeUnknownError, String(outcome));
+  return outcome;
+}
+
+/** Makes the next broadcast get no answer after the node got the bytes, like a timeout. */
+function failOnce(node: { onRaw: RawHandler | undefined }): void {
+  node.onRaw = async () => {
+    node.onRaw = undefined;
+    await Promise.resolve();
+    throw new Error("socket hang up");
+  };
+}
+
+/** Makes every broadcast get this error answer from the node. */
+function refuse(node: { onRaw: RawHandler | undefined }, message: string, code = -32000): void {
+  node.onRaw = async () =>
+    await Promise.resolve({ jsonrpc: "2.0" as const, id: 1, error: { code, message } });
 }
 
 describe("the send lock", () => {
@@ -309,7 +344,7 @@ describe("the nonce high-water mark", () => {
     const { node, state, open, send } = await setUp();
     const connection = await open();
     failOnce(node);
-    errorOf(await send(connection, { from: COW, to: TO, nonce: "0x3", gasPrice: "0x1" }));
+    await unknownOutcome(send(connection, { from: COW, to: TO, nonce: "0x3", gasPrice: "0x1" }));
     resultOf(await send(connection, { from: COW, to: TO, nonce: "0x3", gasPrice: "0x2" }));
     assert.equal(state.signatures, 2, "other fees are another request: no retry entry");
     assert.deepEqual(node.raw.map(nonceOf), [3n, 3n]);
@@ -349,61 +384,201 @@ describe("the nonce high-water mark", () => {
 });
 
 describe("failures after the broadcast", () => {
-  it("answer -32000 with the hash, keep the mark, and quote the node's answer", async () => {
-    const { node, open, send } = await setUp();
+  it("pass a node's error answer through unchanged, with no retry entry and the mark kept", async () => {
+    const { node, state, open, send } = await setUp();
     const connection = await open();
+    refuse(node, "insufficient funds for gas * price + value", -32003);
+    const first = errorOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(first, {
+      code: -32003,
+      message: "insufficient funds for gas * price + value",
+    });
+    // The same request again: no retry entry, so it is filled and signed again.
+    errorOf(await send(connection, { from: COW, to: TO }));
+    assert.equal(state.signatures, 2);
+    node.onRaw = undefined;
+    await send(connection, { from: COW, to: TO, value: "0x1" });
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 0n], "a refused nonce is not skipped");
+  });
+
+  it("rethrow a thrown node error unchanged, and count a mined transaction's nonce", async () => {
+    const { node, state, open, send } = await setUp();
+    const connection = await open();
+    // Like Hardhat's SolidityError for a transaction that was mined and reverted.
+    const reverted = Object.assign(new Error("reverted with custom error"), {
+      code: 3,
+      data: "0xdeadbeef",
+      transactionHash: "0x1234",
+    });
+    node.onRaw = async () => {
+      await Promise.resolve();
+      throw reverted;
+    };
+    await assert.rejects(send(connection, { from: COW, to: TO }), (error) => error === reverted);
+    // A node error with the hash only in its data, as Hardhat's nodes send it over JSON-RPC.
     node.onRaw = async () =>
       await Promise.resolve({
         jsonrpc: "2.0" as const,
         id: 1,
-        error: { code: -32003, message: "insufficient funds for gas * price + value" },
+        error: { code: 3, message: "reverted", data: { data: "0x", transactionHash: "0x56" } },
       });
-    const error = errorOf(await send(connection, { from: COW, to: TO }));
-    const hash = hashOf(node.raw[0] ?? "");
-    assert.equal(error.code, -32000);
-    assert.deepEqual(error.data, { hash });
-    assert.ok(error.message.includes(hash), error.message);
-    assert.match(error.message, /the node answered -32003: insufficient funds/);
+    errorOf(await send(connection, { from: COW, to: TO }));
     node.onRaw = undefined;
-    await send(connection, { from: COW, to: TO, value: "0x1" });
-    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n], "a refused nonce is not skipped");
+    await send(connection, { from: COW, to: TO });
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 2n], "mined nonces count as used");
+    assert.equal(state.signatures, 3);
   });
 
-  it("name only the class of a thrown error, whose text can hold the node's URL", async () => {
+  it("throw -32000 with the hash when no answer came back, naming only the error's class", async () => {
+    const { node, open, send } = await setUp();
+    const connection = await open();
+    for (const thrown of [
+      new TypeError("fetch failed: https://rpc.example/v2/SECRET-API-KEY"),
+      // Hardhat's UnknownError, which wraps a failed HTTP request, has code -1.
+      Object.assign(new Error("SECRET-API-KEY"), { name: "UnknownError", code: -1 }),
+    ]) {
+      node.onRaw = async () => {
+        await Promise.resolve();
+        throw thrown;
+      };
+      const error = await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
+      const hash = hashOf(node.raw.at(-1) ?? "");
+      assert.equal(error.code, -32000);
+      assert.deepEqual(error.data, { hash });
+      assert.equal(error.transactionHash, hash);
+      assert.ok(error.message.includes(hash), error.message);
+      assert.ok(error.message.includes(`(${thrown.name})`), error.message);
+      assert.ok(!error.message.includes("SECRET"), error.message);
+    }
+  });
+});
+
+describe("a send whose outcome is unknown", () => {
+  it("is also what a thrown value that is not an error gives", async () => {
     const { node, open, send } = await setUp();
     const connection = await open();
     node.onRaw = async () => {
       await Promise.resolve();
-      throw new TypeError("fetch failed: https://rpc.example/v2/SECRET-API-KEY");
+      // oxlint-disable-next-line typescript/only-throw-error -- a downstream handler may throw anything
+      throw "connection reset";
     };
-    const error = errorOf(await send(connection, { from: COW, to: TO }));
-    assert.equal(error.code, -32000);
-    assert.match(error.message, /TypeError was thrown/);
-    assert.ok(!error.message.includes("SECRET"), error.message);
+    const error = await unknownOutcome(send(connection, { from: COW, to: TO }));
+    assert.match(error.message, /\(string\)/);
+  });
+
+  it("raises the mark on the next send when the node has the transaction", async () => {
+    const { node, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
+    const hash = hashOf(node.raw[0] ?? "");
+    const looked: unknown[] = [];
+    node.lookUp = (asked) => {
+      looked.push(asked);
+      return { hash: asked };
+    };
+    await send(connection, { from: COW, to: TO, value: "0x2" });
+    await send(connection, { from: COW, to: TO, value: "0x3" });
+    assert.deepEqual(looked, [hash], "looked up once");
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 2n], "the lost answer's nonce is not reused");
+  });
+
+  it("keeps the mark when the node does not have it, or the lookup fails", async () => {
+    for (const lookUp of [
+      () => null,
+      () => {
+        throw new Error("lookup failed");
+      },
+    ]) {
+      const { node, open, send } = await setUp();
+      const connection = await open();
+      failOnce(node);
+      await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
+      node.lookUp = lookUp;
+      await send(connection, { from: COW, to: TO, value: "0x2" });
+      assert.deepEqual(node.raw.map(nonceOf), [0n, 0n]);
+    }
+  });
+
+  it("is looked up only by a send without the caller's nonce", async () => {
+    const { node, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO }));
+    let lookups = 0;
+    node.lookUp = (asked) => {
+      lookups++;
+      return { hash: asked };
+    };
+    await send(connection, { from: COW, to: TO, nonce: "0x0", gasPrice: "0x2" });
+    assert.equal(lookups, 0);
+    await send(connection, { from: COW, to: TO, value: "0x1" });
+    assert.equal(lookups, 1);
+  });
+
+  it("is forgotten once a retry gets an answer", async () => {
+    const { node, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO }));
+    resultOf(await send(connection, { from: COW, to: TO }));
+    let lookups = 0;
+    node.lookUp = () => {
+      lookups++;
+      return null;
+    };
+    await send(connection, { from: COW, to: TO, value: "0x1" });
+    assert.equal(lookups, 0);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n]);
+  });
+
+  it("is not kept on a simulated network", async () => {
+    const { node, open, send } = await setUp("edr-simulated");
+    const connection = await open();
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO }));
+    let lookups = 0;
+    node.lookUp = () => {
+      lookups++;
+      return null;
+    };
+    await send(connection, { from: COW, to: TO, value: "0x1" });
+    assert.equal(lookups, 0);
   });
 });
 
-/** Makes the next broadcast fail after the node got the bytes. */
-function failOnce(node: { onRaw: RawHandler | undefined }): void {
-  node.onRaw = async () => {
-    node.onRaw = undefined;
-    return await Promise.resolve({
-      jsonrpc: "2.0" as const,
-      id: 1,
-      error: { code: -32000, message: "upstream timeout" },
-    });
-  };
-}
+describe("isAlreadyKnown", () => {
+  it("matches what clients say for a transaction they already have, and nothing else", () => {
+    for (const message of [
+      "already known",
+      "AlreadyKnown",
+      "Known transaction: 0x15872f37",
+      "known transaction: 0x12",
+      "  already known",
+    ]) {
+      assert.ok(isAlreadyKnown(message), message);
+    }
+    for (const message of [
+      "unknown transaction type",
+      "Unknown transaction",
+      "transaction already known to the pool, but the fee is too low",
+      "nonce too low",
+      "",
+    ]) {
+      assert.ok(!isAlreadyKnown(message), message);
+    }
+  });
+});
 
 describe("the retry cache", () => {
   it("sends the same bytes again for a retry of the same request, and returns the same hash", async () => {
     const { node, state, open, send } = await setUp();
     const connection = await open();
     failOnce(node);
-    const first = errorOf(await send(connection, { from: COW, to: TO, value: "0x1" }));
+    const first = await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
     // The same params, with the keys in another order.
     const retried = resultOf(await send(connection, { value: "0x1", to: TO, from: COW }));
-    assert.deepEqual(first.data, { hash: retried });
+    assert.equal(first.transactionHash, retried);
     assert.equal(node.raw.length, 2);
     assert.equal(node.raw[0], node.raw[1], "the same bytes");
     assert.equal(state.signatures, 1, "nothing was filled or signed again");
@@ -416,19 +591,41 @@ describe("the retry cache", () => {
   it("counts 'already known' as success when it sends the bytes again", async () => {
     const { node, open, send } = await setUp();
     const connection = await open();
-    for (const [index, answer] of ["already known", "thrown: Known transaction: 0x12"].entries()) {
+    const answers = [
+      { kind: "answer", message: "already known" },
+      { kind: "answer", message: "AlreadyKnown" },
+      { kind: "thrown", message: "known transaction: 0x12" },
+    ];
+    for (const [index, answer] of answers.entries()) {
       const data = `0x0${index}`;
       failOnce(node);
-      const hash = errorOf(await send(connection, { from: COW, to: TO, data })).data;
+      const { transactionHash } = await unknownOutcome(
+        send(connection, { from: COW, to: TO, data }),
+      );
       node.onRaw = async () => {
         await Promise.resolve();
-        if (answer.startsWith("thrown: ")) {
-          throw new Error(answer.slice("thrown: ".length));
+        if (answer.kind === "thrown") {
+          throw Object.assign(new Error(answer.message), { code: -32000 });
         }
-        return { jsonrpc: "2.0", id: 1, error: { code: -32000, message: answer } };
+        return { jsonrpc: "2.0", id: 1, error: { code: -32000, message: answer.message } };
       };
       const retried = await send(connection, { from: COW, to: TO, data });
-      assert.deepEqual({ hash: resultOf(retried) }, hash, answer);
+      assert.equal(resultOf(retried), transactionHash, answer.message);
+      node.onRaw = undefined;
+    }
+  });
+
+  it("does not take 'unknown transaction type' or 'Unknown transaction' for 'already known'", async () => {
+    const { node, open, send } = await setUp();
+    const connection = await open();
+    for (const message of ["unknown transaction type", "Unknown transaction"]) {
+      failOnce(node);
+      await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
+      refuse(node, message);
+      assert.equal(
+        errorOf(await send(connection, { from: COW, to: TO, value: "0x1" })).message,
+        message,
+      );
       node.onRaw = undefined;
     }
   });
@@ -436,36 +633,34 @@ describe("the retry cache", () => {
   it("does not count 'already known' as success on a first send", async () => {
     const { node, open, send } = await setUp();
     const connection = await open();
-    node.onRaw = async () =>
-      await Promise.resolve({
-        jsonrpc: "2.0" as const,
-        id: 1,
-        error: { code: -32000, message: "already known" },
-      });
-    assert.equal(errorOf(await send(connection, { from: COW, to: TO })).code, -32000);
+    refuse(node, "already known");
+    assert.equal(errorOf(await send(connection, { from: COW, to: TO })).message, "already known");
   });
 
-  it("keeps the entry when sending again fails too", async () => {
+  it("drops the entry when sending again gets a refusal, and keeps it when there is no answer", async () => {
     const { node, state, open, send } = await setUp();
     const connection = await open();
-    node.onRaw = async () =>
-      await Promise.resolve({
-        jsonrpc: "2.0" as const,
-        id: 1,
-        error: { code: -32000, message: "upstream timeout" },
-      });
+    node.onRaw = async () => {
+      await Promise.resolve();
+      throw new Error("socket hang up");
+    };
     for (let i = 0; i < 3; i++) {
-      errorOf(await send(connection, { from: COW, to: TO }));
+      await unknownOutcome(send(connection, { from: COW, to: TO }));
     }
     assert.equal(state.signatures, 1);
     assert.equal(new Set(node.raw).size, 1, "one transaction, sent three times");
+    refuse(node, "nonce too low");
+    assert.equal(errorOf(await send(connection, { from: COW, to: TO })).message, "nonce too low");
+    assert.equal(state.signatures, 1, "the refused retry sent the kept bytes");
+    errorOf(await send(connection, { from: COW, to: TO }));
+    assert.equal(state.signatures, 2, "no entry is left: filled and signed again");
   });
 
   it("is missed by other params, another account and another connection", async () => {
     const { node, state, open, send } = await setUp();
     const connection = await open();
     failOnce(node);
-    errorOf(await send(connection, { from: COW, to: TO, value: "0x1" }));
+    await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
     resultOf(await send(connection, { from: COW, to: TO, value: "0x2" }));
     resultOf(await send(connection, { from: ZERO, to: TO, value: "0x1" }));
     resultOf(await send(await open(), { from: COW, to: TO, value: "0x1" }));
@@ -477,11 +672,30 @@ describe("the retry cache", () => {
     const { node, state, timers, open, send } = await setUp();
     const connection = await open();
     failOnce(node);
-    errorOf(await send(connection, { from: COW, to: TO }));
+    await unknownOutcome(send(connection, { from: COW, to: TO }));
     assert.deepEqual(timers.delays(), [RETRY_TTL_MS]);
     timers.fire();
     resultOf(await send(connection, { from: COW, to: TO }));
     assert.equal(state.signatures, 2, "filled and signed again");
+  });
+
+  it(`keeps at most ${MAX_RETRY_ENTRIES} entries per connection`, async () => {
+    const { node, state, timers, open, send } = await setUp();
+    const connection = await open();
+    node.onRaw = async () => {
+      await Promise.resolve();
+      throw new Error("socket hang up");
+    };
+    for (let i = 0; i <= MAX_RETRY_ENTRIES; i++) {
+      await unknownOutcome(send(connection, { from: COW, to: TO, value: `0x${i.toString(16)}` }));
+    }
+    assert.equal(timers.pending(), MAX_RETRY_ENTRIES, "the oldest entry's timer is cancelled");
+    node.onRaw = undefined;
+    const signatures = state.signatures;
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x1" }));
+    assert.equal(state.signatures, signatures, "a newer entry is still there");
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x0" }));
+    assert.equal(state.signatures, signatures + 1, "the oldest entry was dropped");
   });
 
   it("is dropped when the connection closes", async () => {
@@ -489,7 +703,7 @@ describe("the retry cache", () => {
     const connection = await open();
     const other = await open();
     failOnce(node);
-    errorOf(await send(connection, { from: COW, to: TO }));
+    await unknownOutcome(send(connection, { from: COW, to: TO }));
     await close(connection);
     assert.equal(timers.pending(), 0, "the entry's timer is cancelled");
     await close(other);
@@ -499,7 +713,7 @@ describe("the retry cache", () => {
     const { node, state, open, send } = await setUp();
     const connection = await open();
     failOnce(node);
-    errorOf(await send(connection, { from: COW, to: TO, extra: new Date(0) }));
+    await unknownOutcome(send(connection, { from: COW, to: TO, extra: new Date(0) }));
     resultOf(await send(connection, { from: COW, to: TO, extra: new Date(0) }));
     assert.equal(state.signatures, 2);
   });

@@ -200,6 +200,10 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
           defaultSender: async () => await defaultSender(connection),
           chainId: async () => await chainOf(connection).chainId(),
           sends: () => sendsOf(connection),
+          request: async (method, params) => {
+            const result: unknown = await connection.provider.request({ method, params });
+            return result;
+          },
         },
       ),
   };

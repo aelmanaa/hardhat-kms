@@ -11,7 +11,7 @@ import { Transaction } from "micro-eth-signer";
 import { getAddress } from "viem";
 
 import hardhatKms from "../../src/index.ts";
-import { sendLocksInUse } from "../../src/internal/rpc/send-guard.ts";
+import { SendOutcomeUnknownError, sendLocksInUse } from "../../src/internal/rpc/send-guard.ts";
 import type { KmsKeyUserConfig } from "../../src/types.ts";
 import { fakeAdapter } from "../helpers/fake-adapter.ts";
 import { type RecordingNode, startRecordingNode } from "../helpers/recording-node.ts";
@@ -37,16 +37,24 @@ function vaultKeys(): Record<string, KmsKeyUserConfig> {
   );
 }
 
-/** Serves the fake adapters through the `kms` hook. */
-function serveAdapters(hre: HardhatRuntimeEnvironment): void {
+/** Serves the fake adapters through the `kms` hook, and counts their signatures. */
+function serveAdapters(hre: HardhatRuntimeEnvironment): { signatures: number } {
+  const counts = { signatures: 0 };
   hre.hooks.registerHandlers("kms", {
     createKeyAdapter: async (context, key, next) => {
       const secret = SECRETS[key.name];
       return secret === undefined
         ? await next(context, key)
-        : fakeAdapter({ secretKey: new Uint8Array(Buffer.from(secret, "hex")) });
+        : fakeAdapter({
+            secretKey: new Uint8Array(Buffer.from(secret, "hex")),
+            beforeSign: async () => {
+              counts.signatures++;
+              await Promise.resolve();
+            },
+          });
     },
   });
+  return counts;
 }
 
 /** Fails the test instead of hanging when `promise` takes longer than `ms`. */
@@ -122,9 +130,57 @@ describe("parallel sends on a simulated network", () => {
   });
 });
 
+describe("a reverted send on a simulated network", () => {
+  // Creation code that reverts with the bytes 0xdeadbeef.
+  const REVERTING = "0x63deadbeef60e01b60005260046000fd";
+
+  it("throws the node's revert error unchanged, with its data and transaction hash", async () => {
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKms],
+      kms: { keys: vaultKeys(), simulatedBalance: 10n ** 18n },
+      networks: { local: { type: "edr-simulated", kmsAccounts: ["cow"] } },
+    });
+    const counts = serveAdapters(hre);
+    const { provider } = await hre.network.create("local");
+    // An explicit gas limit, so the estimate does not fail first.
+    const request = {
+      method: "eth_sendTransaction",
+      params: [{ from: COW, data: REVERTING, gas: "0x30000" }],
+    };
+    const hashes: unknown[] = [];
+    for (let i = 0; i < 2; i++) {
+      await assert.rejects(provider.request(structuredClone(request)), (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.name, "SolidityError");
+        assert.equal(Reflect.get(error, "code"), 3);
+        assert.equal(Reflect.get(error, "data"), "0xdeadbeef");
+        hashes.push(Reflect.get(error, "transactionHash"));
+        return true;
+      });
+    }
+    assert.equal(counts.signatures, 2, "no retry entry: the second request was signed again");
+    for (const [nonce, hash] of hashes.entries()) {
+      assert.ok(typeof hash === "string");
+      const receipt: unknown = await provider.request({
+        method: "eth_getTransactionReceipt",
+        params: [hash],
+      });
+      assert.ok(typeof receipt === "object" && receipt !== null);
+      assert.equal(Reflect.get(receipt, "status"), "0x0", "mined and reverted");
+      const tx: unknown = await provider.request({
+        method: "eth_getTransactionByHash",
+        params: [hash],
+      });
+      assert.ok(typeof tx === "object" && tx !== null);
+      assert.equal(BigInt(String(Reflect.get(tx, "nonce"))), BigInt(nonce));
+    }
+  });
+});
+
 describe("sends over HTTP to a node", () => {
   let node: RecordingNode;
   let hre: HardhatRuntimeEnvironment;
+  let counts: { signatures: number };
 
   before(async () => {
     node = await startRecordingNode();
@@ -141,7 +197,7 @@ describe("sends over HTTP to a node", () => {
         },
       },
     });
-    serveAdapters(hre);
+    counts = serveAdapters(hre);
   });
 
   after(async () => {
@@ -202,14 +258,37 @@ describe("sends over HTTP to a node", () => {
     try {
       await assert.rejects(wallet.sendTransaction({ to: getAddress(TO), value: 1n }), (error) => {
         const text = String(error);
-        assert.match(text, /was handed to the node, but the send failed/);
-        assert.match(text, /HardhatError was thrown/);
+        assert.match(text, /was handed to the node, but no answer came back/);
+        assert.match(text, /\(HardhatError\)/);
         return true;
       });
     } finally {
       node.afterAccept = undefined;
     }
     assert.equal(node.raw.length, start + 1, "viem did not retry, and nothing was sent again");
+  });
+
+  it("passes a node's refusal through unchanged and keeps no retry entry", async () => {
+    const { provider } = await hre.network.create("remote");
+    const request = {
+      method: "eth_sendTransaction",
+      params: [{ from: COW, to: TO, value: "0x6" }],
+    };
+    const signatures = counts.signatures;
+    node.afterAccept = { error: "nonce too low" };
+    try {
+      for (let i = 0; i < 2; i++) {
+        await assert.rejects(provider.request(structuredClone(request)), (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.equal(error.message, "nonce too low");
+          assert.equal(Reflect.get(error, "code"), -32000);
+          return true;
+        });
+      }
+    } finally {
+      node.afterAccept = undefined;
+    }
+    assert.equal(counts.signatures, signatures + 2, "each request was signed");
   });
 
   it("sends the same bytes again for a retried request, and returns the same hash", async () => {
@@ -219,15 +298,16 @@ describe("sends over HTTP to a node", () => {
       params: [{ from: COW, to: TO, value: "0x5" }],
     };
     const start = node.raw.length;
-    node.afterAccept = { error: "upstream timeout" };
+    const signatures = counts.signatures;
+    // The node accepts the transaction, then answers after the client's 1 s timeout.
+    node.afterAccept = { delayMs: 1500 };
     let hash: unknown;
     try {
       await assert.rejects(provider.request(structuredClone(request)), (error: unknown) => {
-        assert.ok(error instanceof Error);
-        assert.equal(Reflect.get(error, "code"), -32000);
-        const data: unknown = Reflect.get(error, "data");
-        assert.ok(typeof data === "object" && data !== null);
-        hash = Reflect.get(data, "hash");
+        assert.ok(error instanceof SendOutcomeUnknownError, String(error));
+        assert.equal(error.code, -32000);
+        assert.equal(error.data.hash, error.transactionHash);
+        hash = error.transactionHash;
         return true;
       });
     } finally {
@@ -238,5 +318,6 @@ describe("sends over HTTP to a node", () => {
     assert.equal(hash, hashOf(sent[0] ?? ""));
     assert.equal(await provider.request(structuredClone(request)), hash);
     assert.deepEqual(node.raw.slice(start), [sent[0], sent[0]], "the same bytes, sent again");
+    assert.equal(counts.signatures, signatures + 1, "the retry was not signed again");
   });
 });

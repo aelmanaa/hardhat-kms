@@ -1,9 +1,40 @@
 // The send guard: the process-global send lock, the nonce high-water mark and the retry cache.
 // See "Nonces and the send lock" and "Retries after broadcast" in docs/contributor/transactions.md.
+import { HardhatPluginError } from "hardhat/plugins";
+
+import { PLUGIN_ID } from "../constants.ts";
 import { systemTimers, type Timers } from "../signer/timeout.ts";
 
 /** How long a retry entry lives after a failed broadcast. */
 export const RETRY_TTL_MS = 120_000;
+
+/** The most retry entries a connection keeps; a new entry beyond it drops the oldest. */
+export const MAX_RETRY_ENTRIES = 256;
+
+/**
+ * The error of a send whose outcome is unknown: the transaction was handed to the node, but no
+ * answer came back. Its JSON-RPC code is -32000, which viem does not retry, and it carries the
+ * transaction hash as `transactionHash`, where Hardhat Ignition looks for the hash of a
+ * transaction that may have been sent, and in `data.hash`.
+ */
+export class SendOutcomeUnknownError extends HardhatPluginError {
+  /** The JSON-RPC error code. */
+  public readonly code = -32000;
+  /** The transaction hash, for clients that read JSON-RPC error data. */
+  public readonly data: { hash: string };
+  /** The transaction hash. */
+  public readonly transactionHash: string;
+
+  /**
+   * @param message - The error message.
+   * @param hash - The transaction hash.
+   */
+  public constructor(message: string, hash: string) {
+    super(PLUGIN_ID, message);
+    this.data = { hash };
+    this.transactionHash = hash;
+  }
+}
 
 /** The tail of each lock's queue, by lock key. Process-global: every runtime shares it. */
 const lockTails = new Map<string, Promise<void>>();
@@ -103,7 +134,7 @@ export function canonicalJson(value: unknown): string | undefined {
   return `{${fields.join(",")}}`;
 }
 
-/** A signed transaction whose broadcast failed. */
+/** A signed transaction, as it was broadcast. */
 export interface SentTransaction {
   /** The signed raw transaction, as `0x` hex. */
   raw: string;
@@ -135,6 +166,9 @@ export class ConnectionSends {
   readonly #timers: Timers;
   readonly #highWater = new Map<string, bigint>();
   readonly #retries = new Map<string, RetryEntry>();
+  /** By sender: the last transaction whose broadcast had no answer, still to be looked up. */
+  readonly #uncertain = new Map<string, SentTransaction>();
+  #closed = false;
 
   /**
    * @param options - Whether the high-water mark is on, and the timers.
@@ -181,7 +215,22 @@ export class ConnectionSends {
    * @param transaction - The signed transaction.
    */
   public rememberFailure(key: string, transaction: SentTransaction): void {
-    this.#retries.get(key)?.cancel();
+    if (this.#closed) {
+      return;
+    }
+    const existing = this.#retries.get(key);
+    if (existing !== undefined) {
+      existing.cancel();
+      // Deleted first, so the new entry counts as the newest.
+      this.#retries.delete(key);
+    }
+    for (const [oldest, entry] of this.#retries) {
+      if (this.#retries.size < MAX_RETRY_ENTRIES) {
+        break;
+      }
+      entry.cancel();
+      this.#retries.delete(oldest);
+    }
     const entry: RetryEntry = {
       transaction,
       cancel: this.#timers.setTimeout(() => {
@@ -209,12 +258,57 @@ export class ConnectionSends {
     return entry.transaction;
   }
 
-  /** Drops every retry entry and cancels its timer; called when the connection closes. */
+  /**
+   * Remembers a transaction whose broadcast got no answer, so that the sender's next send can
+   * ask the node whether it has it. A newer one replaces it. Without a high-water mark there is
+   * nothing to raise, so nothing is kept.
+   *
+   * @param from - The sender's lowercase address.
+   * @param transaction - The transaction.
+   */
+  public rememberUncertain(from: string, transaction: SentTransaction): void {
+    if (this.#closed || !this.#highWaterEnabled) {
+      return;
+    }
+    this.#uncertain.set(from, transaction);
+  }
+
+  /**
+   * Takes the sender's uncertain transaction, if there is one. It is removed.
+   *
+   * @param from - The sender's lowercase address.
+   * @returns The transaction, or `undefined`.
+   */
+  public takeUncertain(from: string): SentTransaction | undefined {
+    const transaction = this.#uncertain.get(from);
+    this.#uncertain.delete(from);
+    return transaction;
+  }
+
+  /**
+   * Forgets the sender's uncertain transaction when it is the one with this hash: the node has
+   * answered for it since.
+   *
+   * @param from - The sender's lowercase address.
+   * @param hash - The transaction hash.
+   */
+  public settleUncertain(from: string, hash: string): void {
+    if (this.#uncertain.get(from)?.hash === hash) {
+      this.#uncertain.delete(from);
+    }
+  }
+
+  /**
+   * Drops every retry entry and cancels its timer; called when the connection closes. Later
+   * failures are not remembered.
+   */
   public close(): void {
+    this.#closed = true;
     for (const entry of this.#retries.values()) {
       entry.cancel();
     }
     this.#retries.clear();
     this.#highWater.clear();
+    this.#uncertain.clear();
   }
 }

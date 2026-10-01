@@ -79,13 +79,16 @@ The long-term plan is to delete the port once Hardhat exports a filler or a post
 
 ## Nonces and the send lock
 
-The send guard lives in `packages/hardhat-kms/src/internal/rpc/send-guard.ts`: `withSendLock`, and `ConnectionSends`, which holds a connection's high-water marks and retry entries. The network hook creates one `ConnectionSends` per connection, on its first send, and drops it when the connection closes.
+The send guard lives in `packages/hardhat-kms/src/internal/rpc/send-guard.ts`: `withSendLock`, and `ConnectionSends`, which holds a connection's high-water marks, retry entries and uncertain transactions. The network hook creates one `ConnectionSends` per connection, on its first send, and closes it when the connection closes; a closed one remembers nothing more.
 
 An `eth_sendTransaction` from KMS address `a` on chain `c` runs `withSendLock("c:a", ...)`. The lock is a process-global queue per key: holders of one key run one after the other, in arrival order, and other keys never wait. Inside the lock, `sendTransaction` in the dispatcher:
 
 1. Takes a retry entry for the request, if one is alive (see [Retries after broadcast](#retries-after-broadcast)), and sends its bytes again.
-2. Otherwise fills and signs inside `ConnectionAccounts.signWith`. The fill's reads go through `connection.provider` and pass through the hook (rule 1), so they never wait on the lock.
-3. Calls `next(eth_sendRawTransaction)` once, after `signWith` has returned. The signer cache's idle close therefore waits on KMS calls only, never on the node.
+2. Otherwise, for a send without the caller's nonce, looks up the sender's uncertain transaction, if there is one (see below).
+3. Fills and signs inside `ConnectionAccounts.signWith`. The fill's reads go through `connection.provider` and pass through the hook (rule 1), so they never wait on the lock.
+4. Calls `next(eth_sendRawTransaction)` once, after `signWith` has returned. The signer cache's idle close therefore waits on KMS calls only, never on the node.
+
+The lock has no deadline. A send whose broadcast hangs holds the lock until Hardhat's network timeout (the http network's `timeout`, 300 s by default) ends it, and the sender's other sends wait that long. A deadline and a queue limit are planned in [#120](https://github.com/aelmanaa/hardhat-kms/issues/120).
 
 The nonce for a KMS send whose caller gave none is `max(pending, highWater + 1)`, where `pending` is the filler's `eth_getTransactionCount [from, "pending"]`. `signTransaction` takes the choice as `chooseNonce`, applied after the fill. The high-water mark is keyed by (connection, from):
 
@@ -93,7 +96,9 @@ The nonce for a KMS send whose caller gave none is `max(pending, highWater + 1)`
 - A nonce supplied by the caller (Ignition does this) is always honoured, and sets `hw = max(hw, nonce)`.
 - On `edr-simulated` networks the high-water mark is disabled, because the in-process pending count is authoritative there.
 
-"After a send" means after the node accepted the transaction: `next` returned a result, or a retry's bytes were answered with "already known". A failure before the broadcast (fill, KMS or the sender check) leaves the mark as it was, so the next send gets the same nonce. A failure after the broadcast leaves it too. The transaction may or may not have reached the node, and the two errors differ in kind: if the node never got it and the mark had moved, every later send from that connection would leave a nonce gap and wait in the node's queue without an error; if the node got it and the mark stays, a node whose pending count lags can be given the same nonce again, which the node refuses with an error. The plugin takes the error.
+"After a send" means once the node is known to have the transaction: it answered with a result; it answered with an error that carries the transaction hash, as Hardhat's nodes do for a transaction they mined and that reverted; or it answered "already known" to a retry's bytes. A failure before the broadcast (fill, KMS or the sender check) leaves the mark as it was, so the next send gets the same nonce. So does a node's refusal, such as "nonce too low" or "insufficient funds".
+
+When no answer comes back (see [Retries after broadcast](#retries-after-broadcast)), the node may or may not have the transaction, and the mark does not move. If it moved and the node never got the transaction, every later send from that connection would leave a nonce gap and wait in the node's queue without an error. Leaving the mark has its own risk: if the node did get the transaction and its pending count lags, the next send could get the same nonce, and with fees about 10% higher a Geth node accepts it as a replacement and silently drops the first transaction. The plugin therefore keeps the transaction (hash and nonce) as the sender's uncertain transaction on that connection. The sender's next send without the caller's nonce asks the node with `eth_getTransactionByHash`, inside the lock. If the node has the transaction, the mark rises to its nonce. If it does not, or the lookup fails, the node's pending count decides as usual. Either way the uncertain transaction is forgotten, and an answer to a retry of its bytes forgets it too. A send with the caller's nonce does not look it up; the caller chose the nonce.
 
 The mark is per connection, as specified, and the lock is per chain. Two connections in one process to the same chain therefore wait for each other, but each keeps its own mark. A process-global mark would carry nonces from one node to another node with the same chain id, such as two local nodes on chain 31337, and leave gaps there.
 
@@ -105,22 +110,35 @@ Separate processes are not coordinated. Two `hardhat run` invocations sending fr
 
 ## Retries after broadcast
 
-A send cannot be repeated blindly, because the transaction may already be on its way. The plugin handles failures after `next(eth_sendRawTransaction)` like this:
+A send cannot be repeated blindly, because the transaction may already be on its way. `broadcast` in the dispatcher sorts what `next(eth_sendRawTransaction)` gives back into three outcomes:
 
-- Every failure after the broadcast call returns JSON-RPC error code -32000, which viem does not retry. The error carries the local transaction hash in `data.hash`, and in its message, so the caller can look it up. A failure is either a JSON-RPC error answer or an exception from `next`. The message quotes the answer's code and the first 200 characters of its text, which Hardhat would show for the same request from a local account. For an exception it gives only the class name, because a transport error's text can contain the node's URL and its API key.
-- A narrow cache covers clients that retry anyway. An entry is created only in that post-broadcast failure path, keyed by (connection, chainId, from, canonical JSON of the caller's params). It lives for 120 s and is consumed on the first hit. A retried identical request that hits it re-submits the same raw bytes (same hash), treats "already known" as success, and returns the same hash.
-- Successful sends are never recorded. A deliberate duplicate send is therefore never dropped.
-- The code never re-enters fill and sign after a broadcast.
+- The node accepts the transaction: its answer is returned as it is.
+- The node answers with an error: a JSON-RPC error answer, or a thrown error with a numeric JSON-RPC `code`. Hardhat's EDR throws rather than answering, so the outcome is decided by the error's shape: `ProviderError` and its subclasses carry `code`, and so does `SolidityError` (code 3) for a transaction that was mined and reverted. The answer is returned, or the same error object thrown, unchanged, with no retry entry. A revert therefore keeps its data and `transactionHash`, which revert assertions and Ignition rely on, and a refusal such as "fee below the base fee" or "nonce too low" is not repeated by later requests. If the error carries a `transactionHash` (on the error, or in its `data`), the nonce counts as used.
+- No answer: a thrown error without a JSON-RPC code. That is Hardhat's `HardhatError` for a refused connection or a timeout, which has no `code`, its `UnknownError` (code -1) for a failed HTTP request, or anything else. Only this outcome is uncertain. The plugin throws `SendOutcomeUnknownError`, a `HardhatPluginError` with `code` -32000, which viem does not retry. It carries the transaction hash in `transactionHash`, in `data.hash` and in its message, so the caller can look it up. The message names the thrown error's class only, because a transport error's text can contain the node's URL and its API key.
+
+The design first wrapped every failure after the broadcast in a -32000 error. Review found that this hid the revert data and transaction hash of a mined transaction and made later identical requests resend refused bytes, so a node's answer is now passed through.
+
+Hardhat builds a `ProviderError` from a JSON-RPC error answer with only `code`, `message` and `data`, so an answer cannot carry `transactionHash`. That is why the uncertain outcome is thrown, as the plugin's own error class, rather than returned as an answer. Ignition (ignition-core 3.1.9, `jsonrpc-client.js`) reads `error.transactionHash` after a failed `eth_sendTransaction` and then tracks that hash as a sent transaction, which is what an uncertain send needs.
+
+A narrow cache covers clients that retry anyway. An entry is created only for an uncertain outcome, keyed by (connection, chainId, from, canonical JSON of the caller's params). It lives for 120 s and is consumed on the first hit. A retried identical request that hits it re-submits the same raw bytes (same hash), treats "already known" as success, and returns the same hash. Successful sends are never recorded, so a deliberate duplicate send is never dropped. The code never re-enters fill and sign after a broadcast.
 
 How the implementation reads the parts the design leaves open:
 
 - The caller's params are the request's params as the caller sent them, copied before the first `await`, without the `from` the plugin may add. A request without `from` and the same request with the default sender as `from` therefore get different keys; both resolve to the same sender, so the only cost is a missed retry.
 - `canonicalJson` sorts object keys and keeps every value's type: a string is quoted, a bigint is written as `1n` and bytes as `bytes(<hex>)`, so values of different types never share a key. A key whose value is `undefined` counts as absent, as it does for the filler. Params holding anything else (a `Date`, a `Map`, a number that is not finite) get no entry, so such a request is never re-sent, only signed again.
-- "Already known" matches `already known`, `alreadyknown` and `known transaction`, in any case, in the answer's message or the exception's message. It counts as success only when bytes are sent again; on a first send it is a failure like any other.
-- When sending a retry's bytes again fails too, a new entry with the same bytes is created, with a new 120 s lifetime. A client that keeps retrying keeps sending the same transaction.
-- A new entry for a key replaces the old one. Closing the connection drops its entries and cancels their timers. The timers come from the network hook's `Timers`, which are unref'd, so an entry never keeps the process alive.
+- "Already known" is what clients say at the start of the message: `already known` (Geth, Reth, Erigon), `AlreadyKnown` (Nethermind) or `known transaction` (older Geth, and EDR as `Known transaction: <hash>`), in any case. "unknown transaction type" does not match. It counts as success only when bytes are sent again; on a first send it is passed through like any other answer.
+- When a retry's bytes get no answer again, a new entry with the same bytes is created, with a new 120 s lifetime. When they get a refusal, the refusal is passed through and no entry is left, so the next identical request is filled and signed again.
+- A new entry for a key replaces the old one. A connection keeps at most 256 entries; a new one beyond that drops the oldest and cancels its timer. Closing the connection drops its entries and cancels their timers. The timers come from the network hook's `Timers`, which are unref'd, so an entry never keeps the process alive.
 
-`packages/hardhat-kms/test/integration/send-lock.test.ts` sends with hardhat-viem over HTTP to the recording node, which accepts the transaction and answers after the client's timeout. viem reports the -32000 error and the node receives the transaction once. The same file sends 10 transactions in parallel from each of two accounts on a simulated network, with an `eth_signTransaction` among them, and checks nonces 0 to 9 for each. `packages/hardhat-kms/test/unit/rpc/send-lock.test.ts` drives the network hook with a fake node, fake KMS adapters and fake timers: the high-water mark, the lock across accounts, the idle close during a broadcast, and the retry cache.
+`packages/hardhat-kms/test/integration/send-lock.test.ts` covers these end to end:
+
+- With hardhat-viem over HTTP, the recording node accepts the transaction and answers after the client's timeout. viem reports the -32000 error and the node receives the transaction once.
+- The same request then sends the same bytes again without a new KMS signature.
+- A node's refusal comes back unchanged and leaves no entry.
+- A reverted contract creation on a simulated network throws Hardhat's `SolidityError` with code 3, the revert data and the transaction hash, as for a local account. The next identical request is signed again and gets the next nonce.
+- 10 transactions sent in parallel from each of two accounts on a simulated network, with an `eth_signTransaction` among them, get nonces 0 to 9 for each.
+
+`packages/hardhat-kms/test/unit/rpc/send-lock.test.ts` drives the network hook with a fake node, fake KMS adapters and fake timers: the high-water mark, uncertain transactions, the lock across accounts, the idle close during a broadcast, and the retry cache.
 
 ## Chain-id checks
 

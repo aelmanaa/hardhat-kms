@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   canonicalJson,
   ConnectionSends,
+  MAX_RETRY_ENTRIES,
   RETRY_TTL_MS,
   sendLocksInUse,
   withSendLock,
@@ -182,5 +183,53 @@ describe("ConnectionSends", () => {
     sends.rememberFailure("key", newer);
     callbacks[0]?.();
     assert.equal(sends.takeRetry("key"), newer, "the older timer leaves the newer entry");
+  });
+
+  it("remembers nothing after it is closed", () => {
+    const timers = fakeTimers();
+    const sends = new ConnectionSends({ highWater: true, timers });
+    const transaction = { raw: "0x01", hash: "0x02", nonce: 4n };
+    sends.close();
+    sends.rememberFailure("key", transaction);
+    sends.rememberUncertain("0xa", transaction);
+    assert.equal(timers.pending(), 0);
+    assert.equal(sends.takeRetry("key"), undefined);
+    assert.equal(sends.takeUncertain("0xa"), undefined);
+  });
+
+  it("keeps one uncertain transaction per sender, until taken or settled", () => {
+    const sends = new ConnectionSends({ highWater: true, timers: fakeTimers() });
+    const older = { raw: "0x01", hash: "0x02", nonce: 0n };
+    const newer = { raw: "0x03", hash: "0x04", nonce: 1n };
+    sends.rememberUncertain("0xa", older);
+    sends.rememberUncertain("0xa", newer);
+    assert.equal(sends.takeUncertain("0xa"), newer);
+    assert.equal(sends.takeUncertain("0xa"), undefined);
+    sends.rememberUncertain("0xa", older);
+    sends.settleUncertain("0xa", newer.hash);
+    assert.equal(sends.takeUncertain("0xa"), older, "another hash does not settle it");
+    sends.rememberUncertain("0xa", older);
+    sends.settleUncertain("0xa", older.hash);
+    assert.equal(sends.takeUncertain("0xa"), undefined);
+    const off = new ConnectionSends({ highWater: false, timers: fakeTimers() });
+    off.rememberUncertain("0xa", older);
+    assert.equal(off.takeUncertain("0xa"), undefined, "nothing to raise without a mark");
+  });
+
+  it(`drops the oldest of more than ${MAX_RETRY_ENTRIES} entries`, () => {
+    const timers = fakeTimers();
+    const sends = new ConnectionSends({ highWater: true, timers });
+    const transaction = { raw: "0x01", hash: "0x02", nonce: 0n };
+    for (let i = 0; i <= MAX_RETRY_ENTRIES; i++) {
+      sends.rememberFailure(`key${i}`, transaction);
+    }
+    // Replacing an entry makes it the newest, so it survives the next drop.
+    sends.rememberFailure("key1", transaction);
+    sends.rememberFailure("one more", transaction);
+    assert.equal(timers.pending(), MAX_RETRY_ENTRIES);
+    assert.equal(sends.takeRetry("key0"), undefined);
+    assert.equal(sends.takeRetry("key2"), undefined);
+    assert.equal(sends.takeRetry("key1"), transaction);
+    assert.equal(sends.takeRetry("one more"), transaction);
   });
 });

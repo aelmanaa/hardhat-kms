@@ -171,7 +171,8 @@ packages/hardhat-kms/src/
                             accounts, eth_sign, personal_sign, eth_signTypedData_v4
       transactions.ts       fill, sign, rebuild and check a KMS account's transaction; EIP-7702 authorization lint
       transaction-filler.ts port of Hardhat 3.18.0's fill logic; builds the unsigned transaction and its signing hash
-      send-guard.ts         process-global send lock; per connection: nonce high-water marks, retry entries
+      send-guard.ts         process-global send lock; per connection: nonce high-water marks, retry entries,
+                            uncertain transactions; SendOutcomeUnknownError
     tasks/                  accounts, address, public-key, sign, sign-auth, sign-tx, verify
     vendor/micro-eth-signer/  vendored EIP-712 hashing (MIT, see "Vendored EIP-712")
     errors.ts               allow-listed error builder
