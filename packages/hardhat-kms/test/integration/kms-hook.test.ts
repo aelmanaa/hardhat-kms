@@ -88,10 +88,9 @@ describe("kms hook", () => {
       "`npm install --save-dev hardhat-kms-aws`",
       "`plugins`",
     ]);
-    // The Google Cloud package does not exist yet: the error links the issue instead.
     await assertPluginError(createKeyAdapter(hre, key(hre, "gcp")), [
-      "signing with Google Cloud KMS keys is not available yet",
-      "issues/29",
+      "Google Cloud KMS keys need the hardhat-kms-gcp plugin",
+      "`npm install --save-dev hardhat-kms-gcp`",
     ]);
   });
 

@@ -3,13 +3,14 @@
 // is the only check that the declared floor still works.
 //
 // For each package in packages/ whose dependencies include a cloud SDK, it installs the floor of
-// each SDK range (`^3.1143.0` gives 3.1143.0), checks that this version is the one the package
+// each SDK range (`^3.1143.0` gives 3.1143.0), also as a workspace override so other SDKs that
+// depend on it load the floor too, checks that this version is the one the package
 // resolves, typechecks the package against it and runs the package's tests. package.json files,
 // pnpm-workspace.yaml and the lockfile are restored afterwards, even on Ctrl-C, and the install is
 // redone from the restored lockfile.
 //
 // Usage: node scripts/test-sdk-floors.ts
-import { readdirSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -23,8 +24,12 @@ import {
   withRestoredFiles,
 } from "./temporary-install.ts";
 
-/** Package names of cloud SDKs: the dependencies whose floor matters. */
-const CLOUD_SDK = /^@(aws-sdk|google-cloud|azure)\//;
+/**
+ * Package names of cloud SDKs: the dependencies whose floor matters. google-gax is the transport
+ * under @google-cloud/kms. hardhat-kms-gcp depends on it directly and hands it to the client, so
+ * its floor is what runs: releases before 6.5.0 never enforce the per-call deadline over REST.
+ */
+const CLOUD_SDK = /^(@(aws-sdk|google-cloud|azure)\/|google-gax$)/;
 
 interface Floor {
   packageName: string;
@@ -62,8 +67,8 @@ if (found.length === 0) {
   process.exit(0);
 }
 
-// Everything `pnpm add` may rewrite. pnpm-workspace.yaml gets a minimumReleaseAgeExclude entry
-// when a floor is younger than the release-age policy allows.
+// Everything `pnpm add` may rewrite. pnpm-workspace.yaml gets the floors as overrides, and a
+// minimumReleaseAgeExclude entry when a floor is younger than the release-age policy allows.
 const restorable = [
   path.join(root, "pnpm-lock.yaml"),
   path.join(root, "pnpm-workspace.yaml"),
@@ -72,6 +77,17 @@ const restorable = [
 
 const passed = await withRestoredFiles(restorable, async () => {
   let failed = false;
+  // A floor can also be a dependency of another SDK, as google-gax is of @google-cloud/kms. An
+  // override makes every package in the workspace resolve the floor, so the SDK's own copy and its
+  // types are the floor too, not only the provider package's direct dependency.
+  const workspace = path.join(root, "pnpm-workspace.yaml");
+  if (/^overrides:/m.test(readFileSync(workspace, "utf8"))) {
+    throw new Error("pnpm-workspace.yaml already has overrides; merge the floors into them");
+  }
+  appendFileSync(
+    workspace,
+    `\noverrides:\n${found.map((floor) => `  "${floor.sdk}": "${floor.version}"\n`).join("")}`,
+  );
   for (const floor of found) {
     process.stdout.write(`\n== ${floor.packageName}: ${floor.sdk}@${floor.version}\n`);
     run([

@@ -27,11 +27,13 @@ describe("plugin definition", () => {
     assert.deepEqual(Object.keys(providerUtils).toSorted(), [
       "InvalidPublicKeyError",
       "checkProviderVersion",
+      "crc32c",
       "kmsError",
       "parseAwsKeyId",
       "parseAzureKeyId",
       "publicKeyFromJwk",
       "publicKeyFromSpkiDer",
+      "publicKeyFromSpkiPem",
     ]);
   });
 });
