@@ -232,11 +232,11 @@ The plugin definition declares `emptyTask("kms")` and one `task(["kms", <name>])
 Every task that takes a key uses `packages/hardhat-kms/src/internal/tasks/keys.ts`:
 
 - `taskKeys(hre)` lists the keys a task can name, each once: `kms.keys`, then the inline keys of each network's `kmsAccounts`, then the `--kms` keys from `commandLineKeys(hre)`. Each `TaskKey` has the key's `name`, its `source` (`"kms.keys"`, `"kmsAccounts"` or `"--kms"`) and the resolved `key`.
-- `findTaskKey(hre, name)` returns the key with that name. An unknown name fails with the known names; a name that a `kms.keys` key and a `--kms` key share fails too.
-- `withTaskSigners(hre, use)` gives `use` a `signerFor(key)` function backed by a new `SignerCache`, and closes every signer in a `finally`. A task run therefore never shares the network hook's signers, and the process exits once the task returns. `withNamedSigner(hre, name, use)` combines it with `findTaskKey` for single-key tasks.
-- `printLine(line)` writes the result to standard output.
+- `findTaskKey(hre, name)` returns the key with that name. An unknown name fails with the known names, and suggests one that differs only in case. A name that more than one key has, such as a `kms.keys` key and a `--kms` key, fails with their sources.
+- `withTaskSigners(hre, use)` gives `use` a `signerFor(key)` function backed by a new `SignerCache`, and closes every signer in a `finally`. A task run therefore never shares the network hook's signers, and the process exits once the task returns. The cache's display function writes adapters' status messages to standard error with `printNote`; the network hook's cache keeps Hardhat's `interruptions.displayMessage`, which prints to standard output. `withNamedSigner(hre, name, use)` combines it with `findTaskKey` for single-key tasks.
+- `printLine(line)` writes the result to standard output, and `printNote(line)` writes a note to standard error, prefixed with `[hardhat-kms]`.
 
-An action module's default export is a `NewTaskActionFunction`. It prints its result with `printLine` and also returns it, so `hre.tasks.getTask(["kms", "address"]).run({ key })` gives the value to scripts and tests. Errors are `kmsError`s, which the CLI prints and turns into exit code 1. The key's argument is the positional argument `key`, described by `KEY_ARGUMENT_DESCRIPTION` in `index.ts`. The user-facing rules are in the [tasks reference](../user/reference/tasks.md).
+`kms address` uses `KmsSigner.confirmedAddress()`, which, unlike `getAddress()`, asks an address-only adapter even when the key has a pin, and says when the address is an unchecked pin. An action module's default export is a `NewTaskActionFunction`. It prints its result with `printLine` and also returns it, so `hre.tasks.getTask(["kms", "address"]).run({ key })` gives the value to scripts and tests. Errors are `kmsError`s, which the CLI prints and turns into exit code 1. The key's argument is the positional argument `key`, described by `KEY_ARGUMENT_DESCRIPTION` in `index.ts`. The user-facing rules are in the [tasks reference](../user/reference/tasks.md).
 
 ## Lifetimes and caching
 

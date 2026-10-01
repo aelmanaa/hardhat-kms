@@ -21,11 +21,11 @@ All tasks live in the `kms` namespace, which is an `emptyTask` in the same style
 
 Tasks that take `<key>` accept the name of any key the plugin knows:
 
-| Where the key is defined                    | Name to pass                                                                                                                                                           |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kms.keys`                                  | Its name in `kms.keys`, for example `deployer`.                                                                                                                        |
-| An inline key in a network's `kmsAccounts`  | `<network>.kmsAccounts[<index>]`, for example `sepolia.kmsAccounts[1]`. A `kmsAccounts` entry that is a name refers to a key in `kms.keys`, so pass that name instead. |
-| `--kms` ([configuration](configuration.md)) | The variable the key was read from: `AWS_KMS_KEY_ID`, `AWS_KMS_KEY_IDS[1]`, `AZURE_KEY_VAULT_KEY_ID`, or `GCP_KEY_*` for the GCP key.                                  |
+| Where the key is defined                    | Name to pass                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `kms.keys`                                  | Its name in `kms.keys`, for example `deployer`.                                                                                                                                                                                                                                                                                                                    |
+| An inline key in a network's `kmsAccounts`  | `<network>.kmsAccounts[<index>]`, for example `sepolia.kmsAccounts[1]`. A `kmsAccounts` entry that is a name refers to a key in `kms.keys`, so pass that name instead.                                                                                                                                                                                             |
+| `--kms` ([configuration](configuration.md)) | The variable the key was read from. A list entry adds its 0-based index: `AWS_KMS_KEY_IDS[1]`, `AZURE_KEY_VAULT_KEY_IDS[0]`, and `AWS_KMS_KEY_ID[1]` or `AZURE_KEY_VAULT_KEY_ID[1]` when the single variable holds a comma-separated list. A single variable with one key id has no index: `AWS_KMS_KEY_ID`, `AZURE_KEY_VAULT_KEY_ID`. The GCP key is `GCP_KEY_*`. |
 
 A `--kms` key can be named with or without `--network`. Quote names that contain `[` or `*`: zsh refuses them unquoted when no file matches.
 
@@ -35,7 +35,7 @@ npx hardhat kms address 'sepolia.kmsAccounts[1]'
 AWS_KMS_KEY_ID=alias/deployer npx hardhat --kms aws kms address AWS_KMS_KEY_ID
 ```
 
-A name that matches no key fails with the names that do. The list holds names only, never key ids:
+A name that matches no key fails with the names that do, and suggests a name that differs only in case. The list holds names only, never key ids:
 
 ```text
 Error in community plugin hardhat-kms: unknown key "deployr". Known keys: deployer, ops, sepolia.kmsAccounts[1], AWS_KMS_KEY_ID.
@@ -45,7 +45,7 @@ A key in `kms.keys` can have the name of a `--kms` variable, such as `AWS_KMS_KE
 
 ## Output
 
-A task prints its result alone on standard output, so a script can capture it with `$(npx hardhat kms address deployer)`. Errors go to standard error, and the command exits with a non-zero code.
+A task prints its result alone on standard output, so a script can capture it with `$(npx hardhat kms address deployer)`. Status messages from the provider, such as a wait for a slow KMS, and notes from the task go to standard error with a `[hardhat-kms]` prefix. Errors go to standard error too, and the command exits with a non-zero code.
 
 Each run creates its own KMS clients and closes them before it returns, so the command exits as soon as it has printed.
 
@@ -61,13 +61,13 @@ Prints the key's address with its EIP-55 checksum:
 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 ```
 
-The task asks the KMS for the public key and derives the address from it, even when the key has an `address` pin. If the pin differs from the derived address, the task fails with both addresses:
+The task asks the KMS for the key's public key and derives the address from it, even when the key has an `address` pin. If the pin differs from the derived address, the task fails with both addresses:
 
 ```text
 Error in community plugin hardhat-kms: aws, check address, key aws:alias/deployer: the key derives to 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, but the configured address is 0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826. If the key was rotated or an alias now points to another key, update the configuration.
 ```
 
-AWS, Google Cloud and Azure keys all return a public key. A third-party provider may return only an address; for such a key with a pin, the task prints the pin, and the first signature checks it.
+AWS, Google Cloud and Azure keys all return a public key. A third-party provider may return only an address; the task then asks it for the address and checks the pin the same way. A provider that can return neither leaves only the pin: the task prints the pin and writes a note on standard error that it is not checked yet. The first signature checks it.
 
 ## `kms public-key`
 

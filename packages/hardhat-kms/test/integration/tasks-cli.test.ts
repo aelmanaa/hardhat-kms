@@ -3,13 +3,12 @@
 // not close its signers never exits, and the run times out.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
+import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const TIMEOUT_MS = 30_000;
@@ -18,7 +17,7 @@ let project: string;
 function hardhat(
   args: string[],
   env: Record<string, string> = {},
-): { status: number | null; stdout: string; output: string } {
+): { status: number | null; stdout: string; stderr: string; output: string } {
   const result = spawnSync(
     process.execPath,
     [path.join(repo, "node_modules/hardhat/dist/src/cli.js"), ...args],
@@ -30,6 +29,9 @@ function hardhat(
         // A black-box run: Hardhat loads the plugin through its own TypeScript loader, and that
         // coverage data would clash with the native runs of the same files.
         NODE_V8_COVERAGE: "",
+        // CI adds --import tsx on Node 22.13 for the test runner. A user's shell does not, and the
+        // CLI does not need it: Hardhat registers tsx itself.
+        NODE_OPTIONS: "",
         AWS_KMS_KEY_ID: "",
         AWS_KMS_KEY_IDS: "",
         HARDHAT_KMS: "",
@@ -42,6 +44,7 @@ function hardhat(
   return {
     status: result.status,
     stdout: result.stdout,
+    stderr: result.stderr,
     output: `${result.stdout}${result.stderr}`,
   };
 }
@@ -65,6 +68,14 @@ const vault = {
           const adapter = fakeAdapter({ secretKey });
           const handle = setInterval(() => {}, 1000);
           adapter.close = async () => clearInterval(handle);
+          if (key.name === "chatty") {
+            // A status line, as an adapter waiting on a slow KMS shows one.
+            const getPublicKey = adapter.getPublicKey;
+            adapter.getPublicKey = async (ctx) => {
+              await ctx.displayMessage("waiting for the KMS");
+              return await getPublicKey(ctx);
+            };
+          }
           return adapter;
         },
       }),
@@ -74,13 +85,22 @@ const vault = {
 
 export default {
   plugins: [kms, vault],
-  kms: { keys: { deployer: { provider: "myvault", name: "deployer" } } },
+  kms: {
+    keys: {
+      deployer: { provider: "myvault", name: "deployer" },
+      chatty: { provider: "myvault", name: "chatty" },
+      pinned: { provider: "myvault", name: "pinned", address: ${JSON.stringify(COW_ACCOUNT.address)} },
+    },
+  },
 };
 `;
 
 describe("kms tasks from the Hardhat CLI", () => {
   before(() => {
-    project = mkdtempSync(path.join(tmpdir(), "hardhat-kms-tasks-cli-"));
+    // Inside the package, as in kms-option-cli.test.ts: a project in os.tmpdir() needs a link to
+    // node_modules, which fails on the Windows runner.
+    mkdirSync(path.join(repo, ".tmp"), { recursive: true });
+    project = mkdtempSync(path.join(repo, ".tmp", "tasks-cli-"));
     writeFileSync(
       path.join(project, "package.json"),
       JSON.stringify({ name: "p", type: "module" }),
@@ -92,7 +112,6 @@ describe("kms tasks from the Hardhat CLI", () => {
         pathToFileURL(path.join(repo, "test/helpers/fake-adapter.ts")).href,
       ),
     );
-    symlinkSync(path.join(repo, "node_modules"), path.join(project, "node_modules"), "junction");
   });
 
   after(() => {
@@ -127,7 +146,28 @@ describe("kms tasks from the Hardhat CLI", () => {
 
     assert.notEqual(run.status, 0);
     assert.notEqual(run.status, null, "the task did not exit");
-    assert.match(run.output, /unknown key "nobody"\. Known keys: deployer\./);
+    assert.match(run.output, /unknown key "nobody"\. Known keys: deployer, chatty, pinned\./);
+  });
+
+  it("fails on a pin mismatch after opening the adapter, and still exits on its own", () => {
+    const run = hardhat(["kms", "address", "pinned"]);
+
+    assert.equal(run.status, 1, `the task did not fail and exit:\n${run.output}`);
+    assert.equal(run.stdout.includes("0x"), false, run.stdout);
+    assert.ok(
+      run.stderr.includes(
+        `the key derives to ${HARDHAT_ACCOUNT_0.address}, but the configured address is ${COW_ACCOUNT.address}`,
+      ),
+      run.output,
+    );
+  });
+
+  it("prints status messages on standard error, so standard output holds only the result", () => {
+    const run = hardhat(["kms", "address", "chatty"]);
+
+    assert.equal(run.status, 0, run.output);
+    assert.equal(run.stdout, `${HARDHAT_ACCOUNT_0.address}\n`);
+    assert.match(run.stderr, /\[hardhat-kms\] waiting for the KMS/);
   });
 
   it("lists the tasks under kms", () => {

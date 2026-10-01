@@ -28,7 +28,9 @@ afterEach(() => {
 /** A fake adapter that counts how often it was closed. */
 type ClosableAdapter = FakeAdapter & { closed: number };
 
-function closableAdapter(options: Partial<FakeAdapterOptions> = {}): ClosableAdapter {
+function closableAdapter(
+  options: Partial<FakeAdapterOptions> & { announce?: string } = {},
+): ClosableAdapter {
   const adapter = Object.assign(
     fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey), ...options }),
     { closed: 0 },
@@ -36,6 +38,15 @@ function closableAdapter(options: Partial<FakeAdapterOptions> = {}): ClosableAda
   adapter.close = async () => {
     adapter.closed++;
   };
+  const { announce } = options;
+  const getPublicKey = adapter.getPublicKey?.bind(adapter);
+  if (announce !== undefined && getPublicKey !== undefined) {
+    // A status line, as an adapter waiting on a slow KMS or an approval shows one.
+    adapter.getPublicKey = async (ctx) => {
+      await ctx.displayMessage(announce);
+      return await getPublicKey(ctx);
+    };
+  }
   return adapter;
 }
 
@@ -74,22 +85,28 @@ async function runtime(
   return { hre, created };
 }
 
-/** Runs a `kms` task and returns its result and what it printed. */
+/** Runs a `kms` task and returns its result and what it printed on each stream. */
 async function run(
   hre: Awaited<ReturnType<typeof runtime>>["hre"],
   name: "address" | "public-key",
   key: string,
-): Promise<{ result: unknown; printed: string }> {
+): Promise<{ result: unknown; printed: string; stderr: string }> {
   let printed = "";
+  let stderr = "";
   const write = mock.method(process.stdout, "write", (chunk: unknown) => {
     printed += String(chunk);
     return true;
   });
+  const writeError = mock.method(process.stderr, "write", (chunk: unknown) => {
+    stderr += String(chunk);
+    return true;
+  });
   try {
     const result: unknown = await hre.tasks.getTask(["kms", name]).run({ key });
-    return { result, printed };
+    return { result, printed, stderr };
   } finally {
     write.mock.restore();
+    writeError.mock.restore();
   }
 }
 
@@ -202,9 +219,75 @@ describe("kms tasks", () => {
           'unknown key "deployr"',
           "Known keys: deployer, ops, local.kmsAccounts[1], AWS_KMS_KEY_ID.",
         ],
-        ["secret-id"],
+        ["secret-id", "Did you mean"],
       );
       assert.equal(created.length, 0);
+    });
+
+    it("suggests the key whose name differs only in case", async () => {
+      const { hre } = await runtime({
+        keys: { deployer: vaultKey("deployer"), ops: vaultKey("ops") },
+      });
+
+      await assertKmsError(run(hre, "address", "Deployer"), [
+        'unknown key "Deployer". Did you mean "deployer"? Known keys: deployer, ops.',
+      ]);
+    });
+
+    it("prints adapter status messages on standard error, so standard output holds only the result", async () => {
+      const { hre } = await runtime({
+        keys: { deployer: vaultKey("deployer") },
+        adapters: { deployer: () => closableAdapter({ announce: "waiting for the KMS" }) },
+      });
+
+      for (const task of ["address", "public-key"] as const) {
+        const { printed, stderr } = await run(hre, task, "deployer");
+
+        assert.match(printed, /^0x[0-9a-fA-F]+\n$/);
+        assert.equal(stderr, "[hardhat-kms] waiting for the KMS\n");
+      }
+    });
+
+    it("asks an address-only provider for the address even when the key has a pin", async () => {
+      const { hre, created } = await runtime({
+        keys: {
+          matching: vaultKey("matching", HARDHAT_ACCOUNT_0.address),
+          other: vaultKey("other", COW_ACCOUNT.address),
+        },
+        adapters: {
+          matching: () => closableAdapter({ identity: "address" }),
+          other: () => closableAdapter({ identity: "address" }),
+        },
+      });
+
+      const { printed, stderr } = await run(hre, "address", "matching");
+      assert.equal(printed, `${HARDHAT_ACCOUNT_0.address}\n`);
+      assert.equal(stderr, "");
+      assert.equal(created[0]?.calls.getAddress, 1);
+
+      await assertKmsError(run(hre, "address", "other"), [
+        `the key derives to ${HARDHAT_ACCOUNT_0.address}, but the configured address is ${COW_ACCOUNT.address}`,
+      ]);
+      assert.deepEqual(
+        created.map((adapter) => adapter.closed),
+        [1, 1],
+      );
+    });
+
+    it("prints the pin with a note when the provider cannot report the address", async () => {
+      const { hre, created } = await runtime({
+        keys: { deployer: vaultKey("deployer", COW_ACCOUNT.address) },
+        adapters: { deployer: () => closableAdapter({ identity: "none" }) },
+      });
+
+      const { printed, stderr } = await run(hre, "address", "deployer");
+
+      assert.equal(printed, `${COW_ACCOUNT.address}\n`);
+      assert.match(
+        stderr,
+        /^\[hardhat-kms\] deployer: the provider cannot report this key's address, so this is the configured `address` pin, not checked yet\./,
+      );
+      assert.equal(created[0]?.closed, 1);
     });
 
     it("says how to add a key when none is configured", async () => {
@@ -221,7 +304,7 @@ describe("kms tasks", () => {
       const { hre } = await runtime({ keys: { AWS_KMS_KEY_ID: vaultKey("vault") }, kms: "aws" });
 
       await assertKmsError(run(hre, "address", "AWS_KMS_KEY_ID"), [
-        '"AWS_KMS_KEY_ID" names both a key in kms.keys and a key from --kms',
+        '"AWS_KMS_KEY_ID" names more than one key, from kms.keys and --kms; rename the key in kms.keys',
       ]);
     });
 

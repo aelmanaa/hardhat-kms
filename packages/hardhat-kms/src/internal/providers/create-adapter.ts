@@ -148,6 +148,33 @@ export async function createKeyAdapter(
       key: key.displayId,
     });
   }
-  assertAdapter(adapter, key);
+  try {
+    assertAdapter(adapter, key);
+  } catch (error) {
+    await closeRefused(adapter);
+    throw error;
+  }
   return adapter;
+}
+
+/**
+ * Closes an adapter that failed the contract check, if it has a `close` method, so its clients do
+ * not keep the process running. Its own errors are dropped: the check's error is the one to report.
+ *
+ * @param adapter - What the handler returned.
+ */
+async function closeRefused(adapter: unknown): Promise<void> {
+  if (typeof adapter !== "object" || adapter === null) {
+    return;
+  }
+  const close: unknown = Reflect.get(adapter, "close");
+  if (typeof close !== "function") {
+    return;
+  }
+  try {
+    const closing: unknown = Reflect.apply(close, adapter, []);
+    await closing;
+  } catch {
+    // Nothing more to release.
+  }
 }

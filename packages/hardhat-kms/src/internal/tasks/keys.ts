@@ -5,6 +5,7 @@ import { kmsError } from "../errors.ts";
 import { commandLineKeys } from "../hook-handlers/hre.ts";
 import { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
+import { systemTimers } from "../signer/timeout.ts";
 
 /** Where a key that a task can name comes from. */
 type TaskKeySource = "kms.keys" | "kmsAccounts" | "--kms";
@@ -66,15 +67,22 @@ export function findTaskKey(hre: HardhatRuntimeEnvironment, name: string): KmsKe
     return match.key;
   }
   if (match !== undefined && other !== undefined) {
-    // Only a key in `kms.keys` and a `--kms` key can share a name, such as AWS_KMS_KEY_ID.
+    // Only a key in `kms.keys` and a `--kms` key can share a name today, such as AWS_KMS_KEY_ID.
+    const sources = matches.map((candidate) => candidate.source);
     throw kmsError(
-      `"${name}" names both a key in kms.keys and a key from --kms; rename the key in kms.keys`,
+      `"${name}" names more than one key, from ${sources.join(" and ")}; rename the key in kms.keys`,
     );
   }
   const known = keys.map((candidate) => candidate.name);
-  throw kmsError(
-    `unknown key "${name}". ${known.length === 0 ? "No KMS keys are configured: add them to kms.keys or a network's kmsAccounts, or pass --kms." : `Known keys: ${known.join(", ")}.`}`,
-  );
+  if (known.length === 0) {
+    throw kmsError(
+      `unknown key "${name}". No KMS keys are configured: add them to kms.keys or a network's kmsAccounts, or pass --kms.`,
+    );
+  }
+  // Key names are case-sensitive; a slip in case is the likeliest mistake.
+  const sameLetters = known.filter((candidate) => candidate.toLowerCase() === name.toLowerCase());
+  const hint = sameLetters.length === 0 ? "" : ` Did you mean "${sameLetters.join('" or "')}"?`;
+  throw kmsError(`unknown key "${name}".${hint} Known keys: ${known.join(", ")}.`);
 }
 
 /**
@@ -89,7 +97,10 @@ export async function withTaskSigners<T>(
   hre: HardhatRuntimeEnvironment,
   use: (signerFor: (key: KmsKeyConfig) => Promise<KmsSigner>) => Promise<T>,
 ): Promise<T> {
-  const cache = new SignerCache();
+  // Status messages go to standard error, so standard output holds only the task's result.
+  const cache = new SignerCache(systemTimers, async (_context, message) => {
+    printNote(message);
+  });
   try {
     return await use(async (key) => await cache.signerFor(hre, key));
   } finally {
@@ -121,4 +132,14 @@ export async function withNamedSigner<T>(
  */
 export function printLine(line: string): void {
   process.stdout.write(`${line}\n`);
+}
+
+/**
+ * Prints a status line or a warning for the person running a task to standard error, so that
+ * standard output holds only the result.
+ *
+ * @param line - The text, without the prefix or the newline.
+ */
+export function printNote(line: string): void {
+  process.stderr.write(`[hardhat-kms] ${line}\n`);
 }

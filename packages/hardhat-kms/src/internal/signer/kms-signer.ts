@@ -148,6 +148,31 @@ export class KmsSigner {
   }
 
   /**
+   * Returns the key's address as the provider reports it, checked against the `address` pin.
+   * Unlike {@link KmsSigner.getAddress}, it asks an address-only provider even when the key has a
+   * pin, which signing does not need.
+   *
+   * @returns The checksummed address, and whether the provider confirmed it. `confirmed` is
+   * `false` only for a pinned key whose adapter can report neither a public key nor an address:
+   * the address is then the pin, which the first signature checks.
+   */
+  public async confirmedAddress(): Promise<{ address: string; confirmed: boolean }> {
+    const expected = this.#options.expectedAddress;
+    if (this.#adapter.getPublicKey !== undefined || expected === undefined) {
+      return { address: await this.getAddress(), confirmed: true };
+    }
+    const getAddress = this.#adapter.getAddress?.bind(this.#adapter);
+    if (getAddress === undefined) {
+      return { address: expected, confirmed: false };
+    }
+    const address = await this.#call("get address", async (ctx) =>
+      toChecksumAddress(await getAddress(ctx)),
+    );
+    this.#assertPin(address);
+    return { address, confirmed: true };
+  }
+
+  /**
    * Returns the key's uncompressed public key, resolving and pin-checking it on first use.
    *
    * @returns The 65-byte public key, starting with `0x04`.

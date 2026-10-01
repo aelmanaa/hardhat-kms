@@ -70,6 +70,61 @@ describe("SignerCache", () => {
     assert.equal(state.created, 2);
   });
 
+  it("closes an adapter that the signer refuses, and reports the signer's error", async () => {
+    const { context, key, state } = await setUp();
+    // describe() passes the contract check, then fails when the signer calls it.
+    let describes = 0;
+    context.hooks.registerHandlers("kms", {
+      createKeyAdapter: async () => {
+        state.created++;
+        const adapter = fakeAdapter({ secretKey });
+        return {
+          ...adapter,
+          describe: () => {
+            describes++;
+            if (describes > 1) {
+              throw new TypeError("describe failed");
+            }
+            return adapter.describe();
+          },
+          close: async () => {
+            state.closed++;
+            await Promise.reject(new Error("close failed too"));
+          },
+        };
+      },
+    });
+    const cache = new SignerCache(fakeTimers());
+
+    await assert.rejects(cache.signerFor(context, key), /describe failed/);
+    assert.equal(state.closed, 1);
+  });
+
+  it("sends adapter status messages to the display it was given", async () => {
+    const { context, key } = await setUp();
+    const shown: string[] = [];
+    context.hooks.registerHandlers("kms", {
+      createKeyAdapter: async () => {
+        const adapter = fakeAdapter({ secretKey });
+        return {
+          ...adapter,
+          getPublicKey: async (ctx) => {
+            await ctx.displayMessage("waiting");
+            return await (adapter.getPublicKey?.(ctx) ?? Promise.reject(new Error("no key")));
+          },
+        };
+      },
+    });
+    const cache = new SignerCache(fakeTimers(), async (displayContext, message) => {
+      assert.equal(displayContext, context);
+      shown.push(message);
+      await Promise.resolve();
+    });
+
+    assert.equal(await (await cache.signerFor(context, key)).getAddress(), COW_ACCOUNT.address);
+    assert.deepEqual(shown, ["waiting"]);
+  });
+
   it("closes the signers once idle after the last connection, and opens them again on use", async () => {
     const { context, key, state } = await setUp();
     const timers = fakeTimers();

@@ -91,7 +91,7 @@ describe("task keys", () => {
       (error: unknown) =>
         error instanceof HardhatPluginError &&
         error.message.includes(
-          'unknown key "Deployer". Known keys: deployer, ops, first.kmsAccounts[1], AWS_KMS_KEY_ID.',
+          'unknown key "Deployer". Did you mean "deployer"? Known keys: deployer, ops, first.kmsAccounts[1], AWS_KMS_KEY_ID.',
         ),
     );
   });
