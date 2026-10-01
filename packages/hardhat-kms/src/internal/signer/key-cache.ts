@@ -4,6 +4,7 @@ import type { KmsKeyConfig } from "../../types.ts";
 import { kmsDebug } from "../debug.ts";
 import { createKeyAdapter } from "../providers/create-adapter.ts";
 import { KmsSigner } from "./kms-signer.ts";
+import { signerIdentity } from "./signer-identity.ts";
 import { systemTimers, type Timers } from "./timeout.ts";
 
 const log = kmsDebug("signer");
@@ -20,13 +21,15 @@ const hardhatDisplay: DisplayMessage = async (context, message) => {
 };
 
 /**
- * The signers of one Hardhat runtime, by resolved key config. Every connection of the runtime
- * shares them, so an address is looked up once. Connections are counted: when the last one closes,
- * an idle timer closes the signers and their SDK clients, so they do not keep `hardhat run` alive;
- * the next use creates them again.
+ * The signers of one Hardhat runtime. A key of a first-party provider is cached by its
+ * {@link signerIdentity}, so the copies of a key that Hardhat makes for a connection with config
+ * overrides share one signer. Any other key is cached by its config object. Every connection of
+ * the runtime shares the signers, so an address is looked up once. Connections are counted for the
+ * whole cache, not per signer: when the last one closes, an idle timer closes every signer and its
+ * SDK clients, so they do not keep `hardhat run` alive; the next use creates them again.
  */
 export class SignerCache {
-  readonly #signers = new Map<KmsKeyConfig, Promise<KmsSigner>>();
+  readonly #signers = new Map<string | KmsKeyConfig, Promise<KmsSigner>>();
   readonly #timers: Timers;
   #connections = 0;
   /** Calls to {@link SignerCache.withSigner} that have not finished. */
@@ -74,14 +77,16 @@ export class SignerCache {
    * @returns The signer.
    */
   public async signerFor(context: HookContext, key: KmsKeyConfig): Promise<KmsSigner> {
-    let signer = this.#signers.get(key);
+    // Looked up and stored with no await in between, so the idle close always sees the signer.
+    const cacheKey = signerIdentity(key) ?? key;
+    let signer = this.#signers.get(cacheKey);
     if (signer === undefined) {
       signer = this.#create(context, key);
-      this.#signers.set(key, signer);
+      this.#signers.set(cacheKey, signer);
       // Never cache a failure: the next request retries.
       signer.catch(() => {
-        if (this.#signers.get(key) === signer) {
-          this.#signers.delete(key);
+        if (this.#signers.get(cacheKey) === signer) {
+          this.#signers.delete(cacheKey);
         }
       });
     }
@@ -98,7 +103,8 @@ export class SignerCache {
   /** Counts a closed connection; after the last one, closes the signers once idle. */
   public connectionClosed(): void {
     this.#connections = Math.max(0, this.#connections - 1);
-    if (this.#connections > 0 || this.#signers.size === 0) {
+    // A request still running may be about to create a signer: the idle close must cover it.
+    if (this.#connections > 0 || (this.#signers.size === 0 && this.#active === 0)) {
       return;
     }
     this.#scheduleIdleClose();
