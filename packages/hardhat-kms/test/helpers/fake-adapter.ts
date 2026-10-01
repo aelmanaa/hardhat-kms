@@ -24,6 +24,8 @@ export interface FakeAdapterOptions {
   hang?: boolean;
   /** Throw this from every call. */
   throwError?: Error;
+  /** Awaited before each signature, so a test can hold or slow down signing. */
+  beforeSign?: () => Promise<void>;
 }
 
 /** A fake adapter plus counters for assertions. */
@@ -59,6 +61,7 @@ export function fakeAdapter(options: FakeAdapterOptions): FakeAdapter {
     async signDigest({ digest }, ctx): Promise<SignatureOutput> {
       calls.signDigest++;
       await guard(ctx);
+      await options.beforeSign?.();
       const wrong =
         options.signWithSecretKey !== undefined ||
         (options.wrongKeyForCalls !== undefined && calls.signDigest <= options.wrongKeyForCalls);

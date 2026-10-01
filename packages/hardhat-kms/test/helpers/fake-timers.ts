@@ -6,6 +6,8 @@ export interface FakeTimers extends Timers {
   fire(): void;
   /** Number of timers scheduled and not cancelled. */
   pending(): number;
+  /** The delays of the pending timers, in milliseconds, in the order they were scheduled. */
+  delays(): number[];
 }
 
 /**
@@ -14,20 +16,25 @@ export interface FakeTimers extends Timers {
  * @returns The fake timers.
  */
 export function fakeTimers(): FakeTimers {
-  const timers = new Set<() => void>();
+  const timers = new Map<() => void, number>();
   return {
-    setTimeout(callback) {
-      timers.add(callback);
+    setTimeout(callback, ms) {
+      // Each timer gets its own entry, even when one callback is scheduled twice.
+      const entry = (): void => {
+        callback();
+      };
+      timers.set(entry, ms);
       return () => {
-        timers.delete(callback);
+        timers.delete(entry);
       };
     },
     fire() {
-      for (const callback of Array.from(timers)) {
+      for (const callback of Array.from(timers.keys())) {
         timers.delete(callback);
         callback();
       }
     },
     pending: () => timers.size,
+    delays: () => Array.from(timers.values()),
   };
 }

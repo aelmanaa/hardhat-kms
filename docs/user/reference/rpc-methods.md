@@ -2,7 +2,7 @@
 
 Audience: Users and library authors who want to know which JSON-RPC calls the plugin handles.
 
-Status: M4 implements accounts, `eth_sign`, `personal_sign` and `eth_signTypedData_v4` ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). The chain-id check for typed data is [#20](https://github.com/aelmanaa/hardhat-kms/issues/20). M5 signs `eth_sendTransaction` and `eth_signTransaction` ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)). Parallel sends from one KMS account are not serialized yet, so they can get the same nonce; the send lock is [#25](https://github.com/aelmanaa/hardhat-kms/issues/25).
+Status: M4 implements accounts, `eth_sign`, `personal_sign` and `eth_signTypedData_v4` ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). The chain-id check for typed data is [#20](https://github.com/aelmanaa/hardhat-kms/issues/20). M5 signs `eth_sendTransaction` and `eth_signTransaction` ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)), and serializes sends from one KMS account, with a nonce high-water mark and one retry of a failed broadcast ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)).
 
 ## RPC behaviour
 
@@ -19,13 +19,31 @@ The plugin installs a network hook on every connection. On a connection whose ne
 - No RPC method signs a bare digest.
 - Every other method passes through untouched.
 
-When `from` (or the address param) is not a KMS address, the request passes through. If the sender turns out not to be a local account either, the resulting error lists the loaded KMS addresses (planned for M5).
+When `from` (or the address param) is not a KMS address, the request passes through. If the sender turns out not to be a local account either, the resulting error lists the loaded KMS addresses (planned in [#119](https://github.com/aelmanaa/hardhat-kms/issues/119)).
 
 An `eth_sendTransaction` or `eth_signTransaction` without `from` gets the sender Hardhat would give it: the network's `from` when the config sets one, otherwise the first address of `eth_accounts`, in the plugin's order (the network's own accounts, then the KMS addresses). The plugin sets `from` to that sender. When the sender is a KMS account, the plugin signs; otherwise the request passes on with `from` set, and Hardhat or the node signs it. A transaction therefore never reaches the node unsigned with a KMS address as its sender. Hardhat's sender handlers cover `eth_sendTransaction` but not `eth_signTransaction`; the plugin chooses the sender for both. When there is no sender (an empty or invalid `eth_accounts` answer), the request passes on unchanged.
 
 The plugin copies a KMS account's transaction when the request arrives, so changing the request object after the call does not change what is signed. A KMS account's transaction that cannot be copied (one holding a function, for example) fails with `the transaction must be plain data`, and nothing is sent. Requests from other senders pass through as they came; for a transaction without `from`, only `from` is added, on a shallow copy.
 
 `kmsAccounts` on the `default` network prints a warning, because tasks and tests use that network when no `--network` is given; see the [configuration reference](configuration.md#configuration).
+
+## Parallel sends and failed broadcasts
+
+`eth_sendTransaction` calls from one KMS account on one chain run one at a time within a process, so parallel sends get consecutive nonces. Sends from other accounts, or to other chains, do not wait for each other. `eth_signTransaction` does not wait for sends. A send whose broadcast hangs makes the account's other sends wait until Hardhat's network timeout (the network's `timeout`, 300 seconds by default) ends it; a shorter limit is planned in [#120](https://github.com/aelmanaa/hardhat-kms/issues/120).
+
+On an http network, a send whose caller gives no `nonce` uses the higher of the node's pending count and one more than the highest nonce the node accepted from that account on the same connection. A node whose pending count lags behind, such as a load-balanced RPC endpoint, therefore does not get a nonce twice. A `nonce` in the request is always used, also one that was already sent, so a replacement transaction with the same nonce and higher fees goes through, as Hardhat Ignition sends for a stuck transaction. On `edr-simulated` networks the node's pending count is used as it is.
+
+Separate processes are not coordinated: two `hardhat run` commands that send from the same KMS key at the same time can choose the same nonce.
+
+When the node answers a broadcast with an error, such as a revert or "nonce too low", `eth_sendTransaction` fails with that error, unchanged, as it would for a local account. A reverted transaction keeps its revert data and `transactionHash`. A rate limit that outlasts Hardhat's own retries (HTTP 429) is such an answer too.
+
+When Hardhat cannot connect to the node, nothing was sent, and `eth_sendTransaction` fails with Hardhat's "Cannot connect to the network" error, unchanged.
+
+When no answer comes back, because the request times out or fails with an HTTP error status, the transaction may still be on its way. `eth_sendTransaction` then fails with JSON-RPC error code `-32000`. The error's `transactionHash` and `data.hash` are the transaction hash, so you can look the transaction up; Hardhat Ignition reads `transactionHash` and follows the transaction. A gateway's answer that its backend timed out (code `-32603`, or a message saying the request timed out or a deadline was exceeded) leaves the outcome open in the same way, but it is passed on unchanged, without the hash.
+
+After either of these, if the same request, with the same params, is sent again on the same connection within 120 seconds, the plugin sends the same signed transaction again instead of signing a new one, and returns its hash. A node that answers "already known" counts as success, and so does a refusal of those bytes when the node turns out to have the transaction. Each such retry uses up the kept transaction; if the retry also gets no answer, a gateway's timeout answer or a refused connection, the transaction is kept again for another 120 seconds. If another send has used the transaction's nonce in the meantime and the node does not have it, the retry is signed afresh instead. A request that succeeded is never repeated this way, so sending the same transaction twice on purpose still sends two transactions. viem never retries a send by itself, so only a caller that repeats the request gets this.
+
+Only a send without a caller-supplied `nonce` first asks the node whether it has the account's last uncertain transaction, so that the send does not reuse its nonce. A send with a `nonce` does not ask. The question is asked once; behind a load balancer it can reach a backend that does not have the transaction yet, and the node's pending count then decides as usual.
 
 ## Supported transaction types
 

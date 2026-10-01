@@ -4,6 +4,7 @@ import type { NetworkConnection } from "hardhat/types/network";
 import { kmsDebug } from "../debug.ts";
 import { ConnectionChain } from "../rpc/chain-id.ts";
 import { ConnectionAccounts, dispatch, type NetworkKeys } from "../rpc/dispatcher.ts";
+import { ConnectionSends } from "../rpc/send-guard.ts";
 import { createTransactionFiller, type TransactionFiller } from "../rpc/transaction-filler.ts";
 import { SignerCache } from "../signer/key-cache.ts";
 import { systemTimers, type Timers } from "../signer/timeout.ts";
@@ -79,7 +80,7 @@ const hasKeys = (keys: NetworkKeys): boolean =>
  * Builds the network hook handlers of one runtime: the signer cache and the per-connection
  * accounts live in this closure.
  *
- * @param timers - Timer functions for the idle close, for tests.
+ * @param timers - Timer functions for the idle close and the retry entries, for tests.
  * @returns The handlers.
  */
 export function createNetworkHandlers(timers: Timers = systemTimers): Partial<NetworkHooks> {
@@ -127,6 +128,21 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
     return filler;
   };
 
+  // One send state per connection: its nonce high-water marks and retry entries. On a simulated
+  // network the node's pending count is authoritative, so the high-water mark is off.
+  const sendsByConnection = new WeakMap<object, ConnectionSends>();
+  const sendsOf = (connection: NetworkConnection<string>): ConnectionSends => {
+    let sends = sendsByConnection.get(connection);
+    if (sends === undefined) {
+      sends = new ConnectionSends({
+        highWater: connection.networkConfig.type !== "edr-simulated",
+        timers,
+      });
+      sendsByConnection.set(connection, sends);
+    }
+    return sends;
+  };
+
   return {
     newConnection: async (context, next) => {
       const connection = await next(context);
@@ -166,6 +182,8 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
         cache.connectionClosed();
       }
       fillers.delete(connection);
+      sendsByConnection.get(connection)?.close();
+      sendsByConnection.delete(connection);
       await next(context, connection);
     },
     onRequest: async (context, connection, request, next) =>
@@ -180,6 +198,12 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
         {
           filler: () => fillerOf(connection),
           defaultSender: async () => await defaultSender(connection),
+          chainId: async () => await chainOf(connection).chainId(),
+          sends: () => sendsOf(connection),
+          request: async (method, params) => {
+            const result: unknown = await connection.provider.request({ method, params });
+            return result;
+          },
         },
       ),
   };

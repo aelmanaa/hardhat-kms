@@ -18,6 +18,12 @@ export interface RecordingNode {
   accounts: unknown;
   /** Methods the node answers with an error, and the error message. */
   faults: Map<string, string>;
+  /**
+   * What the node does after it has recorded a raw transaction: answer with an error that has
+   * this message (and code, -32000 by default), or wait this many milliseconds before it answers
+   * with the hash. Unset, it answers with the hash at once.
+   */
+  afterAccept: { error: string; code?: number } | { delayMs: number } | undefined;
 }
 
 /**
@@ -58,11 +64,31 @@ export async function startRecordingNode(
       assert.ok(typeof bytes === "string");
       raw.push(bytes);
       const hash = `0x${Buffer.from(keccak_256(Buffer.from(bytes.slice(2), "hex"))).toString("hex")}`;
+      const after = node?.afterAccept;
+      if (after !== undefined && "error" in after) {
+        return {
+          jsonrpc: "2.0",
+          id: request.id,
+          error: { code: after.code ?? -32000, message: after.error },
+        };
+      }
+      if (after !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, after.delayMs));
+      }
       return { jsonrpc: "2.0", id: request.id, result: hash };
     },
   });
   const server = await hre.network.createServer("node", "127.0.0.1", 0);
   const { address, port } = await server.listen();
-  node = { server, url: `http://${address}:${port}`, raw, methods, requests, accounts: [], faults };
+  node = {
+    server,
+    url: `http://${address}:${port}`,
+    raw,
+    methods,
+    requests,
+    accounts: [],
+    faults,
+    afterAccept: undefined,
+  };
   return node;
 }

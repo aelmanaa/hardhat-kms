@@ -1,3 +1,4 @@
+import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import {
   rpcAddress,
@@ -17,6 +18,14 @@ import { parseAwsKeyId } from "../providers/aws/key-id.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { type ConnectionChain, parseChainId } from "./chain-id.ts";
+import {
+  canonicalJson,
+  type ConnectionSends,
+  RETRY_TTL_MS,
+  SendOutcomeUnknownError,
+  type SentTransaction,
+  withSendLock,
+} from "./send-guard.ts";
 import { notPlainData, type TransactionFiller } from "./transaction-filler.ts";
 import { signTransaction } from "./transactions.ts";
 
@@ -139,10 +148,29 @@ export class ConnectionAccounts {
     address: string,
     sign: (signer: KmsSigner) => Promise<T>,
   ): Promise<{ result: T } | undefined> {
-    const key = (await this.#resolve()).get(address);
-    return key === undefined
-      ? undefined
-      : { result: await this.#cache.withSigner(this.#context, key, sign) };
+    const key = await this.keyFor(address);
+    return key === undefined ? undefined : { result: await this.signWith(key, sign) };
+  }
+
+  /**
+   * Returns the key of the KMS account at an address.
+   *
+   * @param address - A lowercase address.
+   * @returns The key, or `undefined` if the address is not a KMS account.
+   */
+  public async keyFor(address: string): Promise<KmsKeyConfig | undefined> {
+    return (await this.#resolve()).get(address);
+  }
+
+  /**
+   * Signs with a key's signer. The idle close waits until `sign` has finished.
+   *
+   * @param key - A key from {@link ConnectionAccounts.keyFor}.
+   * @param sign - What to do with the key's signer.
+   * @returns What `sign` returns.
+   */
+  public async signWith<T>(key: KmsKeyConfig, sign: (signer: KmsSigner) => Promise<T>): Promise<T> {
+    return await this.#cache.withSigner(this.#context, key, sign);
   }
 
   async #resolve(): Promise<Map<string, KmsKeyConfig>> {
@@ -235,6 +263,12 @@ export interface ConnectionTransactions {
    * `from`, else the first account of `eth_accounts`.
    */
   defaultSender(): Promise<unknown>;
+  /** Returns the connection's chain id. */
+  chainId(): Promise<bigint>;
+  /** Returns the connection's send state: nonce high-water marks and retry entries. */
+  sends(): ConnectionSends;
+  /** Sends a read request on the connection, through the whole hook chain. */
+  request(method: string, params: unknown[]): Promise<unknown>;
 }
 
 /**
@@ -288,14 +322,24 @@ export async function dispatch(
       return response(request, signed.result);
     }
   } else if (TRANSACTION_METHODS.has(request.method)) {
-    const outcome = await signTransactionFor(accounts, request.method, params, transactions);
-    if ("raw" in outcome && request.method === "eth_signTransaction") {
-      return response(request, outcome.raw);
+    const outcome = await kmsTransactionOf(accounts, request.method, params, transactions);
+    if ("kms" in outcome && request.method === "eth_sendTransaction") {
+      return await sendTransaction(accounts, request, outcome.kms, transactions, next);
     }
-    if ("raw" in outcome) {
-      // Like Hardhat's local accounts: the signed transaction replaces the request. Parallel
-      // sends from one account are not serialized yet (#25).
-      return await next({ ...request, method: "eth_sendRawTransaction", params: [outcome.raw] });
+    if ("kms" in outcome) {
+      // eth_signTransaction takes no lock and leaves the high-water mark alone (rule 5).
+      const { key, address, params: signParams } = outcome.kms;
+      const signed = await accounts.signWith(
+        key,
+        async (signer) =>
+          await signTransaction(signer, {
+            filler: transactions.filler(),
+            method: request.method,
+            params: signParams,
+            from: address,
+          }),
+      );
+      return response(request, signed.raw);
     }
     if (outcome.params !== undefined) {
       return await next({ ...request, params: outcome.params });
@@ -304,14 +348,28 @@ export async function dispatch(
   return await next(request);
 }
 
-/**
- * What happens to a transaction request: it was signed, or it goes on to the rest of the chain,
- * either unchanged (`params` undefined) or with the sender the plugin chose.
- */
-type TransactionOutcome = { raw: string } | { params: unknown[] | undefined };
+/** A transaction to sign with a KMS account. */
+interface KmsTransaction {
+  /** The account's key. */
+  key: KmsKeyConfig;
+  /** The account's lowercase address. */
+  address: string;
+  /** The copied params, with `from` set to the account. */
+  params: unknown[];
+  /** The copied params as the caller sent them, for the retry key. */
+  callerParams: unknown[];
+  /** Whether the caller chose the nonce. */
+  callerNonce: boolean;
+}
 
 /**
- * Fills and signs a transaction whose sender is a KMS account.
+ * What happens to a transaction request: a KMS account signs it, or it goes on to the rest of the
+ * chain, either unchanged (`params` undefined) or with the sender the plugin chose.
+ */
+type TransactionOutcome = { kms: KmsTransaction } | { params: unknown[] | undefined };
+
+/**
+ * Finds the KMS account that signs a transaction, and copies the transaction.
  *
  * The transaction is copied before the first `await`, so a caller that changes its object
  * meanwhile cannot change what is signed. A transaction that cannot be copied is refused only
@@ -322,9 +380,9 @@ type TransactionOutcome = { raw: string } | { params: unknown[] | undefined };
  * connection, and may otherwise pick a KMS address the plugin did not see, so the transaction
  * would reach the node unsigned. The sender is set on a shallow copy of the caller's transaction.
  *
- * @returns The signed raw transaction, or the params to pass on.
+ * @returns The KMS transaction, or the params to pass on.
  */
-async function signTransactionFor(
+async function kmsTransactionOf(
   accounts: ConnectionAccounts,
   method: string,
   params: unknown[],
@@ -360,18 +418,312 @@ async function signTransactionFor(
     }
     return { params: forward };
   }
+  const key = await accounts.keyFor(address);
+  if (key === undefined) {
+    return { params: forward };
+  }
   const { transaction, rest } = copy;
-  const signed = await accounts.withSigner(
-    address,
-    async (signer) =>
-      await signTransaction(signer, {
-        filler: transactions.filler(),
-        method,
-        params: [{ ...transaction, from }, ...rest],
-        from: address,
-      }),
-  );
-  return signed === undefined ? { params: forward } : { raw: signed.result };
+  return {
+    kms: {
+      key,
+      address,
+      params: [{ ...transaction, from }, ...rest],
+      callerParams: [transaction, ...rest],
+      callerNonce: transaction.nonce !== undefined,
+    },
+  };
+}
+
+/**
+ * Sends a KMS account's transaction under the send lock for its chain and address (rule 4).
+ * Inside the lock: a retry entry for the same request is sent again; otherwise the transaction is
+ * filled and signed inside `signWith`, then broadcast once with `next`, after `signWith` has
+ * returned, so the idle close never waits on the node.
+ */
+async function sendTransaction(
+  accounts: ConnectionAccounts,
+  request: JsonRpcRequest,
+  kms: KmsTransaction,
+  transactions: ConnectionTransactions,
+  next: Next,
+): Promise<JsonRpcResponse> {
+  const chainId = await transactions.chainId();
+  const sends = transactions.sends();
+  const { address } = kms;
+  const callerParams = canonicalJson(kms.callerParams);
+  const retryKey =
+    callerParams === undefined ? undefined : `${chainId}\0${address}\0${callerParams}`;
+  const nodeHas = async (hash: string): Promise<boolean> =>
+    await nodeHasTransaction(transactions, hash);
+  return await withSendLock(`${chainId}:${address}`, async () => {
+    const retry = retryKey === undefined ? undefined : sends.takeRetry(retryKey);
+    const mark = sends.highWaterOf(address);
+    if (retry !== undefined && mark !== undefined && retry.nonce <= mark) {
+      // A later send has used this nonce, or a higher one. The old bytes go out again only if the
+      // node has them already; otherwise they could replace that later send, so sign afresh.
+      if (await nodeHas(retry.hash)) {
+        sends.settleUncertain(address, retry.hash);
+        return response(request, retry.hash);
+      }
+      log("transaction %s is unknown and its nonce was used since; signing again", retry.hash);
+    } else if (retry !== undefined) {
+      log("sending transaction %s again for a retried request", retry.hash);
+      return await broadcast(request, retry, {
+        address,
+        sends,
+        retryKey,
+        next,
+        nodeHas,
+        resend: true,
+      });
+    }
+    if (!kms.callerNonce) {
+      await settleUncertain(address, sends, nodeHas);
+    }
+    const signed = await accounts.signWith(
+      kms.key,
+      async (signer) =>
+        await signTransaction(signer, {
+          filler: transactions.filler(),
+          method: request.method,
+          params: kms.params,
+          from: address,
+          chooseNonce: kms.callerNonce ? undefined : (pending) => sends.nonceFor(address, pending),
+        }),
+    );
+    return await broadcast(request, signed, {
+      address,
+      sends,
+      retryKey,
+      next,
+      nodeHas,
+      resend: false,
+    });
+  });
+}
+
+/**
+ * Asks the node about the sender's last transaction whose broadcast got no answer. If the node
+ * has it, the high-water mark rises to its nonce, so a node whose pending count lags cannot give
+ * that nonce to the next send, which could replace the first transaction. If the node does not
+ * have it, or the lookup fails, the mark stays and the node's pending count decides; the next
+ * send may then take its nonce, so its retry entry is dropped and a retry of it signs afresh.
+ */
+async function settleUncertain(
+  address: string,
+  sends: ConnectionSends,
+  nodeHas: (hash: string) => Promise<boolean>,
+): Promise<void> {
+  const uncertain = sends.takeUncertain(address);
+  if (uncertain === undefined) {
+    return;
+  }
+  if (await nodeHas(uncertain.hash)) {
+    sends.recordSent(address, uncertain.nonce);
+  } else {
+    sends.dropRetriesOf(uncertain.hash);
+  }
+}
+
+/**
+ * Asks the node with `eth_getTransactionByHash` whether it has a transaction. A failed lookup
+ * counts as no.
+ */
+async function nodeHasTransaction(
+  transactions: ConnectionTransactions,
+  hash: string,
+): Promise<boolean> {
+  let known = false;
+  try {
+    known = isObject(await transactions.request("eth_getTransactionByHash", [hash]));
+  } catch (error) {
+    log("looking up transaction %s failed (%s)", hash, errorName(error));
+  }
+  log("transaction %s is %s the node", hash, known ? "known to" : "not known to");
+  return known;
+}
+
+/** What a broadcast needs besides the request and the transaction. */
+interface BroadcastContext {
+  address: string;
+  sends: ConnectionSends;
+  /** The retry key, or `undefined` when the params cannot be serialized for one. */
+  retryKey: string | undefined;
+  next: Next;
+  /** Asks the node whether it has a transaction. */
+  nodeHas: (hash: string) => Promise<boolean>;
+  /** Whether this sends a retry entry's bytes again. */
+  resend: boolean;
+}
+
+/**
+ * Tells whether a node refused a raw transaction because it already has it. The message must
+ * start with what a client says: "already known" (Geth, Reth, Erigon), "AlreadyKnown"
+ * (Nethermind) or "known transaction" (older Geth, and Hardhat's EDR as "Known transaction:
+ * <hash>"). A message such as "unknown transaction type" does not match.
+ */
+export function isAlreadyKnown(message: string): boolean {
+  return /^\s*(?:already known\b|alreadyknown\b|known transaction\b)/i.test(message);
+}
+
+/**
+ * Tells whether a thrown error is an answer from the node. Hardhat's errors for node answers
+ * carry a numeric `code` other than -1: `ProviderError` and its subclasses (including
+ * `LimitExceededError`, -32005, after repeated HTTP 429s), and `SolidityError` (code 3) for a
+ * reverted transaction. Hardhat's `UnknownError` has code -1 and wraps a failed HTTP request (a
+ * 4xx or 5xx status, or a transport error), and its `HardhatError`s for a refused connection or a
+ * timeout have no `code`; none of them is an answer.
+ *
+ * @returns The error as a record when it is an answer, else `undefined`.
+ */
+function nodeAnswer(error: unknown): Record<string, unknown> | undefined {
+  return isObject(error) && typeof error.code === "number" && error.code !== -1 ? error : undefined;
+}
+
+/**
+ * Tells whether a thrown error is Hardhat's refused connection (HHE703), which means the request
+ * never reached the node.
+ */
+function isConnectionRefused(error: unknown): boolean {
+  return HardhatError.isHardhatError(error, HardhatError.ERRORS.CORE.NETWORK.CONNECTION_REFUSED);
+}
+
+/**
+ * Tells whether an error answer says the node does not know what happened: an internal error
+ * (-32603), as gateways answer when the backend they forwarded to timed out, or a message that
+ * says the request timed out ("timeout", "timed out", "deadline exceeded"). The backend may have
+ * taken the transaction before it gave up. A message that starts with "execution reverted" or
+ * "revert" is a revert, whatever its code or reason.
+ */
+export function isUncertainAnswer(code: number, message: string): boolean {
+  // A revert's reason can say anything, "Deadline exceeded" included; it is a definite answer.
+  if (/^\s*(?:execution reverted|revert)/i.test(message)) {
+    return false;
+  }
+  return code === -32603 || /\btimed? ?out\b|deadline exceeded/i.test(message);
+}
+
+/**
+ * The hash of a transaction the node ran although its answer is an error, as a node that mines
+ * at once reports for a reverted transaction: in `transactionHash` (Hardhat's `SolidityError`) or
+ * in `data.transactionHash` (the JSON-RPC error data of Hardhat's nodes).
+ */
+function minedHashOf(error: Record<string, unknown>): string | undefined {
+  if (typeof error.transactionHash === "string") {
+    return error.transactionHash;
+  }
+  const { data } = error;
+  return isObject(data) && typeof data.transactionHash === "string"
+    ? data.transactionHash
+    : undefined;
+}
+
+/**
+ * Sends a signed transaction with exactly one `next(eth_sendRawTransaction)`, and sorts the
+ * outcome (docs/contributor/transactions.md, "Retries after broadcast"):
+ *
+ * - The node accepts it: its answer is returned as it is.
+ * - Hardhat cannot connect (HHE703): nothing was sent, and Hardhat's error is rethrown as it is.
+ * - The node answers with an error, returned or thrown with a JSON-RPC code: the answer is
+ *   returned, or the error rethrown, as it is.
+ *   - It says the transaction was mined anyway: its nonce counts as used.
+ *   - Bytes were sent again and it says "already known": success.
+ *   - It is a gateway's "I don't know" ({@link isUncertainAnswer}): the outcome is unknown, and
+ *     the transaction is kept for one retry and for a lookup before the sender's next send.
+ *   - Bytes were sent again and it refuses them: the node is asked whether it has the
+ *     transaction, and if so the send counts as a success.
+ *   - Otherwise it is a refusal, and nothing is kept.
+ * - No answer (a thrown error that is not an answer, such as a timeout or an HTTP error status):
+ *   the transaction is kept as above, and a {@link SendOutcomeUnknownError} is thrown.
+ */
+async function broadcast(
+  request: JsonRpcRequest,
+  transaction: SentTransaction,
+  context: BroadcastContext,
+): Promise<JsonRpcResponse> {
+  const { address, sends, retryKey, next, nodeHas, resend } = context;
+  const accepted = (): JsonRpcResponse => {
+    sends.settleUncertain(address, transaction.hash);
+    sends.recordSent(address, transaction.nonce);
+    return response(request, transaction.hash);
+  };
+  const keepUncertain = (): void => {
+    if (retryKey !== undefined) {
+      sends.rememberFailure(retryKey, transaction);
+    }
+    sends.rememberUncertain(address, transaction);
+  };
+  let error: Record<string, unknown>;
+  let passOn: () => JsonRpcResponse;
+  try {
+    const answer = await next({
+      ...request,
+      method: "eth_sendRawTransaction",
+      params: [transaction.raw],
+    });
+    if (!("error" in answer)) {
+      sends.settleUncertain(address, transaction.hash);
+      sends.recordSent(address, transaction.nonce);
+      return answer;
+    }
+    error = answer.error;
+    passOn = () => answer;
+  } catch (thrown) {
+    if (isConnectionRefused(thrown)) {
+      log("sending transaction %s: the node refused the connection", transaction.hash);
+      if (resend && retryKey !== undefined) {
+        // The first send's outcome is still unknown: keep its bytes for the next retry.
+        sends.rememberFailure(retryKey, transaction);
+      }
+      throw thrown;
+    }
+    const answer = nodeAnswer(thrown);
+    if (answer === undefined) {
+      keepUncertain();
+      // Only the class name: a transport error's text can include the node's URL.
+      const cause = errorName(thrown);
+      log("sending transaction %s got no answer (%s)", transaction.hash, cause);
+      throw new SendOutcomeUnknownError(
+        `${request.method}: transaction ${transaction.hash} was handed to the node, but no answer came back (${cause}). It may still be mined: look it up by its hash before sending another transaction. Repeating the same request within ${RETRY_TTL_MS / 1000} s sends the same transaction again.`,
+        transaction.hash,
+      );
+    }
+    error = answer;
+    passOn = () => {
+      throw thrown;
+    };
+  }
+  const message = typeof error.message === "string" ? error.message : "";
+  const code = typeof error.code === "number" ? error.code : 0;
+  if (minedHashOf(error) !== undefined || code === 3) {
+    // Mined, or reverted when it ran: a definite answer.
+    if (minedHashOf(error) !== undefined) {
+      sends.settleUncertain(address, transaction.hash);
+      sends.recordSent(address, transaction.nonce);
+      return passOn();
+    }
+    // A revert without a hash, for bytes sent again: the first send may have been mined, and
+    // the node now refuses its nonce with a simulated revert.
+    if (resend && (await nodeHas(transaction.hash))) {
+      return accepted();
+    }
+    sends.settleUncertain(address, transaction.hash);
+    return passOn();
+  }
+  if (resend && isAlreadyKnown(message)) {
+    return accepted();
+  }
+  if (isUncertainAnswer(code, message)) {
+    log("sending transaction %s: the node does not know the outcome (%d)", transaction.hash, code);
+    keepUncertain();
+    return passOn();
+  }
+  if (resend && (await nodeHas(transaction.hash))) {
+    // Refused now, because the first send of these bytes went through.
+    return accepted();
+  }
+  sends.settleUncertain(address, transaction.hash);
+  return passOn();
 }
 
 /**
