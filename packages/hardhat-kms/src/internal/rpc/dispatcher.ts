@@ -68,6 +68,18 @@ async function keyIdentity(key: KmsKeyConfig): Promise<string | undefined> {
 const ACCOUNT_METHODS = new Set(["eth_accounts", "eth_requestAccounts"]);
 const TRANSACTION_METHODS = new Set(["eth_sendTransaction", "eth_signTransaction"]);
 
+/** The methods that name an account; a node or Hardhat refuses them for an account it lacks. */
+const SENDER_METHODS = new Set([
+  "eth_sendTransaction",
+  "eth_signTransaction",
+  "eth_sign",
+  "personal_sign",
+  "eth_signTypedData_v4",
+]);
+
+/** How many KMS addresses an "unknown account" error lists before it says "and N more". */
+const LISTED_KMS_ADDRESSES = 10;
+
 /** Reads a request's positional params; anything else counts as no params. */
 function paramsOf(request: JsonRpcRequest): unknown[] {
   return Array.isArray(request.params) ? request.params : [];
@@ -342,10 +354,158 @@ export async function dispatch(
       return response(request, signed.raw);
     }
     if (outcome.params !== undefined) {
-      return await next({ ...request, params: outcome.params });
+      return await passThrough(accounts, { ...request, params: outcome.params }, next);
     }
   }
-  return await next(request);
+  return await passThrough(accounts, request, next);
+}
+
+/**
+ * Passes a request on to the rest of the chain. When a request that names an account fails
+ * because the node or Hardhat does not know that account, the error gets the KMS addresses
+ * appended, so a mistyped address or a key missing from `kmsAccounts` shows. The error keeps its
+ * class, code and data; any other answer or error comes back unchanged.
+ */
+async function passThrough(
+  accounts: ConnectionAccounts,
+  request: JsonRpcRequest,
+  next: Next,
+): Promise<JsonRpcResponse> {
+  if (!SENDER_METHODS.has(request.method)) {
+    return await next(request);
+  }
+  let answer: JsonRpcResponse;
+  try {
+    answer = await next(request);
+  } catch (error) {
+    if (error instanceof Error && isUnknownAccount(error)) {
+      const sentence = kmsAccountsSentence(await kmsAddressesOf(accounts));
+      if (sentence !== undefined) {
+        appendInPlace(error, sentence);
+      }
+    }
+    throw error;
+  }
+  if ("error" in answer && isUnknownAccount(answer.error)) {
+    const sentence = kmsAccountsSentence(await kmsAddressesOf(accounts));
+    if (sentence !== undefined) {
+      const message = withSentence(answer.error.message, sentence);
+      return { ...answer, error: { ...answer.error, message } };
+    }
+  }
+  return answer;
+}
+
+/**
+ * Tells whether an error says the account a request names is unknown:
+ *
+ * - Hardhat's `HardhatError` HHE716 (`NOT_LOCAL_ACCOUNT`), thrown by its local accounts on a
+ *   network with `accounts` for an address that is not one of them: `Account "<address>" is not
+ *   managed by the node you are connected to.`
+ * - Code -32000 with a message that starts with "unknown account", in any case: Hardhat's
+ *   simulated network (`Unknown account <address>`, thrown as a `ProviderError`) and Geth
+ *   (`unknown account`, an error answer over http).
+ * - Code -32602 with a message that is exactly `unknown account`, in any case (Reth), or exactly
+ *   `No Signer available` (Anvil).
+ *
+ * @param error - A thrown error, or a JSON-RPC error answer.
+ * @returns Whether it is.
+ */
+export function isUnknownAccount(error: unknown): boolean {
+  if (HardhatError.isHardhatError(error, HardhatError.ERRORS.CORE.NETWORK.NOT_LOCAL_ACCOUNT)) {
+    return true;
+  }
+  if (!isObject(error) || typeof error.message !== "string") {
+    return false;
+  }
+  const { code, message } = error;
+  if (code === -32000) {
+    return /^\s*unknown account\b/i.test(message);
+  }
+  if (code === -32602) {
+    return /^\s*unknown account\s*$/i.test(message) || message.trim() === "No Signer available";
+  }
+  return false;
+}
+
+/** Reads the KMS addresses; a failed read gives none, so the error stays as it is. */
+async function kmsAddressesOf(accounts: ConnectionAccounts): Promise<string[]> {
+  try {
+    return await accounts.addresses();
+  } catch (error) {
+    log("listing the KMS accounts for an unknown account failed (%s)", errorName(error));
+    return [];
+  }
+}
+
+/**
+ * The sentence an "unknown account" error gets: the KMS addresses, at most
+ * {@link LISTED_KMS_ADDRESSES}, then "and N more". Only addresses, never key ids.
+ *
+ * @param addresses - The checksummed KMS addresses.
+ * @returns The sentence, or `undefined` when there are no addresses.
+ */
+export function kmsAccountsSentence(addresses: readonly string[]): string | undefined {
+  if (addresses.length === 0) {
+    return undefined;
+  }
+  const shown = addresses.slice(0, LISTED_KMS_ADDRESSES).join(", ");
+  const more = addresses.length - LISTED_KMS_ADDRESSES;
+  const list = more > 0 ? `${shown} and ${more} more` : shown;
+  return addresses.length === 1
+    ? `The KMS account on this network is ${list}.`
+    : `The KMS accounts on this network are ${list}.`;
+}
+
+/**
+ * Appends a sentence to a message, after a full stop when the message has none. A message that
+ * already holds the sentence, because the same error came through twice, is returned as it is.
+ *
+ * @param message - The error message.
+ * @param sentence - From {@link kmsAccountsSentence}.
+ * @returns The new message.
+ */
+export function withSentence(message: string, sentence: string): string {
+  if (message.includes(sentence)) {
+    return message;
+  }
+  const text = message.trimEnd();
+  return `${text}${/[.!?]$/.test(text) ? "" : "."} ${sentence}`;
+}
+
+/**
+ * Appends a sentence to a thrown error's `message`, the first line of its `stack`, and, for a
+ * `HardhatError`, its `formattedMessage`, which Hardhat's CLI prints. The error object stays the
+ * same, so its class, code and data stay. If any write fails, as on a frozen error, the writes
+ * already made are undone and the error is left as it came.
+ */
+function appendInPlace(error: Error, sentence: string): void {
+  const { message, stack } = error;
+  const hardhat = HardhatError.isHardhatError(error) ? error : undefined;
+  let formattedSet = false;
+  let messageSet = false;
+  try {
+    if (hardhat !== undefined) {
+      Object.defineProperty(hardhat, "formattedMessage", {
+        value: withSentence(hardhat.formattedMessage, sentence),
+        configurable: true,
+      });
+      formattedSet = true;
+    }
+    error.message = withSentence(message, sentence);
+    messageSet = true;
+    if (typeof stack === "string") {
+      error.stack = stack.replace(message, () => error.message);
+    }
+  } catch (failure) {
+    log("could not add the KMS accounts to the error (%s)", errorName(failure));
+    if (messageSet) {
+      Reflect.set(error, "message", message);
+    }
+    if (formattedSet) {
+      Reflect.deleteProperty(error, "formattedMessage");
+    }
+  }
 }
 
 /** A transaction to sign with a KMS account. */
