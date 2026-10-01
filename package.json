@@ -14,7 +14,7 @@
     "format:check": "oxfmt --check .",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
-    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && node scripts/check-type-escapes.ts",
     "test": "pnpm run build && pnpm -r run test",
     "test:unit": "pnpm run build && pnpm -r run test:unit",
     "test:localstack": "pnpm run build && pnpm --filter hardhat-kms-aws run test:localstack",

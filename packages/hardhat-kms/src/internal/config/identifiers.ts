@@ -21,7 +21,7 @@ export function isConfigurationVariable(value: unknown): value is ConfigurationV
   return (
     typeof value === "object" &&
     value !== null &&
-    (value as { _type?: unknown })._type === "ConfigurationVariable"
+    Reflect.get(value, "_type") === "ConfigurationVariable"
   );
 }
 
@@ -67,13 +67,28 @@ export function resolveIdentifier(
 
 type PartValues<Parts> = { [K in keyof Parts]: string };
 
-function mapParts<Parts extends Record<string, KmsIdentifier>>(
+/** Parts keyed by name, each a resolved identifier. */
+type IdentifierParts<Parts> = { [K in keyof Parts]: KmsIdentifier };
+
+function hasEveryPart<Parts extends object>(
+  parts: Parts,
+  values: Partial<PartValues<Parts>>,
+): values is PartValues<Parts> {
+  return Object.keys(parts).every((key) => typeof Reflect.get(values, key) === "string");
+}
+
+function mapParts<Parts extends IdentifierParts<Parts>>(
   parts: Parts,
   value: (part: KmsIdentifier) => string,
 ): PartValues<Parts> {
-  const values = Object.fromEntries(Object.entries(parts).map(([key, part]) => [key, value(part)]));
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- rebuilt with exactly the keys of `parts`
-  return values as PartValues<Parts>;
+  const values: Partial<PartValues<Parts>> = {};
+  for (const key in parts) {
+    values[key] = value(parts[key]);
+  }
+  if (!hasEveryPart(parts, values)) {
+    throw new Error("an identifier part has no value");
+  }
+  return values;
 }
 
 /**
@@ -86,19 +101,21 @@ function mapParts<Parts extends Record<string, KmsIdentifier>>(
  * @param check - Validates the joined value.
  * @returns The joined identifier.
  */
-export function joinIdentifiers<Parts extends Record<string, KmsIdentifier>>(
+export function joinIdentifiers<Parts extends IdentifierParts<Parts>>(
   build: (parts: PartValues<Parts>) => string,
   parts: Parts,
   path: string,
   check?: IdentifierCheck,
 ): KmsIdentifier {
   const display = build(mapParts(parts, (part) => part.display));
+  const list: KmsIdentifier[] = [];
+  for (const key in parts) {
+    list.push(parts[key]);
+  }
   return {
     get: async () => {
       const values = new Map<KmsIdentifier, string>(
-        await Promise.all(
-          Object.values(parts).map(async (part) => [part, await part.get()] as const),
-        ),
+        await Promise.all(list.map(async (part) => [part, await part.get()] as const)),
       );
       return checked(
         build(mapParts(parts, (part) => values.get(part) ?? "")),

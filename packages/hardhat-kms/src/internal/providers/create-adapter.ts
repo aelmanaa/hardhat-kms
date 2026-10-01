@@ -20,9 +20,9 @@ const OPTIONAL_METHODS = [...SIGNING_METHODS, ...IDENTITY_METHODS, "close"] as c
  *
  * @param adapter - What the handler returned.
  * @param key - The key it was created for.
- * @returns The adapter.
+ * @throws A `HardhatPluginError` that says what is missing.
  */
-function checkAdapter(adapter: unknown, key: KmsKeyConfig): KmsKeyAdapter {
+function assertAdapter(adapter: unknown, key: KmsKeyConfig): asserts adapter is KmsKeyAdapter {
   const problem = adapterProblem(adapter, key);
   if (problem !== undefined) {
     throw kmsError(problem, {
@@ -31,8 +31,6 @@ function checkAdapter(adapter: unknown, key: KmsKeyConfig): KmsKeyAdapter {
       key: key.displayId,
     });
   }
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- checked by adapterProblem
-  return adapter as KmsKeyAdapter;
 }
 
 function adapterProblem(adapter: unknown, key: KmsKeyConfig): string | undefined {
@@ -150,5 +148,6 @@ export async function createKeyAdapter(
       key: key.displayId,
     });
   }
-  return checkAdapter(adapter, key);
+  assertAdapter(adapter, key);
+  return adapter;
 }
