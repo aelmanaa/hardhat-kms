@@ -29,6 +29,7 @@ catalog:
   "@nomicfoundation/hardhat-ignition": "^3.1.8"
   "@nomicfoundation/hardhat-ignition-viem": "^3.1.6"
   "@nomicfoundation/hardhat-ledger": "^3.1.0"
+  "@nomicfoundation/hardhat-toolbox-viem": "^5.0.7"
   "@nomicfoundation/hardhat-viem": "^3.0.9"
   "@types/node": "^22.18.0"
   "c8": "12.0.0"

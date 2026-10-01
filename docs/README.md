@@ -4,6 +4,12 @@ hardhat-kms is a Hardhat 3 plugin that signs transactions, messages and typed da
 
 The plugin is not released yet. Each page opens with a Status line that says what exists today and which milestone delivers the rest.
 
+## Tutorials
+
+| Page                                                                       | Kind     |
+| -------------------------------------------------------------------------- | -------- |
+| [First deploy on Sepolia with AWS KMS](user/tutorials/first-deploy-aws.md) | Tutorial |
+
 ## Using the plugin
 
 | Page                                                                  | Kind        |
@@ -24,7 +30,7 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 | [How hardhat-kms works](user/explanation/how-it-works.md)             | Explanation |
 | [Security model](user/explanation/security-model.md)                  | Explanation |
 
-Runnable projects for viem, ethers and Ignition are in [examples/](../examples/README.md). Tutorials and the remaining guides are listed under [Planned pages](contributor/documentation.md#planned-pages).
+Runnable projects for viem, ethers and Ignition are in [examples/](../examples/README.md). The remaining tutorials and guides are listed under [Planned pages](contributor/documentation.md#planned-pages).
 
 ## Contributing
 

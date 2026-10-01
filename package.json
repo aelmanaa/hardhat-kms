@@ -41,6 +41,7 @@
     "@nomicfoundation/hardhat-ignition": "catalog:",
     "@nomicfoundation/hardhat-ignition-viem": "catalog:",
     "@nomicfoundation/hardhat-ledger": "catalog:",
+    "@nomicfoundation/hardhat-toolbox-viem": "catalog:",
     "@nomicfoundation/hardhat-viem": "catalog:",
     "@types/node": "catalog:",
     "eslint-plugin-jsdoc": "catalog:",
