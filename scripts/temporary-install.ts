@@ -1,0 +1,126 @@
+// Helpers for scripts that install other dependency versions for a test run and put the lockfile
+// versions back afterwards: scripts/test-sdk-floors.ts and scripts/test-hardhat-versions.ts.
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+export const root: string = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+// .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
+const shell = process.platform === "win32";
+/** Set when Ctrl-C or SIGTERM stops the script or the command it runs. */
+let interrupted = false;
+
+/** Whether Ctrl-C or SIGTERM stopped the script or the command it ran. */
+export function wasInterrupted(): boolean {
+  return interrupted;
+}
+
+/**
+ * Lets Node deliver a pending SIGINT or SIGTERM to the listeners below. They cannot run while a
+ * command runs synchronously, and pnpm may exit with status 1 when interrupted.
+ */
+export async function deliverSignals(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 100));
+}
+
+/** Runs pnpm in the repository root, and records an interruption if the command was stopped. */
+export function run(args: string[]): void {
+  try {
+    execFileSync(pnpm, args, { cwd: root, stdio: "inherit", shell });
+  } catch (error) {
+    // Ctrl-C reaches the child too. It ends by the signal or exits with 128 + its number.
+    const signal: unknown = Reflect.get(Object(error), "signal");
+    const status: unknown = Reflect.get(Object(error), "status");
+    if (signal === "SIGINT" || signal === "SIGTERM" || status === 130 || status === 143) {
+      interrupted = true;
+    }
+    throw error;
+  }
+}
+
+/** Runs pnpm in the repository root and returns its standard output. */
+export function output(args: string[]): string {
+  return execFileSync(pnpm, args, { cwd: root, shell, encoding: "utf8" });
+}
+
+/** Reads a JSON file that must hold an object. */
+export function readJson(file: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error(`${file} is not a JSON object`);
+  }
+  return { ...parsed };
+}
+
+/** The string-valued entries of an object, such as a manifest's dependencies. */
+export function stringRecord(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
+/** The version of a dependency that a package resolves, read from the installed package.json. */
+export function resolvedVersion(directory: string, dependency: string): string {
+  const require = createRequire(path.join(directory, "package.json"));
+  // Read the manifest from the package's folder: `exports` may not expose package.json.
+  const entry = require.resolve(dependency);
+  const marker = `${path.sep}node_modules${path.sep}${dependency.split("/").join(path.sep)}${path.sep}`;
+  const end = entry.lastIndexOf(marker);
+  if (end === -1) {
+    throw new Error(
+      `${dependency} resolved to ${entry}, outside a node_modules/${dependency} folder`,
+    );
+  }
+  const folder = entry.slice(0, end + marker.length);
+  return String(readJson(path.join(folder, "package.json")).version);
+}
+
+/**
+ * Runs `body`, then writes `files` back as they were before it ran and reinstalls the lockfile
+ * versions. On Ctrl-C or SIGTERM the running pnpm command ends, `run` throws, the files are
+ * restored and the script exits with 130 without reinstalling.
+ *
+ * @param files - Every file the body may rewrite: manifests, pnpm-workspace.yaml, the lockfile.
+ * @param body - The installs and test runs. It returns false when a test failed.
+ * @returns What `body` returned.
+ */
+export async function withRestoredFiles(
+  files: string[],
+  body: () => Promise<boolean>,
+): Promise<boolean> {
+  const originals = new Map(files.map((file) => [file, readFileSync(file, "utf8")]));
+  // Without these listeners Node would exit at once and leave the other versions installed.
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      interrupted = true;
+    });
+  }
+  try {
+    return await body();
+  } finally {
+    await deliverSignals();
+    for (const [file, content] of originals) {
+      writeFileSync(file, content);
+    }
+    const reinstall = "run `pnpm install --frozen-lockfile` to reinstall the lockfile versions";
+    if (interrupted) {
+      process.stderr.write(`\nInterrupted. The files are restored; ${reinstall}.\n`);
+      // Exit here: the error that the interruption raised would otherwise end the script with 1.
+      process.exit(130);
+    } else {
+      try {
+        run(["install", "--frozen-lockfile", "--ignore-scripts"]);
+      } catch {
+        process.stderr.write(`\nThe files are restored, but reinstalling failed: ${reinstall}.\n`);
+      }
+    }
+  }
+}
