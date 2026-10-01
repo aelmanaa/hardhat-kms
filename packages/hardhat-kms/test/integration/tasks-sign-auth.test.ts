@@ -151,13 +151,19 @@ async function viemAuthorization(chainId: number, nonce: number, address = DELEG
   return { yParity: `0x${signed.yParity ?? 0}`, r: signed.r, s: signed.s };
 }
 
-/** A runtime whose `local` node answers `eth_getTransactionCount` with `count`. */
-async function withPendingCount(count: unknown) {
+/**
+ * A runtime whose `local` node answers `eth_getTransactionCount` with `count`, and
+ * `eth_getCode` with `code` when it is given.
+ */
+async function withPendingCount(count: unknown, code?: string) {
   const made = await runtime({ network: "local" });
   made.hre.hooks.registerHandlers("network", {
     onRequest: async (context, connection, request, next) => {
       if (request.method === "eth_getTransactionCount") {
         return { jsonrpc: "2.0", id: request.id, result: count };
+      }
+      if (request.method === "eth_getCode" && code !== undefined) {
+        return { jsonrpc: "2.0", id: request.id, result: code };
       }
       return await next(context, connection, request);
     },
@@ -233,7 +239,10 @@ describe("kms sign-auth", () => {
       }),
       HARDHAT_ACCOUNT_0.address,
     );
-    assert.equal(warned, "");
+    assert.equal(
+      warned,
+      `[hardhat-kms] authority ${HARDHAT_ACCOUNT_0.address}, chain 1 (from --chain), nonce 0, delegate ${DELEGATE}\n`,
+    );
     assert.equal(created.length, 1);
     assert.equal(created[0]?.closed, 1);
   });
@@ -327,7 +336,7 @@ describe("kms sign-auth", () => {
 
       await assertKmsError(
         signAuth(hre, { chain: "0", nonce: "0" }),
-        "an authorization for chain 0 is valid on every chain. Pass --force to sign it anyway",
+        "an authorization for chain 0 is valid on every chain where the account's nonce matches. Pass --force to sign it anyway",
       );
       await assertKmsError(
         signAuth(hre, { chain: "0x0", nonce: "0" }),
@@ -348,8 +357,8 @@ describe("kms sign-auth", () => {
         ...(await viemAuthorization(0, 5)),
       });
       assert.equal(
-        warned,
-        "[hardhat-kms] this authorization is for chain 0: it is valid on every chain\n",
+        warned.split("\n").at(-2),
+        "[hardhat-kms] this authorization is for chain 0: it is replayable on every chain where this account's nonce is 5",
       );
     });
 
@@ -421,7 +430,14 @@ describe("kms sign-auth", () => {
           nonce: "0x0",
           ...(await viemAuthorization(31_337, 0)),
         });
-        assert.equal(warned, "");
+        assert.equal(
+          warned,
+          [
+            `[hardhat-kms] authority ${HARDHAT_ACCOUNT_0.address}, chain 31337 (from --network remote), nonce 0, delegate ${DELEGATE}`,
+            `[hardhat-kms] the delegate ${DELEGATE} has no code on network remote: check that it is the address for this chain`,
+            "",
+          ].join("\n"),
+        );
         assert.ok(node.methods.includes("eth_chainId"), node.methods.join(", "));
         assert.deepEqual(
           node.requests.filter((request) => request.method === "eth_getTransactionCount"),
@@ -472,6 +488,19 @@ describe("kms sign-auth", () => {
         warned,
         /\[hardhat-kms\] the authorization uses nonce 8: send it in a transaction from this key with nonce 7\n/,
       );
+    });
+
+    it("does not warn about a delegate that has code, or about the zero address", async () => {
+      const withCode = await withPendingCount("0x0", "0x6000");
+      const zero = await withPendingCount("0x0");
+
+      const { warned } = await signAuth(withCode.hre, {});
+      const { warned: zeroWarned } = await signAuth(zero.hre, { delegate: ZERO });
+
+      assert.doesNotMatch(warned, /has no code/);
+      assert.match(warned, /chain 31337 \(from --network local\), nonce 0, delegate/);
+      assert.doesNotMatch(zeroWarned, /has no code/);
+      assert.match(zeroWarned, /clears the delegation/);
     });
 
     it("refuses a node answer that is not a nonce, and signs nothing", async () => {

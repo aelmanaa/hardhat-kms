@@ -198,17 +198,32 @@ Before it prints the tuple, the task reads it back, recovers the authority from 
 | `--self-broadcast` | The key also sends the transaction that carries the authorization. That transaction uses the pending nonce first, so the authorization gets the pending nonce + 1.             |
 | `--force`          | Allows chain 0.                                                                                                                                                                |
 
-`--nonce` and `--self-broadcast` cannot be combined, as in cast. With `--self-broadcast`, the task writes the nonce to send with on standard error:
+`--nonce` and `--self-broadcast` cannot be combined, as in cast.
+
+### Notes on standard error
+
+Before it calls the KMS, the task writes one line that says what it signs:
 
 ```text
-[hardhat-kms] the authorization uses nonce 1: send it in a transaction from this key with nonce 0
+[hardhat-kms] authority 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, chain 1 (from --chain), nonce 0, delegate 0x5FbDB2315678afecb367f032d93F642f64180aa3
 ```
 
-An authorization for chain 0 is valid on every chain, so the task refuses chain 0 unless `--force` is given, and then writes a warning on standard error. A delegate of `0x0000000000000000000000000000000000000000` clears the account's delegation, and the task says so on standard error.
+The chain is followed by `(from --chain)` or `(from --network <name>)`. Other notes:
 
-The task opens a connection to `--network` only to read what the command line and the config do not give: the pending nonce, or a chain id the config does not set. Opening it runs the network hook, which can call the KMS, for example to fund the accounts of an `edr-simulated` network.
+- With `--self-broadcast`, the nonce to send the transaction with: `the authorization uses nonce 1: send it in a transaction from this key with nonce 0`.
+- With `--network`, when the task has connected to the node and the delegate has no code there: `the delegate 0x… has no code on network sepolia: check that it is the address for this chain`. A delegate copied from another chain is the usual cause. The task still signs, since the code may be deployed later.
+- For chain 0, which the task refuses unless `--force` is given: `this authorization is for chain 0: it is replayable on every chain where this account's nonce is 5`.
+- For the delegate `0x0000000000000000000000000000000000000000`, which clears the account's delegation: `the delegate is the zero address: this authorization clears the delegation`.
 
-To send the authorization, put the tuple as printed in a transaction's `authorizationList`. Here the key sends it itself, so it was signed with `--self-broadcast`:
+The task opens a connection to `--network` only to read what the command line and the config do not give: the pending nonce, or a chain id the config does not set. Opening it runs the network hook, which can call the KMS, for example to fund the accounts of an `edr-simulated` network. `--network` can also come from the `HARDHAT_NETWORK` environment variable, so `--chain` fails while it is set.
+
+### Keep the tuple private until it is used
+
+Treat a printed tuple as a credential until a transaction uses it or the account's nonce moves past it. Anyone who holds it can submit it, from any account, and delegate the key's account to the code it names. To cancel a tuple you no longer want, send any transaction from the key: that uses the nonce, and the tuple can no longer apply. A chain-0 tuple applies on every chain where the account has that nonce, so it stays usable on each chain until the nonce moves past it there.
+
+### Send the authorization
+
+Put the tuple as printed in the `authorizationList` of a raw `eth_sendTransaction`, sent with `provider.request`. Here the key sends it itself, so it was signed with `--self-broadcast`, and the transaction passes the nonce from the task's note:
 
 ```ts
 import { readFile } from "node:fs/promises";
@@ -217,17 +232,26 @@ import { network } from "hardhat";
 
 // auth.json holds the output of
 // npx hardhat kms sign-auth --network sepolia --self-broadcast deployer 0x5FbDB2315678afecb367f032d93F642f64180aa3
+// which wrote on standard error: the authorization uses nonce 8: send it in a transaction from this key with nonce 7
 const authorization: unknown = JSON.parse(await readFile("auth.json", "utf8"));
 // The key's address, from `npx hardhat kms address deployer`.
 const from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const { provider } = await network.create("sepolia");
 await provider.request({
   method: "eth_sendTransaction",
-  params: [{ from, to: from, authorizationList: [authorization] }],
+  params: [{ from, to: from, nonce: "0x7", authorizationList: [authorization] }],
 });
 ```
 
-Once the transaction is mined, the account's code is `0xef0100` followed by the delegate's address.
+Once the transaction is mined, the account's code is `0xef0100` followed by the delegate's address. If the authority's nonce does not match the tuple's when the transaction runs, the transaction is still mined, but nodes skip the authorization and the code does not change.
+
+Libraries take other shapes, and a tuple passed to them as printed fails or loses its signature:
+
+| Library                                       | Shape                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider.request` with `eth_sendTransaction` | The tuple as printed. This is the recommended way.                                                                                                                                                                                                                                                                                           |
+| viem (`SignedAuthorization`)                  | `chainId`, `nonce` and `yParity` as numbers, for example `Number(tuple.chainId)`; `address`, `r` and `s` as printed. viem strips leading zero bytes from `r` and `s`, so about 1 tuple in 128 is then refused by Hardhat's schema ([#140](https://github.com/aelmanaa/hardhat-kms/issues/140)). Until that is fixed, use `provider.request`. |
+| ethers (`AuthorizationLike`)                  | `{ address, nonce, chainId, signature: { r, s, yParity } }`. ethers reads the signature only from `signature`, so a flat tuple goes out with a zero signature and no error.                                                                                                                                                                  |
 
 ## `kms sign-tx`
 

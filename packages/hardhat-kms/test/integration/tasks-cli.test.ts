@@ -559,6 +559,12 @@ describe("kms tasks from the Hardhat CLI", () => {
       run.stderr,
       /\[hardhat-kms\] the authorization uses nonce 1: send it in a transaction from this key with nonce 0/,
     );
+    assert.ok(
+      run.stderr.includes(
+        `[hardhat-kms] authority ${HARDHAT_ACCOUNT_0.address}, chain 31337 (from --network local), nonce 1, delegate 0x5FbDB2315678afecb367f032d93F642f64180aa3\n`,
+      ),
+      run.stderr,
+    );
   });
 
   it("refuses chain 0 without --force", () => {
@@ -576,6 +582,9 @@ describe("kms tasks from the Hardhat CLI", () => {
     assert.notEqual(run.status, 0);
     assert.notEqual(run.status, null, "the task did not exit");
     assert.equal(run.stdout, "");
-    assert.match(run.output, /an authorization for chain 0 is valid on every chain\. Pass --force/);
+    assert.match(
+      run.output,
+      /an authorization for chain 0 is valid on every chain where the account's nonce matches\. Pass --force/,
+    );
   });
 });

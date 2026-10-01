@@ -77,11 +77,13 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
         : await networkChain(await connect(), configured));
     if (chainId === 0n && !args.force) {
       throw kmsError(
-        "an authorization for chain 0 is valid on every chain. Pass --force to sign it anyway",
+        "an authorization for chain 0 is valid on every chain where the account's nonce matches. Pass --force to sign it anyway",
         { operation: OPERATION },
       );
     }
-    const authorization = await withTaskSigners(hre, async (signerFor) => {
+    const chainSource =
+      inputs.network === undefined ? "from --chain" : `from --network ${inputs.network}`;
+    const { authorization, nonce: signedNonce } = await withTaskSigners(hre, async (signerFor) => {
       const signer = await signerFor(key);
       const authority = await signer.getAddress();
       const nonce =
@@ -90,6 +92,17 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
         throw kmsError(`the nonce ${nonce} is too large: EIP-7702 needs one below 2^64 - 1`, {
           operation: OPERATION,
         });
+      }
+      // What is about to be signed, before the KMS call, which may wait for an approval.
+      printNote(
+        `authority ${authority}, chain ${chainId} (${chainSource}), nonce ${nonce}, delegate ${inputs.delegate}`,
+      );
+      if (
+        connection !== undefined &&
+        inputs.network !== undefined &&
+        !sameAddress(inputs.delegate, ZERO_ADDRESS)
+      ) {
+        await warnIfNoCode(await connection, inputs.delegate, inputs.network);
       }
       const delegate = hexBytes(inputs.delegate);
       const signature = await signer.signDigest(
@@ -115,10 +128,12 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
           `the authorization uses nonce ${nonce}: send it in a transaction from this key with nonce ${nonce - 1n}`,
         );
       }
-      return signed;
+      return { authorization: signed, nonce };
     });
     if (chainId === 0n) {
-      printNote("this authorization is for chain 0: it is valid on every chain");
+      printNote(
+        `this authorization is for chain 0: it is replayable on every chain where this account's nonce is ${signedNonce}`,
+      );
     }
     if (sameAddress(authorization.address, ZERO_ADDRESS)) {
       printNote("the delegate is the zero address: this authorization clears the delegation");
@@ -137,7 +152,11 @@ export default kmsSignAuth;
 function readInputs(args: SignAuthArguments, hre: HardhatRuntimeEnvironment): AuthorizationInputs {
   const network = hre.globalOptions.network;
   if (args.chain !== undefined && network !== undefined) {
-    throw kmsError("pass --chain or --network, not both", { operation: OPERATION });
+    // Hardhat does not say whether --network came from the command line or HARDHAT_NETWORK.
+    throw kmsError(
+      "pass --chain or --network, not both. --network can also come from the HARDHAT_NETWORK environment variable",
+      { operation: OPERATION },
+    );
   }
   if (args.chain === undefined && network === undefined) {
     throw kmsError("pass --chain, or --network to sign for that network's chain", {
@@ -230,6 +249,26 @@ async function authorityNonce(
   }
   const pending = BigInt(response);
   return selfBroadcast ? pending + 1n : pending;
+}
+
+/**
+ * Warns when the delegate has no code on the `--network` node, which usually means an address
+ * copied from another chain. The authorization is still signed: the code may be deployed later.
+ */
+async function warnIfNoCode(
+  connection: NetworkConnection,
+  delegate: string,
+  network: string,
+): Promise<void> {
+  const code: unknown = await connection.provider.request({
+    method: "eth_getCode",
+    params: [delegate, "latest"],
+  });
+  if (code === "0x") {
+    printNote(
+      `the delegate ${delegate} has no code on network ${network}: check that it is the address for this chain`,
+    );
+  }
 }
 
 /** Whether a signed authorization, read back from its printed fields, recovers to `address`. */
