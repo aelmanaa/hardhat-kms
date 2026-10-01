@@ -13,9 +13,9 @@ import { authorization, Transaction } from "micro-eth-signer";
 import { getAddress } from "viem";
 
 import hardhatKms from "../../src/index.ts";
-import type { KmsKeyUserConfig } from "../../src/types.ts";
 import { type FakeAdapter, type FakeAdapterOptions, fakeAdapter } from "../helpers/fake-adapter.ts";
 import { type RecordingNode, startRecordingNode } from "../helpers/recording-node.ts";
+import { vaultKey } from "../helpers/vault-key.ts";
 import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
 const hex = (value: string) => new Uint8Array(Buffer.from(value, "hex"));
@@ -31,13 +31,6 @@ const STRANGER = "0x000000000000000000000000000000000000dEaD";
 // Creation code that deploys a contract returning 42.
 const INIT_CODE = "0x600a600c600039600a6000f3602a60005260206000f3";
 const CURVE_ORDER = secp256k1.Point.CURVE().n;
-
-/** A key of a fake third-party provider, which the tests serve through the `kms` hook. */
-function vaultKey(name: string): KmsKeyUserConfig {
-  const key: unknown = { provider: "myvault", name };
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a third-party provider's key
-  return key as KmsKeyUserConfig;
-}
 
 /** An EIP-7702 authorization in the shape of a JSON-RPC request. */
 function rpcAuthorization(item: { yParity: number; r: bigint; s: bigint }) {

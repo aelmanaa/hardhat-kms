@@ -16,7 +16,6 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 import { type Address, getAddress } from "viem";
 
 import hardhatKms from "../../src/index.ts";
-import type { KmsKeyUserConfig } from "../../src/types.ts";
 import CounterModule from "../fixture-projects/deploy/ignition/modules/Counter.ts";
 import {
   addressOfSecretKey,
@@ -24,6 +23,7 @@ import {
   type FakeAdapterOptions,
   fakeAdapter,
 } from "../helpers/fake-adapter.ts";
+import { vaultKey } from "../helpers/vault-key.ts";
 import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "../fixture-projects/deploy");
@@ -79,13 +79,6 @@ const COUNTER_ABI = [
     outputs: [],
   },
 ] as const;
-
-/** A key of a fake third-party provider, which the tests serve through the `kms` hook. */
-function vaultKey(name: string): KmsKeyUserConfig {
-  const key: unknown = { provider: "myvault", name };
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a third-party provider's key
-  return key as KmsKeyUserConfig;
-}
 
 /** Serves the fake adapters through the `kms` hook, and records each one by key name. */
 function serveAdapters(hre: HardhatRuntimeEnvironment): Record<string, FakeAdapter> {

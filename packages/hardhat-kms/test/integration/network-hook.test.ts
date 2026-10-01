@@ -10,6 +10,7 @@ import type { HardhatPlugin } from "hardhat/types/plugins";
 import hardhatKms from "../../src/index.ts";
 import type { KmsKeyUserConfig } from "../../src/types.ts";
 import { type FakeAdapter, fakeAdapter } from "../helpers/fake-adapter.ts";
+import { vaultKey } from "../helpers/vault-key.ts";
 import {
   COW_ACCOUNT,
   EIP712_MAIL,
@@ -30,13 +31,6 @@ async function sign(
     method: "eth_signTypedData_v4",
     params: [COW_ACCOUNT.address, { ...EIP712_MAIL, domain }],
   });
-}
-
-/** A key of a fake third-party provider, which the tests serve through the `kms` hook. */
-function vaultKey(name: string, address?: string): KmsKeyUserConfig {
-  const key: unknown = { provider: "myvault", name, ...(address === undefined ? {} : { address }) };
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a third-party provider's key
-  return key as KmsKeyUserConfig;
 }
 
 /**

@@ -146,6 +146,22 @@ Loading the config never loads an SDK. A provider package loads its SDK the firs
 aws, create adapter, key aws:alias/deployer: AWS KMS keys need the hardhat-kms-aws plugin. Install it with `npm install --save-dev hardhat-kms-aws` and add it to `plugins` in your Hardhat config
 ```
 
+## Other signing plugins
+
+hardhat-kms works next to `@nomicfoundation/hardhat-ledger`. List hardhat-ledger first:
+
+```ts
+import hardhatLedger from "@nomicfoundation/hardhat-ledger";
+import { defineConfig } from "hardhat/config";
+import hardhatKmsAws from "hardhat-kms-aws";
+
+export default defineConfig({
+  plugins: [hardhatLedger, hardhatKmsAws],
+});
+```
+
+In this order, hardhat-kms gives a transaction without `from` its default sender, such as a KMS account set as the network's `from`, before hardhat-ledger checks it. In the other order, hardhat-ledger rejects every transaction without `from` on a network with `ledgerAccounts`, as it does when loaded alone. The order also sets where the KMS and Ledger accounts appear in `eth_accounts`; see [Other signing plugins](../../contributor/architecture.md#other-signing-plugins).
+
 ## Credentials
 
 No secrets live in the Hardhat config. Each provider takes credentials from its SDK's default chain:
