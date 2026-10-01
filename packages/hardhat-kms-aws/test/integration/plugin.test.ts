@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { after, before, describe, it } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
@@ -8,6 +9,7 @@ import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatPlugin } from "hardhat/types/plugins";
 
 import hardhatKmsAws from "../../src/index.ts";
+import { kmsHandlers } from "../../src/internal/hook-handlers/kms.ts";
 import { isolateAwsEnvironment } from "../helpers/aws-env.ts";
 import { KEY_ARN } from "../helpers/fake-aws-kms.ts";
 import { type KmsServer, startKmsServer } from "../helpers/kms-server.ts";
@@ -21,6 +23,9 @@ const signContext = () => ({
 
 let server: KmsServer;
 let restoreEnvironment: () => void;
+const coreVersion = String(
+  Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms/package.json")), "version"),
+);
 
 async function runtime(plugins: HardhatPlugin[] = [hardhatKmsAws]) {
   return await createHardhatRuntimeEnvironment({
@@ -144,5 +149,28 @@ describe("hardhat-kms-aws plugin", () => {
       return true;
     });
     await adapter.close?.();
+  });
+
+  it("refuses AWS keys when hardhat-kms is another version, and passes other keys on", async () => {
+    const hre = await runtime();
+    // Handlers registered at run time run first: these behave like a hardhat-kms-aws 9.9.9.
+    hre.hooks.registerHandlers("kms", kmsHandlers("9.9.9"));
+    const unclaimed: string[] = [];
+
+    await assert.rejects(createAdapter(hre, "deployer"), (error) => {
+      assert.ok(error instanceof Error);
+      assert.ok(
+        error.message.includes(
+          `aws, create adapter, key aws:alias/deployer: hardhat-kms-aws 9.9.9 needs hardhat-kms 9.9.9, but hardhat-kms ${coreVersion} is installed`,
+        ),
+        error.message,
+      );
+      assert.ok(
+        error.message.includes("npm install --save-dev hardhat-kms@9.9.9 hardhat-kms-aws@9.9.9"),
+      );
+      return true;
+    });
+    await assert.rejects(createAdapter(hre, "google", unclaimed), /unclaimed/);
+    assert.equal(unclaimed.length, 1);
   });
 });

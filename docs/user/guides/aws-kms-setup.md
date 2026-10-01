@@ -98,16 +98,17 @@ To use a key without a config entry, set `AWS_KMS_KEY_ID` and pass `--kms aws`; 
 
 Each message starts with the provider, the operation and the key, for example `aws, sign, key aws:alias/deployer: the provider call failed (AccessDeniedException)`. The table lists the part after the colon.
 
-| Error                                                       | Cause and fix                                                                                                                                     |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS KMS keys need the hardhat-kms-aws plugin`              | Run `npm install --save-dev hardhat-kms-aws` in the Hardhat project, and add `hardhatKmsAws` to `plugins` in the config.                          |
-| `the key spec is …, not ECC_SECG_P256K1 (secp256k1)`        | The key is not a secp256k1 key. A key's spec cannot be changed, so create a new key as in step 1.                                                 |
-| `the key derives to 0x…, but the configured address is 0x…` | The alias points at another key, or the pin is wrong. Check the alias, then update `address`.                                                     |
-| `the provider call failed (AccessDeniedException)`          | The identity lacks `kms:GetPublicKey` or `kms:Sign` on this key, the `Sign` conditions do not match, or the key policy does not allow IAM access. |
-| `the provider call failed (NotFoundException)`              | The key id or alias does not exist in this account and region. Check `keyId` and the region.                                                      |
-| `the provider call failed (DisabledException)`              | The key is disabled. Enable it with `aws kms enable-key`.                                                                                         |
-| `the provider call failed (KMSInvalidStateException)`       | The key's state does not allow the call, usually because it is pending deletion. Run `aws kms cancel-key-deletion`, then `aws kms enable-key`.    |
-| `no AWS region is configured`                               | Set `region` on the key or `kms.defaults.aws.region`, set `AWS_REGION`, give the profile a region, or use a key ARN.                              |
-| `no answer within … ms`                                     | KMS did not answer in time. Check the network and region, or raise `timeoutMs`.                                                                   |
+| Error                                                                   | Cause and fix                                                                                                                                     |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS KMS keys need the hardhat-kms-aws plugin`                          | Run `npm install --save-dev hardhat-kms-aws` in the Hardhat project, and add `hardhatKmsAws` to `plugins` in the config.                          |
+| `hardhat-kms-aws … needs hardhat-kms …, but hardhat-kms … is installed` | The two packages are released together and must be the same version. Run the install command the error prints.                                    |
+| `the key spec is …, not ECC_SECG_P256K1 (secp256k1)`                    | The key is not a secp256k1 key. A key's spec cannot be changed, so create a new key as in step 1.                                                 |
+| `the key derives to 0x…, but the configured address is 0x…`             | The alias points at another key, or the pin is wrong. Check the alias, then update `address`.                                                     |
+| `the provider call failed (AccessDeniedException)`                      | The identity lacks `kms:GetPublicKey` or `kms:Sign` on this key, the `Sign` conditions do not match, or the key policy does not allow IAM access. |
+| `the provider call failed (NotFoundException)`                          | The key id or alias does not exist in this account and region. Check `keyId` and the region.                                                      |
+| `the provider call failed (DisabledException)`                          | The key is disabled. Enable it with `aws kms enable-key`.                                                                                         |
+| `the provider call failed (KMSInvalidStateException)`                   | The key's state does not allow the call, usually because it is pending deletion. Run `aws kms cancel-key-deletion`, then `aws kms enable-key`.    |
+| `no AWS region is configured`                                           | Set `region` on the key or `kms.defaults.aws.region`, set `AWS_REGION`, give the profile a region, or use a key ARN.                              |
+| `no answer within … ms`                                                 | KMS did not answer in time. Check the network and region, or raise `timeoutMs`.                                                                   |
 
 Provider errors show only the error's class name, never its message, since SDK messages can carry request details. Run with `DEBUG=hardhat:kms:*` to see each call; see [Debug output](debug-output.md).

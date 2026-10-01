@@ -8,3 +8,4 @@
 export { publicKeyFromSpkiDer, InvalidPublicKeyError } from "./internal/crypto/public-key.ts";
 export { kmsError, type ErrorDetails } from "./internal/errors.ts";
 export { parseAwsKeyId, type ParsedAwsKeyId } from "./internal/providers/aws/key-id.ts";
+export { checkProviderVersion } from "./internal/providers/version.ts";
