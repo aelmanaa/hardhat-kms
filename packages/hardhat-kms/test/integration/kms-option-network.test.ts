@@ -302,4 +302,33 @@ describe("--kms on networks", () => {
       addressOf("AWS_KMS_KEY_ID"),
     ]);
   });
+
+  it("funds command-line keys on a simulated network with kms.simulatedBalance", async () => {
+    process.env.AWS_KMS_KEY_ID = "alias/cli";
+    const hre = await createHardhatRuntimeEnvironment(
+      {
+        plugins: [hardhatKms],
+        kms: { simulatedBalance: 5n },
+        networks: { bare: { type: "edr-simulated" } },
+      },
+      { kms: "aws", network: "bare" },
+    );
+    hre.hooks.registerHandlers("kms", {
+      createKeyAdapter: async (context, key, next) => {
+        const secret = SECRET_KEYS[key.name];
+        return secret === undefined
+          ? await next(context, key)
+          : fakeAdapter({ secretKey: new Uint8Array(Buffer.from(secret, "hex")) });
+      },
+    });
+    const { provider } = await hre.network.create("bare");
+
+    assert.equal(
+      await provider.request({
+        method: "eth_getBalance",
+        params: [addressOf("AWS_KMS_KEY_ID"), "latest"],
+      }),
+      "0x5",
+    );
+  });
 });
