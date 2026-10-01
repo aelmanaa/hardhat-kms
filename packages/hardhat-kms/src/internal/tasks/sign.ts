@@ -5,7 +5,7 @@ import { addressFromPublicKey, sameAddress } from "../crypto/address.ts";
 import { personalMessageDigest, type TypedData, typedDataDigest } from "../crypto/digests.ts";
 import { recoverPublicKey, toRpcSignature } from "../crypto/signature.ts";
 import { kmsError } from "../errors.ts";
-import { ConnectionChain, parseChainId } from "../rpc/chain-id.ts";
+import { createConnectionChain, parseChainId } from "../rpc/chain-id.ts";
 import { checkTypedDataChain, type ExpectedChain } from "../rpc/typed-data.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { decodeHex, readMessage, readTypedDataArgument } from "./inputs.ts";
@@ -135,11 +135,10 @@ async function expectedChain(
   // network hook, which may call the KMS, for example to fund a simulated network's accounts.
   const connection = await hre.network.create();
   try {
-    const chain = new ConnectionChain(async () => {
-      const response: unknown = await connection.provider.request({ method: "eth_chainId" });
-      return response;
-    }, connection.networkConfig.chainId);
-    return { chainId: await chain.chainId(), name: `network ${network}` };
+    return {
+      chainId: await createConnectionChain(connection).chainId(),
+      name: `network ${network}`,
+    };
   } finally {
     await connection.close();
   }

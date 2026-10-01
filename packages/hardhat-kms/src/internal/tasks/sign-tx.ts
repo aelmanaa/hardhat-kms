@@ -1,14 +1,16 @@
 import { readFile } from "node:fs/promises";
 
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
+import type { RpcTransactionRequest } from "@nomicfoundation/hardhat-zod-utils/rpc";
 import type { NewTaskActionFunction } from "hardhat/types/tasks";
+import { addr } from "micro-eth-signer";
 
 import { sameAddress, toChecksumAddress } from "../crypto/address.ts";
 import { errorName, kmsError } from "../errors.ts";
 import { createConnectionChain } from "../rpc/chain-id.ts";
 import { createTransactionFiller, type UnsignedTransaction } from "../rpc/transaction-filler.ts";
 import { type SignedTransaction, signTransaction } from "../rpc/transactions.ts";
-import { printLine, withNamedSigner } from "./keys.ts";
+import { printLine, printNote, withNamedSigner } from "./keys.ts";
 
 /** The arguments of `kms sign-tx`. */
 interface SignTxArguments {
@@ -28,27 +30,48 @@ const BLOB_MESSAGE =
   "blob transactions (EIP-4844) cannot be signed with KMS accounts; send them from another account";
 
 /**
- * The fields `eth_sendTransaction` takes, as Hardhat 3.18's request schema (`rpcTransactionRequest`)
- * reads them, plus `type`. Any other field is refused: the schema drops unknown fields, so a
- * misspelt `gasLimit` or an `input` would otherwise be signed as if it were absent.
+ * The fields of Hardhat 3.18's request schema (`rpcTransactionRequest`). The type makes the
+ * compiler require every key of `RpcTransactionRequest` here, and no other.
  */
-const KNOWN_FIELDS = new Set([
-  "from",
-  "to",
+const SCHEMA_FIELDS: Readonly<Record<keyof RpcTransactionRequest, true>> = {
+  from: true,
+  to: true,
+  gas: true,
+  gasPrice: true,
+  maxFeePerGas: true,
+  maxPriorityFeePerGas: true,
+  value: true,
+  data: true,
+  nonce: true,
+  chainId: true,
+  accessList: true,
+  authorizationList: true,
+  blobs: true,
+  blobVersionedHashes: true,
+};
+
+/**
+ * The fields the task reads: the schema's, plus `type`. Any other field is refused: the schema
+ * drops unknown fields, so a misspelt `gasLimit` or an `input` would otherwise be signed as if it
+ * were absent.
+ */
+export const KNOWN_FIELDS: ReadonlySet<string> = new Set([...Object.keys(SCHEMA_FIELDS), "type"]);
+
+/** The fields the unknown-field error lists: those the task signs, without the blob fields. */
+const LISTED_FIELDS = [...KNOWN_FIELDS].filter(
+  (field) => field !== "blobs" && field !== "blobVersionedHashes",
+);
+
+/** The fields that hold a JSON-RPC quantity. */
+const QUANTITY_FIELDS = [
+  "value",
   "gas",
   "gasPrice",
   "maxFeePerGas",
   "maxPriorityFeePerGas",
-  "value",
-  "data",
   "nonce",
   "chainId",
-  "accessList",
-  "authorizationList",
-  "blobs",
-  "blobVersionedHashes",
-  "type",
-]);
+] as const;
 
 /** The name of a field that other tools use, and the `eth_sendTransaction` name for it. */
 const RENAMED_FIELDS: Readonly<Record<string, string>> = { gasLimit: "gas", input: "data" };
@@ -107,8 +130,58 @@ async function readTransaction(file: string): Promise<Record<string, unknown>> {
   return parsed;
 }
 
+/** Shows a value from the file in an error, cut short. */
+function shown(value: unknown): string {
+  // Values from JSON.parse always have a JSON form.
+  const text = JSON.stringify(value);
+  return text.length > 70 ? `${text.slice(0, 67)}...` : text;
+}
+
 /**
- * Refuses fields the task does not sign: unknown or renamed fields, and blob transactions.
+ * Refuses an address with mixed case whose EIP-55 checksum is wrong, which usually means a typo.
+ * All-lowercase and all-uppercase addresses carry no checksum and are accepted, as everywhere.
+ *
+ * @param where - The field, for the error message.
+ * @param value - The value from the file.
+ */
+function checkChecksum(where: string, value: unknown): void {
+  if (typeof value !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value)) {
+    return;
+  }
+  const digits = value.slice(2);
+  if (digits === digits.toLowerCase() || digits === digits.toUpperCase()) {
+    return;
+  }
+  if (addr.addChecksum(value) !== value) {
+    throw kmsError(
+      `${where} ${value} has a wrong EIP-55 checksum, which usually means a typo. Check the address, or write it in lowercase.`,
+      { operation: OPERATION },
+    );
+  }
+}
+
+/**
+ * Checks the checksum of every address in the transaction: `to`, `from`, and the addresses of
+ * the access list and the authorization list.
+ *
+ * @param tx - The transaction from the file.
+ */
+function checkAddressChecksums(tx: Record<string, unknown>): void {
+  checkChecksum("to", tx.to);
+  checkChecksum("from", tx.from);
+  for (const list of ["accessList", "authorizationList"] as const) {
+    const items = tx[list];
+    if (Array.isArray(items)) {
+      for (const [index, item] of items.entries()) {
+        checkChecksum(`${list}[${index}].address`, isObject(item) ? item.address : undefined);
+      }
+    }
+  }
+}
+
+/**
+ * Refuses fields the task does not sign: unknown or renamed fields, quantities that are not hex,
+ * addresses with a wrong checksum, and blob transactions.
  *
  * @param tx - The transaction from the file.
  * @returns The `type` the transaction asks for, if any, as micro-eth-signer names it.
@@ -126,10 +199,19 @@ function checkFields(tx: Record<string, unknown>): string | undefined {
     throw kmsError(
       `unknown transaction ${unknown.length === 1 ? "field" : "fields"} ${unknown.join(", ")}${
         hints.length > 0 ? ` (${hints.join("; ")})` : ""
-      }. The fields are those of eth_sendTransaction: ${[...KNOWN_FIELDS].join(", ")}.`,
+      }. The fields are those of eth_sendTransaction: ${LISTED_FIELDS.join(", ")}.`,
       { operation: OPERATION },
     );
   }
+  for (const field of QUANTITY_FIELDS) {
+    const value = tx[field];
+    if (value !== undefined && (typeof value !== "string" || !/^0x[0-9a-fA-F]+$/.test(value))) {
+      throw kmsError(`${field} must be a hex quantity, such as "0x1", got ${shown(value)}`, {
+        operation: OPERATION,
+      });
+    }
+  }
+  checkAddressChecksums(tx);
   if (tx.type === undefined) {
     return undefined;
   }
@@ -168,8 +250,8 @@ function checkType(requested: string | undefined, unsigned: UnsignedTransaction)
 
 /**
  * `kms sign-tx <key> <tx> --network <name>`: fills a transaction on the network's node the way
- * `eth_signTransaction` does, signs it with the key and prints the raw signed transaction and its
- * hash, one per line. It never broadcasts.
+ * `eth_signTransaction` does, signs it with the key and prints the raw signed transaction on standard
+ * output, as `cast mktx` does, and its hash on standard error. It never broadcasts.
  *
  * @param args - The task arguments.
  * @param hre - The Hardhat runtime.
@@ -186,6 +268,9 @@ const kmsSignTx: NewTaskActionFunction<SignTxArguments> = async ({ key, tx: file
   const tx = await readTransaction(file);
   const requestedType = checkFields(tx);
   const { type: _type, ...request } = tx;
+  if (request.to === undefined || request.to === null) {
+    printNote("the transaction has no `to`: it creates a contract");
+  }
   const signed: SignedTransaction = await withNamedSigner(hre, key, async (signer) => {
     const address = (await signer.getAddress()).toLowerCase();
     const { from } = request;
@@ -210,8 +295,10 @@ const kmsSignTx: NewTaskActionFunction<SignTxArguments> = async ({ key, tx: file
       await connection.close();
     }
   });
+  // Only the raw transaction goes to standard output, as with cast mktx, so that
+  // `cast publish $(npx hardhat kms sign-tx ...)` works.
   printLine(signed.raw);
-  printLine(signed.hash);
+  printNote(`hash ${signed.hash}`);
   return { raw: signed.raw, hash: signed.hash };
 };
 

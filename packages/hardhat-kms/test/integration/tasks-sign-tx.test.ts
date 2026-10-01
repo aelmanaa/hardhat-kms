@@ -8,6 +8,7 @@ import path from "node:path";
 import { after, before, describe, it, mock } from "node:test";
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import { rpcTransactionRequest } from "@nomicfoundation/hardhat-zod-utils/rpc";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import { HardhatPluginError } from "hardhat/plugins";
 import type { NetworkUserConfig } from "hardhat/types/config";
@@ -15,6 +16,7 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 import { authorization, Transaction } from "micro-eth-signer";
 
 import hardhatKms from "../../src/index.ts";
+import { KNOWN_FIELDS } from "../../src/internal/tasks/sign-tx.ts";
 import { type FakeAdapter, fakeAdapter } from "../helpers/fake-adapter.ts";
 import { type RecordingNode, startRecordingNode } from "../helpers/recording-node.ts";
 import { vaultKey } from "../helpers/vault-key.ts";
@@ -103,22 +105,28 @@ async function runtime(
 const signatures = (created: readonly FakeAdapter[]): number =>
   created.reduce((total, adapter) => total + adapter.calls.signDigest, 0);
 
-/** Runs `kms sign-tx` and returns its result and what it printed on standard output. */
+/** Runs `kms sign-tx` and returns its result and what it printed on each stream. */
 async function signTx(
   hre: HardhatRuntimeEnvironment,
   key: string,
   tx: string,
-): Promise<{ result: unknown; printed: string }> {
+): Promise<{ result: unknown; printed: string; stderr: string }> {
   let printed = "";
+  let stderr = "";
   const write = mock.method(process.stdout, "write", (chunk: unknown) => {
     printed += String(chunk);
     return true;
   });
+  const writeError = mock.method(process.stderr, "write", (chunk: unknown) => {
+    stderr += String(chunk);
+    return true;
+  });
   try {
     const result: unknown = await hre.tasks.getTask(["kms", "sign-tx"]).run({ key, tx });
-    return { result, printed };
+    return { result, printed, stderr };
   } finally {
     write.mock.restore();
+    writeError.mock.restore();
   }
 }
 
@@ -224,14 +232,16 @@ describe("kms sign-tx over HTTP", () => {
 
   for (const [type, request] of CASES) {
     const name = request.data === undefined ? type : `${type} contract creation`;
-    it(`prints ${name} byte for byte like eth_signTransaction, and its hash`, async () => {
+    it(`prints ${name} byte for byte like eth_signTransaction, and its hash on stderr`, async () => {
       const { hre } = await runtime(networks);
       const expected = await rpcSign(hre, "kms", request);
       assert.equal(Transaction.fromHex(expected, false).type, type);
 
-      const { result, printed, created } = await signOn("kms", "zero", request);
+      const { result, printed, stderr, created } = await signOn("kms", "zero", request);
 
-      assert.equal(printed, `${expected}\n${hashOf(expected)}\n`);
+      // Only the raw transaction on standard output, as with cast mktx.
+      assert.equal(printed, `${expected}\n`);
+      assert.ok(stderr.includes(`[hardhat-kms] hash ${hashOf(expected)}\n`), stderr);
       assert.deepEqual(result, { raw: expected, hash: hashOf(expected) });
       assert.equal(signatures(created), 1);
     });
@@ -244,17 +254,17 @@ describe("kms sign-tx over HTTP", () => {
 
     const { printed } = await signOn("plain", "zero", request);
 
-    assert.equal(printed, `${expected}\n${hashOf(expected)}\n`);
+    assert.equal(printed, `${expected}\n`);
   });
 
   it("fills `from` with the key's address, in any case", async () => {
     const { hre } = await runtime(networks);
     const expected = await rpcSign(hre, "kms", { from: FROM, to: TO });
 
-    assert.equal((await signOn("kms", "zero", { to: TO })).printed.split("\n")[0], expected);
+    assert.equal((await signOn("kms", "zero", { to: TO })).printed, `${expected}\n`);
     assert.equal(
-      (await signOn("kms", "zero", { from: FROM.toLowerCase(), to: TO })).printed.split("\n")[0],
-      expected,
+      (await signOn("kms", "zero", { from: FROM.toLowerCase(), to: TO })).printed,
+      `${expected}\n`,
     );
   });
 
@@ -264,7 +274,41 @@ describe("kms sign-tx over HTTP", () => {
 
     const { printed } = await signOn("kms", "zero", { to: TO, value: "0x1", type: "0x2" });
 
-    assert.equal(printed.split("\n")[0], expected);
+    assert.equal(printed, `${expected}\n`);
+  });
+
+  it("signs a chainId and a nonce from the file as given", async () => {
+    const request = { to: TO, value: "0x1", chainId: "0x7a69", nonce: "0x2a" };
+    const { hre } = await runtime(networks);
+    const expected = await rpcSign(hre, "kms", { ...request, from: FROM });
+
+    const { printed } = await signOn("kms", "zero", request);
+
+    assert.equal(printed, `${expected}\n`);
+    const signed = Transaction.fromHex(expected, false);
+    assert.equal(signed.raw.nonce, 42n);
+    assert.equal(signed.raw.chainId, 31337n);
+  });
+
+  it("accepts lowercase, uppercase and checksummed addresses", async () => {
+    const { hre } = await runtime(networks);
+    const expected = await rpcSign(hre, "kms", { from: FROM, to: TO });
+    const upper = `0x${TO.slice(2).toUpperCase()}`;
+
+    for (const to of [TO, TO.toLowerCase(), upper]) {
+      assert.equal((await signOn("kms", "zero", { from: FROM, to })).printed, `${expected}\n`);
+    }
+  });
+
+  it("notes a contract creation on standard error", async () => {
+    const { stderr } = await signOn("kms", "zero", { data: INIT_CODE });
+
+    assert.ok(
+      stderr.includes("[hardhat-kms] the transaction has no `to`: it creates a contract\n"),
+      stderr,
+    );
+    const { stderr: call } = await signOn("kms", "zero", { to: TO });
+    assert.ok(!call.includes("creates a contract"), call);
   });
 
   it("never sends eth_sendRawTransaction or eth_sendTransaction to the node", () => {
@@ -352,9 +396,45 @@ describe("kms sign-tx over HTTP", () => {
     it("refuses fields eth_sendTransaction does not have, with the right name", async () => {
       await refused({ to: TO, gasLimit: "0x5208", input: "0x" }, [
         "unknown transaction fields gasLimit, input (use gas instead of gasLimit; use data instead of input)",
-        "The fields are those of eth_sendTransaction: from, to, gas,",
+        "The fields are those of eth_sendTransaction: from, to, gas, gasPrice, maxFeePerGas, maxPriorityFeePerGas, value, data, nonce, chainId, accessList, authorizationList, type.",
       ]);
       await refused({ to: TO, color: "blue" }, ["unknown transaction field color."]);
+    });
+
+    it("refuses a mixed-case address whose EIP-55 checksum is wrong, before the key is read", async () => {
+      // TO with one letter's case flipped.
+      const typo = `${TO.slice(0, 10)}${TO.slice(10, 11).toLowerCase()}${TO.slice(11)}`;
+      assert.notEqual(typo, TO);
+      const wrong = "has a wrong EIP-55 checksum, which usually means a typo";
+      const cases: [string, Record<string, unknown>][] = [
+        ["to", { to: typo }],
+        ["from", { from: typo, to: TO }],
+        ["accessList[0].address", { to: TO, accessList: [{ address: typo, storageKeys: [] }] }],
+        [
+          "authorizationList[0].address",
+          { to: FROM, authorizationList: [{ ...RPC_AUTHORIZATION, address: typo }] },
+        ],
+      ];
+      for (const [where, request] of cases) {
+        const { hre, created } = await runtime(networks, { network: "kms" });
+        const start = node.methods.length;
+        await assertKmsError(signTx(hre, "zero", txFile(request)), [`${where} ${typo} ${wrong}`]);
+        assert.equal(created.length, 0, "the key was not opened");
+        assert.deepEqual(node.methods.slice(start), [], "nothing reached the node");
+      }
+    });
+
+    it("refuses a quantity that is not 0x hex, before the node is read", async () => {
+      const methods = await refused({ to: TO, value: 1 }, [
+        'value must be a hex quantity, such as "0x1", got 1',
+      ]);
+      assert.deepEqual(methods, []);
+      await refused({ to: TO, nonce: "12" }, [
+        'nonce must be a hex quantity, such as "0x1", got "12"',
+      ]);
+      for (const field of ["gas", "gasPrice", "maxFeePerGas", "maxPriorityFeePerGas", "chainId"]) {
+        await refused({ to: TO, [field]: "0x" }, [`${field} must be a hex quantity`]);
+      }
     });
 
     it("refuses a file that is not a JSON object, or cannot be read", async () => {
@@ -369,7 +449,7 @@ describe("kms sign-tx over HTTP", () => {
 });
 
 describe("kms sign-tx on a simulated network", () => {
-  it("signs like eth_signTransaction, moves no nonce, and the node accepts the result", async () => {
+  it("signs like eth_signTransaction, and the node accepts the result", async () => {
     const { hre } = await runtime(
       { local: { type: "edr-simulated", kmsAccounts: ["cow"] } },
       { network: "local", simulatedBalance: 10n ** 18n },
@@ -379,18 +459,11 @@ describe("kms sign-tx on a simulated network", () => {
 
     const { printed } = await signTx(hre, "cow", txFile(request));
 
-    assert.equal(printed, `${expected}\n${hashOf(expected)}\n`);
-    // The task's connection is closed; a new one starts from the same state.
+    assert.equal(printed, `${expected}\n`);
+    // Each connection to a simulated network is a new chain, funded by kms.simulatedBalance.
     const connection = await hre.network.create("local");
     try {
       const { provider } = connection;
-      assert.equal(
-        await provider.request({
-          method: "eth_getTransactionCount",
-          params: [COW_ACCOUNT.address, "pending"],
-        }),
-        "0x0",
-      );
       const hash = await provider.request({ method: "eth_sendRawTransaction", params: [expected] });
       assert.equal(hash, hashOf(expected));
       const receipt = await provider.request({
@@ -410,5 +483,14 @@ describe("the kms namespace", () => {
     const { hre } = await runtime({});
 
     assert.ok(hre.tasks.getTask("kms").subtasks.has("sign-tx"));
+  });
+});
+
+describe("kms sign-tx's fields", () => {
+  it("are the fields of Hardhat's request schema, plus type", () => {
+    const shape: unknown = Reflect.get(rpcTransactionRequest, "shape");
+    assert.ok(typeof shape === "object" && shape !== null);
+
+    assert.deepEqual([...KNOWN_FIELDS].toSorted(), [...Object.keys(shape), "type"].toSorted());
   });
 });

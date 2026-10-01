@@ -273,13 +273,14 @@ describe("kms tasks from the Hardhat CLI", () => {
     });
   });
 
-  it("signs a transaction on --network, prints it and its hash, and exits on its own", () => {
+  it("signs a transaction on --network, prints only it, the hash on stderr, and exits", () => {
     const tx = path.join(project, "tx.json");
     writeFileSync(tx, JSON.stringify({ to: COW_ACCOUNT.address, value: "0x1" }));
     const run = hardhat(["--network", "default", "kms", "sign-tx", "deployer", tx]);
 
     assert.equal(run.status, 0, `the task failed or did not exit:\n${run.output}`);
-    assert.match(run.stdout, /^0x02[0-9a-f]+\n0x[0-9a-f]{64}\n$/);
+    assert.match(run.stdout, /^0x02[0-9a-f]+\n$/);
+    assert.match(run.stderr, /\[hardhat-kms\] hash 0x[0-9a-f]{64}\n/);
   });
 
   it("fails without --network and exits on its own", () => {
