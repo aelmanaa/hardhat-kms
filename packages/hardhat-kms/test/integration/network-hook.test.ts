@@ -21,6 +21,17 @@ import {
 const hex = (value: string) => new Uint8Array(Buffer.from(value, "hex"));
 const ACCOUNT_0 = HARDHAT_ACCOUNT_0.address.toLowerCase();
 
+/** Signs the EIP-712 example with a replaced domain, for the chain-check tests. */
+async function sign(
+  provider: { request: (args: { method: string; params: unknown[] }) => Promise<unknown> },
+  domain: Record<string, unknown>,
+): Promise<unknown> {
+  return await provider.request({
+    method: "eth_signTypedData_v4",
+    params: [COW_ACCOUNT.address, { ...EIP712_MAIL, domain }],
+  });
+}
+
 /** A key of a fake third-party provider, which the tests serve through the `kms` hook. */
 function vaultKey(name: string, address?: string): KmsKeyUserConfig {
   const key: unknown = { provider: "myvault", name, ...(address === undefined ? {} : { address }) };
@@ -36,12 +47,15 @@ async function runtime(
   keys: Record<string, KmsKeyUserConfig>,
   adapters: Record<string, () => FakeAdapter> = {},
   networkKeys: string[] = Object.keys(keys),
+  options: { allowCrossChainTypedData?: boolean } = {},
 ) {
   const hre = await createHardhatRuntimeEnvironment({
     plugins: [hardhatKms],
-    kms: { keys },
+    kms: { keys, ...options },
     networks: {
       local: { type: "edr-simulated", kmsAccounts: networkKeys },
+      // The chain of the EIP-712 specification example.
+      mainnetFork: { type: "edr-simulated", chainId: 1, kmsAccounts: networkKeys },
       remote: { type: "http", url: "http://127.0.0.1:1", kmsAccounts: networkKeys },
     },
   });
@@ -163,7 +177,7 @@ describe("network hook", () => {
       { cow: vaultKey("cow") },
       { cow: () => fakeAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }) },
     );
-    const { provider } = await hre.network.create("local");
+    const { provider } = await hre.network.create("mainnetFork");
 
     for (const data of [EIP712_MAIL, JSON.stringify(EIP712_MAIL)]) {
       assert.equal(
@@ -438,5 +452,187 @@ describe("network hook", () => {
       }),
       vector.signature,
     );
+  });
+
+  describe("typed-data chain check", () => {
+    const keys = { cow: vaultKey("cow", COW_ACCOUNT.address) };
+    const adapters = { cow: () => fakeAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }) };
+    const { chainId: _mailChain, ...domainWithoutChain } = EIP712_MAIL.domain;
+    const noChainTypes = {
+      ...EIP712_MAIL.types,
+      EIP712Domain: (EIP712_MAIL.types.EIP712Domain ?? []).filter(
+        (field) => field.name !== "chainId",
+      ),
+    };
+
+    it("refuses typed data for another chain before any KMS call", async () => {
+      const { hre, created } = await runtime(keys, adapters);
+      const { provider } = await hre.network.create("local");
+
+      await assertKmsError(sign(provider, EIP712_MAIL.domain), [
+        "the typed data is for chain 1, but this network is chain 31337",
+        "kms.allowCrossChainTypedData",
+      ]);
+      assert.equal(created.cow?.calls.signDigest ?? 0, 0);
+    });
+
+    it("accepts the connected chain as a number, a bigint-sized decimal or a hex string", async () => {
+      const { hre } = await runtime(keys, adapters);
+      const { provider } = await hre.network.create("local");
+
+      for (const chainId of [31337, "31337", "0x7a69"]) {
+        const signature = await sign(provider, { ...EIP712_MAIL.domain, chainId });
+        assert.match(String(signature), /^0x[0-9a-f]{130}$/, String(chainId));
+      }
+    });
+
+    it("signs typed data without domain.chainId, as MetaMask, Hardhat and Foundry do", async () => {
+      const { hre } = await runtime(keys, adapters);
+      const { provider } = await hre.network.create("local");
+
+      const signature = await provider.request({
+        method: "eth_signTypedData_v4",
+        params: [
+          COW_ACCOUNT.address,
+          { ...EIP712_MAIL, types: noChainTypes, domain: domainWithoutChain },
+        ],
+      });
+      assert.match(String(signature), /^0x[0-9a-f]{130}$/);
+    });
+
+    it("checks chain id 0 instead of treating it as absent, and refuses unreadable chain ids", async () => {
+      const { hre, created } = await runtime(keys, adapters);
+      const { provider } = await hre.network.create("local");
+
+      await assertKmsError(sign(provider, { ...EIP712_MAIL.domain, chainId: 0 }), [
+        "the typed data is for chain 0",
+      ]);
+      // The EIP-712 encoder or the chain check refuses each one, before any KMS call.
+      for (const chainId of ["mainnet", "0x", -1, 1.5, "1e3"]) {
+        await assert.rejects(
+          sign(provider, { ...EIP712_MAIL.domain, chainId }),
+          /typed data is invalid|domain\.chainId is not a chain id/,
+          String(chainId),
+        );
+      }
+      assert.equal(created.cow?.calls.signDigest ?? 0, 0);
+    });
+
+    it("signs typed data for other chains when kms.allowCrossChainTypedData is set", async () => {
+      const { hre } = await runtime(keys, adapters, ["cow"], { allowCrossChainTypedData: true });
+      const { provider } = await hre.network.create("local");
+
+      assert.equal(await sign(provider, EIP712_MAIL.domain), EIP712_MAIL_SIGNATURE);
+    });
+
+    it("signs exactly the typed data it checked, even if the caller changes it meanwhile", async () => {
+      const { hre } = await runtime(keys, adapters);
+      const { provider } = await hre.network.create("local");
+
+      // The caller changes the domain while the plugin reads eth_chainId. The check passed for
+      // 31337; the signature must be for 31337 too, not for the later chain 1.
+      const domain: Record<string, unknown> = { ...EIP712_MAIL.domain, chainId: 31337 };
+      const signing = sign(provider, domain);
+      setImmediate(() => {
+        domain.chainId = 1;
+      });
+      const signature = await signing;
+      assert.notEqual(signature, EIP712_MAIL_SIGNATURE, "signed for chain 1");
+      assert.equal(signature, await sign(provider, { ...EIP712_MAIL.domain, chainId: 31337 }));
+    });
+
+    it("reads a getter once, and refuses typed data that is not plain data", async () => {
+      const { hre } = await runtime(keys, adapters);
+      const { provider } = await hre.network.create("local");
+
+      let reads = 0;
+      const domain = { ...EIP712_MAIL.domain };
+      Object.defineProperty(domain, "chainId", {
+        enumerable: true,
+        get: () => {
+          reads++;
+          // Chain 1 on every read but the one a naive check would make.
+          return reads === 1 ? 31337 : 1;
+        },
+      });
+      const signature = await sign(provider, domain);
+      assert.equal(reads, 1);
+      assert.equal(signature, await sign(provider, { ...EIP712_MAIL.domain, chainId: 31337 }));
+
+      await assertKmsError(
+        sign(provider, { ...EIP712_MAIL.domain, chainId: 31337, salt: () => "0x00" }),
+        ["the typed data must be plain data"],
+      );
+    });
+
+    it("compares large chain ids exactly", async () => {
+      const { hre, created } = await runtime(keys, adapters);
+      // The node reports 2^53; 2^53 + 1 differs by one, which a float comparison would miss.
+      hre.hooks.registerHandlers("network", {
+        onRequest: async (context, connection, request, next) =>
+          request.method === "eth_chainId"
+            ? { jsonrpc: "2.0", id: request.id, result: "0x20000000000000" }
+            : await next(context, connection, request),
+      });
+      // The http network sets no chainId, so only the node's answer counts.
+      const { provider } = await hre.network.create("remote");
+
+      await assertKmsError(sign(provider, { ...EIP712_MAIL.domain, chainId: "9007199254740993" }), [
+        "the typed data is for chain 9007199254740993, but this network is chain 9007199254740992",
+      ]);
+      assert.equal(created.cow?.calls.signDigest ?? 0, 0);
+      const signature = await sign(provider, {
+        ...EIP712_MAIL.domain,
+        chainId: "9007199254740992",
+      });
+      assert.match(String(signature), /^0x[0-9a-f]{130}$/);
+    });
+
+    it("reads the chain id once per connection", async () => {
+      const { hre } = await runtime(keys, adapters);
+      let reads = 0;
+      hre.hooks.registerHandlers("network", {
+        onRequest: async (context, connection, request, next) => {
+          if (request.method === "eth_chainId") {
+            reads++;
+          }
+          return await next(context, connection, request);
+        },
+      });
+      const first = await hre.network.create("local");
+      for (let index = 0; index < 3; index++) {
+        await sign(first.provider, { ...EIP712_MAIL.domain, chainId: 31337 });
+      }
+      assert.equal(reads, 1);
+
+      const second = await hre.network.create("local");
+      await sign(second.provider, { ...EIP712_MAIL.domain, chainId: 31337 });
+      assert.equal(reads, 2, "each connection reads its own chain id");
+    });
+
+    it("refuses to sign when the node's chain differs from the network config", async () => {
+      const hre = await createHardhatRuntimeEnvironment({
+        plugins: [hardhatKms],
+        kms: { keys },
+        networks: {
+          remote: { type: "http", url: "http://127.0.0.1:1", chainId: 5, kmsAccounts: ["cow"] },
+        },
+      });
+      hre.hooks.registerHandlers("kms", {
+        createKeyAdapter: async () => fakeAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }),
+      });
+      // The node answers eth_chainId with chain 1 although the config says 5.
+      hre.hooks.registerHandlers("network", {
+        onRequest: async (context, connection, request, next) =>
+          request.method === "eth_chainId"
+            ? { jsonrpc: "2.0", id: request.id, result: "0x1" }
+            : await next(context, connection, request),
+      });
+      const { provider } = await hre.network.create("remote");
+
+      await assertKmsError(sign(provider, EIP712_MAIL.domain), [
+        "the network config sets chainId 5, but the node reports 1",
+      ]);
+    });
   });
 });

@@ -16,3 +16,4 @@ To add a record, copy [template.md](template.md) to the next number and open a p
 | [0008](0008-kms-command-line-option.md)     | Choose KMS keys from the command line with `--kms`                  | Accepted           |
 | [0009](0009-one-package-per-provider.md)    | Ship each cloud provider as its own package                         | Accepted           |
 | [0010](0010-pnpm-workspaces.md)             | Use pnpm workspaces                                                 | Accepted           |
+| [0011](0011-typed-data-chain-check.md)      | Check typed data's chain only when it names one                     | Accepted           |

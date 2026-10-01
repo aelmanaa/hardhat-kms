@@ -14,6 +14,7 @@ import { kmsDebug } from "../debug.ts";
 import { errorName, kmsError } from "../errors.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
+import { type ConnectionChain, parseChainId } from "./chain-id.ts";
 
 const log = kmsDebug("rpc");
 
@@ -145,6 +146,14 @@ export class ConnectionAccounts {
 
 type Next = (request: JsonRpcRequest) => Promise<JsonRpcResponse>;
 
+/** What the typed-data chain check needs from the connection and the config. */
+export interface TypedDataPolicy {
+  /** The connection's chain. */
+  chain: ConnectionChain;
+  /** `kms.allowCrossChainTypedData`: sign typed data for another chain. */
+  allowCrossChainTypedData: boolean;
+}
+
 /**
  * Handles one JSON-RPC request for a connection with KMS accounts: lists the accounts, and signs
  * messages and typed data for them. Everything else, including requests for other addresses, goes
@@ -153,12 +162,14 @@ type Next = (request: JsonRpcRequest) => Promise<JsonRpcResponse>;
  * @param accounts - The connection's KMS accounts.
  * @param request - The request.
  * @param next - The rest of the chain.
+ * @param policy - The typed-data chain check's inputs.
  * @returns The response.
  */
 export async function dispatch(
   accounts: ConnectionAccounts,
   request: JsonRpcRequest,
   next: Next,
+  policy: TypedDataPolicy,
 ): Promise<JsonRpcResponse> {
   if (accounts.isEmpty) {
     return await next(request);
@@ -186,7 +197,7 @@ export async function dispatch(
   } else if (request.method === "eth_signTypedData_v4") {
     const signed = await signFor(accounts, params[0], async (signer) => {
       const data: unknown = validateParams(params, rpcAddress, rpcAny)[1];
-      return await signTypedData(signer, data);
+      return await signTypedData(signer, data, policy);
     });
     if (signed !== undefined) {
       return response(request, signed.result);
@@ -252,7 +263,11 @@ async function listAccounts(
   return [...own, ...kms];
 }
 
-async function signTypedData(signer: KmsSigner, data: unknown): Promise<string> {
+async function signTypedData(
+  signer: KmsSigner,
+  data: unknown,
+  policy: TypedDataPolicy,
+): Promise<string> {
   let typedData: unknown = data;
   if (typeof data === "string") {
     try {
@@ -273,5 +288,33 @@ async function signTypedData(signer: KmsSigner, data: unknown): Promise<string> 
       operation: "eth_signTypedData_v4",
     });
   }
+  await checkTypedDataChain(parsed, policy);
   return await signer.signTypedData(parsed);
+}
+
+/**
+ * Refuses typed data for another chain than the connection's, unless the config allows it. Typed
+ * data without `domain.chainId` is signed, as MetaMask, Hardhat and Foundry do: it is valid
+ * EIP-712, and off-chain and cross-chain schemes rely on it.
+ */
+async function checkTypedDataChain(typedData: TypedData, policy: TypedDataPolicy): Promise<void> {
+  const domainChain = parseChainId(
+    typedData.domain.chainId,
+    "domain.chainId",
+    "eth_signTypedData_v4",
+  );
+  if (domainChain === undefined) {
+    log("typed data without domain.chainId: the signature is valid on every chain");
+    return;
+  }
+  if (policy.allowCrossChainTypedData) {
+    return;
+  }
+  const chain = await policy.chain.chainId();
+  if (domainChain !== chain) {
+    throw kmsError(
+      `the typed data is for chain ${domainChain}, but this network is chain ${chain}. Set \`kms.allowCrossChainTypedData: true\` to sign typed data for other chains`,
+      { operation: "eth_signTypedData_v4" },
+    );
+  }
 }

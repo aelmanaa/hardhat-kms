@@ -69,6 +69,7 @@ Decision records:
 - [0008: Choose KMS keys from the command line with `--kms`](docs/contributor/decisions/0008-kms-command-line-option.md)
 - [0009: Ship each cloud provider as its own package](docs/contributor/decisions/0009-one-package-per-provider.md)
 - [0010: Use pnpm workspaces](docs/contributor/decisions/0010-pnpm-workspaces.md)
+- [0011: Check typed data's chain only when it names one](docs/contributor/decisions/0011-typed-data-chain-check.md)
 
 Rules for every change:
 

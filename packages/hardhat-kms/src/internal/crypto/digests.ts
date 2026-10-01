@@ -34,11 +34,20 @@ function isField(value: unknown): value is { name: string; type: string } {
  * Checks that a value has the shape of EIP-712 typed data and computes its digest once, so that a
  * malformed payload fails here, before any KMS call.
  *
- * @param value - The payload, for example the parsed `eth_signTypedData_v4` param.
- * @returns The same value, typed.
+ * @param input - The payload, for example the parsed `eth_signTypedData_v4` param.
+ * @returns A private copy of the payload, typed. Later checks and the signature must use it.
  * @throws {InvalidTypedDataError} If the shape is wrong or the encoder rejects it.
  */
-export function parseTypedData(value: unknown): TypedData {
+export function parseTypedData(input: unknown): TypedData {
+  // Work on a private copy: a caller's live object could change between the checks and the
+  // signature, so that the signed digest commits to other values than the checked ones. The copy
+  // runs each getter once, and refuses functions and other values that are not plain data.
+  let value: unknown;
+  try {
+    value = structuredClone(input);
+  } catch {
+    throw new InvalidTypedDataError("the typed data must be plain data (JSON values and bigints)");
+  }
   if (!isRecord(value)) {
     throw new InvalidTypedDataError("the typed data must be an object");
   }
