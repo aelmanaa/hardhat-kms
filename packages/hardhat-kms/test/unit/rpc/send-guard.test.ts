@@ -232,4 +232,25 @@ describe("ConnectionSends", () => {
     assert.equal(sends.takeRetry("key1"), transaction);
     assert.equal(sends.takeRetry("one more"), transaction);
   });
+
+  it("drops every retry entry of a hash, and reports the mark only when it is on", () => {
+    const timers = fakeTimers();
+    const sends = new ConnectionSends({ highWater: true, timers });
+    const a = { raw: "0x01", hash: "0xaa", nonce: 0n };
+    const b = { raw: "0x02", hash: "0xbb", nonce: 1n };
+    sends.rememberFailure("a1", a);
+    sends.rememberFailure("b", b);
+    sends.rememberFailure("a2", a);
+    sends.dropRetriesOf(a.hash);
+    assert.equal(timers.pending(), 1);
+    assert.equal(sends.takeRetry("a1"), undefined);
+    assert.equal(sends.takeRetry("a2"), undefined);
+    assert.equal(sends.takeRetry("b"), b);
+    assert.equal(sends.highWaterOf("0xa"), undefined);
+    sends.recordSent("0xa", 2n);
+    assert.equal(sends.highWaterOf("0xa"), 2n);
+    const off = new ConnectionSends({ highWater: false, timers });
+    off.recordSent("0xa", 2n);
+    assert.equal(off.highWaterOf("0xa"), undefined);
+  });
 });

@@ -194,6 +194,17 @@ export class ConnectionSends {
   }
 
   /**
+   * Returns the sender's high-water mark.
+   *
+   * @param from - The sender's lowercase address.
+   * @returns The highest nonce the node accepted on this connection, or `undefined` when there is
+   * none or the mark is off.
+   */
+  public highWaterOf(from: string): bigint | undefined {
+    return this.#highWaterEnabled ? this.#highWater.get(from) : undefined;
+  }
+
+  /**
    * Records a nonce the node accepted: `highWater = max(highWater, nonce)`.
    *
    * @param from - The sender's lowercase address.
@@ -242,6 +253,22 @@ export class ConnectionSends {
       }, RETRY_TTL_MS),
     };
     this.#retries.set(key, entry);
+  }
+
+  /**
+   * Drops the retry entries of a transaction, whatever their key, and cancels their timers. Used
+   * when the node does not have the transaction and a later send may take its nonce, so its old
+   * bytes must not be sent again.
+   *
+   * @param hash - The transaction hash.
+   */
+  public dropRetriesOf(hash: string): void {
+    for (const [key, entry] of this.#retries) {
+      if (entry.transaction.hash === hash) {
+        entry.cancel();
+        this.#retries.delete(key);
+      }
+    }
   }
 
   /**

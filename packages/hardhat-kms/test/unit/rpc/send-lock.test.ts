@@ -203,6 +203,11 @@ async function unknownOutcome(sending: Promise<unknown>): Promise<SendOutcomeUnk
   return outcome;
 }
 
+/** A transfer from cow with the caller's nonce. */
+function withNonce(nonce: number): Record<string, unknown> {
+  return { from: COW, to: TO, nonce: `0x${nonce.toString(16)}` };
+}
+
 /** Makes the next broadcast get no answer after the node got the bytes, like a timeout. */
 function failOnce(node: { onRaw: RawHandler | undefined }): void {
   node.onRaw = async () => {
@@ -465,6 +470,11 @@ describe("a gateway's answer that it does not know the outcome", () => {
       [-32000, "replacement transaction underpriced"],
       [-32000, "max fee per gas less than block base fee"],
       [-32000, "timeouts are configured elsewhere"],
+      [-32000, "execution reverted: Deadline exceeded"],
+      [-32000, "Execution reverted: request timed out"],
+      [-32603, "execution reverted"],
+      [-32603, "revert: timeout"],
+      [3, "reverted with reason string 'deadline exceeded'"],
     ] as const) {
       assert.ok(!isUncertainAnswer(code, message), `${code} ${message}`);
     }
@@ -762,6 +772,105 @@ describe("the retry cache", () => {
     assert.deepEqual(looked, [transactionHash], "and its uncertain record is gone");
   });
 
+  it("signs afresh when the node does not have a retry's transaction and a later send took its nonce", async () => {
+    // A gets no answer; B, another request, looks A up, gets nothing and takes nonce 0; the caller
+    // then retries A. A's old bytes would replace B, so A is signed again with the next nonce.
+    const { node, state, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x2" }));
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x1" }));
+    assert.equal(state.signatures, 3, "the retry of A was signed again");
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n]);
+    assert.notEqual(node.raw[2], node.raw[0], "A's old bytes were not sent again");
+  });
+
+  it("drops a retry entry when the lookup finds nothing, also when the later send gets no answer", async () => {
+    // A and then B get no answer, so no nonce is marked as used. B's send looked A up and found
+    // nothing; B may hold A's nonce, so a retry of A must not send A's old bytes.
+    const { node, state, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x2" }));
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x1" }));
+    // Filled again: here the node's pending count is still 0, so the new bytes happen to match.
+    assert.equal(state.signatures, 3, "the retry of A was filled and signed again, not resent");
+  });
+
+  it("does not resend bytes whose nonce a later send used, unless the node has them", async () => {
+    for (const has of [false, true]) {
+      const { node, state, open, send } = await setUp();
+      const connection = await open();
+      failOnce(node);
+      const first = await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
+      // B chooses nonce 0 itself, so nothing looks A up, and its retry entry stays.
+      resultOf(await send(connection, { from: COW, to: TO, nonce: "0x0", gasPrice: "0x2" }));
+      const looked: unknown[] = [];
+      node.lookUp = (asked) => {
+        looked.push(asked);
+        return has ? { hash: asked } : null;
+      };
+      const retried = resultOf(await send(connection, { from: COW, to: TO, value: "0x1" }));
+      assert.ok(looked.includes(first.transactionHash), "the node was asked about A");
+      if (has) {
+        assert.equal(retried, first.transactionHash);
+        assert.equal(node.raw.length, 2, "nothing was sent: the node has A");
+        assert.equal(state.signatures, 2);
+      } else {
+        assert.equal(state.signatures, 3, "A was signed again");
+        assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n]);
+        assert.notEqual(node.raw[2], node.raw[0]);
+      }
+    }
+  });
+
+  it("asks the node about a revert without a hash when it sends bytes again", async () => {
+    for (const has of [true, false]) {
+      const { node, open, send } = await setUp();
+      const connection = await open();
+      failOnce(node);
+      const first = await unknownOutcome(send(connection, { from: COW, to: TO }));
+      refuse(node, "execution reverted", 3);
+      node.lookUp = (asked) => (has ? { hash: asked } : null);
+      const retried = await send(connection, { from: COW, to: TO });
+      if (has) {
+        assert.equal(resultOf(retried), first.transactionHash);
+      } else {
+        assert.deepEqual(errorOf(retried), { code: 3, message: "execution reverted" });
+      }
+    }
+  });
+
+  it("keeps the bytes when a retry gets a gateway's 'I don't know', for the next retry", async () => {
+    const { node, state, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO }));
+    refuse(node, "upstream request timeout", -32603);
+    errorOf(await send(connection, { from: COW, to: TO }));
+    node.onRaw = undefined;
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.equal(state.signatures, 1);
+    assert.equal(node.raw.length, 3);
+    assert.equal(new Set(node.raw).size, 1, "the same bytes all three times");
+  });
+
+  it("does not look up a transaction the node refused on its first send", async () => {
+    const { node, open, send } = await setUp();
+    const connection = await open();
+    refuse(node, "nonce too low");
+    let lookups = 0;
+    node.lookUp = (asked) => {
+      lookups++;
+      return { hash: asked };
+    };
+    assert.equal(errorOf(await send(connection, { from: COW, to: TO })).message, "nonce too low");
+    assert.equal(lookups, 0);
+  });
+
   it("does not count 'already known' as success on a first send", async () => {
     const { node, open, send } = await setUp();
     const connection = await open();
@@ -818,15 +927,16 @@ describe("the retry cache", () => {
       await Promise.resolve();
       throw new Error("socket hang up");
     };
+    // Each with the caller's nonce, so no send looks up the one before and drops its entry.
     for (let i = 0; i <= MAX_RETRY_ENTRIES; i++) {
-      await unknownOutcome(send(connection, { from: COW, to: TO, value: `0x${i.toString(16)}` }));
+      await unknownOutcome(send(connection, withNonce(i)));
     }
     assert.equal(timers.pending(), MAX_RETRY_ENTRIES, "the oldest entry's timer is cancelled");
     node.onRaw = undefined;
     const signatures = state.signatures;
-    resultOf(await send(connection, { from: COW, to: TO, value: "0x1" }));
+    resultOf(await send(connection, withNonce(1)));
     assert.equal(state.signatures, signatures, "a newer entry is still there");
-    resultOf(await send(connection, { from: COW, to: TO, value: "0x0" }));
+    resultOf(await send(connection, withNonce(0)));
     assert.equal(state.signatures, signatures + 1, "the oldest entry was dropped");
   });
 

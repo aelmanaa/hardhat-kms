@@ -457,7 +457,16 @@ async function sendTransaction(
     await nodeHasTransaction(transactions, hash);
   return await withSendLock(`${chainId}:${address}`, async () => {
     const retry = retryKey === undefined ? undefined : sends.takeRetry(retryKey);
-    if (retry !== undefined) {
+    const mark = sends.highWaterOf(address);
+    if (retry !== undefined && mark !== undefined && retry.nonce <= mark) {
+      // A later send has used this nonce, or a higher one. The old bytes go out again only if the
+      // node has them already; otherwise they could replace that later send, so sign afresh.
+      if (await nodeHas(retry.hash)) {
+        sends.settleUncertain(address, retry.hash);
+        return response(request, retry.hash);
+      }
+      log("transaction %s is unknown and its nonce was used since; signing again", retry.hash);
+    } else if (retry !== undefined) {
       log("sending transaction %s again for a retried request", retry.hash);
       return await broadcast(request, retry, {
         address,
@@ -497,7 +506,8 @@ async function sendTransaction(
  * Asks the node about the sender's last transaction whose broadcast got no answer. If the node
  * has it, the high-water mark rises to its nonce, so a node whose pending count lags cannot give
  * that nonce to the next send, which could replace the first transaction. If the node does not
- * have it, or the lookup fails, the mark stays and the node's pending count decides.
+ * have it, or the lookup fails, the mark stays and the node's pending count decides; the next
+ * send may then take its nonce, so its retry entry is dropped and a retry of it signs afresh.
  */
 async function settleUncertain(
   address: string,
@@ -505,8 +515,13 @@ async function settleUncertain(
   nodeHas: (hash: string) => Promise<boolean>,
 ): Promise<void> {
   const uncertain = sends.takeUncertain(address);
-  if (uncertain !== undefined && (await nodeHas(uncertain.hash))) {
+  if (uncertain === undefined) {
+    return;
+  }
+  if (await nodeHas(uncertain.hash)) {
     sends.recordSent(address, uncertain.nonce);
+  } else {
+    sends.dropRetriesOf(uncertain.hash);
   }
 }
 
@@ -577,9 +592,14 @@ function isConnectionRefused(error: unknown): boolean {
  * Tells whether an error answer says the node does not know what happened: an internal error
  * (-32603), as gateways answer when the backend they forwarded to timed out, or a message that
  * says the request timed out ("timeout", "timed out", "deadline exceeded"). The backend may have
- * taken the transaction before it gave up.
+ * taken the transaction before it gave up. A message that starts with "execution reverted" or
+ * "revert" is a revert, whatever its code or reason.
  */
 export function isUncertainAnswer(code: number, message: string): boolean {
+  // A revert's reason can say anything, "Deadline exceeded" included; it is a definite answer.
+  if (/^\s*(?:execution reverted|revert)/i.test(message)) {
+    return false;
+  }
   return code === -32603 || /\btimed? ?out\b|deadline exceeded/i.test(message);
 }
 
@@ -677,10 +697,17 @@ async function broadcast(
   const code = typeof error.code === "number" ? error.code : 0;
   if (minedHashOf(error) !== undefined || code === 3) {
     // Mined, or reverted when it ran: a definite answer.
-    sends.settleUncertain(address, transaction.hash);
     if (minedHashOf(error) !== undefined) {
+      sends.settleUncertain(address, transaction.hash);
       sends.recordSent(address, transaction.nonce);
+      return passOn();
     }
+    // A revert without a hash, for bytes sent again: the first send may have been mined, and
+    // the node now refuses its nonce with a simulated revert.
+    if (resend && (await nodeHas(transaction.hash))) {
+      return accepted();
+    }
+    sends.settleUncertain(address, transaction.hash);
     return passOn();
   }
   if (resend && isAlreadyKnown(message)) {
