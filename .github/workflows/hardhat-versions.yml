@@ -1,0 +1,57 @@
+name: Hardhat versions
+
+# Runs the transaction-filler differential test and the network hook test against the floor of
+# the hardhat peer range and the latest Hardhat 3 release. The CI workflow tests the lockfile
+# version only. It runs when the lockfile, the pnpm settings, the RPC code, the filler tests or
+# the script change, and weekly, so a new Hardhat release is caught without a repository change.
+# It is not a required check: path-filtered checks would block merges that do not trigger them.
+on:
+  pull_request:
+    paths:
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "packages/hardhat-kms/package.json"
+      - "packages/hardhat-kms/src/internal/rpc/**"
+      - "packages/hardhat-kms/test/integration/transaction-filler.test.ts"
+      - "packages/hardhat-kms/test/integration/network-hook.test.ts"
+      - "scripts/test-hardhat-versions.ts"
+      - "scripts/temporary-install.ts"
+      - ".github/workflows/hardhat-versions.yml"
+  schedule:
+    # Mondays at 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hardhat-versions-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  versions:
+    name: Hardhat floor and latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Hardhat's solc cache, with the same paths and key as ci.yml so the jobs share one entry.
+      - name: Cache Solidity compilers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/hardhat-nodejs/compilers-v3
+            ~/Library/Caches/hardhat-nodejs/compilers-v3
+            ~/AppData/Local/hardhat-nodejs/Cache/compilers-v3
+          key: solc-${{ runner.os }}-${{ hashFiles('packages/*/test/**/*.sol', 'pnpm-lock.yaml') }}
+          restore-keys: solc-${{ runner.os }}-
+      - run: pnpm run test:hardhat-versions

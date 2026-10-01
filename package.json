@@ -20,6 +20,7 @@
     "test:localstack": "pnpm run build && pnpm --filter hardhat-kms-aws run test:localstack",
     "test:live:aws": "pnpm run build && pnpm --filter hardhat-kms-aws run test:live:aws",
     "test:sdk-floors": "node scripts/test-sdk-floors.ts",
+    "test:hardhat-versions": "node scripts/test-hardhat-versions.ts",
     "coverage": "pnpm run build && pnpm -r run coverage",
     "pkg:check": "pnpm run build && node scripts/check-packages.ts && knip",
     "docs:check": "pnpm run build && node scripts/check-docs.ts",
