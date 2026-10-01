@@ -80,7 +80,9 @@ class RetryableFailure extends Error {
 }
 
 /**
- * Waits `ms` milliseconds, or less if `signal` aborts. The timer does not keep the process alive.
+ * Waits `ms` milliseconds, or less if `signal` aborts. The timer is not unref'd: a call in
+ * progress waits on it, and with nothing else pending an unref'd timer would let the process
+ * exit in the middle of a signature. An abort clears it at once.
  *
  * @param ms - The delay.
  * @param signal - Ends the wait early.
@@ -93,7 +95,6 @@ async function pause(ms: number, signal: AbortSignal): Promise<void> {
       resolve();
     };
     const timer = setTimeout(done, ms);
-    timer.unref();
     signal.addEventListener("abort", done, { once: true });
   });
 }

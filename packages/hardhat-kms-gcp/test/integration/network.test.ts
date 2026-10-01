@@ -185,6 +185,29 @@ describe("hardhat-kms-gcp through a network connection", () => {
     }
   });
 
+  it("keeps the process alive through a retry pause, and finishes the signature", async () => {
+    // Before the fix, the pause's timer was unref'd: with nothing else pending, Node exited with
+    // code 13 in the middle of personal_sign.
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../fixtures/sign-through-retry.ts",
+    );
+    const child = spawn(process.execPath, [fixture], {
+      env: { ...process.env, NODE_V8_COVERAGE: "" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    child.stderr.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    const code = await new Promise<number | null>((resolve) => {
+      child.on("exit", resolve);
+    });
+
+    assert.equal(code, 0, `the process did not finish signing:\n${output}`);
+    // One public key lookup, two unavailable answers, then the signature.
+    assert.match(output, /^signature 0x[0-9a-f]{130} after 4 calls$/m);
+  });
+
   it("lets the process exit after signing, without closing the connection", async () => {
     const fixture = path.join(
       path.dirname(fileURLToPath(import.meta.url)),
