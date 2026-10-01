@@ -27,6 +27,14 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
   },
   tasks: [
     emptyTask("kms", "Inspect KMS keys and sign with them").build(),
+    task(["kms", "accounts"], "List the KMS keys, check each one and show its address")
+      .addFlag({ name: "json", description: "Print the list as JSON" })
+      .addFlag({
+        name: "showIds",
+        description: "Show key ids in full, including values read from configuration variables",
+      })
+      .setAction(() => import("./internal/tasks/accounts.ts"))
+      .build(),
     task(["kms", "address"], "Print a KMS key's address")
       .addPositionalArgument({
         name: "key",

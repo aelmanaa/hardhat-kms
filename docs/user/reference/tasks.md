@@ -2,7 +2,7 @@
 
 Audience: Users running the `kms` tasks.
 
-Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). The other tasks are planned for M7.
+Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). The other tasks are planned for M7.
 
 ## Tasks
 
@@ -10,7 +10,7 @@ All tasks live in the `kms` namespace, which is an `emptyTask` in the same style
 
 | Task                                                                                   | Purpose                                                                                                            | Foundry equivalent                                      |
 | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
-| `kms accounts [--network n] [--json] [--show-ids]`                                     | Every configured key with provider, pinned id and address. Checks access and prints ready-to-paste `address` pins. | `cast wallet list/address` (no access check)            |
+| `kms accounts [--network n] [--json] [--show-ids]`                                     | Each configured key with its provider, key id and address. Checks access and prints ready-to-paste `address` pins. | `cast wallet list`; exits 0 when a source fails         |
 | `kms address <key>` / `kms public-key <key>`                                           | The address, or the uncompressed public key.                                                                       | `cast wallet address`; no equivalent for the public key |
 | `kms sign <key> <message> [--data [--from-file]] [--no-hash]`                          | EIP-191, EIP-712, or a raw 32-byte digest. `--no-hash` exists only here, as an explicit human action.              | `cast wallet sign [--data [--from-file]] [--no-hash]`   |
 | `kms sign-auth <key> <delegate> --chain <id> [--nonce n] [--self-broadcast] [--force]` | EIP-7702 authorization. Chain 0 requires `--force`; `--self-broadcast` uses nonce+1.                               | `cast wallet sign-auth`                                 |
@@ -48,6 +48,38 @@ A key in `kms.keys` can have the name of a `--kms` variable, such as `AWS_KMS_KE
 A task prints its result alone on standard output, so a script can capture it with `$(npx hardhat kms address deployer)`. Status messages from the provider, such as a wait for a slow KMS, and notes from the task go to standard error with a `[hardhat-kms]` prefix. Errors go to standard error too, and the command exits with a non-zero code.
 
 Each run creates its own KMS clients and closes them before it returns, so the command exits as soon as it has printed.
+
+## `kms accounts`
+
+```text
+npx hardhat [--network <name>] kms accounts [--json] [--show-ids]
+```
+
+Lists the KMS keys, asks the KMS for each key's address and checks it against the key's `address` pin. Each row shows the key's name, its provider, where it is defined, its address, the state of its pin and its key id:
+
+```text
+NAME                    PROVIDER  SOURCE       ADDRESS                                     PIN      KEY ID
+deployer                aws       kms.keys     0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266  matches  aws:alias/deployer
+sepolia.kmsAccounts[1]  gcp       kmsAccounts  0x70997970C51812dc3A010C7d01b50e0d17dc79C8  none     gcp:<GCP_KEY_VERSION_NAME>
+  also: mainnet.kmsAccounts[0]
+AWS_KMS_KEY_ID          aws       --kms        FAILED                                      -        aws:<AWS_KMS_KEY_ID>
+  error: aws, create adapter, key aws:<AWS_KMS_KEY_ID>: AWS KMS keys need the hardhat-kms-aws plugin. Install it with `npm install --save-dev hardhat-kms-aws` and add it to `plugins` in your Hardhat config
+
+Address pins to add to each key's config:
+  networks.sepolia.kmsAccounts[1]: address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+  networks.mainnet.kmsAccounts[0]: address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+```
+
+- **Which keys.** With `--network`, the task lists that network's `kmsAccounts` in order, then the `--kms` keys, which belong to the selected network. A `--kms` key that names the same KMS key as one of the network's entries gets a note on standard error, because a connection to that network refuses two entries for one key. Without `--network`, the task lists every key a task can name ([Naming a key](#naming-a-key)). A KMS key that several entries name, such as a key in `kms.keys`, an inline copy of it and a `--kms` variable that holds the same id, is listed once, under its first name, with the other names on an `also:` line under it. Entries count as the same key when they have the same provider, the same key id (for an AWS key id or alias, also the same region, profile and endpoint) and the same pin. A third-party provider's keys are never merged.
+- **Access.** Every key is tried, up to 8 at a time, and none is skipped. A key that fails shows `FAILED` and the error on the line under it. A pin that differs from the key's address fails with both addresses, as in [`kms address`](#kms-address). If any key fails, the command exits with code 1 after printing the whole list.
+- **Pins.** The `PIN` column shows `matches` when the KMS confirmed the pin, `none` when the key has no pin, and `not checked` when the provider can report neither a public key nor an address, so the address shown is the pin. When a key works and has no pin, the task prints an `address` line for each of its entries in `kms.keys` or a network's `kmsAccounts`, including the entries on its `also:` line. A `--kms` key has no config to paste into.
+- **Key ids.** An identifier read from a configuration variable or a `--kms` variable shows as `<VARIABLE_NAME>`, as in errors and debug output. `--show-ids` shows the values instead and first prints a warning on standard error. A literal identifier in the config is shown either way. A merged row shows the id of its first entry, so when a variable's key merges with a literal key listed before it, the row shows that literal id, and with it the value the variable holds. A third-party provider's key shows its display id.
+- **AWS keys looked up in different places.** When rows read the same key id but their AWS keys differ in region, profile or endpoint, each of those rows shows the settings that differ after the id, for example `aws:alias/deployer (region eu-west-1, profile default, default endpoint)`. An endpoint shows only as `custom endpoint` or `default endpoint`, since it can be an internal URL; `--show-ids` shows the URL.
+- **`--json`.** Prints `{ "version": 1, "accounts": [...] }` instead of the table. Each entry has `name`, `source` (`kms.keys`, `kmsAccounts` or `--kms`), `otherNames` (a list of `{ name, source }`), `provider`, `keyId`, `address`, `pin`, `pinStatus` (`match`, `none` or `unchecked`) and `error`. An AWS key also has `region` and `profile`, `null` when not set, and with `--show-ids` its `endpoint`. A failed key has `address` and `pinStatus` set to `null`, and `error` set to the message. The types are `AccountsReport` and `AccountEntry` in `hardhat-kms/types`.
+
+The failure messages are the plugin's own, or Hardhat's for a configuration variable that is not set. Any other error is reduced to its class name, because its text can carry request details.
+
+`hre.tasks.getTask(["kms", "accounts"]).run({ json: false, showIds: false })` returns a Hardhat `Result` holding the same `{ version, accounts }` report: a successful one when every key works, a failed one otherwise.
 
 ## `kms address`
 
@@ -199,7 +231,6 @@ Compared with `cast wallet verify`:
 
 ## Details for the planned tasks
 
-- `kms accounts` without `--network` lists every network, deduplicated by key. It never silently skips a provider: a failure is shown next to the key it affects.
 - An address-pin mismatch prints both addresses and a hint about key rotation or a repointed alias, as in [`kms address`](#kms-address).
 - `displayMessage` output appears only on the first resolution of a key or for KMS calls that take longer than 2 s.
 

@@ -80,6 +80,7 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 | `kms verify`                                | `packages/hardhat-kms/src/internal/tasks/verify.ts`                                                                                                               | M7        |
 | Message and typed-data arguments of tasks   | `packages/hardhat-kms/src/internal/tasks/inputs.ts`, shared by `kms sign` and `kms verify`                                                                        | M7        |
 | Typed-data parsing and chain check          | `packages/hardhat-kms/src/internal/rpc/typed-data.ts`, shared by `eth_signTypedData_v4`, `kms sign --data` and `kms verify --data`                                | M4, M7    |
+| `kms accounts`                              | `packages/hardhat-kms/src/internal/tasks/accounts.ts`                                                                                                             | M7        |
 | Other tasks                                 | `packages/hardhat-kms/src/internal/tasks/` (planned)                                                                                                              | M7        |
 
 ## Signing a message
@@ -162,7 +163,7 @@ packages/hardhat-kms/src/
   provider-utils.ts         helpers for provider plugins (the "hardhat-kms/provider-utils" subpath, @experimental)
   internal/
     config/                 zod v3 schema rooted at HardhatUserConfig; conditionalUnionType on `provider`; superRefine for named-key refs
-                            (path ["networks", n, "kmsAccounts", i]); pure resolve
+                            (path ["networks", n, "kmsAccounts", i]); pure resolve; key-identity.ts: when two keys are one KMS key
     hook-handlers/
       config.ts             validate/resolve (imports provider *descriptors* only)
       hre.ts                reads --kms when the runtime is created; keeps the keys per runtime
@@ -232,7 +233,7 @@ The user documentation therefore recommends listing hardhat-ledger first ([Other
 
 ## Tasks
 
-The plugin definition declares `emptyTask("kms")` and one `task(["kms", <name>])` per task, each with `setAction(() => import(...))`, as hardhat-keystore does. Defining the tasks loads no action module and no SDK. The SDK-loading tests in the provider packages check both, and that running `kms address`, `kms public-key` and `kms verify --key` on another provider's key loads no SDK.
+The plugin definition declares `emptyTask("kms")` and one `task(["kms", <name>])` per task, each with `setAction(() => import(...))`, as hardhat-keystore does. Defining the tasks loads no action module and no SDK. The SDK-loading tests in the provider packages check both, and that running `kms address`, `kms public-key` and `kms verify --key` on another provider's key, or `kms accounts` on the other providers' keys, loads no SDK.
 
 Every task that takes a key uses `packages/hardhat-kms/src/internal/tasks/keys.ts`:
 
@@ -246,6 +247,8 @@ Every task that takes a key uses `packages/hardhat-kms/src/internal/tasks/keys.t
 `kms sign` checks its input before it opens a signer. Typed data goes through `readTypedData` and `checkTypedDataChain` in `rpc/typed-data.ts`, the functions `eth_signTypedData_v4` uses, and the chain to compare with is `--chain`, else the `chainId` in the `--network` config. Only a network config without `chainId` makes the task open a connection to read `eth_chainId`; creating it runs the network hook, which can call the KMS, since Hardhat funds an `edr-simulated` network's accounts then. After signing, the task recovers the address from the printed `r || s || v` and refuses a signature that does not recover to the key. That catches a substituted or wrong signer output. It is no independent check of the digest: the task computes the digest with the signer's own code.
 
 `kms sign` and `kms verify` read their message the same way, through `tasks/inputs.ts`: `readMessage` decodes `0x` hex or UTF-8, and `readTypedDataArgument` reads `--data` JSON, from the file with `--from-file`, through `readTypedData`. `kms verify` checks every input before it contacts the KMS, then parses the signature with `parseRpcSignature` in `crypto/signature.ts`, which reads `v` and folds a high-S signature to low S as alloy does, and recovers the address with `recoverAddress`. With `--key`, it gets the key's address with `confirmedAddress()`, as `kms address` does; with `--address`, it opens no signer. A mismatch returns Hardhat's `errorResult`, which the CLI turns into exit code 1 without printing an error.
+
+`kms accounts` takes no key. It lists `taskKeys(hre)`, or, with `--network`, that network's `kmsAccounts` followed by `commandLineKeys(hre)`, and resolves every key with `confirmedAddress()` inside one `withTaskSigners`, at most `ACCOUNTS_CONCURRENCY` (8) keys at a time. Without `--network`, keys with the same `keyIdentity()` and the same pin are listed once, and the row keeps every merged entry's name and source, so each config entry gets its pin line. With `--network`, the same function finds a `--kms` key that repeats a network entry, for a note. `keyIdentity()` lives in `packages/hardhat-kms/src/internal/config/key-identity.ts` and is the same function the dispatcher uses to refuse a `--kms` key that repeats a config key. A key's failure is caught and kept in its entry, so one key cannot hide the others. The task returns a Hardhat `Result` from `hardhat/utils/result`; the CLI sets exit code 1 for a failed one without printing an error. The report's types, `AccountsReport` and `AccountEntry`, are exported from `hardhat-kms/types`, and the report carries `version: 1`.
 
 ## Lifetimes and caching
 

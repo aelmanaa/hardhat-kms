@@ -101,6 +101,25 @@ describe("SDK loading", () => {
       });
     }
 
+    it(`runs kms accounts on the other providers' keys without loading the Google Cloud SDK (${hooks} hooks)`, () => {
+      const { urls, stdout } = run({
+        ...recorderEnv,
+        HHKMS_FIXTURE_KEY: "",
+        HHKMS_FIXTURE_SKIP: "gcp",
+        HHKMS_FIXTURE_TASK: "accounts",
+      });
+
+      // The other providers' packages are not installed here, so both keys fail, and are listed.
+      assert.match(stdout, /^accounts task failed$/m);
+      assert.match(stdout, /^aws .* FAILED /m);
+      assert.match(stdout, /^azure .* FAILED /m);
+      assert.ok(
+        urls.some((url) => url.includes("/hardhat-kms/dist/src/internal/tasks/accounts.js")),
+        "the recorder saw the task action",
+      );
+      assert.deepEqual(sdkModules(urls), []);
+    });
+
     it(`loads the Google Cloud SDK once a Google Cloud key's adapter is created (positive control, ${hooks} hooks)`, () => {
       const { urls, stdout } = run({ ...recorderEnv, HHKMS_FIXTURE_KEY: "gcp" });
 

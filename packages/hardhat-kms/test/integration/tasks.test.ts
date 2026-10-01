@@ -160,6 +160,7 @@ describe("kms tasks", () => {
 
     assert.equal(hre.tasks.getTask("kms").isEmpty, true);
     assert.deepEqual([...hre.tasks.getTask("kms").subtasks.keys()].toSorted(), [
+      "accounts",
       "address",
       "public-key",
       "sign",

@@ -216,6 +216,13 @@ export interface KmsConfig {
 export type { KeyDescription, KmsKeyAdapter, SignContext } from "./internal/signer/types.ts";
 export type { SignatureOutput } from "./internal/crypto/signature.ts";
 export type { TypedData } from "./internal/crypto/digests.ts";
+/** The output of the `kms accounts` task: its `--json` output and its result. */
+export type {
+  AccountEntry,
+  AccountName,
+  AccountSource,
+  AccountsReport,
+} from "./internal/tasks/accounts.ts";
 
 /**
  * The `kms` hook category, which provider plugins use to add their adapters.

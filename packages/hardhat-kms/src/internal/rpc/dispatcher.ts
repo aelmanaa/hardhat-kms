@@ -10,10 +10,10 @@ import type { HookContext } from "hardhat/types/hooks";
 import type { JsonRpcRequest, JsonRpcResponse } from "hardhat/types/providers";
 
 import type { KmsKeyConfig } from "../../types.ts";
+import { keyIdentity } from "../config/key-identity.ts";
 import { toChecksumAddress } from "../crypto/address.ts";
 import { kmsDebug } from "../debug.ts";
 import { errorName, kmsError } from "../errors.ts";
-import { parseAwsKeyId } from "../providers/aws/key-id.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import type { ConnectionChain } from "./chain-id.ts";
@@ -39,29 +39,6 @@ export interface NetworkKeys {
   config: readonly KmsKeyConfig[];
   /** The keys chosen with `--kms`, when this is the selected network. */
   commandLine: readonly KmsKeyConfig[];
-}
-
-/**
- * What makes two keys of a first-party provider the same KMS key: the identifier, read the way
- * the adapter reads it, plus, for an AWS key id or alias, the settings that decide where it is
- * looked up. Returns `undefined` for keys of other providers.
- */
-async function keyIdentity(key: KmsKeyConfig): Promise<string | undefined> {
-  if ("keyVersionName" in key) {
-    return `gcp\0${await key.keyVersionName.get()}`;
-  }
-  if (key.provider === "azure") {
-    return `azure\0${await key.keyId.get()}`;
-  }
-  if (key.provider === "aws") {
-    const id = await key.keyId.get();
-    // An ARN names its account and region. A key id or alias names a key only together with the
-    // region, profile and endpoint it is looked up in.
-    return parseAwsKeyId(id)?.kind === "keyArn" || parseAwsKeyId(id)?.kind === "aliasArn"
-      ? `aws\0${id}`
-      : `aws\0${id}\0${key.region ?? ""}\0${key.profile ?? ""}\0${key.endpoint ?? ""}`;
-  }
-  return undefined;
 }
 
 /** The methods the dispatcher looks at; every other method passes through (rule 1). */

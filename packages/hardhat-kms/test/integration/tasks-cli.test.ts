@@ -231,10 +231,53 @@ describe("kms tasks from the Hardhat CLI", () => {
     assert.match(run.stderr, /\[hardhat-kms\] waiting for the KMS/);
   });
 
+  it("lists every key, shows a failing key and exits 1 on its own", () => {
+    const run = hardhat(["kms", "accounts"]);
+
+    assert.equal(run.status, 1, `the task did not fail and exit:\n${run.output}`);
+    assert.match(
+      run.stdout,
+      new RegExp(`^deployer +myvault +kms\\.keys +${HARDHAT_ACCOUNT_0.address} `, "m"),
+    );
+    assert.match(run.stdout, /^pinned +myvault +kms\.keys +FAILED /m);
+    assert.ok(
+      run.stdout.includes(`but the configured address is ${COW_ACCOUNT.address}`),
+      run.output,
+    );
+  });
+
+  it("exits 0 with --json when every key works", () => {
+    const run = hardhat(["--network", "default", "--kms", "aws", "kms", "accounts", "--json"], {
+      AWS_KMS_KEY_ID: "alias/from-env",
+    });
+
+    assert.equal(run.status, 0, run.output);
+    const parsed: unknown = JSON.parse(run.stdout);
+    assert.deepEqual(parsed, {
+      version: 1,
+      accounts: [
+        {
+          name: "AWS_KMS_KEY_ID",
+          source: "--kms",
+          otherNames: [],
+          provider: "aws",
+          keyId: "aws:<AWS_KMS_KEY_ID>",
+          region: null,
+          profile: null,
+          address: HARDHAT_ACCOUNT_0.address,
+          pin: null,
+          pinStatus: "none",
+          error: null,
+        },
+      ],
+    });
+  });
+
   it("lists the tasks under kms", () => {
     const run = hardhat(["kms"]);
 
     assert.equal(run.status, 0, run.output);
+    assert.match(run.output, /accounts\s+List the KMS keys/);
     assert.match(run.output, /address\s+Print a KMS key's address/);
     assert.match(run.output, /public-key\s+Print a KMS key's uncompressed public key/);
     assert.match(run.output, /sign\s+Sign a message, typed data or a raw digest with a KMS key/);
