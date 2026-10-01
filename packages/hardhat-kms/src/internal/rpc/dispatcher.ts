@@ -12,11 +12,45 @@ import { toChecksumAddress } from "../crypto/address.ts";
 import { InvalidTypedDataError, parseTypedData, type TypedData } from "../crypto/digests.ts";
 import { kmsDebug } from "../debug.ts";
 import { errorName, kmsError } from "../errors.ts";
+import { parseAwsKeyId } from "../providers/aws/key-id.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { type ConnectionChain, parseChainId } from "./chain-id.ts";
 
 const log = kmsDebug("rpc");
+
+/** The KMS keys of one network connection. */
+export interface NetworkKeys {
+  /** The network's name. */
+  name: string;
+  /** The network's `kmsAccounts`, in order. */
+  config: readonly KmsKeyConfig[];
+  /** The keys chosen with `--kms`, when this is the selected network. */
+  commandLine: readonly KmsKeyConfig[];
+}
+
+/**
+ * What makes two keys of a first-party provider the same KMS key: the identifier, read the way
+ * the adapter reads it, plus, for an AWS key id or alias, the settings that decide where it is
+ * looked up. Returns `undefined` for keys of other providers.
+ */
+async function keyIdentity(key: KmsKeyConfig): Promise<string | undefined> {
+  if ("keyVersionName" in key) {
+    return `gcp\0${await key.keyVersionName.get()}`;
+  }
+  if (key.provider === "azure") {
+    return `azure\0${await key.keyId.get()}`;
+  }
+  if (key.provider === "aws") {
+    const id = await key.keyId.get();
+    // An ARN names its account and region. A key id or alias names a key only together with the
+    // region, profile and endpoint it is looked up in.
+    return parseAwsKeyId(id)?.kind === "keyArn" || parseAwsKeyId(id)?.kind === "aliasArn"
+      ? `aws\0${id}`
+      : `aws\0${id}\0${key.region ?? ""}\0${key.profile ?? ""}\0${key.endpoint ?? ""}`;
+  }
+  return undefined;
+}
 
 /** The methods the dispatcher looks at; every other method passes through (rule 1). */
 const ACCOUNT_METHODS = new Set(["eth_accounts", "eth_requestAccounts"]);
@@ -50,18 +84,20 @@ function response(request: JsonRpcRequest, result: unknown): JsonRpcResponse {
 export class ConnectionAccounts {
   readonly #context: HookContext;
   readonly #cache: SignerCache;
+  readonly #network: NetworkKeys;
   readonly #keys: readonly KmsKeyConfig[];
   #addresses: Promise<Map<string, KmsKeyConfig>> | undefined;
 
   /**
    * @param context - The Hardhat runtime.
    * @param cache - The runtime's signers.
-   * @param keys - The connection's KMS keys, in order.
+   * @param network - The connection's KMS keys.
    */
-  public constructor(context: HookContext, cache: SignerCache, keys: readonly KmsKeyConfig[]) {
+  public constructor(context: HookContext, cache: SignerCache, network: NetworkKeys) {
     this.#context = context;
     this.#cache = cache;
-    this.#keys = keys;
+    this.#network = network;
+    this.#keys = [...network.config, ...network.commandLine];
   }
 
   /** Whether the connection has KMS keys at all. */
@@ -115,6 +151,7 @@ export class ConnectionAccounts {
   }
 
   async #lookUp(): Promise<Map<string, KmsKeyConfig>> {
+    await this.#checkCommandLineKeys();
     const resolved = await Promise.all(
       this.#keys.map(async (key) => ({
         key,
@@ -141,6 +178,38 @@ export class ConnectionAccounts {
     }
     log("accounts: %s", [...byAddress.values()].map((key) => key.displayId).join(", "));
     return byAddress;
+  }
+
+  /**
+   * Refuses a `--kms` key that names the same KMS key as one of the network's config keys, with
+   * both names and no values (decision 0008). Keys that name one key differently, such as an
+   * alias and an ARN, are caught when their addresses are compared.
+   */
+  async #checkCommandLineKeys(): Promise<void> {
+    const { config, commandLine, name } = this.#network;
+    if (commandLine.length === 0) {
+      return;
+    }
+    // A pinned config key is not read here: its pin already gives its address, and reading it
+    // could ask for an unset variable or a keystore password the run would not otherwise need.
+    const configIds = await Promise.all(
+      config.map(async (key) => (key.address === undefined ? await keyIdentity(key) : undefined)),
+    );
+    for (const key of commandLine) {
+      const id = await keyIdentity(key);
+      const index = id === undefined ? -1 : configIds.indexOf(id);
+      const existing = config[index];
+      if (existing !== undefined) {
+        const path = `networks.${name}.kmsAccounts[${index}]`;
+        // An inline key is named after its place in the network.
+        const named =
+          existing.name === `${name}.kmsAccounts[${index}]` ? "" : ` ("${existing.name}")`;
+        throw kmsError(`${key.name} is already ${path}${named}; use one of them`, {
+          provider: key.provider,
+          operation: "load accounts",
+        });
+      }
+    }
   }
 }
 
