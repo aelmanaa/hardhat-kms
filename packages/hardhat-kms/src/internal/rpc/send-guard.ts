@@ -176,6 +176,7 @@ export async function withSendLock<T>(
       locks.delete(key);
     } else {
       next.grant();
+      // O(waiters) per hand-off; MAX_SEND_LOCK_WAITERS bounds the total cost of draining a queue.
       for (const waiter of lock.waiters) {
         waiter.restart();
       }
