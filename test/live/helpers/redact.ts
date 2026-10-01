@@ -1,6 +1,7 @@
 // Redaction for the live tests' failures. Errors from the cloud SDKs, the plugin and viem can name
 // the key, the vault, the project, the caller's account and the RPC URL; none of these may reach the
-// test output.
+// test output. Nor may signed transactions and authorizations: one signed on the fork carries
+// Sepolia's chain id and the account's real nonce, so anyone who copied it could broadcast it.
 
 /** The environment variables that name the keys and the RPC. */
 const KEY_VARIABLES = [
@@ -73,6 +74,10 @@ export function redact(message: string, env: Readonly<Record<string, string | un
   }
   return (
     text
+      // Signed data: raw transactions, 65-byte signatures and anything longer (transaction hashes
+      // are 32 bytes and stay), then the r and s of a signature or authorization written as fields.
+      .replaceAll(/0x[0-9a-f]{130,}/gi, "<signed data>")
+      .replaceAll(/(["']?\b[rs]["']?\s*[:=]\s*["']?)0x[0-9a-f]+/gi, "$1<signature>")
       // Patterns for identifiers that are not in the variables: other ARNs and aliases, the caller's account
       // and principal ids, the project number GCP reports, and any URL.
       .replaceAll(/arn:aws[^\s'"]*/g, "<arn>")

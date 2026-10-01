@@ -1,9 +1,15 @@
-// The live tests on Sepolia: `pnpm run test:live`. For each provider whose key variable is set,
-// it deploys a contract from the KMS account through the plugin, sends one transaction of each
-// type (legacy, EIP-2930, EIP-1559 and EIP-7702), and checks a `personal_sign` and an
-// `eth_signTypedData_v4` signature on chain with `ecrecover`. A run that delegated the account, or
-// found it delegated, ends by clearing the delegation and sending 1 wei to the account. Providers
-// without a key are skipped and reported; the configured ones run in parallel.
+// The live tests: `pnpm run test:live`. For each provider whose key variable is set, it deploys a
+// contract from the KMS account through the plugin, sends one transaction of each type (legacy,
+// EIP-2930, EIP-1559 and EIP-7702), and checks a `personal_sign` and an `eth_signTypedData_v4`
+// signature on chain with `ecrecover`. A run that delegated the account, or found it delegated,
+// ends by clearing the delegation and sending 1 wei to the account. Providers without a key are
+// skipped and reported; the configured ones run in parallel.
+//
+// By default the suite runs on a local anvil fork of Sepolia, with each account funded by
+// `anvil_setBalance`: it signs with the real keys and spends nothing. Anvil reads Sepolia through
+// a proxy that refuses and records any send, and the run fails if one was attempted.
+// HARDHAT_KMS_LIVE_NETWORK=sepolia runs it on Sepolia itself, which spends Sepolia ETH and
+// produces the hashes for `docs/live-proof.md`.
 //
 // - HARDHAT_KMS_LIVE_AWS_KEY_ID: an ECC_SECG_P256K1 key id, alias or ARN. AWS_REGION, or the key's
 //   ARN, gives the region.
@@ -12,11 +18,12 @@
 // - HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL: optional; a public RPC without an API key is the default.
 //
 // The tests use the developer's own cloud logins and create no cloud resources. Each account must
-// hold at least MIN_BALANCE, and the legacy gas price must be at most MAX_GAS_PRICE, or the test fails
-// before sending anything. Key ids, resource names and URLs are redacted from every failure.
+// hold at least MIN_BALANCE, and on Sepolia the legacy gas price must be at most MAX_GAS_PRICE, or
+// the test fails before sending anything. Key ids, resource names, URLs and signed data are
+// redacted from every failure.
 import assert from "node:assert/strict";
 import path from "node:path";
-import { before, describe, it, type TestContext } from "node:test";
+import { after, before, describe, it, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import hardhatViem from "@nomicfoundation/hardhat-viem";
@@ -38,6 +45,7 @@ import {
   parseGwei,
   parseSignature,
   toHex,
+  type TransactionReceipt,
   WaitForTransactionReceiptTimeoutError,
   zeroAddress,
 } from "viem";
@@ -52,11 +60,17 @@ import hardhatKmsAzure from "../../packages/hardhat-kms-azure/src/index.ts";
 import hardhatKmsGcp from "../../packages/hardhat-kms-gcp/src/index.ts";
 import { authorizationDigest } from "../../packages/hardhat-kms/src/internal/crypto/digests.ts";
 import { KmsSigner } from "../../packages/hardhat-kms/src/internal/signer/kms-signer.ts";
+import { type AnvilFork, findAnvil, startAnvilFork } from "./helpers/anvil.ts";
 import { legacyGasPrice } from "./helpers/gas.ts";
+import { liveMode, MODE_VARIABLE } from "./helpers/mode.ts";
 import { redact } from "./helpers/redact.ts";
 import { retryLagging } from "./helpers/retry.ts";
+import { type RecordingProxy, startRecordingProxy } from "./helpers/rpc-proxy.ts";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixture-project");
+
+/** Where the transactions go; throws at load on a value other than `fork` or `sepolia`. */
+const onFork = liveMode(process.env) === "fork";
 
 const SEPOLIA_CHAIN_ID = 11_155_111;
 /** Used when HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL is not set. Needs no API key. */
@@ -66,10 +80,16 @@ const RPC_VARIABLE = "HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL";
 const MIN_BALANCE = parseEther("0.01");
 /** Above this gas price the test refuses to send, so a fee spike cannot drain the accounts. */
 const MAX_GAS_PRICE = parseGwei("20");
-/** How long to wait for each receipt: 25 Sepolia blocks. */
-const RECEIPT_TIMEOUT_MS = 300_000;
+/** How long to wait for each receipt: 25 Sepolia blocks, or a minute on the fork, which mines at once. */
+const RECEIPT_TIMEOUT_MS = onFork ? 60_000 : 300_000;
+/** On the fork, how long a transaction may stay pending before the test mines a block itself. */
+const FORK_NUDGE_MS = 15_000;
 /** Code of an account with no delegation, as viem returns it. */
 const NO_CODE = [undefined, "0x"];
+/** What `anvil_setBalance` gives each account on the fork. */
+const FORK_BALANCE = parseEther("10");
+/** The fork's rules: Prague is the first with EIP-7702. */
+const FORK_HARDFORK = "prague";
 
 const env = (name: string): string => process.env[name]?.trim() ?? "";
 const rpcUrl = env(RPC_VARIABLE);
@@ -175,8 +195,13 @@ interface Sent {
   block: bigint;
 }
 
-async function runtime(): Promise<HardhatRuntimeEnvironment> {
-  const url = rpcUrl === "" ? DEFAULT_RPC_URL : configVariable(RPC_VARIABLE);
+/**
+ * The runtime, with one http network per configured provider.
+ *
+ * @param forkUrl - The anvil fork's URL in fork mode; the Sepolia RPC is used without it.
+ */
+async function runtime(forkUrl?: string): Promise<HardhatRuntimeEnvironment> {
+  const url = forkUrl ?? (rpcUrl === "" ? DEFAULT_RPC_URL : configVariable(RPC_VARIABLE));
   return await createHardhatRuntimeEnvironment(
     {
       plugins: [hardhatKmsAws, hardhatKmsGcp, hardhatKmsAzure, hardhatViem],
@@ -263,7 +288,7 @@ async function authorize(
 
 const errorText = (error: Error): string => `${error.name}: ${error.message}`;
 
-/** Runs one provider's checks on Sepolia, and reports what it sent as test diagnostics. */
+/** Runs one provider's checks, and reports what it sent as test diagnostics. */
 async function runProvider(
   hre: HardhatRuntimeEnvironment,
   provider: Provider,
@@ -278,6 +303,16 @@ async function runProvider(
     const sent: Sent[] = [];
 
     assert.equal(await publicClient.getChainId(), SEPOLIA_CHAIN_ID, "the RPC is not Sepolia");
+    if (onFork) {
+      // Only anvil takes anvil_setBalance, so an account is funded only on the fork, and an RPC
+      // that is not anvil fails here, before anything is signed or sent.
+      const client: unknown = await rpc.request({ method: "web3_clientVersion" });
+      assert.ok(
+        typeof client === "string" && client.startsWith("anvil/"),
+        "fork mode is not talking to anvil",
+      );
+      await rpc.request({ method: "anvil_setBalance", params: [account, toHex(FORK_BALANCE)] });
+    }
     const accounts: unknown = await rpc.request({ method: "eth_accounts" });
     assert.ok(
       Array.isArray(accounts) &&
@@ -295,7 +330,9 @@ async function runProvider(
     const nodeGasPrice = await publicClient.getGasPrice();
     const { baseFeePerGas } = await publicClient.getBlock({ blockTag: "latest" });
     const gasPrice = legacyGasPrice(nodeGasPrice, baseFeePerGas ?? 0n);
-    if (gasPrice > MAX_GAS_PRICE) {
+    // The cap protects real Sepolia ETH; the fork's ETH is minted, so a Sepolia fee spike cannot
+    // cost anything there.
+    if (!onFork && gasPrice > MAX_GAS_PRICE) {
       assert.fail(
         `the legacy gas price would be ${formatGwei(gasPrice)} gwei (eth_gasPrice ${formatGwei(nodeGasPrice)} gwei, ` +
           `base fee ${formatGwei(baseFeePerGas ?? 0n)} gwei), above the cap of ${formatGwei(MAX_GAS_PRICE)} gwei. ` +
@@ -303,7 +340,8 @@ async function runProvider(
       );
     }
     t.diagnostic(
-      `${provider.name}: ${account} holds ${formatEther(balance)} ETH, legacy gas price ${formatGwei(gasPrice)} gwei`,
+      `${provider.name}: ${account} holds ${formatEther(balance)} ETH${onFork ? " on the fork" : ""}, ` +
+        `legacy gas price ${formatGwei(gasPrice)} gwei`,
     );
 
     // The block of the latest receipt. Reads that check state after a write ask for this block, so
@@ -322,24 +360,41 @@ async function runProvider(
       type: string,
       hash: Hash,
     ): Promise<{ block: bigint; contractAddress: Address | null | undefined }> => {
-      let receipt;
-      try {
-        receipt = await publicClient.waitForTransactionReceipt({
-          hash,
-          timeout: RECEIPT_TIMEOUT_MS,
-        });
-      } catch (error) {
-        if (!(error instanceof WaitForTransactionReceiptTimeoutError)) {
+      const waitFor = async (timeout: number): Promise<TransactionReceipt | undefined> => {
+        try {
+          return await publicClient.waitForTransactionReceipt({ hash, timeout });
+        } catch (error) {
+          if (error instanceof WaitForTransactionReceiptTimeoutError) {
+            return undefined;
+          }
           throw error;
         }
+      };
+      let receipt = await waitFor(onFork ? FORK_NUDGE_MS : RECEIPT_TIMEOUT_MS);
+      if (receipt === undefined && onFork) {
+        // Anvil mines on each transaction it receives, but under concurrent sends it has once left
+        // a valid transaction pending with no later send to trigger a block. One more block takes
+        // it; a transaction that is not valid stays out and fails below as on Sepolia.
+        await rpc.request({ method: "evm_mine" });
+        t.diagnostic(`${provider.name}: ${label} was still pending; mined a block with evm_mine`);
+        receipt = await waitFor(RECEIPT_TIMEOUT_MS - FORK_NUDGE_MS);
+      }
+      if (receipt === undefined) {
         const nonce = await publicClient
           .getTransaction({ hash })
           .then((tx) => String(tx.nonce))
           .catch(() => "unknown");
+        const count = await publicClient
+          .getTransactionCount({ address: account, blockTag: "latest" })
+          .then(String)
+          .catch(() => "unknown");
         return assert.fail(
-          `${label} was not mined within ${RECEIPT_TIMEOUT_MS / 1000} s: transaction ${hash}, nonce ${nonce}. ` +
-            `It may be priced below the base fee. Replace it: send a transaction from ${account} with nonce ` +
-            `${nonce} and a higher fee, for example 0 ETH to itself, before running again.`,
+          `${label} was not mined within ${RECEIPT_TIMEOUT_MS / 1000} s: transaction ${hash}, nonce ${nonce}, ` +
+            `and the account's mined transaction count is ${count}. ` +
+            (onFork
+              ? "On the fork this is a test or anvil problem; nothing reached Sepolia."
+              : `It may be priced below the base fee. Replace it: send a transaction from ${account} with nonce ` +
+                `${nonce} and a higher fee, for example 0 ETH to itself, before running again.`),
         );
       }
       assert.equal(receipt.status, "success", `${label} reverted (${hash})`);
@@ -595,6 +650,13 @@ async function runProvider(
       throw failure;
     }
 
+    // A fork run's hashes exist on no public chain, so it reports no proof for docs/live-proof.md.
+    if (onFork) {
+      t.diagnostic(
+        `${provider.name}: fork run passed with ${sent.length} transactions; not a live proof`,
+      );
+      return;
+    }
     t.diagnostic(
       `${provider.name}: proof ${JSON.stringify({
         provider: provider.name,
@@ -609,28 +671,67 @@ async function runProvider(
   }
 }
 
-describe("live on Sepolia", { concurrency: true, timeout: 1_800_000 }, () => {
+describe(onFork ? "live on a Sepolia fork" : "live on Sepolia", () => {
   let hre: HardhatRuntimeEnvironment;
+  let proxy: RecordingProxy | undefined;
+  let fork: AnvilFork | undefined;
 
   before(async () => {
-    if (configured.length > 0) {
-      await redacted(async () => {
-        hre = await runtime();
-        await hre.tasks.getTask("build").run({ quiet: true });
-      });
+    if (configured.length === 0) {
+      return;
+    }
+    await redacted(async () => {
+      if (onFork) {
+        const binary = findAnvil(process.env);
+        if (binary === undefined) {
+          assert.fail(
+            `fork mode needs anvil, from Foundry (https://getfoundry.sh), on PATH or in ~/.foundry/bin. ` +
+              `To run on Sepolia instead, set ${MODE_VARIABLE}=sepolia.`,
+          );
+        }
+        proxy = await startRecordingProxy(rpcUrl === "" ? DEFAULT_RPC_URL : rpcUrl);
+        fork = await startAnvilFork({ binary, forkUrl: proxy.url, hardfork: FORK_HARDFORK });
+      }
+      hre = await runtime(fork?.url);
+      await hre.tasks.getTask("build").run({ quiet: true });
+    });
+  });
+
+  after(async () => {
+    await fork?.close();
+    await proxy?.close();
+  });
+
+  describe("providers", { concurrency: true, timeout: 1_800_000 }, () => {
+    for (const provider of PROVIDERS) {
+      const skip = configured.includes(provider) ? false : `${provider.variable} is not set`;
+      it(
+        `${provider.name}: deploys, sends every transaction type and verifies signatures`,
+        { skip },
+        async (t) => {
+          await redacted(async () => {
+            await runProvider(hre, provider, t);
+          });
+        },
+      );
     }
   });
 
-  for (const provider of PROVIDERS) {
-    const skip = configured.includes(provider) ? false : `${provider.variable} is not set`;
-    it(
-      `${provider.name}: deploys, sends every transaction type and verifies signatures`,
-      { skip },
-      async (t) => {
-        await redacted(async () => {
-          await runProvider(hre, provider, t);
-        });
-      },
+  // Anvil's only way to Sepolia is its fork URL, the proxy. The proxy forwards no send and keeps
+  // the name of every method it saw, so an empty refusal list means no transaction signed on the
+  // fork was even offered to Sepolia.
+  const skipProof = !onFork
+    ? "runs only in fork mode"
+    : configured.length === 0
+      ? "no provider is configured"
+      : false;
+  it("fork: no transaction reached the Sepolia RPC", { skip: skipProof }, (t) => {
+    assert.ok(proxy !== undefined, "the proxy did not start");
+    const methods = proxy.methods();
+    assert.ok(methods.size > 0, "anvil sent no request through the proxy");
+    assert.deepEqual(proxy.refused(), [], "a send reached the proxy, which refused it");
+    t.diagnostic(
+      `upstream methods: ${[...methods].map(([method, count]) => `${method} ${count}`).join(", ")}`,
     );
-  }
+  });
 });

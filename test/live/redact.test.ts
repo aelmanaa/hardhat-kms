@@ -92,4 +92,22 @@ describe("live test redaction", () => {
     const address = "0x728743B36DE6236f6d03409563a7E2c39a00EE17";
     assert.equal(redact(`${address} sent ${hash}`, ENV), `${address} sent ${hash}`);
   });
+
+  it("removes raw transactions, signatures and authorizations' r and s", () => {
+    const raw = `0x02f8${"5a".repeat(110)}`;
+    const signature = `0x${"1c".repeat(65)}`;
+    const r = `0x${"0d".repeat(32)}`;
+    const s = `0x${"7e".repeat(31)}`;
+    const text = redact(
+      `eth_sendRawTransaction failed: ${raw}; signature ${signature}; ` +
+        `authorization {"chainId":"0xaa36a7","nonce":"0x5","yParity":"0x1","r":"${r}","s":"${s}"}; r: ${r}, s=${s}`,
+      ENV,
+    );
+    for (const value of [raw, signature, r, s, "5a5a5a", "1c1c1c", "0d0d0d", "7e7e7e"]) {
+      assert.ok(!text.includes(value), `${value} survived in: ${text}`);
+    }
+    assert.match(text, /<signed data>/);
+    assert.match(text, /"r":"<signature>"/);
+    assert.match(text, /"nonce":"0x5"/);
+  });
 });
