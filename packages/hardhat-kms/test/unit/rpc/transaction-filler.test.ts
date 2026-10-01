@@ -557,6 +557,35 @@ describe("buildUnsignedTransaction", () => {
     ]);
   });
 
+  it("keeps the access list in EIP-1559 and EIP-7702 transactions", () => {
+    const slot = `0x${"01".repeat(32)}`;
+    const accessList = [
+      { address: hex(TO), storageKeys: [hex(slot)] },
+      { address: hex(FROM), storageKeys: null },
+    ];
+    const expected = [
+      { address: addr.addChecksum(TO), storageKeys: [slot] },
+      { address: FROM, storageKeys: [] },
+    ];
+    const fees = { maxFeePerGas: 9n, maxPriorityFeePerGas: 1n, accessList };
+    const eip1559 = buildUnsignedTransaction(filledTx(fees));
+    assert.equal(eip1559.type, "eip1559");
+    assert.deepEqual(rawOf(eip1559).accessList, expected);
+    const authorizationList = [
+      {
+        chainId: CHAIN,
+        address: hex(TO),
+        nonce: 0n,
+        yParity: hex("0x01"),
+        r: hex(`0x${"11".repeat(32)}`),
+        s: hex(`0x${"22".repeat(32)}`),
+      },
+    ];
+    const eip7702 = buildUnsignedTransaction(filledTx({ ...fees, authorizationList }));
+    assert.equal(eip7702.type, "eip7702");
+    assert.deepEqual(rawOf(eip7702).accessList, expected);
+  });
+
   it("builds a contract creation, and refuses one without data", () => {
     const creation = buildUnsignedTransaction(
       filledTx({ to: null, data: hex("0x6000"), gasPrice: 1n }),

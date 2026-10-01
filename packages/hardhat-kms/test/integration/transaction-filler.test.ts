@@ -22,6 +22,11 @@ import { HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
 const FROM = HARDHAT_ACCOUNT_0.address;
 const TO = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+// One address with one storage key, another with none.
+const ACCESS_LIST = [
+  { address: TO, storageKeys: [`0x${"00".repeat(31)}01`] },
+  { address: FROM, storageKeys: [] },
+];
 // Creation code that deploys a contract returning 42.
 const INIT_CODE = "0x600a600c600039600a6000f3602a60005260206000f3";
 
@@ -243,6 +248,17 @@ describe("transaction filling matches Hardhat's local accounts", () => {
       },
     ];
     assert.equal(await compare("local", { from: FROM, to: FROM, authorizationList }), "eip7702");
+    assert.equal(
+      await compare("local", { from: FROM, to: FROM, authorizationList, accessList: ACCESS_LIST }),
+      "eip7702",
+    );
+  });
+
+  it("fills an EIP-1559 transaction with an access list", async () => {
+    assert.equal(
+      await compare("local", { from: FROM, to: TO, accessList: ACCESS_LIST }),
+      "eip1559",
+    );
   });
 
   it("keeps the caller's nonce, value and chain id", async () => {
