@@ -26,7 +26,7 @@ az keyvault key show --vault-name my-vault --name deployer --query key.kid --out
 # https://my-vault.vault.azure.net/keys/deployer/0123456789abcdef0123456789abcdef
 ```
 
-Deleting the key loses its address for good, along with any funds it holds. Key Vault keeps a deleted key for a retention period of 7 to 90 days (90 by default), during which `az keyvault key recover` restores it; after that, or after a purge, it is gone. Turn on purge protection (`az keyvault update --name my-vault --enable-purge-protection true`) so nobody can purge it early. To stop a key from signing without losing it, disable it instead: `az keyvault key set-attributes --vault-name my-vault --name deployer --enabled false`.
+Deleting the key loses its address for good, along with any funds it holds, once the vault's soft-delete retention period ends or the key is purged; [Prevent and recover from losing a key](key-loss.md) covers recovering a key, purge protection and retiring a key.
 
 ## 2. Allow get and sign, and nothing else
 

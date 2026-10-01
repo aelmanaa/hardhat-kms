@@ -25,7 +25,7 @@ Use `--protection-level hsm`. Creating this key at protection level `software` f
 
 The plugin refuses key versions with any other algorithm.
 
-Destroying the key version loses its address for good, along with any funds it holds. Cloud KMS destroys a version only after it has been scheduled for destruction for a waiting period, 30 days by default. During that period `gcloud kms keys versions restore` brings it back; after it, the key material is gone. If you might need the key again, disable the version with `gcloud kms keys versions disable` instead, and grant `cloudkms.cryptoKeyVersions.destroy` only to identities that need it.
+Destroying the key version loses its address for good, along with any funds it holds, once the key's scheduled-destruction duration ends (30 days by default, fixed when the key is created); [Prevent and recover from losing a key](key-loss.md) covers restoring a version, guarding against destruction and retiring a key.
 
 ## 2. Allow signing, and nothing else
 

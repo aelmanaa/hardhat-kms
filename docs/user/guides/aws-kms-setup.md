@@ -19,7 +19,7 @@ aws kms create-alias --alias-name alias/deployer --target-key-id <KeyId from the
 
 The plugin refuses keys with another spec or usage.
 
-Deleting the key loses its address for good, along with any funds it holds. AWS KMS deletes a key only after a waiting period of 7 to 30 days (30 by default). You can cancel the deletion during that period; after it, the key cannot be recovered. If you might need the key again, disable it instead, and deny `kms:ScheduleKeyDeletion` to identities that have no reason to delete it.
+Deleting the key loses its address for good, along with any funds it holds, once a waiting period of 7 to 30 days ends; [Prevent and recover from losing a key](key-loss.md) covers cancelling a deletion, guarding against it and retiring a key.
 
 ## 2. Allow signing, and nothing else
 

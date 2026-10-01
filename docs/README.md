@@ -14,6 +14,7 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 | [Set up an AWS KMS key](user/guides/aws-kms-setup.md)                 | How-to      |
 | [Set up an Azure Key Vault key](user/guides/azure-key-vault-setup.md) | How-to      |
 | [Set up a Google Cloud KMS key](user/guides/gcp-kms-setup.md)         | How-to      |
+| [Prevent and recover from losing a key](user/guides/key-loss.md)      | How-to      |
 | [Debug output](user/guides/debug-output.md)                           | How-to      |
 | [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md)   | How-to      |
 | [Migrate from Foundry](user/guides/migrate-from-foundry.md)           | How-to      |
