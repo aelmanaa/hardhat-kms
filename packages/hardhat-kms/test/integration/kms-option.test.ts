@@ -116,7 +116,8 @@ describe("--kms", () => {
     });
     const key = hre.config.kms.keys.k;
     assert.ok(key);
-    await assert.rejects(createKeyAdapter(hre, key), /stop/);
+    // The handler stops the chain; a plain error is reported by its class name only.
+    await assert.rejects(createKeyAdapter(hre, key), /creating the adapter failed \(Error\)/);
 
     assert.equal(fromContext.length, 1);
     assert.equal(fromContext, commandLineKeys(hre));

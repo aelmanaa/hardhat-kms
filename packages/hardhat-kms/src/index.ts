@@ -19,6 +19,7 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
   hookHandlers: {
     config: () => import("./internal/hook-handlers/config.ts"),
     hre: () => import("./internal/hook-handlers/hre.ts"),
+    network: () => import("./internal/hook-handlers/network.ts"),
   },
   globalOptions: [
     globalOption({

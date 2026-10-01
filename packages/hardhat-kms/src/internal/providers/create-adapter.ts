@@ -1,3 +1,5 @@
+import { HardhatError } from "@nomicfoundation/hardhat-errors";
+import { HardhatPluginError } from "hardhat/plugins";
 import type { HookContext } from "hardhat/types/hooks";
 
 import type { KmsKeyConfig } from "../../types.ts";
@@ -122,14 +124,31 @@ export async function createKeyAdapter(
   key: KmsKeyConfig,
 ): Promise<KmsKeyAdapter> {
   log("creating the adapter for %s", key.displayId);
-  const adapter: unknown = await context.hooks.runHandlerChain(
-    "kms",
-    "createKeyAdapter",
-    [key],
-    async (_finalContext, finalKey) => {
-      log("%s: no plugin claimed the key", finalKey.displayId);
-      return await Promise.reject(unclaimedKeyError(finalKey));
-    },
-  );
+  let adapter: unknown;
+  try {
+    adapter = await context.hooks.runHandlerChain(
+      "kms",
+      "createKeyAdapter",
+      [key],
+      async (_finalContext, finalKey) => {
+        log("%s: no plugin claimed the key", finalKey.displayId);
+        return await Promise.reject(unclaimedKeyError(finalKey));
+      },
+    );
+  } catch (error) {
+    // Hardhat and plugin errors are written to be shown; a missing configuration variable, for
+    // example, names the variable but never a value. Anything else, such as a failed SDK import or
+    // a client constructor error, may carry request details: keep only its class name, as the
+    // signer does.
+    if (HardhatPluginError.isHardhatPluginError(error) || HardhatError.isHardhatError(error)) {
+      throw error;
+    }
+    log("%s: creating the adapter failed (%s)", key.displayId, errorName(error));
+    throw kmsError(`creating the adapter failed (${errorName(error)})`, {
+      provider: key.provider,
+      operation: "create adapter",
+      key: key.displayId,
+    });
+  }
   return checkAdapter(adapter, key);
 }

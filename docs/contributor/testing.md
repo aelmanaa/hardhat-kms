@@ -2,7 +2,7 @@
 
 Audience: Contributors writing or running tests.
 
-Status: M1 adds the signing core's unit tests: crypto vectors and properties, the signer against a fake adapter, and byte equivalence with Hardhat's message and typed-data vectors. M3 adds the AWS adapter's tests in `packages/hardhat-kms-aws/test`. The other tests arrive with their milestones.
+Status: M1 adds the signing core's unit tests: crypto vectors and properties, the signer against a fake adapter, and byte equivalence with Hardhat's message and typed-data vectors. M3 adds the AWS adapter's tests in `packages/hardhat-kms-aws/test`. M4 adds the network hook's integration tests ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). The other tests arrive with their milestones.
 
 ## Testing strategy
 
@@ -18,6 +18,7 @@ Tests form a pyramid. The lower layers are fast and pure; the upper layers exerc
    - Assertions on request parameters: `MessageType: DIGEST`, the ARN taken from `GetPublicKey`, `ES256K` with the versioned id, the GCP call options.
    - A fake adapter that returns a signature from the wrong key, and an address-pin mismatch.
    - An AbortSignal timeout, driven by an injected clock.
+   - The signer cache (`packages/hardhat-kms/test/unit/signer/key-cache.test.ts`): one signer per key, failures not kept, the idle close after the last connection and re-creation on next use, driven by injected timers.
    - Bounded GCP CRC retries, and the Azure managed identity timeout.
    - The AWS adapter's tests are in `packages/hardhat-kms-aws/test/unit/adapter.test.ts`, with the fake SDK in `packages/hardhat-kms-aws/test/helpers/fake-aws-kms.ts`.
 3. Byte equivalence:
@@ -25,6 +26,7 @@ Tests form a pyramid. The lower layers are fast and pure; the upper layers exerc
    - Differential checks against viem `signTransaction` and ethers `Wallet.signTransaction`.
    - The differential fill test described under [Transaction filling](transactions.md#transaction-filling), run against the Hardhat floor and `latest`.
 4. Integration tests on a real HRE with `edr-simulated` and a fake adapter registered through the `kms` hook:
+   - The network hook (`packages/hardhat-kms/test/integration/network-hook.test.ts`), on an `edr-simulated` network and an unreachable http network: account listing (own accounts first, pinned addresses without a KMS call, duplicates listed once, KMS addresses only when the downstream call fails); `personal_sign`, `eth_sign` and `eth_signTypedData_v4` matching Hardhat's local-account vectors; pass-through for other addresses and methods; strict hex and malformed typed data refused before any KMS call; transactions from KMS accounts refused; adapter-creation errors reduced to the error class; two keys for the same account refused; the `default`-network warning printed once; networks without KMS keys left alone.
    - hardhat-viem and hardhat-ethers flows: deploy, every transaction type, and `signMessage`/`signTypedData` verified on chain with `ecrecover`.
    - N parallel sends plus reads: consecutive nonces and no deadlock.
    - Retry behaviour with viem on an http network: no double broadcast, and no retry after send.
@@ -32,10 +34,11 @@ Tests form a pyramid. The lower layers are fast and pure; the upper layers exerc
    - Chain-id guards.
    - Config errors reported at the exact path.
    - Every task.
-   - `hardhat run` exits.
+   - `hardhat run` exits (covered for now by the AWS exit test in layer 5).
    - Error messages never contain the injected fake secrets.
 5. Provider packages with their real SDK against a local endpoint:
    - `packages/hardhat-kms-aws/test/integration/plugin.test.ts` loads `hardhat-kms-aws` in an HRE and signs through the real `@aws-sdk/client-kms`. The SDK talks to a local HTTP server that speaks the KMS JSON 1.1 protocol (`packages/hardhat-kms-aws/test/helpers/kms-server.ts`). The test checks the `X-Amz-Target` of each request, that `Sign` uses the key ARN from `GetPublicKey` with `MessageType: DIGEST`, and the region in the SigV4 credential scope. It also checks that the handler passes keys of other providers on, and that listing `hardhatKms` and `hardhatKmsAws` together works.
+   - `packages/hardhat-kms-aws/test/integration/network.test.ts` opens a connection with `hre.network.create` to a network whose `kmsAccounts` key points at the same local server. It checks that `eth_accounts` lists the key's address, that `personal_sign` returns the signature from Hardhat's own local-accounts tests, and that the server saw one `GetPublicKey` and one `Sign`. It also runs `packages/hardhat-kms-aws/test/fixtures/sign-and-exit.ts` in a child process, which signs without closing the connection, and fails unless the process exits by itself.
    - `packages/hardhat-kms-aws/test/integration/sdk-loading.test.ts` checks that loading a config loads no AWS SDK module, and that creating an AWS adapter does (see [SDK loading](architecture.md#sdk-loading)).
    - These tests run the SDK version in `pnpm-lock.yaml`. `pnpm run test:sdk-floors` (`scripts/test-sdk-floors.ts`) runs each provider package's tests again with the lowest version of each cloud SDK its range allows: it reads the floor from the caret range in `package.json`, installs that exact version, checks the package resolves it, typechecks the package and its tests against it, and restores `package.json`, `pnpm-workspace.yaml` and the lockfile afterwards, also on Ctrl-C. The `sdk-floors.yml` workflow runs it when a provider package, a manifest, the lockfile, `pnpm-workspace.yaml` or the script changes; it is not a required check. If a floor fails, raise it in the same pull request to a version that passes, and give the reason in the changeset.
 6. Emulated AWS: `packages/hardhat-kms-aws/test/localstack/aws-kms.test.ts` starts LocalStack `4.14.0`, pinned by digest and bound to a random port on 127.0.0.1, and runs the real `@aws-sdk/client-kms` through the plugin against keys it creates. Each of 32 signatures must verify and recover to the key; about half come back high-S, and the test fails unless it saw both kinds. An alias moved to another key after the first lookup must keep signing with the first key, a key ARN without a configured region must work, and P-256 and symmetric keys are refused. Real KMS always echoes the key ARN and algorithm and never offers secp256k1 keys for encryption, so the checks on those response fields are covered by the unit tests only. Run it with `pnpm run test:localstack`, which needs Docker. In CI it runs on Ubuntu only, in the `localstack` job.

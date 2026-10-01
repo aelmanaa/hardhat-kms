@@ -12,6 +12,8 @@ import {
 } from "../../../src/internal/crypto/address.ts";
 import { crc32c } from "../../../src/internal/crypto/crc32c.ts";
 import {
+  InvalidTypedDataError,
+  parseTypedData,
   personalMessageDigest,
   typedDataDigest,
   verifyPersonalMessageSignature,
@@ -131,5 +133,43 @@ describe("addresses", () => {
     ]) {
       assert.throws(() => toChecksumAddress(address), InvalidAddressError, address);
     }
+  });
+});
+
+describe("parseTypedData", () => {
+  it("returns well-formed typed data unchanged", () => {
+    assert.deepEqual(parseTypedData(EIP712_MAIL), EIP712_MAIL);
+  });
+
+  it("rejects payloads that are not EIP-712 typed data", () => {
+    const cases: Array<[string, unknown, RegExp]> = [
+      ["not an object", 42, /must be an object/],
+      ["an array", [], /must be an object/],
+      ["types not an object", { ...EIP712_MAIL, types: [] }, /`types` must map/],
+      [
+        "a field without a type",
+        { ...EIP712_MAIL, types: { Mail: [{ name: "x" }] } },
+        /`types.Mail`/,
+      ],
+      ["a missing primaryType", { ...EIP712_MAIL, primaryType: 1 }, /string `primaryType`/],
+      ["a missing message", { ...EIP712_MAIL, message: null }, /object `domain` and `message`/],
+      ["an unknown primaryType", { ...EIP712_MAIL, primaryType: "Missing" }, /./],
+    ];
+    for (const [name, value, message] of cases) {
+      assert.throws(
+        () => parseTypedData(value),
+        (error: unknown) => error instanceof InvalidTypedDataError && message.test(error.message),
+        name,
+      );
+    }
+  });
+
+  it("keeps a type named __proto__ as data, not as the prototype", () => {
+    const types: unknown = JSON.parse(
+      '{"EIP712Domain":[],"__proto__":[{"name":"x","type":"uint256"}],"T":[{"name":"x","type":"uint256"}]}',
+    );
+    const parsed = parseTypedData({ types, primaryType: "T", domain: {}, message: { x: 1 } });
+    assert.equal(Object.getPrototypeOf(parsed.types), Object.prototype);
+    assert.ok(Object.hasOwn(parsed.types, "__proto__"));
   });
 });
