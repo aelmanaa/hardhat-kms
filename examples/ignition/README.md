@@ -23,7 +23,7 @@ export AWS_KMS_KEY_ID=alias/deployer   # a key id, alias or ARN
 export AWS_REGION=eu-west-1            # the key's region, unless AWS_KMS_KEY_ID is an ARN
 ```
 
-Deploy the module with the `ignition deploy` task on the simulated `rehearsal` network. `kms.simulatedBalance` funds the KMS account there, and the key in AWS KMS still signs every transaction. Pass the key's address as the default sender:
+Deploy the module with the `ignition deploy` task on the simulated `rehearsal` network. `kms.simulatedBalance` funds the KMS account there, and the key in AWS KMS still signs every transaction. Pass the key's address as the default sender. The script below prints it on its `Deployer:` line, and [Set up an AWS KMS key](../../docs/user/guides/aws-kms-setup.md#4-check-that-the-key-signs) shows another way to read it:
 
 ```sh
 npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --default-sender 0x…

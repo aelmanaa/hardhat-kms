@@ -130,15 +130,17 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      # The examples use the test fixtures' solc version, so this job shares the test job's cache.
+      # Hardhat's solc cache. The key also hashes the examples' contracts, so a compiler they add
+      # is saved; a cache saved by the test job is restored as a fallback.
       - name: Cache Solidity compilers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/hardhat-nodejs/compilers-v3
-          key: solc-${{ runner.os }}-${{ hashFiles('packages/*/test/**/*.sol', 'pnpm-lock.yaml') }}
+          key: solc-${{ runner.os }}-${{ hashFiles('packages/*/test/**/*.sol', 'examples/**/*.sol', 'pnpm-lock.yaml') }}
           restore-keys: solc-${{ runner.os }}-
-      # Starts LocalStack, pinned by digest, on a random port, then builds, typechecks and runs
-      # every project in examples/ against it.
+      # Starts LocalStack, pinned by digest, on a random port, then builds, typechecks, lints and
+      # runs every project in examples/ against it. The Ignition test also starts a Hardhat node on
+      # port 8545.
       - run: pnpm run test:examples
 
   coverage:

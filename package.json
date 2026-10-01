@@ -27,6 +27,7 @@
     "docs:check": "pnpm run build && node scripts/check-docs.ts",
     "prepare": "lefthook install && node scripts/install-git-hooks.ts",
     "changeset": "changeset",
+    "version-packages": "changeset version && pnpm install --lockfile-only",
     "release": "pnpm run clean && pnpm run build && changeset publish"
   },
   "devDependencies": {

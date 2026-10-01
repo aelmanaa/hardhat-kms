@@ -6,8 +6,8 @@
 // test checks that the deployer and the contract's owner are the address of the LocalStack key,
 // computed here from its public key, and that the count read back from the contract is 7 + 5.
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -21,11 +21,14 @@ import { isolateAwsEnvironment } from "../helpers/aws-env.ts";
 import { type LocalStack, startLocalStack } from "../helpers/localstack.ts";
 
 const REGION = "us-east-1";
-const EXAMPLES_DIRECTORY = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../examples",
-);
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+const EXAMPLES_DIRECTORY = path.join(ROOT, "examples");
 const EXPECTED_COUNT = 12n;
+/** Hardhat's built-in `localhost` network, where `hardhat node` listens by default. */
+const NODE_URL = "http://127.0.0.1:8545";
+/** The selectors of `owner()` and `count()` in contracts/Counter.sol. */
+const OWNER_SELECTOR = "0x8da5cb5b";
+const COUNT_SELECTOR = "0x06661abd";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
 const shell = process.platform === "win32";
@@ -50,14 +53,14 @@ function addressOf(spki: Uint8Array): string {
 }
 
 /**
- * Runs pnpm in an example's directory with the LocalStack environment.
+ * Runs pnpm in a directory with the LocalStack environment.
  *
  * @returns The command's standard output; a failure carries its output in the error message.
  */
-async function pnpmIn(example: string, args: string[]): Promise<string> {
+async function pnpmAt(cwd: string, args: string[]): Promise<string> {
   try {
     const { stdout } = await run(pnpm, args, {
-      cwd: path.join(EXAMPLES_DIRECTORY, example),
+      cwd,
       env: environment,
       shell,
       maxBuffer: 16 * 1024 * 1024,
@@ -67,17 +70,81 @@ async function pnpmIn(example: string, args: string[]): Promise<string> {
     const stdout: unknown = Reflect.get(Object(error), "stdout");
     const stderr: unknown = Reflect.get(Object(error), "stderr");
     throw new Error(
-      `examples/${example}: pnpm ${args.join(" ")} failed\n${String(stdout)}\n${String(stderr)}`,
+      `${path.relative(ROOT, cwd)}: pnpm ${args.join(" ")} failed\n${String(stdout)}\n${String(stderr)}`,
       { cause: error },
     );
   }
 }
+
+const pnpmIn = async (example: string, args: string[]): Promise<string> =>
+  await pnpmAt(path.join(EXAMPLES_DIRECTORY, example), args);
 
 /** The value printed after `label:` on its own line of `output`. */
 function printed(output: string, label: string): string {
   const match = new RegExp(`^${label}: (\\S+)$`, "m").exec(output);
   assert.ok(match?.[1] !== undefined, `no "${label}:" line in:\n${output}`);
   return match[1];
+}
+
+/** Sends one JSON-RPC request to the Hardhat node and returns its result. */
+async function rpc(method: string, params: unknown[]): Promise<unknown> {
+  const response = await fetch(NODE_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const body: unknown = await response.json();
+  const error: unknown = Reflect.get(Object(body), "error");
+  if (error !== undefined) {
+    throw new Error(`${method} failed: ${JSON.stringify(error)}`);
+  }
+  return Reflect.get(Object(body), "result");
+}
+
+/** Reads a 32-byte word from a contract with `eth_call`. */
+async function callWord(to: string, data: string): Promise<string> {
+  const result = await rpc("eth_call", [{ to, data }, "latest"]);
+  assert.ok(typeof result === "string" && /^0x[0-9a-f]{64}$/.test(result), String(result));
+  return result;
+}
+
+/**
+ * Starts `hardhat node` in an example's directory and waits until it answers on the `localhost`
+ * network's URL.
+ *
+ * @returns The node's process.
+ */
+async function startNode(example: string): Promise<ChildProcess> {
+  const alreadyRunning = await rpc("eth_chainId", []).then(
+    () => true,
+    () => false,
+  );
+  assert.ok(!alreadyRunning, `something already listens on ${NODE_URL}; stop it and run again`);
+  // Node runs Hardhat's CLI directly, without pnpm in between, so that kill() stops the server.
+  const directory = path.join(EXAMPLES_DIRECTORY, example);
+  const cli = path.join(directory, "node_modules", "hardhat", "dist", "src", "cli.js");
+  const node = spawn(process.execPath, [cli, "node"], {
+    cwd: directory,
+    env: environment,
+    stdio: "ignore",
+  });
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    if (
+      await rpc("eth_chainId", []).then(
+        () => true,
+        () => false,
+      )
+    ) {
+      return node;
+    }
+    if (node.exitCode !== null || Date.now() > deadline) {
+      node.kill();
+      throw new Error(`hardhat node did not start in examples/${example}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
 }
 
 describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
@@ -117,10 +184,18 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
   });
 
   for (const example of examples) {
-    it(`${example}: builds, typechecks and deploys from the KMS account`, async () => {
-      // `hardhat build` writes the artifact types that the scripts' typecheck needs.
+    it(`${example}: builds, typechecks, lints and deploys from the KMS account`, async () => {
+      // `hardhat build` writes the artifact types that the typecheck and type-aware lint need,
+      // which is why the root lint skips examples/ and this test lints them instead.
       await pnpmIn(example, ["exec", "hardhat", "build"]);
       await pnpmIn(example, ["exec", "tsc", "-p", "."]);
+      await pnpmAt(ROOT, [
+        "exec",
+        "oxlint",
+        "--config",
+        "examples/oxlint.json",
+        `examples/${example}`,
+      ]);
 
       const output = await pnpmIn(example, ["run", "deploy", "--network", "rehearsal"]);
       assert.equal(printed(output, "Deployer").toLowerCase(), kmsAddress);
@@ -132,20 +207,39 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
     const modules = path.join(EXAMPLES_DIRECTORY, example, "ignition", "modules");
     if (existsSync(modules)) {
       for (const file of readdirSync(modules).filter((name) => name.endsWith(".ts"))) {
-        it(`${example}: ignition deploy ${file} with the KMS account as default sender`, async () => {
-          const output = await pnpmIn(example, [
-            "exec",
-            "hardhat",
-            "ignition",
-            "deploy",
-            `ignition/modules/${file}`,
-            "--network",
-            "rehearsal",
-            "--default-sender",
-            kmsAddress,
-          ]);
-          assert.match(output, /successfully deployed/);
-          assert.match(output, /#\w+ - 0x[0-9a-fA-F]{40}/);
+        // A simulated network keeps no state after the task exits, so this deploys to a Hardhat
+        // node through the `localhost` network, with the key added by `--kms aws`, and reads the
+        // counter back from the node.
+        it(`${example}: ignition deploy ${file} from the KMS account to a Hardhat node`, async () => {
+          const node = await startNode(example);
+          try {
+            await rpc("hardhat_setBalance", [kmsAddress, "0xde0b6b3a7640000"]);
+            const output = await pnpmIn(example, [
+              "exec",
+              "hardhat",
+              "ignition",
+              "deploy",
+              `ignition/modules/${file}`,
+              "--network",
+              "localhost",
+              "--kms",
+              "aws",
+              "--default-sender",
+              kmsAddress,
+            ]);
+            assert.match(output, /successfully deployed/);
+            const address = /#Counter - (0x[0-9a-fA-F]{40})/.exec(output)?.[1];
+            assert.ok(address !== undefined, `no Counter address in:\n${output}`);
+            const owner = await callWord(address, OWNER_SELECTOR);
+            assert.equal(`0x${owner.slice(-40)}`, kmsAddress);
+            assert.equal(BigInt(await callWord(address, COUNT_SELECTOR)), EXPECTED_COUNT);
+          } finally {
+            node.kill();
+            rmSync(path.join(EXAMPLES_DIRECTORY, example, "ignition", "deployments"), {
+              recursive: true,
+              force: true,
+            });
+          }
         });
       }
     }

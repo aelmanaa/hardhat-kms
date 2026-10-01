@@ -21,8 +21,7 @@
     "**/coverage/**",
     "packages/*/src/internal/vendor/**",
     "packages/*/test/fixture-projects/**/artifacts/**",
-    "examples/*/artifacts/**",
-    "examples/*/types/**",
+    "examples/**",
     "node_modules/**"
   ],
   "rules": {
@@ -122,12 +121,6 @@
     "typescript/ban-ts-comment": "error"
   },
   "overrides": [
-    {
-      "files": ["examples/**"],
-      "rules": {
-        "eslint/no-console": "off"
-      }
-    },
     {
       "files": ["packages/*/test/**"],
       "rules": {
