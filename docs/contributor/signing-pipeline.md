@@ -50,7 +50,7 @@ Errors are `HardhatPluginError("hardhat-kms", …)` built from an allow-list of 
 | Credentials or identifiers leak through errors and logs                    | No secrets in config, allow-listed errors, restricted `debug` output, `<VAR_NAME>` masking.                        |
 | A client retry broadcasts a transaction twice                              | Error code -32000 plus the local hash after broadcast, and the post-broadcast retry cache.                         |
 
-The plugin does not protect against these (the full security model is [#39](https://github.com/aelmanaa/hardhat-kms/issues/39)):
+The plugin does not protect against these. The user-facing [security model](../user/explanation/security-model.md) explains each row above and these limits, and what happens when a KMS call times out:
 
 - Nonce collisions between separate processes using the same key.
 - Access to the key itself, which the provider's IAM or RBAC controls. The setup guides for [AWS](../user/guides/aws-kms-setup.md), [Google Cloud](../user/guides/gcp-kms-setup.md) and [Azure](../user/guides/azure-key-vault-setup.md) give minimal permissions, including the AWS conditions `kms:SigningAlgorithm` and `kms:MessageType`.

@@ -19,7 +19,8 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 - Deploy with Hardhat Ignition from a KMS account (choosing the deployer, rehearsing on a simulated network): [docs/user/guides/deploy-with-ignition.md](docs/user/guides/deploy-with-ignition.md)
 - Complete projects to copy, which deploy and call a contract with viem, ethers or Ignition: [examples/README.md](examples/README.md)
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
-- What the plugin protects against and what it does not: [docs/contributor/signing-pipeline.md#threat-model-summary](docs/contributor/signing-pipeline.md#threat-model-summary)
+- How a request goes from viem or ethers through the plugin to the KMS and the node: [docs/user/explanation/how-it-works.md](docs/user/explanation/how-it-works.md)
+- What the plugin protects against and what it does not, what to configure, and what happens when a KMS call times out: [docs/user/explanation/security-model.md](docs/user/explanation/security-model.md)
 - Pages not written yet (tutorials, the remaining guides, errors): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
 
 Never ask a user to paste credentials, private keys or API-keyed RPC URLs. Credentials come from each provider SDK's default chain, never from the Hardhat config. API-keyed RPC URLs belong in `configVariable()`, which also accepts key identifiers.
