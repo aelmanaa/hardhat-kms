@@ -164,6 +164,7 @@ describe("kms tasks", () => {
       "address",
       "public-key",
       "sign",
+      "sign-auth",
       "sign-tx",
       "verify",
     ]);

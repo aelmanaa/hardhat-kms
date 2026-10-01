@@ -137,6 +137,40 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
       })
       .setAction(() => import("./internal/tasks/sign-tx.ts"))
       .build(),
+    task(["kms", "sign-auth"], "Sign an EIP-7702 authorization with a KMS key")
+      .addPositionalArgument({
+        name: "key",
+        type: ArgumentType.STRING,
+        description: KEY_ARGUMENT_DESCRIPTION,
+      })
+      .addPositionalArgument({
+        name: "delegate",
+        type: ArgumentType.STRING,
+        description: "The address of the code the key's account delegates to",
+      })
+      .addOption({
+        name: "chain",
+        description: "The chain id to sign for; required unless --network is given",
+        type: ArgumentType.STRING_WITHOUT_DEFAULT,
+        defaultValue: undefined,
+      })
+      .addOption({
+        name: "nonce",
+        description: "The authority's nonce; read from the --network node when omitted",
+        type: ArgumentType.STRING_WITHOUT_DEFAULT,
+        defaultValue: undefined,
+      })
+      .addFlag({
+        name: "selfBroadcast",
+        description:
+          "The key also sends the transaction that carries the authorization: sign for the pending nonce + 1",
+      })
+      .addFlag({
+        name: "force",
+        description: "Allow chain 0, which makes the authorization valid on every chain",
+      })
+      .setAction(() => import("./internal/tasks/sign-auth.ts"))
+      .build(),
   ],
   globalOptions: [
     globalOption({

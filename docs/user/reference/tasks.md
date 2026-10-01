@@ -2,20 +2,20 @@
 
 Audience: Users running the `kms` tasks.
 
-Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). The other tasks are planned for M7.
+Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-auth` ([#35](https://github.com/aelmanaa/hardhat-kms/issues/35)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). The other tasks are planned for M7.
 
 ## Tasks
 
 All tasks live in the `kms` namespace, which is an `emptyTask` in the same style as the keystore plugin. `npx hardhat kms` lists the implemented ones.
 
-| Task                                                                                   | Purpose                                                                                                            | Foundry equivalent                                      |
-| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
-| `kms accounts [--network n] [--json] [--show-ids]`                                     | Each configured key with its provider, key id and address. Checks access and prints ready-to-paste `address` pins. | `cast wallet list`; exits 0 when a source fails         |
-| `kms address <key>` / `kms public-key <key>`                                           | The address, or the uncompressed public key.                                                                       | `cast wallet address`; no equivalent for the public key |
-| `kms sign <key> <message> [--data [--from-file]] [--no-hash]`                          | EIP-191, EIP-712, or a raw 32-byte digest. `--no-hash` exists only here, as an explicit human action.              | `cast wallet sign [--data [--from-file]] [--no-hash]`   |
-| `kms sign-auth <key> <delegate> --chain <id> [--nonce n] [--self-broadcast] [--force]` | EIP-7702 authorization. Chain 0 requires `--force`; `--self-broadcast` uses nonce+1.                               | `cast wallet sign-auth`                                 |
-| `kms sign-tx <key> <tx.json> --network n`                                              | Filled on the network's node and signed, never sent. Prints the raw transaction, and its hash on standard error.   | `cast mktx`                                             |
-| `kms verify (--address a \| --key k) <message> <signature> [--data [--from-file]]`     | Local signature verification against an address or a key. No `--no-hash`.                                          | `cast wallet verify [--data [--from-file]]`             |
+| Task                                                                                                    | Purpose                                                                                                                                         | Foundry equivalent                                      |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `kms accounts [--network n] [--json] [--show-ids]`                                                      | Each configured key with its provider, key id and address. Checks access and prints ready-to-paste `address` pins.                              | `cast wallet list`; exits 0 when a source fails         |
+| `kms address <key>` / `kms public-key <key>`                                                            | The address, or the uncompressed public key.                                                                                                    | `cast wallet address`; no equivalent for the public key |
+| `kms sign <key> <message> [--data [--from-file]] [--no-hash]`                                           | EIP-191, EIP-712, or a raw 32-byte digest. `--no-hash` exists only here, as an explicit human action.                                           | `cast wallet sign [--data [--from-file]] [--no-hash]`   |
+| `kms sign-auth <key> <delegate> (--chain <id> \| --network n) [--nonce n] [--self-broadcast] [--force]` | EIP-7702 authorization, as the JSON tuple `authorizationList` takes. Chain 0 requires `--force`; `--self-broadcast` uses the pending nonce + 1. | `cast wallet sign-auth`                                 |
+| `kms sign-tx <key> <tx.json> --network n`                                                               | Filled on the network's node and signed, never sent. Prints the raw transaction, and its hash on standard error.                                | `cast mktx`                                             |
+| `kms verify (--address a \| --key k) <message> <signature> [--data [--from-file]]`                      | Local signature verification against an address or a key. No `--no-hash`.                                                                       | `cast wallet verify [--data [--from-file]]`             |
 
 ## Naming a key
 
@@ -172,6 +172,86 @@ Error in community plugin hardhat-kms: kms sign: the typed data is for chain 1, 
 ```text
 [hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Sign only a digest you computed yourself: it can authorize a transaction or a permit.
 ```
+
+## `kms sign-auth`
+
+```text
+npx hardhat kms sign-auth --chain <id> --nonce <n> [--force] <key> <delegate>
+npx hardhat kms sign-auth --network <name> [--nonce <n> | --self-broadcast] [--force] <key> <delegate>
+```
+
+Signs an EIP-7702 authorization that delegates the key's account to the code at `<delegate>`, and prints the signed tuple as one line of JSON. It is the entry an `eth_sendTransaction` request takes in its `authorizationList`. For `kms sign-auth --chain 1 --nonce 0 deployer 0x5FbDB2315678afecb367f032d93F642f64180aa3` with the key of the examples above:
+
+```text
+{"chainId":"0x1","address":"0x5FbDB2315678afecb367f032d93F642f64180aa3","nonce":"0x0","yParity":"0x1","r":"0x3d3184060a9a58823c738a84e7df168975ac5d5dfc8fc6af423d0ac72392ab5e","s":"0x2e3ba5f338b5ad32bff79c15b8fe264f465026e2d2a3f1d2c2a04e0a0244881b"}
+```
+
+Each number is a `0x` hex quantity, `r` and `s` are 32 bytes each, and `address` is the delegate with its EIP-55 checksum. Hardhat's `authorizationList` schema refuses decimal strings, so the tuple can go into a request as printed. The signed message is `keccak256(0x05 || rlp([chainId, address, nonce]))`.
+
+Before it prints the tuple, the task reads it back, recovers the authority from it, and checks that it is the key's address and that `s` is low ([decision 0004](../../contributor/decisions/0004-verify-every-signature.md)). Nodes skip an authorization with a high `s`.
+
+| Option             | What it does                                                                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--chain <id>`     | The chain to sign for, decimal or `0x` hex. Required unless `--network` is given, and not combined with it.                                                                    |
+| `--network <name>` | Signs for the network's `chainId` from the config, else the chain the node reports. When the config sets `chainId` and the task connects, the node must report the same chain. |
+| `--nonce <n>`      | The authority's nonce, decimal or `0x` hex, below 2^64 - 1. Without it, the task reads the key's pending nonce from the `--network` node, so `--chain` alone needs `--nonce`.  |
+| `--self-broadcast` | The key also sends the transaction that carries the authorization. That transaction uses the pending nonce first, so the authorization gets the pending nonce + 1.             |
+| `--force`          | Allows chain 0.                                                                                                                                                                |
+
+`--nonce` and `--self-broadcast` cannot be combined, as in cast.
+
+### Notes on standard error
+
+Before it calls the KMS, the task writes one line that says what it signs:
+
+```text
+[hardhat-kms] authority 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, chain 1 (from --chain), nonce 0, delegate 0x5FbDB2315678afecb367f032d93F642f64180aa3
+```
+
+The chain is followed by `(from --chain)` or `(from --network <name>)`. Other notes:
+
+- With `--self-broadcast`, the nonce to send the transaction with: `the authorization uses nonce 1: send it in a transaction from this key with nonce 0`.
+- With `--network`, when the task has connected to the node and the delegate has no code there: `the delegate 0x… has no code on network sepolia: check that it is the address for this chain`. A delegate copied from another chain is the usual cause. The task still signs, since the code may be deployed later.
+- For chain 0, which the task refuses unless `--force` is given: `this authorization is for chain 0: it is replayable on every chain where this account's nonce is 5`.
+- For the delegate `0x0000000000000000000000000000000000000000`, which clears the account's delegation: `the delegate is the zero address: this authorization clears the delegation`.
+
+The task opens a connection to `--network` only to read what the command line and the config do not give: the pending nonce, or a chain id the config does not set. Opening it runs the network hook, which can call the KMS, for example to fund the accounts of an `edr-simulated` network. `--network` can also come from the `HARDHAT_NETWORK` environment variable, so `--chain` fails while it is set.
+
+### Keep the tuple private until it is used
+
+Treat a printed tuple as a credential until a transaction uses it or the account's nonce moves past it. Anyone who holds it can submit it, from any account, and delegate the key's account to the code it names. To cancel a tuple you no longer want, send any transaction from the key: that uses the nonce, and the tuple can no longer apply. A chain-0 tuple applies on every chain where the account has that nonce, so it stays usable on each chain until the nonce moves past it there.
+
+### Send the authorization
+
+Put the tuple as printed in the `authorizationList` of a raw `eth_sendTransaction`, sent with `provider.request`. Here the key sends it itself, so it was signed with `--self-broadcast`, and the transaction passes the nonce from the task's note:
+
+```ts
+import { readFile } from "node:fs/promises";
+
+import { network } from "hardhat";
+
+// auth.json holds the output of
+// npx hardhat kms sign-auth --network sepolia --self-broadcast deployer 0x5FbDB2315678afecb367f032d93F642f64180aa3
+// which wrote on standard error: the authorization uses nonce 8: send it in a transaction from this key with nonce 7
+const authorization: unknown = JSON.parse(await readFile("auth.json", "utf8"));
+// The key's address, from `npx hardhat kms address deployer`.
+const from = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+const { provider } = await network.create("sepolia");
+await provider.request({
+  method: "eth_sendTransaction",
+  params: [{ from, to: from, nonce: "0x7", authorizationList: [authorization] }],
+});
+```
+
+Once the transaction is mined, the account's code is `0xef0100` followed by the delegate's address. If the authority's nonce does not match the tuple's when the transaction runs, the transaction is still mined, but nodes skip the authorization and the code does not change.
+
+Libraries take other shapes, and a tuple passed to them as printed fails or loses its signature:
+
+| Library                                       | Shape                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider.request` with `eth_sendTransaction` | The tuple as printed. This is the recommended way.                                                                                                                                                                                                                                                                                           |
+| viem (`SignedAuthorization`)                  | `chainId`, `nonce` and `yParity` as numbers, for example `Number(tuple.chainId)`; `address`, `r` and `s` as printed. viem strips leading zero bytes from `r` and `s`, so about 1 tuple in 128 is then refused by Hardhat's schema ([#140](https://github.com/aelmanaa/hardhat-kms/issues/140)). Until that is fixed, use `provider.request`. |
+| ethers (`AuthorizationLike`)                  | `{ address, nonce, chainId, signature: { r, s, yParity } }`. ethers reads the signature only from `signature`, so a flat tuple goes out with a zero signature and no error.                                                                                                                                                                  |
 
 ## `kms sign-tx`
 
