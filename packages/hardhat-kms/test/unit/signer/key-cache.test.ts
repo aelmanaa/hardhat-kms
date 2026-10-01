@@ -6,7 +6,14 @@ import type { HookContext } from "hardhat/types/hooks";
 
 import hardhatKms from "../../../src/index.ts";
 import { SignerCache } from "../../../src/internal/signer/key-cache.ts";
-import type { KmsKeyConfig, KmsKeyUserConfig } from "../../../src/types.ts";
+import type {
+  AwsKmsKeyConfig,
+  AzureKmsKeyConfig,
+  GcpKmsKeyConfig,
+  KmsIdentifier,
+  KmsKeyConfig,
+  KmsKeyUserConfig,
+} from "../../../src/types.ts";
 import { fakeAdapter } from "../../helpers/fake-adapter.ts";
 import { fakeTimers } from "../../helpers/fake-timers.ts";
 import { COW_ACCOUNT } from "../../helpers/vectors.ts";
@@ -252,5 +259,226 @@ describe("SignerCache idle close", () => {
     timers.fire();
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(state.closed, 1);
+  });
+});
+
+/** An identifier with a literal value, as config resolution builds one. */
+function literal(value: string): KmsIdentifier {
+  return { get: async () => await Promise.resolve(value), display: value };
+}
+
+/** A new AWS key object; each call returns a separate copy, as Hardhat does for an override. */
+function awsKey(changes: Partial<AwsKmsKeyConfig> = {}): AwsKmsKeyConfig {
+  return {
+    provider: "aws",
+    name: "deployer",
+    displayId: "aws:alias/deployer",
+    keyId: literal("alias/deployer"),
+    region: "us-east-1",
+    timeoutMs: 1000,
+    ...changes,
+  };
+}
+
+function gcpKey(changes: Partial<GcpKmsKeyConfig> = {}): GcpKmsKeyConfig {
+  return {
+    provider: "gcp",
+    name: "gcp",
+    displayId: "gcp:k/1",
+    keyVersionName: literal("projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1"),
+    timeoutMs: 1000,
+    ...changes,
+  };
+}
+
+function azureKey(changes: Partial<AzureKmsKeyConfig> = {}): AzureKmsKeyConfig {
+  return {
+    provider: "azure",
+    name: "azure",
+    displayId: "azure:k",
+    keyId: literal("https://vault.vault.azure.net/keys/k"),
+    timeoutMs: 1000,
+    ...changes,
+  };
+}
+
+/**
+ * A runtime whose `kms` hook serves every key with a fake adapter. Like the real adapters, it
+ * reads a first-party key's identifier, so an unreadable identifier fails adapter creation.
+ */
+async function identitySetUp() {
+  const hre = await createHardhatRuntimeEnvironment({ plugins: [hardhatKms] });
+  const state = { created: 0, closed: 0, getPublicKey: 0 };
+  hre.hooks.registerHandlers("kms", {
+    createKeyAdapter: async (_context, key) => {
+      if (key.provider === "aws" || key.provider === "azure") {
+        await key.keyId.get();
+      }
+      state.created++;
+      const adapter = fakeAdapter({ secretKey });
+      return {
+        ...adapter,
+        getPublicKey: async (ctx) => {
+          state.getPublicKey++;
+          return await (adapter.getPublicKey?.(ctx) ?? Promise.reject(new Error("no key")));
+        },
+        close: async () => {
+          state.closed++;
+          await Promise.resolve();
+        },
+      };
+    },
+  });
+  const context: HookContext = hre;
+  return { context, state };
+}
+
+describe("SignerCache identity", () => {
+  it("shares one signer between copies of a key, and looks the key up once", async () => {
+    const { context, state } = await identitySetUp();
+    const cache = new SignerCache(fakeTimers());
+
+    const [first, second] = await Promise.all([
+      cache.signerFor(context, awsKey()),
+      cache.signerFor(context, awsKey()),
+    ]);
+    assert.equal(first, second);
+    assert.equal(await first.getAddress(), COW_ACCOUNT.address);
+    assert.equal(
+      await (await cache.signerFor(context, awsKey())).getAddress(),
+      COW_ACCOUNT.address,
+    );
+    assert.equal(state.created, 1);
+    assert.equal(state.getPublicKey, 1);
+  });
+
+  it("shares signers between copies of Google Cloud and Azure keys", async () => {
+    const { context, state } = await identitySetUp();
+    const cache = new SignerCache(fakeTimers());
+
+    assert.equal(
+      await cache.signerFor(context, gcpKey()),
+      await cache.signerFor(context, gcpKey()),
+    );
+    assert.equal(
+      await cache.signerFor(context, azureKey()),
+      await cache.signerFor(context, azureKey()),
+    );
+    assert.equal(state.created, 2);
+  });
+
+  const arn = "arn:aws:kms:us-east-1:000000000000:key/00000000-0000-0000-0000-000000000000";
+  const variants: Record<string, [KmsKeyConfig, KmsKeyConfig]> = {
+    "the key id": [awsKey(), awsKey({ keyId: literal("alias/other") })],
+    "the profile": [awsKey(), awsKey({ profile: "other" })],
+    "the profile of an ARN key": [
+      awsKey({ keyId: literal(arn), profile: "first" }),
+      awsKey({ keyId: literal(arn), profile: "second" }),
+    ],
+    "the region": [awsKey(), awsKey({ region: "eu-west-1" })],
+    "the endpoint": [awsKey(), awsKey({ endpoint: "http://127.0.0.1:4566" })],
+    "the address pin": [awsKey(), awsKey({ address: COW_ACCOUNT.address })],
+    "the time budget": [awsKey(), awsKey({ timeoutMs: 2000 })],
+    "the approval time budget": [awsKey(), awsKey({ approvalTimeoutMs: 60_000 })],
+    "the display form": [awsKey(), awsKey({ displayId: "aws:<AWS_KMS_KEY_ID>" })],
+    "the name": [awsKey(), awsKey({ name: "treasury" })],
+    "the provider": [gcpKey(), azureKey({ name: "gcp", displayId: "gcp:k/1" })],
+    "a Google Cloud key version": [
+      gcpKey(),
+      gcpKey({
+        keyVersionName: literal(
+          "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/2",
+        ),
+      }),
+    ],
+    "a Google Cloud time budget": [gcpKey(), gcpKey({ timeoutMs: 2000 })],
+    "an Azure key": [
+      azureKey(),
+      azureKey({ keyId: literal("https://vault.vault.azure.net/keys/j") }),
+    ],
+  };
+  for (const [setting, [first, second]] of Object.entries(variants)) {
+    it(`gives keys that differ only in ${setting} separate signers`, async () => {
+      const { context, state } = await identitySetUp();
+      const cache = new SignerCache(fakeTimers());
+
+      assert.notEqual(
+        await cache.signerFor(context, first),
+        await cache.signerFor(context, second),
+      );
+      assert.equal(state.created, 2);
+    });
+  }
+
+  it("gives each object of a third-party key its own signer", async () => {
+    const { context, key, state } = await setUp();
+    const copy: KmsKeyConfig = { ...key };
+    const cache = new SignerCache(fakeTimers());
+
+    assert.notEqual(await cache.signerFor(context, key), await cache.signerFor(context, copy));
+    assert.equal(state.created, 2);
+  });
+
+  it("reports an unreadable identifier as the adapter does, and reads it again next time", async () => {
+    const { context, state } = await identitySetUp();
+    let reads = 0;
+    const flaky: KmsIdentifier = {
+      get: async () => {
+        reads++;
+        if (reads <= 2) {
+          throw new TypeError("variable not set");
+        }
+        return await Promise.resolve("alias/deployer");
+      },
+      display: "<AWS_KMS_KEY_ID>",
+    };
+    const key = awsKey({ keyId: flaky });
+    const cache = new SignerCache(fakeTimers());
+
+    // Both concurrent requests share one identity read and, falling back to the key object, one
+    // adapter, which reads the identifier again and fails as it does without the cache.
+    const results = await Promise.allSettled([
+      cache.signerFor(context, key),
+      cache.signerFor(context, key),
+    ]);
+    for (const result of results) {
+      assert.equal(result.status, "rejected");
+      assert.match(String(result.reason), /creating the adapter failed \(TypeError\)/);
+    }
+    assert.equal(reads, 2);
+    assert.equal(state.created, 0);
+
+    const signer = await cache.signerFor(context, key);
+    assert.equal(
+      await cache.signerFor(context, awsKey()),
+      signer,
+      "the identity was computed again, so a copy of the key shares the signer",
+    );
+    assert.equal(state.created, 1);
+  });
+
+  it("keeps a shared signer open until every connection is closed, then closes it once", async () => {
+    const { context, state } = await identitySetUp();
+    const timers = fakeTimers();
+    const cache = new SignerCache(timers);
+
+    // A plain connection and an override connection, each with its own copy of the key.
+    cache.connectionOpened();
+    cache.connectionOpened();
+    const shared = await cache.signerFor(context, awsKey());
+    assert.equal(await cache.signerFor(context, awsKey()), shared);
+    cache.connectionClosed();
+    assert.equal(timers.pending(), 0, "the override connection is still open");
+    await cache.withSigner(context, awsKey(), async (signer) => {
+      assert.equal(signer, shared);
+      assert.equal(await signer.getAddress(), COW_ACCOUNT.address);
+    });
+    assert.equal(state.closed, 0);
+
+    cache.connectionClosed();
+    timers.fire();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(state.closed, 1);
+    assert.equal(state.created, 1);
   });
 });
