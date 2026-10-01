@@ -2,13 +2,39 @@
 
 Audience: Contributors working on transaction filling and sending.
 
-Status: Planned: M4 (chain-id checks) and M5.
+Status: The chain-id checks for typed data shipped in M4, and transaction filling in M5 ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)). Signing and sending transactions, nonces and the send lock are planned for M5.
 
 ## Transaction filling
 
-The plugin's hook runs before Hardhat's built-in handlers, so it has to fill transactions itself. `rpc/transaction-filler.ts` is a port of Hardhat's built-in fill logic, kept behind a `TransactionFiller` interface and pinned to a Hardhat commit. Building the signed transaction mirrors `LocalAccountsHandler#getSignedTransaction` field for field, using micro-eth-signer `^0.19` (the version Hardhat 3.18 depends on) with `strict=false`. The signed transaction is rebuilt from the verified r, s and yParity, and the code asserts `recoverSender().address === from`.
+The plugin's hook runs before Hardhat's built-in handlers, so it has to fill transactions itself. `packages/hardhat-kms/src/internal/rpc/transaction-filler.ts` ports the fill logic of Hardhat 3.18.0 behind a `TransactionFiller` interface, one filler per connection. Its reads go through `connection.provider`, so they pass through the hook chain to Hardhat's built-in handlers, which fill `from` on `eth_estimateGas` like on any other request. The filler treats `eth_sendTransaction` and `eth_signTransaction` alike. Hardhat fills only `eth_sendTransaction`, and its local accounts do not sign `eth_signTransaction`.
 
-A differential test guards the port against drift. It sends the same request once with the key as a local account and once through KMS, and requires the same fields and the same unsigned bytes. The test runs against the Hardhat floor (the `^3.18.0` peer) and against `latest`, so a Dependabot bump of Hardhat that changes fill behaviour fails CI.
+### Ported steps
+
+The filler runs Hardhat's steps in Hardhat's order. The sources are under `hardhat/dist/src/internal/builtin-plugins/network-manager/request-handlers/handlers/`.
+
+1. Fees, from `gas/automatic-gas-price-handler.js` and `gas/fixed-gas-price-handler.js`. With `gasPrice: "auto"`, a request that has `gasPrice` or both EIP-1559 fields is left alone. Otherwise the filler reads the latest block once per connection to learn whether the node has a base fee, then calls `eth_feeHistory ["0x1", "latest", [50]]`. The priority fee is the median reward; if that is 0, the answer of `eth_maxPriorityFeePerGas`; if that fails or is 0 too, 1 wei. `maxFeePerGas` is the last base fee times 81/64, plus the priority fee when it would be lower than the priority fee. When `eth_feeHistory` fails (remembered per connection), a request without EIP-1559 fields gets a legacy `gasPrice` from `eth_gasPrice`, and a request with one of them gets the gas price for both defaults. A fixed `gasPrice` is set only on a request with no fee field.
+2. Gas, from `gas/automatic-gas-handler.js`, `gas/multiplied-gas-estimation.js` and `gas/fixed-gas-handler.js`. With `gas: "auto"`, the filler calls `eth_estimateGas` with the request's params after step 1. A `gasMultiplier` other than 1 multiplies the estimate, capped at 95% of the latest block's gas limit (read once) minus 1. If an internal call runs out of gas and the provider exposes a default gas limit, which only in-process simulated networks do, that limit is used, capped to the pending block's limit when the network enforces one. An error whose message contains "execution error" gives the capped block gas limit. Other errors reach the caller.
+3. Checks, from `accounts/local-accounts.js` (`#modifyRequest`). The filler validates the request with `rpcTransactionRequest` from `@nomicfoundation/hardhat-zod-utils/rpc` and refuses what Hardhat refuses: no fee field, `gasPrice` with an EIP-1559 field, `gasPrice` with `authorizationList`, or only one EIP-1559 field.
+4. Chain id. The filler reads the connection's `ConnectionChain`, and a request's own `chainId` must equal it (see [Chain-id checks](#chain-id-checks)). Hardhat signs whatever `chainId` the request names.
+5. Nonce, from `accounts/local-accounts.js` (`#getNonce`): `eth_getTransactionCount [from, "pending"]` when the request has none.
+
+`buildUnsignedTransaction` mirrors `LocalAccountsHandler#getSignedTransaction` field for field, with micro-eth-signer `^0.19` (the version Hardhat 3.18 depends on) and strict mode off. The fields decide the type: `authorizationList` gives EIP-7702, `maxFeePerGas` EIP-1559, `accessList` EIP-2930, and anything else legacy. `signingHash` returns the digest that `Transaction#signBy` signs. Signing, rebuilding the signed transaction from the verified r, s and yParity, and the `recoverSender().address === from` check come with sending ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)).
+
+### Deliberate differences
+
+- Blob transactions (`blobs` or `blobVersionedHashes`) are refused before any request. Hardhat's local accounts drop those fields and sign a transaction of another type.
+- Hardhat recognises the out-of-gas estimation failure with `instanceof InternalCallOutOfGasError`, a class it does not export. The filler accepts an error with JSON-RPC code -32000 whose name is `InternalCallOutOfGasError` or whose `data.reason` is `InternalCallOutOfGas`, the marker Hardhat also sends over HTTP. Either one is enough, so renaming the class or the marker alone does not break the fallback.
+- The chain id comes from `eth_chainId` only. Hardhat falls back to `net_version` when `eth_chainId` fails. `eth_chainId` is standard since EIP-695, and `net_version` returns a network id, which can differ from the chain id. A wrong chain id would sign for another chain, so the filler fails instead.
+- The filler's caches (EIP-1559 support, `eth_feeHistory` support, the capped block gas limit) are its own, separate from those of Hardhat's handlers on the same connection. After `evm_setBlockGasLimit`, a local account and a KMS account can therefore get different multiplier caps until the connection is recreated.
+- Refused requests fail with `kmsError` messages, not with Hardhat's `MISSING_FEE_PRICE_FIELDS` or `INCOMPATIBLE_*` error codes.
+
+Hardhat counts only a string `maxFeePerGas` or `maxPriorityFeePerGas` as the caller's value and replaces any other value, such as a bigint, with its suggestion. The filler does the same, so both fill a request identically.
+
+### Differential test
+
+`packages/hardhat-kms/test/integration/transaction-filler.test.ts` guards the port against drift. It starts a simulated node behind a JSON-RPC server that records raw transactions instead of running them, so the chain state is the same for both fills. On an http network with the key as a local account, Hardhat fills and signs the request, and the plugin's filler then fills the same request on the same connection. The test requires the same type, fields, unsigned bytes and signing hash for: EIP-1559 with automatic fees, legacy, EIP-2930, contract creations with and without `to: null`, EIP-7702, a caller's nonce, value and chain id, a single EIP-1559 field, gas multipliers with and without the block gas limit cap, a fixed gas and gas price, a node without a base fee, a failing `eth_feeHistory`, an estimate with an execution error, and two sends on one connection. Where Hardhat refuses a request (an EIP-1559 field on a pre-London node, a reverting contract creation), the plugin must fail with the same message.
+
+The test runs against the Hardhat version in `pnpm-lock.yaml`, which today is also the `^3.18.0` floor, so a Dependabot bump of Hardhat that changes fill behaviour fails CI. A separate run against the floor is needed once the two differ.
 
 The long-term plan is to delete the port once Hardhat exports a filler or a post-fill signing stage (see [Roadmap](roadmap.md#roadmap)).
 
