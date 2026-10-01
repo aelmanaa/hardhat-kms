@@ -5,6 +5,7 @@
 // multiplied-gas-estimation}-handler.js and handlers/accounts/local-accounts.js
 // (#modifyRequest and #getSignedTransaction). The differential test in
 // test/integration/transaction-filler.test.ts fails when the two drift apart.
+import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { min } from "@nomicfoundation/hardhat-utils/bigint";
 import {
@@ -140,6 +141,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     }
     // A deep copy: the caller's objects, including access and authorization lists, stay as they are.
     const tx: Record<string, unknown> = first;
+    canonicalAuthorizationSignatures(tx, method);
     // Hardhat estimates gas with the request's params, after the fees are filled in.
     const filledParams = [tx, ...rest];
     if (this.#settings.gasPrice === "auto") {
@@ -157,7 +159,11 @@ export class HardhatTransactionFiller implements TransactionFiller {
           ? await this.#estimateGas(filledParams)
           : numberToHexString(this.#settings.gas);
     }
-    const [request] = validateParams(filledParams, rpcTransactionRequest);
+    // The node got r and s as quantities; Hardhat's schema wants them as 32 bytes.
+    const [request] = validateParams(
+      [withPaddedAuthorizationSignatures(tx), ...rest],
+      rpcTransactionRequest,
+    );
     const { gas } = request;
     // The gas step always sets gas; this narrows the type and keeps Hardhat's check.
     if (gas === undefined) {
@@ -354,6 +360,78 @@ function copyParams(params: readonly unknown[], method: string): unknown[] {
   } catch {
     throw notPlainData(method);
   }
+}
+
+// A JSON-RPC quantity of at most 32 bytes (execution-apis `uint256`): no leading zeros. Only
+// matched against values that canonicalAuthorizationSignatures wrote, which are lowercase.
+const QUANTITY = /^0x(?:0|[1-9a-f][0-9a-f]{0,63})$/;
+// An authorization's r or s as callers send it: a quantity (viem) or 32 bytes (Hardhat's schema).
+const SIGNATURE_SCALAR = /^0x(?:0|[1-9a-f][0-9a-f]{0,63}|[0-9a-f]{64})$/i;
+const CURVE_ORDER = secp256k1.Point.CURVE().n;
+
+/**
+ * Rewrites each authorization's `r` and `s` as a JSON-RPC quantity, the form the execution APIs
+ * specify (`uint256`) and nodes such as geth require. viem sends quantities (`numberToHex`), which
+ * drop leading zero bytes; Hardhat's schema wants 32 bytes. About one authorization in 85 has a
+ * leading zero byte in `r` (1 in 256) or in its low-S `s` (1 in 128), so either form must work
+ * (#140). A value outside [1, n - 1] is refused here, before any request to the node. A value in
+ * neither form stays as it is, for the schema to refuse. No other field changes.
+ *
+ * @param tx - The copied transaction; its authorization list is changed in place.
+ * @param method - The RPC method, for error messages.
+ */
+function canonicalAuthorizationSignatures(tx: Record<string, unknown>, method: string): void {
+  const list: unknown = tx.authorizationList;
+  if (!Array.isArray(list)) {
+    return;
+  }
+  for (const [index, item] of list.entries()) {
+    if (!isObject(item)) {
+      continue;
+    }
+    for (const field of ["r", "s"]) {
+      const value = item[field];
+      if (typeof value !== "string" || !SIGNATURE_SCALAR.test(value)) {
+        continue;
+      }
+      const scalar = BigInt(value);
+      if (scalar < 1n || scalar >= CURVE_ORDER) {
+        throw kmsError(
+          `authorizationList[${index}].${field} must be between 1 and the secp256k1 curve order minus 1`,
+          { operation: method },
+        );
+      }
+      item[field] = numberToHexString(scalar);
+    }
+  }
+}
+
+/**
+ * A copy of the transaction whose authorizations have `r` and `s` left-padded to 32 bytes, for
+ * Hardhat's schema, whose `rpcHash` accepts only 32 bytes. The node never sees this form.
+ *
+ * @param tx - The transaction, with quantities from {@link canonicalAuthorizationSignatures}.
+ * @returns The copy, or `tx` when it has no authorization list.
+ */
+function withPaddedAuthorizationSignatures(tx: Record<string, unknown>): Record<string, unknown> {
+  const list: unknown = tx.authorizationList;
+  if (!Array.isArray(list)) {
+    return tx;
+  }
+  const authorizationList = list.map((item: unknown) => {
+    if (!isObject(item)) {
+      return item;
+    }
+    const copy = { ...item };
+    for (const field of ["r", "s"]) {
+      const value = copy[field];
+      if (typeof value === "string" && QUANTITY.test(value)) {
+        copy[field] = `0x${value.slice(2).padStart(64, "0")}`;
+      }
+    }
+    return copy;
+  });
+  return { ...tx, authorizationList };
 }
 
 /**

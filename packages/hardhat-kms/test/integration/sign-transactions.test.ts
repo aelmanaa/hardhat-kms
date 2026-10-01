@@ -10,7 +10,8 @@ import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import { HardhatPluginError } from "hardhat/plugins";
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 import { authorization, Transaction } from "micro-eth-signer";
-import { getAddress } from "viem";
+import { getAddress, type Hex, numberToHex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
 import hardhatKms from "../../src/index.ts";
 import { type FakeAdapter, type FakeAdapterOptions, fakeAdapter } from "../helpers/fake-adapter.ts";
@@ -75,6 +76,11 @@ function serveAdapters(hre: HardhatRuntimeEnvironment): Record<string, FakeAdapt
     },
   });
   return created;
+}
+
+/** A hex value left-padded to 32 bytes. */
+function padded(value: Hex): string {
+  return `0x${value.slice(2).padStart(64, "0")}`;
 }
 
 /** The address a raw transaction recovers to. */
@@ -473,6 +479,26 @@ describe("signing transactions for KMS accounts", () => {
     assert.equal(adapters.cow?.calls.signDigest ?? 0, 0);
   });
 
+  it("refuses an authorization whose r or s is outside [1, n - 1], and sends nothing", async () => {
+    const sent = node.raw.length;
+    const connection = await hre.network.create("kms");
+    for (const item of [
+      { ...AUTHORIZATION, r: 0n },
+      { ...AUTHORIZATION, r: CURVE_ORDER },
+      { ...AUTHORIZATION, s: CURVE_ORDER + 1n },
+    ]) {
+      await assert.rejects(
+        connection.provider.request({
+          method: "eth_sendTransaction",
+          params: [{ from: FROM, to: FROM, authorizationList: [rpcAuthorization(item)] }],
+        }),
+        /authorizationList\[0\]\.[rs] must be between 1 and the secp256k1 curve order minus 1/,
+      );
+    }
+    await connection.close();
+    assert.equal(node.raw.length, sent);
+  });
+
   describe("EIP-7702 authorization lint", () => {
     it("warns about a high-S authorization", async () => {
       const highS = {
@@ -486,7 +512,8 @@ describe("signing transactions for KMS accounts", () => {
     });
 
     it("warns about an authorization whose authority does not recover", async () => {
-      const warnings = await warningsFor({ yParity: 0, r: CURVE_ORDER + 1n, s: 1n });
+      // No curve point has x = 5, so no public key recovers.
+      const warnings = await warningsFor({ yParity: 0, r: 5n, s: 1n });
       assert.equal(warnings.length, 1, warnings.join("\n"));
       assert.match(warnings[0] ?? "", /authorizationList\[0\]'s signature does not recover/);
     });
@@ -497,11 +524,17 @@ describe("sending from a KMS account on a simulated network", () => {
   const ONE_ETHER = 10n ** 18n;
   const COW = getAddress(COW_ACCOUNT.address);
 
-  async function connect() {
+  async function connect(hardfork?: string) {
     const hre = await createHardhatRuntimeEnvironment({
       plugins: [hardhatKms, hardhatViem],
       kms: { keys: { cow: vaultKey("cow") }, simulatedBalance: ONE_ETHER },
-      networks: { local: { type: "edr-simulated", kmsAccounts: ["cow"] } },
+      networks: {
+        local: {
+          type: "edr-simulated",
+          kmsAccounts: ["cow"],
+          ...(hardfork === undefined ? {} : { hardfork }),
+        },
+      },
     });
     serveAdapters(hre);
     return await hre.network.create("local");
@@ -543,6 +576,79 @@ describe("sending from a KMS account on a simulated network", () => {
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     assert.equal(receipt.status, "success");
     assert.equal(getAddress(receipt.from), COW);
+  });
+
+  describe("EIP-7702 authorizations from viem (#140)", () => {
+    // viem sends r and s as quantities, so one with a leading zero byte arrives shorter than 32
+    // bytes. The authority is not the sender, so its first authorization uses nonce 0.
+    const authority = privateKeyToAccount(`0x${ACCOUNT_1.secretKey}`);
+    const BELOW_ONE_BYTE = 2n ** 248n;
+
+    /** Signs authorizations for delegate 0x…01, 0x…02, … until `field` has a leading zero byte. */
+    async function authorizationWithShort(field: "r" | "s") {
+      for (let index = 1; index < 10_000; index++) {
+        const delegate = getAddress(`0x${index.toString(16).padStart(40, "0")}`);
+        const signed = await authority.signAuthorization({
+          chainId: 31337,
+          address: delegate,
+          nonce: 0,
+        });
+        if (BigInt(signed[field]) < BELOW_ONE_BYTE) {
+          return { delegate, signed };
+        }
+      }
+      throw new Error(`no authorization with a short ${field} found`);
+    }
+
+    for (const field of ["r", "s"] as const) {
+      it(`sends one whose ${field} has a leading zero byte, as the padded form`, async () => {
+        const { delegate, signed } = await authorizationWithShort(field);
+        // What viem puts on the wire: shorter than a 32-byte hash.
+        assert.ok(numberToHex(BigInt(signed[field])).length < 66);
+        const { provider, viem } = await connect("prague");
+        const wallet = await viem.getWalletClient(COW);
+        const publicClient = await viem.getPublicClient();
+        const hash = await wallet.sendTransaction({
+          to: COW,
+          authorizationList: [signed],
+        });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        assert.equal(receipt.status, "success");
+        assert.equal(receipt.type, "eip7702");
+        assert.equal(
+          await publicClient.getCode({ address: authority.address }),
+          `0xef0100${delegate.slice(2).toLowerCase()}`,
+        );
+
+        // The same transaction with 32-byte r and s, signed again: the bytes are the same.
+        const sent = await publicClient.getTransaction({ hash });
+        const raw = await provider.request({
+          method: "eth_signTransaction",
+          params: [
+            {
+              from: COW,
+              to: COW,
+              nonce: `0x${sent.nonce.toString(16)}`,
+              gas: `0x${sent.gas.toString(16)}`,
+              maxFeePerGas: `0x${(sent.maxFeePerGas ?? 0n).toString(16)}`,
+              maxPriorityFeePerGas: `0x${(sent.maxPriorityFeePerGas ?? 0n).toString(16)}`,
+              authorizationList: [
+                {
+                  chainId: "0x7a69",
+                  address: delegate,
+                  nonce: "0x0",
+                  yParity: `0x${(signed.yParity ?? 0).toString(16)}`,
+                  r: padded(signed.r),
+                  s: padded(signed.s),
+                },
+              ],
+            },
+          ],
+        });
+        assert.ok(typeof raw === "string");
+        assert.equal(`0x${Buffer.from(keccak_256(hex(raw.slice(2)))).toString("hex")}`, hash);
+      });
+    }
   });
 
   it("signs with eth_signTransaction without sending", async () => {
