@@ -76,6 +76,8 @@
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^4.2.0",
+    "@nomicfoundation/hardhat-ignition": "catalog:",
+    "@nomicfoundation/hardhat-ignition-viem": "catalog:",
     "@nomicfoundation/hardhat-viem": "^3.0.9",
     "@types/node": "catalog:",
     "c8": "catalog:",
