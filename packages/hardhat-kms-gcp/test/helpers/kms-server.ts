@@ -4,9 +4,10 @@ import { createServer, type IncomingHttpHeaders, type ServerResponse } from "nod
 
 import * as kms from "@google-cloud/kms";
 import { JWT } from "google-auth-library";
+import gax from "google-gax";
 import { crc32c } from "hardhat-kms/provider-utils";
 
-import type { GcpClientOptions, GcpKmsSdk } from "../../src/internal/adapter.ts";
+import type { GaxModule, GcpClientOptions, GcpKmsSdk } from "../../src/internal/adapter.ts";
 import { signDer, spkiPem } from "./fake-gcp-kms.ts";
 
 /** A request the local KMS endpoint received. */
@@ -21,6 +22,8 @@ export interface KmsRequest {
 export interface ServerFaults {
   /** Answer this many sign requests with a wrong `signatureCrc32c`. */
   corruptSignatureCrc32c: number;
+  /** Treat this many sign requests as if their digest arrived corrupted. */
+  corruptDigest: number;
   /** Return these bytes instead of a DER signature, with a matching checksum. */
   signature?: Uint8Array | undefined;
   /** Answer every request with this error, as Cloud KMS reports one over REST. */
@@ -56,7 +59,7 @@ const SIGN = /^\/v1\/(projects\/.+\/cryptoKeyVersions\/\d+):asymmetricSign$/;
  */
 export async function startKmsServer(secretKey: Uint8Array): Promise<KmsServer> {
   const requests: KmsRequest[] = [];
-  const faults: ServerFaults = { corruptSignatureCrc32c: 0 };
+  const faults: ServerFaults = { corruptSignatureCrc32c: 0, corruptDigest: 0 };
   const server = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -90,9 +93,17 @@ export async function startKmsServer(secretKey: Uint8Array): Promise<KmsServer> 
         const digest = Buffer.from(typeof encoded === "string" ? encoded : "", "base64");
         const sent: unknown = Reflect.get(body, "digestCrc32c");
         const checksum = typeof sent === "string" ? sent : undefined;
-        if (checksum !== undefined && checksum !== String(crc32c(digest))) {
+        // As if the digest had been corrupted on its way: the checksum no longer matches it.
+        const corruptDigest = faults.corruptDigest > 0;
+        faults.corruptDigest -= corruptDigest ? 1 : 0;
+        if (checksum !== undefined && (corruptDigest || checksum !== String(crc32c(digest)))) {
           send(response, 400, {
-            error: { code: 400, message: "digest_crc32c mismatch", status: "INVALID_ARGUMENT" },
+            error: {
+              code: 400,
+              message:
+                "The checksum in field digest_crc32c did not match the data in field digest.",
+              status: "INVALID_ARGUMENT",
+            },
           });
           return;
         }
@@ -140,16 +151,19 @@ export async function startKmsServer(secretKey: Uint8Array): Promise<KmsServer> 
 export function localSdk(port: number): GcpKmsSdk {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   class KeyManagementServiceClient extends kms.KeyManagementServiceClient {
-    public constructor(options: GcpClientOptions) {
+    public constructor(options: GcpClientOptions, gaxModule?: GaxModule) {
       const authClient = new JWT({
         email: "hardhat-kms-test@example.iam.gserviceaccount.com",
         key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
         scopes: ["https://www.googleapis.com/auth/cloud-platform"],
       });
-      super({ ...options, apiEndpoint: "127.0.0.1", port, protocol: "http", authClient });
+      super(
+        { ...options, apiEndpoint: "127.0.0.1", port, protocol: "http", authClient },
+        gaxModule,
+      );
     }
   }
-  return { KeyManagementServiceClient };
+  return { KeyManagementServiceClient, gax };
 }
 
 /** Settings that would let a developer's or runner's Google Cloud setup change how the SDK connects. */

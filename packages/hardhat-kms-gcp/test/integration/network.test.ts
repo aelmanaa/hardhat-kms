@@ -127,6 +127,64 @@ describe("hardhat-kms-gcp through a network connection", () => {
     }
   });
 
+  it("signs with the key --kms gcp reads from Foundry's five variables", async () => {
+    const variables = {
+      GCP_PROJECT_ID: "foundry-project",
+      GCP_LOCATION: "us-east1",
+      GCP_KEY_RING: "foundry-ring",
+      GCP_KEY_NAME: "foundry-key",
+      GCP_KEY_VERSION: "7",
+    };
+    const saved = Object.fromEntries(
+      Object.keys(variables).map((name) => [name, process.env[name]]),
+    );
+    Object.assign(process.env, variables);
+    try {
+      const hre = await createHardhatRuntimeEnvironment(
+        {
+          plugins: [hardhatKmsGcp],
+          networks: { remote: { type: "http", url: "http://127.0.0.1:1" } },
+        },
+        { kms: "gcp", network: "remote" },
+      );
+      hre.hooks.registerHandlers(
+        "kms",
+        kmsHandlers(undefined, async () => localSdk(server.port)),
+      );
+      const connection = await hre.network.create("remote");
+      server.requests.length = 0;
+
+      assert.deepEqual(await connection.provider.request({ method: "eth_accounts" }), [
+        ACCOUNT_0.address,
+      ]);
+      assert.equal(
+        await connection.provider.request({
+          method: "personal_sign",
+          params: [MESSAGE, ACCOUNT_0.address],
+        }),
+        SIGNATURE,
+      );
+      const name =
+        "projects/foundry-project/locations/us-east1/keyRings/foundry-ring/cryptoKeys/foundry-key/cryptoKeyVersions/7";
+      assert.deepEqual(
+        server.requests.map((request) => [request.method, request.path]),
+        [
+          ["GET", `/v1/${name}/publicKey`],
+          ["POST", `/v1/${name}:asymmetricSign`],
+        ],
+      );
+      await connection.close();
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) {
+          Reflect.deleteProperty(process.env, name);
+        } else {
+          process.env[name] = value;
+        }
+      }
+    }
+  });
+
   it("lets the process exit after signing, without closing the connection", async () => {
     const fixture = path.join(
       path.dirname(fileURLToPath(import.meta.url)),

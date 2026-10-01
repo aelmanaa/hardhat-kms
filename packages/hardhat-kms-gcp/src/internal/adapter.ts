@@ -7,21 +7,32 @@ import type {
   SignContext,
 } from "hardhat-kms/types";
 
-import { crc32cMatches, type StatusName, statusOf } from "./wire.ts";
+import { crc32cMatches, networkErrorCode, type StatusName, statusOf } from "./wire.ts";
 
 const ALGORITHM = "EC_SIGN_SECP256K1_SHA256";
 
-/** How many times a call is repeated after a checksum mismatch, so at most 4 attempts. */
-export const CHECKSUM_RETRIES = 3;
+/**
+ * How many times a call is repeated after a checksum mismatch or an unavailable service, so at
+ * most 4 attempts. The SDK's own retries are off: this is the only retry loop, and it stops when
+ * the call's signal aborts.
+ */
+export const MAX_RETRIES = 3;
+
+/** The pause before repeating a call the service could not take, doubled each time. */
+const UNAVAILABLE_DELAY_MS = 100;
 
 /** The options the adapter passes to the client: REST transport, so no gRPC channel stays open. */
 export type GcpClientOptions = NonNullable<
   ConstructorParameters<typeof KeyManagementServiceClient>[0]
 >;
 
-/** The per-call options the adapter passes: gax's timeout, which also bounds the SDK's retries. */
+/**
+ * The per-call options the adapter passes: gax's deadline for the request, and no SDK retries.
+ * google-gax 6.5.0 is the first 6.x release that enforces the deadline over REST.
+ */
 export interface GcpCallOptions {
   timeout: number;
+  retry: null;
 }
 
 /** The parts of a `KeyManagementServiceClient` the adapter uses. */
@@ -37,14 +48,54 @@ export interface GcpKmsClient {
   close(): Promise<void>;
 }
 
+/** The google-gax module a client runs on, its constructor's second argument. */
+export type GaxModule = ConstructorParameters<typeof KeyManagementServiceClient>[1];
+
 /** The parts of @google-cloud/kms the adapter uses; tests pass a fake with the same shape. */
 export interface GcpKmsSdk {
-  KeyManagementServiceClient: new (options: GcpClientOptions) => GcpKmsClient;
+  KeyManagementServiceClient: new (options: GcpClientOptions, gax?: GaxModule) => GcpKmsClient;
+  /**
+   * The google-gax module to run the client on. hardhat-kms-gcp depends on google-gax `^6.5.0`
+   * and passes it in, so the client enforces deadlines even when @google-cloud/kms resolves an
+   * older google-gax of its own.
+   */
+  gax?: GaxModule;
 }
 
-/** A response that failed a checksum: corrupted in transit, so the call is worth repeating. */
-class ChecksumMismatch extends Error {
-  public override readonly name = "ChecksumMismatch";
+/** Why a failed call is worth repeating, and what to say if it keeps failing. */
+const RETRY_HINTS = {
+  checksum: "Data is being corrupted between this machine and Google Cloud KMS",
+  unavailable: "Check the network connection, DNS and any proxy",
+} as const;
+
+/** A call that failed in a way that repeating it may fix. */
+class RetryableFailure extends Error {
+  public override readonly name = "RetryableFailure";
+  public readonly kind: keyof typeof RETRY_HINTS;
+
+  public constructor(kind: keyof typeof RETRY_HINTS, message: string) {
+    super(message);
+    this.kind = kind;
+  }
+}
+
+/**
+ * Waits `ms` milliseconds, or less if `signal` aborts. The timer does not keep the process alive.
+ *
+ * @param ms - The delay.
+ * @param signal - Ends the wait early.
+ */
+async function pause(ms: number, signal: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    timer.unref();
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 
 /** What to tell the user for each status the SDK reports. Nothing from the server's message. */
@@ -92,7 +143,7 @@ class GcpKeyAdapter implements KmsKeyAdapter {
 
   public async getPublicKey(ctx: SignContext): Promise<Uint8Array> {
     const operation = "get public key";
-    const response = await this.#withChecksumRetries(operation, ctx, async () => {
+    const response = await this.#withRetries(operation, ctx, async () => {
       const [key] = await this.#call(
         operation,
         async () => await this.#client.getPublicKey({ name: this.#name }, this.#options()),
@@ -109,7 +160,10 @@ class GcpKeyAdapter implements KmsKeyAdapter {
         throw this.#error(operation, "the response has no public key");
       }
       if (!crc32cMatches(new TextEncoder().encode(pem), key.pemCrc32c)) {
-        throw new ChecksumMismatch("the public key does not match its checksum (pemCrc32c)");
+        throw new RetryableFailure(
+          "checksum",
+          "the public key does not match its checksum (pemCrc32c)",
+        );
       }
       return { pem, algorithm: key.algorithm };
     });
@@ -143,7 +197,7 @@ class GcpKeyAdapter implements KmsKeyAdapter {
       );
     }
     const digestCrc32c = crc32c(request.digest);
-    const signature = await this.#withChecksumRetries(operation, ctx, async () => {
+    const signature = await this.#withRetries(operation, ctx, async () => {
       const [response] = await this.#call(
         operation,
         async () =>
@@ -164,7 +218,9 @@ class GcpKeyAdapter implements KmsKeyAdapter {
       }
       // False means the checksum sent with the digest did not arrive: never sign on without it.
       if (response.verifiedDigestCrc32c !== true) {
-        throw new ChecksumMismatch(
+        throw new RetryableFailure(
+          "checksum",
+
           "Google Cloud KMS did not confirm the digest's checksum (verifiedDigestCrc32c)",
         );
       }
@@ -173,7 +229,10 @@ class GcpKeyAdapter implements KmsKeyAdapter {
         throw this.#error(operation, "the response has no signature");
       }
       if (!crc32cMatches(bytes, response.signatureCrc32c)) {
-        throw new ChecksumMismatch("the signature does not match its checksum (signatureCrc32c)");
+        throw new RetryableFailure(
+          "checksum",
+          "the signature does not match its checksum (signatureCrc32c)",
+        );
       }
       return bytes;
     });
@@ -185,11 +244,14 @@ class GcpKeyAdapter implements KmsKeyAdapter {
   }
 
   #options(): GcpCallOptions {
-    return { timeout: this.#key.timeoutMs };
+    return { timeout: this.#key.timeoutMs, retry: null };
   }
 
-  /** Runs `attempt`, repeating it after a checksum mismatch, at most {@link CHECKSUM_RETRIES} times. */
-  async #withChecksumRetries<T>(
+  /**
+   * Runs `attempt`, repeating it after a checksum mismatch or an unavailable service, at most
+   * {@link MAX_RETRIES} times, and never once the call's signal has aborted.
+   */
+  async #withRetries<T>(
     operation: string,
     ctx: SignContext,
     attempt: () => Promise<T>,
@@ -198,18 +260,21 @@ class GcpKeyAdapter implements KmsKeyAdapter {
       try {
         return await attempt();
       } catch (error) {
-        if (!(error instanceof ChecksumMismatch)) {
+        if (!(error instanceof RetryableFailure)) {
           throw error;
         }
-        if (ctx.signal.aborted) {
-          // The call was abandoned: report the mismatch, but do not ask again.
-          throw this.#error(operation, error.message);
-        }
-        if (retries === CHECKSUM_RETRIES) {
+        if (retries === MAX_RETRIES) {
           throw this.#error(
             operation,
-            `${error.message}, after ${retries + 1} attempts. Data is being corrupted between this machine and Google Cloud KMS`,
+            `${error.message}, after ${retries + 1} attempts. ${RETRY_HINTS[error.kind]}`,
           );
+        }
+        if (error.kind === "unavailable") {
+          await pause(UNAVAILABLE_DELAY_MS * 2 ** retries, ctx.signal);
+        }
+        if (ctx.signal.aborted) {
+          // The call was abandoned: report the failure, but do not ask again.
+          throw this.#error(operation, error.message);
         }
       }
     }
@@ -221,6 +286,29 @@ class GcpKeyAdapter implements KmsKeyAdapter {
       return await call();
     } catch (error) {
       const status = statusOf(error);
+      if (status === "UNAVAILABLE") {
+        // A refused connection, a failed DNS lookup or a proxy error arrives as UNAVAILABLE, with
+        // the network error as its cause. Only the error code is shown, not the host.
+        const code = networkErrorCode(error);
+        throw new RetryableFailure(
+          "unavailable",
+          code === undefined
+            ? "Google Cloud KMS is unavailable (UNAVAILABLE)"
+            : `could not reach Google Cloud KMS (${code})`,
+        );
+      }
+      // Cloud KMS refuses a digest whose checksum does not match: the request was corrupted on
+      // its way. Its message is read only to tell this apart from other INVALID_ARGUMENT errors.
+      if (
+        status === "INVALID_ARGUMENT" &&
+        error instanceof Error &&
+        /digest_?crc32c/i.test(error.message)
+      ) {
+        throw new RetryableFailure(
+          "checksum",
+          "Google Cloud KMS refused the digest's checksum (digestCrc32c, INVALID_ARGUMENT)",
+        );
+      }
       if (status !== undefined) {
         // Only the status: the server's message names the project and the key.
         throw this.#error(
@@ -261,6 +349,6 @@ export async function createGcpKeyAdapter(
 ): Promise<KmsKeyAdapter> {
   const name = await key.keyVersionName.get();
   // REST rather than gRPC: a gRPC channel would keep `hardhat run` alive after the script ends.
-  const client = new sdk.KeyManagementServiceClient({ fallback: true });
+  const client = new sdk.KeyManagementServiceClient({ fallback: true }, sdk.gax);
   return new GcpKeyAdapter(key, name, client);
 }

@@ -55,7 +55,8 @@
     "test:live:gcp": "node --test --test-concurrency=1 --test-timeout=300000 \"test/live/**/*.test.ts\""
   },
   "dependencies": {
-    "@google-cloud/kms": "^6.2.1"
+    "@google-cloud/kms": "^6.2.1",
+    "google-gax": "^6.5.0"
   },
   "devDependencies": {
     "@noble/curves": "^2.4.0",

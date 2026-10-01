@@ -2,9 +2,11 @@ import { createPrivateKey, createPublicKey } from "node:crypto";
 
 import type { protos } from "@google-cloud/kms";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
+import gax from "google-gax";
 import { crc32c } from "hardhat-kms/provider-utils";
 
 import type {
+  GaxModule,
   GcpCallOptions,
   GcpClientOptions,
   GcpKmsClient,
@@ -63,10 +65,10 @@ type Times = number;
 export interface FakeKmsOptions {
   secretKey: Uint8Array;
   algorithm?: protos.google.cloud.kms.v1.IPublicKey["algorithm"];
-  /** The `name` getPublicKey returns, when it should differ from the one requested. */
-  publicKeyName?: string;
-  /** The `name` asymmetricSign returns, when it should differ from the one requested. */
-  signName?: string;
+  /** The `name` getPublicKey returns instead of the one requested; `null` for none. */
+  publicKeyName?: string | null;
+  /** The `name` asymmetricSign returns instead of the one requested; `null` for none. */
+  signName?: string | null;
   omitPem?: boolean;
   omitSignature?: boolean;
   /** Return the high-S twin of every signature. */
@@ -89,6 +91,8 @@ export interface FakeKmsOptions {
   int64Form?: "number" | "string";
   /** Fail every call with this error. */
   callError?: Error;
+  /** Fail this many calls of one method, counted from the first, with this error. */
+  failFirst?: { method: "getPublicKey" | "asymmetricSign"; error: Error; times: number };
   /** Answer getPublicKey only after the call's signal aborts, like a late network response. */
   hangPublicKey?: { signal: AbortSignal };
 }
@@ -105,9 +109,10 @@ export interface RecordedCall {
   options: GcpCallOptions;
 }
 
-/** A recorded client: the options it was created with, and whether it was closed. */
+/** A recorded client: what it was created with, and whether it was closed. */
 export interface RecordedClient {
   options: GcpClientOptions;
+  gax: GaxModule;
   closed: boolean;
 }
 
@@ -126,6 +131,17 @@ export interface FakeGcpKms {
 export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
   const calls: RecordedCall[] = [];
   const clients: RecordedClient[] = [];
+  let failed = 0;
+  const fail = (method: "getPublicKey" | "asymmetricSign"): void => {
+    if (options.callError !== undefined) {
+      throw options.callError;
+    }
+    const first = options.failFirst;
+    if (first !== undefined && first.method === method && failed < first.times) {
+      failed++;
+      throw first.error;
+    }
+  };
   let publicKeyAnswers = 0;
   let signAnswers = 0;
   const int64 = (value: number): { value: number | string } => ({
@@ -134,16 +150,14 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
 
   class KeyManagementServiceClient implements GcpKmsClient {
     readonly #record: RecordedClient;
-    public constructor(clientOptions: GcpClientOptions) {
-      this.#record = { options: clientOptions, closed: false };
+    public constructor(clientOptions: GcpClientOptions, gaxModule?: GaxModule) {
+      this.#record = { options: clientOptions, gax: gaxModule, closed: false };
       clients.push(this.#record);
     }
 
     public async getPublicKey(request: { name: string }, callOptions: GcpCallOptions) {
       calls.push({ method: "getPublicKey", request: { ...request }, options: callOptions });
-      if (options.callError !== undefined) {
-        throw options.callError;
-      }
+      fail("getPublicKey");
       const hang = options.hangPublicKey?.signal;
       if (hang !== undefined && !hang.aborted) {
         await new Promise<void>((resolve) => {
@@ -156,7 +170,7 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
       const pem = spkiPem(options.secretKey);
       const pemCrc = crc32c(new TextEncoder().encode(pem));
       const response = {
-        name: options.publicKeyName ?? request.name,
+        name: options.publicKeyName === undefined ? request.name : options.publicKeyName,
         algorithm: options.algorithm ?? "EC_SIGN_SECP256K1_SHA256",
         ...(options.omitPem === true ? {} : { pem }),
         ...(options.omitPemCrc32c === true
@@ -179,9 +193,7 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
       callOptions: GcpCallOptions,
     ) {
       calls.push({ method: "asymmetricSign", request: { ...request }, options: callOptions });
-      if (options.callError !== undefined) {
-        throw options.callError;
-      }
+      fail("asymmetricSign");
       const answer = signAnswers++;
       const digest = request.digest.sha256;
       const verified =
@@ -190,7 +202,7 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
         options.signatureBytes ?? signDer(options.secretKey, digest, options.highS === true);
       const signatureCrc = crc32c(signature);
       const response = {
-        name: options.signName ?? request.name,
+        name: options.signName === undefined ? request.name : options.signName,
         verifiedDataCrc32c: false,
         ...(options.omitVerifiedDigest === true ? {} : { verifiedDigestCrc32c: verified }),
         ...(options.omitSignature === true ? {} : { signature: Buffer.from(signature) }),
@@ -217,7 +229,7 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
     }
   }
 
-  return { sdk: { KeyManagementServiceClient }, calls, clients };
+  return { sdk: { KeyManagementServiceClient, gax }, calls, clients };
 }
 
 /**

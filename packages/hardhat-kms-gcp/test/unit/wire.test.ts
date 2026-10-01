@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { crc32cMatches, int64Value, statusOf } from "../../src/internal/wire.ts";
+import { crc32cMatches, int64Value, networkErrorCode, statusOf } from "../../src/internal/wire.ts";
 
 const withCode = (code: unknown) => Object.assign(new Error("x"), { code });
+const withCause = (cause: unknown) => Object.assign(new Error("x"), { cause });
 
 describe("Google Cloud KMS wire formats", () => {
   it("reads Int64Value checksums in every form the SDK uses", () => {
@@ -47,5 +48,20 @@ describe("Google Cloud KMS wire formats", () => {
     assert.equal(statusOf(withCode(1.5)), undefined);
     assert.equal(statusOf(new Error("x")), undefined);
     assert.equal(statusOf({ code: 9 }), undefined);
+  });
+
+  it("reads the network error code under an SDK error, and nothing else", () => {
+    assert.equal(networkErrorCode(withCause({ code: "ECONNREFUSED" })), "ECONNREFUSED");
+    assert.equal(networkErrorCode(withCause({ code: "ENOTFOUND" })), "ENOTFOUND");
+    for (const bad of [
+      withCause({ code: "connect ECONNREFUSED 10.0.0.1:443" }),
+      withCause({ code: 111 }),
+      withCause("ECONNREFUSED"),
+      withCause(undefined),
+      new Error("x"),
+      { cause: { code: "ECONNREFUSED" } },
+    ]) {
+      assert.equal(networkErrorCode(bad), undefined);
+    }
   });
 });

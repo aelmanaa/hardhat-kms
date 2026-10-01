@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
+import gax from "google-gax";
 import { crc32c } from "hardhat-kms/provider-utils";
 import type { GcpKmsKeyConfig } from "hardhat-kms/types";
 import { HardhatPluginError } from "hardhat/plugins";
 
-import { CHECKSUM_RETRIES, createGcpKeyAdapter } from "../../src/internal/adapter.ts";
+import { createGcpKeyAdapter, MAX_RETRIES } from "../../src/internal/adapter.ts";
 import {
   fakeGcpKmsSdk,
   type FakeKmsOptions,
@@ -22,10 +23,18 @@ const context = (signal: AbortSignal = new AbortController().signal) => ({
   requestId: "r1",
 });
 const digest = new Uint8Array(32).fill(9);
-const ATTEMPTS = CHECKSUM_RETRIES + 1;
+const ATTEMPTS = MAX_RETRIES + 1;
 
-it("retries a checksum mismatch at most three times, as the docs say", () => {
-  assert.equal(CHECKSUM_RETRIES, 3);
+/** UNAVAILABLE with a refused connection under it, as the SDK reports one over REST. */
+const refused = (): Error =>
+  Object.assign(googleError(14, "request to http://kms.example failed"), {
+    cause: Object.assign(new Error("connect ECONNREFUSED 10.0.0.1:443"), {
+      code: "ECONNREFUSED",
+    }),
+  });
+
+it("retries a failed call at most three times, as the docs say", () => {
+  assert.equal(MAX_RETRIES, 3);
 });
 
 /** A resolved Google Cloud key, as hardhat-kms passes it to the adapter. */
@@ -93,6 +102,8 @@ describe("Google Cloud KMS adapter", () => {
     await sign(adapter);
 
     assert.deepEqual(clients[0]?.options, { fallback: true });
+    // The client runs on this package's google-gax (^6.5.0), which enforces the deadline.
+    assert.equal(clients[0]?.gax, gax);
     assert.deepEqual(
       calls.map(({ method, request }) => [method, request.name]),
       [
@@ -102,7 +113,8 @@ describe("Google Cloud KMS adapter", () => {
     );
     assert.deepEqual(calls[1]?.request.digest, { sha256: digest });
     assert.deepEqual(calls[1]?.request.digestCrc32c, { value: crc32c(digest) });
-    assert.ok(calls.every((call) => call.options.timeout === 1234));
+    // The key's timeout as gax's deadline, and no SDK retries: the adapter's loop is the only one.
+    assert.ok(calls.every((call) => call.options.timeout === 1234 && call.options.retry === null));
   });
 
   it("looks the key up, and checks its algorithm, if asked to sign first", async () => {
@@ -142,26 +154,35 @@ describe("Google Cloud KMS adapter", () => {
       }
     });
 
+    // Another version, a version with the configured one as a prefix, an empty name and none.
+    const otherNames = [
+      KEY_VERSION_NAME.replace(/1$/, "2"),
+      `${KEY_VERSION_NAME}0`,
+      KEY_VERSION_NAME.replace("deployer", "other"),
+      "",
+      null,
+    ];
+
     it("a public key for another key version, without asking again", async () => {
-      const { adapter, methods } = await adapterFor({
-        publicKeyName: KEY_VERSION_NAME.replace(/1$/, "2"),
-      });
-      await assertGcpError(lookUp(adapter), [
-        "gcp, get public key,",
-        "the response is for another key version than the one requested",
-      ]);
-      assert.equal(methods("getPublicKey"), 1);
+      for (const publicKeyName of otherNames) {
+        const { adapter, methods } = await adapterFor({ publicKeyName });
+        await assertGcpError(lookUp(adapter), [
+          "gcp, get public key,",
+          "the response is for another key version than the one requested",
+        ]);
+        assert.equal(methods("getPublicKey"), 1, String(publicKeyName));
+      }
     });
 
     it("a signature from another key version, without asking again", async () => {
-      const { adapter, methods } = await adapterFor({
-        signName: KEY_VERSION_NAME.replace("deployer", "other"),
-      });
-      await assertGcpError(sign(adapter), [
-        "gcp, sign,",
-        "the response is for another key version than the one requested",
-      ]);
-      assert.equal(methods("asymmetricSign"), 1);
+      for (const signName of otherNames) {
+        const { adapter, methods } = await adapterFor({ signName });
+        await assertGcpError(sign(adapter), [
+          "gcp, sign,",
+          "the response is for another key version than the one requested",
+        ]);
+        assert.equal(methods("asymmetricSign"), 1, String(signName));
+      }
     });
 
     it("a response without a public key or a signature", async () => {
@@ -243,6 +264,79 @@ describe("Google Cloud KMS adapter", () => {
         },
       );
       assert.equal(methods("asymmetricSign"), 1);
+    });
+
+    it("counts a digest refused for its checksum (INVALID_ARGUMENT) as a mismatch", async () => {
+      const digestRefused = googleError(
+        3,
+        "The checksum in field digest_crc32c did not match the data in field digest.",
+      );
+      const { adapter, methods } = await adapterFor({
+        failFirst: { method: "asymmetricSign", error: digestRefused, times: 2 },
+      });
+      await sign(adapter);
+      assert.equal(methods("asymmetricSign"), 3);
+
+      const persistent = await adapterFor({
+        failFirst: { method: "asymmetricSign", error: digestRefused, times: Infinity },
+      });
+      await assertGcpError(sign(persistent.adapter), [
+        "Google Cloud KMS refused the digest's checksum (digestCrc32c, INVALID_ARGUMENT)",
+        `after ${ATTEMPTS} attempts`,
+        "Data is being corrupted",
+      ]);
+      assert.equal(persistent.methods("asymmetricSign"), ATTEMPTS);
+
+      // Any other INVALID_ARGUMENT is not retried.
+      const other = await adapterFor({ callError: googleError(3, "bad request") });
+      await assertGcpError(lookUp(other.adapter), [
+        "the Google Cloud KMS call failed (INVALID_ARGUMENT)",
+      ]);
+      assert.equal(other.methods("getPublicKey"), 1);
+    });
+  });
+
+  describe("unavailable service", () => {
+    it("asks again after a pause, and passes when the service comes back", async () => {
+      const { adapter, methods } = await adapterFor({
+        failFirst: { method: "getPublicKey", error: refused(), times: 2 },
+      });
+      assert.deepEqual(await lookUp(adapter), publicKey);
+      assert.equal(methods("getPublicKey"), 3);
+    });
+
+    it("names the network error, not the host, after the last attempt", async () => {
+      const { adapter, methods } = await adapterFor({ callError: refused() });
+      await assert.rejects(lookUp(adapter), (error: unknown) => {
+        assert.ok(error instanceof HardhatPluginError);
+        assert.ok(
+          error.message.includes(
+            `could not reach Google Cloud KMS (ECONNREFUSED), after ${ATTEMPTS} attempts. Check the network connection`,
+          ),
+          error.message,
+        );
+        assert.ok(!error.message.includes("10.0.0.1") && !error.message.includes("kms.example"));
+        return true;
+      });
+      assert.equal(methods("getPublicKey"), ATTEMPTS);
+
+      const plain = await adapterFor({ callError: googleError(14, "unavailable") });
+      await assertGcpError(lookUp(plain.adapter), [
+        "Google Cloud KMS is unavailable (UNAVAILABLE)",
+      ]);
+    });
+
+    it("stops asking again when the call's signal aborts during the pause", async () => {
+      const { adapter, methods } = await adapterFor({ callError: refused() });
+      const controller = new AbortController();
+      const pending = adapter.getPublicKey?.(context(controller.signal));
+      controller.abort();
+      await assert.rejects(pending ?? Promise.resolve(), (error: unknown) => {
+        assert.ok(error instanceof HardhatPluginError);
+        assert.ok(!error.message.includes("attempts"), error.message);
+        return true;
+      });
+      assert.equal(methods("getPublicKey"), 1);
     });
   });
 

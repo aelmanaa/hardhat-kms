@@ -69,8 +69,9 @@ describe("SDK loading", () => {
     });
 
     it(`does not load the Google Cloud SDK for keys of other providers (${hooks} hooks)`, () => {
-      const { urls } = run({ ...recorderEnv, HHKMS_FIXTURE_KEY: "aws" });
+      const { urls, stdout } = run({ ...recorderEnv, HHKMS_FIXTURE_KEY: "aws" });
 
+      assert.match(stdout, /^unclaimed$/m);
       assert.ok(
         urls.some((url) => url.includes("/hardhat-kms-gcp/src/internal/hook-handlers/kms.ts")),
         "the recorder saw the kms hook handler",
@@ -79,8 +80,9 @@ describe("SDK loading", () => {
     });
 
     it(`loads the Google Cloud SDK once a Google Cloud key's adapter is created (positive control, ${hooks} hooks)`, () => {
-      const { urls } = run({ ...recorderEnv, HHKMS_FIXTURE_KEY: "gcp" });
+      const { urls, stdout } = run({ ...recorderEnv, HHKMS_FIXTURE_KEY: "gcp" });
 
+      assert.match(stdout, /^created gcp adapter$/m);
       assert.ok(
         urls.some((url) => url.includes("/node_modules/@google-cloud/kms/")),
         "the SDK was not recorded",

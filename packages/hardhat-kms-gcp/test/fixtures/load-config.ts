@@ -36,9 +36,15 @@ if (keyName !== "") {
       [key],
       async () => await Promise.reject(new Error("unclaimed")),
     );
+    // Creating the adapter constructs the SDK's KeyManagementServiceClient.
+    process.stdout.write(`created ${adapter.describe().provider} adapter\n`);
     await adapter.close?.();
-  } catch {
-    // Keys of other providers reach the end of the chain; only the imports matter here.
+  } catch (error) {
+    // Keys of other providers reach the end of the chain; any other failure is a real one.
+    if (!(error instanceof Error && error.message === "unclaimed")) {
+      throw error;
+    }
+    process.stdout.write("unclaimed\n");
   }
 }
 

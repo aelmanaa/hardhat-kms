@@ -20,9 +20,10 @@ function ownVersion(): string {
   return version;
 }
 
-/** Loads @google-cloud/kms. */
+/** Loads @google-cloud/kms, and the google-gax this package depends on for it to run on. */
 async function loadSdk(): Promise<GcpKmsSdk> {
-  return await import("@google-cloud/kms");
+  const [kms, gax] = await Promise.all([import("@google-cloud/kms"), import("google-gax")]);
+  return { KeyManagementServiceClient: kms.KeyManagementServiceClient, gax: gax.default };
 }
 
 /**

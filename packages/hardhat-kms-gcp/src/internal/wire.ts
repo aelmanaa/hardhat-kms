@@ -88,3 +88,19 @@ export function statusOf(error: unknown): StatusName | undefined {
   const code: unknown = Reflect.get(error, "code");
   return typeof code === "number" && Number.isInteger(code) ? STATUS_NAMES[code] : undefined;
 }
+
+/**
+ * Reads the network error under a Google Cloud SDK error, such as `ECONNREFUSED` or `ENOTFOUND`.
+ * Over REST, a request that never reached the service fails with UNAVAILABLE and keeps the
+ * network error as its `cause`.
+ *
+ * @param error - Anything thrown.
+ * @returns The network error code, or `undefined` if there is none.
+ */
+export function networkErrorCode(error: unknown): string | undefined {
+  const cause: unknown = error instanceof Error ? Reflect.get(error, "cause") : undefined;
+  const code: unknown =
+    typeof cause === "object" && cause !== null ? Reflect.get(cause, "code") : undefined;
+  // Only the shape of a Node errno code, so nothing else from the error can be shown.
+  return typeof code === "string" && /^E[A-Z0-9_]{2,31}$/.test(code) ? code : undefined;
+}

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { after, before, describe, it } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import hardhatKms from "hardhat-kms";
@@ -161,6 +162,65 @@ describe("hardhat-kms-gcp plugin", () => {
     await adapter.close?.();
 
     assert.equal(server.requests.length, 3);
+  });
+
+  it("asks again when Cloud KMS refuses the digest's checksum", async () => {
+    const hre = await runtime();
+    const adapter = await createAdapter(hre, "deployer");
+    await adapter.getPublicKey?.(signContext());
+    server.requests.length = 0;
+    server.faults.corruptDigest = 2;
+
+    await adapter.signDigest?.({ digest: new Uint8Array(32).fill(7) }, signContext());
+    await adapter.close?.();
+
+    assert.equal(server.requests.length, 3);
+  });
+
+  it("says it could not reach Cloud KMS, without the host, when the connection is refused", async () => {
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKmsGcp],
+      kms: { keys: { deployer: { provider: "gcp", keyVersionName: KEY_VERSION_NAME } } },
+    });
+    // Nothing listens on port 1.
+    hre.hooks.registerHandlers(
+      "kms",
+      kmsHandlers(ownVersion, async () => localSdk(1)),
+    );
+    const adapter = await createAdapter(hre, "deployer");
+
+    await assert.rejects(adapter.getPublicKey?.(signContext()) ?? Promise.resolve(), (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(
+        error.message,
+        /could not reach Google Cloud KMS \(ECONNREFUSED\), after 4 attempts/,
+      );
+      assert.ok(!error.message.includes("127.0.0.1"), error.message);
+      return true;
+    });
+    await adapter.close?.();
+  });
+
+  it("sends no more requests once the call's signal aborts", async () => {
+    const hre = await runtime();
+    const adapter = await createAdapter(hre, "deployer");
+    server.requests.length = 0;
+    server.faults.error = { http: 503, status: "UNAVAILABLE", message: "try later" };
+    try {
+      const controller = new AbortController();
+      const pending = adapter.getPublicKey?.({ ...signContext(), signal: controller.signal });
+      while (server.requests.length === 0) {
+        await sleep(5);
+      }
+      controller.abort();
+      await assert.rejects(pending ?? Promise.resolve());
+      // The SDK's own retries are off, and the adapter does not start another attempt.
+      await sleep(1000);
+      assert.equal(server.requests.length, 1);
+    } finally {
+      server.faults.error = undefined;
+      await adapter.close?.();
+    }
   });
 
   it("explains the errors the real SDK reports, without the server's message", async () => {
