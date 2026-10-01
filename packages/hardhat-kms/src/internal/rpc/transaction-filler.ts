@@ -140,6 +140,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     }
     // A deep copy: the caller's objects, including access and authorization lists, stay as they are.
     const tx: Record<string, unknown> = first;
+    padAuthorizationSignatures(tx);
     // Hardhat estimates gas with the request's params, after the fees are filled in.
     const filledParams = [tx, ...rest];
     if (this.#settings.gasPrice === "auto") {
@@ -353,6 +354,36 @@ function copyParams(params: readonly unknown[], method: string): unknown[] {
     return structuredClone([...params]);
   } catch {
     throw notPlainData(method);
+  }
+}
+
+// A JSON-RPC quantity of 1 to 32 bytes: no leading zeros, at most 64 hex digits.
+const SHORT_QUANTITY = /^0x(?:0|[1-9a-f][0-9a-f]{0,63})$/i;
+
+/**
+ * Left-pads each authorization's `r` and `s` to 32 bytes when it is a JSON-RPC quantity. viem
+ * sends them as quantities (`numberToHex`), which drop leading zero bytes, but Hardhat's schema
+ * wants 32-byte hashes, so about one viem authorization in 128 would be refused (#140). A value
+ * that is not a quantity of at most 32 bytes stays as it is, and the schema refuses it as before.
+ * No other field changes.
+ *
+ * @param tx - The copied transaction; its authorization list is changed in place.
+ */
+function padAuthorizationSignatures(tx: Record<string, unknown>): void {
+  const list = tx.authorizationList;
+  if (!Array.isArray(list)) {
+    return;
+  }
+  for (const item of list) {
+    if (!isObject(item)) {
+      continue;
+    }
+    for (const field of ["r", "s"]) {
+      const value = item[field];
+      if (typeof value === "string" && SHORT_QUANTITY.test(value)) {
+        item[field] = `0x${value.slice(2).padStart(64, "0")}`;
+      }
+    }
   }
 }
 

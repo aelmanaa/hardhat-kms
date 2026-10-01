@@ -73,4 +73,6 @@ The fields decide the type, as in Hardhat: `authorizationList` gives EIP-7702, `
 
 For EIP-7702 the RPC path does not sign unsigned authorization entries. No client emits that format, and Hardhat's schema requires signed tuples. A user who wants the KMS key to sign an authorization runs `kms sign-auth` (with `--self-broadcast` when the same key also sends the transaction) and puts the resulting signed tuple in a normal `authorizationList`. The planned `getAccount().signAuthorization` covers the library case.
 
+An authorization's `r` and `s` may be 32-byte values or quantities, the form viem sends, which drops leading zero bytes. For a KMS sender the plugin left-pads a quantity of up to 32 bytes before it checks the transaction, so the signed bytes are the same either way. Hardhat's own local accounts on an `http` network accept only 32-byte values.
+
 When a KMS sender's transaction carries pre-signed tuples, the plugin lints them: each signature must be low-S, and an authority must recover from it over the EIP-7702 authorization hash, `keccak256(0x05 || rlp([chainId, address, nonce]))`. A tuple that fails either check prints a warning that names its index in `authorizationList`, and the transaction is still signed and sent. A node accepts such a transaction but skips the failing authorization.

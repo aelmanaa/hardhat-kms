@@ -488,6 +488,95 @@ describe("HardhatTransactionFiller checks", () => {
 
 const hex = (value: string) => new Uint8Array(Buffer.from(value.slice(2), "hex"));
 
+/** An EIP-7702 authorization in JSON-RPC form, with the given r and s. */
+function authorizationWith(r: string, s: string) {
+  return { chainId: "0x7a69", address: TO, nonce: "0x0", yParity: "0x1", r, s };
+}
+
+/** Fills an EIP-7702 transaction; returns the filled r and s and the estimate's authorization. */
+async function fillSignature(r: string, s: string) {
+  const tx = { from: FROM, to: TO, authorizationList: [authorizationWith(r, s)] };
+  const { node, filler: instance } = filler(EIP1559_NODE);
+  const filled = await instance.fill("eth_sendTransaction", [tx]);
+  const [item] = filled.authorizationList ?? [];
+  assert.ok(item !== undefined);
+  assert.deepEqual(tx.authorizationList, [authorizationWith(r, s)], "the caller's list is kept");
+  const estimate = node.calls.find((call) => call.method === "eth_estimateGas");
+  const sent: unknown = estimate?.params?.[0];
+  assert.ok(typeof sent === "object" && sent !== null && "authorizationList" in sent);
+  return {
+    r: `0x${Buffer.from(item.r).toString("hex")}`,
+    s: `0x${Buffer.from(item.s).toString("hex")}`,
+    estimated: sent.authorizationList,
+  };
+}
+
+describe("HardhatTransactionFiller authorization signatures", () => {
+  // A 31-byte value: as a quantity, viem drops the leading zero byte of a 32-byte r or s.
+  const SHORT = `0x${"ab".repeat(31)}`;
+  const PADDED = `0x00${"ab".repeat(31)}`;
+  const FULL = `0x${"cd".repeat(32)}`;
+
+  it("left-pads an r with a leading zero byte", async () => {
+    const filled = await fillSignature(SHORT, FULL);
+    assert.equal(filled.r, PADDED);
+    assert.equal(filled.s, FULL);
+    // The estimate already gets the padded form.
+    assert.deepEqual(filled.estimated, [authorizationWith(PADDED, FULL)]);
+  });
+
+  it("left-pads an s with a leading zero byte", async () => {
+    const filled = await fillSignature(FULL, SHORT);
+    assert.equal(filled.r, FULL);
+    assert.equal(filled.s, PADDED);
+  });
+
+  it("left-pads both, down to a one-digit quantity", async () => {
+    const filled = await fillSignature(SHORT, "0x7");
+    assert.equal(filled.r, PADDED);
+    assert.equal(filled.s, `0x${"00".repeat(31)}07`);
+  });
+
+  it("keeps 32-byte values, including ones with leading zero bytes", async () => {
+    const filled = await fillSignature(FULL, PADDED);
+    assert.equal(filled.r, FULL);
+    assert.equal(filled.s, PADDED);
+  });
+
+  it("still refuses a value over 32 bytes, non-hex, or not a quantity", async () => {
+    const refused = [
+      `0x01${"ab".repeat(32)}`,
+      `0x${"ab".repeat(33)}`,
+      "0xzz",
+      "abab",
+      "0x",
+      // Leading zeros: neither a quantity nor a 32-byte hash.
+      `0x00${"ab".repeat(30)}`,
+    ];
+    for (const value of refused) {
+      for (const item of [authorizationWith(value, FULL), authorizationWith(FULL, value)]) {
+        const tx = { from: FROM, to: TO, authorizationList: [item] };
+        const { filler: instance } = filler(EIP1559_NODE);
+        await assert.rejects(
+          instance.fill("eth_sendTransaction", [tx]),
+          /Expected a Buffer with the correct length or a valid RPC hash string/,
+          value,
+        );
+      }
+    }
+  });
+
+  it("leaves other fields and malformed lists to the schema", async () => {
+    const { filler: instance } = filler(EIP1559_NODE);
+    const shortNonce = { ...authorizationWith(FULL, FULL), nonce: "0x01" };
+    for (const authorizationList of [[shortNonce], ["0x"], "0x"]) {
+      await assert.rejects(
+        instance.fill("eth_sendTransaction", [{ from: FROM, to: TO, authorizationList }]),
+      );
+    }
+  });
+});
+
 function filledTx(fields: Partial<FilledTransaction>): FilledTransaction {
   return { from: hex(FROM), to: hex(TO), gas: 21000n, nonce: 3n, chainId: CHAIN, ...fields };
 }
