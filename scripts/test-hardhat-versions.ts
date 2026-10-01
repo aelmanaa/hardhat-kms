@@ -8,8 +8,11 @@
 // typechecks hardhat-kms and runs the two test files. pnpm-workspace.yaml and the lockfile are
 // restored afterwards, even on Ctrl-C, and the install is redone from the restored lockfile.
 //
-// "Latest" is the newest 3.x release older than pnpm's minimumReleaseAge (one day unless
-// configured): pnpm refuses younger releases, so a newer one is reported as skipped.
+// "Latest" is the newest 3.x release that is at least a day old, or older than minimumReleaseAge
+// if the project sets one. This is a deliberate supply-chain hold, not a pnpm limit: pnpm's
+// built-in default is not strict and would install a younger release after adding it to
+// minimumReleaseAgeExclude, which this repository never does. A younger release is reported as
+// held back, and the next weekly run tests it.
 //
 // Usage: node scripts/test-hardhat-versions.ts [version...]
 //   With versions, tests those instead of the floor and latest.
@@ -34,9 +37,21 @@ const TESTS = [
   "test/integration/transaction-filler.test.ts",
   "test/integration/network-hook.test.ts",
 ];
-/** pnpm's default minimumReleaseAge, in minutes, when the project does not set one. */
+/**
+ * The release-age hold, in minutes, when the project sets no minimumReleaseAge: one day, the same
+ * as pnpm's built-in default, but enforced here because that default is not strict.
+ */
 const DEFAULT_MINIMUM_RELEASE_AGE = 1440;
 const STABLE = /^(\d+)\.(\d+)\.(\d+)$/;
+
+type Stage = "install" | "build" | "typecheck" | "tests";
+const HINTS: Record<Stage, string> = {
+  install: "pnpm could not install it, or hardhat-kms resolves another version.",
+  build: "The packages do not compile against it.",
+  typecheck: "hardhat-kms or its tests do not typecheck against it.",
+  tests:
+    "A failing transaction-filler test names the fill step that differs from Hardhat's; a network-hook failure means the hook behaves differently.",
+};
 
 interface Target {
   version: string;
@@ -68,7 +83,7 @@ function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-/** pnpm's minimumReleaseAge in minutes: the project setting, or pnpm's default. */
+/** The release-age hold in minutes: the project's minimumReleaseAge, or one day. */
 function minimumReleaseAge(): number {
   const configured: unknown = JSON.parse(
     output(["config", "get", "minimumReleaseAge", "--json"]) || "null",
@@ -76,7 +91,10 @@ function minimumReleaseAge(): number {
   return typeof configured === "number" ? configured : DEFAULT_MINIMUM_RELEASE_AGE;
 }
 
-/** The newest stable 3.x release that pnpm's release-age policy lets the script install. */
+/**
+ * The newest stable 3.x release older than the release-age hold. Younger releases are held back
+ * on purpose, so the script never needs a minimumReleaseAgeExclude entry.
+ */
 function latest(): string {
   const published = stringRecord(JSON.parse(output(["view", "hardhat", "time", "--json"])));
   const releases = Object.keys(published)
@@ -89,7 +107,7 @@ function latest(): string {
     if (Date.parse(published[version] ?? "") <= cutoff) {
       if (tooYoung.length > 0) {
         process.stdout.write(
-          `Skipping hardhat ${tooYoung.join(", ")}: published less than ${ageMinutes} minutes ago (pnpm minimumReleaseAge). Latest tested: ${version}.\n`,
+          `Holding back hardhat ${tooYoung.join(", ")}: published less than ${ageMinutes} minutes ago (release-age hold; the next weekly run tests it). Testing ${version} as latest.\n`,
         );
       }
       return version;
@@ -137,6 +155,7 @@ const failures: string[] = [];
 await withRestoredFiles([path.join(root, "pnpm-lock.yaml"), workspaceFile], async () => {
   for (const target of chosen) {
     process.stdout.write(`\n== ${describe(target)}\n`);
+    let stage: Stage = "install";
     try {
       writeFileSync(workspaceFile, withCatalogVersion(workspace, target.version));
       run(["install", "--no-frozen-lockfile", "--ignore-scripts"]);
@@ -144,9 +163,12 @@ await withRestoredFiles([path.join(root, "pnpm-lock.yaml"), workspaceFile], asyn
       if (installed !== target.version) {
         throw new Error(`hardhat-kms resolves hardhat ${installed}, not ${target.version}`);
       }
+      stage = "build";
       run(["run", "build"]);
+      stage = "typecheck";
       // Typecheck the tests too: they use Hardhat's types.
       run(["exec", "tsc", "-b", plugin]);
+      stage = "tests";
       run([
         "--filter",
         "hardhat-kms",
@@ -162,10 +184,11 @@ await withRestoredFiles([path.join(root, "pnpm-lock.yaml"), workspaceFile], asyn
       if (wasInterrupted()) {
         throw error;
       }
-      failures.push(describe(target));
-      process.stderr.write(
-        `\n${describe(target)} fails. If a fill test failed, its name gives the fill step that differs from Hardhat's.\n`,
-      );
+      failures.push(`${describe(target)} at ${stage}`);
+      process.stderr.write(`\n${describe(target)} fails at the ${stage} stage. ${HINTS[stage]}\n`);
+      if (stage === "install" && error instanceof Error) {
+        process.stderr.write(`${error.message}\n`);
+      }
     }
   }
   return failures.length === 0;
