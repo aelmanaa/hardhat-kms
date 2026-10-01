@@ -67,6 +67,6 @@
   },
   "peerDependencies": {
     "hardhat": "^3.18.0",
-    "hardhat-kms": "workspace:^"
+    "hardhat-kms": "workspace:*"
   }
 }
