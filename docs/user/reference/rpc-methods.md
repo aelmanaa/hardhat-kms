@@ -19,7 +19,19 @@ The plugin installs a network hook on every connection. On a connection whose ne
 - No RPC method signs a bare digest.
 - Every other method passes through untouched.
 
-When `from` (or the address param) is not a KMS address, the request passes through. If the sender turns out not to be a local account either, the resulting error lists the loaded KMS addresses (planned in [#119](https://github.com/aelmanaa/hardhat-kms/issues/119)).
+When `from` (or the address param) is not a KMS address, the request passes through. If the sender is not a local account either, the node or Hardhat refuses it, and the plugin appends the network's checksummed KMS addresses to that error. On a simulated network with one KMS account, a request from `0x1111111111111111111111111111111111111111` fails with:
+
+```text
+Unknown account 0x1111111111111111111111111111111111111111. The KMS account on this network is 0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826.
+```
+
+A mistyped address, or a key missing from `kmsAccounts`, then shows in the error. The error keeps its class, code and data. It lists at most 10 addresses, then "and N more", and never names a key id. The plugin recognizes three errors:
+
+- Hardhat's simulated network: `Unknown account <address>`, code -32000.
+- Hardhat's local accounts on a network with `accounts`: `HHE716: Account "<address>" is not managed by the node you are connected to.`
+- A remote node such as Geth or Reth: `unknown account`, code -32000.
+
+Every other error passes through unchanged.
 
 An `eth_sendTransaction` or `eth_signTransaction` without `from` gets the sender Hardhat would give it: the network's `from` when the config sets one, otherwise the first address of `eth_accounts`, in the plugin's order (the network's own accounts, then the KMS addresses). The plugin sets `from` to that sender. When the sender is a KMS account, the plugin signs; otherwise the request passes on with `from` set, and Hardhat or the node signs it. A transaction therefore never reaches the node unsigned with a KMS address as its sender. Hardhat's sender handlers cover `eth_sendTransaction` but not `eth_signTransaction`; the plugin chooses the sender for both. When there is no sender (an empty or invalid `eth_accounts` answer), the request passes on unchanged.
 

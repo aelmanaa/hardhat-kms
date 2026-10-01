@@ -68,6 +68,18 @@ async function keyIdentity(key: KmsKeyConfig): Promise<string | undefined> {
 const ACCOUNT_METHODS = new Set(["eth_accounts", "eth_requestAccounts"]);
 const TRANSACTION_METHODS = new Set(["eth_sendTransaction", "eth_signTransaction"]);
 
+/** The methods that name an account; a node or Hardhat refuses them for an account it lacks. */
+const SENDER_METHODS = new Set([
+  "eth_sendTransaction",
+  "eth_signTransaction",
+  "eth_sign",
+  "personal_sign",
+  "eth_signTypedData_v4",
+]);
+
+/** How many KMS addresses an "unknown account" error lists before it says "and N more". */
+const LISTED_KMS_ADDRESSES = 10;
+
 /** Reads a request's positional params; anything else counts as no params. */
 function paramsOf(request: JsonRpcRequest): unknown[] {
   return Array.isArray(request.params) ? request.params : [];
@@ -342,10 +354,92 @@ export async function dispatch(
       return response(request, signed.raw);
     }
     if (outcome.params !== undefined) {
-      return await next({ ...request, params: outcome.params });
+      return await passThrough(accounts, { ...request, params: outcome.params }, next);
     }
   }
-  return await next(request);
+  return await passThrough(accounts, request, next);
+}
+
+/**
+ * Passes a request on to the rest of the chain. When a request that names an account fails
+ * because the node or Hardhat does not know that account, the error gets the KMS addresses
+ * appended, so a mistyped address or a key missing from `kmsAccounts` shows. The error keeps its
+ * class, code and data; any other answer or error comes back unchanged.
+ */
+async function passThrough(
+  accounts: ConnectionAccounts,
+  request: JsonRpcRequest,
+  next: Next,
+): Promise<JsonRpcResponse> {
+  if (!SENDER_METHODS.has(request.method)) {
+    return await next(request);
+  }
+  let answer: JsonRpcResponse;
+  try {
+    answer = await next(request);
+  } catch (error) {
+    if (error instanceof Error && isUnknownAccount(error)) {
+      const message = await listingKmsAddresses(accounts, error.message);
+      if (typeof error.stack === "string") {
+        error.stack = error.stack.replace(error.message, () => message);
+      }
+      error.message = message;
+    }
+    throw error;
+  }
+  if ("error" in answer && isUnknownAccount(answer.error)) {
+    const message = await listingKmsAddresses(accounts, answer.error.message);
+    return { ...answer, error: { ...answer.error, message } };
+  }
+  return answer;
+}
+
+/**
+ * Tells whether an error says the account a request names is unknown:
+ *
+ * - Hardhat's `HardhatError` HHE716 (`NOT_LOCAL_ACCOUNT`), thrown by its local accounts on a
+ *   network with `accounts` for an address that is not one of them: `Account "<address>" is not
+ *   managed by the node you are connected to.`
+ * - A JSON-RPC error with code -32000 whose message starts with "unknown account", in any case:
+ *   Hardhat's simulated network (`Unknown account <address>`, thrown as a `ProviderError`), and
+ *   Geth and Reth (`unknown account`, an error answer over http).
+ *
+ * @param error - A thrown error, or a JSON-RPC error answer.
+ * @returns Whether it is.
+ */
+export function isUnknownAccount(error: unknown): boolean {
+  if (HardhatError.isHardhatError(error, HardhatError.ERRORS.CORE.NETWORK.NOT_LOCAL_ACCOUNT)) {
+    return true;
+  }
+  return (
+    isObject(error) &&
+    error.code === -32000 &&
+    typeof error.message === "string" &&
+    /^\s*unknown account\b/i.test(error.message)
+  );
+}
+
+/**
+ * Appends the connection's KMS addresses to an "unknown account" message: at most
+ * {@link LISTED_KMS_ADDRESSES}, then "and N more". Only addresses, never key ids. If the
+ * addresses cannot be read, the message is returned unchanged.
+ */
+async function listingKmsAddresses(accounts: ConnectionAccounts, message: string): Promise<string> {
+  let addresses: string[];
+  try {
+    addresses = await accounts.addresses();
+  } catch (error) {
+    log("listing the KMS accounts for an unknown account failed (%s)", errorName(error));
+    return message;
+  }
+  const shown = addresses.slice(0, LISTED_KMS_ADDRESSES).join(", ");
+  const more = addresses.length - LISTED_KMS_ADDRESSES;
+  const list = more > 0 ? `${shown} and ${more} more` : shown;
+  const text = message.trimEnd();
+  const end = /[.!?]$/.test(text) ? "" : ".";
+  const noun = addresses.length === 1 ? "The KMS account" : "The KMS accounts";
+  const verb = addresses.length === 1 ? "is" : "are";
+  return `${text}${end} ${noun} on this network ${verb} ${list}.`;
 }
 
 /** A transaction to sign with a KMS account. */
