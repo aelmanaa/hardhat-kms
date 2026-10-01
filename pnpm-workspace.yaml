@@ -1,11 +1,17 @@
 packages:
   - packages/*
 
-# Install scripts of dependencies do not run unless listed here. Neither is needed: esbuild's
+# Install scripts of dependencies do not run unless listed here. None is needed: esbuild's
 # only checks its platform binary, lefthook's only runs `lefthook install`, which `prepare` does.
+# keccak, node-hid and usb come with @nomicfoundation/hardhat-ledger, which only the
+# coexistence test loads. They build native modules for a USB device the test never opens, and
+# keccak falls back to JavaScript.
 allowBuilds:
   esbuild: false
+  keccak: false
   lefthook: false
+  node-hid: false
+  usb: false
 
 # Versions of the development tools, shared by every package (decision 0010).
 

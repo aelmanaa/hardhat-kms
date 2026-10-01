@@ -204,7 +204,9 @@ The dispatcher follows these rules. They keep the hook from deadlocking on its o
 
 ## Other signing plugins
 
-Hardhat runs dynamically registered handlers first, then plugins in reverse order of the `plugins` array, and its built-in handlers last. Another plugin that intercepts `eth_accounts` or `eth_sendTransaction`, such as `@nomicfoundation/hardhat-ledger`, therefore runs before or after hardhat-kms depending on where each appears in `plugins`. hardhat-kms only acts on addresses it owns and passes everything else on, so both plugins can coexist. No test loads hardhat-kms together with hardhat-ledger yet.
+Hardhat runs dynamically registered handlers first, then plugins in reverse order of the `plugins` array, and its built-in handlers last. Another plugin that intercepts `eth_accounts` or `eth_sendTransaction`, such as `@nomicfoundation/hardhat-ledger`, therefore runs before or after hardhat-kms depending on where each appears in `plugins`. hardhat-kms only acts on addresses it owns and passes everything else on, and hardhat-ledger does the same, so both plugins can coexist. `packages/hardhat-kms/test/integration/ledger.test.ts` checks this in both orders.
+
+The order still shows in the account lists. Each plugin appends its addresses to the `eth_accounts` list the rest of the chain returns, so the plugin whose hook runs first lists its addresses last. With `plugins: [hardhatKms, hardhatLedger]`, a network lists its own accounts, then the KMS addresses, then the Ledger addresses; swapping the two plugins swaps the last two groups. Code that picks an account by index, such as Ignition's `m.getAccount(index)`, sees the difference. hardhat-ledger passes `eth_requestAccounts` on unchanged, and hardhat-kms answers it by asking the rest of the chain for `eth_accounts`. The Ledger addresses are therefore listed by `eth_requestAccounts` only when hardhat-ledger's hook runs after hardhat-kms's, that is, when hardhat-ledger comes first in `plugins`.
 
 ## Lifetimes and caching
 
