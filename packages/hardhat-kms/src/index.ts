@@ -43,6 +43,44 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
       })
       .setAction(() => import("./internal/tasks/public-key.ts"))
       .build(),
+    task(["kms", "sign"], "Sign a message, typed data or a raw digest with a KMS key")
+      .addPositionalArgument({
+        name: "key",
+        type: ArgumentType.STRING,
+        description: KEY_ARGUMENT_DESCRIPTION,
+      })
+      .addPositionalArgument({
+        name: "message",
+        type: ArgumentType.STRING,
+        description:
+          "The message (0x-prefixed hex is bytes, anything else UTF-8), the typed data with --data, or the 32-byte digest with --no-hash",
+      })
+      .addFlag({
+        name: "data",
+        description: "Sign the message as EIP-712 typed data in JSON",
+      })
+      .addFlag({
+        name: "fromFile",
+        description: "Read the typed data from the file the message names; requires --data",
+      })
+      .addFlag({
+        name: "noHash",
+        description:
+          "Sign the message as a raw 32-byte digest, with no EIP-191 prefix. Only for digests you computed yourself",
+      })
+      .addOption({
+        name: "chain",
+        description:
+          "With --data: the chain the typed data must be for, instead of the --network connection's",
+        type: ArgumentType.STRING_WITHOUT_DEFAULT,
+        defaultValue: undefined,
+      })
+      .addFlag({
+        name: "allowCrossChain",
+        description: "With --data: sign typed data whatever chain its domain names",
+      })
+      .setAction(() => import("./internal/tasks/sign.ts"))
+      .build(),
   ],
   globalOptions: [
     globalOption({

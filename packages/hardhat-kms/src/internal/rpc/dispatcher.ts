@@ -11,13 +11,12 @@ import type { JsonRpcRequest, JsonRpcResponse } from "hardhat/types/providers";
 
 import type { KmsKeyConfig } from "../../types.ts";
 import { toChecksumAddress } from "../crypto/address.ts";
-import { InvalidTypedDataError, parseTypedData, type TypedData } from "../crypto/digests.ts";
 import { kmsDebug } from "../debug.ts";
 import { errorName, kmsError } from "../errors.ts";
 import { parseAwsKeyId } from "../providers/aws/key-id.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
-import { type ConnectionChain, parseChainId } from "./chain-id.ts";
+import type { ConnectionChain } from "./chain-id.ts";
 import {
   canonicalJson,
   type ConnectionSends,
@@ -28,6 +27,7 @@ import {
 } from "./send-guard.ts";
 import { notPlainData, type TransactionFiller } from "./transaction-filler.ts";
 import { signTransaction } from "./transactions.ts";
+import { checkTypedDataChain, readTypedData } from "./typed-data.ts";
 
 const log = kmsDebug("rpc");
 
@@ -935,53 +935,13 @@ async function signTypedData(
   data: unknown,
   policy: TypedDataPolicy,
 ): Promise<string> {
-  let typedData: unknown = data;
-  if (typeof data === "string") {
-    try {
-      typedData = JSON.parse(data);
-    } catch {
-      throw kmsError("the typed data is not valid JSON", { operation: "eth_signTypedData_v4" });
-    }
-  }
-  let parsed: TypedData;
-  try {
-    parsed = parseTypedData(typedData);
-  } catch (error) {
-    if (!(error instanceof InvalidTypedDataError)) {
-      throw error;
-    }
-    // Our own message about the user's typed data: safe to show, and the user's to fix.
-    throw kmsError(`the typed data is invalid: ${error.message}`, {
-      operation: "eth_signTypedData_v4",
-    });
-  }
-  await checkTypedDataChain(parsed, policy);
-  return await signer.signTypedData(parsed);
-}
-
-/**
- * Refuses typed data for another chain than the connection's, unless the config allows it. Typed
- * data without `domain.chainId` is signed, as MetaMask, Hardhat and Foundry do: it is valid
- * EIP-712, and off-chain and cross-chain schemes rely on it.
- */
-async function checkTypedDataChain(typedData: TypedData, policy: TypedDataPolicy): Promise<void> {
-  const domainChain = parseChainId(
-    typedData.domain.chainId,
-    "domain.chainId",
-    "eth_signTypedData_v4",
-  );
-  if (domainChain === undefined) {
-    log("typed data without domain.chainId: the signature is valid on every chain");
-    return;
-  }
-  if (policy.allowCrossChainTypedData) {
-    return;
-  }
-  const chain = await policy.chain.chainId();
-  if (domainChain !== chain) {
-    throw kmsError(
-      `the typed data is for chain ${domainChain}, but this network is chain ${chain}. Set \`kms.allowCrossChainTypedData: true\` to sign typed data for other chains`,
-      { operation: "eth_signTypedData_v4" },
-    );
-  }
+  const operation = "eth_signTypedData_v4";
+  const typedData = readTypedData(data, operation);
+  await checkTypedDataChain(typedData, {
+    operation,
+    allowCrossChain: policy.allowCrossChainTypedData,
+    expectedChain: async () => ({ chainId: await policy.chain.chainId(), name: "this network" }),
+    allowHint: "Set `kms.allowCrossChainTypedData: true` to sign typed data for other chains",
+  });
+  return await signer.signTypedData(typedData);
 }

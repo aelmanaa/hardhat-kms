@@ -2,7 +2,7 @@
 
 Audience: Contributors and reviewers who want to understand how the code fits together.
 
-Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry and the `kms` hook (`providers/`). M3 adds the AWS adapter, which lives in its own package, `packages/hardhat-kms-aws` ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)). M4 adds the network hook, the RPC dispatcher for accounts, messages and typed data, and the per-runtime signer cache ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). M5 adds the transaction filler ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)), signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)), and the send guard ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)). M6 adds the Google Cloud adapter in `packages/hardhat-kms-gcp` ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29)) and the Azure adapter in `packages/hardhat-kms-azure` ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). M7 adds the `kms` task namespace with `kms address` and `kms public-key` ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)). The other modules are planned; the code map gives each one's milestone.
+Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry and the `kms` hook (`providers/`). M3 adds the AWS adapter, which lives in its own package, `packages/hardhat-kms-aws` ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)). M4 adds the network hook, the RPC dispatcher for accounts, messages and typed data, and the per-runtime signer cache ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). M5 adds the transaction filler ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)), signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)), and the send guard ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)). M6 adds the Google Cloud adapter in `packages/hardhat-kms-gcp` ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29)) and the Azure adapter in `packages/hardhat-kms-azure` ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). M7 adds the `kms` task namespace with `kms address` and `kms public-key` ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)). The other modules are planned; the code map gives each one's milestone.
 
 ## Module map
 
@@ -76,6 +76,8 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 | `kms` namespace and task definitions        | `packages/hardhat-kms/src/index.ts`                                                                                                                               | M7        |
 | Key lookup and signers for tasks            | `packages/hardhat-kms/src/internal/tasks/keys.ts`                                                                                                                 | M7        |
 | `kms address`, `kms public-key`             | `packages/hardhat-kms/src/internal/tasks/{address,public-key}.ts`                                                                                                 | M7        |
+| `kms sign`                                  | `packages/hardhat-kms/src/internal/tasks/sign.ts`                                                                                                                 | M7        |
+| Typed-data parsing and chain check          | `packages/hardhat-kms/src/internal/rpc/typed-data.ts`, shared by `eth_signTypedData_v4` and `kms sign --data`                                                     | M4, M7    |
 | Other tasks                                 | `packages/hardhat-kms/src/internal/tasks/` (planned)                                                                                                              | M7        |
 
 ## Signing a message
@@ -175,12 +177,13 @@ packages/hardhat-kms/src/
     rpc/
       dispatcher.ts         request flow (see "Request flow and re-entrancy rules"); ConnectionAccounts;
                             accounts, eth_sign, personal_sign, eth_signTypedData_v4
+      typed-data.ts         readTypedData, checkTypedDataChain: shared with kms sign --data
       transactions.ts       fill, sign, rebuild and check a KMS account's transaction; EIP-7702 authorization lint
       transaction-filler.ts port of Hardhat 3.18.0's fill logic; builds the unsigned transaction and its signing hash
       send-guard.ts         process-global send lock; per connection: nonce high-water marks, retry entries,
                             uncertain transactions; SendOutcomeUnknownError
     tasks/                  keys.ts: key lookup by name, signers closed after each run, printLine;
-                            one action module per task: address, public-key (accounts, sign, sign-auth,
+                            one action module per task: address, public-key, sign (accounts, sign-auth,
                             sign-tx, verify planned)
     vendor/micro-eth-signer/  vendored EIP-712 hashing (MIT, see "Vendored EIP-712")
     errors.ts               allow-listed error builder
@@ -237,6 +240,8 @@ Every task that takes a key uses `packages/hardhat-kms/src/internal/tasks/keys.t
 - `printLine(line)` writes the result to standard output, and `printNote(line)` writes a note to standard error, prefixed with `[hardhat-kms]`.
 
 `kms address` uses `KmsSigner.confirmedAddress()`, which, unlike `getAddress()`, asks an address-only adapter even when the key has a pin, and says when the address is an unchecked pin. An action module's default export is a `NewTaskActionFunction`. It prints its result with `printLine` and also returns it, so `hre.tasks.getTask(["kms", "address"]).run({ key })` gives the value to scripts and tests. Errors are `kmsError`s, which the CLI prints and turns into exit code 1. The key's argument is the positional argument `key`, described by `KEY_ARGUMENT_DESCRIPTION` in `index.ts`. The user-facing rules are in the [tasks reference](../user/reference/tasks.md).
+
+`kms sign` checks its input before it opens a signer. Typed data goes through `readTypedData` and `checkTypedDataChain` in `rpc/typed-data.ts`, the functions `eth_signTypedData_v4` uses, and the chain to compare with is `--chain`, else the `chainId` in the `--network` config. Only a network config without `chainId` makes the task open a connection to read `eth_chainId`; creating it runs the network hook, which can call the KMS, since Hardhat funds an `edr-simulated` network's accounts then. After signing, the task recovers the address from the printed `r || s || v` and refuses a signature that does not recover to the key. That catches a substituted or wrong signer output. It is no independent check of the digest: the task computes the digest with the signer's own code.
 
 ## Lifetimes and caching
 
