@@ -32,6 +32,8 @@
     "@arethetypeswrong/cli": "catalog:",
     "@changesets/changelog-github": "catalog:",
     "@changesets/cli": "catalog:",
+    "@nomicfoundation/hardhat-ignition": "^3.1.8",
+    "@nomicfoundation/hardhat-ignition-viem": "^3.1.6",
     "@types/node": "catalog:",
     "eslint-plugin-jsdoc": "catalog:",
     "hardhat": "catalog:",

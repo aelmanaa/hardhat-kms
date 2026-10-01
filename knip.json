@@ -9,7 +9,9 @@
         "hardhat-kms",
         "publint",
         "@arethetypeswrong/cli",
-        "hardhat-kms-aws"
+        "hardhat-kms-aws",
+        "@nomicfoundation/hardhat-ignition",
+        "@nomicfoundation/hardhat-ignition-viem"
       ]
     },
     "packages/hardhat-kms": {

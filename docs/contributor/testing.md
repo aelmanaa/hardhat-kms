@@ -2,7 +2,7 @@
 
 Audience: Contributors writing or running tests.
 
-Status: M1 adds the signing core's unit tests: crypto vectors and properties, the signer against a fake adapter, and byte equivalence with Hardhat's message and typed-data vectors. M3 adds the AWS adapter's tests in `packages/hardhat-kms-aws/test`. M4 adds the network hook's integration tests ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). The other tests arrive with their milestones.
+Status: M1 adds the signing core's unit tests: crypto vectors and properties, the signer against a fake adapter, and byte equivalence with Hardhat's message and typed-data vectors. M3 adds the AWS adapter's tests in `packages/hardhat-kms-aws/test`. M4 adds the network hook's integration tests ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)), and M5 the deploy tests with hardhat-viem, hardhat-ethers and Ignition ([#26](https://github.com/aelmanaa/hardhat-kms/issues/26)). The other tests arrive with their milestones.
 
 ## Testing strategy
 
@@ -28,10 +28,15 @@ Tests form a pyramid. The lower layers are fast and pure; the upper layers exerc
 4. Integration tests on a real HRE with `edr-simulated` and a fake adapter registered through the `kms` hook:
    - The network hook (`packages/hardhat-kms/test/integration/network-hook.test.ts`), on an `edr-simulated` network and an unreachable http network: account listing (own accounts first, pinned addresses without a KMS call, duplicates listed once, KMS addresses only when the downstream call fails); `personal_sign`, `eth_sign` and `eth_signTypedData_v4` matching Hardhat's local-account vectors; pass-through for other addresses and methods; strict hex and malformed typed data refused before any KMS call; transactions from KMS accounts refused; adapter-creation errors reduced to the error class; two keys for the same account refused; the `default`-network warning printed once; networks without KMS keys left alone.
    - On-chain verification (`packages/hardhat-kms/test/integration/ecrecover.test.ts`): the fixture project `packages/hardhat-kms/test/fixture-projects/ecrecover` compiles `Recover.sol`, which recovers a signer with `ecrecover` and refuses high-S signatures, as OpenZeppelin's ECDSA does. Through `@nomicfoundation/hardhat-viem` and `@nomicfoundation/hardhat-ethers`, messages and typed data signed by a KMS account whose fake KMS returns only high-S signatures must recover to that account on chain, with one KMS signature per request, so a retry cannot hide a signature the plugin failed to normalize. Typed data for another chain is refused.
+   - Deploys (`packages/hardhat-kms/test/integration/deploy.test.ts`): the fixture project `packages/hardhat-kms/test/fixture-projects/deploy` compiles `Counter.sol`, whose constructor takes arguments and records the deployer as owner, and whose `add` only the owner can call, so a successful call shows which account sent it. The project's `ignition/modules/Counter.ts` deploys it and calls `add`. The KMS keys are not EDR's default accounts, so EDR cannot sign for them; one fake KMS returns only high-S DER signatures and another low-S compact ones, and each test checks the number of KMS signatures, one per transaction. `kms.simulatedBalance` funds the KMS accounts. The tests cover:
+     - hardhat-viem: `sendDeploymentTransaction` and `deployContract` with a KMS wallet client, a write, the state read back, and `from` on the receipts.
+     - hardhat-ethers: the same through `ethers.getSigner(kmsAddress)`.
+     - Ignition, through `@nomicfoundation/hardhat-ignition-viem`: `ignition.deploy` with a KMS `defaultSender` on a network that also has local accounts; a module that picks the KMS account with `m.getAccount(index)` next to a contract from the local default sender; the first KMS account as default sender on a network with `accounts: []`; and the `ignition deploy` task with `defaultSender`.
+     - Local and KMS accounts on one network: `eth_accounts` and `ethers.getSigners()` list EDR's 20 accounts first, then the KMS accounts; one script deploys and writes from a local account and from a KMS account, and the local account cannot write to the KMS account's contract.
+     - `--kms`: a runtime created with `{ kms: "aws", network }` and `AWS_KMS_KEY_ID` set, a fake adapter for that key, the key funded by `kms.simulatedBalance`, and a deploy and write through viem from it.
    - hardhat-viem and hardhat-ethers flows: deploy, every transaction type, and `signMessage`/`signTypedData` verified on chain with `ecrecover`.
    - N parallel sends plus reads: consecutive nonces and no deadlock.
    - Retry behaviour with viem on an http network: no double broadcast, and no retry after send.
-   - Mixed local and KMS accounts.
    - Chain-id guards.
    - Config errors reported at the exact path.
    - Every task.

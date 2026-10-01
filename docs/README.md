@@ -6,15 +6,16 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 
 ## Using the plugin
 
-| Page                                                              | Kind        |
-| ----------------------------------------------------------------- | ----------- |
-| [Configuration](user/reference/configuration.md)                  | Reference   |
-| [RPC methods](user/reference/rpc-methods.md)                      | Reference   |
-| [Tasks](user/reference/tasks.md)                                  | Reference   |
-| [Set up an AWS KMS key](user/guides/aws-kms-setup.md)             | How-to      |
-| [Debug output](user/guides/debug-output.md)                       | How-to      |
-| [Migrate from Foundry](user/guides/migrate-from-foundry.md)       | How-to      |
-| [Comparison with Foundry](user/explanation/foundry-comparison.md) | Explanation |
+| Page                                                                | Kind        |
+| ------------------------------------------------------------------- | ----------- |
+| [Configuration](user/reference/configuration.md)                    | Reference   |
+| [RPC methods](user/reference/rpc-methods.md)                        | Reference   |
+| [Tasks](user/reference/tasks.md)                                    | Reference   |
+| [Set up an AWS KMS key](user/guides/aws-kms-setup.md)               | How-to      |
+| [Debug output](user/guides/debug-output.md)                         | How-to      |
+| [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md) | How-to      |
+| [Migrate from Foundry](user/guides/migrate-from-foundry.md)         | How-to      |
+| [Comparison with Foundry](user/explanation/foundry-comparison.md)   | Explanation |
 
 Tutorials and the remaining guides are listed under [Planned pages](contributor/documentation.md#planned-pages).
 
