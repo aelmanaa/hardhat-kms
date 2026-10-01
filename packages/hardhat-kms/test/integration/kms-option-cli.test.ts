@@ -2,8 +2,7 @@
 // environment form and help output.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -26,6 +25,9 @@ function hardhat(
         // A black-box run: Hardhat loads the plugin through its own TypeScript loader, and that
         // coverage data would clash with the native runs of the same files.
         NODE_V8_COVERAGE: "",
+        // CI adds --import tsx on Node 22.13 for the test runner. A user's shell does not, and the
+        // CLI does not need it: Hardhat registers tsx itself.
+        NODE_OPTIONS: "",
         AWS_KMS_KEY_ID: "",
         AWS_KMS_KEY_IDS: "",
         HARDHAT_KMS: "",
@@ -39,7 +41,12 @@ function hardhat(
 
 describe("--kms from the Hardhat CLI", () => {
   before(() => {
-    project = mkdtempSync(path.join(tmpdir(), "hardhat-kms-cli-"));
+    // The project sits inside the package, so Node and Hardhat find `hardhat` and `tsx` in the
+    // package's node_modules by the normal upward lookup. A project in os.tmpdir() needs a link to
+    // node_modules, and on the Windows runner (temp dir on C:, checkout on D:) lookups through that
+    // junction failed: ERR_MODULE_NOT_FOUND for tsx, then HHE22 for hardhat.
+    mkdirSync(path.join(repo, ".tmp"), { recursive: true });
+    project = mkdtempSync(path.join(repo, ".tmp", "cli-"));
     const plugin = pathToFileURL(path.join(repo, "src/index.ts")).href;
     const keys = pathToFileURL(path.join(repo, "src/internal/hook-handlers/hre.ts")).href;
     writeFileSync(
@@ -54,7 +61,6 @@ describe("--kms from the Hardhat CLI", () => {
       path.join(project, "show.ts"),
       `import hre from "hardhat";\nimport { commandLineKeys } from ${JSON.stringify(keys)};\nconsole.log("keys:", commandLineKeys(hre).map((k) => k.displayId).join(" "));\n`,
     );
-    symlinkSync(path.join(repo, "node_modules"), path.join(project, "node_modules"), "junction");
   });
 
   after(() => {
