@@ -19,9 +19,9 @@ import {
   SendOutcomeUnknownError,
   sendLocksInUse,
 } from "../../../src/internal/rpc/send-guard.ts";
-import type { KmsKeyUserConfig } from "../../../src/types.ts";
 import { fakeAdapter } from "../../helpers/fake-adapter.ts";
 import { fakeTimers } from "../../helpers/fake-timers.ts";
+import { vaultKey } from "../../helpers/vault-key.ts";
 import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
 
 const COW = COW_ACCOUNT.address;
@@ -61,13 +61,7 @@ type RawHandler = (raw: string, request: JsonRpcRequest) => Promise<JsonRpcRespo
  * and the pending count.
  */
 async function setUp(type: "http" | "edr-simulated" = "http") {
-  const keys = Object.fromEntries(
-    Object.keys(SECRETS).map((name) => {
-      const key: unknown = { provider: "myvault", name };
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a third-party provider's key
-      return [name, key as KmsKeyUserConfig];
-    }),
-  );
+  const keys = Object.fromEntries(Object.keys(SECRETS).map((name) => [name, vaultKey(name)]));
   const hre = await createHardhatRuntimeEnvironment({
     plugins: [hardhatKms],
     kms: { keys },

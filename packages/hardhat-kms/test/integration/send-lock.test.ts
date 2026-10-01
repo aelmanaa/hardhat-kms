@@ -15,6 +15,7 @@ import { SendOutcomeUnknownError, sendLocksInUse } from "../../src/internal/rpc/
 import type { KmsKeyUserConfig } from "../../src/types.ts";
 import { fakeAdapter } from "../helpers/fake-adapter.ts";
 import { type RecordingNode, startRecordingNode } from "../helpers/recording-node.ts";
+import { vaultKey } from "../helpers/vault-key.ts";
 import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
 const COW = getAddress(COW_ACCOUNT.address);
@@ -28,13 +29,7 @@ const N = 10;
 
 /** The configs of the fake third-party keys, by name. */
 function vaultKeys(): Record<string, KmsKeyUserConfig> {
-  return Object.fromEntries(
-    Object.keys(SECRETS).map((name) => {
-      const key: unknown = { provider: "myvault", name };
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a third-party provider's key
-      return [name, key as KmsKeyUserConfig];
-    }),
-  );
+  return Object.fromEntries(Object.keys(SECRETS).map((name) => [name, vaultKey(name)]));
 }
 
 /** Serves the fake adapters through the `kms` hook, and counts their signatures. */
