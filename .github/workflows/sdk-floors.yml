@@ -14,6 +14,7 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "scripts/test-sdk-floors.ts"
+      - "scripts/temporary-install.ts"
       - ".github/workflows/sdk-floors.yml"
   push:
     branches: [main]
@@ -24,6 +25,7 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "scripts/test-sdk-floors.ts"
+      - "scripts/temporary-install.ts"
       - ".github/workflows/sdk-floors.yml"
   workflow_dispatch:
 

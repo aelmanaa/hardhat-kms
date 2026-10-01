@@ -7,15 +7,16 @@ Requirements: Node.js 24 (see `.nvmrc`) and pnpm. Install pnpm with `npm i -g pn
 The repository is a pnpm workspace ([decision 0010](docs/contributor/decisions/0010-pnpm-workspaces.md)). The core plugin is in `packages/hardhat-kms`, and each cloud provider has its own package beside it ([decision 0009](docs/contributor/decisions/0009-one-package-per-provider.md)): `packages/hardhat-kms-aws` today, Google Cloud and Azure in M6. Run the commands below from the repository root; they cover every package.
 
 ```sh
-pnpm install              # also installs the git hooks (lefthook)
-pnpm run check            # format, type-aware lint, typecheck, no type escapes
-pnpm test                 # unit + integration tests
-pnpm run test:localstack  # AWS adapter against LocalStack (needs Docker)
-pnpm run test:sdk-floors  # provider packages against their lowest SDK versions
-pnpm run test:live:aws    # AWS adapter against real KMS (needs HARDHAT_KMS_LIVE_AWS_KEY_ID)
-pnpm run coverage         # tests with coverage thresholds
-pnpm run pkg:check        # build + publint + arethetypeswrong + knip
-pnpm run docs:check       # doc snippets typecheck, every page is indexed
+pnpm install                    # also installs the git hooks (lefthook)
+pnpm run check                  # format, type-aware lint, typecheck, no type escapes
+pnpm test                       # unit + integration tests
+pnpm run test:localstack        # AWS adapter against LocalStack (needs Docker)
+pnpm run test:sdk-floors        # provider packages against their lowest SDK versions
+pnpm run test:hardhat-versions  # fill tests on the Hardhat floor and latest 3.x
+pnpm run test:live:aws          # AWS adapter against real KMS (needs HARDHAT_KMS_LIVE_AWS_KEY_ID)
+pnpm run coverage               # tests with coverage thresholds
+pnpm run pkg:check              # build + publint + arethetypeswrong + knip
+pnpm run docs:check             # doc snippets typecheck, every page is indexed
 ```
 
 ## Issues first
