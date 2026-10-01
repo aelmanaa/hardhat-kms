@@ -40,11 +40,12 @@ The rules behind the arrows:
 
 The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspaces.md)). Following [decision 0009](decisions/0009-one-package-per-provider.md), each cloud provider has its own package around an SDK-free core:
 
-| Package                                                  | Holds                                                                                                   | Status                                                                 |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `packages/hardhat-kms`                                   | The core: config and key formats, signing checks, the `kms` hook, `--kms`, `hardhat-kms/provider-utils` | Implemented                                                            |
-| `packages/hardhat-kms-aws`                               | The AWS plugin and adapter, depending on `@aws-sdk/client-kms`                                          | Implemented ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)) |
-| `packages/hardhat-kms-gcp`, `packages/hardhat-kms-azure` | The Google Cloud and Azure adapters                                                                     | Planned (M6)                                                           |
+| Package                      | Holds                                                                                                   | Status                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `packages/hardhat-kms`       | The core: config and key formats, signing checks, the `kms` hook, `--kms`, `hardhat-kms/provider-utils` | Implemented                                                            |
+| `packages/hardhat-kms-aws`   | The AWS plugin and adapter, depending on `@aws-sdk/client-kms`                                          | Implemented ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)) |
+| `packages/hardhat-kms-azure` | The Azure Key Vault plugin and adapter, depending on `@azure/keyvault-keys` and `@azure/identity`       | Implemented ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)) |
+| `packages/hardhat-kms-gcp`   | The Google Cloud adapter                                                                                | Planned (M6)                                                           |
 
 ## Code map
 
@@ -62,7 +63,8 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 | Helpers for provider plugins                | `packages/hardhat-kms/src/provider-utils.ts` (`hardhat-kms/provider-utils`)                                                                               | M3        |
 | `--kms` option (Foundry's variables)        | `packages/hardhat-kms/src/internal/config/env-keys.ts`, `packages/hardhat-kms/src/internal/hook-handlers/hre.ts`                                          | M2, M4    |
 | AWS plugin, `kms` hook handler and adapter  | `packages/hardhat-kms-aws/src/index.ts`, `packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts`, `packages/hardhat-kms-aws/src/internal/adapter.ts` | M3        |
-| GCP and Azure adapters                      | `packages/hardhat-kms-gcp/`, `packages/hardhat-kms-azure/` (planned)                                                                                      | M6        |
+| Azure plugin, credential chain and adapter  | `packages/hardhat-kms-azure/src/index.ts`, `packages/hardhat-kms-azure/src/internal/{hook-handlers/kms,credential,adapter}.ts`                            | M6        |
+| GCP adapter                                 | `packages/hardhat-kms-gcp/` (planned)                                                                                                                     | M6        |
 | Network hook                                | `packages/hardhat-kms/src/internal/hook-handlers/network.ts`                                                                                              | M4        |
 | Signer cache                                | `packages/hardhat-kms/src/internal/signer/key-cache.ts`                                                                                                   | M4        |
 | RPC dispatcher and methods                  | `packages/hardhat-kms/src/internal/rpc/dispatcher.ts` (accounts, messages, typed data, transactions)                                                      | M4, M5    |
@@ -193,7 +195,7 @@ packages/hardhat-kms-aws/src/
     adapter.ts              createAwsKeyAdapter(key, sdk): GetPublicKey, Sign, key spec checks, ARN pinning
 ```
 
-The Google Cloud and Azure packages (M6) will follow it, with a pure `wire.ts` for their formats (PEM, JWK, compact signatures, CRC32C).
+`packages/hardhat-kms-azure` follows it, with one more module, `internal/credential.ts`, which builds the credential chain that all Azure keys of a runtime share. Its handler loads `@azure/keyvault-keys`, `@azure/identity`, the credential module and the adapter together, once per runtime. Key Vault's formats need no module of their own: the public key is a JWK, which `publicKeyFromJwk` in `hardhat-kms/provider-utils` reads, and signatures are 64 bytes `r || s`, which the core parses. The Google Cloud package (M6) will follow the same layout.
 
 ## Request flow and re-entrancy rules
 
@@ -235,7 +237,7 @@ Signing has no side effects, so the plugin retries throttling errors and GCP CRC
 
 ## SDK loading
 
-Each provider package lists its cloud SDK in `dependencies`: `hardhat-kms-aws` depends on `@aws-sdk/client-kms` `^3.1143.0`. Installing the package installs the SDK. The core depends on no cloud SDK, and `packages/hardhat-kms/test/unit/plugin.test.ts` fails if its `package.json` lists one.
+Each provider package lists its cloud SDK in `dependencies`: `hardhat-kms-aws` depends on `@aws-sdk/client-kms` `^3.1143.0`, and `hardhat-kms-azure` on `@azure/keyvault-keys` `^4.10.2` and `@azure/identity` `^4.13.3`. Installing the package installs the SDK. The core depends on no cloud SDK, and `packages/hardhat-kms/test/unit/plugin.test.ts` fails if its `package.json` lists one.
 
 A provider package imports its SDK only when it creates an adapter: its plugin definition registers the `kms` hook handler as a lazy import, and the handler loads the SDK on first use. The handler, `packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts`, passes keys of other providers to `next`. For an `aws` key it imports `adapter.ts` and `@aws-sdk/client-kms` with dynamic `import()`, then calls `createAwsKeyAdapter(key, sdk)`. The adapter receives the SDK as an argument typed `AwsKmsSdk`, so unit tests pass a fake.
 

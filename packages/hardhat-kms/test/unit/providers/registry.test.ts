@@ -11,7 +11,7 @@ describe("provider registry", () => {
     }
     assert.deepEqual(builtinProvider("aws")?.adapter, { package: "hardhat-kms-aws" });
     assert.deepEqual(builtinProvider("gcp")?.adapter, { issue: 29 });
-    assert.deepEqual(builtinProvider("azure")?.adapter, { issue: 30 });
+    assert.deepEqual(builtinProvider("azure")?.adapter, { package: "hardhat-kms-azure" });
   });
 
   it("returns nothing for third-party ids and Object.prototype names", () => {

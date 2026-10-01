@@ -16,7 +16,7 @@ if (typescriptVersion === undefined) {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pluginPackage = path.join(root, "packages", "hardhat-kms");
-const packages = ["hardhat-kms", "hardhat-kms-aws"].map((name) =>
+const packages = ["hardhat-kms", "hardhat-kms-aws", "hardhat-kms-azure"].map((name) =>
   path.join(root, "packages", name),
 );
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -161,6 +161,34 @@ try {
       "",
     ].join("\n"),
   );
+  // A user of the Azure package, who imports nothing from hardhat-kms.
+  writeFileSync(
+    path.join(consumer, "tsconfig.azure.json"),
+    JSON.stringify({ extends: "./tsconfig.json", include: ["azure-only.config.ts"] }, null, 2),
+  );
+  writeFileSync(
+    path.join(consumer, "azure-only.config.ts"),
+    [
+      'import { configVariable, defineConfig } from "hardhat/config";',
+      'import hardhatKmsAzure from "hardhat-kms-azure";',
+      "",
+      "export default defineConfig({",
+      "  plugins: [hardhatKmsAzure],",
+      "  kms: {",
+      "    keys: {",
+      '      deployer: { provider: "azure", keyId: configVariable("AZURE_KEY_VAULT_KEY_ID") },',
+      '      ops: { provider: "azure", vaultUrl: "https://ops.vault.azure.net", keyName: "ops", keyVersion: "0123abcd" },',
+      "      // @ts-expect-error -- `keyUrl` is not a field; the user meant `keyId`.",
+      '      typo: { provider: "azure", keyUrl: "https://ops.vault.azure.net/keys/ops" },',
+      "    },",
+      "  },",
+      "  networks: {",
+      '    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },',
+      "  },",
+      "});",
+      "",
+    ].join("\n"),
+  );
   writeFileSync(
     path.join(consumer, "hardhat.config.ts"),
     [
@@ -247,7 +275,12 @@ try {
     ".bin",
     process.platform === "win32" ? "tsc.cmd" : "tsc",
   );
-  for (const project of ["tsconfig.json", "tsconfig.plugin.json", "tsconfig.aws.json"]) {
+  for (const project of [
+    "tsconfig.json",
+    "tsconfig.plugin.json",
+    "tsconfig.aws.json",
+    "tsconfig.azure.json",
+  ]) {
     execFileSync(tsc, ["-p", project], { cwd: consumer, stdio: "inherit", shell });
   }
   process.stdout.write(`consumer typecheck passed with TypeScript ${typescriptVersion}\n`);

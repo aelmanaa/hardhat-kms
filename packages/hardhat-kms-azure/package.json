@@ -1,0 +1,75 @@
+{
+  "name": "hardhat-kms-azure",
+  "version": "0.0.0",
+  "description": "Azure Key Vault provider for hardhat-kms: sign Hardhat 3 transactions, messages and typed data with secp256k1 keys held in Azure Key Vault or Managed HSM.",
+  "keywords": [
+    "hardhat",
+    "hardhat-plugin",
+    "kms",
+    "azure-key-vault",
+    "managed-hsm",
+    "signer",
+    "ethereum"
+  ],
+  "homepage": "https://github.com/aelmanaa/hardhat-kms#readme",
+  "bugs": {
+    "url": "https://github.com/aelmanaa/hardhat-kms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aelmanaa/hardhat-kms.git",
+    "directory": "packages/hardhat-kms-azure"
+  },
+  "license": "MIT",
+  "author": "Amine El Manaa",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/src/",
+    "src/",
+    "!**/*.test.*",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "clean": "node -e \"for (const p of ['dist','coverage']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
+    "test": "pnpm run test:unit && pnpm run test:integration",
+    "test:unit": "node --test --test-timeout=30000 \"test/unit/**/*.test.ts\"",
+    "test:integration": "node --test --test-concurrency=1 --test-timeout=120000 \"test/integration/**/*.test.ts\"",
+    "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
+    "test:live:azure": "node --test --test-concurrency=1 --test-timeout=300000 \"test/live/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@azure/identity": "^4.13.3",
+    "@azure/keyvault-keys": "^4.10.2"
+  },
+  "devDependencies": {
+    "@azure/core-rest-pipeline": "^1.25.0",
+    "@noble/curves": "^2.4.0",
+    "@types/node": "catalog:",
+    "c8": "catalog:",
+    "hardhat": "catalog:",
+    "hardhat-kms": "workspace:*",
+    "tsx": "catalog:",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "hardhat": "^3.18.0",
+    "hardhat-kms": "workspace:*"
+  }
+}

@@ -37,7 +37,7 @@ export default defineConfig({
 });
 ```
 
-`hardhat-kms-aws` loads `hardhat-kms` itself. For complete projects that deploy and call a contract from a KMS account with viem, ethers or Ignition, see [examples/](examples/README.md). The Google Cloud and Azure packages are planned ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29), [#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). See the [configuration reference](docs/user/reference/configuration.md) for every option.
+`hardhat-kms-aws` loads `hardhat-kms` itself. For complete projects that deploy and call a contract from a KMS account with viem, ethers or Ignition, see [examples/](examples/README.md). Azure Key Vault and Managed HSM keys need `hardhat-kms-azure` instead ([setup guide](docs/user/guides/azure-key-vault-setup.md)). The Google Cloud package is planned ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29)). See the [configuration reference](docs/user/reference/configuration.md) for every option.
 
 ## Docs
 

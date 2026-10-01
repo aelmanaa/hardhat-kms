@@ -10,6 +10,7 @@
         "publint",
         "@arethetypeswrong/cli",
         "hardhat-kms-aws",
+        "hardhat-kms-azure",
         "@nomicfoundation/hardhat-ignition",
         "@nomicfoundation/hardhat-ignition-viem",
         "@nomicfoundation/hardhat-ledger"
@@ -28,6 +29,11 @@
       "entry": ["scripts/*.ts", "ignition/modules/*.ts"]
     },
     "packages/hardhat-kms-aws": {
+      "entry": ["test/**/*.test.ts", "test/fixtures/*.ts", "test/helpers/*.mjs"],
+      "project": ["src/**/*.ts", "test/**/*.ts"],
+      "ignoreDependencies": ["tsx"]
+    },
+    "packages/hardhat-kms-azure": {
       "entry": ["test/**/*.test.ts", "test/fixtures/*.ts", "test/helpers/*.mjs"],
       "project": ["src/**/*.ts", "test/**/*.ts"],
       "ignoreDependencies": ["tsx"]

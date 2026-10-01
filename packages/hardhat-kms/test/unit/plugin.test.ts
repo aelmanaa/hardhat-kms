@@ -29,6 +29,8 @@ describe("plugin definition", () => {
       "checkProviderVersion",
       "kmsError",
       "parseAwsKeyId",
+      "parseAzureKeyId",
+      "publicKeyFromJwk",
       "publicKeyFromSpkiDer",
     ]);
   });
