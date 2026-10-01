@@ -36,6 +36,10 @@ updates:
           - "@aws-sdk/*"
           - "@google-cloud/*"
           - "@azure/*"
+      clients:
+        patterns:
+          - "viem"
+          - "ethers"
       crypto:
         patterns:
           - "@noble/*"
