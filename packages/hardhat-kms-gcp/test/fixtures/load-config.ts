@@ -22,6 +22,13 @@ const hre = await createHardhatRuntimeEnvironment({
   },
 });
 
+// kms verify takes a message and a signature as well; these parse, so the task reaches the key.
+const VERIFY_ARGUMENTS = {
+  message: "0x5417aa2a18a44da0675524453ff108c545382f0d7e26605c56bba47c21b5e979",
+  signature:
+    "0x9c73dd4937a37eecab3abb54b74b6ec8e500080431d36afedb1726624587ee6710296e10c1194dded7376f13ff03ef6c9e797eb86bae16c20c57776fc69344271c",
+};
+
 // HHKMS_FIXTURE_KEY names a key whose adapter to create, through the kms hook chain.
 const keyName = process.env.HHKMS_FIXTURE_KEY ?? "";
 if (keyName !== "") {
@@ -35,7 +42,7 @@ if (keyName !== "") {
     // Keys of other providers fail at the end of the chain; only the imports matter here.
     await hre.tasks
       .getTask(["kms", taskName])
-      .run({ key: keyName })
+      .run(taskName === "verify" ? { key: keyName, ...VERIFY_ARGUMENTS } : { key: keyName })
       .catch(() => process.stdout.write("task failed\n"));
   } else {
     try {

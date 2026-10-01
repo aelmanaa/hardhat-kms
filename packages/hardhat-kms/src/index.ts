@@ -81,6 +81,41 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
       })
       .setAction(() => import("./internal/tasks/sign.ts"))
       .build(),
+    task(["kms", "verify"], "Check that an address signed a message or typed data")
+      .addPositionalArgument({
+        name: "message",
+        type: ArgumentType.STRING,
+        description:
+          "The message (0x-prefixed hex is bytes, anything else UTF-8), or the typed data with --data",
+      })
+      .addPositionalArgument({
+        name: "signature",
+        type: ArgumentType.STRING,
+        description: "The 65-byte r || s || v signature, as kms sign and personal_sign return it",
+      })
+      .addOption({
+        name: "address",
+        description: "The expected signer's address; no KMS call",
+        type: ArgumentType.STRING_WITHOUT_DEFAULT,
+        defaultValue: undefined,
+      })
+      .addOption({
+        name: "key",
+        description:
+          "The expected signer as a key name, as in kms address; the KMS returns its address",
+        type: ArgumentType.STRING_WITHOUT_DEFAULT,
+        defaultValue: undefined,
+      })
+      .addFlag({
+        name: "data",
+        description: "Verify the message as EIP-712 typed data in JSON",
+      })
+      .addFlag({
+        name: "fromFile",
+        description: "Read the typed data from the file the message names; requires --data",
+      })
+      .setAction(() => import("./internal/tasks/verify.ts"))
+      .build(),
   ],
   globalOptions: [
     globalOption({

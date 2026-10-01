@@ -1,5 +1,7 @@
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 
+import { addressFromPublicKey } from "./address.ts";
+
 /**
  * A signature as returned by a provider adapter, before normalization.
  *
@@ -169,6 +171,78 @@ export function toRpcSignature(signature: RecoverableSignature): string {
   bytes.set(new secp256k1.Signature(signature.r, signature.s).toBytes("compact"));
   bytes[COMPACT_LENGTH] = 27 + signature.yParity;
   return `0x${Buffer.from(bytes).toString("hex")}`;
+}
+
+/** A 65-byte signature read by {@link parseRpcSignature}. */
+export interface ParsedRpcSignature {
+  /** The signature in low-S form, with the recovery bit that recovers the same key. */
+  signature: RecoverableSignature;
+  /** Whether the input was the high-S form, which `parseRpcSignature` folded to low S. */
+  highS: boolean;
+}
+
+/**
+ * Parses a 65-byte `r || s || v` signature, as `personal_sign`, `eth_signTypedData_v4` and
+ * `kms sign` return it, the way alloy (and so `cast wallet verify`) reads one:
+ *
+ * - `v` is the bare recovery bit 0 or 1, 27 or 28, or an EIP-155 value of 35 or more, whose
+ *   recovery bit is `(v - 35) % 2` (alloy's `normalize_v`);
+ * - a high-S signature is folded to its low-S twin, with the other recovery bit, which recovers
+ *   the same key (alloy's `normalized_s`). The caller learns of it through `highS`, since
+ *   OpenZeppelin's `ECDSA.recover` rejects the high-S form.
+ *
+ * @param signature - `0x`-prefixed hex.
+ * @returns The normalized signature, and whether it was high-S.
+ * @throws {InvalidSignatureError} If the signature is not 65 bytes of hex, `r` or `s` is outside
+ * [1, n - 1], or `v` is 2 to 26 or 29 to 34.
+ */
+export function parseRpcSignature(signature: string): ParsedRpcSignature {
+  if (!/^0x[0-9a-fA-F]*$/.test(signature)) {
+    throw new InvalidSignatureError("the signature must be 0x-prefixed hex");
+  }
+  const digits = signature.length - 2;
+  if (digits !== (COMPACT_LENGTH + 1) * 2) {
+    throw new InvalidSignatureError(
+      `expected a 65-byte signature (r || s || v, 130 hex digits), got ${digits} hex digits`,
+    );
+  }
+  const r = BigInt(`0x${signature.slice(2, 66)}`);
+  const s = BigInt(`0x${signature.slice(66, 130)}`);
+  const v = Number.parseInt(signature.slice(130), 16);
+  if (r <= 0n || r >= CURVE_ORDER || s <= 0n || s >= CURVE_ORDER) {
+    throw new InvalidSignatureError("r or s is outside the range [1, n - 1]");
+  }
+  const bit = recoveryBit(v);
+  const highS = s > HALF_CURVE_ORDER;
+  const yParity = highS ? (bit === 0 ? 1 : 0) : bit;
+  return { signature: { r, s: toLowS(s), yParity }, highS };
+}
+
+/** The recovery bit a `v` value encodes, as alloy's `normalize_v` reads it. */
+function recoveryBit(v: number): 0 | 1 {
+  if (v === 0 || v === 27 || (v >= 35 && (v - 35) % 2 === 0)) {
+    return 0;
+  }
+  if (v === 1 || v === 28 || v >= 35) {
+    return 1;
+  }
+  throw new InvalidSignatureError(`v must be 0 or 1, 27 or 28, or 35 or more (EIP-155), got ${v}`);
+}
+
+/**
+ * Recovers the address that signed `digest` from a signature and its recovery bit.
+ *
+ * @param digest - The 32-byte digest that was signed.
+ * @param signature - The signature with its recovery bit.
+ * @returns The signer's EIP-55 checksummed address.
+ * @throws {InvalidSignatureError} If no public key recovers from the signature.
+ */
+export function recoverAddress(digest: Uint8Array, signature: RecoverableSignature): string {
+  const publicKey = recoverPublicKey(digest, signature.r, signature.s, signature.yParity);
+  if (publicKey === undefined) {
+    throw new InvalidSignatureError("no public key recovers from the signature");
+  }
+  return addressFromPublicKey(publicKey);
 }
 
 function assertDigest(digest: Uint8Array): void {

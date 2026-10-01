@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -15,6 +16,7 @@ import { startRecordingNode } from "../helpers/recording-node.ts";
 import {
   COW_ACCOUNT,
   EIP712_MAIL,
+  EIP712_MAIL_SIGNATURE,
   HARDHAT_ACCOUNT_0,
   PERSONAL_SIGN_VECTORS,
 } from "../helpers/vectors.ts";
@@ -236,6 +238,7 @@ describe("kms tasks from the Hardhat CLI", () => {
     assert.match(run.output, /address\s+Print a KMS key's address/);
     assert.match(run.output, /public-key\s+Print a KMS key's uncompressed public key/);
     assert.match(run.output, /sign\s+Sign a message, typed data or a raw digest with a KMS key/);
+    assert.match(run.output, /verify\s+Check that an address signed a message or typed data/);
   });
 
   it("signs a 0x message as bytes, prints only the signature and exits on its own", () => {
@@ -332,5 +335,129 @@ describe("kms tasks from the Hardhat CLI", () => {
       run.output,
       /the typed data is for chain 1, and there is no chain to compare it with/,
     );
+  });
+
+  describe("kms verify", () => {
+    const [{ message, signature }] = PERSONAL_SIGN_VECTORS;
+
+    it("exits 0 and prints one line on a match with --address", () => {
+      const run = hardhat([
+        "kms",
+        "verify",
+        "--address",
+        HARDHAT_ACCOUNT_0.address.toLowerCase(),
+        `0x${message}`,
+        signature,
+      ]);
+
+      assert.equal(run.status, 0, run.output);
+      assert.equal(run.stdout, `Valid: ${HARDHAT_ACCOUNT_0.address} signed this message.\n`);
+      assert.equal(run.stderr, "");
+    });
+
+    it("exits 1 on a mismatch, with both addresses on stderr and nothing on stdout", () => {
+      const run = hardhat([
+        "kms",
+        "verify",
+        "--address",
+        COW_ACCOUNT.address,
+        `0x${message}`,
+        signature,
+      ]);
+
+      assert.equal(run.status, 1, run.output);
+      assert.equal(run.stdout, "");
+      assert.equal(
+        run.stderr,
+        `Invalid: the signature over this message recovers to ${HARDHAT_ACCOUNT_0.address}, not to the expected signer ${COW_ACCOUNT.address}.\n`,
+      );
+    });
+
+    it("checks against a key's address with --key, and exits on its own", () => {
+      const run = hardhat(["kms", "verify", "--key", "deployer", `0x${message}`, signature]);
+
+      assert.equal(run.status, 0, `the task failed or did not exit:\n${run.output}`);
+      assert.equal(run.stdout, `Valid: ${HARDHAT_ACCOUNT_0.address} signed this message.\n`);
+    });
+
+    it("reads typed data inline with --data, or from a file with --data --from-file", () => {
+      const file = path.join(project, "verify-mail.json");
+      writeFileSync(file, JSON.stringify(EIP712_MAIL));
+
+      const inline = hardhat([
+        "kms",
+        "verify",
+        "--data",
+        "--address",
+        COW_ACCOUNT.address,
+        JSON.stringify(EIP712_MAIL),
+        EIP712_MAIL_SIGNATURE,
+      ]);
+      const fromFile = hardhat([
+        "kms",
+        "verify",
+        "--data",
+        "--from-file",
+        "--address",
+        COW_ACCOUNT.address,
+        file,
+        EIP712_MAIL_SIGNATURE,
+      ]);
+      const mismatch = hardhat([
+        "kms",
+        "verify",
+        "--data",
+        "--from-file",
+        "--key",
+        "deployer",
+        file,
+        EIP712_MAIL_SIGNATURE,
+      ]);
+
+      assert.equal(inline.status, 0, inline.output);
+      assert.equal(inline.stdout, `Valid: ${COW_ACCOUNT.address} signed this typed data.\n`);
+      assert.equal(fromFile.status, 0, fromFile.output);
+      assert.equal(fromFile.stdout, inline.stdout);
+      assert.equal(mismatch.status, 1, mismatch.output);
+    });
+
+    it("takes a message that starts with - after --", async () => {
+      const text = "-not-an-option";
+      const sig = await privateKeyToAccount(`0x${HARDHAT_ACCOUNT_0.secretKey}`).signMessage({
+        message: text,
+      });
+
+      const run = hardhat([
+        "kms",
+        "verify",
+        "--address",
+        HARDHAT_ACCOUNT_0.address,
+        "--",
+        text,
+        sig,
+      ]);
+
+      assert.equal(run.status, 0, run.output);
+      assert.equal(run.stdout, `Valid: ${HARDHAT_ACCOUNT_0.address} signed this message.\n`);
+    });
+
+    it("exits 1 with a clear error on a malformed signature", () => {
+      const run = hardhat([
+        "kms",
+        "verify",
+        "--address",
+        HARDHAT_ACCOUNT_0.address,
+        `0x${message}`,
+        "0x1234",
+      ]);
+
+      assert.equal(run.status, 1, run.output);
+      assert.equal(run.stdout, "");
+      // Hardhat colours the error prefix when it detects colour support.
+      assert.match(
+        stripVTControlCharacters(run.output),
+        /Error in community plugin hardhat-kms: kms verify: invalid signature: expected a 65-byte signature/,
+      );
+    });
   });
 });

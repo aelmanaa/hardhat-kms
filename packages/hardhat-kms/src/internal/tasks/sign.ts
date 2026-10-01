@@ -1,15 +1,14 @@
-import { readFile } from "node:fs/promises";
-
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 import type { NewTaskActionFunction } from "hardhat/types/tasks";
 
 import { addressFromPublicKey, sameAddress } from "../crypto/address.ts";
 import { personalMessageDigest, type TypedData, typedDataDigest } from "../crypto/digests.ts";
 import { recoverPublicKey, toRpcSignature } from "../crypto/signature.ts";
-import { errorName, kmsError } from "../errors.ts";
+import { kmsError } from "../errors.ts";
 import { ConnectionChain, parseChainId } from "../rpc/chain-id.ts";
-import { checkTypedDataChain, type ExpectedChain, readTypedData } from "../rpc/typed-data.ts";
+import { checkTypedDataChain, type ExpectedChain } from "../rpc/typed-data.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
+import { decodeHex, readMessage, readTypedDataArgument } from "./inputs.ts";
 import { findTaskKey, printLine, printNote, withTaskSigners } from "./keys.ts";
 
 /** The arguments of `kms sign`. */
@@ -25,7 +24,6 @@ interface SignArguments {
 
 const OPERATION = "kms sign";
 const DIGEST_LENGTH = 32;
-const HEX_BYTES = /^0x(?:[0-9a-fA-F]{2})*$/;
 
 /** What the task signs, with the digest its signature must recover against. */
 type Payload =
@@ -81,8 +79,7 @@ async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment):
       throw kmsError("pass --chain or --network, not both", { operation: OPERATION });
     }
     const chain = parseChainId(args.chain, "--chain", OPERATION);
-    const text = args.fromFile ? await readTypedDataFile(args.message) : args.message;
-    const typedData = readTypedData(text, OPERATION);
+    const typedData = await readTypedDataArgument(args.message, args.fromFile, OPERATION);
     if (typedData.domain.chainId === undefined) {
       printNote("this typed data has no chain id: the signature is valid on every chain");
     }
@@ -99,7 +96,7 @@ async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment):
     printNote(
       "--no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Sign only a digest you computed yourself: it can authorize a transaction or a permit.",
     );
-    const digest = decodeHex(args.message, "the --no-hash digest");
+    const digest = decodeHex(args.message, "the --no-hash digest", OPERATION);
     if (digest.length !== DIGEST_LENGTH) {
       throw kmsError(`--no-hash needs a ${DIGEST_LENGTH}-byte digest, got ${digest.length} bytes`, {
         operation: OPERATION,
@@ -107,11 +104,7 @@ async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment):
     }
     return { kind: "digest", digest };
   }
-  // As cast does: a 0x value is hex bytes, anything else is UTF-8 text.
-  const message = args.message.startsWith("0x")
-    ? decodeHex(args.message, "the message")
-    : new TextEncoder().encode(args.message);
-  return { kind: "message", message };
+  return { kind: "message", message: readMessage(args.message, OPERATION) };
 }
 
 /**
@@ -150,25 +143,6 @@ async function expectedChain(
   } finally {
     await connection.close();
   }
-}
-
-async function readTypedDataFile(file: string): Promise<string> {
-  try {
-    return await readFile(file, "utf8");
-  } catch (error) {
-    throw kmsError(`cannot read the typed data file ${file} (${errorName(error)})`, {
-      operation: OPERATION,
-    });
-  }
-}
-
-function decodeHex(value: string, what: string): Uint8Array {
-  if (!HEX_BYTES.test(value)) {
-    throw kmsError(`${what} is not 0x-prefixed hex with an even number of digits`, {
-      operation: OPERATION,
-    });
-  }
-  return new Uint8Array(Buffer.from(value.slice(2), "hex"));
 }
 
 async function sign(signer: KmsSigner, payload: Payload): Promise<string> {

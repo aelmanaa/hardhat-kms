@@ -8,7 +8,9 @@ import * as fc from "fast-check";
 import {
   InvalidSignatureError,
   normalizeSignature,
+  parseRpcSignature,
   parseSignature,
+  recoverAddress,
   recoverPublicKey,
   recoverYParity,
   toLowS,
@@ -197,5 +199,131 @@ describe("signatures", () => {
 
     assert.equal(toRpcSignature({ r: 1n, s: 2n, yParity: 1 }), `0x${r}${s}1c`);
     assert.equal(toRpcSignature({ r: 1n, s: 2n, yParity: 0 }), `0x${r}${s}1b`);
+  });
+});
+
+/** A 32-byte word as 64 hex digits. */
+function word(value: bigint): string {
+  return value.toString(16).padStart(64, "0");
+}
+
+/** An `r || s || v` signature as hex. */
+function rpc(r: bigint, s: bigint, v: number): string {
+  return `0x${word(r)}${word(s)}${v.toString(16).padStart(2, "0")}`;
+}
+
+function rejects(signature: string, message: RegExp): void {
+  assert.throws(
+    () => parseRpcSignature(signature),
+    (error: unknown) => error instanceof InvalidSignatureError && message.test(error.message),
+  );
+}
+
+/** The recovery bit `parseRpcSignature` reads from a signature. */
+function bit(signature: string): 0 | 1 {
+  return parseRpcSignature(signature).signature.yParity;
+}
+
+describe("parseRpcSignature and recoverAddress", () => {
+  it("round-trips toRpcSignature, and recovers the signer's address", () => {
+    fc.assert(
+      fc.property(digestArb, secretKeyArb, (digest, secretKey) => {
+        const { r, s } = signCompact(digest, secretKey);
+        const publicKey = secp256k1.getPublicKey(secretKey, false);
+        const signature = { r, s, yParity: recoverYParity(digest, r, s, publicKey) };
+
+        const parsed = parseRpcSignature(toRpcSignature(signature));
+
+        assert.deepEqual(parsed, { signature, highS: false });
+        const address = `0x${Buffer.from(keccak_256(publicKey.subarray(1)).subarray(12)).toString("hex")}`;
+        assert.equal(recoverAddress(digest, parsed.signature).toLowerCase(), address);
+      }),
+      { numRuns: 25 },
+    );
+  });
+
+  it("folds a high-S signature to its low-S twin, which recovers the same signer", () => {
+    fc.assert(
+      fc.property(digestArb, secretKeyArb, (digest, secretKey) => {
+        const { r, s } = signCompact(digest, secretKey);
+        const publicKey = secp256k1.getPublicKey(secretKey, false);
+        const yParity = recoverYParity(digest, r, s, publicKey);
+        const low = { r, s, yParity };
+        const high = toRpcSignature({ r, s: N - s, yParity: yParity === 0 ? 1 : 0 });
+
+        const parsed = parseRpcSignature(high);
+
+        assert.deepEqual(parsed, { signature: low, highS: true });
+        assert.equal(recoverAddress(digest, parsed.signature), recoverAddress(digest, low));
+      }),
+      { numRuns: 25 },
+    );
+  });
+
+  it("treats the highest low S as low and the lowest high S as high", () => {
+    assert.equal(parseRpcSignature(rpc(1n, N >> 1n, 27)).highS, false);
+    assert.deepEqual(parseRpcSignature(rpc(1n, (N >> 1n) + 1n, 27)), {
+      signature: { r: 1n, s: N - ((N >> 1n) + 1n), yParity: 1 },
+      highS: true,
+    });
+    assert.deepEqual(parseRpcSignature(rpc(1n, N - 1n, 28)).signature, {
+      r: 1n,
+      s: 1n,
+      yParity: 0,
+    });
+  });
+
+  it("reads v as alloy does: 0/1, 27/28, or EIP-155 values from 35", () => {
+    assert.equal(bit(rpc(1n, 2n, 27)), 0);
+    assert.equal(bit(rpc(1n, 2n, 28)), 1);
+    assert.equal(bit(rpc(1n, 2n, 0)), 0);
+    assert.equal(bit(rpc(1n, 2n, 1)), 1);
+    assert.equal(bit(rpc(1n, 2n, 35)), 0);
+    assert.equal(bit(rpc(1n, 2n, 36)), 1);
+    // Chain id 1: v = 37 or 38.
+    assert.equal(bit(rpc(1n, 2n, 37)), 0);
+    assert.equal(bit(rpc(1n, 2n, 38)), 1);
+    assert.equal(bit(rpc(1n, 2n, 255)), 0);
+    assert.equal(bit(rpc(1n, 2n, 28).toUpperCase().replace("0X", "0x")), 1);
+  });
+
+  it("refuses the v values alloy refuses: 2 to 26 and 29 to 34", () => {
+    for (const v of [2, 26, 29, 34]) {
+      rejects(
+        rpc(1n, 2n, v),
+        new RegExp(`v must be 0 or 1, 27 or 28, or 35 or more \\(EIP-155\\), got ${v}$`),
+      );
+    }
+  });
+
+  it("refuses input that is not 0x-prefixed hex", () => {
+    rejects(rpc(1n, 2n, 27).slice(2), /must be 0x-prefixed hex/);
+    rejects(`${rpc(1n, 2n, 27).slice(0, -1)}g`, /must be 0x-prefixed hex/);
+  });
+
+  it("refuses signatures that are not 65 bytes", () => {
+    rejects("0x", /got 0 hex digits/);
+    rejects(rpc(1n, 2n, 27).slice(0, -2), /expected a 65-byte signature .*got 128 hex digits/);
+    rejects(`${rpc(1n, 2n, 27)}0`, /got 131 hex digits/);
+  });
+
+  it("refuses r or s outside [1, n - 1]", () => {
+    rejects(rpc(0n, 2n, 27), /outside the range/);
+    rejects(rpc(1n, 0n, 27), /outside the range/);
+    rejects(rpc(N, 2n, 27), /outside the range/);
+    rejects(rpc(1n, N, 27), /outside the range/);
+  });
+
+  it("fails when no public key recovers", () => {
+    const digest = keccak_256(Uint8Array.of(2));
+    let r = 1n;
+    while (recoverPublicKey(digest, r, 1n, 0) !== undefined) {
+      r++;
+    }
+
+    assert.throws(
+      () => recoverAddress(digest, { r, s: 1n, yParity: 0 }),
+      /no public key recovers from the signature/,
+    );
   });
 });
