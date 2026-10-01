@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
 
 import { PLUGIN_ID } from "../constants.ts";
-import { type ErrorDetails, kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError, type ErrorDetails, fillTemplate, internalError } from "../errors.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -18,7 +19,7 @@ function installedVersion(packageName: string): string {
       ? Reflect.get(manifest, "version")
       : undefined;
   if (typeof version !== "string" || version === "") {
-    throw new Error(`${packageName}/package.json has no version`);
+    throw internalError(ERRORS.noPackageVersion, { packageName });
   }
   return version;
 }
@@ -54,6 +55,25 @@ function newer(a: string, b: string): string | undefined {
   return a.includes("-") ? b : a;
 }
 
+/** A version mismatch, as the values of its catalogue entry. */
+type Mismatch =
+  | { target: undefined; params: { package: string; version: string; core: string } }
+  | { target: string; params: { package: string; version: string; core: string; target: string } };
+
+function mismatchOf(
+  packageName: string,
+  version: string,
+  coreVersion: string,
+): Mismatch | undefined {
+  const [provider, core] = [release(version), release(coreVersion)];
+  if (provider === core) {
+    return undefined;
+  }
+  const params = { package: packageName, version: provider, core };
+  const target = newer(provider, core);
+  return target === undefined ? { target, params } : { target, params: { ...params, target } };
+}
+
 /**
  * Explains a version mismatch between a first-party provider package and hardhat-kms.
  *
@@ -64,16 +84,13 @@ export function versionMismatch(
   version: string,
   coreVersion: string,
 ): string | undefined {
-  const [provider, core] = [release(version), release(coreVersion)];
-  if (provider === core) {
+  const mismatch = mismatchOf(packageName, version, coreVersion);
+  if (mismatch === undefined) {
     return undefined;
   }
-  const target = newer(provider, core);
-  const fix =
-    target === undefined
-      ? "Install the same version of both"
-      : `Install the same version of both, for example \`npm install --save-dev ${PLUGIN_ID}@${target} ${packageName}@${target}\``;
-  return `${packageName} ${provider} needs ${PLUGIN_ID} ${provider}, but ${PLUGIN_ID} ${core} is installed. ${fix}`;
+  return mismatch.target === undefined
+    ? fillTemplate(ERRORS.versionMismatchNoTarget.template, mismatch.params)
+    : fillTemplate(ERRORS.versionMismatch.template, mismatch.params);
 }
 
 /**
@@ -92,8 +109,10 @@ export function checkProviderVersion(
   version: string,
   details: ErrorDetails = {},
 ): void {
-  const problem = versionMismatch(packageName, version, installedVersion(PLUGIN_ID));
-  if (problem !== undefined) {
-    throw kmsError(problem, details);
+  const mismatch = mismatchOf(packageName, version, installedVersion(PLUGIN_ID));
+  if (mismatch !== undefined) {
+    throw mismatch.target === undefined
+      ? catalogError(ERRORS.versionMismatchNoTarget, mismatch.params, details)
+      : catalogError(ERRORS.versionMismatch, mismatch.params, details);
   }
 }

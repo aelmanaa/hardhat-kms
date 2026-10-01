@@ -27,10 +27,12 @@ User docs follow the Diátaxis split: each page is a tutorial, a how-to guide, r
 
 ## Checks
 
-`pnpm run docs:check` runs `scripts/check-docs.ts`, locally and in the CI Docs job. It checks two things:
+`pnpm run docs:check` runs `scripts/check-docs.ts`, locally and in the CI Docs job. It checks four things:
 
 - Every TypeScript snippet (` ```ts `, ` ```typescript ` or a `~~~` fence) in `README.md`, each `packages/*/README.md` and `docs/` typechecks as its own program, with strict settings, against the built packages: `hardhat-kms`, `hardhat-kms-aws`, `hardhat-kms-azure` and `hardhat-kms-gcp` resolve from the root's dependencies through each package's `exports`, as they do in a user's project, so a missing export fails the check. The root also lists `@nomicfoundation/hardhat-ignition` and `@nomicfoundation/hardhat-ignition-viem` as development dependencies, only for the snippets of the [Ignition guide](../user/guides/deploy-with-ignition.md), and `@nomicfoundation/hardhat-toolbox-viem`, only for the tutorials' configs, which start from Hardhat's viem template; knip ignores them. Errors point at the Markdown file and line; a compiler failure without errors fails the check too. To exclude a snippet that is not meant to compile, such as a sketch of a planned API, put `<!-- docs-check: skip -->` on its own line before it.
 - Every page under `docs/` is linked as the [rules](#rules) require. Decision records need the `AGENTS.md` link and a line in the decision index instead of `docs/README.md`; `docs/DESIGN.md` only needs the `AGENTS.md` link; the decision template is exempt. Only real links count, not paths in code or HTML comments.
+- The [errors reference](../user/reference/errors.md) matches the error catalogues. `scripts/generate-errors-doc.ts` writes the page from each built package's `src/internal/error-catalog.ts`; the check renders it again in memory and fails if the file differs. Run `pnpm run docs:errors` after changing a catalogue entry.
+- First-party source builds its errors only through the catalogue helpers (`catalogError`, `catalogMessage`, `internalError`): the check fails on a `kmsError(` call, a `new HardhatPluginError(`, a `new …Error(` or `new …Failure(` whose arguments do not call `catalogMessage`, and a thrown string, each with its file and line. Comments and `src/internal/vendor/` are skipped. The provider packages are not checked until they have catalogues of their own ([#72](https://github.com/aelmanaa/hardhat-kms/issues/72)).
 
 [lychee](https://lychee.cli.rs) checks links, configured by `lychee.toml`. On every pull request the CI Docs job checks internal links and `#anchors` offline. A weekly workflow, `.github/workflows/docs-links.yml`, also checks external links, so a website that is briefly down cannot block a merge. To run the pull request check locally from the repository root:
 
@@ -44,5 +46,5 @@ The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/iss
 
 - Tutorials: first deploy on Sepolia with Azure Key Vault ([#67](https://github.com/aelmanaa/hardhat-kms/issues/67)).
 - Guides: GitHub Actions with OIDC ([#68](https://github.com/aelmanaa/hardhat-kms/issues/68)).
-- Reference: errors ([#72](https://github.com/aelmanaa/hardhat-kms/issues/72)), public API ([#73](https://github.com/aelmanaa/hardhat-kms/issues/73)).
+- Reference: public API ([#73](https://github.com/aelmanaa/hardhat-kms/issues/73)).
 - A docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).

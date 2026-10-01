@@ -32,6 +32,3 @@ export function parseAwsKeyId(value: string): ParsedAwsKeyId | undefined {
   }
   return undefined;
 }
-
-/** Describes the accepted forms, for error messages. */
-export const AWS_KEY_ID_FORMS = "a key id, a key ARN, an alias name (`alias/...`) or an alias ARN";

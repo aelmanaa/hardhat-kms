@@ -26,8 +26,11 @@ describe("plugin definition", () => {
   it("exports the helpers provider plugins build on", () => {
     assert.deepEqual(Object.keys(providerUtils).toSorted(), [
       "InvalidPublicKeyError",
+      "catalogError",
+      "catalogMessage",
       "checkProviderVersion",
       "crc32c",
+      "internalError",
       "kmsError",
       "parseAwsKeyId",
       "parseAzureKeyId",

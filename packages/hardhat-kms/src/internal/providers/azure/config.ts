@@ -5,6 +5,8 @@ import type { AzureKmsKeyConfig, AzureKmsKeyUserConfig } from "../../../types.ts
 import { commonKeyFields, identifierSchema } from "../../config/common.ts";
 import { joinIdentifiers, resolveIdentifier } from "../../config/identifiers.ts";
 import { type KeyResolveContext, resolveCommonKeyConfig } from "../../config/key-common.ts";
+import { ERRORS } from "../../error-catalog.ts";
+import { catalogMessage } from "../../errors.ts";
 import {
   isAzureKeyName,
   isAzureKeyVersion,
@@ -12,10 +14,7 @@ import {
   parseAzureVaultUrl,
 } from "./key-id.ts";
 
-const EITHER_FORM =
-  "Use either `keyId` or `vaultUrl` with `keyName` (and an optional `keyVersion`), not both";
-const HOSTS =
-  "an https URL on an Azure Key Vault or Managed HSM host (for example `*.vault.azure.net`)";
+const EITHER_FORM = catalogMessage(ERRORS.azureEitherForm, {});
 
 const keyIdSchema = z
   .object({
@@ -32,7 +31,7 @@ const keyIdSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["keyId"],
-        message: `Expected ${HOSTS} with the path /keys/<name> or /keys/<name>/<version>`,
+        message: catalogMessage(ERRORS.azureKeyId, {}),
       });
     }
   });
@@ -52,21 +51,21 @@ const componentsSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["vaultUrl"],
-        message: `Expected ${HOSTS}, with no path`,
+        message: catalogMessage(ERRORS.azureVaultUrl, {}),
       });
     }
     if (typeof key.keyName === "string" && !isAzureKeyName(key.keyName)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["keyName"],
-        message: "Expected 1 to 127 letters, digits or dashes",
+        message: catalogMessage(ERRORS.azureKeyName, {}),
       });
     }
     if (typeof key.keyVersion === "string" && !isAzureKeyVersion(key.keyVersion)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["keyVersion"],
-        message: "Expected letters and digits only",
+        message: catalogMessage(ERRORS.azureKeyVersion, {}),
       });
     }
   });
@@ -81,9 +80,7 @@ export const azureKeySchema: z.ZodTypeAny = conditionalUnionType(
 );
 
 const checkKeyId = (value: string): string | undefined =>
-  parseAzureKeyId(value) === undefined
-    ? `expected ${HOSTS} with the path /keys/<name> or /keys/<name>/<version>`
-    : undefined;
+  parseAzureKeyId(value) === undefined ? catalogMessage(ERRORS.azureKeyIdReason, {}) : undefined;
 
 // A vault URL is used in its canonical form (its origin); an invalid one then fails `checkKeyId`.
 const canonicalVault = (value: string): string => parseAzureVaultUrl(value) ?? value;

@@ -12,7 +12,8 @@ import type {
   KmsKeyConfig,
   KmsKeyUserConfig,
 } from "../../types.ts";
-import { kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError, internalError } from "../errors.ts";
 import { resolveKey } from "./resolve.ts";
 import { builtinLookalike } from "./schema.ts";
 
@@ -32,10 +33,6 @@ interface EnvKey {
 /** A configuration variable standing for an environment variable, so errors and display ids show its name. */
 function variable(name: string): ConfigurationVariable {
   return { _type: "ConfigurationVariable", name };
-}
-
-function fail(provider: string, message: string): never {
-  throw kmsError(`--kms${provider === "" ? "" : ` ${provider}`}: ${message}`);
 }
 
 /** Splits a comma-separated variable, trimming entries and dropping blank ones. */
@@ -64,10 +61,9 @@ function keyIds(
   const variableName = listSet ? list : single;
   const ids = entries(env[variableName] ?? "");
   if (ids.length === 0) {
-    fail(
-      provider,
-      listSet ? `${list} holds no key ids` : `set ${single}, or ${list} for several keys`,
-    );
+    throw listSet
+      ? catalogError(ERRORS.kmsOptionListEmpty, { provider, list })
+      : catalogError(ERRORS.kmsOptionNotSet, { provider, single, list });
   }
   const named = ids.map((id, index): [string, string] => [
     variableName === single && ids.length === 1 ? single : `${variableName}[${index}]`,
@@ -77,7 +73,7 @@ function keyIds(
   for (const [name, id] of named) {
     const first = seen.get(id);
     if (first !== undefined) {
-      fail(provider, `${name} repeats ${first}`);
+      throw catalogError(ERRORS.kmsOptionRepeated, { provider, name, first });
     }
     seen.set(id, name);
   }
@@ -97,7 +93,7 @@ function envKeys(
   const read = (name: string): ConfigurationVariable => {
     const value = env[name]?.trim();
     if (value === undefined || value === "") {
-      fail(provider, `${name} is not set`);
+      throw catalogError(ERRORS.kmsOptionVariableNotSet, { provider, name });
     }
     values.set(name, value);
     return variable(name);
@@ -137,7 +133,7 @@ function resolverFor(values: Map<string, string>): ConfigurationVariableResolver
       }
       const value = values.get(valueOrVariable.name);
       if (value === undefined) {
-        throw new Error(`no value for ${valueOrVariable.name}`);
+        throw internalError(ERRORS.kmsOptionNoValue, { name: valueOrVariable.name });
       }
       return value;
     };
@@ -166,20 +162,19 @@ export function parseKmsOption(option: string): EnvProvider[] {
     .map((id) => id.trim())
     .filter((id) => id !== "");
   if (ids.length === 0) {
-    fail("", "expected one or more of aws, gcp and azure, such as --kms aws");
+    throw catalogError(ERRORS.kmsOptionEmpty, {});
   }
   const seen = new Set<EnvProvider>();
   for (const id of ids) {
     const provider = PROVIDERS.find((candidate) => candidate === id);
     if (provider === undefined) {
       const meant = builtinLookalike(id);
-      fail(
-        id,
-        `unknown provider.${meant === undefined ? "" : ` Did you mean "${meant}"?`} Expected aws, gcp or azure`,
-      );
+      throw meant === undefined
+        ? catalogError(ERRORS.kmsOptionUnknown, { provider: id })
+        : catalogError(ERRORS.kmsOptionUnknownSuggested, { provider: id, suggestion: meant });
     }
     if (seen.has(provider)) {
-      fail(provider, "listed twice");
+      throw catalogError(ERRORS.kmsOptionListedTwice, { provider });
     }
     seen.add(provider);
   }

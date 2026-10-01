@@ -1,6 +1,7 @@
 import type { NetworkConnection } from "hardhat/types/network";
 
-import { kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError } from "../errors.ts";
 
 /** Shows a rejected value in an error, cut to a length that cannot flood the output. */
 function shown(value: unknown): string {
@@ -34,10 +35,7 @@ export function parseChainId(value: unknown, what: string, operation: string): b
   if (typeof value === "string" && /^(?:0x[0-9a-fA-F]+|[0-9]+)$/.test(value)) {
     return BigInt(value);
   }
-  throw kmsError(
-    `${what} is not a chain id: expected a non-negative integer, got ${shown(value)}`,
-    { operation },
-  );
+  throw catalogError(ERRORS.chainIdInvalid, { what, value: shown(value) }, { operation });
 }
 
 /**
@@ -76,14 +74,17 @@ export class ConnectionChain {
     const response = await this.#read();
     // The JSON-RPC spec makes eth_chainId a hex quantity.
     if (typeof response !== "string" || !/^0x[0-9a-fA-F]+$/.test(response)) {
-      throw kmsError(`the node answered eth_chainId with ${shown(response)}, not a hex quantity`, {
-        operation: "eth_chainId",
-      });
+      throw catalogError(
+        ERRORS.nodeChainIdNotHex,
+        { answer: shown(response) },
+        { operation: "eth_chainId" },
+      );
     }
     const chainId = BigInt(response);
     if (this.#configured !== undefined && BigInt(this.#configured) !== chainId) {
-      throw kmsError(
-        `the network config sets chainId ${this.#configured}, but the node reports ${chainId}`,
+      throw catalogError(
+        ERRORS.nodeChainIdMismatch,
+        { configured: this.#configured, chainId },
         { operation: "eth_chainId" },
       );
     }

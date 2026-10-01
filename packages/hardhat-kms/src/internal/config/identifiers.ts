@@ -1,7 +1,8 @@
 import type { ConfigurationVariable, ConfigurationVariableResolver } from "hardhat/types/config";
 
 import type { KmsIdentifier, KmsIdentifierUserConfig } from "../../types.ts";
-import { kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError, internalError } from "../errors.ts";
 
 /**
  * Checks an identifier's value.
@@ -72,7 +73,7 @@ function checked(
   if (problem !== undefined) {
     // The message names the config path and the display form, never the value, which may come
     // from a configuration variable.
-    throw kmsError(`invalid value for ${path} (${display}): ${problem}`);
+    throw catalogError(ERRORS.invalidValue, { path, display, problem });
   }
   return value;
 }
@@ -125,7 +126,7 @@ function mapParts<Parts extends IdentifierParts<Parts>>(
     values[key] = value(parts[key]);
   }
   if (!hasEveryPart(parts, values)) {
-    throw new Error("an identifier part has no value");
+    throw internalError(ERRORS.identifierPartMissing, {});
   }
   return values;
 }

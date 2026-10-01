@@ -1,3 +1,6 @@
+import { ERRORS } from "../error-catalog.ts";
+import { internalError } from "../errors.ts";
+
 /**
  * Rejects a key handed to another provider's resolver. Validation dispatches on `provider`, so
  * this only guards against internal misuse.
@@ -7,5 +10,5 @@
  * @returns Never: it always throws.
  */
 export function wrongProvider(expected: string, actual: string): never {
-  throw new Error(`Expected a "${expected}" key, got "${actual}"`);
+  throw internalError(ERRORS.wrongProvider, { expected, actual });
 }

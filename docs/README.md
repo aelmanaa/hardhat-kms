@@ -18,6 +18,7 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 | [Configuration](user/reference/configuration.md)                      | Reference   |
 | [RPC methods](user/reference/rpc-methods.md)                          | Reference   |
 | [Tasks](user/reference/tasks.md)                                      | Reference   |
+| [Errors](user/reference/errors.md)                                    | Reference   |
 | [Set up an AWS KMS key](user/guides/aws-kms-setup.md)                 | How-to      |
 | [Set up an Azure Key Vault key](user/guides/azure-key-vault-setup.md) | How-to      |
 | [Set up a Google Cloud KMS key](user/guides/gcp-kms-setup.md)         | How-to      |

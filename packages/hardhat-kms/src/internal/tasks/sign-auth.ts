@@ -5,7 +5,8 @@ import type { NewTaskActionFunction } from "hardhat/types/tasks";
 import { addressFromPublicKey, sameAddress, toChecksumAddress } from "../crypto/address.ts";
 import { authorizationDigest } from "../crypto/digests.ts";
 import { recoverPublicKey, toLowS } from "../crypto/signature.ts";
-import { kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError } from "../errors.ts";
 import { ConnectionChain, parseChainId } from "../rpc/chain-id.ts";
 import { findTaskKey, printLine, printNote, withTaskSigners } from "./keys.ts";
 
@@ -76,10 +77,7 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
         ? BigInt(configured)
         : await networkChain(await connect(), configured));
     if (chainId === 0n && !args.force) {
-      throw kmsError(
-        "an authorization for chain 0 is valid on every chain where the account's nonce matches. Pass --force to sign it anyway",
-        { operation: OPERATION },
-      );
+      throw catalogError(ERRORS.authChainZero, {}, { operation: OPERATION });
     }
     const chainSource =
       inputs.network === undefined ? "from --chain" : `from --network ${inputs.network}`;
@@ -89,9 +87,7 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
       const nonce =
         inputs.nonce ?? (await authorityNonce(await connect(), authority, args.selfBroadcast));
       if (nonce >= NONCE_LIMIT) {
-        throw kmsError(`the nonce ${nonce} is too large: EIP-7702 needs one below 2^64 - 1`, {
-          operation: OPERATION,
-        });
+        throw catalogError(ERRORS.authNonceTooLarge, { nonce }, { operation: OPERATION });
       }
       // What is about to be signed, before the KMS call, which may wait for an approval.
       printNote(
@@ -119,9 +115,7 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
       // Decision 0004: nothing is printed unless it recovers to the key. The check reads the
       // tuple as printed, so it also covers the step from signature to output.
       if (!recoversTo(signed, authority)) {
-        throw kmsError("the authorization does not recover to the key's address", {
-          operation: OPERATION,
-        });
+        throw catalogError(ERRORS.authNoRecovery, {}, { operation: OPERATION });
       }
       if (args.selfBroadcast) {
         printNote(
@@ -153,28 +147,21 @@ function readInputs(args: SignAuthArguments, hre: HardhatRuntimeEnvironment): Au
   const network = hre.globalOptions.network;
   if (args.chain !== undefined && network !== undefined) {
     // Hardhat does not say whether --network came from the command line or HARDHAT_NETWORK.
-    throw kmsError(
-      "pass --chain or --network, not both. --network can also come from the HARDHAT_NETWORK environment variable",
-      { operation: OPERATION },
-    );
+    throw catalogError(ERRORS.authChainAndNetwork, {}, { operation: OPERATION });
   }
   if (args.chain === undefined && network === undefined) {
-    throw kmsError("pass --chain, or --network to sign for that network's chain", {
-      operation: OPERATION,
-    });
+    throw catalogError(ERRORS.authNoChain, {}, { operation: OPERATION });
   }
   if (args.nonce !== undefined && args.selfBroadcast) {
     // As in cast: --self-broadcast only changes the nonce the task reads.
-    throw kmsError("--nonce cannot be combined with --self-broadcast", { operation: OPERATION });
+    throw catalogError(ERRORS.authNonceAndSelfBroadcast, {}, { operation: OPERATION });
   }
   if (args.nonce === undefined && network === undefined) {
-    throw kmsError("pass --nonce, or --network to read the key's pending nonce", {
-      operation: OPERATION,
-    });
+    throw catalogError(ERRORS.authNoNonce, {}, { operation: OPERATION });
   }
   const chain = parseChainId(args.chain, "--chain", OPERATION);
   if (chain !== undefined && chain >= CHAIN_ID_LIMIT) {
-    throw kmsError("--chain does not fit in 256 bits", { operation: OPERATION });
+    throw catalogError(ERRORS.authChainTooLarge, {}, { operation: OPERATION });
   }
   return {
     delegate: checksummed(args.delegate),
@@ -189,8 +176,9 @@ function checksummed(delegate: string): string {
     return toChecksumAddress(delegate);
   } catch {
     // toChecksumAddress throws only InvalidAddressError.
-    throw kmsError(
-      `the delegate ${delegate.slice(0, 64)} is not an address: expected 0x and 40 hex digits, with a valid EIP-55 checksum if it is mixed-case`,
+    throw catalogError(
+      ERRORS.authDelegateInvalid,
+      { delegate: delegate.slice(0, 64) },
       { operation: OPERATION },
     );
   }
@@ -201,8 +189,9 @@ function parseNonce(value: string | undefined): bigint | undefined {
     return undefined;
   }
   if (!/^(?:0x[0-9a-fA-F]+|[0-9]+)$/.test(value)) {
-    throw kmsError(
-      `--nonce is not a nonce: expected a non-negative integer, got ${value.slice(0, 64)}`,
+    throw catalogError(
+      ERRORS.authNonceInvalid,
+      { value: value.slice(0, 64) },
       { operation: OPERATION },
     );
   }
@@ -243,9 +232,7 @@ async function authorityNonce(
     params: [authority, "pending"],
   });
   if (typeof response !== "string" || !HEX_QUANTITY.test(response)) {
-    throw kmsError("the node answered eth_getTransactionCount with something other than a nonce", {
-      operation: OPERATION,
-    });
+    throw catalogError(ERRORS.authNodeNonce, {}, { operation: OPERATION });
   }
   const pending = BigInt(response);
   return selfBroadcast ? pending + 1n : pending;

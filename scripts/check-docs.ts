@@ -2,7 +2,9 @@
 // - every TypeScript snippet in the READMEs and docs/ typechecks against the built package, the way
 //   a user's project imports it (run `pnpm run build` first; `pnpm run docs:check` does);
 // - every page under docs/ is linked from AGENTS.md and docs/README.md, and every decision record
-//   from the decision index, with the exceptions listed in checkIndexes.
+//   from the decision index, with the exceptions listed in checkIndexes;
+// - docs/user/reference/errors.md matches the error catalogues (scripts/generate-errors-doc.ts);
+// - first-party source builds its errors only through the catalogue helpers (checkErrorSites).
 // lychee checks the links themselves (see lychee.toml).
 //
 // A snippet that is not meant to compile, such as a sketch of a planned API, is preceded by
@@ -13,6 +15,13 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import {
+  ERRORS_DOC,
+  ERRORS_DOC_COMMAND,
+  loadCatalogues,
+  renderErrorsDoc,
+} from "./generate-errors-doc.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SKIP_MARKER = "<!-- docs-check: skip -->";
@@ -205,13 +214,157 @@ function packageReadmes(): string[] {
     .filter((file) => existsSync(path.join(root, file)));
 }
 
+/** Fails when the errors page differs from what the catalogues generate. */
+async function checkErrorsDoc(): Promise<string[]> {
+  const expected = renderErrorsDoc(await loadCatalogues());
+  const file = path.join(root, ERRORS_DOC);
+  const actual = existsSync(file) ? readFileSync(file, "utf8") : "";
+  return actual === expected
+    ? []
+    : [`${ERRORS_DOC} is out of date with the error catalogues. Run \`${ERRORS_DOC_COMMAND}\`.`];
+}
+
+/**
+ * Packages whose errors are not in a catalogue yet; their source is not checked. The provider
+ * packages get their catalogues in a follow-up to #72.
+ */
+const UNCATALOGUED_PACKAGES = new Set(["hardhat-kms-aws", "hardhat-kms-azure", "hardhat-kms-gcp"]);
+
+/** The one file that may build errors without a catalogue entry: the helpers themselves. */
+const ERROR_HELPERS = "packages/hardhat-kms/src/internal/errors.ts";
+
+function sourceFiles(directory: string): string[] {
+  return readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap((entry) => {
+    const relative = path.posix.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      return entry.name === "vendor" ? [] : sourceFiles(relative);
+    }
+    return entry.name.endsWith(".ts") ? [relative] : [];
+  });
+}
+
+/**
+ * Blanks the comments of a TypeScript file and keeps everything else, so offsets and line numbers
+ * stay. A `/` that starts a regular expression is read as code, which is enough for this source.
+ */
+function withoutComments(source: string): string {
+  let result = "";
+  let quote: string | undefined;
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index] ?? "";
+    if (quote !== undefined) {
+      result += char;
+      if (char === "\\") {
+        result += source[index + 1] ?? "";
+        index++;
+      } else if (char === quote) {
+        quote = undefined;
+      }
+    } else if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      result += char;
+    } else if (source.startsWith("//", index)) {
+      const end = source.indexOf("\n", index);
+      const stop = end === -1 ? source.length : end;
+      result += " ".repeat(stop - index);
+      index = stop - 1;
+    } else if (source.startsWith("/*", index)) {
+      const end = source.indexOf("*/", index + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      result += source.slice(index, stop).replaceAll(/[^\n]/g, " ");
+      index = stop - 1;
+    } else {
+      result += char;
+    }
+  }
+  return result;
+}
+
+/** The text between the parenthesis at `open` and its match, strings and nesting included. */
+function argumentsAt(code: string, open: number): string {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let index = open; index < code.length; index++) {
+    const char = code[index];
+    if (quote !== undefined) {
+      if (char === "\\") {
+        index++;
+      } else if (char === quote) {
+        quote = undefined;
+      }
+    } else if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+    } else if (char === "(") {
+      depth++;
+    } else if (char === ")") {
+      depth--;
+      if (depth === 0) {
+        return code.slice(open + 1, index);
+      }
+    }
+  }
+  return code.slice(open + 1);
+}
+
+/**
+ * Fails on first-party code that builds an error without the catalogue helpers of
+ * packages/hardhat-kms/src/internal/errors.ts: a call to `kmsError`, a `new HardhatPluginError`,
+ * an error object (`new …Error(` or `new …Failure(`) whose arguments do not call
+ * `catalogMessage`, and a thrown string.
+ */
+function checkErrorSites(): string[] {
+  const problems: string[] = [];
+  const packages = readdirSync(path.join(root, "packages"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !UNCATALOGUED_PACKAGES.has(entry.name))
+    .map((entry) => path.posix.join("packages", entry.name, "src"))
+    .filter((directory) => existsSync(path.join(root, directory)));
+  for (const file of packages.flatMap((directory) => sourceFiles(directory))) {
+    if (file === ERROR_HELPERS) {
+      continue;
+    }
+    const code = withoutComments(readFileSync(path.join(root, file), "utf8"));
+    const lineOf = (offset: number): number => code.slice(0, offset).split("\n").length;
+    const report = (offset: number, what: string): void => {
+      problems.push(
+        `${file}:${lineOf(offset)}: ${what}; build it from a catalogue entry with catalogError, catalogMessage or internalError`,
+      );
+    };
+    for (const match of code.matchAll(/\bkmsError\s*\(/g)) {
+      report(match.index, "kmsError() call");
+    }
+    for (const match of code.matchAll(/\bnew\s+HardhatPluginError\s*\(/g)) {
+      report(match.index, "new HardhatPluginError()");
+    }
+    for (const match of code.matchAll(/\bnew\s+((?:[A-Z]\w*)?(?:Error|Failure))\s*\(/g)) {
+      if (match[1] === "HardhatPluginError") {
+        continue;
+      }
+      const open = match.index + match[0].length - 1;
+      if (!/\bcatalogMessage\s*\(/.test(argumentsAt(code, open))) {
+        report(
+          match.index,
+          `new ${match[1] ?? ""}() with a message that is not from catalogMessage`,
+        );
+      }
+    }
+    for (const match of code.matchAll(/\bthrow\s+["'`]/g)) {
+      report(match.index, "thrown string");
+    }
+  }
+  return problems.toSorted((a, b) => a.localeCompare(b, "en", { numeric: true }));
+}
+
 const pages = markdownFiles("docs");
 const problems = [
   ...checkIndexes(pages),
   ...checkSnippets(["README.md", ...packageReadmes(), ...pages]),
+  ...(await checkErrorsDoc()),
+  ...checkErrorSites(),
 ];
 if (problems.length > 0) {
   process.stderr.write(`${problems.join("\n")}\n`);
   process.exit(1);
 }
-process.stdout.write(`docs check passed: ${pages.length} pages indexed, snippets typecheck\n`);
+process.stdout.write(
+  `docs check passed: ${pages.length} pages indexed, snippets typecheck, ${ERRORS_DOC} is current, every error comes from a catalogue\n`,
+);
