@@ -53,12 +53,15 @@ if (keyName !== "") {
   // HHKMS_FIXTURE_TASK runs that kms task on the key instead, as `hardhat kms <task> <key>` does.
   const taskName = process.env.HHKMS_FIXTURE_TASK ?? "";
   // kms sign-tx also takes a transaction file; the test sets HARDHAT_NETWORK for its --network.
+  // kms sign-auth also needs a delegate, a chain and a nonce, so that it reaches the KMS.
   const signTx = taskName === "sign-tx";
   const taskArgs = signTx
     ? { key: keyName, tx: fileURLToPath(new URL("tx.json", import.meta.url)) }
     : taskName === "verify"
       ? { key: keyName, ...VERIFY_ARGUMENTS }
-      : { key: keyName };
+      : taskName === "sign-auth"
+        ? { key: keyName, delegate: `0x${"11".repeat(20)}`, chain: "1", nonce: "0" }
+        : { key: keyName };
   try {
     if (taskName === "") {
       const adapter = await hre.hooks.runHandlerChain(

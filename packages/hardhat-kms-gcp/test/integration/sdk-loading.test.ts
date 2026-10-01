@@ -84,7 +84,7 @@ describe("SDK loading", () => {
       assert.deepEqual(sdkModules(urls), []);
     });
 
-    for (const task of ["address", "public-key", "sign-tx", "verify"]) {
+    for (const task of ["address", "public-key", "sign-auth", "sign-tx", "verify"]) {
       it(`runs kms ${task} on a key of another provider without loading the Google Cloud SDK (${hooks} hooks)`, () => {
         const { urls, stdout } = run({
           ...recorderEnv,
@@ -100,6 +100,10 @@ describe("SDK loading", () => {
         assert.ok(
           urls.some((url) => url.includes(`/hardhat-kms/dist/src/internal/tasks/${task}.js`)),
           "the recorder saw the task action",
+        );
+        assert.ok(
+          urls.some((url) => url.includes("/hardhat-kms-gcp/src/internal/hook-handlers/kms.ts")),
+          "the task reached the kms hook",
         );
         assert.deepEqual(sdkModules(urls), []);
       });

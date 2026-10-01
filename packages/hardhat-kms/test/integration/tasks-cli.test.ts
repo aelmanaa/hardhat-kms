@@ -299,6 +299,7 @@ describe("kms tasks from the Hardhat CLI", () => {
     assert.match(run.output, /public-key\s+Print a KMS key's uncompressed public key/);
     assert.match(run.output, /sign-tx\s+Fill and sign a transaction on --network/);
     assert.match(run.output, /sign\s+Sign a message, typed data or a raw digest with a KMS key/);
+    assert.match(run.output, /sign-auth\s+Sign an EIP-7702 authorization with a KMS key/);
     assert.match(run.output, /verify\s+Check that an address signed a message or typed data/);
   });
 
@@ -520,5 +521,61 @@ describe("kms tasks from the Hardhat CLI", () => {
         /Error in community plugin hardhat-kms: kms verify: invalid signature: expected a 65-byte signature/,
       );
     });
+  });
+
+  it("signs an EIP-7702 authorization, prints only the JSON tuple and exits", async () => {
+    const delegate = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+    const run = hardhat(["kms", "sign-auth", "--chain", "1", "--nonce", "0", "deployer", delegate]);
+
+    assert.equal(run.status, 0, `the task failed or did not exit:\n${run.output}`);
+    const signed = await privateKeyToAccount(`0x${HARDHAT_ACCOUNT_0.secretKey}`).signAuthorization({
+      address: delegate,
+      chainId: 1,
+      nonce: 0,
+    });
+    assert.equal(
+      run.stdout,
+      `${JSON.stringify({ chainId: "0x1", address: delegate, nonce: "0x0", yParity: `0x${signed.yParity}`, r: signed.r, s: signed.s })}\n`,
+    );
+  });
+
+  it("reads the nonce from a simulated --network, adds one with --self-broadcast and exits", () => {
+    const run = hardhat([
+      "kms",
+      "sign-auth",
+      "--network",
+      "local",
+      "--self-broadcast",
+      "deployer",
+      "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    ]);
+
+    assert.equal(run.status, 0, `the task failed or did not exit:\n${run.output}`);
+    assert.match(
+      run.stdout,
+      /^\{"chainId":"0x7a69","address":"0x5FbDB2315678afecb367f032d93F642f64180aa3","nonce":"0x1",/,
+    );
+    assert.match(
+      run.stderr,
+      /\[hardhat-kms\] the authorization uses nonce 1: send it in a transaction from this key with nonce 0/,
+    );
+  });
+
+  it("refuses chain 0 without --force", () => {
+    const run = hardhat([
+      "kms",
+      "sign-auth",
+      "--chain",
+      "0",
+      "--nonce",
+      "0",
+      "deployer",
+      "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    ]);
+
+    assert.notEqual(run.status, 0);
+    assert.notEqual(run.status, null, "the task did not exit");
+    assert.equal(run.stdout, "");
+    assert.match(run.output, /an authorization for chain 0 is valid on every chain\. Pass --force/);
   });
 });
