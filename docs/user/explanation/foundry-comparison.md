@@ -2,11 +2,11 @@
 
 Audience: Users choosing between Foundry and Hardhat for KMS signing.
 
-Status: Planned for 1.0.
+Status: Implemented. Every difference below is on `main`.
 
 ## Differences from Foundry
 
-The README lists these so users can compare:
+What hardhat-kms adds over Foundry's KMS signers:
 
 - GCP CRC32C integrity checks. Foundry has none.
 - Post-sign verification of every signature. Foundry's Turnkey signer has none.

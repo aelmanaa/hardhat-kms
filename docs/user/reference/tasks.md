@@ -2,7 +2,7 @@
 
 Audience: Users running the `kms` tasks.
 
-Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-auth` ([#35](https://github.com/aelmanaa/hardhat-kms/issues/35)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). The other tasks are planned for M7.
+Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-auth` ([#35](https://github.com/aelmanaa/hardhat-kms/issues/35)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)).
 
 ## Tasks
 
@@ -80,6 +80,8 @@ Address pins to add to each key's config:
 The failure messages are the plugin's own, or Hardhat's for a configuration variable that is not set. Any other error is reduced to its class name, because its text can carry request details.
 
 `hre.tasks.getTask(["kms", "accounts"]).run({ json: false, showIds: false })` returns a Hardhat `Result` holding the same `{ version, accounts }` report: a successful one when every key works, a failed one otherwise.
+
+`kms accounts --balances` and `--check-sign` are planned for v1.1 ([#52](https://github.com/aelmanaa/hardhat-kms/issues/52)).
 
 ## `kms address`
 
@@ -355,10 +357,3 @@ Compared with `cast wallet verify`:
 - There is no `--no-hash`, on purpose. Only `kms sign --no-hash` handles raw 32-byte digests, as an explicit human action ([decision 0003](../../contributor/decisions/0003-no-bare-digest-over-rpc.md)). Verifying a signature over a raw digest may come later if users ask for it ([#31](https://github.com/aelmanaa/hardhat-kms/issues/31)).
 - `--key` checks against a KMS key without copying its address.
 - Only EOA signatures are checked. A smart-contract wallet's EIP-1271 `isValidSignature` is not called.
-
-## Details for the planned tasks
-
-- An address-pin mismatch prints both addresses and a hint about key rotation or a repointed alias, as in [`kms address`](#kms-address).
-- `displayMessage` output appears only on the first resolution of a key or for KMS calls that take longer than 2 s.
-
-`kms accounts --balances` and `--check-sign` are planned for v1.1.

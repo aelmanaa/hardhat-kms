@@ -6,16 +6,22 @@ A Hardhat 3 plugin that signs transactions, messages and typed data with secp256
 
 The plugin works at the JSON-RPC layer, so viem, ethers, Ignition and plain scripts use KMS keys like any other account. Every signature is checked locally before it is used: it must recover to the configured account's address.
 
-## Planned usage
+## Usage
+
+This is the core package. Each cloud has its own provider package, so signing with AWS KMS takes the core and `hardhat-kms-aws`:
+
+```sh
+npm install --save-dev hardhat-kms hardhat-kms-aws
+```
 
 Keys are declared once under `kms.keys` and attached to networks by name. Credentials come from each cloud SDK's default chain, not from the config.
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKms from "hardhat-kms";
+import hardhatKmsAws from "hardhat-kms-aws";
 
 export default defineConfig({
-  plugins: [hardhatKms],
+  plugins: [hardhatKmsAws],
   kms: {
     keys: {
       deployer: { provider: "aws", keyId: "alias/deployer", address: "0x…" },
@@ -31,7 +37,7 @@ export default defineConfig({
 });
 ```
 
-See the [configuration reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/configuration.md) for every option.
+`hardhat-kms-aws` loads `hardhat-kms` itself. Azure Key Vault and Managed HSM keys need `hardhat-kms-azure` instead ([setup guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/azure-key-vault-setup.md)). Google Cloud KMS keys need `hardhat-kms-gcp` ([setup guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/gcp-kms-setup.md)). See the [configuration reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/configuration.md) for every option.
 
 ## Docs
 

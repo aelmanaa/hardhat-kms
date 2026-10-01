@@ -6,7 +6,7 @@ A Hardhat 3 plugin that signs transactions, messages and typed data with secp256
 
 The plugin works at the JSON-RPC layer, so viem, ethers, Ignition and plain scripts use KMS keys like any other account. Every signature is checked locally before it is used: it must recover to the configured account's address.
 
-## Planned usage
+## Usage
 
 Each cloud has its own package, so signing with AWS KMS takes the core and `hardhat-kms-aws`:
 

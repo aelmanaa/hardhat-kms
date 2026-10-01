@@ -4,7 +4,7 @@ This file tells coding agents where things are in hardhat-kms. Humans can start 
 
 hardhat-kms is a Hardhat 3 plugin that signs transactions, messages and typed data with secp256k1 keys in AWS KMS, Google Cloud KMS and Azure Key Vault. It works at the JSON-RPC layer, so viem, ethers and Ignition see KMS keys as ordinary accounts. The private key never leaves the KMS.
 
-Status: in development, not on npm. Most user-facing behaviour is still planned, and each page's Status line says which milestone delivers it.
+Status: in development, not on npm yet. What the docs describe is on `main`, unless a page marks it as planned.
 
 ## If you are helping someone use the plugin
 
@@ -19,7 +19,7 @@ Status: in development, not on npm. Most user-facing behaviour is still planned,
 - Complete projects to copy, which deploy and call a contract with viem, ethers or Ignition: [examples/README.md](examples/README.md)
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - What the plugin protects against and what it does not: [docs/contributor/signing-pipeline.md#threat-model-summary](docs/contributor/signing-pipeline.md#threat-model-summary)
-- Pages not written yet (tutorials, key setup guides, errors): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
+- Pages not written yet (tutorials, the remaining guides, errors): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
 
 Never ask a user to paste credentials, private keys or API-keyed RPC URLs. Credentials come from each provider SDK's default chain, never from the Hardhat config. API-keyed RPC URLs belong in `configVariable()`, which also accepts key identifiers.
 

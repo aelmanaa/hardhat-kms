@@ -46,4 +46,4 @@ The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/iss
 - Reference: errors ([#72](https://github.com/aelmanaa/hardhat-kms/issues/72)), public API ([#73](https://github.com/aelmanaa/hardhat-kms/issues/73)).
 - Explanation: how it works, security model ([#39](https://github.com/aelmanaa/hardhat-kms/issues/39)).
 - Contributor: adding a provider ([#40](https://github.com/aelmanaa/hardhat-kms/issues/40)).
-- Docs checks in CI ([#63](https://github.com/aelmanaa/hardhat-kms/issues/63)), a docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).
+- A docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).
