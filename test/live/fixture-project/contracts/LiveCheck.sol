@@ -2,14 +2,15 @@
 pragma solidity 0.8.24;
 
 /// The contract the live tests deploy on Sepolia. Only its deployer can call `add`, so a write that
-/// succeeds came from the KMS account. The `recover` functions rebuild the EIP-191 and EIP-712
-/// digests on chain and recover the signer with `ecrecover`, refusing high-S signatures as
-/// OpenZeppelin's ECDSA does.
+/// succeeds came from the KMS account. `add` is payable, so one call also covers a call with value.
+/// The `recover` functions rebuild the EIP-191 and EIP-712 digests on chain and recover the signer
+/// with `ecrecover`, refusing high-S signatures as OpenZeppelin's ECDSA does.
 ///
 /// The KMS account also delegates to this contract with EIP-7702, and the test clears the
 /// delegation before it ends. While delegated, the account runs this code against its own storage:
 /// `add` accepts only the account itself, the rest is pure or a view, and `receive` keeps plain
-/// transfers to the account working.
+/// transfers to the account working. There is no fallback, so an unknown selector reverts: the
+/// live tests use that for their reverting transactions.
 contract LiveCheck {
     uint256 private constant HALF_ORDER =
         0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
@@ -26,7 +27,7 @@ contract LiveCheck {
 
     receive() external payable {}
 
-    function add(uint256 amount) external {
+    function add(uint256 amount) external payable {
         require(msg.sender == owner, "not the owner");
         count += amount;
     }

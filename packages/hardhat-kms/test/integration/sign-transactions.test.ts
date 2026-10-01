@@ -34,11 +34,14 @@ const INIT_CODE = "0x600a600c600039600a6000f3602a60005260206000f3";
 const CURVE_ORDER = secp256k1.Point.CURVE().n;
 
 /** An EIP-7702 authorization in the shape of a JSON-RPC request. */
-function rpcAuthorization(item: { yParity: number; r: bigint; s: bigint }) {
+function rpcAuthorization(
+  item: { yParity: number; r: bigint; s: bigint },
+  { address = TO, nonce = "0x1" }: { address?: string; nonce?: string } = {},
+) {
   return {
     chainId: "0x7a69",
-    address: TO,
-    nonce: "0x1",
+    address,
+    nonce,
     yParity: `0x${item.yParity.toString(16)}`,
     r: `0x${item.r.toString(16).padStart(64, "0")}`,
     s: `0x${item.s.toString(16).padStart(64, "0")}`,
@@ -48,6 +51,11 @@ function rpcAuthorization(item: { yParity: number; r: bigint; s: bigint }) {
 const AUTHORIZATION = authorization.sign(
   { chainId: 31337n, address: TO, nonce: 1n },
   `0x${HARDHAT_ACCOUNT_0.secretKey}`,
+);
+/** Another key's authorization, which the KMS account sends for it: nonce 0, a fresh account. */
+const OTHER_AUTHORIZATION = authorization.sign(
+  { chainId: 31337n, address: STRANGER, nonce: 0n },
+  `0x${ACCOUNT_1.secretKey}`,
 );
 
 /** The fake adapter behind each key name. */
@@ -180,9 +188,12 @@ describe("signing transactions for KMS accounts", () => {
     }
   }
 
-  const CASES: [string, Record<string, unknown>][] = [
-    ["legacy", { from: FROM, to: TO, value: "0x1", gasPrice: "0x3b9aca00" }],
+  /** Name, type and request of each transaction signed byte for byte like Hardhat. */
+  const CASES: [string, string, Record<string, unknown>][] = [
+    ["legacy", "legacy", { from: FROM, to: TO, value: "0x1", gasPrice: "0x3b9aca00" }],
+    ["legacy contract creation", "legacy", { from: FROM, data: INIT_CODE, gasPrice: "0x3b9aca00" }],
     [
+      "eip2930",
       "eip2930",
       {
         from: FROM,
@@ -191,13 +202,53 @@ describe("signing transactions for KMS accounts", () => {
         accessList: [{ address: TO, storageKeys: [`0x${"00".repeat(31)}01`] }],
       },
     ],
-    ["eip1559", { from: FROM, to: TO, value: "0x1" }],
-    ["eip1559", { from: FROM, data: INIT_CODE }],
-    ["eip7702", { from: FROM, to: FROM, authorizationList: [rpcAuthorization(AUTHORIZATION)] }],
+    [
+      "eip2930 contract creation",
+      "eip2930",
+      {
+        from: FROM,
+        data: INIT_CODE,
+        gasPrice: "0x3b9aca00",
+        accessList: [{ address: TO, storageKeys: [] }],
+      },
+    ],
+    ["eip1559", "eip1559", { from: FROM, to: TO, value: "0x1" }],
+    ["eip1559 contract creation", "eip1559", { from: FROM, data: INIT_CODE }],
+    [
+      "eip7702",
+      "eip7702",
+      { from: FROM, to: FROM, authorizationList: [rpcAuthorization(AUTHORIZATION)] },
+    ],
+    [
+      "eip7702 with value",
+      "eip7702",
+      {
+        from: FROM,
+        to: TO,
+        value: "0x1",
+        authorizationList: [rpcAuthorization(AUTHORIZATION)],
+      },
+    ],
+    [
+      "eip7702 carrying another key's authorization",
+      "eip7702",
+      {
+        from: FROM,
+        to: TO,
+        value: "0x1",
+        authorizationList: [
+          rpcAuthorization(OTHER_AUTHORIZATION, { address: STRANGER, nonce: "0x0" }),
+        ],
+      },
+    ],
   ];
 
-  for (const [type, request] of CASES) {
-    const name = request.data === undefined ? type : `${type} contract creation`;
+  it("signs the sponsored case's authorization with a key other than the sender's", () => {
+    assert.equal(authorization.getAuthority(OTHER_AUTHORIZATION), ACCOUNT_1.address);
+    assert.notEqual(ACCOUNT_1.address, FROM);
+  });
+
+  for (const [name, type, request] of CASES) {
     it(`signs ${name} byte for byte like Hardhat's local accounts`, async () => {
       const warn = mock.method(console, "warn", () => {});
       try {

@@ -1,0 +1,609 @@
+{
+  "chainId": 11155111,
+  "commit": "1aeecd5",
+  "subject": "test: tighten the live matrix checks after review",
+  "firstBlockTime": "2026-10-01T22:49:48.000Z",
+  "lastBlockTime": "2026-10-01T22:52:36.000Z",
+  "providers": [
+    {
+      "provider": "aws",
+      "account": "0x0b545a5a4cA04252184A7813D0D4D3fBA31Af2fd",
+      "liveCheck": "0xF816F00896c2Df50F4E5236abcdCa2E2839c8C01",
+      "spent": "0.001916035465471574",
+      "records": [
+        {
+          "case": "deploy-live-check",
+          "label": "deploy LiveCheck",
+          "type": "eip1559",
+          "hash": "0xc46329ce55c350a2d727372f8fd123a109d0e5150427ec464f5caa15f3120045",
+          "block": "11824906",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "664404",
+          "effectiveGasPrice": "1341700298"
+        },
+        {
+          "case": "eth-to-eoa-legacy",
+          "label": "1 wei to a fresh address",
+          "type": "legacy",
+          "hash": "0xc77361ab849ef1a549e792991bbdfe8e2a45c8d468dc07a1e2ad479313415fd2",
+          "block": "11824907",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "21000",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "eth-to-eoa-eip2930",
+          "label": "1 wei to a fresh address",
+          "type": "eip2930",
+          "hash": "0xb25c3c37d3541c2769b6d9abff8f1c721bf095361651ba3ea5d12c01480f4f79",
+          "block": "11824908",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "23400",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "eth-to-eoa-eip1559",
+          "label": "1 wei to a fresh address",
+          "type": "eip1559",
+          "hash": "0xe82c5c848a148c008cef3ad9ed0f62c69cce3502aebf9036d18eae0a1f1b2a80",
+          "block": "11824909",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "21000",
+          "effectiveGasPrice": "1305562750"
+        },
+        {
+          "case": "self-send-eip1559",
+          "label": "1 wei to itself",
+          "type": "eip1559",
+          "hash": "0xe1f15e677e4a7138aad3b431a3421c265ad268644aba1a12c14c2cf4c6e1d3fb",
+          "block": "11824910",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "21000",
+          "effectiveGasPrice": "1378359168"
+        },
+        {
+          "case": "deploy-minimal-legacy",
+          "label": "deploy a 3-byte contract",
+          "type": "legacy",
+          "hash": "0xbb8343087579c6023abbb7d093d36fae585a5aa0c8de9792055b9371d76ce0cc",
+          "block": "11824911",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "53832",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "deploy-minimal-eip2930",
+          "label": "deploy a 3-byte contract",
+          "type": "eip2930",
+          "hash": "0x016880ba33f2dac08833a066e80ccf25f5540380385494f3d54bfe841ce3587c",
+          "block": "11824912",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "56232",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "revert-eip1559",
+          "label": "an unknown selector to LiveCheck",
+          "type": "eip1559",
+          "hash": "0x478fa44c83c66bceb90de7ced7261a44804e56f10d3a239500655eb06bdd86bc",
+          "block": "11824913",
+          "status": "reverted",
+          "from": "kms",
+          "gasUsed": "21263",
+          "effectiveGasPrice": "1411744273"
+        },
+        {
+          "case": "call-legacy",
+          "label": "add(1) with 1 wei",
+          "type": "legacy",
+          "hash": "0x8932184ca70ad0c3e94602840e2e2ba21f808218e1f585723070e8790057f874",
+          "block": "11824914",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "43926",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "call-eip2930",
+          "label": "add(1) with 1 wei",
+          "type": "eip2930",
+          "hash": "0x795abbce0ddc09f4a9523a6c119fb8eda9ed5f19e7d37f8e2c1209a78ceb645c",
+          "block": "11824915",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "29126",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "call-eip1559",
+          "label": "add(1) with 1 wei",
+          "type": "eip1559",
+          "hash": "0xe3bda9e9f56c09e01d0b2c96fe683fdf07f9ecb223fabbf4550fd4c6c3e8dfaf",
+          "block": "11824916",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "26826",
+          "effectiveGasPrice": "1410747391"
+        },
+        {
+          "case": "delegate-and-call",
+          "label": "delegate to LiveCheck and add(1) with 1 wei",
+          "type": "eip7702",
+          "hash": "0x78cb1824e6b0047a3d81f6ddf428c0e23fce41219962611d0f8f59b762630eef",
+          "block": "11824917",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "41461",
+          "effectiveGasPrice": "1332067797"
+        },
+        {
+          "case": "signatures",
+          "label": "personal_sign recovered by LiveCheck",
+          "type": null,
+          "hash": null,
+          "block": "11824917",
+          "status": "success",
+          "from": "kms"
+        },
+        {
+          "case": "signatures",
+          "label": "eth_sign recovered by LiveCheck",
+          "type": null,
+          "hash": null,
+          "block": "11824917",
+          "status": "success",
+          "from": "kms"
+        },
+        {
+          "case": "signatures",
+          "label": "eth_signTypedData_v4 recovered by LiveCheck",
+          "type": null,
+          "hash": null,
+          "block": "11824917",
+          "status": "success",
+          "from": "kms"
+        },
+        {
+          "case": "sponsor-other",
+          "label": "1 wei to a fresh address, with a throwaway key's authorization",
+          "type": "eip7702",
+          "hash": "0xce1af24dfdbca44ba16ae07b937ca267afee484f998f16030f78e3f8dbfe22bd",
+          "block": "11824918",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "46000",
+          "effectiveGasPrice": "1357220423"
+        },
+        {
+          "case": "sponsor-other",
+          "label": "clear the throwaway key's delegation",
+          "type": "eip7702",
+          "hash": "0x454b78f14ab1e61c710cd04e326450e17ab0cabf15c6550abdd8d4f722b1409a",
+          "block": "11824919",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "36800",
+          "effectiveGasPrice": "1398167642"
+        },
+        {
+          "case": "clear-delegation",
+          "label": "clear the delegation, with 1 wei to itself",
+          "type": "eip7702",
+          "hash": "0x47356c7893b982d8943fd3a395705c12bbae8336d1eb03eed139a839bf18a224",
+          "block": "11824920",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "36800",
+          "effectiveGasPrice": "1323854913"
+        }
+      ]
+    },
+    {
+      "provider": "gcp",
+      "account": "0x728743B36DE6236f6d03409563a7E2c39a00EE17",
+      "liveCheck": "0x608b2f6ECB9000E386d182cC3ac0B145ab8c34CD",
+      "spent": "0.001921550465151062",
+      "records": [
+        {
+          "case": "deploy-live-check",
+          "label": "deploy LiveCheck",
+          "type": "eip1559",
+          "hash": "0xd9a15c33d8accdcf250dbf39933a78cda4fcb7511815fe6763ab19388d9e8c8a",
+          "block": "11824906",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "664404",
+          "effectiveGasPrice": "1350000970"
+        },
+        {
+          "case": "eth-to-eoa-legacy",
+          "label": "1 wei to a fresh address",
+          "type": "legacy",
+          "hash": "0xff6566ff564f78c7040901c3fdede2e7c63f5e438f8c812e79ad9a5847e298c6",
+          "block": "11824907",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "21000",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "eth-to-eoa-eip2930",
+          "label": "1 wei to a fresh address",
+          "type": "eip2930",
+          "hash": "0x3d4b705d9190f39911f633f2f3b6d28aa483a8f2c621374de8fb80f6dae38fdc",
+          "block": "11824908",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "23400",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "eth-to-eoa-eip1559",
+          "label": "1 wei to a fresh address",
+          "type": "eip1559",
+          "hash": "0x0a5bddbfbc296d20ffc46e054825464d4338dfdb037cb4856cc65029d7599af4",
+          "block": "11824909",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "21000",
+          "effectiveGasPrice": "1305562750"
+        },
+        {
+          "case": "self-send-eip1559",
+          "label": "1 wei to itself",
+          "type": "eip1559",
+          "hash": "0x013ddf7b8ff1f8d8a89b2999d78ae429021f86fddfdac06b9e615e185307c4ff",
+          "block": "11824910",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "21000",
+          "effectiveGasPrice": "1378359168"
+        },
+        {
+          "case": "deploy-minimal-legacy",
+          "label": "deploy a 3-byte contract",
+          "type": "legacy",
+          "hash": "0x1564fcf2bfe4a99209d13d719740ec6b628486604260de7b521255ad53aa9917",
+          "block": "11824911",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "53832",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "deploy-minimal-eip2930",
+          "label": "deploy a 3-byte contract",
+          "type": "eip2930",
+          "hash": "0x61b9c72201e7f26d81cc3f8afabfb4c566cc8fcbf2f59f1e0482a1ffe580ea71",
+          "block": "11824912",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "56232",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "revert-eip1559",
+          "label": "an unknown selector to LiveCheck",
+          "type": "eip1559",
+          "hash": "0x0c8fab334b5fc3b21e6ac23fca309f9ffb17ec12c5163f589e84cadab50b0e2f",
+          "block": "11824913",
+          "status": "reverted",
+          "from": "kms",
+          "gasUsed": "21263",
+          "effectiveGasPrice": "1411744273"
+        },
+        {
+          "case": "call-legacy",
+          "label": "add(1) with 1 wei",
+          "type": "legacy",
+          "hash": "0x9540f917296d47975631ddd3d5813f7a3f0d5f7ae3a6a01c34f862e5a65998f8",
+          "block": "11824914",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "43926",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "call-eip2930",
+          "label": "add(1) with 1 wei",
+          "type": "eip2930",
+          "hash": "0x952556fb7a691e36a31af3d2ea9e6cf743fad2d3bff31ef4d2fee32abda5b6c9",
+          "block": "11824915",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "29126",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "call-eip1559",
+          "label": "add(1) with 1 wei",
+          "type": "eip1559",
+          "hash": "0x60901709959977b306b2fefddcecece111fdc79c33e489a94b5f070f93f65482",
+          "block": "11824916",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "26826",
+          "effectiveGasPrice": "1410747391"
+        },
+        {
+          "case": "delegate-and-call",
+          "label": "delegate to LiveCheck and add(1) with 1 wei",
+          "type": "eip7702",
+          "hash": "0xb6dc1f02de4bb8f881e9807614b0ae80328355a6c0315e1fe037572866054905",
+          "block": "11824917",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "41461",
+          "effectiveGasPrice": "1332067797"
+        },
+        {
+          "case": "signatures",
+          "label": "personal_sign recovered by LiveCheck",
+          "type": null,
+          "hash": null,
+          "block": "11824917",
+          "status": "success",
+          "from": "kms"
+        },
+        {
+          "case": "signatures",
+          "label": "eth_sign recovered by LiveCheck",
+          "type": null,
+          "hash": null,
+          "block": "11824917",
+          "status": "success",
+          "from": "kms"
+        },
+        {
+          "case": "signatures",
+          "label": "eth_signTypedData_v4 recovered by LiveCheck",
+          "type": null,
+          "hash": null,
+          "block": "11824917",
+          "status": "success",
+          "from": "kms"
+        },
+        {
+          "case": "sponsor-other",
+          "label": "1 wei to a fresh address, with a throwaway key's authorization",
+          "type": "eip7702",
+          "hash": "0xd559ffa98106d8efd9af186e30579798be7c767763070ca04d8e36b69d68b84a",
+          "block": "11824918",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "46000",
+          "effectiveGasPrice": "1357220423"
+        },
+        {
+          "case": "sponsor-other",
+          "label": "clear the throwaway key's delegation",
+          "type": "eip7702",
+          "hash": "0xfbd86c50d1dc535429820807489c114e146b0038e3acd23e35c6bb6da1104d17",
+          "block": "11824919",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "36800",
+          "effectiveGasPrice": "1398167642"
+        },
+        {
+          "case": "clear-delegation",
+          "label": "clear the delegation, with 1 wei to itself",
+          "type": "eip7702",
+          "hash": "0x5f8db924bd37a0481f4c87ebd4610cd4d36a3bc1f84551ec3539fcd78751e774",
+          "block": "11824920",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "36800",
+          "effectiveGasPrice": "1323854913"
+        }
+      ]
+    },
+    {
+      "provider": "azure",
+      "account": "0x9626Fb8498C69d88F8C080835C3Cd328453D3004",
+      "liveCheck": "0xCC5dAE56862Cd25A3d0a322E1Fa3998C6D6D2394",
+      "spent": "0.001921550465151062",
+      "records": [
+        {
+          "case": "deploy-live-check",
+          "label": "deploy LiveCheck",
+          "type": "eip1559",
+          "hash": "0xbd1c227b68e03386e74db88d14d48e626030c14802d8d6a53224e90b6763bd23",
+          "block": "11824906",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "664404",
+          "effectiveGasPrice": "1350000970"
+        },
+        {
+          "case": "eth-to-eoa-legacy",
+          "label": "1 wei to a fresh address",
+          "type": "legacy",
+          "hash": "0x7399479242e603222126548443f4151b5f00a2a820c1caeffc215698b42e5a11",
+          "block": "11824907",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "21000",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "eth-to-eoa-eip2930",
+          "label": "1 wei to a fresh address",
+          "type": "eip2930",
+          "hash": "0x6bac251f13e26e0e17a2f2073e2055b6239e89ca3b558809f677951c3840a58f",
+          "block": "11824908",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "23400",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "eth-to-eoa-eip1559",
+          "label": "1 wei to a fresh address",
+          "type": "eip1559",
+          "hash": "0x0510a3b2143583caa7d78065e9f04df7dca994d2bcd599eac2482435536aae51",
+          "block": "11824909",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "21000",
+          "effectiveGasPrice": "1305562750"
+        },
+        {
+          "case": "self-send-eip1559",
+          "label": "1 wei to itself",
+          "type": "eip1559",
+          "hash": "0x3b4b818604f4b4dda8cbe4ac4225bc09d2f5d74a0485284ae53e8abe90808dab",
+          "block": "11824910",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "21000",
+          "effectiveGasPrice": "1378359168"
+        },
+        {
+          "case": "deploy-minimal-legacy",
+          "label": "deploy a 3-byte contract",
+          "type": "legacy",
+          "hash": "0x42c46fb7da6254260f90bc80d2195faa2fe93b1c03e7e09b1e1b53c51cdfbd1f",
+          "block": "11824911",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "53832",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "deploy-minimal-eip2930",
+          "label": "deploy a 3-byte contract",
+          "type": "eip2930",
+          "hash": "0xe96817950d4fbbf9b42b5f171d05cd76032f1017eac825edee7545180e208b26",
+          "block": "11824912",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "56232",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "revert-eip1559",
+          "label": "an unknown selector to LiveCheck",
+          "type": "eip1559",
+          "hash": "0x3968b8195473b9da2bace59a7baad87d36732bcc895a8f6e28174440a6723e6a",
+          "block": "11824913",
+          "status": "reverted",
+          "from": "kms",
+          "gasUsed": "21263",
+          "effectiveGasPrice": "1411744273"
+        },
+        {
+          "case": "call-legacy",
+          "label": "add(1) with 1 wei",
+          "type": "legacy",
+          "hash": "0x72d01a838535f3e63163e6dd7c284bb718467d29dbb93afdc1310a0773dc46d8",
+          "block": "11824914",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "43926",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "call-eip2930",
+          "label": "add(1) with 1 wei",
+          "type": "eip2930",
+          "hash": "0x593aeaff8405ee1fafe46aaae129f561addc1468ae0f5b1be30c6a59b035465c",
+          "block": "11824915",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "29126",
+          "effectiveGasPrice": "3000000000"
+        },
+        {
+          "case": "call-eip1559",
+          "label": "add(1) with 1 wei",
+          "type": "eip1559",
+          "hash": "0x08b20d5f5a8541b4b4c2c69b926c19343dc3c88643d36510c6d9254c3055ae9f",
+          "block": "11824916",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "26826",
+          "effectiveGasPrice": "1410747391"
+        },
+        {
+          "case": "delegate-and-call",
+          "label": "delegate to LiveCheck and add(1) with 1 wei",
+          "type": "eip7702",
+          "hash": "0x38d59468aad8c7eccdd382c4a019d0a8b6472597e3930bbc33706210c5c39abd",
+          "block": "11824917",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "41461",
+          "effectiveGasPrice": "1332067797"
+        },
+        {
+          "case": "signatures",
+          "label": "personal_sign recovered by LiveCheck",
+          "type": null,
+          "hash": null,
+          "block": "11824917",
+          "status": "success",
+          "from": "kms"
+        },
+        {
+          "case": "signatures",
+          "label": "eth_sign recovered by LiveCheck",
+          "type": null,
+          "hash": null,
+          "block": "11824917",
+          "status": "success",
+          "from": "kms"
+        },
+        {
+          "case": "signatures",
+          "label": "eth_signTypedData_v4 recovered by LiveCheck",
+          "type": null,
+          "hash": null,
+          "block": "11824917",
+          "status": "success",
+          "from": "kms"
+        },
+        {
+          "case": "sponsor-other",
+          "label": "1 wei to a fresh address, with a throwaway key's authorization",
+          "type": "eip7702",
+          "hash": "0x786b955f167dfc238a172ea83ec55dabfd7faabdff8b39b4a2b1bd958d781767",
+          "block": "11824918",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "46000",
+          "effectiveGasPrice": "1357220423"
+        },
+        {
+          "case": "sponsor-other",
+          "label": "clear the throwaway key's delegation",
+          "type": "eip7702",
+          "hash": "0x8d5eaabcd194b5099261e843dc6264e74cc14676bf594775de21613b24d3ece3",
+          "block": "11824919",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "36800",
+          "effectiveGasPrice": "1398167642"
+        },
+        {
+          "case": "clear-delegation",
+          "label": "clear the delegation, with 1 wei to itself",
+          "type": "eip7702",
+          "hash": "0x217e808410f06169a5eb9c6ef54430db31d6d27d2cbf76340c594554c3312fc5",
+          "block": "11824920",
+          "status": "success",
+          "from": "kms",
+          "gasUsed": "36800",
+          "effectiveGasPrice": "1323854913"
+        }
+      ]
+    }
+  ]
+}
