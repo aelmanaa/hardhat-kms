@@ -47,7 +47,7 @@ export default defineConfig({
 });
 ```
 
-A network's `kmsAccounts` lists key names or inline key objects. The full set of plugin config fields:
+A network's `kmsAccounts` lists key names or inline key objects. [Use several keys across networks](../guides/multiple-keys.md) shows how to combine keys, providers and networks, and how to pick the sender. The full set of plugin config fields:
 
 | Field                          | Meaning                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -160,7 +160,7 @@ export default defineConfig({
 });
 ```
 
-In this order, hardhat-kms gives a transaction without `from` its default sender, such as a KMS account set as the network's `from`, before hardhat-ledger checks it. In the other order, hardhat-ledger rejects every transaction without `from` on a network with `ledgerAccounts`, as it does when loaded alone. The order also sets where the KMS and Ledger accounts appear in `eth_accounts`; see [Other signing plugins](../../contributor/architecture.md#other-signing-plugins).
+In this order, hardhat-kms gives a raw `eth_sendTransaction` request without `from` its default sender ([RPC methods](rpc-methods.md#rpc-behaviour)) before hardhat-ledger checks it. In the other order, hardhat-ledger rejects every such request on a network with `ledgerAccounts`, as it does when loaded alone. hardhat-viem, hardhat-ethers and Ignition always set `from`, to the first address of `eth_accounts` unless you name another, so the order does not change their sender. The order also sets where the KMS and Ledger accounts appear in `eth_accounts`; see [Other signing plugins](../../contributor/architecture.md#other-signing-plugins).
 
 ## Credentials
 
