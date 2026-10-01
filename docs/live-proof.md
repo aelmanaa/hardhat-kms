@@ -2,86 +2,231 @@
 
 Audience: contributors and reviewers who want on-chain evidence that the plugin signs with real KMS keys.
 
-Status: M9. The latest run of the live suite on Sepolia ([#44](https://github.com/aelmanaa/hardhat-kms/issues/44)), with AWS KMS, Google Cloud KMS and Azure Key Vault keys.
+Status: M9. The latest run of the live suite on Sepolia ([#44](https://github.com/aelmanaa/hardhat-kms/issues/44)), with the transaction matrix of [#144](https://github.com/aelmanaa/hardhat-kms/issues/144). `pnpm run docs:live-proof` renders this page from `test/live/proof.json`, which the run wrote; do not edit it by hand.
 
 ## Run
 
-| Field      | Value                                                                                                          |
-| ---------- | -------------------------------------------------------------------------------------------------------------- |
-| Date       | 2026-10-01, blocks mined from 21:47:36 to 21:48:48 UTC                                                         |
-| Commit     | `809b55a` (`test: harden the fork proxy and tie anvil to the test process`), on the branch that adds fork mode |
-| Chain id   | 11155111 (Sepolia)                                                                                             |
-| Blocks     | 11824595 to 11824601                                                                                           |
-| Command    | `HARDHAT_KMS_LIVE_NETWORK=sepolia pnpm run test:live`                                                          |
-| Providers  | AWS KMS, Google Cloud KMS and Azure Key Vault, in parallel                                                     |
-| Result     | 35 tests: 34 passed, 0 failed, 1 skipped (the proxy check, which runs only in fork mode)                       |
-| Gas prices | 3 gwei for the legacy and EIP-2930 transactions; 1.33 to 1.43 gwei effective for the others                    |
+| Field      | Value                                                                    |
+| ---------- | ------------------------------------------------------------------------ |
+| Date       | 2026-10-01, blocks mined from 22:49:48 to 22:52:36 UTC                   |
+| Commit     | `1aeecd5` (`test: tighten the live matrix checks after review`)          |
+| Chain id   | 11155111 (Sepolia)                                                       |
+| Blocks     | 11824906 to 11824920                                                     |
+| Command    | `HARDHAT_KMS_LIVE_NETWORK=sepolia pnpm run test:live`                    |
+| Providers  | AWS KMS, Google Cloud KMS and Azure Key Vault, in parallel               |
+| Gas prices | 3.00 to 3.00 gwei for types 0 and 1; 1.30 to 1.41 gwei for types 2 and 4 |
 
-Every transaction below was signed by the provider's KMS key through the plugin. The suite waited for each receipt and checked status 1, the KMS account as `from`, and the transaction type. After the run, each receipt was read again from the RPC and matched: status, type, sender, block and, for the EIP-7702 transactions, the authorization's address. The legacy transactions' `v` value (22310258 for all three accounts) carries chain id 11155111 (EIP-155).
-
-The two EIP-7702 transactions of each account are self-sent. The first delegates the account to that run's `LiveCheck` and calls `add(1)` on it; the second authorizes the zero address, which clears the delegation. The same key signed both authorizations through the core signer. After the clear, a 1 wei transfer from the account to itself succeeded, and none of the three accounts has code:
-
-```sh
-cast code 0x0b545a5a4cA04252184A7813D0D4D3fBA31Af2fd --rpc-url https://ethereum-sepolia-rpc.publicnode.com
-# -> 0x
-cast code 0x728743B36DE6236f6d03409563a7E2c39a00EE17 --rpc-url https://ethereum-sepolia-rpc.publicnode.com
-# -> 0x
-cast code 0x9626Fb8498C69d88F8C080835C3Cd328453D3004 --rpc-url https://ethereum-sepolia-rpc.publicnode.com
-# -> 0x
-```
-
-Slot 0 of each account's storage still holds the count that the delegated `add` calls wrote; clearing a delegation does not reset storage.
+Every transaction below was signed by the provider's KMS key through the plugin, except where a case says another key signed. The suite waited for each receipt and checked its status, its sender and its type against the case table in `test/live/matrix.ts`. A run that misses a receipt for any live cell fails, and writes no proof.
 
 The `personal_sign` and `eth_signTypedData_v4` signatures are checked with `eth_call`: `LiveCheck` rebuilds the EIP-191 and EIP-712 digests on chain and recovers the KMS account with `ecrecover`. These checks send no transaction, so they have no hash.
 
-The amounts spent are the sum of `gasUsed × effectiveGasPrice` over each account's receipts; the 1 wei transfer goes back to the same account.
+Each account ends the run with no code. Its EIP-7702 delegation is cleared by the last case, and the throwaway key whose authorization the account sent is cleared by a second transaction in the same case. Slot 0 of each account's storage keeps the count that the delegated `add` wrote; clearing a delegation does not reset storage.
+
+## Coverage matrix
+
+One decision per action and type. Live cells run on Sepolia and on the fork, fork cells only on the fork, unit cells only in the unit or integration tests, and refused cells are refused by the plugin before any request. Each live and fork cell runs once per provider.
+
+| Action                                             | Type 0 (legacy) | Type 1 (EIP-2930) | Type 2 (EIP-1559) | Type 3 (EIP-4844) | Type 4 (EIP-7702) |
+| -------------------------------------------------- | --------------- | ----------------- | ----------------- | ----------------- | ----------------- |
+| ETH to another EOA                                 | Live            | Live              | Live              | Refused (r)       | Live              |
+| ETH to self                                        | Fork (a)        | Fork (a)          | Live              | Refused (r)       | Live              |
+| Contract deploy                                    | Live            | Live              | Live              | N/A (b)           | N/A (c)           |
+| Contract call                                      | Live            | Live              | Live              | Refused (r)       | Live              |
+| Payable contract call                              | Live            | Live              | Live              | Refused (r)       | Live              |
+| Reverting transaction, mined with status 0         | Fork (d)        | Fork (d)          | Live              | Refused (r)       | Fork (d)          |
+| Replacement (same nonce, higher fee)               | Fork (e)        | Fork (e)          | Fork (e), unit    | Refused (r)       | Fork (e)          |
+| EIP-7702 set delegation                            | N/A (f)         | N/A (f)           | N/A (f)           | N/A (f)           | Live              |
+| EIP-7702 clear delegation                          | N/A (f)         | N/A (f)           | N/A (f)           | N/A (f)           | Live              |
+| Sponsored: we send another key's authorization     | N/A (f)         | N/A (f)           | N/A (f)           | N/A (f)           | Live              |
+| Sponsored: another account sends our authorization | N/A (g)         | N/A (g)           | N/A (g)           | N/A (g)           | Fork (h)          |
+
+| Signature              | Decision |
+| ---------------------- | -------- |
+| `personal_sign`        | Live     |
+| `eth_signTypedData_v4` | Live     |
+| `eth_sign`             | Live     |
+
+Reasons:
+
+- (a) A self-send of type 0 or 1 takes the same fill and signing path as a send to another EOA of the same type, which runs live. Self-sends of types 2 and 4 run live.
+- (b) EIP-4844: "`to` … MUST NOT be `nil` … blob transactions cannot have the form of a create transaction." The plugin refuses blob transactions anyway.
+- (c) EIP-7702 gives `destination` the semantics of EIP-4844: "this implies a null destination is not valid."
+- (d) The revert path does not depend on the type: the receipt has status 0, and the next transaction whose nonce the plugin fills carries the account's count after the revert, which the type 2 case proves on Sepolia. The type 4 case also checks that the delegation stays applied, since EIP-7702 does not roll back processed authorizations when execution fails.
+- (e) A replacement needs a transaction that stays pending. On Sepolia that means pricing one below the base fee through a load-balanced public RPC, where a backend may refuse it or mine it, and a stuck nonce blocks the account. In fork mode the case turns automine off with `evm_setAutomine`, sends, sends the replacement with double the fees, mines, and checks that only the replacement was mined.
+- (f) EIP-7702: only a set-code transaction (type 4) carries an `authorization_list`, and the list must not be empty. The plugin picks type 4 exactly when `authorizationList` is present and refuses a `gasPrice` next to it.
+- (g) The other account signs the outer transaction; the plugin signs only the authorization, which only type 4 carries (EIP-7702).
+- (h) On Sepolia the KMS account would first have to fund a second key, and ETH would stay there. In fork mode `anvil_setBalance` funds a throwaway local sender for free. The KMS key signs the authorization with its current nonce, not nonce + 1, since another account sends it.
+- (r) EIP-4844 blob transactions: the plugin refuses them before any request.
+
+Unit tests:
+
+- `packages/hardhat-kms/test/unit/rpc/transaction-filler.test.ts`, "refuses blob transactions before any request": `eth-to-eoa/eip4844`, `eth-to-self/eip4844`, `call/eip4844`, `payable-call/eip4844`, `revert/eip4844`, `replacement/eip4844`
+- `packages/hardhat-kms/test/integration/send-lock.test.ts`, "keeps an explicit nonce and sends same-nonce replacements with higher fees": `replacement/eip1559`
+
+Not in the matrix:
+
+- CREATE2 factory deploy: The plugin sees a call to the factory, which is the contract call row. It never builds the CREATE2 address itself.
+
+Cases:
+
+| Case                     | Mode | What it sends                                                                                                                    |
+| ------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `deploy-live-check`      | live | deploy `LiveCheck`                                                                                                               |
+| `eth-to-eoa-legacy`      | live | 1 wei to a fresh address                                                                                                         |
+| `eth-to-eoa-eip2930`     | live | 1 wei to a fresh address, with an access list                                                                                    |
+| `eth-to-eoa-eip1559`     | live | 1 wei to a fresh address                                                                                                         |
+| `self-send-legacy`       | fork | 1 wei to itself                                                                                                                  |
+| `self-send-eip2930`      | fork | 1 wei to itself, with an access list                                                                                             |
+| `self-send-eip1559`      | live | 1 wei to itself                                                                                                                  |
+| `deploy-minimal-legacy`  | live | deploy a 3-byte contract                                                                                                         |
+| `deploy-minimal-eip2930` | live | deploy a 3-byte contract, with an access list                                                                                    |
+| `revert-eip1559`         | live | an unknown selector to `LiveCheck`, with a gas limit of 50,000                                                                   |
+| `revert-legacy`          | fork | an unknown selector to `LiveCheck`, with a gas limit of 50,000                                                                   |
+| `revert-eip2930`         | fork | an unknown selector to `LiveCheck`, with an access list and a gas limit of 50,000                                                |
+| `call-legacy`            | live | `add(1)` with 1 wei                                                                                                              |
+| `call-eip2930`           | live | `add(1)` with 1 wei, with an access list                                                                                         |
+| `call-eip1559`           | live | `add(1)` with 1 wei                                                                                                              |
+| `replace-legacy`         | fork | replace a pending 1 wei self-send                                                                                                |
+| `replace-eip2930`        | fork | replace a pending 1 wei self-send, with an access list                                                                           |
+| `replace-eip1559`        | fork | replace a pending 1 wei self-send                                                                                                |
+| `delegate-and-call`      | live | delegate to `LiveCheck` and call `add(1)` on itself with 1 wei                                                                   |
+| `signatures`             | live | `LiveCheck` recovers a `personal_sign`, an `eth_sign` and an `eth_signTypedData_v4` signature                                    |
+| `sponsor-other`          | live | 1 wei to the fresh address, carrying a throwaway key's authorization to `LiveCheck`; a second transaction clears that delegation |
+| `sponsored-by-other`     | fork | a funded local account sends our authorization, delegating to the 3-byte contract                                                |
+| `revert-eip7702`         | fork | delegate back to `LiveCheck` and send an unknown selector to itself, with a gas limit of 100,000                                 |
+| `replace-eip7702`        | fork | replace a pending self-send that carries an authorization                                                                        |
+| `clear-delegation`       | live | authorize the zero address and send 1 wei to itself                                                                              |
 
 ## AWS KMS
 
 - Account: [`0x0b545a5a4cA04252184A7813D0D4D3fBA31Af2fd`](https://sepolia.etherscan.io/address/0x0b545a5a4cA04252184A7813D0D4D3fBA31Af2fd)
-- `LiveCheck`: [`0xfCf784480EAC2e7b2b816f8affb8e2d1dD6Cb20C`](https://sepolia.etherscan.io/address/0xfCf784480EAC2e7b2b816f8affb8e2d1dD6Cb20C)
-- Spent: 0.00134478221061743 ETH
+- `LiveCheck`: [`0xF816F00896c2Df50F4E5236abcdCa2E2839c8C01`](https://sepolia.etherscan.io/address/0xF816F00896c2Df50F4E5236abcdCa2E2839c8C01)
+- Spent: 0.001916035465471574 ETH
 
-| Step                                 | Type              | Block    | Transaction                                                                                                                                                                |
-| ------------------------------------ | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| deploy `LiveCheck`                   | EIP-1559 (type 2) | 11824595 | [`0xb2310a931050a5ad16dd8b62596bc24db09e7cd91fe588b3191c7f34d4fff9df`](https://sepolia.etherscan.io/tx/0xb2310a931050a5ad16dd8b62596bc24db09e7cd91fe588b3191c7f34d4fff9df) |
-| `add(1)`                             | Legacy (type 0)   | 11824596 | [`0xde4da390ee2443eeade08d097768c709662679b41620be6ad29e5fc1a505090d`](https://sepolia.etherscan.io/tx/0xde4da390ee2443eeade08d097768c709662679b41620be6ad29e5fc1a505090d) |
-| `add(1)` with an access list         | EIP-2930 (type 1) | 11824597 | [`0x62d78c014a39600ac9d9f8dc39b6659f49023fd3bd2a16bd7d605404f313e91c`](https://sepolia.etherscan.io/tx/0x62d78c014a39600ac9d9f8dc39b6659f49023fd3bd2a16bd7d605404f313e91c) |
-| `add(1)`                             | EIP-1559 (type 2) | 11824598 | [`0xb15e8650241279ea465c3eee70acc1c838e01fc27b4bd338def9f9a17e978808`](https://sepolia.etherscan.io/tx/0xb15e8650241279ea465c3eee70acc1c838e01fc27b4bd338def9f9a17e978808) |
-| delegate to `LiveCheck` and `add(1)` | EIP-7702 (type 4) | 11824599 | [`0xdca2fa457e3eba434622bd1972ad9e02bffb54d2c7fbc87d73dbc8c0e02cf348`](https://sepolia.etherscan.io/tx/0xdca2fa457e3eba434622bd1972ad9e02bffb54d2c7fbc87d73dbc8c0e02cf348) |
-| clear the delegation                 | EIP-7702 (type 4) | 11824600 | [`0x806e5548fc975aaf2d6483e96b951215167f107caaafade4b636f41ca41e1f0e`](https://sepolia.etherscan.io/tx/0x806e5548fc975aaf2d6483e96b951215167f107caaafade4b636f41ca41e1f0e) |
-| send 1 wei to itself                 | EIP-1559 (type 2) | 11824601 | [`0xa1e4212987eceaf54af068b3895b220f7418e5a7b0f0fc51f1cb3a6bb0f3ecf2`](https://sepolia.etherscan.io/tx/0xa1e4212987eceaf54af068b3895b220f7418e5a7b0f0fc51f1cb3a6bb0f3ecf2) |
+| Action                                             | Type 0 (legacy)                                                                                                    | Type 1 (EIP-2930)                                                                                                  | Type 2 (EIP-1559)                                                                                                  | Type 3 (EIP-4844) | Type 4 (EIP-7702)                                                                                                  |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
+| ETH to another EOA                                 | [`0xc77361ab`](https://sepolia.etherscan.io/tx/0xc77361ab849ef1a549e792991bbdfe8e2a45c8d468dc07a1e2ad479313415fd2) | [`0xb25c3c37`](https://sepolia.etherscan.io/tx/0xb25c3c37d3541c2769b6d9abff8f1c721bf095361651ba3ea5d12c01480f4f79) | [`0xe82c5c84`](https://sepolia.etherscan.io/tx/0xe82c5c848a148c008cef3ad9ed0f62c69cce3502aebf9036d18eae0a1f1b2a80) | Refused (r)       | [`0xce1af24d`](https://sepolia.etherscan.io/tx/0xce1af24dfdbca44ba16ae07b937ca267afee484f998f16030f78e3f8dbfe22bd) |
+| ETH to self                                        | fork only                                                                                                          | fork only                                                                                                          | [`0xe1f15e67`](https://sepolia.etherscan.io/tx/0xe1f15e677e4a7138aad3b431a3421c265ad268644aba1a12c14c2cf4c6e1d3fb) | Refused (r)       | [`0x47356c78`](https://sepolia.etherscan.io/tx/0x47356c7893b982d8943fd3a395705c12bbae8336d1eb03eed139a839bf18a224) |
+| Contract deploy                                    | [`0xbb834308`](https://sepolia.etherscan.io/tx/0xbb8343087579c6023abbb7d093d36fae585a5aa0c8de9792055b9371d76ce0cc) | [`0x016880ba`](https://sepolia.etherscan.io/tx/0x016880ba33f2dac08833a066e80ccf25f5540380385494f3d54bfe841ce3587c) | [`0xc46329ce`](https://sepolia.etherscan.io/tx/0xc46329ce55c350a2d727372f8fd123a109d0e5150427ec464f5caa15f3120045) | N/A (b)           | N/A (c)                                                                                                            |
+| Contract call                                      | [`0x8932184c`](https://sepolia.etherscan.io/tx/0x8932184ca70ad0c3e94602840e2e2ba21f808218e1f585723070e8790057f874) | [`0x795abbce`](https://sepolia.etherscan.io/tx/0x795abbce0ddc09f4a9523a6c119fb8eda9ed5f19e7d37f8e2c1209a78ceb645c) | [`0xe3bda9e9`](https://sepolia.etherscan.io/tx/0xe3bda9e9f56c09e01d0b2c96fe683fdf07f9ecb223fabbf4550fd4c6c3e8dfaf) | Refused (r)       | [`0x78cb1824`](https://sepolia.etherscan.io/tx/0x78cb1824e6b0047a3d81f6ddf428c0e23fce41219962611d0f8f59b762630eef) |
+| Payable contract call                              | [`0x8932184c`](https://sepolia.etherscan.io/tx/0x8932184ca70ad0c3e94602840e2e2ba21f808218e1f585723070e8790057f874) | [`0x795abbce`](https://sepolia.etherscan.io/tx/0x795abbce0ddc09f4a9523a6c119fb8eda9ed5f19e7d37f8e2c1209a78ceb645c) | [`0xe3bda9e9`](https://sepolia.etherscan.io/tx/0xe3bda9e9f56c09e01d0b2c96fe683fdf07f9ecb223fabbf4550fd4c6c3e8dfaf) | Refused (r)       | [`0x78cb1824`](https://sepolia.etherscan.io/tx/0x78cb1824e6b0047a3d81f6ddf428c0e23fce41219962611d0f8f59b762630eef) |
+| Reverting transaction, mined with status 0         | fork only                                                                                                          | fork only                                                                                                          | [`0x478fa44c`](https://sepolia.etherscan.io/tx/0x478fa44c83c66bceb90de7ced7261a44804e56f10d3a239500655eb06bdd86bc) | Refused (r)       | fork only                                                                                                          |
+| Replacement (same nonce, higher fee)               | fork only                                                                                                          | fork only                                                                                                          | fork only                                                                                                          | Refused (r)       | fork only                                                                                                          |
+| EIP-7702 set delegation                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)           | [`0x78cb1824`](https://sepolia.etherscan.io/tx/0x78cb1824e6b0047a3d81f6ddf428c0e23fce41219962611d0f8f59b762630eef) |
+| EIP-7702 clear delegation                          | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)           | [`0x47356c78`](https://sepolia.etherscan.io/tx/0x47356c7893b982d8943fd3a395705c12bbae8336d1eb03eed139a839bf18a224) |
+| Sponsored: we send another key's authorization     | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)           | [`0xce1af24d`](https://sepolia.etherscan.io/tx/0xce1af24dfdbca44ba16ae07b937ca267afee484f998f16030f78e3f8dbfe22bd) |
+| Sponsored: another account sends our authorization | N/A (g)                                                                                                            | N/A (g)                                                                                                            | N/A (g)                                                                                                            | N/A (g)           | fork only                                                                                                          |
+
+| Signature              | Proof                        |
+| ---------------------- | ---------------------------- |
+| `personal_sign`        | `eth_call` at block 11824917 |
+| `eth_signTypedData_v4` | `eth_call` at block 11824917 |
+| `eth_sign`             | `eth_call` at block 11824917 |
+
+| Case                     | Step                                                           | Type | Status | Block    | Transaction                                                                                                        |
+| ------------------------ | -------------------------------------------------------------- | ---- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------ |
+| `deploy-live-check`      | deploy LiveCheck                                               | 2    | 1      | 11824906 | [`0xc46329ce`](https://sepolia.etherscan.io/tx/0xc46329ce55c350a2d727372f8fd123a109d0e5150427ec464f5caa15f3120045) |
+| `eth-to-eoa-legacy`      | 1 wei to a fresh address                                       | 0    | 1      | 11824907 | [`0xc77361ab`](https://sepolia.etherscan.io/tx/0xc77361ab849ef1a549e792991bbdfe8e2a45c8d468dc07a1e2ad479313415fd2) |
+| `eth-to-eoa-eip2930`     | 1 wei to a fresh address                                       | 1    | 1      | 11824908 | [`0xb25c3c37`](https://sepolia.etherscan.io/tx/0xb25c3c37d3541c2769b6d9abff8f1c721bf095361651ba3ea5d12c01480f4f79) |
+| `eth-to-eoa-eip1559`     | 1 wei to a fresh address                                       | 2    | 1      | 11824909 | [`0xe82c5c84`](https://sepolia.etherscan.io/tx/0xe82c5c848a148c008cef3ad9ed0f62c69cce3502aebf9036d18eae0a1f1b2a80) |
+| `self-send-eip1559`      | 1 wei to itself                                                | 2    | 1      | 11824910 | [`0xe1f15e67`](https://sepolia.etherscan.io/tx/0xe1f15e677e4a7138aad3b431a3421c265ad268644aba1a12c14c2cf4c6e1d3fb) |
+| `deploy-minimal-legacy`  | deploy a 3-byte contract                                       | 0    | 1      | 11824911 | [`0xbb834308`](https://sepolia.etherscan.io/tx/0xbb8343087579c6023abbb7d093d36fae585a5aa0c8de9792055b9371d76ce0cc) |
+| `deploy-minimal-eip2930` | deploy a 3-byte contract                                       | 1    | 1      | 11824912 | [`0x016880ba`](https://sepolia.etherscan.io/tx/0x016880ba33f2dac08833a066e80ccf25f5540380385494f3d54bfe841ce3587c) |
+| `revert-eip1559`         | an unknown selector to LiveCheck                               | 2    | 0      | 11824913 | [`0x478fa44c`](https://sepolia.etherscan.io/tx/0x478fa44c83c66bceb90de7ced7261a44804e56f10d3a239500655eb06bdd86bc) |
+| `call-legacy`            | add(1) with 1 wei                                              | 0    | 1      | 11824914 | [`0x8932184c`](https://sepolia.etherscan.io/tx/0x8932184ca70ad0c3e94602840e2e2ba21f808218e1f585723070e8790057f874) |
+| `call-eip2930`           | add(1) with 1 wei                                              | 1    | 1      | 11824915 | [`0x795abbce`](https://sepolia.etherscan.io/tx/0x795abbce0ddc09f4a9523a6c119fb8eda9ed5f19e7d37f8e2c1209a78ceb645c) |
+| `call-eip1559`           | add(1) with 1 wei                                              | 2    | 1      | 11824916 | [`0xe3bda9e9`](https://sepolia.etherscan.io/tx/0xe3bda9e9f56c09e01d0b2c96fe683fdf07f9ecb223fabbf4550fd4c6c3e8dfaf) |
+| `delegate-and-call`      | delegate to LiveCheck and add(1) with 1 wei                    | 4    | 1      | 11824917 | [`0x78cb1824`](https://sepolia.etherscan.io/tx/0x78cb1824e6b0047a3d81f6ddf428c0e23fce41219962611d0f8f59b762630eef) |
+| `sponsor-other`          | 1 wei to a fresh address, with a throwaway key's authorization | 4    | 1      | 11824918 | [`0xce1af24d`](https://sepolia.etherscan.io/tx/0xce1af24dfdbca44ba16ae07b937ca267afee484f998f16030f78e3f8dbfe22bd) |
+| `sponsor-other`          | clear the throwaway key's delegation                           | 4    | 1      | 11824919 | [`0x454b78f1`](https://sepolia.etherscan.io/tx/0x454b78f14ab1e61c710cd04e326450e17ab0cabf15c6550abdd8d4f722b1409a) |
+| `clear-delegation`       | clear the delegation, with 1 wei to itself                     | 4    | 1      | 11824920 | [`0x47356c78`](https://sepolia.etherscan.io/tx/0x47356c7893b982d8943fd3a395705c12bbae8336d1eb03eed139a839bf18a224) |
 
 ## Google Cloud KMS
 
 - Account: [`0x728743B36DE6236f6d03409563a7E2c39a00EE17`](https://sepolia.etherscan.io/address/0x728743B36DE6236f6d03409563a7E2c39a00EE17)
-- `LiveCheck`: [`0x359d6F0F102673097231EA618A8A8dc746A73D1f`](https://sepolia.etherscan.io/address/0x359d6F0F102673097231EA618A8A8dc746A73D1f)
-- Spent: 0.00134478221061743 ETH
+- `LiveCheck`: [`0x608b2f6ECB9000E386d182cC3ac0B145ab8c34CD`](https://sepolia.etherscan.io/address/0x608b2f6ECB9000E386d182cC3ac0B145ab8c34CD)
+- Spent: 0.001921550465151062 ETH
 
-| Step                                 | Type              | Block    | Transaction                                                                                                                                                                |
-| ------------------------------------ | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| deploy `LiveCheck`                   | EIP-1559 (type 2) | 11824595 | [`0xcb1e0f5d2c52fd60d208ffca47cfcd01d043d8beb73d852eebc6fa302b811834`](https://sepolia.etherscan.io/tx/0xcb1e0f5d2c52fd60d208ffca47cfcd01d043d8beb73d852eebc6fa302b811834) |
-| `add(1)`                             | Legacy (type 0)   | 11824596 | [`0xebaa237baccac25f4796131367494ec5cd8fbacdbb5a4a090c7eaf1bda46653c`](https://sepolia.etherscan.io/tx/0xebaa237baccac25f4796131367494ec5cd8fbacdbb5a4a090c7eaf1bda46653c) |
-| `add(1)` with an access list         | EIP-2930 (type 1) | 11824597 | [`0xd6ab8d7747a544c16a1da18c3f50999dcec55a44fb1cfac38d6f35f50be8ae06`](https://sepolia.etherscan.io/tx/0xd6ab8d7747a544c16a1da18c3f50999dcec55a44fb1cfac38d6f35f50be8ae06) |
-| `add(1)`                             | EIP-1559 (type 2) | 11824598 | [`0xb85b525419b5a2ef0922baa66f55184c8b13364f52ce901f39912233193c6bcd`](https://sepolia.etherscan.io/tx/0xb85b525419b5a2ef0922baa66f55184c8b13364f52ce901f39912233193c6bcd) |
-| delegate to `LiveCheck` and `add(1)` | EIP-7702 (type 4) | 11824599 | [`0xd3b6a2c434b9d20bfa37a93d206bfb04bf523d1ee1bdb4585217f3b4c6c74557`](https://sepolia.etherscan.io/tx/0xd3b6a2c434b9d20bfa37a93d206bfb04bf523d1ee1bdb4585217f3b4c6c74557) |
-| clear the delegation                 | EIP-7702 (type 4) | 11824600 | [`0xd780c84516b662ea0743b6a3e3a943c04f06c3d77e88d957ef64761a56f2fb80`](https://sepolia.etherscan.io/tx/0xd780c84516b662ea0743b6a3e3a943c04f06c3d77e88d957ef64761a56f2fb80) |
-| send 1 wei to itself                 | EIP-1559 (type 2) | 11824601 | [`0x4a546baba9299a2d9c63e7e7d392be9449532bbad08264ed3c4a098b4547f9ee`](https://sepolia.etherscan.io/tx/0x4a546baba9299a2d9c63e7e7d392be9449532bbad08264ed3c4a098b4547f9ee) |
+| Action                                             | Type 0 (legacy)                                                                                                    | Type 1 (EIP-2930)                                                                                                  | Type 2 (EIP-1559)                                                                                                  | Type 3 (EIP-4844) | Type 4 (EIP-7702)                                                                                                  |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
+| ETH to another EOA                                 | [`0xff6566ff`](https://sepolia.etherscan.io/tx/0xff6566ff564f78c7040901c3fdede2e7c63f5e438f8c812e79ad9a5847e298c6) | [`0x3d4b705d`](https://sepolia.etherscan.io/tx/0x3d4b705d9190f39911f633f2f3b6d28aa483a8f2c621374de8fb80f6dae38fdc) | [`0x0a5bddbf`](https://sepolia.etherscan.io/tx/0x0a5bddbfbc296d20ffc46e054825464d4338dfdb037cb4856cc65029d7599af4) | Refused (r)       | [`0xd559ffa9`](https://sepolia.etherscan.io/tx/0xd559ffa98106d8efd9af186e30579798be7c767763070ca04d8e36b69d68b84a) |
+| ETH to self                                        | fork only                                                                                                          | fork only                                                                                                          | [`0x013ddf7b`](https://sepolia.etherscan.io/tx/0x013ddf7b8ff1f8d8a89b2999d78ae429021f86fddfdac06b9e615e185307c4ff) | Refused (r)       | [`0x5f8db924`](https://sepolia.etherscan.io/tx/0x5f8db924bd37a0481f4c87ebd4610cd4d36a3bc1f84551ec3539fcd78751e774) |
+| Contract deploy                                    | [`0x1564fcf2`](https://sepolia.etherscan.io/tx/0x1564fcf2bfe4a99209d13d719740ec6b628486604260de7b521255ad53aa9917) | [`0x61b9c722`](https://sepolia.etherscan.io/tx/0x61b9c72201e7f26d81cc3f8afabfb4c566cc8fcbf2f59f1e0482a1ffe580ea71) | [`0xd9a15c33`](https://sepolia.etherscan.io/tx/0xd9a15c33d8accdcf250dbf39933a78cda4fcb7511815fe6763ab19388d9e8c8a) | N/A (b)           | N/A (c)                                                                                                            |
+| Contract call                                      | [`0x9540f917`](https://sepolia.etherscan.io/tx/0x9540f917296d47975631ddd3d5813f7a3f0d5f7ae3a6a01c34f862e5a65998f8) | [`0x952556fb`](https://sepolia.etherscan.io/tx/0x952556fb7a691e36a31af3d2ea9e6cf743fad2d3bff31ef4d2fee32abda5b6c9) | [`0x60901709`](https://sepolia.etherscan.io/tx/0x60901709959977b306b2fefddcecece111fdc79c33e489a94b5f070f93f65482) | Refused (r)       | [`0xb6dc1f02`](https://sepolia.etherscan.io/tx/0xb6dc1f02de4bb8f881e9807614b0ae80328355a6c0315e1fe037572866054905) |
+| Payable contract call                              | [`0x9540f917`](https://sepolia.etherscan.io/tx/0x9540f917296d47975631ddd3d5813f7a3f0d5f7ae3a6a01c34f862e5a65998f8) | [`0x952556fb`](https://sepolia.etherscan.io/tx/0x952556fb7a691e36a31af3d2ea9e6cf743fad2d3bff31ef4d2fee32abda5b6c9) | [`0x60901709`](https://sepolia.etherscan.io/tx/0x60901709959977b306b2fefddcecece111fdc79c33e489a94b5f070f93f65482) | Refused (r)       | [`0xb6dc1f02`](https://sepolia.etherscan.io/tx/0xb6dc1f02de4bb8f881e9807614b0ae80328355a6c0315e1fe037572866054905) |
+| Reverting transaction, mined with status 0         | fork only                                                                                                          | fork only                                                                                                          | [`0x0c8fab33`](https://sepolia.etherscan.io/tx/0x0c8fab334b5fc3b21e6ac23fca309f9ffb17ec12c5163f589e84cadab50b0e2f) | Refused (r)       | fork only                                                                                                          |
+| Replacement (same nonce, higher fee)               | fork only                                                                                                          | fork only                                                                                                          | fork only                                                                                                          | Refused (r)       | fork only                                                                                                          |
+| EIP-7702 set delegation                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)           | [`0xb6dc1f02`](https://sepolia.etherscan.io/tx/0xb6dc1f02de4bb8f881e9807614b0ae80328355a6c0315e1fe037572866054905) |
+| EIP-7702 clear delegation                          | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)           | [`0x5f8db924`](https://sepolia.etherscan.io/tx/0x5f8db924bd37a0481f4c87ebd4610cd4d36a3bc1f84551ec3539fcd78751e774) |
+| Sponsored: we send another key's authorization     | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)           | [`0xd559ffa9`](https://sepolia.etherscan.io/tx/0xd559ffa98106d8efd9af186e30579798be7c767763070ca04d8e36b69d68b84a) |
+| Sponsored: another account sends our authorization | N/A (g)                                                                                                            | N/A (g)                                                                                                            | N/A (g)                                                                                                            | N/A (g)           | fork only                                                                                                          |
+
+| Signature              | Proof                        |
+| ---------------------- | ---------------------------- |
+| `personal_sign`        | `eth_call` at block 11824917 |
+| `eth_signTypedData_v4` | `eth_call` at block 11824917 |
+| `eth_sign`             | `eth_call` at block 11824917 |
+
+| Case                     | Step                                                           | Type | Status | Block    | Transaction                                                                                                        |
+| ------------------------ | -------------------------------------------------------------- | ---- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------ |
+| `deploy-live-check`      | deploy LiveCheck                                               | 2    | 1      | 11824906 | [`0xd9a15c33`](https://sepolia.etherscan.io/tx/0xd9a15c33d8accdcf250dbf39933a78cda4fcb7511815fe6763ab19388d9e8c8a) |
+| `eth-to-eoa-legacy`      | 1 wei to a fresh address                                       | 0    | 1      | 11824907 | [`0xff6566ff`](https://sepolia.etherscan.io/tx/0xff6566ff564f78c7040901c3fdede2e7c63f5e438f8c812e79ad9a5847e298c6) |
+| `eth-to-eoa-eip2930`     | 1 wei to a fresh address                                       | 1    | 1      | 11824908 | [`0x3d4b705d`](https://sepolia.etherscan.io/tx/0x3d4b705d9190f39911f633f2f3b6d28aa483a8f2c621374de8fb80f6dae38fdc) |
+| `eth-to-eoa-eip1559`     | 1 wei to a fresh address                                       | 2    | 1      | 11824909 | [`0x0a5bddbf`](https://sepolia.etherscan.io/tx/0x0a5bddbfbc296d20ffc46e054825464d4338dfdb037cb4856cc65029d7599af4) |
+| `self-send-eip1559`      | 1 wei to itself                                                | 2    | 1      | 11824910 | [`0x013ddf7b`](https://sepolia.etherscan.io/tx/0x013ddf7b8ff1f8d8a89b2999d78ae429021f86fddfdac06b9e615e185307c4ff) |
+| `deploy-minimal-legacy`  | deploy a 3-byte contract                                       | 0    | 1      | 11824911 | [`0x1564fcf2`](https://sepolia.etherscan.io/tx/0x1564fcf2bfe4a99209d13d719740ec6b628486604260de7b521255ad53aa9917) |
+| `deploy-minimal-eip2930` | deploy a 3-byte contract                                       | 1    | 1      | 11824912 | [`0x61b9c722`](https://sepolia.etherscan.io/tx/0x61b9c72201e7f26d81cc3f8afabfb4c566cc8fcbf2f59f1e0482a1ffe580ea71) |
+| `revert-eip1559`         | an unknown selector to LiveCheck                               | 2    | 0      | 11824913 | [`0x0c8fab33`](https://sepolia.etherscan.io/tx/0x0c8fab334b5fc3b21e6ac23fca309f9ffb17ec12c5163f589e84cadab50b0e2f) |
+| `call-legacy`            | add(1) with 1 wei                                              | 0    | 1      | 11824914 | [`0x9540f917`](https://sepolia.etherscan.io/tx/0x9540f917296d47975631ddd3d5813f7a3f0d5f7ae3a6a01c34f862e5a65998f8) |
+| `call-eip2930`           | add(1) with 1 wei                                              | 1    | 1      | 11824915 | [`0x952556fb`](https://sepolia.etherscan.io/tx/0x952556fb7a691e36a31af3d2ea9e6cf743fad2d3bff31ef4d2fee32abda5b6c9) |
+| `call-eip1559`           | add(1) with 1 wei                                              | 2    | 1      | 11824916 | [`0x60901709`](https://sepolia.etherscan.io/tx/0x60901709959977b306b2fefddcecece111fdc79c33e489a94b5f070f93f65482) |
+| `delegate-and-call`      | delegate to LiveCheck and add(1) with 1 wei                    | 4    | 1      | 11824917 | [`0xb6dc1f02`](https://sepolia.etherscan.io/tx/0xb6dc1f02de4bb8f881e9807614b0ae80328355a6c0315e1fe037572866054905) |
+| `sponsor-other`          | 1 wei to a fresh address, with a throwaway key's authorization | 4    | 1      | 11824918 | [`0xd559ffa9`](https://sepolia.etherscan.io/tx/0xd559ffa98106d8efd9af186e30579798be7c767763070ca04d8e36b69d68b84a) |
+| `sponsor-other`          | clear the throwaway key's delegation                           | 4    | 1      | 11824919 | [`0xfbd86c50`](https://sepolia.etherscan.io/tx/0xfbd86c50d1dc535429820807489c114e146b0038e3acd23e35c6bb6da1104d17) |
+| `clear-delegation`       | clear the delegation, with 1 wei to itself                     | 4    | 1      | 11824920 | [`0x5f8db924`](https://sepolia.etherscan.io/tx/0x5f8db924bd37a0481f4c87ebd4610cd4d36a3bc1f84551ec3539fcd78751e774) |
 
 ## Azure Key Vault
 
 - Account: [`0x9626Fb8498C69d88F8C080835C3Cd328453D3004`](https://sepolia.etherscan.io/address/0x9626Fb8498C69d88F8C080835C3Cd328453D3004)
-- `LiveCheck`: [`0x0651514b24F5c788720A51768e952584665F22e3`](https://sepolia.etherscan.io/address/0x0651514b24F5c788720A51768e952584665F22e3)
-- Spent: 0.00134478221061743 ETH
+- `LiveCheck`: [`0xCC5dAE56862Cd25A3d0a322E1Fa3998C6D6D2394`](https://sepolia.etherscan.io/address/0xCC5dAE56862Cd25A3d0a322E1Fa3998C6D6D2394)
+- Spent: 0.001921550465151062 ETH
 
-| Step                                 | Type              | Block    | Transaction                                                                                                                                                                |
-| ------------------------------------ | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| deploy `LiveCheck`                   | EIP-1559 (type 2) | 11824595 | [`0x7ea234804e8f8215ba411c0365f9734719749ea1203454c738f240053d12d188`](https://sepolia.etherscan.io/tx/0x7ea234804e8f8215ba411c0365f9734719749ea1203454c738f240053d12d188) |
-| `add(1)`                             | Legacy (type 0)   | 11824596 | [`0x33ec995470f2d9ed33f4866b13665fef097e366c6244695ae870bcb55e8a3e1f`](https://sepolia.etherscan.io/tx/0x33ec995470f2d9ed33f4866b13665fef097e366c6244695ae870bcb55e8a3e1f) |
-| `add(1)` with an access list         | EIP-2930 (type 1) | 11824597 | [`0x2072d36ac4889086fee802c697410f5e27fa115c2f9777b17aefd619f714fbbe`](https://sepolia.etherscan.io/tx/0x2072d36ac4889086fee802c697410f5e27fa115c2f9777b17aefd619f714fbbe) |
-| `add(1)`                             | EIP-1559 (type 2) | 11824598 | [`0xc684b2ec854b02a5b2e62d951d78a57609e3b91b7a81d53adb9af1e285362582`](https://sepolia.etherscan.io/tx/0xc684b2ec854b02a5b2e62d951d78a57609e3b91b7a81d53adb9af1e285362582) |
-| delegate to `LiveCheck` and `add(1)` | EIP-7702 (type 4) | 11824599 | [`0x692a0c580100019d63797b2ef88a257cb12febacaa10e92b5b25271a652bfa57`](https://sepolia.etherscan.io/tx/0x692a0c580100019d63797b2ef88a257cb12febacaa10e92b5b25271a652bfa57) |
-| clear the delegation                 | EIP-7702 (type 4) | 11824600 | [`0x0003b56fb586c155d7657da068be2c879d684e9f4d693fddd33eb0ed5edee0c5`](https://sepolia.etherscan.io/tx/0x0003b56fb586c155d7657da068be2c879d684e9f4d693fddd33eb0ed5edee0c5) |
-| send 1 wei to itself                 | EIP-1559 (type 2) | 11824601 | [`0x30b2c93c95ce0c1b33553350e3f96f26bc9f2a4309ef2c78abee4951c0bd99b5`](https://sepolia.etherscan.io/tx/0x30b2c93c95ce0c1b33553350e3f96f26bc9f2a4309ef2c78abee4951c0bd99b5) |
+| Action                                             | Type 0 (legacy)                                                                                                    | Type 1 (EIP-2930)                                                                                                  | Type 2 (EIP-1559)                                                                                                  | Type 3 (EIP-4844) | Type 4 (EIP-7702)                                                                                                  |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
+| ETH to another EOA                                 | [`0x73994792`](https://sepolia.etherscan.io/tx/0x7399479242e603222126548443f4151b5f00a2a820c1caeffc215698b42e5a11) | [`0x6bac251f`](https://sepolia.etherscan.io/tx/0x6bac251f13e26e0e17a2f2073e2055b6239e89ca3b558809f677951c3840a58f) | [`0x0510a3b2`](https://sepolia.etherscan.io/tx/0x0510a3b2143583caa7d78065e9f04df7dca994d2bcd599eac2482435536aae51) | Refused (r)       | [`0x786b955f`](https://sepolia.etherscan.io/tx/0x786b955f167dfc238a172ea83ec55dabfd7faabdff8b39b4a2b1bd958d781767) |
+| ETH to self                                        | fork only                                                                                                          | fork only                                                                                                          | [`0x3b4b8186`](https://sepolia.etherscan.io/tx/0x3b4b818604f4b4dda8cbe4ac4225bc09d2f5d74a0485284ae53e8abe90808dab) | Refused (r)       | [`0x217e8084`](https://sepolia.etherscan.io/tx/0x217e808410f06169a5eb9c6ef54430db31d6d27d2cbf76340c594554c3312fc5) |
+| Contract deploy                                    | [`0x42c46fb7`](https://sepolia.etherscan.io/tx/0x42c46fb7da6254260f90bc80d2195faa2fe93b1c03e7e09b1e1b53c51cdfbd1f) | [`0xe9681795`](https://sepolia.etherscan.io/tx/0xe96817950d4fbbf9b42b5f171d05cd76032f1017eac825edee7545180e208b26) | [`0xbd1c227b`](https://sepolia.etherscan.io/tx/0xbd1c227b68e03386e74db88d14d48e626030c14802d8d6a53224e90b6763bd23) | N/A (b)           | N/A (c)                                                                                                            |
+| Contract call                                      | [`0x72d01a83`](https://sepolia.etherscan.io/tx/0x72d01a838535f3e63163e6dd7c284bb718467d29dbb93afdc1310a0773dc46d8) | [`0x593aeaff`](https://sepolia.etherscan.io/tx/0x593aeaff8405ee1fafe46aaae129f561addc1468ae0f5b1be30c6a59b035465c) | [`0x08b20d5f`](https://sepolia.etherscan.io/tx/0x08b20d5f5a8541b4b4c2c69b926c19343dc3c88643d36510c6d9254c3055ae9f) | Refused (r)       | [`0x38d59468`](https://sepolia.etherscan.io/tx/0x38d59468aad8c7eccdd382c4a019d0a8b6472597e3930bbc33706210c5c39abd) |
+| Payable contract call                              | [`0x72d01a83`](https://sepolia.etherscan.io/tx/0x72d01a838535f3e63163e6dd7c284bb718467d29dbb93afdc1310a0773dc46d8) | [`0x593aeaff`](https://sepolia.etherscan.io/tx/0x593aeaff8405ee1fafe46aaae129f561addc1468ae0f5b1be30c6a59b035465c) | [`0x08b20d5f`](https://sepolia.etherscan.io/tx/0x08b20d5f5a8541b4b4c2c69b926c19343dc3c88643d36510c6d9254c3055ae9f) | Refused (r)       | [`0x38d59468`](https://sepolia.etherscan.io/tx/0x38d59468aad8c7eccdd382c4a019d0a8b6472597e3930bbc33706210c5c39abd) |
+| Reverting transaction, mined with status 0         | fork only                                                                                                          | fork only                                                                                                          | [`0x3968b819`](https://sepolia.etherscan.io/tx/0x3968b8195473b9da2bace59a7baad87d36732bcc895a8f6e28174440a6723e6a) | Refused (r)       | fork only                                                                                                          |
+| Replacement (same nonce, higher fee)               | fork only                                                                                                          | fork only                                                                                                          | fork only                                                                                                          | Refused (r)       | fork only                                                                                                          |
+| EIP-7702 set delegation                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)           | [`0x38d59468`](https://sepolia.etherscan.io/tx/0x38d59468aad8c7eccdd382c4a019d0a8b6472597e3930bbc33706210c5c39abd) |
+| EIP-7702 clear delegation                          | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)           | [`0x217e8084`](https://sepolia.etherscan.io/tx/0x217e808410f06169a5eb9c6ef54430db31d6d27d2cbf76340c594554c3312fc5) |
+| Sponsored: we send another key's authorization     | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)                                                                                                            | N/A (f)           | [`0x786b955f`](https://sepolia.etherscan.io/tx/0x786b955f167dfc238a172ea83ec55dabfd7faabdff8b39b4a2b1bd958d781767) |
+| Sponsored: another account sends our authorization | N/A (g)                                                                                                            | N/A (g)                                                                                                            | N/A (g)                                                                                                            | N/A (g)           | fork only                                                                                                          |
 
-The three providers together spent 0.00403434663185229 ETH.
+| Signature              | Proof                        |
+| ---------------------- | ---------------------------- |
+| `personal_sign`        | `eth_call` at block 11824917 |
+| `eth_signTypedData_v4` | `eth_call` at block 11824917 |
+| `eth_sign`             | `eth_call` at block 11824917 |
+
+| Case                     | Step                                                           | Type | Status | Block    | Transaction                                                                                                        |
+| ------------------------ | -------------------------------------------------------------- | ---- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------ |
+| `deploy-live-check`      | deploy LiveCheck                                               | 2    | 1      | 11824906 | [`0xbd1c227b`](https://sepolia.etherscan.io/tx/0xbd1c227b68e03386e74db88d14d48e626030c14802d8d6a53224e90b6763bd23) |
+| `eth-to-eoa-legacy`      | 1 wei to a fresh address                                       | 0    | 1      | 11824907 | [`0x73994792`](https://sepolia.etherscan.io/tx/0x7399479242e603222126548443f4151b5f00a2a820c1caeffc215698b42e5a11) |
+| `eth-to-eoa-eip2930`     | 1 wei to a fresh address                                       | 1    | 1      | 11824908 | [`0x6bac251f`](https://sepolia.etherscan.io/tx/0x6bac251f13e26e0e17a2f2073e2055b6239e89ca3b558809f677951c3840a58f) |
+| `eth-to-eoa-eip1559`     | 1 wei to a fresh address                                       | 2    | 1      | 11824909 | [`0x0510a3b2`](https://sepolia.etherscan.io/tx/0x0510a3b2143583caa7d78065e9f04df7dca994d2bcd599eac2482435536aae51) |
+| `self-send-eip1559`      | 1 wei to itself                                                | 2    | 1      | 11824910 | [`0x3b4b8186`](https://sepolia.etherscan.io/tx/0x3b4b818604f4b4dda8cbe4ac4225bc09d2f5d74a0485284ae53e8abe90808dab) |
+| `deploy-minimal-legacy`  | deploy a 3-byte contract                                       | 0    | 1      | 11824911 | [`0x42c46fb7`](https://sepolia.etherscan.io/tx/0x42c46fb7da6254260f90bc80d2195faa2fe93b1c03e7e09b1e1b53c51cdfbd1f) |
+| `deploy-minimal-eip2930` | deploy a 3-byte contract                                       | 1    | 1      | 11824912 | [`0xe9681795`](https://sepolia.etherscan.io/tx/0xe96817950d4fbbf9b42b5f171d05cd76032f1017eac825edee7545180e208b26) |
+| `revert-eip1559`         | an unknown selector to LiveCheck                               | 2    | 0      | 11824913 | [`0x3968b819`](https://sepolia.etherscan.io/tx/0x3968b8195473b9da2bace59a7baad87d36732bcc895a8f6e28174440a6723e6a) |
+| `call-legacy`            | add(1) with 1 wei                                              | 0    | 1      | 11824914 | [`0x72d01a83`](https://sepolia.etherscan.io/tx/0x72d01a838535f3e63163e6dd7c284bb718467d29dbb93afdc1310a0773dc46d8) |
+| `call-eip2930`           | add(1) with 1 wei                                              | 1    | 1      | 11824915 | [`0x593aeaff`](https://sepolia.etherscan.io/tx/0x593aeaff8405ee1fafe46aaae129f561addc1468ae0f5b1be30c6a59b035465c) |
+| `call-eip1559`           | add(1) with 1 wei                                              | 2    | 1      | 11824916 | [`0x08b20d5f`](https://sepolia.etherscan.io/tx/0x08b20d5f5a8541b4b4c2c69b926c19343dc3c88643d36510c6d9254c3055ae9f) |
+| `delegate-and-call`      | delegate to LiveCheck and add(1) with 1 wei                    | 4    | 1      | 11824917 | [`0x38d59468`](https://sepolia.etherscan.io/tx/0x38d59468aad8c7eccdd382c4a019d0a8b6472597e3930bbc33706210c5c39abd) |
+| `sponsor-other`          | 1 wei to a fresh address, with a throwaway key's authorization | 4    | 1      | 11824918 | [`0x786b955f`](https://sepolia.etherscan.io/tx/0x786b955f167dfc238a172ea83ec55dabfd7faabdff8b39b4a2b1bd958d781767) |
+| `sponsor-other`          | clear the throwaway key's delegation                           | 4    | 1      | 11824919 | [`0x8d5eaabc`](https://sepolia.etherscan.io/tx/0x8d5eaabcd194b5099261e843dc6264e74cc14676bf594775de21613b24d3ece3) |
+| `clear-delegation`       | clear the delegation, with 1 wei to itself                     | 4    | 1      | 11824920 | [`0x217e8084`](https://sepolia.etherscan.io/tx/0x217e808410f06169a5eb9c6ef54430db31d6d27d2cbf76340c594554c3312fc5) |
+
+The providers together spent 0.005759136395773698 ETH.
