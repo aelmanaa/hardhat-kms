@@ -1,0 +1,19 @@
+{
+  "name": "hardhat-kms-example-ignition",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "hardhat run scripts/deploy.ts"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ignition": "^3.1.8",
+    "@nomicfoundation/hardhat-ignition-viem": "^3.1.6",
+    "@nomicfoundation/hardhat-viem": "^3.0.9",
+    "@types/node": "^22.18.0",
+    "hardhat": "^3.18.0",
+    "hardhat-kms": "^0.0.0",
+    "hardhat-kms-aws": "^0.0.0",
+    "typescript": "^7.0.2",
+    "viem": "^2.57.1"
+  }
+}

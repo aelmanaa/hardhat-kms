@@ -12,6 +12,9 @@
     ".changeset/*.md",
     "pnpm-lock.yaml",
     "packages/*/test/fixture-projects/**/artifacts/**",
-    "packages/*/test/fixture-projects/**/cache/**"
+    "packages/*/test/fixture-projects/**/cache/**",
+    "examples/*/artifacts/**",
+    "examples/*/cache/**",
+    "examples/*/types/**"
   ]
 }

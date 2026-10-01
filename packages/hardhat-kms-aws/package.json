@@ -52,6 +52,7 @@
     "test:integration": "node --test --test-concurrency=1 --test-timeout=120000 \"test/integration/**/*.test.ts\"",
     "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
     "test:localstack": "node --test --test-concurrency=1 --test-timeout=300000 \"test/localstack/**/*.test.ts\"",
+    "test:examples": "node --test --test-concurrency=1 --test-timeout=600000 \"test/examples/**/*.test.ts\"",
     "test:live:aws": "node --test --test-concurrency=1 --test-timeout=300000 \"test/live/**/*.test.ts\""
   },
   "dependencies": {
@@ -59,6 +60,7 @@
   },
   "devDependencies": {
     "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
     "@types/node": "catalog:",
     "c8": "catalog:",
     "hardhat": "catalog:",

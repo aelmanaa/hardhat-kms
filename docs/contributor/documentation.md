@@ -34,7 +34,7 @@ User docs follow the Diátaxis split: each page is a tutorial, a how-to guide, r
 [lychee](https://lychee.cli.rs) checks links, configured by `lychee.toml`. On every pull request the CI Docs job checks internal links and `#anchors` offline. A weekly workflow, `.github/workflows/docs-links.yml`, also checks external links, so a website that is briefly down cannot block a merge. To run the pull request check locally from the repository root:
 
 ```sh
-docker run --rm -v "$PWD:/repo" -w /repo lycheeverse/lychee:0.24.2 --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'packages/*/README.md' 'docs/**/*.md'
+docker run --rm -v "$PWD:/repo" -w /repo lycheeverse/lychee:0.24.2 --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'packages/*/README.md' 'examples/README.md' 'examples/*/README.md' 'docs/**/*.md'
 ```
 
 ## Planned pages
@@ -46,4 +46,4 @@ The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/iss
 - Reference: errors ([#72](https://github.com/aelmanaa/hardhat-kms/issues/72)), public API ([#73](https://github.com/aelmanaa/hardhat-kms/issues/73)).
 - Explanation: how it works, security model ([#39](https://github.com/aelmanaa/hardhat-kms/issues/39)).
 - Contributor: adding a provider ([#40](https://github.com/aelmanaa/hardhat-kms/issues/40)).
-- Runnable examples ([#64](https://github.com/aelmanaa/hardhat-kms/issues/64)), docs checks in CI ([#63](https://github.com/aelmanaa/hardhat-kms/issues/63)), a docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).
+- Docs checks in CI ([#63](https://github.com/aelmanaa/hardhat-kms/issues/63)), a docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).

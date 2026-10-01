@@ -21,6 +21,12 @@
       "ignore": ["src/internal/vendor/**"],
       "ignoreDependencies": ["tsx"]
     },
+    "examples/*": {
+      "entry": ["scripts/*.ts"]
+    },
+    "examples/ignition": {
+      "entry": ["scripts/*.ts", "ignition/modules/*.ts"]
+    },
     "packages/hardhat-kms-aws": {
       "entry": ["test/**/*.test.ts", "test/fixtures/*.ts", "test/helpers/*.mjs"],
       "project": ["src/**/*.ts", "test/**/*.ts"],
