@@ -97,6 +97,8 @@ The nonce for a KMS send whose caller gave none is `max(pending, highWater + 1)`
 
 The mark is per connection, as specified, and the lock is per chain. Two connections in one process to the same chain therefore wait for each other, but each keeps its own mark. A process-global mark would carry nonces from one node to another node with the same chain id, such as two local nodes on chain 31337, and leave gaps there.
 
+Nothing refuses a nonce that was already sent. Hardhat Ignition (ignition-core 3.1.9) sends with an explicit nonce from its own nonce manager and, for a stuck transaction, sends the same nonce again with higher fees, up to `maxFeeBumps` times. Each such replacement has other params, so it gets no retry entry: it is filled, signed and broadcast like any send, with the caller's nonce. Tests in `send-lock.test.ts` (unit and integration) send same-nonce replacements, including one after a failed broadcast.
+
 `eth_signTransaction` takes no lock and never reads or moves the mark (rule 5). It signs the filled nonce.
 
 Separate processes are not coordinated. Two `hardhat run` invocations sending from the same KMS key at the same time can collide on a nonce, and the [RPC methods reference](../user/reference/rpc-methods.md#parallel-sends-and-failed-broadcasts) says so.

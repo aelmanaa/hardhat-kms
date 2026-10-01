@@ -31,7 +31,7 @@ The plugin copies a KMS account's transaction when the request arrives, so chang
 
 `eth_sendTransaction` calls from one KMS account on one chain run one at a time within a process, so parallel sends get consecutive nonces. Sends from other accounts, or to other chains, do not wait for each other. `eth_signTransaction` does not wait for sends.
 
-On an http network, a send whose caller gives no `nonce` uses the higher of the node's pending count and one more than the highest nonce the node accepted from that account on the same connection. A node whose pending count lags behind, such as a load-balanced RPC endpoint, therefore does not get a nonce twice. A `nonce` in the request is always used. On `edr-simulated` networks the node's pending count is used as it is.
+On an http network, a send whose caller gives no `nonce` uses the higher of the node's pending count and one more than the highest nonce the node accepted from that account on the same connection. A node whose pending count lags behind, such as a load-balanced RPC endpoint, therefore does not get a nonce twice. A `nonce` in the request is always used, also one that was already sent, so a replacement transaction with the same nonce and higher fees goes through, as Hardhat Ignition sends for a stuck transaction. On `edr-simulated` networks the node's pending count is used as it is.
 
 Separate processes are not coordinated: two `hardhat run` commands that send from the same KMS key at the same time can choose the same nonce.
 

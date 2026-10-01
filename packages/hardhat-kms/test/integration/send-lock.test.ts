@@ -148,6 +148,35 @@ describe("sends over HTTP to a node", () => {
     await node.server.close();
   });
 
+  it("keeps an explicit nonce and sends same-nonce replacements with higher fees", async () => {
+    // Ignition's fee bumps: the same nonce, sent again through eth_sendTransaction with higher fees.
+    const { provider } = await hre.network.create("remote");
+    const start = node.raw.length;
+    const fees = [
+      { maxFeePerGas: "0x3b9aca00", maxPriorityFeePerGas: "0x1" },
+      { maxFeePerGas: "0x77359400", maxPriorityFeePerGas: "0x2" },
+    ];
+    const hashes: unknown[] = [];
+    for (const fee of fees) {
+      hashes.push(
+        await provider.request({
+          method: "eth_sendTransaction",
+          params: [{ from: COW, to: TO, nonce: "0x9", ...fee }],
+        }),
+      );
+    }
+    const sent = node.raw.slice(start).map((raw) => Transaction.fromHex(raw, false).raw);
+    assert.deepEqual(
+      sent.map((tx) => tx.nonce),
+      [9n, 9n],
+    );
+    assert.deepEqual(
+      sent.map((tx): unknown => Reflect.get(tx, "maxFeePerGas")),
+      fees.map((fee) => BigInt(fee.maxFeePerGas)),
+    );
+    assert.notEqual(hashes[0], hashes[1]);
+  });
+
   it("does not reuse a nonce when the node's pending count lags", async () => {
     // The recording node never runs the transactions, so its pending count stays at 0.
     const { provider } = await hre.network.create("remote");

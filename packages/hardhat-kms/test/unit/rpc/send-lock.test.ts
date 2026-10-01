@@ -290,6 +290,32 @@ describe("the nonce high-water mark", () => {
     assert.deepEqual(node.raw.map(nonceOf), [7n, 8n, 2n, 9n]);
   });
 
+  it("sends a replacement with the same nonce and higher fees, as Ignition's fee bumps do", async () => {
+    const { node, state, open, send } = await setUp();
+    const connection = await open();
+    const fees = ["0x1", "0x2", "0x3"];
+    for (const gasPrice of fees) {
+      resultOf(await send(connection, { from: COW, to: TO, nonce: "0x3", gasPrice }));
+    }
+    assert.deepEqual(node.raw.map(nonceOf), [3n, 3n, 3n], "the caller's nonce is kept");
+    assert.deepEqual(
+      node.raw.map((raw): unknown => Reflect.get(Transaction.fromHex(raw, false).raw, "gasPrice")),
+      fees.map((fee) => BigInt(fee)),
+    );
+    assert.equal(state.signatures, 3, "each replacement is signed and sent");
+  });
+
+  it("sends a replacement after a failed broadcast of the same nonce", async () => {
+    const { node, state, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    errorOf(await send(connection, { from: COW, to: TO, nonce: "0x3", gasPrice: "0x1" }));
+    resultOf(await send(connection, { from: COW, to: TO, nonce: "0x3", gasPrice: "0x2" }));
+    assert.equal(state.signatures, 2, "other fees are another request: no retry entry");
+    assert.deepEqual(node.raw.map(nonceOf), [3n, 3n]);
+    assert.notEqual(node.raw[0], node.raw[1]);
+  });
+
   it("is kept per connection", async () => {
     const { node, open, send } = await setUp();
     await send(await open(), { from: COW, to: TO });
