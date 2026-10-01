@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { NetworkConnection } from "hardhat/types/network";
 import type { JsonRpcRequest, JsonRpcResponse } from "hardhat/types/providers";
@@ -11,7 +12,7 @@ import { Transaction } from "micro-eth-signer";
 
 import hardhatKms from "../../../src/index.ts";
 import { createNetworkHandlers } from "../../../src/internal/hook-handlers/network.ts";
-import { isAlreadyKnown } from "../../../src/internal/rpc/dispatcher.ts";
+import { isAlreadyKnown, isUncertainAnswer } from "../../../src/internal/rpc/dispatcher.ts";
 import {
   MAX_RETRY_ENTRIES,
   RETRY_TTL_MS,
@@ -453,6 +454,124 @@ describe("failures after the broadcast", () => {
   });
 });
 
+describe("a gateway's answer that it does not know the outcome", () => {
+  it("is classified by code -32603 or a timeout message, and nothing else", () => {
+    for (const [code, message] of [
+      [-32603, "upstream request timeout"],
+      [-32603, "internal error"],
+      [-32000, "request timed out"],
+      [-32000, "context deadline exceeded"],
+      [-32000, "Timeout waiting for the upstream"],
+    ] as const) {
+      assert.ok(isUncertainAnswer(code, message), `${code} ${message}`);
+    }
+    for (const [code, message] of [
+      [-32000, "nonce too low"],
+      [-32003, "insufficient funds for gas * price + value"],
+      [-32000, "replacement transaction underpriced"],
+      [-32000, "max fee per gas less than block base fee"],
+      [-32000, "timeouts are configured elsewhere"],
+    ] as const) {
+      assert.ok(!isUncertainAnswer(code, message), `${code} ${message}`);
+    }
+  });
+
+  for (const [code, message] of [
+    [-32603, "upstream request timeout"],
+    [-32000, "request timed out"],
+  ] as const) {
+    it(`passes ${code} "${message}" through, and keeps a retry entry and an uncertain record`, async () => {
+      const { node, state, open, send } = await setUp();
+      const connection = await open();
+      refuse(node, message, code);
+      assert.deepEqual(errorOf(await send(connection, { from: COW, to: TO })), { code, message });
+      node.onRaw = undefined;
+      // The retry sends the same bytes.
+      resultOf(await send(connection, { from: COW, to: TO }));
+      assert.equal(state.signatures, 1);
+      assert.equal(node.raw[0], node.raw[1]);
+
+      // A second gateway answer, then another request: the node is asked about the first.
+      refuse(node, message, code);
+      errorOf(await send(connection, { from: COW, to: TO, value: "0x1" }));
+      node.onRaw = undefined;
+      const looked: unknown[] = [];
+      node.lookUp = (asked) => {
+        looked.push(asked);
+        return { hash: asked };
+      };
+      await send(connection, { from: COW, to: TO, value: "0x2" });
+      assert.deepEqual(looked, [hashOf(node.raw[2] ?? "")]);
+      assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n, 2n]);
+    });
+  }
+
+  it("leaves a refusal, and a revert whose reason mentions a timeout, definite", async () => {
+    const { node, state, open, send } = await setUp();
+    const connection = await open();
+    refuse(node, "nonce too low");
+    errorOf(await send(connection, { from: COW, to: TO }));
+    refuse(node, "reverted with reason string 'deadline exceeded'", 3);
+    errorOf(await send(connection, { from: COW, to: TO }));
+    node.onRaw = undefined;
+    let lookups = 0;
+    node.lookUp = () => {
+      lookups++;
+      return null;
+    };
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.equal(state.signatures, 3, "no retry entry: each request was signed");
+    assert.equal(lookups, 0, "no uncertain record");
+  });
+});
+
+/** Hardhat's error for a refused connection (HHE703). */
+function refused(): HardhatError {
+  return new HardhatError(HardhatError.ERRORS.CORE.NETWORK.CONNECTION_REFUSED, {
+    network: "remote",
+  });
+}
+
+describe("a refused connection", () => {
+  it("rethrows Hardhat's error unchanged and keeps nothing: the transaction was not sent", async () => {
+    const { node, state, open, send } = await setUp();
+    const connection = await open();
+    const error = refused();
+    node.onRaw = async () => {
+      await Promise.resolve();
+      throw error;
+    };
+    await assert.rejects(send(connection, { from: COW, to: TO }), (thrown) => thrown === error);
+    assert.ok(!("transactionHash" in error));
+    node.onRaw = undefined;
+    let lookups = 0;
+    node.lookUp = () => {
+      lookups++;
+      return null;
+    };
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.equal(state.signatures, 2, "no retry entry");
+    assert.equal(lookups, 0, "no uncertain record");
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n]);
+  });
+
+  it("keeps the retry entry when it refuses a retry's bytes", async () => {
+    const { node, state, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO }));
+    node.onRaw = async () => {
+      await Promise.resolve();
+      throw refused();
+    };
+    await assert.rejects(send(connection, { from: COW, to: TO }), HardhatError);
+    node.onRaw = undefined;
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.equal(state.signatures, 1, "every attempt sent the first bytes");
+    assert.equal(new Set(node.raw).size, 1);
+  });
+});
+
 describe("a send whose outcome is unknown", () => {
   it("is also what a thrown value that is not an error gives", async () => {
     const { node, open, send } = await setUp();
@@ -628,6 +747,25 @@ describe("the retry cache", () => {
       );
       node.onRaw = undefined;
     }
+  });
+
+  it("counts a refused retry as success when the node has the transaction", async () => {
+    const { node, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    const { transactionHash } = await unknownOutcome(send(connection, { from: COW, to: TO }));
+    refuse(node, "nonce too low");
+    const looked: unknown[] = [];
+    node.lookUp = (asked) => {
+      looked.push(asked);
+      return { hash: asked };
+    };
+    assert.equal(resultOf(await send(connection, { from: COW, to: TO })), transactionHash);
+    assert.deepEqual(looked, [transactionHash]);
+    node.onRaw = undefined;
+    await send(connection, { from: COW, to: TO, value: "0x1" });
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n], "its nonce counts as used");
+    assert.deepEqual(looked, [transactionHash], "and its uncertain record is gone");
   });
 
   it("does not count 'already known' as success on a first send", async () => {

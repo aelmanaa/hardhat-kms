@@ -35,9 +35,15 @@ On an http network, a send whose caller gives no `nonce` uses the higher of the 
 
 Separate processes are not coordinated: two `hardhat run` commands that send from the same KMS key at the same time can choose the same nonce.
 
-When the node answers a broadcast with an error, such as a revert or "nonce too low", `eth_sendTransaction` fails with that error, unchanged, as it would for a local account. A reverted transaction keeps its revert data and `transactionHash`.
+When the node answers a broadcast with an error, such as a revert or "nonce too low", `eth_sendTransaction` fails with that error, unchanged, as it would for a local account. A reverted transaction keeps its revert data and `transactionHash`. A rate limit that outlasts Hardhat's own retries (HTTP 429) is such an answer too.
 
-When no answer comes back, because the request fails or times out, the transaction may still be on its way. `eth_sendTransaction` then fails with JSON-RPC error code `-32000`, which viem does not retry. The error's `transactionHash` and `data.hash` are the transaction hash, so you can look the transaction up; Hardhat Ignition reads `transactionHash` and follows the transaction. If the same request, with the same params, is sent again on the same connection within 120 seconds, the plugin sends the same signed transaction again instead of signing a new one, and returns its hash. A node that answers "already known" counts as success. This happens once per broadcast without an answer; a request that succeeded is never repeated this way, so sending the same transaction twice on purpose still sends two transactions. Before the account's next send, the plugin asks the node whether it has the transaction, so that the next send does not get its nonce.
+When Hardhat cannot connect to the node, nothing was sent, and `eth_sendTransaction` fails with Hardhat's "Cannot connect to the network" error, unchanged.
+
+When no answer comes back, because the request times out or fails with an HTTP error status, the transaction may still be on its way. `eth_sendTransaction` then fails with JSON-RPC error code `-32000`. The error's `transactionHash` and `data.hash` are the transaction hash, so you can look the transaction up; Hardhat Ignition reads `transactionHash` and follows the transaction. A gateway's answer that its backend timed out (code `-32603`, or a message saying the request timed out or a deadline was exceeded) leaves the outcome open in the same way, but it is passed on unchanged, without the hash.
+
+After either of these, if the same request, with the same params, is sent again on the same connection within 120 seconds, the plugin sends the same signed transaction again instead of signing a new one, and returns its hash. A node that answers "already known" counts as success, and so does a refusal of those bytes when the node turns out to have the transaction. This happens once per uncertain broadcast; a request that succeeded is never repeated this way, so sending the same transaction twice on purpose still sends two transactions. viem never retries a send by itself, so only a caller that repeats the request gets this.
+
+The account's next send without a `nonce` first asks the node whether it has the uncertain transaction, so that the send does not reuse its nonce. A send with a `nonce` does not ask. The question is asked once; behind a load balancer it can reach a backend that does not have the transaction yet, and the node's pending count then decides as usual.
 
 ## Supported transaction types
 

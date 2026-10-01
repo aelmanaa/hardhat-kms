@@ -20,10 +20,10 @@ export interface RecordingNode {
   faults: Map<string, string>;
   /**
    * What the node does after it has recorded a raw transaction: answer with an error that has
-   * this message, or wait this many milliseconds before it answers with the hash. Unset, it
-   * answers with the hash at once.
+   * this message (and code, -32000 by default), or wait this many milliseconds before it answers
+   * with the hash. Unset, it answers with the hash at once.
    */
-  afterAccept: { error: string } | { delayMs: number } | undefined;
+  afterAccept: { error: string; code?: number } | { delayMs: number } | undefined;
 }
 
 /**
@@ -66,7 +66,11 @@ export async function startRecordingNode(
       const hash = `0x${Buffer.from(keccak_256(Buffer.from(bytes.slice(2), "hex"))).toString("hex")}`;
       const after = node?.afterAccept;
       if (after !== undefined && "error" in after) {
-        return { jsonrpc: "2.0", id: request.id, error: { code: -32000, message: after.error } };
+        return {
+          jsonrpc: "2.0",
+          id: request.id,
+          error: { code: after.code ?? -32000, message: after.error },
+        };
       }
       if (after !== undefined) {
         await new Promise((resolve) => setTimeout(resolve, after.delayMs));

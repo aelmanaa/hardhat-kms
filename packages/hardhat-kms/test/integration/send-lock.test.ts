@@ -291,6 +291,33 @@ describe("sends over HTTP to a node", () => {
     assert.equal(counts.signatures, signatures + 2, "each request was signed");
   });
 
+  it("passes a gateway's timeout answer through, and the retry sends the same bytes", async () => {
+    const { provider } = await hre.network.create("remote");
+    const request = {
+      method: "eth_sendTransaction",
+      params: [{ from: COW, to: TO, value: "0x7" }],
+    };
+    const start = node.raw.length;
+    const signatures = counts.signatures;
+    // The gateway forwarded the transaction, then gave up waiting for its backend.
+    node.afterAccept = { error: "upstream request timeout", code: -32603 };
+    try {
+      await assert.rejects(provider.request(structuredClone(request)), (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.message, "upstream request timeout");
+        assert.equal(Reflect.get(error, "code"), -32603);
+        return true;
+      });
+    } finally {
+      node.afterAccept = undefined;
+    }
+    const hash = await provider.request(structuredClone(request));
+    const sent = node.raw.slice(start);
+    assert.deepEqual(sent, [sent[0], sent[0]], "the same bytes, sent again");
+    assert.equal(hash, hashOf(sent[0] ?? ""));
+    assert.equal(counts.signatures, signatures + 1);
+  });
+
   it("sends the same bytes again for a retried request, and returns the same hash", async () => {
     const { provider } = await hre.network.create("remote");
     const request = {

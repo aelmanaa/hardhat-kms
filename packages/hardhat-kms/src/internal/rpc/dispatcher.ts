@@ -1,3 +1,4 @@
+import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import {
   rpcAddress,
@@ -452,14 +453,23 @@ async function sendTransaction(
   const callerParams = canonicalJson(kms.callerParams);
   const retryKey =
     callerParams === undefined ? undefined : `${chainId}\0${address}\0${callerParams}`;
+  const nodeHas = async (hash: string): Promise<boolean> =>
+    await nodeHasTransaction(transactions, hash);
   return await withSendLock(`${chainId}:${address}`, async () => {
     const retry = retryKey === undefined ? undefined : sends.takeRetry(retryKey);
     if (retry !== undefined) {
       log("sending transaction %s again for a retried request", retry.hash);
-      return await broadcast(request, retry, { address, sends, retryKey, next, resend: true });
+      return await broadcast(request, retry, {
+        address,
+        sends,
+        retryKey,
+        next,
+        nodeHas,
+        resend: true,
+      });
     }
     if (!kms.callerNonce) {
-      await settleUncertain(address, sends, transactions);
+      await settleUncertain(address, sends, nodeHas);
     }
     const signed = await accounts.signWith(
       kms.key,
@@ -472,7 +482,14 @@ async function sendTransaction(
           chooseNonce: kms.callerNonce ? undefined : (pending) => sends.nonceFor(address, pending),
         }),
     );
-    return await broadcast(request, signed, { address, sends, retryKey, next, resend: false });
+    return await broadcast(request, signed, {
+      address,
+      sends,
+      retryKey,
+      next,
+      nodeHas,
+      resend: false,
+    });
   });
 }
 
@@ -485,23 +502,30 @@ async function sendTransaction(
 async function settleUncertain(
   address: string,
   sends: ConnectionSends,
-  transactions: ConnectionTransactions,
+  nodeHas: (hash: string) => Promise<boolean>,
 ): Promise<void> {
   const uncertain = sends.takeUncertain(address);
-  if (uncertain === undefined) {
-    return;
-  }
-  let known = false;
-  try {
-    const found = await transactions.request("eth_getTransactionByHash", [uncertain.hash]);
-    known = isObject(found);
-  } catch (error) {
-    log("looking up transaction %s failed (%s)", uncertain.hash, errorName(error));
-  }
-  log("transaction %s is %s the node", uncertain.hash, known ? "known to" : "not known to");
-  if (known) {
+  if (uncertain !== undefined && (await nodeHas(uncertain.hash))) {
     sends.recordSent(address, uncertain.nonce);
   }
+}
+
+/**
+ * Asks the node with `eth_getTransactionByHash` whether it has a transaction. A failed lookup
+ * counts as no.
+ */
+async function nodeHasTransaction(
+  transactions: ConnectionTransactions,
+  hash: string,
+): Promise<boolean> {
+  let known = false;
+  try {
+    known = isObject(await transactions.request("eth_getTransactionByHash", [hash]));
+  } catch (error) {
+    log("looking up transaction %s failed (%s)", hash, errorName(error));
+  }
+  log("transaction %s is %s the node", hash, known ? "known to" : "not known to");
+  return known;
 }
 
 /** What a broadcast needs besides the request and the transaction. */
@@ -511,6 +535,8 @@ interface BroadcastContext {
   /** The retry key, or `undefined` when the params cannot be serialized for one. */
   retryKey: string | undefined;
   next: Next;
+  /** Asks the node whether it has a transaction. */
+  nodeHas: (hash: string) => Promise<boolean>;
   /** Whether this sends a retry entry's bytes again. */
   resend: boolean;
 }
@@ -519,23 +545,42 @@ interface BroadcastContext {
  * Tells whether a node refused a raw transaction because it already has it. The message must
  * start with what a client says: "already known" (Geth, Reth, Erigon), "AlreadyKnown"
  * (Nethermind) or "known transaction" (older Geth, and Hardhat's EDR as "Known transaction:
- * <hash>"). A message
- * such as "unknown transaction type" does not match.
+ * <hash>"). A message such as "unknown transaction type" does not match.
  */
 export function isAlreadyKnown(message: string): boolean {
   return /^\s*(?:already known\b|alreadyknown\b|known transaction\b)/i.test(message);
 }
 
 /**
- * Tells whether a thrown error is a node's answer. Hardhat's errors for node answers carry a
- * numeric `code`: `ProviderError` and its subclasses, and `SolidityError` (code 3) for a reverted
- * transaction. Its `UnknownError` (code -1) wraps a failed HTTP request, and its `HardhatError`
- * for a refused connection or a timeout has no `code`; neither is an answer.
+ * Tells whether a thrown error is an answer from the node. Hardhat's errors for node answers
+ * carry a numeric `code` other than -1: `ProviderError` and its subclasses (including
+ * `LimitExceededError`, -32005, after repeated HTTP 429s), and `SolidityError` (code 3) for a
+ * reverted transaction. Hardhat's `UnknownError` has code -1 and wraps a failed HTTP request (a
+ * 4xx or 5xx status, or a transport error), and its `HardhatError`s for a refused connection or a
+ * timeout have no `code`; none of them is an answer.
  *
- * @returns The error as a record when it is a node's answer, else `undefined`.
+ * @returns The error as a record when it is an answer, else `undefined`.
  */
 function nodeAnswer(error: unknown): Record<string, unknown> | undefined {
   return isObject(error) && typeof error.code === "number" && error.code !== -1 ? error : undefined;
+}
+
+/**
+ * Tells whether a thrown error is Hardhat's refused connection (HHE703), which means the request
+ * never reached the node.
+ */
+function isConnectionRefused(error: unknown): boolean {
+  return HardhatError.isHardhatError(error, HardhatError.ERRORS.CORE.NETWORK.CONNECTION_REFUSED);
+}
+
+/**
+ * Tells whether an error answer says the node does not know what happened: an internal error
+ * (-32603), as gateways answer when the backend they forwarded to timed out, or a message that
+ * says the request timed out ("timeout", "timed out", "deadline exceeded"). The backend may have
+ * taken the transaction before it gave up.
+ */
+export function isUncertainAnswer(code: number, message: string): boolean {
+  return code === -32603 || /\btimed? ?out\b|deadline exceeded/i.test(message);
 }
 
 /**
@@ -554,77 +599,104 @@ function minedHashOf(error: Record<string, unknown>): string | undefined {
 }
 
 /**
- * Sends a signed transaction with exactly one `next(eth_sendRawTransaction)`.
+ * Sends a signed transaction with exactly one `next(eth_sendRawTransaction)`, and sorts the
+ * outcome (docs/contributor/transactions.md, "Retries after broadcast"):
  *
  * - The node accepts it: its answer is returned as it is.
- * - The node answers with an error (returned, or thrown with a JSON-RPC code): the answer is
- *   returned or thrown as it is, and no retry entry is kept. If the error says the transaction
- *   was mined anyway, its nonce counts as used. When bytes are sent again, "already known" counts
- *   as success.
- * - No answer (a thrown error without a JSON-RPC code, such as a timeout): the outcome is
- *   unknown. The transaction is kept for one retry of the same request and for a lookup before
- *   the sender's next send, and a {@link SendOutcomeUnknownError} is thrown.
+ * - Hardhat cannot connect (HHE703): nothing was sent, and Hardhat's error is rethrown as it is.
+ * - The node answers with an error, returned or thrown with a JSON-RPC code: the answer is
+ *   returned, or the error rethrown, as it is.
+ *   - It says the transaction was mined anyway: its nonce counts as used.
+ *   - Bytes were sent again and it says "already known": success.
+ *   - It is a gateway's "I don't know" ({@link isUncertainAnswer}): the outcome is unknown, and
+ *     the transaction is kept for one retry and for a lookup before the sender's next send.
+ *   - Bytes were sent again and it refuses them: the node is asked whether it has the
+ *     transaction, and if so the send counts as a success.
+ *   - Otherwise it is a refusal, and nothing is kept.
+ * - No answer (a thrown error that is not an answer, such as a timeout or an HTTP error status):
+ *   the transaction is kept as above, and a {@link SendOutcomeUnknownError} is thrown.
  */
 async function broadcast(
   request: JsonRpcRequest,
   transaction: SentTransaction,
   context: BroadcastContext,
 ): Promise<JsonRpcResponse> {
-  const { address, sends, retryKey, next, resend } = context;
+  const { address, sends, retryKey, next, nodeHas, resend } = context;
   const accepted = (): JsonRpcResponse => {
+    sends.settleUncertain(address, transaction.hash);
     sends.recordSent(address, transaction.nonce);
     return response(request, transaction.hash);
   };
-  const answered = (error: Record<string, unknown>): void => {
-    sends.settleUncertain(address, transaction.hash);
-    if (minedHashOf(error) !== undefined) {
-      sends.recordSent(address, transaction.nonce);
+  const keepUncertain = (): void => {
+    if (retryKey !== undefined) {
+      sends.rememberFailure(retryKey, transaction);
     }
+    sends.rememberUncertain(address, transaction);
   };
-  let thrown: unknown;
+  let error: Record<string, unknown>;
+  let passOn: () => JsonRpcResponse;
   try {
     const answer = await next({
       ...request,
       method: "eth_sendRawTransaction",
       params: [transaction.raw],
     });
-    sends.settleUncertain(address, transaction.hash);
     if (!("error" in answer)) {
+      sends.settleUncertain(address, transaction.hash);
       sends.recordSent(address, transaction.nonce);
       return answer;
     }
-    if (resend && isAlreadyKnown(answer.error.message)) {
-      return accepted();
+    error = answer.error;
+    passOn = () => answer;
+  } catch (thrown) {
+    if (isConnectionRefused(thrown)) {
+      log("sending transaction %s: the node refused the connection", transaction.hash);
+      if (resend && retryKey !== undefined) {
+        // The first send's outcome is still unknown: keep its bytes for the next retry.
+        sends.rememberFailure(retryKey, transaction);
+      }
+      throw thrown;
     }
-    answered(answer.error);
-    return answer;
-  } catch (error) {
-    thrown = error;
-  }
-  const thrownAnswer = nodeAnswer(thrown);
-  if (thrownAnswer !== undefined) {
-    if (
-      resend &&
-      typeof thrownAnswer.message === "string" &&
-      isAlreadyKnown(thrownAnswer.message)
-    ) {
-      sends.settleUncertain(address, transaction.hash);
-      return accepted();
+    const answer = nodeAnswer(thrown);
+    if (answer === undefined) {
+      keepUncertain();
+      // Only the class name: a transport error's text can include the node's URL.
+      const cause = errorName(thrown);
+      log("sending transaction %s got no answer (%s)", transaction.hash, cause);
+      throw new SendOutcomeUnknownError(
+        `${request.method}: transaction ${transaction.hash} was handed to the node, but no answer came back (${cause}). It may still be mined: look it up by its hash before sending another transaction. Repeating the same request within ${RETRY_TTL_MS / 1000} s sends the same transaction again.`,
+        transaction.hash,
+      );
     }
-    answered(thrownAnswer);
-    throw thrown;
+    error = answer;
+    passOn = () => {
+      throw thrown;
+    };
   }
-  if (retryKey !== undefined) {
-    sends.rememberFailure(retryKey, transaction);
+  const message = typeof error.message === "string" ? error.message : "";
+  const code = typeof error.code === "number" ? error.code : 0;
+  if (minedHashOf(error) !== undefined || code === 3) {
+    // Mined, or reverted when it ran: a definite answer.
+    sends.settleUncertain(address, transaction.hash);
+    if (minedHashOf(error) !== undefined) {
+      sends.recordSent(address, transaction.nonce);
+    }
+    return passOn();
   }
-  sends.rememberUncertain(address, transaction);
-  // Only the class name: a transport error's text can include the node's URL.
-  const cause = errorName(thrown);
-  log("sending transaction %s got no answer (%s)", transaction.hash, cause);
-  throw new SendOutcomeUnknownError(
-    `${request.method}: transaction ${transaction.hash} was handed to the node, but no answer came back (${cause}). It may still be mined: look it up by its hash before sending another transaction. Repeating the same request within ${RETRY_TTL_MS / 1000} s sends the same transaction again.`,
-    transaction.hash,
-  );
+  if (resend && isAlreadyKnown(message)) {
+    return accepted();
+  }
+  if (isUncertainAnswer(code, message)) {
+    log("sending transaction %s: the node does not know the outcome (%d)", transaction.hash, code);
+    keepUncertain();
+    return passOn();
+  }
+  if (resend && (await nodeHas(transaction.hash))) {
+    // Refused now, because the first send of these bytes went through.
+    return accepted();
+  }
+  sends.settleUncertain(address, transaction.hash);
+  return passOn();
 }
 
 /**
