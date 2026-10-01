@@ -32,7 +32,7 @@ For `eth_sendTransaction` and `eth_signTransaction`, the dispatcher (`packages/h
 4. Rebuild the transaction as `Transaction#signBy` does: `new Transaction(unsigned.type, { ...unsigned.raw, r, s, yParity }, false)`.
 5. Require `recoverSender().address` to equal `from`. A mismatch, or a signature micro-eth-signer cannot recover, fails with an error and nothing is sent. The signer has already verified the signature against the key, so this check covers the step from signature to transaction.
 
-`eth_signTransaction` returns the raw hex. `eth_sendTransaction` replaces the request with `eth_sendRawTransaction` and the raw hex, and calls `next` once, as Hardhat's local accounts do, under the send lock described in [Nonces and the send lock](#nonces-and-the-send-lock).
+`eth_signTransaction` returns the raw hex. The `kms sign-tx` task calls the same `signTransaction` with a filler of its own on the `--network` connection, built by the same `createTransactionFiller` and `createConnectionChain` (see [Tasks](architecture.md#tasks)), so its bytes equal those of `eth_signTransaction`. `eth_sendTransaction` replaces the request with `eth_sendRawTransaction` and the raw hex, and calls `next` once, as Hardhat's local accounts do, under the send lock described in [Nonces and the send lock](#nonces-and-the-send-lock).
 
 ### Sender resolution
 

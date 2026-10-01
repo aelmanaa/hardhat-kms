@@ -1,6 +1,8 @@
 // Loads hardhat-kms-gcp and resolves a config with keys of every first-party provider, as
 // `hardhat` would, and optionally creates one key's adapter or runs a `kms` task. A test runs
 // this in a child process and checks which modules it imported.
+import { fileURLToPath } from "node:url";
+
 import type { KmsKeyUserConfig } from "hardhat-kms/types";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import { isResult } from "hardhat/utils/result";
@@ -50,12 +52,25 @@ if (keyName !== "") {
   }
   // HHKMS_FIXTURE_TASK runs that kms task on the key instead, as `hardhat kms <task> <key>` does.
   const taskName = process.env.HHKMS_FIXTURE_TASK ?? "";
+  // kms sign-tx also takes a transaction file; the test sets HARDHAT_NETWORK for its --network.
+  const signTx = taskName === "sign-tx";
+  const taskArgs = signTx
+    ? { key: keyName, tx: fileURLToPath(new URL("tx.json", import.meta.url)) }
+    : taskName === "verify"
+      ? { key: keyName, ...VERIFY_ARGUMENTS }
+      : { key: keyName };
   if (taskName !== "") {
     // Keys of other providers fail at the end of the chain; only the imports matter here.
     await hre.tasks
       .getTask(["kms", taskName])
-      .run(taskName === "verify" ? { key: keyName, ...VERIFY_ARGUMENTS } : { key: keyName })
-      .catch(() => process.stdout.write("task failed\n"));
+      .run(taskArgs)
+      .catch((error: unknown) => {
+        process.stdout.write("task failed\n");
+        if (signTx && error instanceof Error && error.message.includes("create adapter")) {
+          // sign-tx read its file and got as far as the key before it failed.
+          process.stdout.write("sign-tx reached the key\n");
+        }
+      });
   } else {
     try {
       const adapter = await hre.hooks.runHandlerChain(

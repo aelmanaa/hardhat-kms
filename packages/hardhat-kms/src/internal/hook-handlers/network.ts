@@ -2,7 +2,7 @@ import type { HookContext, NetworkHooks } from "hardhat/types/hooks";
 import type { NetworkConnection } from "hardhat/types/network";
 
 import { kmsDebug } from "../debug.ts";
-import { ConnectionChain } from "../rpc/chain-id.ts";
+import { type ConnectionChain, createConnectionChain } from "../rpc/chain-id.ts";
 import { ConnectionAccounts, dispatch, type NetworkKeys } from "../rpc/dispatcher.ts";
 import { ConnectionSends } from "../rpc/send-guard.ts";
 import { createTransactionFiller, type TransactionFiller } from "../rpc/transaction-filler.ts";
@@ -106,11 +106,7 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
   const chainOf = (connection: NetworkConnection<string>): ConnectionChain => {
     let chain = chains.get(connection);
     if (chain === undefined) {
-      // eth_chainId goes through the hook chain again, which passes it on.
-      chain = new ConnectionChain(async () => {
-        const chainId: unknown = await connection.provider.request({ method: "eth_chainId" });
-        return chainId;
-      }, connection.networkConfig.chainId);
+      chain = createConnectionChain(connection);
       chains.set(connection, chain);
     }
     return chain;

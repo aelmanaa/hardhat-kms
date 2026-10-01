@@ -98,6 +98,11 @@ export interface SignTransactionInputs {
    * high-water mark; without it, the filled nonce is signed.
    */
   chooseNonce?: ((filled: bigint) => bigint) | undefined;
+  /**
+   * Checks the unsigned transaction before the KMS signs it, and throws to refuse it. The
+   * `kms sign-tx` task checks a requested `type` with it.
+   */
+  checkUnsigned?: ((unsigned: UnsignedTransaction) => void) | undefined;
 }
 
 /** A signed transaction. */
@@ -131,6 +136,7 @@ export async function signTransaction(
     });
   }
   const unsigned = buildUnsignedTransaction(filled);
+  inputs.checkUnsigned?.(unsigned);
   lintAuthorizations(filled);
   const signature = await signer.signDigest(signingHash(unsigned));
   const signed = assembleSignedTransaction(unsigned, signature, inputs.from, inputs.method);

@@ -124,6 +124,19 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
       })
       .setAction(() => import("./internal/tasks/verify.ts"))
       .build(),
+    task(["kms", "sign-tx"], "Fill and sign a transaction on --network, without sending it")
+      .addPositionalArgument({
+        name: "key",
+        type: ArgumentType.STRING,
+        description: KEY_ARGUMENT_DESCRIPTION,
+      })
+      .addPositionalArgument({
+        name: "tx",
+        type: ArgumentType.STRING,
+        description: "Path to a JSON file with the transaction, in eth_sendTransaction fields",
+      })
+      .setAction(() => import("./internal/tasks/sign-tx.ts"))
+      .build(),
   ],
   globalOptions: [
     globalOption({
