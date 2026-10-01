@@ -29,6 +29,7 @@ catalog:
   "@nomicfoundation/hardhat-ignition": "^3.1.8"
   "@nomicfoundation/hardhat-ignition-viem": "^3.1.6"
   "@nomicfoundation/hardhat-ledger": "^3.1.0"
+  "@nomicfoundation/hardhat-viem": "^3.0.9"
   "@types/node": "^22.18.0"
   "c8": "12.0.0"
   "eslint-plugin-jsdoc": "65.0.0"
@@ -42,3 +43,4 @@ catalog:
   "publint": "0.3.24"
   "tsx": "4.23.15"
   "typescript": "7.0.2"
+  "viem": "^2.57.1"

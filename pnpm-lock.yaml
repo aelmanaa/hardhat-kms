@@ -24,6 +24,9 @@ catalogs:
     '@nomicfoundation/hardhat-ledger':
       specifier: ^3.1.0
       version: 3.1.0
+    '@nomicfoundation/hardhat-viem':
+      specifier: ^3.0.9
+      version: 3.0.9
     '@types/node':
       specifier: ^22.18.0
       version: 22.20.4
@@ -63,6 +66,9 @@ catalogs:
     typescript:
       specifier: 7.0.2
       version: 7.0.2
+    viem:
+      specifier: ^2.57.1
+      version: 2.57.1
 
 importers:
 
@@ -86,6 +92,9 @@ importers:
       '@nomicfoundation/hardhat-ledger':
         specifier: 'catalog:'
         version: 3.1.0(debug@4.4.3(supports-color@7.2.0))(hardhat@3.18.0)(react@19.3.0)
+      '@nomicfoundation/hardhat-viem':
+        specifier: 'catalog:'
+        version: 3.0.9(hardhat@3.18.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.4
@@ -131,6 +140,9 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+      viem:
+        specifier: 'catalog:'
+        version: 2.57.1(typescript@7.0.2)(zod@3.25.76)
 
   examples/ethers:
     devDependencies:
@@ -253,7 +265,7 @@ importers:
         specifier: 'catalog:'
         version: 3.1.0(debug@4.4.3(supports-color@7.2.0))(hardhat@3.18.0)(react@19.3.0)
       '@nomicfoundation/hardhat-viem':
-        specifier: ^3.0.9
+        specifier: 'catalog:'
         version: 3.0.9(hardhat@3.18.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@types/node':
         specifier: 'catalog:'
@@ -274,7 +286,7 @@ importers:
         specifier: 'catalog:'
         version: 7.0.2
       viem:
-        specifier: ^2.57.1
+        specifier: 'catalog:'
         version: 2.57.1(typescript@7.0.2)(zod@3.25.76)
 
   packages/hardhat-kms-aws:

@@ -15,10 +15,11 @@
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && node scripts/check-type-escapes.ts",
-    "test": "pnpm run build && pnpm -r run test",
+    "test": "pnpm run build && pnpm -r run test && node --test test/live/redact.test.ts",
     "test:unit": "pnpm run build && pnpm -r run test:unit",
     "test:localstack": "pnpm run build && pnpm --filter hardhat-kms-aws run test:localstack",
     "test:examples": "pnpm run build && pnpm --filter hardhat-kms-aws run test:examples",
+    "test:live": "pnpm run build && node --test --test-timeout=1800000 \"test/live/**/*.test.ts\"",
     "test:live:aws": "pnpm run build && pnpm --filter hardhat-kms-aws run test:live:aws",
     "test:live:azure": "pnpm run build && pnpm --filter hardhat-kms-azure run test:live:azure",
     "test:live:gcp": "pnpm run build && pnpm --filter hardhat-kms-gcp run test:live:gcp",
@@ -39,6 +40,7 @@
     "@nomicfoundation/hardhat-ignition": "catalog:",
     "@nomicfoundation/hardhat-ignition-viem": "catalog:",
     "@nomicfoundation/hardhat-ledger": "catalog:",
+    "@nomicfoundation/hardhat-viem": "catalog:",
     "@types/node": "catalog:",
     "eslint-plugin-jsdoc": "catalog:",
     "hardhat": "catalog:",
@@ -53,7 +55,8 @@
     "oxlint-tsgolint": "catalog:",
     "publint": "catalog:",
     "tsx": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "viem": "catalog:"
   },
   "devEngines": {
     "runtime": {

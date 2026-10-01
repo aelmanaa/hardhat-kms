@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "emitDeclarationOnly": true,
+    "rewriteRelativeImportExtensions": false,
+    "outDir": "node_modules/.cache/tsbuild/live",
+    "tsBuildInfoFile": "node_modules/.cache/tsbuild/live.tsbuildinfo"
+  },
+  "include": ["test/live"],
+  "exclude": ["test/live/fixture-project/artifacts", "test/live/fixture-project/cache"],
+  "references": [
+    {
+      "path": "./packages/hardhat-kms"
+    }
+  ]
+}

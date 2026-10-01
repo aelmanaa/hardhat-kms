@@ -2,16 +2,12 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.ts"],
-      "project": ["scripts/*.ts"],
+      "entry": ["scripts/*.ts", "test/live/*.test.ts"],
+      "project": ["scripts/*.ts", "test/live/**/*.ts"],
       "ignoreDependencies": [
         "tsx",
-        "hardhat-kms",
         "publint",
         "@arethetypeswrong/cli",
-        "hardhat-kms-aws",
-        "hardhat-kms-azure",
-        "hardhat-kms-gcp",
         "@nomicfoundation/hardhat-ignition",
         "@nomicfoundation/hardhat-ignition-viem",
         "@nomicfoundation/hardhat-ledger"

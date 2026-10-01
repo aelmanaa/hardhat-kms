@@ -13,6 +13,8 @@ coverage/
 # Build output of test fixture projects
 packages/*/test/fixture-projects/**/artifacts/
 packages/*/test/fixture-projects/**/cache/
+test/live/fixture-project/artifacts/
+test/live/fixture-project/cache/
 
 # Temporary projects of the CLI test
 packages/*/.tmp/

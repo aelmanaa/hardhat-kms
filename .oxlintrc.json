@@ -21,6 +21,7 @@
     "**/coverage/**",
     "packages/*/src/internal/vendor/**",
     "packages/*/test/fixture-projects/**/artifacts/**",
+    "test/live/fixture-project/artifacts/**",
     "examples/**",
     "node_modules/**"
   ],
@@ -129,6 +130,13 @@
         "typescript/no-unsafe-assignment": "off",
         "typescript/no-unsafe-member-access": "off",
         "typescript/strict-boolean-expressions": "off"
+      }
+    },
+    {
+      "files": ["test/**"],
+      "rules": {
+        "jsdoc-js/require-jsdoc": "off",
+        "node/no-process-env": "off"
       }
     },
     {
