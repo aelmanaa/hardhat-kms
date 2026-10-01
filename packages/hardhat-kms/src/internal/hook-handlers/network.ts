@@ -29,6 +29,29 @@ function connectionKeys(context: HookContext, connection: NetworkConnection<stri
   return { name: connection.networkName, config: network.kmsAccounts, commandLine };
 }
 
+/**
+ * Gives each KMS account of a simulated network `kms.simulatedBalance` wei, so it can pay for
+ * transactions in tests. Addresses come from pins or key lookups, as for `eth_accounts`.
+ *
+ * @param connection - The new connection, to an `edr-simulated` network.
+ * @param accounts - The connection's KMS accounts.
+ * @param balance - The balance in wei.
+ */
+async function fund(
+  connection: NetworkConnection<string>,
+  accounts: ConnectionAccounts,
+  balance: bigint,
+): Promise<void> {
+  const addresses = await accounts.addresses();
+  for (const address of addresses) {
+    await connection.provider.request({
+      method: "hardhat_setBalance",
+      params: [address, `0x${balance.toString(16)}`],
+    });
+  }
+  log("funded %d KMS accounts with %s wei", addresses.length, balance);
+}
+
 const hasKeys = (keys: NetworkKeys): boolean =>
   keys.config.length > 0 || keys.commandLine.length > 0;
 
@@ -93,6 +116,16 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
           console.warn(
             "hardhat-kms: the `default` network has KMS keys (from `kmsAccounts` or `--kms` without `--network`). Tasks and tests use it when no --network is given, so they would call KMS. Put KMS keys on a named network, and pass --network with --kms.",
           );
+        }
+        const balance = context.config.kms.simulatedBalance;
+        if (connection.networkConfig.type === "edr-simulated" && balance !== undefined) {
+          try {
+            await fund(connection, accountsOf(context, connection), balance);
+          } catch (error) {
+            // The connection is not handed out, so close it; that also releases its count.
+            await connection.close().catch(() => undefined);
+            throw error;
+          }
         }
       }
       return connection;

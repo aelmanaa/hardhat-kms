@@ -635,4 +635,72 @@ describe("network hook", () => {
       ]);
     });
   });
+
+  describe("kms.simulatedBalance", () => {
+    const ONE_ETHER = 10n ** 18n;
+
+    async function fundedRuntime(adapter: () => FakeAdapter) {
+      const hre = await createHardhatRuntimeEnvironment({
+        plugins: [hardhatKms],
+        kms: {
+          keys: { cow: vaultKey("cow"), pinned: vaultKey("pinned", HARDHAT_ACCOUNT_0.address) },
+          simulatedBalance: ONE_ETHER,
+        },
+        networks: {
+          local: { type: "edr-simulated", kmsAccounts: ["cow", "pinned"] },
+          remote: { type: "http", url: "http://127.0.0.1:1", kmsAccounts: ["cow"] },
+        },
+      });
+      hre.hooks.registerHandlers("kms", {
+        createKeyAdapter: async (context, key, next) =>
+          key.name === "cow" ? adapter() : await next(context, key),
+      });
+      return hre;
+    }
+
+    it("funds each KMS account of an edr-simulated network when it connects", async () => {
+      const hre = await fundedRuntime(() => fakeAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }));
+      const { provider } = await hre.network.create("local");
+
+      for (const address of [COW_ACCOUNT.address, HARDHAT_ACCOUNT_0.address]) {
+        assert.equal(
+          await provider.request({ method: "eth_getBalance", params: [address, "latest"] }),
+          `0x${ONE_ETHER.toString(16)}`,
+          address,
+        );
+      }
+    });
+
+    it("leaves http networks alone", async () => {
+      const hre = await fundedRuntime(() => fakeAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }));
+
+      // An unreachable node: funding would fail the connection.
+      const connection = await hre.network.create("remote");
+      await connection.close();
+    });
+
+    it("fails the connection when an account's address cannot be looked up", async () => {
+      const hre = await fundedRuntime(() =>
+        fakeAdapter({
+          secretKey: hex(COW_ACCOUNT.secretKey),
+          throwError: new TypeError("lookup failed"),
+        }),
+      );
+
+      let closed = 0;
+      hre.hooks.registerHandlers("network", {
+        closeConnection: async (context, connection, next) => {
+          closed++;
+          await next(context, connection);
+        },
+      });
+
+      await assert.rejects(hre.network.create("local"), (error: unknown) => {
+        assert.ok(error instanceof HardhatPluginError, String(error));
+        assert.match(error.message, /\(TypeError\)/);
+        return true;
+      });
+      assert.equal(closed, 1, "the connection that failed to fund was closed");
+    });
+  });
 });
