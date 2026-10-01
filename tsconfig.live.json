@@ -13,6 +13,15 @@
   "references": [
     {
       "path": "./packages/hardhat-kms"
+    },
+    {
+      "path": "./packages/hardhat-kms-aws"
+    },
+    {
+      "path": "./packages/hardhat-kms-azure"
+    },
+    {
+      "path": "./packages/hardhat-kms-gcp"
     }
   ]
 }

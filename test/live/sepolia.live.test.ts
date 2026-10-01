@@ -20,9 +20,6 @@ import { before, describe, it, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import hardhatViem from "@nomicfoundation/hardhat-viem";
-import hardhatKmsAws from "hardhat-kms-aws";
-import hardhatKmsAzure from "hardhat-kms-azure";
-import hardhatKmsGcp from "hardhat-kms-gcp";
 import type { KmsKeyConfig, KmsKeyUserConfig } from "hardhat-kms/types";
 import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
@@ -47,6 +44,11 @@ import {
 // The EIP-7702 authorizations are signed by the core signer loaded from `src`, while the
 // transactions go through the plugin built in `dist`. The plugin has no public way to sign an
 // authorization yet; switch to it once #35 adds one.
+// The provider plugins come from their `src`, so their types resolve before any package is built,
+// as in the lint job.
+import hardhatKmsAws from "../../packages/hardhat-kms-aws/src/index.ts";
+import hardhatKmsAzure from "../../packages/hardhat-kms-azure/src/index.ts";
+import hardhatKmsGcp from "../../packages/hardhat-kms-gcp/src/index.ts";
 import { authorizationDigest } from "../../packages/hardhat-kms/src/internal/crypto/digests.ts";
 import { KmsSigner } from "../../packages/hardhat-kms/src/internal/signer/kms-signer.ts";
 import { redact } from "./helpers/redact.ts";

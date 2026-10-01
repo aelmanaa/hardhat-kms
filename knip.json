@@ -8,6 +8,9 @@
         "tsx",
         "publint",
         "@arethetypeswrong/cli",
+        "hardhat-kms-aws",
+        "hardhat-kms-azure",
+        "hardhat-kms-gcp",
         "@nomicfoundation/hardhat-ignition",
         "@nomicfoundation/hardhat-ignition-viem",
         "@nomicfoundation/hardhat-ledger"
