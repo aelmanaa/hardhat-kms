@@ -1,0 +1,79 @@
+# The macOS and Windows test jobs. A macOS minute costs about ten Linux minutes, so pull requests skip
+# them unless they carry the label ci:all-os. Pushes to main, the merge queue and manual dispatch always
+# run them. They live in their own workflow so that adding a label reruns only these jobs: the Linux jobs
+# in ci.yml do not listen to label events, so a label never cancels or overwrites their required checks.
+# These checks are not required: a required check that never reports blocks the merge.
+name: CI (macOS, Windows)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A label other than ci:all-os gets a group of its own, so it cannot cancel a run in progress.
+  group: >-
+    ${{ github.event.action == 'labeled' && github.event.label.name != 'ci:all-os'
+    && format('ci-all-os-ignored-{0}', github.run_id) || format('ci-all-os-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    # On a pull request: run when the label ci:all-os is added, and on every push while the pull request
+    # carries it. Adding any other label skips the job.
+    if: >-
+      github.event_name != 'pull_request'
+      || (github.event.action == 'labeled' && github.event.label.name == 'ci:all-os')
+      || (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'ci:all-os'))
+    name: Test (${{ matrix.os-name }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    env:
+      # Developing needs Node >= 22.18 (root devEngines), but the published package supports 22.13;
+      # this job checks that, so pnpm must not refuse the older runtime.
+      pnpm_config_runtime_on_fail: ${{ matrix.node == '22.13.0' && 'ignore' || 'error' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Mirrors Hardhat's own matrix: macOS and Windows on the lowest supported Node version.
+        include:
+          - os-name: macOS
+            runner: macos-latest
+            node: "22.13.0"
+          - os-name: Windows
+            runner: windows-latest
+            node: "22.13.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Hardhat's solc cache (build lists, native and WASM builds) in its Linux, macOS and Windows
+      # cache directories. With a warm cache, the tests make no request to binaries.soliditylang.org.
+      # The key hashes the lockfile too, so a Hardhat upgrade saves a fresh cache.
+      - name: Cache Solidity compilers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/hardhat-nodejs/compilers-v3
+            ~/Library/Caches/hardhat-nodejs/compilers-v3
+            ~/AppData/Local/hardhat-nodejs/Cache/compilers-v3
+          key: solc-${{ runner.os }}-${{ hashFiles('packages/*/test/**/*.sol', 'pnpm-lock.yaml') }}
+          restore-keys: solc-${{ runner.os }}-
+      # Node 22.13.0 cannot strip TypeScript types natively; load tsx there only.
+      - name: Test
+        shell: bash
+        env:
+          NODE_OPTIONS: ${{ matrix.node == '22.13.0' && '--import tsx' || '' }}
+        run: pnpm test
