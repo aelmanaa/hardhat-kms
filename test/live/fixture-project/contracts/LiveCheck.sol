@@ -2,9 +2,9 @@
 pragma solidity 0.8.24;
 
 /// The contract the live tests deploy on Sepolia. Only its deployer can call `add`, so a write that
-/// succeeds came from the KMS account. `add` is payable, so one call also covers a call with value. The `recover` functions rebuild the EIP-191 and EIP-712
-/// digests on chain and recover the signer with `ecrecover`, refusing high-S signatures as
-/// OpenZeppelin's ECDSA does.
+/// succeeds came from the KMS account. `add` is payable, so one call also covers a call with value.
+/// The `recover` functions rebuild the EIP-191 and EIP-712 digests on chain and recover the signer
+/// with `ecrecover`, refusing high-S signatures as OpenZeppelin's ECDSA does.
 ///
 /// The KMS account also delegates to this contract with EIP-7702, and the test clears the
 /// delegation before it ends. While delegated, the account runs this code against its own storage:

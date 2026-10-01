@@ -44,6 +44,7 @@ import {
   parseEther,
   parseGwei,
   toHex,
+  zeroAddress,
 } from "viem";
 
 // The EIP-7702 authorizations are signed by the core signer loaded from `src`, while the
@@ -214,6 +215,24 @@ const errorText = (error: Error): string => `${error.name}: ${error.message}`;
 const asError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
+/**
+ * What a failed cleanup may have left, and how to undo it. A pending transaction stuck under a
+ * rising base fee also blocks the clear, which takes the next nonce.
+ */
+function leftDelegated(run: ProviderRun, account: Address, network: string): string {
+  const own = run.delegated
+    ? `${account} may still delegate to this run's code. Once any pending transaction from it is ` +
+      "mined or replaced, clear it: sign an authorization of the zero address with " +
+      `\`npx hardhat kms sign-auth --network ${network} --self-broadcast <key> ${zeroAddress}\` and send ` +
+      "it in an eth_sendTransaction from the account to itself with that authorizationList. "
+    : "";
+  const throwaway = run.throwawayDelegated
+    ? "The run's throwaway key may still delegate to LiveCheck. Its key existed only in memory, so " +
+      "that delegation stays; the account holds no ETH, and only the KMS account can call add on it."
+    : "";
+  return `${own}${throwaway}`.trim() || "No delegation was left set.";
+}
+
 /** Runs one provider's cases, and reports what it sent as test diagnostics. */
 async function runProvider(
   hre: HardhatRuntimeEnvironment,
@@ -318,13 +337,11 @@ async function runProvider(
         await run.cleanUp();
       });
     } catch (error) {
-      const cleared = asError(error);
+      const cleared = new Error(
+        `clearing the delegations failed: ${errorText(asError(error))}. ${leftDelegated(run, account, provider.name)}`,
+      );
       failure =
-        failure === undefined
-          ? cleared
-          : new Error(
-              `${errorText(failure)}; clearing the delegations also failed: ${errorText(cleared)}`,
-            );
+        failure === undefined ? cleared : new Error(`${errorText(failure)}; ${errorText(cleared)}`);
     }
     if (failure !== undefined) {
       throw failure;
@@ -333,6 +350,10 @@ async function runProvider(
     // The per-run check: every cell this mode runs has a receipt with its case's status, sender
     // and type.
     assert.deepEqual(missingCells(mode, run.records), [], "cells without a receipt");
+    assert.ok(
+      run.revertNoncesChecked > 0,
+      "no plugin-filled transaction followed a revert, so the nonce after a revert went unchecked",
+    );
     const sent = run.records.filter((record) => record.hash !== null).length;
     // The gas the live cases used, which is what a Sepolia run pays for.
     const liveGas = run.records
@@ -463,10 +484,11 @@ describe(onFork ? "live on a Sepolia fork" : "live on Sepolia", () => {
   });
 
   // Only a Sepolia run in which every configured provider passed writes the proof.
+  // A proof covers all three providers, so a run with fewer cannot overwrite a complete one.
   const skipWrite = onFork
     ? "a fork run writes no proof"
-    : configured.length === 0
-      ? "no provider is configured"
+    : configured.length < PROVIDERS.length
+      ? "a proof needs all three providers configured; nothing is written"
       : false;
   it("sepolia: writes test/live/proof.json", { skip: skipWrite }, (t) => {
     assert.equal(proofs.length, configured.length, "a provider failed, so no proof was written");

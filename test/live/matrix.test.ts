@@ -6,7 +6,14 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { parseProof, type Proof, proofProblems, renderProof, table } from "./helpers/proof.ts";
+import {
+  parseProof,
+  type Proof,
+  PROOF_MARKER,
+  proofProblems,
+  renderProof,
+  table,
+} from "./helpers/proof.ts";
 import {
   ALL_CELLS,
   balanceFloor,
@@ -16,26 +23,36 @@ import {
   DECISIONS,
   matrixProblems,
   missingCells,
+  REASON_KINDS,
   REASONS,
   type RunRecord,
   TX_TYPES,
+  unitTestState,
 } from "./matrix.ts";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const PROOF_FILE = path.join(repository, "test/live/proof.json");
 const PROOF_PAGE = path.join(repository, "docs/live-proof.md");
 
-/** A record for each transaction a mode's cases send, as a passing run would make. */
+/** The signatures the `signatures` case checks, as its records' labels start. */
+const CHECKS = ["personal_sign", "eth_sign", "eth_signTypedData_v4"];
+
+/** A record for each transaction or check a mode's cases make, as a passing run would. */
 function passingRecords(mode: "fork" | "sepolia", start = 1): RunRecord[] {
-  return casesFor(mode).map((item, index) => ({
-    case: item.id,
-    label: item.title,
-    type: item.type,
-    hash: item.type === null ? null : `0x${(start + index).toString(16).padStart(64, "0")}`,
-    block: String(100 + index),
-    status: item.expect.status,
-    from: item.expect.from,
-  }));
+  return casesFor(mode).flatMap((item, index) =>
+    (item.type === null
+      ? CHECKS.map((name) => `${name} recovered by LiveCheck`)
+      : [item.title]
+    ).map((label) => ({
+      case: item.id,
+      label,
+      type: item.type,
+      hash: item.type === null ? null : `0x${(start + index).toString(16).padStart(64, "0")}`,
+      block: String(100 + index),
+      status: item.expect.status,
+      from: item.expect.from,
+    })),
+  );
 }
 
 function syntheticProof(): Proof {
@@ -57,6 +74,17 @@ function syntheticProof(): Proof {
       ),
     })),
   };
+}
+
+/**
+ * Why the committed-proof checks are skipped, or false when they run. They are skipped only before
+ * the first Sepolia run with the matrix: no proof yet, and the page still in its old, hand-written
+ * form. Once the page is rendered, a missing proof fails.
+ */
+function proofPending(hasProof: boolean, page: string): string | false {
+  return hasProof || page.includes(PROOF_MARKER)
+    ? false
+    : "no Sepolia run with the matrix yet: run HARDHAT_KMS_LIVE_NETWORK=sepolia pnpm run test:live, then pnpm run docs:live-proof";
 }
 
 /** A Sepolia run's records with the type 2 revert's record changed. */
@@ -96,9 +124,10 @@ describe("the transaction matrix", () => {
     for (const { cell, unit } of refs) {
       const file = path.join(repository, unit.file);
       assert.ok(existsSync(file), `${cell}: ${unit.file} does not exist`);
-      assert.ok(
-        readFileSync(file, "utf8").includes(unit.test),
-        `${cell}: ${unit.file} has no test "${unit.test}"`,
+      assert.equal(
+        unitTestState(readFileSync(file, "utf8"), unit.test),
+        "found",
+        `${cell}: ${unit.file} has no running test "${unit.test}"`,
       );
     }
   });
@@ -178,6 +207,42 @@ describe("the transaction matrix", () => {
       );
     });
 
+    it("a reason that does not fit the decision", () => {
+      const decisions = DECISIONS.map((entry) =>
+        entry.cell === "deploy/eip4844"
+          ? { cell: entry.cell, decision: { kind: "n/a", reason: "e" } as const }
+          : entry,
+      );
+      assert.ok(
+        matrixProblems(decisions).includes(
+          "deploy/eip4844 is n/a, which reason (e) does not allow",
+        ),
+      );
+      const kinds = { ...REASON_KINDS, r: ["n/a"] as const };
+      assert.ok(
+        matrixProblems(DECISIONS, CASES, REASONS, kinds).includes(
+          "eth-to-eoa/eip4844 is refused, which reason (r) does not allow",
+        ),
+      );
+    });
+
+    it("a unit test that is missing, commented out or skipped", () => {
+      const source = [
+        'it("runs", async () => {});',
+        '// it("commented out", async () => {});',
+        'it.skip("skipped by name", async () => {});',
+        'it("skipped by option", { skip: "later" }, async () => {});',
+        'test("a todo", { todo: true }, async () => {});',
+        'const title = "only a string";',
+      ].join("\n");
+      assert.equal(unitTestState(source, "runs"), "found");
+      assert.equal(unitTestState(source, "commented out"), "missing");
+      assert.equal(unitTestState(source, "skipped by name"), "missing");
+      assert.equal(unitTestState(source, "skipped by option"), "skipped");
+      assert.equal(unitTestState(source, "a todo"), "skipped");
+      assert.equal(unitTestState(source, "only a string"), "missing");
+    });
+
     it("a case missing from the table", () => {
       const cases = without(CASES, (item) => item.id === "sponsor-other");
       assert.ok(
@@ -204,6 +269,15 @@ describe("the per-run check", () => {
     const records = without(passingRecords("fork"), (record) => record.case === "replace-eip7702");
     assert.deepEqual(missingCells("fork", records), [
       "replacement/eip7702: no success record from replace-eip7702",
+    ]);
+  });
+
+  it("asks for a check of each signature", () => {
+    const records = without(passingRecords("sepolia"), (record) =>
+      record.label.startsWith("eth_sign "),
+    );
+    assert.deepEqual(missingCells("sepolia", records), [
+      "signature/eth_sign: no success record from signatures",
     ]);
   });
 
@@ -253,6 +327,23 @@ describe("the live proof", () => {
     assert.deepEqual(parseProof(JSON.stringify(proof)), proof);
   });
 
+  it("refuses a run on another chain, or without each provider exactly once", () => {
+    const proof = syntheticProof();
+    proof.chainId = 1;
+    const [aws, gcp] = proof.providers;
+    assert.ok(aws !== undefined && gcp !== undefined);
+    proof.providers = [aws, gcp, aws];
+    assert.deepEqual(proofProblems(proof), [
+      "the proof is for chain 1, not Sepolia (11155111)",
+      "the proof lists aws 2 times, not once",
+      "the proof lists azure 0 times, not once",
+    ]);
+  });
+
+  it("marks the rendered page, so a missing proof cannot go unnoticed", () => {
+    assert.ok(renderProof(syntheticProof()).includes(PROOF_MARKER));
+  });
+
   it("refuses a run with a live cell without a hash", () => {
     const proof = syntheticProof();
     const [first] = proof.providers;
@@ -267,10 +358,13 @@ describe("the live proof", () => {
     assert.ok(proofProblems(proof).includes("aws: call-legacy has no valid hash"));
   });
 
-  const committed = existsSync(PROOF_FILE);
-  const pending = committed
-    ? false
-    : "no Sepolia run with the matrix yet: run HARDHAT_KMS_LIVE_NETWORK=sepolia pnpm run test:live, then pnpm run docs:live-proof";
+  const pending = proofPending(existsSync(PROOF_FILE), readFileSync(PROOF_PAGE, "utf8"));
+
+  it("skips the proof checks only before the page is rendered", () => {
+    assert.equal(typeof proofPending(false, "# Live proof\n\nA hand-written page."), "string");
+    assert.equal(proofPending(true, "anything"), false);
+    assert.equal(proofPending(false, renderProof(syntheticProof())), false);
+  });
 
   it("test/live/proof.json has a transaction for every live cell", { skip: pending }, () => {
     assert.deepEqual(proofProblems(parseProof(readFileSync(PROOF_FILE, "utf8"))), []);

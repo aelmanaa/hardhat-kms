@@ -53,18 +53,34 @@ const PROVIDER_TITLES: Record<ProviderProof["provider"], string> = {
   azure: "Azure Key Vault",
 };
 const EXPLORER = "https://sepolia.etherscan.io";
+const SEPOLIA_CHAIN_ID = 11_155_111;
+/** Every proof covers these providers, each once. */
+const PROOF_PROVIDERS = ["aws", "gcp", "azure"] as const;
+/**
+ * A phrase only the rendered page contains. Once `docs/live-proof.md` has it, the page must come
+ * from `test/live/proof.json`, and a missing proof fails `matrix.test.ts`.
+ */
+export const PROOF_MARKER =
+  "`pnpm run docs:live-proof` renders this page from `test/live/proof.json`";
 const HASH = /^0x[0-9a-f]{64}$/;
 
 /**
- * The problems that make a proof unfit to render: a live cell without a transaction (or check) for
- * a provider listed as run, or a hash that is not one.
+ * The problems that make a proof unfit to render: another chain than Sepolia, a provider of AWS,
+ * Google Cloud and Azure missing or listed twice, a live cell without a transaction (or check) for
+ * a provider, or a hash that is not one.
  *
  * @returns One message per problem; empty when every live cell has its proof.
  */
 export function proofProblems(proof: Proof): string[] {
   const problems: string[] = [];
-  if (proof.providers.length === 0) {
-    problems.push("the proof lists no provider");
+  if (proof.chainId !== SEPOLIA_CHAIN_ID) {
+    problems.push(`the proof is for chain ${proof.chainId}, not Sepolia (${SEPOLIA_CHAIN_ID})`);
+  }
+  for (const name of PROOF_PROVIDERS) {
+    const count = proof.providers.filter((provider) => provider.provider === name).length;
+    if (count !== 1) {
+      problems.push(`the proof lists ${name} ${count} times, not once`);
+    }
   }
   for (const provider of proof.providers) {
     for (const missing of missingCells("sepolia", provider.records)) {
@@ -222,7 +238,7 @@ export function renderProof(proof: Proof): string {
     "",
     "Status: M9. The latest run of the live suite on Sepolia ([#44](https://github.com/aelmanaa/hardhat-kms/issues/44)), " +
       "with the transaction matrix of [#144](https://github.com/aelmanaa/hardhat-kms/issues/144). " +
-      "`pnpm run docs:live-proof` renders this page from `test/live/proof.json`, which the run wrote; do not edit it by hand.",
+      `${PROOF_MARKER}, which the run wrote; do not edit it by hand.`,
     "",
     "## Run",
     "",

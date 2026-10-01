@@ -73,8 +73,9 @@ export const REASONS: Record<ReasonId, string> = {
     "EIP-7702 gives `destination` the semantics of EIP-4844: " +
     '"this implies a null destination is not valid."',
   d:
-    "The revert path does not depend on the type: the receipt has status 0 and the plugin's nonce " +
-    "moves past it, which the type 2 case proves on Sepolia. The type 4 case also checks that the " +
+    "The revert path does not depend on the type: the receipt has status 0, and the next " +
+    "transaction whose nonce the plugin fills carries the account's count after the revert, which " +
+    "the type 2 case proves on Sepolia. The type 4 case also checks that the " +
     "delegation stays applied, since EIP-7702 does not roll back processed authorizations when " +
     "execution fails.",
   e:
@@ -97,14 +98,50 @@ export const REASONS: Record<ReasonId, string> = {
   r: "EIP-4844 blob transactions: the plugin refuses them before any request.",
 };
 
+/**
+ * The decisions each reason may justify: a reason why the protocol forbids a cell cannot make it
+ * fork-only, and a reason why a cell cannot run on Sepolia cannot make it not applicable.
+ */
+export const REASON_KINDS: Record<ReasonId, readonly Decision["kind"][]> = {
+  a: ["fork"],
+  b: ["n/a"],
+  c: ["n/a"],
+  d: ["fork"],
+  e: ["fork"],
+  f: ["n/a"],
+  g: ["n/a"],
+  h: ["fork"],
+  r: ["refused"],
+};
+
 /** A unit or integration test, by its file (relative to the repository root) and title. */
 export interface UnitRef {
   file: string;
-  /**
-   * The test's title, or for a title the file builds from a table, the table entry's name. The
-   * completeness check requires the file to contain this text.
-   */
+  /** The test's literal title, as `it("…")` or `test("…")` gives it. */
   test: string;
+}
+
+const escapeRegExp = (text: string): string =>
+  text.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+
+/**
+ * Finds a test by its literal title in a test file's source.
+ *
+ * @returns `found`, `missing` when no `it(` or `test(` call has the title (a title in a comment,
+ *   or in `it.skip(` or `it.todo(`, does not count), or `skipped` when the call passes a `skip` or
+ *   `todo` option.
+ */
+export function unitTestState(source: string, title: string): "found" | "missing" | "skipped" {
+  const call = new RegExp(
+    String.raw`(?<![.\w])(?:it|test)\(\s*(["'\x60])${escapeRegExp(title)}\1\s*(,\s*\{[^{}]*\})?`,
+  );
+  // Block comments and whole-line comments hold no test.
+  const code = source.replaceAll(/\/\*[\s\S]*?\*\//g, "").replaceAll(/^\s*\/\/.*$/gm, "");
+  const match = call.exec(code);
+  if (match === null) {
+    return "missing";
+  }
+  return /\b(?:skip|todo)\s*:/.test(match[2] ?? "") ? "skipped" : "found";
 }
 
 export type Decision =
@@ -202,16 +239,7 @@ export const DECISIONS: readonly { cell: CellKey; decision: Decision }[] = [
 
   { cell: "signature/personal_sign", decision: live("signatures") },
   { cell: "signature/eth_signTypedData_v4", decision: live("signatures") },
-  {
-    cell: "signature/eth_sign",
-    decision: {
-      kind: "unit",
-      unit: {
-        file: "packages/hardhat-kms/test/integration/network-hook.test.ts",
-        test: "signs personal_sign and eth_sign for a KMS account exactly like Hardhat's local accounts",
-      },
-    },
-  },
+  { cell: "signature/eth_sign", decision: live("signatures") },
 ];
 
 /** What a case's transactions must show in their receipts. */
@@ -448,10 +476,11 @@ export const CASES: readonly Case[] = [
     id: "signatures",
     mode: "live",
     type: null,
-    covers: ["signature/personal_sign", "signature/eth_signTypedData_v4"],
+    covers: ["signature/personal_sign", "signature/eth_sign", "signature/eth_signTypedData_v4"],
     expect: OK,
     gas: 0n,
-    title: "`LiveCheck` recovers a `personal_sign` and an `eth_signTypedData_v4` signature",
+    title:
+      "`LiveCheck` recovers a `personal_sign`, an `eth_sign` and an `eth_signTypedData_v4` signature",
   },
   {
     id: "sponsor-other",
@@ -539,6 +568,7 @@ export function matrixProblems(
   decisions: readonly { cell: string; decision: Decision }[] = DECISIONS,
   cases: readonly Case[] = CASES,
   reasons: Readonly<Record<string, string>> = REASONS,
+  reasonKinds: Readonly<Record<string, readonly Decision["kind"][]>> = REASON_KINDS,
 ): string[] {
   const problems: string[] = [];
   const known = new Set<string>(ALL_CELLS);
@@ -572,6 +602,10 @@ export function matrixProblems(
       const text = Object.hasOwn(reasons, decision.reason) ? reasons[decision.reason] : undefined;
       if (text === undefined || text.trim() === "") {
         problems.push(`${cell} is ${decision.kind} without a reason`);
+      } else if (!(reasonKinds[decision.reason] ?? []).includes(decision.kind)) {
+        problems.push(
+          `${cell} is ${decision.kind}, which reason (${decision.reason}) does not allow`,
+        );
       }
     }
     if (decision.kind === "live" || decision.kind === "fork") {
@@ -665,9 +699,11 @@ export function missingCells(
       continue;
     }
     const item = cases.find((entry) => entry.id === decision.case);
+    const check = cell.startsWith("signature/") ? `${cell.slice("signature/".length)} ` : "";
     const match = records.find(
       (record) =>
         record.case === decision.case &&
+        record.label.startsWith(check) &&
         record.type === item?.type &&
         record.status === item.expect.status &&
         record.from === item.expect.from &&

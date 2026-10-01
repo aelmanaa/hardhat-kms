@@ -133,6 +133,8 @@ export interface RunOptions {
 /** One provider's run: its state between cases, and what it recorded. */
 export class ProviderRun {
   readonly records: ProofRecord[] = [];
+  /** How many times a plugin-filled nonce was checked against the count after a revert. */
+  revertNoncesChecked = 0;
   /** Whether the account may be delegated: set before each send that could delegate it. */
   delegated = false;
   #options: RunOptions;
@@ -156,6 +158,11 @@ export class ProviderRun {
     this.#options = options;
     this.#recipient = getAddress(toHex(crypto.getRandomValues(new Uint8Array(20))));
     this.#throwaway = privateKeyToAccount(generatePrivateKey());
+  }
+
+  /** Whether the throwaway key may still delegate: set before its first authorization is sent. */
+  get throwawayDelegated(): boolean {
+    return this.#throwawayDelegated;
   }
 
   get contract(): Address | undefined {
@@ -227,19 +234,37 @@ export class ProviderRun {
   }
 
   /**
-   * Waits for a transaction and checks it against its case: status, sender and type. Records it,
-   * and after a revert, checks that the next transaction from the account takes the next nonce.
+   * Waits for a transaction and checks it against its case: status, sender, type and value.
+   * Records it. After a revert, the next transaction whose nonce the plugin fills must carry the
+   * account's transaction count at the revert's block; that is checked before waiting for it, so
+   * a wrong nonce fails here rather than as a receipt timeout.
    *
-   * @param sender - The account that sent it, when it is not the KMS account.
+   * @param expect.value - The value the transaction must carry, in wei.
+   * @param expect.sender - The account that sent it, when it is not the KMS account.
+   * @param expect.explicitNonce - True when the caller set the nonce, so the plugin filled none.
    */
   async mined(
     id: CaseId,
     label: string,
     hash: Hash,
-    sender?: Address,
+    expect: { value: bigint; sender?: Address; explicitNonce?: boolean },
   ): Promise<TransactionReceipt> {
     const { publicClient, rpc, t, provider, account, forkUrl } = this.#options;
+    const { sender } = expect;
     const item = this.#case(id);
+    const tx = await this.#transaction(hash);
+    assert.equal(tx.value, expect.value, `${label} carries ${tx.value} wei, not ${expect.value}`);
+    if (sender === undefined && this.#expectNonce !== undefined) {
+      if (expect.explicitNonce !== true) {
+        assert.equal(
+          tx.nonce,
+          this.#expectNonce,
+          `after the revert the plugin filled nonce ${tx.nonce} for ${label}, not the account's count ${this.#expectNonce}`,
+        );
+        this.revertNoncesChecked++;
+      }
+      this.#expectNonce = undefined;
+    }
     const waitFor = async (timeout: number): Promise<TransactionReceipt | undefined> => {
       try {
         return await publicClient.waitForTransactionReceipt({ hash, timeout });
@@ -266,7 +291,7 @@ export class ProviderRun {
     if (receipt === undefined) {
       const nonce = await publicClient
         .getTransaction({ hash })
-        .then((tx) => String(tx.nonce))
+        .then((pending) => String(pending.nonce))
         .catch(() => "unknown");
       const count = await publicClient
         .getTransactionCount({ address: account, blockTag: "latest" })
@@ -294,15 +319,6 @@ export class ProviderRun {
     assert.equal(getAddress(receipt.from), from, `${label} was not sent by ${from}`);
     assert.equal(receipt.type, item.type, `${label} is not ${item.type ?? "a check"}`);
     if (sender === undefined) {
-      const tx = await this.#transaction(hash);
-      if (this.#expectNonce !== undefined) {
-        assert.equal(
-          tx.nonce,
-          this.#expectNonce,
-          `${label} did not take the nonce after the revert`,
-        );
-        this.#expectNonce = undefined;
-      }
       if (receipt.status === "reverted") {
         // The account's count after the revert: the nonce + 1, or + 2 when the transaction also
         // carried the account's own authorization, which EIP-7702 applies even on a revert.
@@ -404,6 +420,7 @@ export class ProviderRun {
       "deploy-live-check",
       "deploy LiveCheck",
       await wallet.deployContract({ abi: LIVE_CHECK_ABI, bytecode }),
+      { value: 0n },
     );
     const contract = receipt.contractAddress;
     assert.ok(contract !== null && contract !== undefined, "the deployment created no contract");
@@ -437,7 +454,7 @@ export class ProviderRun {
             gasPrice,
             ...(type === "eip2930" ? { accessList: [{ address: to, storageKeys: [] }] } : {}),
           });
-    const receipt = await this.mined(id, "1 wei to a fresh address", hash);
+    const receipt = await this.mined(id, "1 wei to a fresh address", hash, { value: 1n });
     await this.#checkRecipient(receipt.blockNumber);
   }
 
@@ -462,7 +479,7 @@ export class ProviderRun {
             gasPrice,
             ...(type === "eip2930" ? { accessList: [{ address: account, storageKeys: [] }] } : {}),
           });
-    await this.mined(id, "1 wei to itself", hash);
+    await this.mined(id, "1 wei to itself", hash, { value: 1n });
   }
 
   /** Deploys the 3-byte contract and checks its code. */
@@ -474,7 +491,7 @@ export class ProviderRun {
       gasPrice,
       ...(type === "eip2930" ? { accessList: [{ address: account, storageKeys: [] }] } : {}),
     });
-    const receipt = await this.mined(id, "deploy a 3-byte contract", hash);
+    const receipt = await this.mined(id, "deploy a 3-byte contract", hash, { value: 0n });
     const created = receipt.contractAddress;
     assert.ok(created !== null && created !== undefined, "the deployment created no contract");
     const address = getAddress(created);
@@ -488,7 +505,7 @@ export class ProviderRun {
 
   /** `add(1)` with 1 wei: the count and the contract's balance must both grow by 1. */
   async callAdd(id: CaseId, type: "legacy" | "eip2930" | "eip1559"): Promise<void> {
-    const { wallet, gasPrice, publicClient } = this.#options;
+    const { wallet, gasPrice } = this.#options;
     const contract = this.#need(this.#contract, "LiveCheck");
     const add = {
       address: contract,
@@ -507,11 +524,11 @@ export class ProviderRun {
               ? { accessList: [{ address: contract, storageKeys: [COUNT_SLOT] }] }
               : {}),
           });
-    const receipt = await this.mined(id, "add(1) with 1 wei", hash);
+    const receipt = await this.mined(id, "add(1) with 1 wei", hash, { value: 1n });
     if (type === "legacy") {
       // EIP-155: a legacy transaction signs over the chain id, which its v carries as
       // chainId * 2 + 35 or 36. Some nodes also return the chain id itself.
-      const legacy = await publicClient.getTransaction({ hash });
+      const legacy = await this.#transaction(hash);
       assert.equal(
         (legacy.v - 35n) / 2n,
         BigInt(SEPOLIA_CHAIN_ID),
@@ -553,7 +570,7 @@ export class ProviderRun {
             gasPrice,
             ...(type === "eip2930" ? { accessList: [{ address: contract, storageKeys: [] }] } : {}),
           });
-    await this.mined(id, "an unknown selector to LiveCheck", hash);
+    await this.mined(id, "an unknown selector to LiveCheck", hash, { value: 0n });
   }
 
   /**
@@ -602,7 +619,10 @@ export class ProviderRun {
     } finally {
       await rpc.request({ method: "evm_setAutomine", params: [true] });
     }
-    const receipt = await this.mined(id, "replace a pending self-send", second);
+    const receipt = await this.mined(id, "replace a pending self-send", second, {
+      value: 1n,
+      explicitNonce: true,
+    });
     assert.equal(
       (await this.#transaction(second)).nonce,
       nonce,
@@ -650,6 +670,7 @@ export class ProviderRun {
         data: encodeFunctionData({ abi: LIVE_CHECK_ABI, functionName: "add", args: [1n] }),
         authorizationList: [authorization],
       }),
+      { value: 1n, explicitNonce: true },
     );
     assert.equal(
       (await this.#codeAt(account, receipt.blockNumber))?.toLowerCase(),
@@ -665,32 +686,49 @@ export class ProviderRun {
   }
 
   /**
-   * `LiveCheck` rebuilds the `personal_sign` and EIP-712 digests and recovers the signer with
-   * ecrecover. The calls ask for a block the contract exists at, so a lagging node cannot answer
+   * `LiveCheck` rebuilds the EIP-191 and EIP-712 digests and recovers the signer with ecrecover,
+   * for a `personal_sign`, an `eth_sign` and an `eth_signTypedData_v4` signature. Hardhat's
+   * `eth_sign` signs the EIP-191 digest of its data, as `personal_sign` does, so `recoverPersonal`
+   * checks both. The calls ask for a block the contract exists at, so a lagging node cannot answer
    * from before it.
    */
   async signatures(): Promise<void> {
-    const { wallet, account, publicClient } = this.#options;
+    const { wallet, account, publicClient, rpc } = this.#options;
     const contract = this.#need(this.#contract, "LiveCheck");
     const block = this.#need(this.#delegationBlock ?? this.#lastBlock, "a receipt");
+    const recoversPersonal = async (
+      method: string,
+      signature: Hex,
+      message: Hex,
+    ): Promise<void> => {
+      const { v, r, s } = parseSignature(signature);
+      assert.equal(
+        await this.#at(
+          async (blockNumber) =>
+            await publicClient.readContract({
+              address: contract,
+              abi: LIVE_CHECK_ABI,
+              functionName: "recoverPersonal",
+              args: [message, Number(v), r, s],
+              blockNumber,
+            }),
+          block,
+        ),
+        account,
+        `${method} does not recover to the KMS account on chain`,
+      );
+      this.#check(`${method} recovered by LiveCheck`, block);
+    };
     const message = toHex(crypto.getRandomValues(new Uint8Array(32)));
-    const personal = parseSignature(await wallet.signMessage({ message: { raw: message } }));
-    assert.equal(
-      await this.#at(
-        async (blockNumber) =>
-          await publicClient.readContract({
-            address: contract,
-            abi: LIVE_CHECK_ABI,
-            functionName: "recoverPersonal",
-            args: [message, Number(personal.v), personal.r, personal.s],
-            blockNumber,
-          }),
-        block,
-      ),
-      account,
-      "personal_sign does not recover to the KMS account on chain",
+    await recoversPersonal(
+      "personal_sign",
+      await wallet.signMessage({ message: { raw: message } }),
+      message,
     );
-    this.#check("personal_sign recovered by LiveCheck", block);
+    const other = toHex(crypto.getRandomValues(new Uint8Array(32)));
+    const signed: unknown = await rpc.request({ method: "eth_sign", params: [account, other] });
+    assert.ok(isHex(signed) && signed.length === 132, "eth_sign returned no 65-byte signature");
+    await recoversPersonal("eth_sign", signed, other);
     const typed = parseSignature(
       await wallet.signTypedData({
         domain: {
@@ -763,6 +801,7 @@ export class ProviderRun {
         value: 1n,
         authorizationList: [authorization],
       }),
+      { value: 1n },
     );
     await this.#checkRecipient(receipt.blockNumber);
     assert.equal(
@@ -794,6 +833,7 @@ export class ProviderRun {
           }),
         ],
       }),
+      { value: 0n },
     );
     assert.ok(
       NO_CODE.includes(await this.#codeAt(throwaway.address, receipt.blockNumber)),
@@ -827,7 +867,7 @@ export class ProviderRun {
       "sponsored-by-other",
       "a local account sends the KMS key's authorization",
       await client.sendTransaction({ to: this.#recipient, authorizationList: [authorization] }),
-      sender.address,
+      { value: 0n, sender: sender.address },
     );
     assert.equal(
       (await this.#codeAt(account, receipt.blockNumber))?.toLowerCase(),
@@ -856,6 +896,7 @@ export class ProviderRun {
         data: UNKNOWN_SELECTOR,
         authorizationList: [authorization],
       }),
+      { value: 0n, explicitNonce: true },
     );
     assert.equal(
       (await this.#codeAt(account, receipt.blockNumber))?.toLowerCase(),
@@ -880,6 +921,7 @@ export class ProviderRun {
         value: 1n,
         authorizationList: [await this.authorize(zeroAddress, nonce + 1)],
       }),
+      { value: 1n, explicitNonce: true },
     );
     assert.ok(
       NO_CODE.includes(await this.#codeAt(account, receipt.blockNumber)),
