@@ -2,7 +2,7 @@
 
 Audience: Contributors and reviewers who want to understand how the code fits together.
 
-Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry and the `kms` hook (`providers/`). M3 adds the AWS adapter, which lives in its own package, `packages/hardhat-kms-aws` ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)). M4 adds the network hook, the RPC dispatcher for accounts, messages and typed data, and the per-runtime signer cache ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). The other modules are planned; the code map gives each one's milestone.
+Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry and the `kms` hook (`providers/`). M3 adds the AWS adapter, which lives in its own package, `packages/hardhat-kms-aws` ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)). M4 adds the network hook, the RPC dispatcher for accounts, messages and typed data, and the per-runtime signer cache ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). M5 adds the transaction filler ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)), which nothing calls until sending lands ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)). The other modules are planned; the code map gives each one's milestone.
 
 ## Module map
 
@@ -48,25 +48,26 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 
 ## Code map
 
-| Concept                                    | Where                                                                                                                                                     | Milestone |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| Plugin definition                          | `packages/hardhat-kms/src/index.ts`                                                                                                                       | M0        |
-| Public keys, signatures, digests           | `packages/hardhat-kms/src/internal/crypto/`                                                                                                               | M1        |
-| Signer and adapter interface               | `packages/hardhat-kms/src/internal/signer/kms-signer.ts`, `packages/hardhat-kms/src/internal/signer/types.ts`                                             | M1        |
-| Per-call timeout                           | `packages/hardhat-kms/src/internal/signer/timeout.ts`                                                                                                     | M1        |
-| Error builder                              | `packages/hardhat-kms/src/internal/errors.ts`                                                                                                             | M1        |
-| Vendored EIP-712 encoder                   | `packages/hardhat-kms/src/internal/vendor/micro-eth-signer/`                                                                                              | M1        |
-| Config schema and resolution               | `packages/hardhat-kms/src/internal/config/`                                                                                                               | M2        |
-| Provider descriptors and registry          | `packages/hardhat-kms/src/internal/providers/{registry,types}.ts`, `packages/hardhat-kms/src/internal/providers/*/descriptor.ts`                          | M2        |
-| `kms` hook for provider plugins            | `packages/hardhat-kms/src/internal/providers/create-adapter.ts`, `KmsHooks` in `packages/hardhat-kms/src/types.ts`                                        | M2        |
-| Helpers for provider plugins               | `packages/hardhat-kms/src/provider-utils.ts` (`hardhat-kms/provider-utils`)                                                                               | M3        |
-| `--kms` option (Foundry's variables)       | `packages/hardhat-kms/src/internal/config/env-keys.ts`, `packages/hardhat-kms/src/internal/hook-handlers/hre.ts`                                          | M2, M4    |
-| AWS plugin, `kms` hook handler and adapter | `packages/hardhat-kms-aws/src/index.ts`, `packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts`, `packages/hardhat-kms-aws/src/internal/adapter.ts` | M3        |
-| GCP and Azure adapters                     | `packages/hardhat-kms-gcp/`, `packages/hardhat-kms-azure/` (planned)                                                                                      | M6        |
-| Network hook                               | `packages/hardhat-kms/src/internal/hook-handlers/network.ts`                                                                                              | M4        |
-| Signer cache                               | `packages/hardhat-kms/src/internal/signer/key-cache.ts`                                                                                                   | M4        |
-| RPC dispatcher and methods                 | `packages/hardhat-kms/src/internal/rpc/dispatcher.ts` (accounts, messages, typed data); transactions planned                                              | M4, M5    |
-| Tasks                                      | `packages/hardhat-kms/src/internal/tasks/`                                                                                                                | M7        |
+| Concept                                     | Where                                                                                                                                                     | Milestone |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| Plugin definition                           | `packages/hardhat-kms/src/index.ts`                                                                                                                       | M0        |
+| Public keys, signatures, digests            | `packages/hardhat-kms/src/internal/crypto/`                                                                                                               | M1        |
+| Signer and adapter interface                | `packages/hardhat-kms/src/internal/signer/kms-signer.ts`, `packages/hardhat-kms/src/internal/signer/types.ts`                                             | M1        |
+| Per-call timeout                            | `packages/hardhat-kms/src/internal/signer/timeout.ts`                                                                                                     | M1        |
+| Error builder                               | `packages/hardhat-kms/src/internal/errors.ts`                                                                                                             | M1        |
+| Vendored EIP-712 encoder                    | `packages/hardhat-kms/src/internal/vendor/micro-eth-signer/`                                                                                              | M1        |
+| Config schema and resolution                | `packages/hardhat-kms/src/internal/config/`                                                                                                               | M2        |
+| Provider descriptors and registry           | `packages/hardhat-kms/src/internal/providers/{registry,types}.ts`, `packages/hardhat-kms/src/internal/providers/*/descriptor.ts`                          | M2        |
+| `kms` hook for provider plugins             | `packages/hardhat-kms/src/internal/providers/create-adapter.ts`, `KmsHooks` in `packages/hardhat-kms/src/types.ts`                                        | M2        |
+| Helpers for provider plugins                | `packages/hardhat-kms/src/provider-utils.ts` (`hardhat-kms/provider-utils`)                                                                               | M3        |
+| `--kms` option (Foundry's variables)        | `packages/hardhat-kms/src/internal/config/env-keys.ts`, `packages/hardhat-kms/src/internal/hook-handlers/hre.ts`                                          | M2, M4    |
+| AWS plugin, `kms` hook handler and adapter  | `packages/hardhat-kms-aws/src/index.ts`, `packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts`, `packages/hardhat-kms-aws/src/internal/adapter.ts` | M3        |
+| GCP and Azure adapters                      | `packages/hardhat-kms-gcp/`, `packages/hardhat-kms-azure/` (planned)                                                                                      | M6        |
+| Network hook                                | `packages/hardhat-kms/src/internal/hook-handlers/network.ts`                                                                                              | M4        |
+| Signer cache                                | `packages/hardhat-kms/src/internal/signer/key-cache.ts`                                                                                                   | M4        |
+| RPC dispatcher and methods                  | `packages/hardhat-kms/src/internal/rpc/dispatcher.ts` (accounts, messages, typed data); transactions planned                                              | M4, M5    |
+| Transaction filler (port of Hardhat 3.18.0) | `packages/hardhat-kms/src/internal/rpc/transaction-filler.ts`                                                                                             | M5        |
+| Tasks                                       | `packages/hardhat-kms/src/internal/tasks/`                                                                                                                | M7        |
 
 ## Signing a message
 
@@ -165,7 +166,7 @@ packages/hardhat-kms/src/
       dispatcher.ts         request flow (see "Request flow and re-entrancy rules"); ConnectionAccounts;
                             accounts, eth_sign, personal_sign, eth_signTypedData_v4
       transactions.ts       (M5)
-      transaction-filler.ts port of Hardhat's built-in fill logic, pinned to an upstream commit
+      transaction-filler.ts port of Hardhat 3.18.0's fill logic; builds the unsigned transaction and its signing hash
       send-guard.ts         process-global lock + nonce high-water + idempotency cache
     tasks/                  accounts, address, public-key, sign, sign-auth, sign-tx, verify
     vendor/micro-eth-signer/  vendored EIP-712 hashing (MIT, see "Vendored EIP-712")
