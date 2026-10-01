@@ -17,7 +17,7 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 | [Migrate from Foundry](user/guides/migrate-from-foundry.md)         | How-to      |
 | [Comparison with Foundry](user/explanation/foundry-comparison.md)   | Explanation |
 
-Tutorials and the remaining guides are listed under [Planned pages](contributor/documentation.md#planned-pages).
+Runnable projects for viem, ethers and Ignition are in [examples/](../examples/README.md). Tutorials and the remaining guides are listed under [Planned pages](contributor/documentation.md#planned-pages).
 
 ## Contributing
 

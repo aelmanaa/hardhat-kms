@@ -18,6 +18,7 @@
     "test": "pnpm run build && pnpm -r run test",
     "test:unit": "pnpm run build && pnpm -r run test:unit",
     "test:localstack": "pnpm run build && pnpm --filter hardhat-kms-aws run test:localstack",
+    "test:examples": "pnpm run build && pnpm --filter hardhat-kms-aws run test:examples",
     "test:live:aws": "pnpm run build && pnpm --filter hardhat-kms-aws run test:live:aws",
     "test:sdk-floors": "node scripts/test-sdk-floors.ts",
     "test:hardhat-versions": "node scripts/test-hardhat-versions.ts",
@@ -26,6 +27,7 @@
     "docs:check": "pnpm run build && node scripts/check-docs.ts",
     "prepare": "lefthook install && node scripts/install-git-hooks.ts",
     "changeset": "changeset",
+    "version-packages": "changeset version && pnpm install --lockfile-only",
     "release": "pnpm run clean && pnpm run build && changeset publish"
   },
   "devDependencies": {

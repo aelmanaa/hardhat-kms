@@ -21,6 +21,7 @@
     "**/coverage/**",
     "packages/*/src/internal/vendor/**",
     "packages/*/test/fixture-projects/**/artifacts/**",
+    "examples/**",
     "node_modules/**"
   ],
   "rules": {

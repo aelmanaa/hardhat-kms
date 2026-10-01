@@ -14,6 +14,7 @@ Status: in development, not on npm. Most user-facing behaviour is still planned,
 - Set up an AWS KMS key (key spec, IAM policy, the `hardhat-kms-aws` package, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
 - Turn on and read the debug output: [docs/user/guides/debug-output.md](docs/user/guides/debug-output.md)
 - Deploy with Hardhat Ignition from a KMS account (choosing the deployer, rehearsing on a simulated network): [docs/user/guides/deploy-with-ignition.md](docs/user/guides/deploy-with-ignition.md)
+- Complete projects to copy, which deploy and call a contract with viem, ethers or Ignition: [examples/README.md](examples/README.md)
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - What the plugin protects against and what it does not: [docs/contributor/signing-pipeline.md#threat-model-summary](docs/contributor/signing-pipeline.md#threat-model-summary)
 - Pages not written yet (tutorials, key setup guides, errors): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
@@ -32,6 +33,7 @@ pnpm run check                  # format, type-aware lint, typecheck, no type es
 pnpm run test:unit              # fast unit tests
 pnpm test                       # unit and integration tests
 pnpm run test:localstack        # AWS adapter against LocalStack (needs Docker)
+pnpm run test:examples          # the projects in examples/ against LocalStack (needs Docker)
 pnpm run test:sdk-floors        # provider packages against their lowest SDK versions
 pnpm run test:hardhat-versions  # fill tests on the Hardhat floor and latest 3.x
 pnpm run test:live:aws          # AWS adapter against real KMS (needs HARDHAT_KMS_LIVE_AWS_KEY_ID)
@@ -44,6 +46,7 @@ Where things are:
 
 - `packages/hardhat-kms`: the core plugin. Its public entry points are `hardhat-kms`, `hardhat-kms/types` (config and provider types) and `hardhat-kms/provider-utils` (helpers for provider plugins, `@experimental`).
 - `packages/hardhat-kms-aws`: the AWS KMS provider plugin, which depends on `@aws-sdk/client-kms`. Google Cloud and Azure get their own packages in M6.
+- `examples/`: Hardhat projects that deploy and call a contract from a KMS account with viem, ethers and Ignition. They are workspace members, and `pnpm run test:examples` runs them against LocalStack.
 
 | Topic                                                | Page                                                                                             |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |

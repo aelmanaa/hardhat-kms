@@ -1,5 +1,10 @@
 packages:
   - packages/*
+  - examples/*
+
+# The examples ask for hardhat-kms and hardhat-kms-aws by version range, as a project that
+# installs them from npm does. This links them to the workspace packages instead.
+linkWorkspacePackages: true
 
 # Install scripts of dependencies do not run unless listed here. None is needed: esbuild's
 # only checks its platform binary, lefthook's only runs `lefthook install`, which `prepare` does.

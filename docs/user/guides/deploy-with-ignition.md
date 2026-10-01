@@ -4,6 +4,8 @@ Audience: users who deploy contracts with Hardhat Ignition and want a KMS key to
 
 Status: M5 signs and sends transactions from KMS accounts ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)), and the deploy tests cover Ignition, hardhat-viem and hardhat-ethers ([#26](https://github.com/aelmanaa/hardhat-kms/issues/26)). The tests ran with `@nomicfoundation/hardhat-ignition` 3.1.8 and `@nomicfoundation/hardhat-ignition-viem` 3.1.6 on Hardhat 3.18.0. The plugin is not on npm yet.
 
+For a complete project to start from, see the [Ignition example](../../../examples/ignition/README.md). It deploys the `Counter` module below from a KMS account, with the `ignition deploy` task and from a script, and CI runs it on every pull request.
+
 Ignition sees a KMS key as one more account of the network. It sends `eth_sendTransaction` from that account, and the plugin signs each transaction with the key. Your module needs no change; you only choose which account deploys.
 
 ## 1. Add Ignition and the KMS plugin to the config
