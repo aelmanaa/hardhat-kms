@@ -14,3 +14,4 @@ Over RPC, the plugin signs only structured requests: transactions it filled itse
 
 - `eth_sign` and `personal_sign` both use EIP-191, as Hardhat core does.
 - Tools that expect raw digest signing over RPC do not work with KMS accounts, by design.
+- The task is not a barrier against code in the project: a script or dependency can run it with `hre.tasks.getTask(["kms", "sign"]).run({ noHash: true, ... })`. No RPC method signs a bare digest; `--no-hash` is reachable only through the task, from the CLI or from code that runs the task. It prints a warning to standard error each time and asks for no confirmation, as `cast wallet sign --no-hash` does, so that it works in CI.

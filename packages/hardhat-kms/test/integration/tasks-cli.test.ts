@@ -2,7 +2,8 @@
 // process alive, as an SDK client's sockets do, until the adapter is closed; so a task that does
 // not close its signers never exits, and the run times out.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -10,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { privateKeyToAccount } from "viem/accounts";
 
+import { startRecordingNode } from "../helpers/recording-node.ts";
 import {
   COW_ACCOUNT,
   EIP712_MAIL,
@@ -56,6 +58,46 @@ function hardhat(
   };
 }
 
+/**
+ * Runs the Hardhat CLI without blocking this process, so a node served from it can answer.
+ *
+ * @param args - The CLI arguments.
+ * @param env - Extra environment variables.
+ * @returns The exit status (`null` if the run was killed) and the combined output.
+ */
+async function hardhatAsync(
+  args: string[],
+  env: Record<string, string>,
+): Promise<{ status: number | null; output: string }> {
+  const child = spawn(
+    process.execPath,
+    [path.join(repo, "node_modules/hardhat/dist/src/cli.js"), ...args],
+    {
+      cwd: project,
+      env: {
+        ...process.env,
+        NODE_V8_COVERAGE: "",
+        NODE_OPTIONS: "",
+        AWS_KMS_KEY_ID: "",
+        AWS_KMS_KEY_IDS: "",
+        HARDHAT_KMS: "",
+        ...env,
+      },
+      timeout: TIMEOUT_MS,
+      killSignal: "SIGKILL",
+    },
+  );
+  let output = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  const [status] = await once(child, "close");
+  return { status: typeof status === "number" ? status : null, output };
+}
+
 const CONFIG = (plugin: string, adapter: string) => `import kms from ${JSON.stringify(plugin)};
 import { fakeAdapter } from ${JSON.stringify(adapter)};
 
@@ -97,6 +139,16 @@ export default {
       deployer: { provider: "myvault", name: "deployer" },
       chatty: { provider: "myvault", name: "chatty" },
       pinned: { provider: "myvault", name: "pinned", address: ${JSON.stringify(COW_ACCOUNT.address)} },
+    },
+  },
+  networks: {
+    // Hardhat funds a simulated network's KMS accounts when it creates a connection.
+    local: { type: "edr-simulated", kmsAccounts: ["deployer"] },
+    // No chainId: kms sign --data reads it from the node.
+    remote: {
+      type: "http",
+      url: process.env.TASKS_CLI_NODE_URL || "http://127.0.0.1:1",
+      kmsAccounts: ["deployer"],
     },
   },
 };
@@ -236,6 +288,39 @@ describe("kms tasks from the Hardhat CLI", () => {
       run.stdout,
       `${await privateKeyToAccount(`0x${HARDHAT_ACCOUNT_0.secretKey}`).signTypedData({ domain, types, primaryType, message })}\n`,
     );
+  });
+
+  it("checks typed data against a simulated --network's configured chain and exits", () => {
+    const typedData = { ...EIP712_MAIL, domain: { ...EIP712_MAIL.domain, chainId: 31337 } };
+    const run = hardhat([
+      "kms",
+      "sign",
+      "--data",
+      "--network",
+      "local",
+      "deployer",
+      JSON.stringify(typedData),
+    ]);
+
+    assert.equal(run.status, 0, `the task failed or did not exit:\n${run.output}`);
+    assert.match(run.stdout, /^0x[0-9a-f]{130}\n$/);
+  });
+
+  it("asks a --network node without a configured chainId, closes the connection and exits", async () => {
+    const node = await startRecordingNode();
+    try {
+      const run = await hardhatAsync(
+        ["kms", "sign", "--data", "--network", "remote", "deployer", JSON.stringify(EIP712_MAIL)],
+        { TASKS_CLI_NODE_URL: node.url },
+      );
+
+      assert.notEqual(run.status, null, `the task did not exit:\n${run.output}`);
+      assert.notEqual(run.status, 0);
+      assert.match(run.output, /the typed data is for chain 1, but network remote is chain 31337/);
+      assert.ok(node.methods.includes("eth_chainId"), node.methods.join(", "));
+    } finally {
+      await node.server.close();
+    }
   });
 
   it("refuses typed data for a chain when none is given to compare", () => {

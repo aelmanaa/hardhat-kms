@@ -17,8 +17,11 @@ export function readTypedData(data: unknown, operation: string): TypedData {
   let typedData: unknown = data;
   if (typeof data === "string") {
     try {
-      typedData = JSON.parse(data);
-    } catch {
+      typedData = JSON.parse(data, refuseUnsafeIntegers);
+    } catch (error) {
+      if (error instanceof InvalidTypedDataError) {
+        throw kmsError(`the typed data is invalid: ${error.message}`, { operation });
+      }
       throw kmsError("the typed data is not valid JSON", { operation });
     }
   }
@@ -31,6 +34,20 @@ export function readTypedData(data: unknown, operation: string): TypedData {
     // Our own message about the user's typed data: safe to show, and the user's to fix.
     throw kmsError(`the typed data is invalid: ${error.message}`, { operation });
   }
+}
+
+/**
+ * A `JSON.parse` reviver that refuses integers JSON numbers cannot hold exactly. `JSON.parse`
+ * rounds them silently, so a `uint256` amount or a large chain id would be signed with another
+ * value than the one written.
+ */
+function refuseUnsafeIntegers(_key: string, value: unknown): unknown {
+  if (typeof value === "number" && Number.isInteger(value) && !Number.isSafeInteger(value)) {
+    throw new InvalidTypedDataError(
+      `a number is above 2^53 - 1 (read as ${value}), so JSON cannot hold it exactly; write it as a string`,
+    );
+  }
+  return value;
 }
 
 /** The chain that typed data's `domain.chainId` must equal. */

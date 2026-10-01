@@ -7,6 +7,7 @@ import { afterEach, describe, it, mock } from "node:test";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import { HardhatPluginError } from "hardhat/plugins";
+import type { NetworkUserConfig } from "hardhat/types/config";
 import { getAddress, keccak256, recoverAddress, toHex, verifyMessage, verifyTypedData } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -15,6 +16,7 @@ import type { TypedData } from "../../src/internal/crypto/digests.ts";
 import { KmsSigner } from "../../src/internal/signer/kms-signer.ts";
 import type { KmsKeyUserConfig } from "../../src/types.ts";
 import { type FakeAdapter, fakeAdapter, type FakeAdapterOptions } from "../helpers/fake-adapter.ts";
+import { type RecordingNode, startRecordingNode } from "../helpers/recording-node.ts";
 import { vaultKey } from "../helpers/vault-key.ts";
 import {
   COW_ACCOUNT,
@@ -75,6 +77,7 @@ async function runtime(
     kms?: string;
     network?: string;
     allowCrossChainTypedData?: boolean;
+    networks?: Record<string, NetworkUserConfig>;
   } = {},
 ) {
   const hre = await createHardhatRuntimeEnvironment(
@@ -84,7 +87,10 @@ async function runtime(
         keys: options.keys ?? {},
         allowCrossChainTypedData: options.allowCrossChainTypedData ?? false,
       },
-      networks: { local: { type: "edr-simulated", kmsAccounts: options.kmsAccounts ?? [] } },
+      networks: {
+        local: { type: "edr-simulated", kmsAccounts: options.kmsAccounts ?? [] },
+        ...options.networks,
+      },
     },
     {
       ...(options.kms === undefined ? {} : { kms: options.kms }),
@@ -450,7 +456,12 @@ async function runSign(
 
 /** A runtime whose `deployer` key is {@link HARDHAT_ACCOUNT_0}, or `secretKey`. */
 async function signRuntime(
-  options: { secretKey?: string; network?: string; allowCrossChainTypedData?: boolean } = {},
+  options: {
+    secretKey?: string;
+    network?: string;
+    allowCrossChainTypedData?: boolean;
+    networks?: Record<string, NetworkUserConfig>;
+  } = {},
 ) {
   return await runtime({
     keys: { deployer: vaultKey("deployer") },
@@ -459,6 +470,7 @@ async function signRuntime(
         closableAdapter({ secretKey: hex(options.secretKey ?? HARDHAT_ACCOUNT_0.secretKey) }),
     },
     ...(options.network === undefined ? {} : { network: options.network }),
+    ...(options.networks === undefined ? {} : { networks: options.networks }),
     ...(options.allowCrossChainTypedData === undefined
       ? {}
       : { allowCrossChainTypedData: options.allowCrossChainTypedData }),
@@ -658,17 +670,45 @@ describe("kms sign", () => {
       assert.equal(result, EIP712_MAIL_SIGNATURE);
     });
 
-    it("signs typed data without domain.chainId with no chain to compare", async () => {
+    it("signs typed data without domain.chainId with no chain to compare, and says so", async () => {
       const { hre } = await signRuntime();
       const typedData = mailOnChain(undefined);
 
-      const { result } = await runSign(hre, {
+      const { result, warned } = await runSign(hre, {
         key: "deployer",
         message: JSON.stringify(typedData),
         data: true,
       });
 
       assert.ok(await verifiesMail(typedData, result, HARDHAT_ACCOUNT_0.address));
+      assert.equal(
+        warned,
+        "[hardhat-kms] this typed data has no chain id: the signature is valid on every chain\n",
+      );
+    });
+
+    it("prints no chain note for typed data that names its chain", async () => {
+      const { hre } = await signRuntime({ secretKey: COW_ACCOUNT.secretKey });
+
+      const { warned } = await runSign(hre, {
+        key: "deployer",
+        message: JSON.stringify(EIP712_MAIL),
+        data: true,
+        chain: "1",
+      });
+
+      assert.equal(warned, "");
+    });
+
+    it("refuses a JSON number that is not a safe integer, as eth_signTypedData_v4 does", async () => {
+      const { hre, created } = await signRuntime();
+      const json = JSON.stringify(EIP712_MAIL).replace('"chainId":1', '"chainId":9007199254740993');
+
+      await assertKmsError(runSign(hre, { key: "deployer", message: json, data: true }), [
+        "the typed data is invalid: a number is above 2^53 - 1 (read as 9007199254740992)",
+        "write it as a string",
+      ]);
+      assert.equal(created.length, 0);
     });
 
     it("refuses typed data that names a chain when nothing gives one to compare", async () => {
@@ -699,7 +739,7 @@ describe("kms sign", () => {
       assert.equal(created.length, 0);
     });
 
-    it("compares with the --network connection's chain", async () => {
+    it("compares with the --network config's chainId", async () => {
       const { hre } = await signRuntime({ network: "local" });
       const typedData = mailOnChain(31337);
 
@@ -716,17 +756,67 @@ describe("kms sign", () => {
       );
     });
 
-    it("lets --chain take precedence over --network", async () => {
-      const { hre } = await signRuntime({ network: "local", secretKey: COW_ACCOUNT.secretKey });
+    it("uses the config's chainId without connecting to the network", async () => {
+      // Nothing listens on port 1: a connection's eth_chainId would fail.
+      const { hre } = await signRuntime({
+        network: "pinned",
+        secretKey: COW_ACCOUNT.secretKey,
+        networks: { pinned: { type: "http", url: "http://127.0.0.1:1", chainId: 1 } },
+      });
 
       const { result } = await runSign(hre, {
         key: "deployer",
         message: JSON.stringify(EIP712_MAIL),
         data: true,
-        chain: "1",
       });
 
       assert.equal(result, EIP712_MAIL_SIGNATURE);
+    });
+
+    describe("on a network without a configured chainId", () => {
+      let node: RecordingNode | undefined;
+      afterEach(async () => {
+        await node?.server.close();
+        node = undefined;
+      });
+
+      it("asks the node for its chain", async () => {
+        node = await startRecordingNode();
+        const { hre } = await signRuntime({
+          network: "remote",
+          secretKey: COW_ACCOUNT.secretKey,
+          networks: { remote: { type: "http", url: node.url } },
+        });
+        const typedData = mailOnChain(31337);
+
+        const { result } = await runSign(hre, {
+          key: "deployer",
+          message: JSON.stringify(typedData),
+          data: true,
+        });
+
+        assert.ok(await verifiesMail(typedData, result, COW_ACCOUNT.address));
+        assert.ok(node.methods.includes("eth_chainId"), node.methods.join(", "));
+        await assertKmsError(
+          runSign(hre, { key: "deployer", message: JSON.stringify(EIP712_MAIL), data: true }),
+          ["the typed data is for chain 1, but network remote is chain 31337"],
+        );
+      });
+    });
+
+    it("refuses --chain together with --network", async () => {
+      const { hre, created } = await signRuntime({ network: "local" });
+
+      await assertKmsError(
+        runSign(hre, {
+          key: "deployer",
+          message: JSON.stringify(EIP712_MAIL),
+          data: true,
+          chain: "1",
+        }),
+        ["pass --chain or --network, not both"],
+      );
+      assert.equal(created.length, 0);
     });
 
     it("signs for another chain with --allow-cross-chain or kms.allowCrossChainTypedData", async () => {
@@ -850,7 +940,7 @@ describe("kms sign", () => {
     }
 
     it("refuses a digest signature that does not recover to the key", async () => {
-      const { hre } = await signRuntime();
+      const { hre, created } = await signRuntime();
       const signed = mock.method(KmsSigner.prototype, "signDigest", async () => {
         const forged = secp256k1.Signature.fromBytes(
           secp256k1.sign(hex(DIGEST.slice(2)), hex(COW_ACCOUNT.secretKey), {
@@ -865,6 +955,8 @@ describe("kms sign", () => {
         await assertKmsError(runSign(hre, { key: "deployer", message: DIGEST, noHash: true }), [
           "the signature does not recover to the key's address",
         ]);
+        assert.equal(signOutput.printed, "");
+        assert.equal(created[0]?.closed, 1);
       } finally {
         signed.mock.restore();
       }

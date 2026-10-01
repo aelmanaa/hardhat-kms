@@ -97,7 +97,7 @@ Prints the 65-byte signature `r || s || v` as `0x`-prefixed hex, with `v` 27 or 
 0xa461f509887bd19e312c0c58467ce8ff8e300d3c1a90b608a760c5b80318eaf15fe57c96f9175d6cd4daad4663763baa7e78836e067d0163e9a2ccf2ff753f5b1b
 ```
 
-Before it prints a signature, the task recovers the signer from it and checks that it is the key's address ([decision 0004](../../contributor/decisions/0004-verify-every-signature.md)).
+Before it prints a signature, the task recovers the signer from it and checks that it is the key's address ([decision 0004](../../contributor/decisions/0004-verify-every-signature.md)). This catches a wrong or substituted signature from the signer. It is not a second check of the digest, which the task computes with the same code as the signer.
 
 | Input                 | What is signed                                                                                             |
 | --------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -114,10 +114,10 @@ npx hardhat kms sign --data --from-file --network sepolia deployer permit.json
 
 ### Typed data and chains
 
-Typed data goes through the same chain check as `eth_signTypedData_v4` ([decision 0011](../../contributor/decisions/0011-typed-data-chain-check.md)). When `domain.chainId` is set, it must equal one of these, in this order:
+Typed data goes through the same chain check as `eth_signTypedData_v4` ([decision 0011](../../contributor/decisions/0011-typed-data-chain-check.md)). When `domain.chainId` is set, it must equal the chain given by one of these, which cannot be combined:
 
-1. `--chain <id>`, a decimal or `0x` hex chain id.
-2. The chain of the `--network` connection, read with `eth_chainId`.
+- `--chain <id>`, a decimal or `0x` hex chain id.
+- `--network <name>`: the network's `chainId` in the config. When the config sets none, the task connects to the network and reads `eth_chainId`. Creating the connection runs the network hook, which can call the KMS, for example to fund the accounts of an `edr-simulated` network.
 
 Without either, typed data that names a chain is refused, since there is nothing to compare it with:
 
@@ -125,11 +125,17 @@ Without either, typed data that names a chain is refused, since there is nothing
 Error in community plugin hardhat-kms: kms sign: the typed data is for chain 1, and there is no chain to compare it with. Pass --network or --chain, or --allow-cross-chain to sign it for any chain
 ```
 
-`--allow-cross-chain`, or `kms.allowCrossChainTypedData: true` in the config, signs typed data for any chain. Typed data without `domain.chainId` is signed with no check: the signature is valid on every chain. `--chain` and `--allow-cross-chain` apply only to `--data`.
+`--allow-cross-chain` signs typed data for any chain, and so does a project-wide `kms.allowCrossChainTypedData: true`: the config setting also applies to this task. Typed data without `domain.chainId` is signed with no check, and the task prints a note to standard error:
+
+```text
+[hardhat-kms] this typed data has no chain id: the signature is valid on every chain
+```
+
+`--chain` and `--allow-cross-chain` apply only to `--data`. JSON numbers above 2^53 - 1 are refused, since `JSON.parse` would round them; write such values as strings.
 
 ### Raw digests
 
-`--no-hash` signs any 32 bytes, and a digest can be the hash of a transaction or a permit. A dependency or script cannot reach this path: no RPC method signs a bare digest, and `kms sign --no-hash` is the only way ([decision 0003](../../contributor/decisions/0003-no-bare-digest-over-rpc.md)). Sign only a digest you computed yourself. The task prints a warning to standard error each time and refuses any value that is not exactly 32 bytes:
+`--no-hash` signs any 32 bytes, and a digest can be the hash of a transaction or a permit. No RPC method signs a bare digest. `--no-hash` is reachable only through the task, from the CLI or from code that runs the task ([decision 0003](../../contributor/decisions/0003-no-bare-digest-over-rpc.md)). Sign only a digest you computed yourself. The task prints a warning to standard error each time and refuses any value that is not exactly 32 bytes:
 
 ```text
 [hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Sign only a digest you computed yourself: it can authorize a transaction or a permit.

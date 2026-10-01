@@ -48,7 +48,9 @@ const kmsSign: NewTaskActionFunction<SignArguments> = async (args, hre) => {
   const signature = await withTaskSigners(hre, async (signerFor) => {
     const signer = await signerFor(key);
     const signed = await sign(signer, payload);
-    // Decision 0004: nothing is printed unless it recovers to the key.
+    // Decision 0004: nothing is printed unless it recovers to the key. This catches a substituted
+    // or wrong signer output; the digest comes from the same code the signer uses, so it is not
+    // an independent check of the digest.
     if (!recoversTo(signed, digestOf(payload), await signer.getAddress())) {
       throw kmsError("the signature does not recover to the key's address", {
         operation: OPERATION,
@@ -75,9 +77,15 @@ async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment):
     });
   }
   if (args.data) {
+    if (args.chain !== undefined && hre.globalOptions.network !== undefined) {
+      throw kmsError("pass --chain or --network, not both", { operation: OPERATION });
+    }
     const chain = parseChainId(args.chain, "--chain", OPERATION);
     const text = args.fromFile ? await readTypedDataFile(args.message) : args.message;
     const typedData = readTypedData(text, OPERATION);
+    if (typedData.domain.chainId === undefined) {
+      printNote("this typed data has no chain id: the signature is valid on every chain");
+    }
     await checkTypedDataChain(typedData, {
       operation: OPERATION,
       allowCrossChain: args.allowCrossChain || hre.config.kms.allowCrossChainTypedData,
@@ -107,8 +115,9 @@ async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment):
 }
 
 /**
- * The chain typed data must be for: `--chain`, else the `--network` connection's chain. Without
- * either, typed data that names a chain is refused.
+ * The chain typed data must be for: `--chain`, else the `--network` config's `chainId`, else the
+ * chain the network's node reports. Without `--chain` or `--network`, typed data that names a
+ * chain is refused.
  */
 async function expectedChain(
   chainId: bigint | undefined,
@@ -125,6 +134,12 @@ async function expectedChain(
       { operation: OPERATION },
     );
   }
+  const configured = hre.config.networks[network]?.chainId;
+  if (configured !== undefined) {
+    return { chainId: BigInt(configured), name: `network ${network}` };
+  }
+  // Only a network without a configured chainId needs a connection. Creating one runs the
+  // network hook, which may call the KMS, for example to fund a simulated network's accounts.
   const connection = await hre.network.create();
   try {
     const chain = new ConnectionChain(async () => {
