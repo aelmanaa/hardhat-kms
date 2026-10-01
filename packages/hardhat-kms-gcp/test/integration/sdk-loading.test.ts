@@ -66,6 +66,11 @@ describe("SDK loading", () => {
         "the recorder saw hardhat-kms",
       );
       assert.deepEqual(sdkModules(urls), []);
+      // Defining the kms tasks loads none of their actions.
+      assert.deepEqual(
+        urls.filter((url) => url.includes("/hardhat-kms/dist/src/internal/tasks/")),
+        [],
+      );
     });
 
     it(`does not load the Google Cloud SDK for keys of other providers (${hooks} hooks)`, () => {
@@ -78,6 +83,23 @@ describe("SDK loading", () => {
       );
       assert.deepEqual(sdkModules(urls), []);
     });
+
+    for (const task of ["address", "public-key"]) {
+      it(`runs kms ${task} on a key of another provider without loading the Google Cloud SDK (${hooks} hooks)`, () => {
+        const { urls, stdout } = run({
+          ...recorderEnv,
+          HHKMS_FIXTURE_KEY: "aws",
+          HHKMS_FIXTURE_TASK: task,
+        });
+
+        assert.match(stdout, /^task failed$/m);
+        assert.ok(
+          urls.some((url) => url.includes(`/hardhat-kms/dist/src/internal/tasks/${task}.js`)),
+          "the recorder saw the task action",
+        );
+        assert.deepEqual(sdkModules(urls), []);
+      });
+    }
 
     it(`loads the Google Cloud SDK once a Google Cloud key's adapter is created (positive control, ${hooks} hooks)`, () => {
       const { urls, stdout } = run({ ...recorderEnv, HHKMS_FIXTURE_KEY: "gcp" });

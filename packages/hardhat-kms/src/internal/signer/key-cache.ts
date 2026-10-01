@@ -11,6 +11,14 @@ const log = kmsDebug("signer");
 /** How long the cache waits after its last connection closes before it closes the signers. */
 const IDLE_CLOSE_MS = 5000;
 
+/** Shows an adapter's status message to the user. */
+export type DisplayMessage = (context: HookContext, message: string) => Promise<void>;
+
+/** Hardhat's own display, through the `userInterruptions` hooks. */
+const hardhatDisplay: DisplayMessage = async (context, message) => {
+  await context.interruptions.displayMessage("hardhat-kms", message);
+};
+
 /**
  * The signers of one Hardhat runtime, by resolved key config. Every connection of the runtime
  * shares them, so an address is looked up once. Connections are counted: when the last one closes,
@@ -24,12 +32,16 @@ export class SignerCache {
   /** Calls to {@link SignerCache.withSigner} that have not finished. */
   #active = 0;
   #cancelIdleClose: (() => void) | undefined;
+  readonly #display: DisplayMessage;
 
   /**
    * @param timers - Timer functions, for tests.
+   * @param display - Where adapters' status messages go. Defaults to Hardhat's
+   * `interruptions.displayMessage`, which prints to standard output.
    */
-  public constructor(timers: Timers = systemTimers) {
+  public constructor(timers: Timers = systemTimers, display: DisplayMessage = hardhatDisplay) {
     this.#timers = timers;
+    this.#display = display;
   }
 
   /**
@@ -127,13 +139,23 @@ export class SignerCache {
 
   async #create(context: HookContext, key: KmsKeyConfig): Promise<KmsSigner> {
     const adapter = await createKeyAdapter(context, key);
-    return new KmsSigner(adapter, {
-      expectedAddress: key.address,
-      timeoutMs: key.timeoutMs,
-      displayId: key.displayId,
-      displayMessage: async (message) => {
-        await context.interruptions.displayMessage("hardhat-kms", message);
-      },
-    });
+    try {
+      return new KmsSigner(adapter, {
+        expectedAddress: key.address,
+        timeoutMs: key.timeoutMs,
+        displayId: key.displayId,
+        displayMessage: async (message) => {
+          await this.#display(context, message);
+        },
+      });
+    } catch (error) {
+      // The signer refused the adapter, so nothing else will close it and its clients.
+      try {
+        await adapter.close?.();
+      } catch {
+        // The error that refused the adapter is the one to report.
+      }
+      throw error;
+    }
   }
 }

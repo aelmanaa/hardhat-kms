@@ -29,22 +29,32 @@ if (keyName !== "") {
   if (key === undefined) {
     throw new Error(`missing key ${keyName}`);
   }
-  try {
-    const adapter = await hre.hooks.runHandlerChain(
-      "kms",
-      "createKeyAdapter",
-      [key],
-      async () => await Promise.reject(new Error("unclaimed")),
-    );
-    // Creating the adapter constructs the SDK's KeyManagementServiceClient.
-    process.stdout.write(`created ${adapter.describe().provider} adapter\n`);
-    await adapter.close?.();
-  } catch (error) {
-    // Keys of other providers reach the end of the chain; any other failure is a real one.
-    if (!(error instanceof Error && error.message === "unclaimed")) {
-      throw error;
+  // HHKMS_FIXTURE_TASK runs that kms task on the key instead, as `hardhat kms <task> <key>` does.
+  const taskName = process.env.HHKMS_FIXTURE_TASK ?? "";
+  if (taskName !== "") {
+    // Keys of other providers fail at the end of the chain; only the imports matter here.
+    await hre.tasks
+      .getTask(["kms", taskName])
+      .run({ key: keyName })
+      .catch(() => process.stdout.write("task failed\n"));
+  } else {
+    try {
+      const adapter = await hre.hooks.runHandlerChain(
+        "kms",
+        "createKeyAdapter",
+        [key],
+        async () => await Promise.reject(new Error("unclaimed")),
+      );
+      // Creating the adapter constructs the SDK's KeyManagementServiceClient.
+      process.stdout.write(`created ${adapter.describe().provider} adapter\n`);
+      await adapter.close?.();
+    } catch (error) {
+      // Keys of other providers reach the end of the chain; any other failure is a real one.
+      if (!(error instanceof Error && error.message === "unclaimed")) {
+        throw error;
+      }
+      process.stdout.write("unclaimed\n");
     }
-    process.stdout.write("unclaimed\n");
   }
 }
 

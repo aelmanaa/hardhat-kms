@@ -1,4 +1,4 @@
-import { globalOption } from "hardhat/config";
+import { emptyTask, globalOption, task } from "hardhat/config";
 import { definePlugin } from "hardhat/plugins";
 import { ArgumentType } from "hardhat/types/arguments";
 import type { HardhatPlugin } from "hardhat/types/plugins";
@@ -6,6 +6,10 @@ import type { HardhatPlugin } from "hardhat/types/plugins";
 import { PLUGIN_ID } from "./internal/constants.ts";
 
 export type * from "./type-extensions.ts";
+
+/** How every `kms` task that takes a key describes its `key` argument. */
+const KEY_ARGUMENT_DESCRIPTION =
+  "The key: a name from kms.keys, an inline key such as sepolia.kmsAccounts[0], or a --kms key such as AWS_KMS_KEY_ID";
 
 /**
  * The hardhat-kms plugin: sign transactions, messages and typed data with keys held in AWS KMS,
@@ -21,6 +25,25 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
     hre: () => import("./internal/hook-handlers/hre.ts"),
     network: () => import("./internal/hook-handlers/network.ts"),
   },
+  tasks: [
+    emptyTask("kms", "Inspect KMS keys and sign with them").build(),
+    task(["kms", "address"], "Print a KMS key's address")
+      .addPositionalArgument({
+        name: "key",
+        type: ArgumentType.STRING,
+        description: KEY_ARGUMENT_DESCRIPTION,
+      })
+      .setAction(() => import("./internal/tasks/address.ts"))
+      .build(),
+    task(["kms", "public-key"], "Print a KMS key's uncompressed public key")
+      .addPositionalArgument({
+        name: "key",
+        type: ArgumentType.STRING,
+        description: KEY_ARGUMENT_DESCRIPTION,
+      })
+      .setAction(() => import("./internal/tasks/public-key.ts"))
+      .build(),
+  ],
   globalOptions: [
     globalOption({
       name: "kms",

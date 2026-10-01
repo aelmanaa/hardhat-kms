@@ -87,6 +87,36 @@ describe("KmsSigner", () => {
       assert.equal(adapter.calls.getPublicKey, 1);
     });
 
+    it("returns the public key, fetched once, as a copy the caller cannot change", async () => {
+      const secretKey = hex(HARDHAT_ACCOUNT_0.secretKey);
+      const { adapter, signer: kms } = signer({ secretKey });
+      const expected = secp256k1.getPublicKey(secretKey, false);
+
+      const first = await kms.getPublicKey();
+      first.fill(0);
+
+      assert.deepEqual(await kms.getPublicKey(), expected);
+      assert.equal(await kms.getAddress(), HARDHAT_ACCOUNT_0.address);
+      assert.equal(adapter.calls.getPublicKey, 1);
+    });
+
+    it("has a public key for an address-only key only once it has signed", async () => {
+      const { signer: kms } = signer({
+        secretKey: hex(HARDHAT_ACCOUNT_0.secretKey),
+        identity: "address",
+      });
+
+      await assertPluginError(kms.getPublicKey(), [
+        "fake, get public key",
+        "the provider returns only the key's address, not its public key",
+      ]);
+      await kms.signDigest(new Uint8Array(32).fill(1));
+      assert.deepEqual(
+        await kms.getPublicKey(),
+        secp256k1.getPublicKey(hex(HARDHAT_ACCOUNT_0.secretKey), false),
+      );
+    });
+
     it("accepts a matching address pin in any case", async () => {
       const { signer: kms } = signer(
         { secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) },

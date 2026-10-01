@@ -103,6 +103,30 @@ describe("kms hook adapter contract", () => {
     );
   });
 
+  it("closes an adapter it refuses, so its clients cannot keep the process running", async () => {
+    let closed = 0;
+    const close = async () => {
+      closed++;
+      await Promise.resolve();
+    };
+    await assertRejects({ describe: describeKey, getPublicKey: publicKey, close }, [
+      "has no signing method",
+    ]);
+    assert.equal(closed, 1);
+
+    // A close that fails does not hide the reason the adapter was refused.
+    await assertRejects(
+      {
+        describe: describeKey,
+        getPublicKey: publicKey,
+        close: () => {
+          throw new Error("close failed");
+        },
+      },
+      ["has no signing method"],
+    );
+  });
+
   it("accepts every shape the contract allows", async () => {
     for (const returned of [
       {
