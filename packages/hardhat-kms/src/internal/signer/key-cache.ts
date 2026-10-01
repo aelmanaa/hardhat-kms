@@ -30,8 +30,6 @@ const hardhatDisplay: DisplayMessage = async (context, message) => {
  */
 export class SignerCache {
   readonly #signers = new Map<string | KmsKeyConfig, Promise<KmsSigner>>();
-  /** Each key object's identity, computed once so that concurrent first requests agree. */
-  readonly #identities = new WeakMap<KmsKeyConfig, Promise<string | undefined>>();
   readonly #timers: Timers;
   #connections = 0;
   /** Calls to {@link SignerCache.withSigner} that have not finished. */
@@ -79,7 +77,8 @@ export class SignerCache {
    * @returns The signer.
    */
   public async signerFor(context: HookContext, key: KmsKeyConfig): Promise<KmsSigner> {
-    const cacheKey = await this.#cacheKey(key);
+    // Looked up and stored with no await in between, so the idle close always sees the signer.
+    const cacheKey = signerIdentity(key) ?? key;
     let signer = this.#signers.get(cacheKey);
     if (signer === undefined) {
       signer = this.#create(context, key);
@@ -94,29 +93,6 @@ export class SignerCache {
     return await signer;
   }
 
-  /**
-   * The key's identity, or the key object itself for a third-party key or when the identifier
-   * cannot be read. In that case the adapter reads it again and fails with the usual error, and
-   * the next request computes the identity again.
-   */
-  async #cacheKey(key: KmsKeyConfig): Promise<string | KmsKeyConfig> {
-    let identity = this.#identities.get(key);
-    if (identity === undefined) {
-      identity = signerIdentity(key);
-      this.#identities.set(key, identity);
-      identity.catch(() => {
-        if (this.#identities.get(key) === identity) {
-          this.#identities.delete(key);
-        }
-      });
-    }
-    try {
-      return (await identity) ?? key;
-    } catch {
-      return key;
-    }
-  }
-
   /** Counts a new connection, and keeps the signers open while it lasts. */
   public connectionOpened(): void {
     this.#connections++;
@@ -127,7 +103,8 @@ export class SignerCache {
   /** Counts a closed connection; after the last one, closes the signers once idle. */
   public connectionClosed(): void {
     this.#connections = Math.max(0, this.#connections - 1);
-    if (this.#connections > 0 || this.#signers.size === 0) {
+    // A request still running may be about to create a signer: the idle close must cover it.
+    if (this.#connections > 0 || (this.#signers.size === 0 && this.#active === 0)) {
       return;
     }
     this.#scheduleIdleClose();

@@ -267,6 +267,16 @@ function literal(value: string): KmsIdentifier {
   return { get: async () => await Promise.resolve(value), display: value };
 }
 
+/** Reads the value both test variables hold. */
+async function deployerAlias(): Promise<string> {
+  return await Promise.resolve("alias/deployer");
+}
+
+/** An identifier from a configuration variable, which displays as `<NAME>`. */
+function variable(name: string, get: () => Promise<string>): KmsIdentifier {
+  return { get, display: `<${name}>` };
+}
+
 /** A new AWS key object; each call returns a separate copy, as Hardhat does for an override. */
 function awsKey(changes: Partial<AwsKmsKeyConfig> = {}): AwsKmsKeyConfig {
   return {
@@ -396,6 +406,10 @@ describe("SignerCache identity", () => {
       azureKey(),
       azureKey({ keyId: literal("https://vault.vault.azure.net/keys/j") }),
     ],
+    "an Azure vault": [
+      azureKey(),
+      azureKey({ keyId: literal("https://other.vault.azure.net/keys/k") }),
+    ],
   };
   for (const [setting, [first, second]] of Object.entries(variants)) {
     it(`gives keys that differ only in ${setting} separate signers`, async () => {
@@ -419,24 +433,21 @@ describe("SignerCache identity", () => {
     assert.equal(state.created, 2);
   });
 
-  it("reports an unreadable identifier as the adapter does, and reads it again next time", async () => {
+  it("reads no identifier to find the signer, so a failed read is the adapter's and is retried", async () => {
     const { context, state } = await identitySetUp();
     let reads = 0;
-    const flaky: KmsIdentifier = {
-      get: async () => {
-        reads++;
-        if (reads <= 2) {
-          throw new TypeError("variable not set");
-        }
-        return await Promise.resolve("alias/deployer");
-      },
-      display: "<AWS_KMS_KEY_ID>",
-    };
+    const flaky = variable("AWS_KMS_KEY_ID", async () => {
+      reads++;
+      if (reads === 1) {
+        throw new TypeError("variable not set");
+      }
+      return await Promise.resolve("alias/deployer");
+    });
     const key = awsKey({ keyId: flaky });
     const cache = new SignerCache(fakeTimers());
 
-    // Both concurrent requests share one identity read and, falling back to the key object, one
-    // adapter, which reads the identifier again and fails as it does without the cache.
+    // Both concurrent requests share one adapter, which reads the identifier once and fails as it
+    // does without the cache.
     const results = await Promise.allSettled([
       cache.signerFor(context, key),
       cache.signerFor(context, key),
@@ -445,16 +456,75 @@ describe("SignerCache identity", () => {
       assert.equal(result.status, "rejected");
       assert.match(String(result.reason), /creating the adapter failed \(TypeError\)/);
     }
-    assert.equal(reads, 2);
-    assert.equal(state.created, 0);
+    assert.equal(reads, 1);
 
     const signer = await cache.signerFor(context, key);
+    assert.equal(await signer.getAddress(), COW_ACCOUNT.address);
+    assert.equal(await cache.signerFor(context, key), signer, "the same object reuses it");
     assert.equal(
-      await cache.signerFor(context, awsKey()),
+      await cache.signerFor(context, awsKey({ keyId: flaky })),
       signer,
-      "the identity was computed again, so a copy of the key shares the signer",
+      "a copy of the key reuses it",
     );
+    assert.equal(reads, 2);
     assert.equal(state.created, 1);
+    assert.equal(state.getPublicKey, 1);
+  });
+
+  it("leaves the first error to the provider plugin, before any identifier is read", async () => {
+    // No handler claims AWS keys: the error names the package, as without the cache.
+    const hre = await createHardhatRuntimeEnvironment({ plugins: [hardhatKms] });
+    let reads = 0;
+    const key = awsKey({
+      keyId: variable("AWS_KMS_KEY_ID", async () => {
+        reads++;
+        return await Promise.resolve("alias/deployer");
+      }),
+    });
+    const cache = new SignerCache(fakeTimers());
+
+    await assert.rejects(cache.signerFor(hre, key), /hardhat-kms-aws/);
+    assert.equal(reads, 0);
+  });
+
+  it("gives two variables that hold the same value two signers", async () => {
+    const { context, state } = await identitySetUp();
+    const cache = new SignerCache(fakeTimers());
+
+    const first = awsKey({ keyId: variable("FIRST_KEY_ID", deployerAlias) });
+    const second = awsKey({ keyId: variable("SECOND_KEY_ID", deployerAlias) });
+    assert.notEqual(await cache.signerFor(context, first), await cache.signerFor(context, second));
+    assert.equal(state.created, 2);
+  });
+
+  it("closes a signer whose creation outlives the last connection", async () => {
+    const { context, state } = await identitySetUp();
+    const timers = fakeTimers();
+    const cache = new SignerCache(timers);
+    let release: (() => void) | undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const key = awsKey({
+      keyId: variable("AWS_KMS_KEY_ID", async () => {
+        await released;
+        return "alias/deployer";
+      }),
+    });
+
+    cache.connectionOpened();
+    const inFlight = cache.withSigner(context, key, async (signer) => await signer.getAddress());
+    await new Promise((resolve) => setImmediate(resolve));
+    cache.connectionClosed();
+    release?.();
+    assert.equal(await inFlight, COW_ACCOUNT.address);
+    while (timers.pending() > 0) {
+      timers.fire();
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(state.created, 1);
+    assert.equal(state.closed, 1);
+    assert.equal(timers.pending(), 0);
   });
 
   it("keeps a shared signer open until every connection is closed, then closes it once", async () => {
