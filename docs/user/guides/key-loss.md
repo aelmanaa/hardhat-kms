@@ -209,6 +209,6 @@ Before you disable or delete a key that has signed for real, empty its address a
 
 2. Move the funds from the old address to the new one, on every chain the address has used.
 3. Transfer contract ownership and every role the old address holds, such as admin roles, minter roles or upgrade rights. A role left on the old address cannot be used or given away once the key is gone.
-4. Point the config at the new key and update its `address` pin ([Configuration](../reference/configuration.md)). Run `kms accounts` again: the new key should show `matches`.
+4. Point the config at the new key and update its `address` pin ([Configuration](../reference/configuration.md)). [Rotate a key and pin its address](key-rotation.md#move-to-a-new-key) covers the move in full. Run `kms accounts` again: the new key should show `matches`.
 5. Disable the old key, or on Cloud KMS and Key Vault the version your config used, as in [Guard against deletion](#guard-against-deletion), and leave it disabled while you confirm nothing still needs it.
 6. Delete the old key only once its address holds nothing on any chain and no contract gives it a role.
