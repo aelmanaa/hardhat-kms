@@ -65,7 +65,7 @@
       "file": "packages/hardhat-kms-azure/src/internal/hook-handlers/kms.ts",
       "rule": "node/no-process-env",
       "count": 1,
-      "reason": "AZURE_CLIENT_ID selects a user-assigned managed identity. The Azure SDK reads it only in DefaultAzureCredential, so the explicit credential chain passes it on itself."
+      "reason": "AZURE_CLIENT_ID selects a user-assigned managed identity. ManagedIdentityCredential does not read it itself; only DefaultAzureCredential does, and DefaultAzureCredential tries its sources in another order than Foundry's. The explicit chain therefore reads it and passes it on."
     }
   ]
 }

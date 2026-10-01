@@ -307,6 +307,9 @@ importers:
 
   packages/hardhat-kms-azure:
     dependencies:
+      '@azure/core-rest-pipeline':
+        specifier: ^1.25.0
+        version: 1.25.0(supports-color@7.2.0)
       '@azure/identity':
         specifier: ^4.13.3
         version: 4.13.3(supports-color@7.2.0)
@@ -314,9 +317,6 @@ importers:
         specifier: ^4.10.2
         version: 4.10.2(supports-color@7.2.0)
     devDependencies:
-      '@azure/core-rest-pipeline':
-        specifier: ^1.25.0
-        version: 1.25.0(supports-color@7.2.0)
       '@noble/curves':
         specifier: ^2.4.0
         version: 2.4.0

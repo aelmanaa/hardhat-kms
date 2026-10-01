@@ -213,6 +213,26 @@ describe("Azure Key Vault adapter", () => {
         { keyId: `${KEY_URL}/ffffffffffffffffffffffffffffffff` },
         "the response is for another key version",
       ],
+      [
+        "a version that is a prefix of the configured one",
+        { keyId: `${KEY_URL}/${KEY_VERSION.slice(0, -1)}` },
+        "the response is for another key version",
+      ],
+      [
+        "a version that extends the configured one",
+        { keyId: `${KEY_URL}/${KEY_VERSION}0` },
+        "the response is for another key version",
+      ],
+      [
+        "a key whose name is a prefix of the configured one",
+        { keyId: `${VAULT_URL}/keys/${KEY_NAME.slice(0, -1)}/${KEY_VERSION}` },
+        "the response is for another key than the one requested",
+      ],
+      [
+        "a key whose name extends the configured one",
+        { keyId: `${VAULT_URL}/keys/${KEY_NAME}2/${KEY_VERSION}` },
+        "the response is for another key than the one requested",
+      ],
     ];
     for (const [name, options, message] of cases) {
       it(`on getKey: ${name}`, async () => {
@@ -260,6 +280,16 @@ describe("Azure Key Vault adapter", () => {
         "the signature is from another key version than the pinned one",
       ],
       [
+        "a kid whose version is a prefix of the pinned one",
+        { signKid: `${KEY_URL}/${KEY_VERSION.slice(0, -1)}` },
+        "the signature is from another key version than the pinned one",
+      ],
+      [
+        "a kid whose version extends the pinned one",
+        { signKid: `${KEY_URL}/${KEY_VERSION}0` },
+        "the signature is from another key version than the pinned one",
+      ],
+      [
         "a kid of another key",
         { signKid: `${VAULT_URL}/keys/other/${KEY_VERSION}` },
         "the response is for another key than the one requested",
@@ -279,6 +309,18 @@ describe("Azure Key Vault adapter", () => {
         ]);
       });
     }
+  });
+
+  it("checks the pinned key's dates again before each signature", async () => {
+    const { adapter, calls } = await adapterFor(VERSIONED_KEY_URL, {
+      expiresOn: new Date(Date.now() + 100),
+    });
+    await adapter.getPublicKey?.(context());
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await assertAzureError(adapter.signDigest?.({ digest }, context()) ?? Promise.resolve(), [
+      `azure, sign, key azure:${VERSIONED_KEY_URL}: the key version expired at`,
+    ]);
+    assert.ok(calls.every((call) => call.method === "getKey"));
   });
 
   it("passes a signature of the wrong length on unchanged, for the core to reject", async () => {
@@ -318,6 +360,25 @@ describe("Azure Key Vault adapter", () => {
           assert.ok(thrown.message.includes(message), thrown.message);
           assert.ok(!thrown.message.includes("secret details"));
           assert.ok(!thrown.message.includes("<script>"));
+          return true;
+        });
+      });
+    }
+
+    for (const name of ["AuthenticationError", "AuthenticationRequiredError"]) {
+      it(`a configured credential that fails (${name})`, async () => {
+        const error = new Error("AADSTS7000215: Invalid client secret for app 1234");
+        error.name = name;
+        const { adapter } = await adapterFor(VERSIONED_KEY_URL, { error });
+        await assert.rejects(adapter.getPublicKey?.(context()) ?? Promise.resolve(), (thrown) => {
+          assert.ok(thrown instanceof HardhatPluginError);
+          assert.ok(
+            thrown.message.includes(
+              `a configured Azure credential could not sign in (${name}). Check the service principal`,
+            ),
+            thrown.message,
+          );
+          assert.ok(!thrown.message.includes("AADSTS"));
           return true;
         });
       });

@@ -40,7 +40,7 @@ export default defineConfig({
 });
 ```
 
-The key must be an `EC` or `EC-HSM` key on the `P-256K` curve, with `sign` among its permitted operations. The identity needs `get` and `sign` on the key, for example through the Key Vault Crypto User role. Credentials come from, in order: a service principal in the environment, workload identity, `az login`, `azd auth login`, then a managed identity (user-assigned with `AZURE_CLIENT_ID`), which gets 10 seconds to answer.
+The key must be an `EC` or `EC-HSM` key on the `P-256K` curve, with `sign` among its permitted operations. The identity needs `get` and `sign` on the key, for example through the Key Vault Crypto User role. Credentials come from, in order: a service principal in the environment, workload identity, `az login`, `azd auth login`, then a managed identity (user-assigned with `AZURE_CLIENT_ID`), which gets 10 seconds for a token and 3 seconds for each request.
 
 ## Docs
 

@@ -178,8 +178,8 @@ new ChainedTokenCredential(
   new WorkloadIdentityCredential(), // only when its variables are set
   new AzureCliCredential(),
   new AzureDeveloperCliCredential(),
-  new ManagedIdentityCredential(AZURE_CLIENT_ID), // given up after 10 s
+  new ManagedIdentityCredential({ clientId: AZURE_CLIENT_ID, httpClient }), // 3 s per request, 10 s in all
 );
 ```
 
-`AZURE_CLIENT_ID` selects a user-assigned managed identity. The managed identity `getToken` call has a 10 s timeout, after which it counts as unavailable and its request is aborted. A source that is not configured is skipped; a configured source that fails, such as a service principal with a wrong secret, stops the chain with its error. All Azure keys of a run share the chain and its tokens, so `az login` users see one `az` call per run, not one per key. See [Set up an Azure Key Vault key](../guides/azure-key-vault-setup.md#3-sign-in).
+`AZURE_CLIENT_ID` selects a user-assigned managed identity. The managed identity has 10 s to return a token, after which it counts as unavailable, and each of its HTTP requests times out after 3 s. @azure/identity does not pass an abort signal on to those requests, so the request timeout is what ends one to an endpoint that never answers and lets `hardhat run` exit. Where the managed identity refuses a client id (Azure Cloud Shell, Service Fabric), it is left out of the chain. A source that is not configured is skipped; a configured source that fails, such as a service principal with a wrong secret, stops the chain with its error. All Azure keys of a run share the chain and its tokens, so `az login` users see one `az` call per run, not one per key. See [Set up an Azure Key Vault key](../guides/azure-key-vault-setup.md#3-sign-in).

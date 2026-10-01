@@ -36,7 +36,7 @@ const loadAdapterFactory: AzureAdapterFactoryLoader = async () => {
       import("../credential.ts"),
       import("../adapter.ts"),
     ]);
-  // oxlint-disable-next-line node/no-process-env -- AZURE_CLIENT_ID selects a user-assigned managed identity, as in the Azure SDK's own default chain
+  // oxlint-disable-next-line node/no-process-env -- ManagedIdentityCredential does not read AZURE_CLIENT_ID itself, and DefaultAzureCredential has another order than Foundry's
   const credential = createAzureCredential(identity, process.env.AZURE_CLIENT_ID);
   return async (key) => await createAzureKeyAdapter(key, keyVault, credential);
 };

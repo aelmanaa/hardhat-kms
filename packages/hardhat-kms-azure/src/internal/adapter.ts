@@ -81,6 +81,8 @@ type CryptographyClient<Key extends KeyVaultKeyLike> = InstanceType<
 
 /** Error names of @azure/identity when no credential returned a token. */
 const NO_CREDENTIAL = new Set(["CredentialUnavailableError", "AggregateAuthenticationError"]);
+/** Error names of @azure/identity when a configured credential source could not sign in. */
+const FAILED_CREDENTIAL = new Set(["AuthenticationError", "AuthenticationRequiredError"]);
 const SAFE_CODE = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
 
 /** A short value from a response, or a placeholder when it is missing or looks unusual. */
@@ -106,7 +108,7 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
   readonly #credential: TokenCredential;
   readonly #options: AzureClientOptions;
   readonly #keys: InstanceType<AzureKeyVaultSdk<Key>["KeyClient"]>;
-  #pinned: { version: string; client: CryptographyClient<Key> } | undefined;
+  #pinned: { version: string; key: Key; client: CryptographyClient<Key> } | undefined;
 
   public constructor(
     key: AzureKmsKeyConfig,
@@ -143,7 +145,7 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     if (wanted !== undefined && !sameId(version, wanted)) {
       throw this.#error("get public key", "the response is for another key version");
     }
-    this.#checkUsable(response);
+    this.#checkUsable(response, "get public key");
     const jwk = response.key;
     if (jwk === undefined) {
       throw this.#error("get public key", "the response has no public key");
@@ -166,6 +168,7 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     if (!ctx.signal.aborted && this.#pinned === undefined) {
       this.#pinned = {
         version,
+        key: response,
         client: new this.#sdk.CryptographyClient(response, this.#credential, this.#options),
       };
     }
@@ -188,6 +191,10 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
         "the key lookup did not finish, so there is no key version to sign with",
       );
     }
+    // The SDK checks the dates of the key it was given too, but fails with a message that names
+    // the key URL, which the signer can only show as "Error". A key that expired since it was
+    // pinned gets the same clear error as at the lookup.
+    this.#checkUsable(pinned.key, "sign");
     let kid: unknown;
     const response = await this.#send(
       "sign",
@@ -229,28 +236,28 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
   }
 
   /** Checks the key's attributes, as Key Vault would before signing, to fail with a clear error. */
-  #checkUsable(response: KeyVaultKeyLike): void {
+  #checkUsable(response: KeyVaultKeyLike, operation: string): void {
     const { enabled, notBefore, expiresOn } = response.properties;
     const now = Date.now();
     if (enabled === false) {
       throw this.#error(
-        "get public key",
+        operation,
         "the key version is disabled. Enable it with `az keyvault key set-attributes --enabled true`",
       );
     }
     if (notBefore instanceof Date && notBefore.getTime() > now) {
       throw this.#error(
-        "get public key",
+        operation,
         `the key version is not valid before ${notBefore.toISOString()}`,
       );
     }
     if (expiresOn instanceof Date && expiresOn.getTime() <= now) {
-      throw this.#error("get public key", `the key version expired at ${expiresOn.toISOString()}`);
+      throw this.#error(operation, `the key version expired at ${expiresOn.toISOString()}`);
     }
     const operations: unknown = response.keyOperations;
     if (Array.isArray(operations) && !operations.includes(SIGN_OPERATION)) {
       throw this.#error(
-        "get public key",
+        operation,
         "the key's permitted operations do not include sign. Set them with `az keyvault key set-attributes --ops sign verify`",
       );
     }
@@ -276,6 +283,12 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
       return this.#error(
         operation,
         `no Azure credential returned a token (${error.name}). Run \`az login\`, or set AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET for a service principal`,
+      );
+    }
+    if (FAILED_CREDENTIAL.has(error.name)) {
+      return this.#error(
+        operation,
+        `a configured Azure credential could not sign in (${error.name}). Check the service principal (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET), the workload identity or the managed identity; unset the variables of a source you do not mean to use`,
       );
     }
     if (error.name !== "RestError") {

@@ -1,3 +1,4 @@
+import { createDefaultHttpClient, type HttpClient } from "@azure/core-rest-pipeline";
 import type { AccessToken, GetTokenOptions, TokenCredential } from "@azure/identity";
 
 /**
@@ -5,6 +6,13 @@ import type { AccessToken, GetTokenOptions, TokenCredential } from "@azure/ident
  * endpoint can accept a connection and never answer, and the SDK retries it for over a minute.
  */
 const MANAGED_IDENTITY_TIMEOUT_MS = 10_000;
+
+/**
+ * How long each managed identity HTTP request may take. @azure/identity does not pass the caller's
+ * abort signal on to the request, so only a request timeout ends a request to an endpoint that
+ * never answers; without it, the process stays alive long after the token was given up on.
+ */
+const MANAGED_IDENTITY_REQUEST_TIMEOUT_MS = 3_000;
 
 /** A token is fetched again when it has less than this left, so no request carries a stale one. */
 const TOKEN_REFRESH_MARGIN_MS = 5 * 60_000;
@@ -16,10 +24,10 @@ export interface AzureIdentitySdk {
   WorkloadIdentityCredential: new () => TokenCredential;
   AzureCliCredential: new () => TokenCredential;
   AzureDeveloperCliCredential: new () => TokenCredential;
-  ManagedIdentityCredential: {
-    new (): TokenCredential;
-    new (clientId: string): TokenCredential;
-  };
+  ManagedIdentityCredential: new (options: {
+    clientId?: string;
+    httpClient: HttpClient;
+  }) => TokenCredential;
   CredentialUnavailableError: new (message: string) => Error;
 }
 
@@ -46,16 +54,10 @@ class TimeoutCredential implements TokenCredential {
     scopes: string | string[],
     options?: GetTokenOptions,
   ): Promise<AccessToken | null> {
-    // Abort the inner call when the caller gives up or the time is over, so it stops retrying.
+    // Signal the inner call when the time is over. @azure/identity 4.13 does not pass this signal
+    // on to its HTTP requests; the request timeout of the managed identity's HTTP client is what
+    // ends them. The caller's own signal never reaches here: the shared token cache drops it.
     const controller = new AbortController();
-    const outer = options?.abortSignal;
-    const forward = (): void => {
-      controller.abort();
-    };
-    if (outer?.aborted === true) {
-      controller.abort();
-    }
-    outer?.addEventListener("abort", forward);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
@@ -74,7 +76,6 @@ class TimeoutCredential implements TokenCredential {
       ]);
     } finally {
       clearTimeout(timer);
-      outer?.removeEventListener("abort", forward);
     }
   }
 }
@@ -107,11 +108,22 @@ class SharedTokenCredential implements TokenCredential {
     }
     let pending = this.#pending.get(cacheKey);
     if (pending === undefined) {
-      pending = this.#inner.getToken(scopes, options);
+      // The shared call runs without any caller's abort signal: one key's timeout must not fail
+      // another key that waits for the same token. Each caller stops waiting on its own signal.
+      const { abortSignal: _abortSignal, ...shared } = options ?? {};
+      pending = this.#fetch(cacheKey, scopes, shared);
       this.#pending.set(cacheKey, pending);
     }
+    return await waitFor(pending, options?.abortSignal);
+  }
+
+  async #fetch(
+    cacheKey: string,
+    scopes: string | string[],
+    options: GetTokenOptions,
+  ): Promise<AccessToken | null> {
     try {
-      const token = await pending;
+      const token = await this.#inner.getToken(scopes, options);
       if (token !== null) {
         this.#tokens.set(cacheKey, token);
       }
@@ -120,6 +132,78 @@ class SharedTokenCredential implements TokenCredential {
       this.#pending.delete(cacheKey);
     }
   }
+}
+
+/** The error a caller gets when it stops waiting, named as the Azure SDK names its own. */
+function aborted(): Error {
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+/** Waits for `pending`, or rejects with an `AbortError` as soon as `signal` aborts. */
+async function waitFor<T>(pending: Promise<T>, signal: GetTokenOptions["abortSignal"]): Promise<T> {
+  if (signal === undefined) {
+    return await pending;
+  }
+  if (signal.aborted) {
+    throw aborted();
+  }
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise<never>((_resolve, reject) => {
+        onAbort = () => {
+          reject(aborted());
+        };
+        signal.addEventListener("abort", onAbort);
+      }),
+    ]);
+  } finally {
+    if (onAbort !== undefined) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+}
+
+/** Gives every request of `inner` a timeout of at most `timeoutMs`. */
+function withRequestTimeout(inner: HttpClient, timeoutMs: number): HttpClient {
+  return {
+    sendRequest: async (request) => {
+      request.timeout = request.timeout > 0 ? Math.min(request.timeout, timeoutMs) : timeoutMs;
+      return await inner.sendRequest(request);
+    },
+  };
+}
+
+/**
+ * Builds a credential, or returns `undefined` if its constructor says it is unavailable here.
+ *
+ * @returns The credential, or `undefined`.
+ */
+function unlessUnavailable(
+  identity: AzureIdentitySdk,
+  create: () => TokenCredential,
+): TokenCredential | undefined {
+  try {
+    return create();
+  } catch (error) {
+    if (error instanceof identity.CredentialUnavailableError) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/** Settings of the managed identity; tests shorten the times and pass their own HTTP client. */
+export interface ManagedIdentitySettings {
+  /** The time limit for a token. Default: 10 s. */
+  timeoutMs?: number;
+  /** The time limit for each HTTP request. Default: 3 s. */
+  requestTimeoutMs?: number;
+  /** The HTTP client its requests go through, before the request timeout is added. */
+  httpClient?: HttpClient;
 }
 
 /**
@@ -132,41 +216,51 @@ class SharedTokenCredential implements TokenCredential {
  * 2. `WorkloadIdentityCredential`, when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and
  *    `AZURE_FEDERATED_TOKEN_FILE` are set (AKS workload identity, GitHub Actions OIDC).
  * 3. `AzureCliCredential` (`az login`), then `AzureDeveloperCliCredential` (`azd auth login`).
- * 4. `ManagedIdentityCredential`, user-assigned when `clientId` is given, with a time limit.
+ * 4. `ManagedIdentityCredential`, user-assigned when `clientId` is given, with a time limit and
+ *    a timeout on each of its HTTP requests. Where it cannot be used with a client id (Cloud
+ *    Shell, Service Fabric), it is left out, as Foundry does.
  *
  * This is the order of Foundry's Azure Key Vault signer: developer tools come before the managed
  * identity, so a local login is not delayed by the managed identity endpoint.
  *
  * @param identity - The @azure/identity module.
  * @param clientId - `AZURE_CLIENT_ID`, which selects a user-assigned managed identity.
- * @param managedIdentityTimeoutMs - The managed identity's time limit.
+ * @param managedIdentity - Time limits and HTTP client of the managed identity.
  * @returns The credential, shared by every Azure key of a Hardhat runtime.
  */
 export function createAzureCredential(
   identity: AzureIdentitySdk,
   clientId: string | undefined,
-  managedIdentityTimeoutMs: number = MANAGED_IDENTITY_TIMEOUT_MS,
+  managedIdentity: ManagedIdentitySettings = {},
 ): TokenCredential {
   const sources: TokenCredential[] = [new identity.EnvironmentCredential()];
-  try {
-    sources.push(new identity.WorkloadIdentityCredential());
-  } catch (error) {
-    // Its constructor fails when its variables are not set: then it is not part of the chain.
-    if (!(error instanceof identity.CredentialUnavailableError)) {
-      throw error;
-    }
+  // Its constructor fails when its variables are not set: then it is not part of the chain.
+  const workload = unlessUnavailable(identity, () => new identity.WorkloadIdentityCredential());
+  if (workload !== undefined) {
+    sources.push(workload);
   }
   sources.push(new identity.AzureCliCredential(), new identity.AzureDeveloperCliCredential());
-  const managedIdentity =
-    clientId === undefined || clientId.trim() === ""
-      ? new identity.ManagedIdentityCredential()
-      : new identity.ManagedIdentityCredential(clientId.trim());
-  sources.push(
-    new TimeoutCredential(
-      managedIdentity,
-      managedIdentityTimeoutMs,
-      identity.CredentialUnavailableError,
-    ),
+  const id = clientId?.trim() ?? "";
+  const httpClient = withRequestTimeout(
+    managedIdentity.httpClient ?? createDefaultHttpClient(),
+    managedIdentity.requestTimeoutMs ?? MANAGED_IDENTITY_REQUEST_TIMEOUT_MS,
   );
+  // Its constructor fails in Cloud Shell and Service Fabric when given a client id.
+  const managed = unlessUnavailable(
+    identity,
+    () =>
+      new identity.ManagedIdentityCredential(
+        id === "" ? { httpClient } : { clientId: id, httpClient },
+      ),
+  );
+  if (managed !== undefined) {
+    sources.push(
+      new TimeoutCredential(
+        managed,
+        managedIdentity.timeoutMs ?? MANAGED_IDENTITY_TIMEOUT_MS,
+        identity.CredentialUnavailableError,
+      ),
+    );
+  }
   return new SharedTokenCredential(new identity.ChainedTokenCredential(...sources));
 }
