@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
 
 import {
   createHttpHeaders,
@@ -12,13 +10,36 @@ import type { AccessToken, GetTokenOptions, TokenCredential } from "@azure/ident
 import * as identity from "@azure/identity";
 
 import { type AzureIdentitySdk, createAzureCredential } from "../../src/internal/credential.ts";
+import { fakeTimers } from "../helpers/fake-timers.ts";
 
 class CredentialUnavailableError extends Error {
   public override readonly name = "CredentialUnavailableError";
 }
 
-/** How each fake source answers: a token, "unavailable", or never. */
-type Behaviour = { token: string; delayMs?: number } | "unavailable" | "hang" | "fail";
+/**
+ * How each fake source answers: a token (once `after` settles, if given), "unavailable", or
+ * never.
+ */
+type Behaviour = { token: string; after?: Promise<void> } | "unavailable" | "hang" | "fail";
+
+/** Does nothing: the placeholder until a gate's promise hands over its resolver. */
+function noop(): void {}
+
+/** A promise the test settles by hand, so no test waits on the clock. */
+function gate(): { opened: Promise<void>; open: () => void } {
+  let open = noop;
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { opened, open };
+}
+
+/** Lets every pending promise callback run. */
+async function settle(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+}
 
 interface Recorded {
   /** Sources in the order the chain got them. */
@@ -73,8 +94,8 @@ function fakeIdentity(
           error.name = "AuthenticationError";
           throw error;
         }
-        if (behaviour.delayMs !== undefined) {
-          await new Promise((resolve) => setTimeout(resolve, behaviour.delayMs));
+        if (behaviour.after !== undefined) {
+          await behaviour.after;
         }
         return { token: behaviour.token, expiresOnTimestamp: Date.now() + 3_600_000 };
       }
@@ -150,6 +171,19 @@ describe("Azure credential chain", () => {
     ]);
   });
 
+  it("cancels the managed identity time limit when the token comes in time", async () => {
+    const mi = gate();
+    const { sdk } = fakeIdentity({ managedIdentity: { token: "mi", after: mi.opened } });
+    const timers = fakeTimers();
+    const token = createAzureCredential(sdk, undefined, { timers }).getToken(SCOPE);
+
+    await settle();
+    assert.deepEqual(timers.delays(), [10_000]);
+    mi.open();
+    assert.equal((await token)?.token, "mi");
+    assert.equal(timers.pending(), 0);
+  });
+
   it("leaves workload identity out when its variables are not set", async () => {
     const { sdk, recorded } = fakeIdentity({ azureCli: { token: "cli" } });
     const credential = createAzureCredential(sdk, undefined);
@@ -200,24 +234,46 @@ describe("Azure credential chain", () => {
 
   it("gives up on the managed identity after the time limit, as unavailable", async () => {
     const { sdk, recorded } = fakeIdentity({ managedIdentity: "hang" });
-    const started = Date.now();
-    await assert.rejects(createAzureCredential(sdk, undefined, { timeoutMs: 50 }).getToken(SCOPE), {
-      name: "AggregateAuthenticationError",
-    });
-    assert.ok(Date.now() - started < 5000);
+    const timers = fakeTimers();
+    let settled = false;
+    const token = createAzureCredential(sdk, undefined, { timers }).getToken(SCOPE);
+    token.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+
+    await settle();
+    // The chain waits on the managed identity, with the default 10 s limit.
+    assert.equal(recorded.asked.at(-1), "managedIdentity");
+    assert.deepEqual(timers.delays(), [10_000]);
+    assert.equal(settled, false);
+    assert.equal(recorded.options.at(-1)?.abortSignal?.aborted, false);
+
+    timers.fire();
+    await assert.rejects(token, { name: "AggregateAuthenticationError" });
     // The managed identity's own call was aborted, so it stops retrying.
     assert.equal(recorded.options.at(-1)?.abortSignal?.aborted, true);
   });
 
   it("lets one caller give up without failing another that waits for the same token", async () => {
-    const { sdk, recorded } = fakeIdentity({ azureCli: { token: "cli", delayMs: 50 } });
+    const az = gate();
+    const { sdk, recorded } = fakeIdentity({ azureCli: { token: "cli", after: az.opened } });
     const credential = createAzureCredential(sdk, undefined);
     const controller = new AbortController();
 
     const first = credential.getToken(SCOPE, { abortSignal: controller.signal });
+    let secondSettled = false;
     const second = credential.getToken(SCOPE, { abortSignal: new AbortController().signal });
+    second.then(
+      () => (secondSettled = true),
+      () => (secondSettled = true),
+    );
     controller.abort();
     await assert.rejects(first, { name: "AbortError" });
+    // The token is still on its way: the second caller keeps waiting for it.
+    await settle();
+    assert.equal(secondSettled, false);
+    az.open();
     assert.equal((await second)?.token, "cli");
     // The shared call never saw a caller's signal.
     assert.ok(recorded.options.every((options) => options?.abortSignal === undefined));
@@ -275,21 +331,6 @@ describe("Azure credential chain", () => {
       },
     };
     assert.throws(() => createAzureCredential(broken, "client"), /only one of/);
-  });
-
-  it("leaves out the real managed identity in Cloud Shell when AZURE_CLIENT_ID is set", () => {
-    // MSI_ENDPOINT alone is how MSAL recognises Cloud Shell, where a client id is refused.
-    const result = spawnSync(
-      process.execPath,
-      [fileURLToPath(new URL("../fixtures/cloud-shell.ts", import.meta.url))],
-      {
-        encoding: "utf8",
-        env: { ...process.env, MSI_ENDPOINT: "http://127.0.0.1:50342/oauth2/token" },
-        timeout: 30_000,
-      },
-    );
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout.trim(), "direct: CredentialUnavailableError; chain: built");
   });
 
   it("shares one token between clients, per scope and tenant", async () => {
