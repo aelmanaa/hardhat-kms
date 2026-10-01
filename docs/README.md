@@ -31,6 +31,7 @@ Runnable projects for viem, ethers and Ignition are in [examples/](../examples/R
 | [Provider contract](contributor/providers.md)                    | The adapter interface for KMS and HSM providers      |
 | [Transactions](contributor/transactions.md)                      | Filling, nonces, the send lock, chain-id checks      |
 | [Testing](contributor/testing.md)                                | Test layers and conventions                          |
+| [Live proof](live-proof.md)                                      | Transactions of the latest live run on Sepolia       |
 | [Tooling](contributor/tooling.md)                                | Quality gates, hooks, CI                             |
 | [Documentation](contributor/documentation.md)                    | How the docs are organised and the rules for them    |
 | [Decision records](contributor/decisions/README.md)              | Why the main decisions were made                     |

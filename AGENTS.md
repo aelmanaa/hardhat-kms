@@ -60,6 +60,7 @@ Where things are:
 | Adapter interface, provider packages                 | [docs/contributor/providers.md](docs/contributor/providers.md)                                   |
 | Transaction filling, nonces, send lock               | [docs/contributor/transactions.md](docs/contributor/transactions.md)                             |
 | Test layers and conventions                          | [docs/contributor/testing.md](docs/contributor/testing.md)                                       |
+| Transactions of the latest live run on Sepolia       | [docs/live-proof.md](docs/live-proof.md)                                                         |
 | Quality gates, hooks, CI                             | [docs/contributor/tooling.md](docs/contributor/tooling.md)                                       |
 | How the docs are organised                           | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
 | Why the main decisions were made                     | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
