@@ -37,11 +37,11 @@ A hardhat-viem test over HTTP injects a timeout on the broadcast and proves ther
 
 ## Chain-id checks
 
-Each `NetworkConnection` has one memoized promise (held in a WeakMap) that reads `eth_chainId`. The plugin resolves it before the first KMS signature of any kind on that connection, and also before the address-pin check. If the network config sets `chainId`, the two must be equal. The check fails closed, and because a failure is never cached, the next request simply tries again.
+Each `NetworkConnection` has one `ConnectionChain` (`packages/hardhat-kms/src/internal/rpc/chain-id.ts`, held in a WeakMap) that reads `eth_chainId` once. If the network config sets `chainId`, the two must be equal. The check fails closed, and because a failure is never kept, the next request tries again. Typed data that names a chain reads it now ([decision 0011](decisions/0011-typed-data-chain-check.md)); transactions will in M5. Messages do not: the chain is not part of their signature, and they sign without a reachable node.
 
 Hardhat adds its `ChainIdValidator` only to http networks that set a `chainId`, and it validates once per connection, on the first request the built-in handlers see. The fill reads of a transaction pass through it; message and typed-data signing never reach the built-in handlers. This check covers every case.
 
 Two further rules apply:
 
 - Transactions always carry an explicit `chainId`, and `tx.chainId` must equal the connection's chain id.
-- Typed data whose `domain.chainId` differs from the connection's chain id is rejected unless `kms.allowCrossChainTypedData` is set.
+- Typed data whose `domain.chainId` differs from the connection's chain id is rejected unless `kms.allowCrossChainTypedData` is set. Typed data without `domain.chainId` is signed ([decision 0011](decisions/0011-typed-data-chain-check.md)).

@@ -3,6 +3,7 @@ import type { NetworkConnection } from "hardhat/types/network";
 
 import type { KmsKeyConfig } from "../../types.ts";
 import { kmsDebug } from "../debug.ts";
+import { ConnectionChain } from "../rpc/chain-id.ts";
 import { ConnectionAccounts, dispatch } from "../rpc/dispatcher.ts";
 import { SignerCache } from "../signer/key-cache.ts";
 import { systemTimers, type Timers } from "../signer/timeout.ts";
@@ -47,6 +48,20 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
     return accounts;
   };
 
+  const chains = new WeakMap<object, ConnectionChain>();
+  const chainOf = (connection: NetworkConnection<string>): ConnectionChain => {
+    let chain = chains.get(connection);
+    if (chain === undefined) {
+      // eth_chainId goes through the hook chain again, which passes it on.
+      chain = new ConnectionChain(async () => {
+        const chainId: unknown = await connection.provider.request({ method: "eth_chainId" });
+        return chainId;
+      }, connection.networkConfig.chainId);
+      chains.set(connection, chain);
+    }
+    return chain;
+  };
+
   return {
     newConnection: async (context, next) => {
       const connection = await next(context);
@@ -78,6 +93,10 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
         accountsOf(context, connection),
         request,
         async (nextRequest) => await next(context, connection, nextRequest),
+        {
+          chain: chainOf(connection),
+          allowCrossChainTypedData: context.config.kms.allowCrossChainTypedData,
+        },
       ),
   };
 }
