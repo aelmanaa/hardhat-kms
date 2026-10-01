@@ -2,7 +2,7 @@
 
 Audience: Contributors adding or changing a KMS or HSM provider.
 
-Status: M1 implements `KmsKeyAdapter` and `SignContext` in `packages/hardhat-kms/src/internal/signer/types.ts`, without `signTransaction` and `sendTransaction`. M2 adds the built-in providers' descriptors and the registry as internal code (see [Built-in descriptors](#built-in-descriptors)), and the `kms` hook with the adapter contract exported from `hardhat-kms/types` (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). M3 adds `hardhat-kms-aws`, the first provider package (see [First-party provider packages](#first-party-provider-packages)), and M6 adds `hardhat-kms-gcp` and `hardhat-kms-azure`. The code below is the planned full contract; the types exported today are in `packages/hardhat-kms/src/types.ts`. The transaction methods come with the transaction work (M5) and the providers that need them.
+Status: M1 implements `KmsKeyAdapter` and `SignContext` in `packages/hardhat-kms/src/internal/signer/types.ts`, without `signTransaction` and `sendTransaction`. M2 adds the built-in providers' descriptors and the registry as internal code (see [Built-in descriptors](#built-in-descriptors)), and the `kms` hook with the adapter contract exported from `hardhat-kms/types` (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). M3 adds `hardhat-kms-aws`, the first provider package (see [First-party provider packages](#first-party-provider-packages)), and M6 adds `hardhat-kms-gcp` and `hardhat-kms-azure`. The code below is the planned full contract; the types exported today are in `packages/hardhat-kms/src/types.ts`. Transactions (M5) go through the adapter's `signDigest`. The exported types therefore have no `signTransaction` or `sendTransaction` yet; those arrive with the providers that need them, Turnkey ([#54](https://github.com/aelmanaa/hardhat-kms/issues/54)) and Fireblocks ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)).
 
 ## Provider contract
 
@@ -121,7 +121,7 @@ The rules:
 - Nothing stops two plugins from claiming the same id, or a plugin from claiming `aws`, `gcp` or `azure`: the handler that runs first wins, silently. Plugin handlers run in reverse order of the resolved plugin list.
 - A handler must return an adapter or the result of `next`. Returning nothing fails with an error that names the `kms.createKeyAdapter` handler.
 
-The chain runs in `packages/hardhat-kms/src/internal/providers/create-adapter.ts`. The hook and adapter types are marked `@experimental` until 1.0; transaction signing (M5) adds optional adapter methods.
+The chain runs in `packages/hardhat-kms/src/internal/providers/create-adapter.ts`. The hook and adapter types are marked `@experimental` until 1.0; the Turnkey and Fireblocks providers ([#54](https://github.com/aelmanaa/hardhat-kms/issues/54), [#55](https://github.com/aelmanaa/hardhat-kms/issues/55)) add optional transaction methods.
 
 ## First-party provider packages
 

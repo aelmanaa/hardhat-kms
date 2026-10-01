@@ -118,7 +118,8 @@ export default defineConfig({
       deployer: {
         provider: "azure",
         keyId: "https://my-vault.vault.azure.net/keys/deployer/0123456789abcdef0123456789abcdef",
-        // Optional, recommended: the address the key derives to. The plugin refuses to sign if they differ.
+        // Optional, recommended: the address that `npx hardhat kms accounts` prints for this key.
+        // The plugin refuses to sign if the key derives to another address.
         address: "0x…",
       },
     },

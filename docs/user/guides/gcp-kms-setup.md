@@ -72,7 +72,8 @@ export default defineConfig({
         provider: "gcp",
         keyVersionName:
           "projects/my-project/locations/europe-west1/keyRings/deployer-ring/cryptoKeys/deployer/cryptoKeyVersions/1",
-        // Optional, recommended: the address the key derives to. The plugin refuses to sign if they differ.
+        // Optional, recommended: the address that `npx hardhat kms accounts` prints for this key.
+        // The plugin refuses to sign if the key derives to another address.
         address: "0x…",
       },
     },

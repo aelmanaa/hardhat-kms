@@ -6,7 +6,7 @@ A Hardhat 3 plugin that signs transactions, messages and typed data with secp256
 
 The plugin works at the JSON-RPC layer, so viem, ethers, Ignition and plain scripts use KMS keys like any other account. Every signature is checked locally before it is used: it must recover to the configured account's address.
 
-## Planned usage
+## Usage
 
 Each cloud has its own package, so signing with AWS KMS takes the core and `hardhat-kms-aws`:
 
@@ -24,7 +24,7 @@ export default defineConfig({
   plugins: [hardhatKmsAws],
   kms: {
     keys: {
-      deployer: { provider: "aws", keyId: "alias/deployer", address: "0x…" },
+      deployer: { provider: "aws", keyId: "alias/deployer" },
     },
   },
   networks: {
@@ -37,7 +37,7 @@ export default defineConfig({
 });
 ```
 
-`hardhat-kms-aws` loads `hardhat-kms` itself. For complete projects that deploy and call a contract from a KMS account with viem, ethers or Ignition, see [examples/](examples/README.md). Azure Key Vault and Managed HSM keys need `hardhat-kms-azure` instead ([setup guide](docs/user/guides/azure-key-vault-setup.md)). Google Cloud KMS keys need `hardhat-kms-gcp` ([setup guide](docs/user/guides/gcp-kms-setup.md)). See the [configuration reference](docs/user/reference/configuration.md) for every option.
+To see the key's address, run `npx hardhat kms accounts`, then pin it in the key's config with `address`. `hardhat-kms-aws` loads `hardhat-kms` itself. For complete projects that deploy and call a contract from a KMS account with viem, ethers or Ignition, see [examples/](examples/README.md). Azure Key Vault and Managed HSM keys need `hardhat-kms-azure` instead ([setup guide](docs/user/guides/azure-key-vault-setup.md)). Google Cloud KMS keys need `hardhat-kms-gcp` ([setup guide](docs/user/guides/gcp-kms-setup.md)). See the [configuration reference](docs/user/reference/configuration.md) for every option.
 
 ## Docs
 

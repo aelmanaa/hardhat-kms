@@ -2,7 +2,7 @@
 
 Audience: Contributors and security reviewers.
 
-Status: M1 implements the signature pipeline for digests, messages and typed data, along with the address pin check and the vendored EIP-712 encoder. Transactions follow in M5. Each provider's identity checks come with its adapter (M3, M6).
+Status: M1 implements the signature pipeline for digests, messages and typed data, along with the address pin check and the vendored EIP-712 encoder. M5 adds transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)). Each provider's identity checks come with its adapter (M3, M6).
 
 ## Signature pipeline
 
@@ -50,10 +50,10 @@ Errors are `HardhatPluginError("hardhat-kms", …)` built from an allow-list of 
 | Credentials or identifiers leak through errors and logs                    | No secrets in config, allow-listed errors, restricted `debug` output, `<VAR_NAME>` masking.                        |
 | A client retry broadcasts a transaction twice                              | Error code -32000 plus the local hash after broadcast, and the post-broadcast retry cache.                         |
 
-The README's security model documents what the plugin does not protect against:
+The plugin does not protect against these (the full security model is [#39](https://github.com/aelmanaa/hardhat-kms/issues/39)):
 
 - Nonce collisions between separate processes using the same key.
-- Access to the key itself, which the provider's IAM or RBAC controls. The README gives minimal policies, including the AWS conditions `kms:SigningAlgorithm` and `kms:MessageType`.
+- Access to the key itself, which the provider's IAM or RBAC controls. The setup guides for [AWS](../user/guides/aws-kms-setup.md), [Google Cloud](../user/guides/gcp-kms-setup.md) and [Azure](../user/guides/azure-key-vault-setup.md) give minimal permissions, including the AWS conditions `kms:SigningAlgorithm` and `kms:MessageType`.
 - Key deletion. Deleting a KMS key loses the funds at its address forever.
 
 ## Vendored EIP-712

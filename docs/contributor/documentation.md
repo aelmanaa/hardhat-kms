@@ -45,5 +45,4 @@ The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/iss
 - Guides: GitHub Actions with OIDC ([#68](https://github.com/aelmanaa/hardhat-kms/issues/68)), multiple keys ([#69](https://github.com/aelmanaa/hardhat-kms/issues/69)), key rotation ([#70](https://github.com/aelmanaa/hardhat-kms/issues/70)), loss of access to a key ([#71](https://github.com/aelmanaa/hardhat-kms/issues/71)).
 - Reference: errors ([#72](https://github.com/aelmanaa/hardhat-kms/issues/72)), public API ([#73](https://github.com/aelmanaa/hardhat-kms/issues/73)).
 - Explanation: how it works, security model ([#39](https://github.com/aelmanaa/hardhat-kms/issues/39)).
-- Contributor: adding a provider ([#40](https://github.com/aelmanaa/hardhat-kms/issues/40)).
-- Docs checks in CI ([#63](https://github.com/aelmanaa/hardhat-kms/issues/63)), a docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).
+- A docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).
