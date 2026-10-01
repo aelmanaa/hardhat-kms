@@ -6,7 +6,7 @@ import { after, before, describe, it } from "node:test";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
-import type { JsonRpcServer, NetworkConnection } from "hardhat/types/network";
+import type { NetworkConnection } from "hardhat/types/network";
 import { authorization, Transaction } from "micro-eth-signer";
 
 import { ConnectionChain } from "../../src/internal/rpc/chain-id.ts";
@@ -18,6 +18,7 @@ import {
   type TransactionFiller,
   type UnsignedTransaction,
 } from "../../src/internal/rpc/transaction-filler.ts";
+import { type RecordingNode, startRecordingNode } from "../helpers/recording-node.ts";
 import { HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
 const FROM = HARDHAT_ACCOUNT_0.address;
@@ -29,48 +30,6 @@ const ACCESS_LIST = [
 ];
 // Creation code that deploys a contract returning 42.
 const INIT_CODE = "0x600a600c600039600a6000f3602a60005260206000f3";
-
-interface Node {
-  server: JsonRpcServer;
-  url: string;
-  /** The raw transactions the node received. */
-  raw: string[];
-  /** Methods the node answers with an error, and the error message. */
-  faults: Map<string, string>;
-}
-
-/**
- * A simulated node behind a JSON-RPC server. It records raw transactions instead of running
- * them, so the chain state is the same for both fills, and fails the methods listed in `faults`.
- */
-async function startNode(
-  config: { hardfork?: string; blockGasLimit?: bigint } = {},
-): Promise<Node> {
-  const raw: string[] = [];
-  const faults = new Map<string, string>();
-  const hre = await createHardhatRuntimeEnvironment({
-    networks: { node: { type: "edr-simulated", chainId: 31337, ...config } },
-  });
-  hre.hooks.registerHandlers("network", {
-    onRequest: async (context, connection, request, next) => {
-      const fault = faults.get(request.method);
-      if (fault !== undefined) {
-        return { jsonrpc: "2.0", id: request.id, error: { code: -32000, message: fault } };
-      }
-      if (request.method !== "eth_sendRawTransaction" || !Array.isArray(request.params)) {
-        return await next(context, connection, request);
-      }
-      const [bytes]: unknown[] = request.params;
-      assert.ok(typeof bytes === "string");
-      raw.push(bytes);
-      const hash = `0x${Buffer.from(keccak_256(Buffer.from(bytes.slice(2), "hex"))).toString("hex")}`;
-      return { jsonrpc: "2.0", id: request.id, result: hash };
-    },
-  });
-  const server = await hre.network.createServer("node", "127.0.0.1", 0);
-  const { address, port } = await server.listen();
-  return { server, url: `http://${address}:${port}`, raw, faults };
-}
 
 /** A transaction's raw fields, without `type`. */
 function fields(raw: object): Record<string, unknown> {
@@ -87,7 +46,7 @@ function fillerFor(connection: NetworkConnection<string>): TransactionFiller {
 }
 
 /** An http network on a node, with the test key as a local account. */
-function on(node: Node) {
+function on(node: RecordingNode) {
   return {
     type: "http" as const,
     url: node.url,
@@ -102,15 +61,15 @@ function messageOf(error: unknown): string {
 }
 
 describe("transaction filling matches Hardhat's local accounts", () => {
-  let main: Node;
-  let berlin: Node;
-  let lowLimit: Node;
+  let main: RecordingNode;
+  let berlin: RecordingNode;
+  let lowLimit: RecordingNode;
   let hre: HardhatRuntimeEnvironment;
 
   before(async () => {
-    main = await startNode();
-    berlin = await startNode({ hardfork: "berlin" });
-    lowLimit = await startNode({ blockGasLimit: 40_000n });
+    main = await startRecordingNode();
+    berlin = await startRecordingNode({ hardfork: "berlin" });
+    lowLimit = await startRecordingNode({ blockGasLimit: 40_000n });
     hre = await createHardhatRuntimeEnvironment({
       networks: {
         local: on(main),
@@ -130,7 +89,7 @@ describe("transaction filling matches Hardhat's local accounts", () => {
   });
 
   /** The node a network of the client runtime points at. */
-  function nodeOf(network: string): Node {
+  function nodeOf(network: string): RecordingNode {
     return network === "berlin" ? berlin : network === "lowLimit" ? lowLimit : main;
   }
 

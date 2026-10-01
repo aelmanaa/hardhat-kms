@@ -1,3 +1,4 @@
+import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import {
   rpcAddress,
   rpcAny,
@@ -16,6 +17,8 @@ import { parseAwsKeyId } from "../providers/aws/key-id.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { type ConnectionChain, parseChainId } from "./chain-id.ts";
+import type { TransactionFiller } from "./transaction-filler.ts";
+import { signTransaction } from "./transactions.ts";
 
 const log = kmsDebug("rpc");
 
@@ -116,16 +119,6 @@ export class ConnectionAccounts {
   }
 
   /**
-   * Tells whether an address is one of the KMS accounts.
-   *
-   * @param address - A lowercase address.
-   * @returns Whether it is.
-   */
-  public async isKmsAccount(address: string): Promise<boolean> {
-    return (await this.#resolve()).has(address);
-  }
-
-  /**
    * Signs with the KMS account at an address.
    *
    * @param address - A lowercase address.
@@ -223,15 +216,27 @@ export interface TypedDataPolicy {
   allowCrossChainTypedData: boolean;
 }
 
+/** What signing transactions needs from the connection. */
+export interface ConnectionTransactions {
+  /** Returns the connection's transaction filler. */
+  filler(): TransactionFiller;
+  /**
+   * The sender Hardhat's sender handlers would give a transaction without `from`: the network's
+   * `from`, else the first account of `eth_accounts`.
+   */
+  defaultSender(): Promise<unknown>;
+}
+
 /**
  * Handles one JSON-RPC request for a connection with KMS accounts: lists the accounts, and signs
- * messages and typed data for them. Everything else, including requests for other addresses, goes
- * to `next`, which is called at most once (rule 2).
+ * transactions, messages and typed data for them. Everything else, including requests for other
+ * addresses, goes to `next`, which is called at most once (rule 2).
  *
  * @param accounts - The connection's KMS accounts.
  * @param request - The request.
  * @param next - The rest of the chain.
  * @param policy - The typed-data chain check's inputs.
+ * @param transactions - The connection's filler and default sender.
  * @returns The response.
  */
 export async function dispatch(
@@ -239,6 +244,7 @@ export async function dispatch(
   request: JsonRpcRequest,
   next: Next,
   policy: TypedDataPolicy,
+  transactions: ConnectionTransactions,
 ): Promise<JsonRpcResponse> {
   if (accounts.isEmpty) {
     return await next(request);
@@ -272,20 +278,56 @@ export async function dispatch(
       return response(request, signed.result);
     }
   } else if (TRANSACTION_METHODS.has(request.method)) {
-    const transaction: unknown = params[0];
-    const from: unknown =
-      typeof transaction === "object" && transaction !== null
-        ? Reflect.get(transaction, "from")
-        : undefined;
-    const address = addressParam(from);
-    if (address !== undefined && (await accounts.isKmsAccount(address))) {
-      throw kmsError(
-        `${request.method} from KMS accounts is not available yet (https://github.com/aelmanaa/hardhat-kms/issues/24); messages and typed data can be signed`,
-        { operation: request.method },
-      );
+    const raw = await signTransactionFor(accounts, request.method, params, transactions);
+    if (raw !== undefined && request.method === "eth_signTransaction") {
+      return response(request, raw);
+    }
+    if (raw !== undefined) {
+      // Like Hardhat's local accounts: the signed transaction replaces the request. Parallel
+      // sends from one account are not serialized yet (#25).
+      return await next({ ...request, method: "eth_sendRawTransaction", params: [raw] });
     }
   }
   return await next(request);
+}
+
+/**
+ * Fills and signs a transaction whose sender is a KMS account. A transaction without `from` gets
+ * the sender Hardhat would give it, so it never reaches the node unsigned with a KMS sender.
+ *
+ * @returns The signed raw transaction, or `undefined` when the sender is not a KMS account.
+ */
+async function signTransactionFor(
+  accounts: ConnectionAccounts,
+  method: string,
+  params: unknown[],
+  transactions: ConnectionTransactions,
+): Promise<string | undefined> {
+  const [transaction, ...rest] = params;
+  if (!isObject(transaction)) {
+    return undefined;
+  }
+  let txParams = params;
+  let from: unknown = transaction.from;
+  if (from === undefined) {
+    from = await transactions.defaultSender();
+    txParams = [{ ...transaction, from }, ...rest];
+  }
+  const address = addressParam(from);
+  const signed =
+    address === undefined
+      ? undefined
+      : await accounts.withSigner(
+          address,
+          async (signer) =>
+            await signTransaction(signer, {
+              filler: transactions.filler(),
+              method,
+              params: txParams,
+              from: address,
+            }),
+        );
+  return signed?.result;
 }
 
 /**

@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in AWS KMS.
 
-Status: the AWS adapter is implemented (M3), in the `hardhat-kms-aws` package. With the network hook (M4), a connection lists the key's account and signs messages and typed data with it. Sending transactions comes in M5 ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)).
+Status: the AWS adapter is implemented (M3), in the `hardhat-kms-aws` package. With the network hook (M4), a connection lists the key's account and signs messages and typed data with it. M5 adds signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)).
 
 ## 1. Create a secp256k1 signing key
 

@@ -19,6 +19,10 @@ const ACCOUNT_0 = {
 const MESSAGE = "0x5417aa2a18a44da0675524453ff108c545382f0d7e26605c56bba47c21b5e979";
 const SIGNATURE =
   "0x9c73dd4937a37eecab3abb54b74b6ec8e500080431d36afedb1726624587ee6710296e10c1194dded7376f13ff03ef6c9e797eb86bae16c20c57776fc69344271c";
+// What Hardhat's local accounts send for the eth_signTransaction request below, on chain 31337:
+// an EIP-1559 transfer of 1 wei to Hardhat's second account, signed by account 0.
+const SIGNED_TRANSACTION =
+  "0x02f868827a698001843b9aca008252089470997970c51812dc3a010c7d01b50e0d17dc79c80180c080a09a383148f3856d41c63a9f5f1aa23ecdb6bbfbbeb5cd0721ce040291d890df62a01e03ff1466ba6e09588cddddd8d21cd72db773ab8a490216c55a42a10b1e302e";
 
 describe("hardhat-kms-aws through a network connection", () => {
   let server: KmsServer;
@@ -67,6 +71,47 @@ describe("hardhat-kms-aws through a network connection", () => {
       SIGNATURE,
     );
     // One key lookup, then one signature with the key ARN.
+    assert.deepEqual(
+      server.requests.map(({ headers }) => headers["x-amz-target"]),
+      ["TrentService.GetPublicKey", "TrentService.Sign"],
+    );
+    await connection.close();
+  });
+
+  it("signs eth_signTransaction through the real SDK like Hardhat's local accounts", async () => {
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKmsAws],
+      kms: {
+        keys: {
+          deployer: {
+            provider: "aws",
+            keyId: "alias/deployer",
+            region: "eu-west-1",
+            endpoint: server.url,
+          },
+        },
+      },
+      networks: { local: { type: "edr-simulated", kmsAccounts: ["deployer"] } },
+    });
+    const connection = await hre.network.create("local");
+    server.requests.length = 0;
+
+    // Every field is set, so filling reads only the chain id and the bytes are fixed.
+    const raw = await connection.provider.request({
+      method: "eth_signTransaction",
+      params: [
+        {
+          from: ACCOUNT_0.address,
+          to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+          value: "0x1",
+          gas: "0x5208",
+          maxFeePerGas: "0x3b9aca00",
+          maxPriorityFeePerGas: "0x1",
+          nonce: "0x0",
+        },
+      ],
+    });
+    assert.equal(raw, SIGNED_TRANSACTION);
     assert.deepEqual(
       server.requests.map(({ headers }) => headers["x-amz-target"]),
       ["TrentService.GetPublicKey", "TrentService.Sign"],

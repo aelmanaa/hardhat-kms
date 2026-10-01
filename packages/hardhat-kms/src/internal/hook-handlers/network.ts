@@ -4,8 +4,10 @@ import type { NetworkConnection } from "hardhat/types/network";
 import { kmsDebug } from "../debug.ts";
 import { ConnectionChain } from "../rpc/chain-id.ts";
 import { ConnectionAccounts, dispatch, type NetworkKeys } from "../rpc/dispatcher.ts";
+import { createTransactionFiller, type TransactionFiller } from "../rpc/transaction-filler.ts";
 import { SignerCache } from "../signer/key-cache.ts";
 import { systemTimers, type Timers } from "../signer/timeout.ts";
+import { warn } from "../warnings.ts";
 import { commandLineKeys } from "./hre.ts";
 
 const log = kmsDebug("rpc");
@@ -52,6 +54,24 @@ async function fund(
   log("funded %d KMS accounts with %s wei", addresses.length, balance);
 }
 
+/**
+ * The sender Hardhat gives a transaction without `from`: the network's `from`, as its
+ * `FixedSenderHandler` does, else the first account of `eth_accounts`, as its
+ * `AutomaticSenderHandler` does. `eth_accounts` goes through the hook chain, so the plugin's own
+ * order applies: the network's accounts, then the KMS addresses.
+ *
+ * @param connection - The network connection.
+ * @returns The sender, or `undefined` when there is none.
+ */
+async function defaultSender(connection: NetworkConnection<string>): Promise<unknown> {
+  const { from } = connection.networkConfig;
+  if (from !== undefined) {
+    return from;
+  }
+  const accounts: unknown = await connection.provider.request({ method: "eth_accounts" });
+  return Array.isArray(accounts) ? accounts[0] : undefined;
+}
+
 const hasKeys = (keys: NetworkKeys): boolean =>
   keys.config.length > 0 || keys.commandLine.length > 0;
 
@@ -95,6 +115,18 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
     return chain;
   };
 
+  // One filler per connection, created on its first transaction: it caches what Hardhat's
+  // handlers cache per connection.
+  const fillers = new WeakMap<object, TransactionFiller>();
+  const fillerOf = (connection: NetworkConnection<string>): TransactionFiller => {
+    let filler = fillers.get(connection);
+    if (filler === undefined) {
+      filler = createTransactionFiller(connection, chainOf(connection));
+      fillers.set(connection, filler);
+    }
+    return filler;
+  };
+
   return {
     newConnection: async (context, next) => {
       const connection = await next(context);
@@ -112,9 +144,8 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
         );
         if (connection.networkName === "default" && !warnedAboutDefault) {
           warnedAboutDefault = true;
-          // oxlint-disable-next-line eslint/no-console -- a warning for the user, as Hardhat plugins print them
-          console.warn(
-            "hardhat-kms: the `default` network has KMS keys (from `kmsAccounts` or `--kms` without `--network`). Tasks and tests use it when no --network is given, so they would call KMS. Put KMS keys on a named network, and pass --network with --kms.",
+          warn(
+            "the `default` network has KMS keys (from `kmsAccounts` or `--kms` without `--network`). Tasks and tests use it when no --network is given, so they would call KMS. Put KMS keys on a named network, and pass --network with --kms.",
           );
         }
         const balance = context.config.kms.simulatedBalance;
@@ -134,6 +165,7 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
       if (counted.delete(connection)) {
         cache.connectionClosed();
       }
+      fillers.delete(connection);
       await next(context, connection);
     },
     onRequest: async (context, connection, request, next) =>
@@ -144,6 +176,10 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
         {
           chain: chainOf(connection),
           allowCrossChainTypedData: context.config.kms.allowCrossChainTypedData,
+        },
+        {
+          filler: () => fillerOf(connection),
+          defaultSender: async () => await defaultSender(connection),
         },
       ),
   };
