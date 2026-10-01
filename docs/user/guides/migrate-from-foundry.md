@@ -39,6 +39,7 @@ AWS_KMS_KEY_ID=alias/deployer npx hardhat run scripts/deploy.ts --network sepoli
 - `cast wallet address --aws` becomes `npx hardhat --kms aws kms address AWS_KMS_KEY_ID`: a task names a `--kms` key by its variable ([tasks reference](../reference/tasks.md#naming-a-key)).
 - `cast wallet sign --aws <message>` becomes `npx hardhat --kms aws kms sign AWS_KMS_KEY_ID <message>`, with the same `--data`, `--from-file` and `--no-hash` flags and the same output. Unlike cast, which also accepts 64 hex digits without a prefix, `--no-hash` needs the `0x` prefix. Typed data that names a chain also needs `--network`, `--chain` or `--allow-cross-chain`, which cast does not check ([`kms sign`](../reference/tasks.md#kms-sign)).
 - `cast wallet verify --address <address> <message> <signature>` becomes `npx hardhat kms verify --address <address> <message> <signature>`, with the same `--data [--from-file]` flags. `--key <key>` checks against a KMS key's address instead. There is no `--no-hash` ([`kms verify`](../reference/tasks.md#kms-verify)).
+- `cast wallet list --aws` becomes `npx hardhat --kms aws kms accounts`. It also lists the keys in the config and checks each `address` pin. A key that fails is shown next to its name and makes the command exit with code 1, where `cast wallet list` prints the error and exits 0 ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
 ## In the config
 

@@ -1,24 +1,28 @@
 // Loads hardhat-kms-aws and resolves a config with keys of every first-party provider, as
-// `hardhat` would, and optionally creates one key's adapter. A test runs this in a child process
-// and checks which modules it imported.
+// `hardhat` would, and optionally creates one key's adapter or runs a `kms` task. A test runs
+// this in a child process and checks which modules it imported.
+import type { KmsKeyUserConfig } from "hardhat-kms/types";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
+import { isResult } from "hardhat/utils/result";
 
 import hardhatKmsAws from "../../src/index.ts";
 
+const keys: Record<string, KmsKeyUserConfig> = {
+  aws: { provider: "aws", keyId: "alias/deployer", region: "eu-west-1" },
+  gcp: {
+    provider: "gcp",
+    keyVersionName: "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1",
+  },
+  azure: { provider: "azure", keyId: "https://v.vault.azure.net/keys/k" },
+};
+// HHKMS_FIXTURE_SKIP leaves one key out, so that `kms accounts` sees only the other providers'.
+Reflect.deleteProperty(keys, process.env.HHKMS_FIXTURE_SKIP ?? "");
+
 const hre = await createHardhatRuntimeEnvironment({
   plugins: [hardhatKmsAws],
-  kms: {
-    keys: {
-      aws: { provider: "aws", keyId: "alias/deployer", region: "eu-west-1" },
-      gcp: {
-        provider: "gcp",
-        keyVersionName: "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1",
-      },
-      azure: { provider: "azure", keyId: "https://v.vault.azure.net/keys/k" },
-    },
-  },
+  kms: { keys },
   networks: {
-    sepolia: { type: "http", url: "http://127.0.0.1:1", kmsAccounts: ["aws", "gcp", "azure"] },
+    sepolia: { type: "http", url: "http://127.0.0.1:1", kmsAccounts: Object.keys(keys) },
   },
 });
 
@@ -28,6 +32,14 @@ const VERIFY_ARGUMENTS = {
   signature:
     "0x9c73dd4937a37eecab3abb54b74b6ec8e500080431d36afedb1726624587ee6710296e10c1194dded7376f13ff03ef6c9e797eb86bae16c20c57776fc69344271c",
 };
+
+// HHKMS_FIXTURE_TASK=accounts runs `kms accounts`, which takes no key and tries every key.
+if (process.env.HHKMS_FIXTURE_TASK === "accounts") {
+  const result = await hre.tasks.getTask(["kms", "accounts"]).run({ json: false, showIds: false });
+  process.stdout.write(
+    `accounts task ${isResult(result) && result.success ? "passed" : "failed"}\n`,
+  );
+}
 
 // HHKMS_FIXTURE_KEY names a key whose adapter to create, through the kms hook chain.
 const keyName = process.env.HHKMS_FIXTURE_KEY ?? "";

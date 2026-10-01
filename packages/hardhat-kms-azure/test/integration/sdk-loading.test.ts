@@ -92,6 +92,25 @@ describe("SDK loading", () => {
       });
     }
 
+    it(`runs kms accounts on the other providers' keys without loading the Azure SDK (${hooks} hooks)`, () => {
+      const { urls, stdout } = run({
+        ...recorderEnv,
+        HHKMS_FIXTURE_KEY: "",
+        HHKMS_FIXTURE_SKIP: "azure",
+        HHKMS_FIXTURE_TASK: "accounts",
+      });
+
+      // The other providers' packages are not installed here, so both keys fail, and are listed.
+      assert.match(stdout, /^accounts task failed$/m);
+      assert.match(stdout, /^aws .* FAILED /m);
+      assert.match(stdout, /^gcp .* FAILED /m);
+      assert.ok(
+        urls.some((url) => url.includes("/hardhat-kms/dist/src/internal/tasks/accounts.js")),
+        "the recorder saw the task action",
+      );
+      assert.deepEqual(sdkModules(urls), []);
+    });
+
     it(`loads the Azure SDK once an Azure key's adapter is created (positive control, ${hooks} hooks)`, () => {
       const { urls } = run({ ...recorderEnv, HHKMS_FIXTURE_KEY: "azure" });
 
