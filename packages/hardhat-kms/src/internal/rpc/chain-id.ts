@@ -1,3 +1,5 @@
+import type { NetworkConnection } from "hardhat/types/network";
+
 import { kmsError } from "../errors.ts";
 
 /** Shows a rejected value in an error, cut to a length that cannot flood the output. */
@@ -87,4 +89,18 @@ export class ConnectionChain {
     }
     return chainId;
   }
+}
+
+/**
+ * Creates the chain of a network connection. Its `eth_chainId` request goes through
+ * `connection.provider`, so it passes through the hook chain, which passes it on.
+ *
+ * @param connection - The network connection.
+ * @returns The connection's chain, checked against the network config's `chainId`.
+ */
+export function createConnectionChain(connection: NetworkConnection<string>): ConnectionChain {
+  return new ConnectionChain(async () => {
+    const chainId: unknown = await connection.provider.request({ method: "eth_chainId" });
+    return chainId;
+  }, connection.networkConfig.chainId);
 }

@@ -273,6 +273,22 @@ describe("kms tasks from the Hardhat CLI", () => {
     });
   });
 
+  it("signs a transaction on --network, prints it and its hash, and exits on its own", () => {
+    const tx = path.join(project, "tx.json");
+    writeFileSync(tx, JSON.stringify({ to: COW_ACCOUNT.address, value: "0x1" }));
+    const run = hardhat(["--network", "default", "kms", "sign-tx", "deployer", tx]);
+
+    assert.equal(run.status, 0, `the task failed or did not exit:\n${run.output}`);
+    assert.match(run.stdout, /^0x02[0-9a-f]+\n0x[0-9a-f]{64}\n$/);
+  });
+
+  it("fails without --network and exits on its own", () => {
+    const run = hardhat(["kms", "sign-tx", "deployer", "tx.json"]);
+
+    assert.equal(run.status, 1, `the task did not fail and exit:\n${run.output}`);
+    assert.match(run.stderr, /kms sign-tx: --network is required/);
+  });
+
   it("lists the tasks under kms", () => {
     const run = hardhat(["kms"]);
 
@@ -280,6 +296,7 @@ describe("kms tasks from the Hardhat CLI", () => {
     assert.match(run.output, /accounts\s+List the KMS keys/);
     assert.match(run.output, /address\s+Print a KMS key's address/);
     assert.match(run.output, /public-key\s+Print a KMS key's uncompressed public key/);
+    assert.match(run.output, /sign-tx\s+Fill and sign a transaction on --network/);
     assert.match(run.output, /sign\s+Sign a message, typed data or a raw digest with a KMS key/);
     assert.match(run.output, /verify\s+Check that an address signed a message or typed data/);
   });

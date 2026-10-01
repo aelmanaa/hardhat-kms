@@ -2,7 +2,7 @@
 
 Audience: Contributors and reviewers who want to understand how the code fits together.
 
-Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry and the `kms` hook (`providers/`). M3 adds the AWS adapter, which lives in its own package, `packages/hardhat-kms-aws` ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)). M4 adds the network hook, the RPC dispatcher for accounts, messages and typed data, and the per-runtime signer cache ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). M5 adds the transaction filler ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)), signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)), and the send guard ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)). M6 adds the Google Cloud adapter in `packages/hardhat-kms-gcp` ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29)) and the Azure adapter in `packages/hardhat-kms-azure` ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). M7 adds the `kms` task namespace with `kms address` and `kms public-key` ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)). The other modules are planned; the code map gives each one's milestone.
+Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry and the `kms` hook (`providers/`). M3 adds the AWS adapter, which lives in its own package, `packages/hardhat-kms-aws` ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)). M4 adds the network hook, the RPC dispatcher for accounts, messages and typed data, and the per-runtime signer cache ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). M5 adds the transaction filler ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)), signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)), and the send guard ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)). M6 adds the Google Cloud adapter in `packages/hardhat-kms-gcp` ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29)) and the Azure adapter in `packages/hardhat-kms-azure` ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). M7 adds the `kms` task namespace. Its tasks so far are `kms address` and `kms public-key` ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)) and `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)). The other modules are planned; the code map gives each one's milestone.
 
 ## Module map
 
@@ -81,6 +81,7 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 | Message and typed-data arguments of tasks   | `packages/hardhat-kms/src/internal/tasks/inputs.ts`, shared by `kms sign` and `kms verify`                                                                        | M7        |
 | Typed-data parsing and chain check          | `packages/hardhat-kms/src/internal/rpc/typed-data.ts`, shared by `eth_signTypedData_v4`, `kms sign --data` and `kms verify --data`                                | M4, M7    |
 | `kms accounts`                              | `packages/hardhat-kms/src/internal/tasks/accounts.ts`                                                                                                             | M7        |
+| `kms sign-tx`                               | `packages/hardhat-kms/src/internal/tasks/sign-tx.ts`                                                                                                              | M7        |
 | Other tasks                                 | `packages/hardhat-kms/src/internal/tasks/` (planned)                                                                                                              | M7        |
 
 ## Signing a message
@@ -187,7 +188,7 @@ packages/hardhat-kms/src/
                             uncertain transactions; SendOutcomeUnknownError
     tasks/                  keys.ts: key lookup by name, signers closed after each run, printLine;
                             inputs.ts: message and --data arguments; one action module per task:
-                            address, public-key, sign, verify (accounts, sign-auth, sign-tx planned)
+                            accounts, address, public-key, sign, sign-tx, verify (sign-auth planned)
     vendor/micro-eth-signer/  vendored EIP-712 hashing (MIT, see "Vendored EIP-712")
     errors.ts               allow-listed error builder
     warnings.ts             the one console.warn: warnings for the user
@@ -233,7 +234,7 @@ The user documentation therefore recommends listing hardhat-ledger first ([Other
 
 ## Tasks
 
-The plugin definition declares `emptyTask("kms")` and one `task(["kms", <name>])` per task, each with `setAction(() => import(...))`, as hardhat-keystore does. Defining the tasks loads no action module and no SDK. The SDK-loading tests in the provider packages check both, and that running `kms address`, `kms public-key` and `kms verify --key` on another provider's key, or `kms accounts` on the other providers' keys, loads no SDK.
+The plugin definition declares `emptyTask("kms")` and one `task(["kms", <name>])` per task, each with `setAction(() => import(...))`, as hardhat-keystore does. Defining the tasks loads no action module and no SDK. The SDK-loading tests in the provider packages check both, and that running `kms address`, `kms public-key`, `kms sign-tx` and `kms verify --key` on another provider's key, or `kms accounts` on the other providers' keys, loads no SDK.
 
 Every task that takes a key uses `packages/hardhat-kms/src/internal/tasks/keys.ts`:
 
@@ -249,6 +250,8 @@ Every task that takes a key uses `packages/hardhat-kms/src/internal/tasks/keys.t
 `kms sign` and `kms verify` read their message the same way, through `tasks/inputs.ts`: `readMessage` decodes `0x` hex or UTF-8, and `readTypedDataArgument` reads `--data` JSON, from the file with `--from-file`, through `readTypedData`. `kms verify` checks every input before it contacts the KMS, then parses the signature with `parseRpcSignature` in `crypto/signature.ts`, which reads `v` and folds a high-S signature to low S as alloy does, and recovers the address with `recoverAddress`. With `--key`, it gets the key's address with `confirmedAddress()`, as `kms address` does; with `--address`, it opens no signer. A mismatch returns Hardhat's `errorResult`, which the CLI turns into exit code 1 without printing an error.
 
 `kms accounts` takes no key. It lists `taskKeys(hre)`, or, with `--network`, that network's `kmsAccounts` followed by `commandLineKeys(hre)`, and resolves every key with `confirmedAddress()` inside one `withTaskSigners`, at most `ACCOUNTS_CONCURRENCY` (8) keys at a time. Without `--network`, keys with the same `keyIdentity()` and the same pin are listed once, and the row keeps every merged entry's name and source, so each config entry gets its pin line. With `--network`, the same function finds a `--kms` key that repeats a network entry, for a note. `keyIdentity()` lives in `packages/hardhat-kms/src/internal/config/key-identity.ts` and is the same function the dispatcher uses to refuse a `--kms` key that repeats a config key. A key's failure is caught and kept in its entry, so one key cannot hide the others. The task returns a Hardhat `Result` from `hardhat/utils/result`; the CLI sets exit code 1 for a failed one without printing an error. The report's types, `AccountsReport` and `AccountEntry`, are exported from `hardhat-kms/types`, and the report carries `version: 1`.
+
+`kms sign-tx` signs with the code that signs `eth_signTransaction`. It opens a connection to the `--network` network with `hre.network.create`, builds a `ConnectionChain` with `createConnectionChain` and a filler with `createTransactionFiller`, as the network hook does for each connection, and calls `signTransaction` with the task's signer. Its fill reads go through `connection.provider` and the hook chain, so the key does not need to be one of the network's accounts. The task's own checks come before any KMS call: `--network` is set, the file is one JSON object, every field is an `eth_sendTransaction` field or `type`, and `from`, when set, is the key's address. A requested `type` is compared with the built transaction through `signTransaction`'s `checkUnsigned` option, before the KMS signs. The task closes its connection, and prints the raw transaction and its hash; it has no code path that sends either.
 
 ## Lifetimes and caching
 

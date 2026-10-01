@@ -2,7 +2,7 @@
 
 Audience: Users running the `kms` tasks.
 
-Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). The other tasks are planned for M7.
+Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). The other tasks are planned for M7.
 
 ## Tasks
 
@@ -14,7 +14,7 @@ All tasks live in the `kms` namespace, which is an `emptyTask` in the same style
 | `kms address <key>` / `kms public-key <key>`                                           | The address, or the uncompressed public key.                                                                       | `cast wallet address`; no equivalent for the public key |
 | `kms sign <key> <message> [--data [--from-file]] [--no-hash]`                          | EIP-191, EIP-712, or a raw 32-byte digest. `--no-hash` exists only here, as an explicit human action.              | `cast wallet sign [--data [--from-file]] [--no-hash]`   |
 | `kms sign-auth <key> <delegate> --chain <id> [--nonce n] [--self-broadcast] [--force]` | EIP-7702 authorization. Chain 0 requires `--force`; `--self-broadcast` uses nonce+1.                               | `cast wallet sign-auth`                                 |
-| `kms sign-tx <key> --network n <tx.json>`                                              | Filled and signed, not broadcast.                                                                                  | `cast mktx`                                             |
+| `kms sign-tx <key> <tx.json> --network n`                                              | Filled on the network's node and signed, never sent. Prints the raw transaction and its hash.                      | `cast mktx`                                             |
 | `kms verify (--address a \| --key k) <message> <signature> [--data [--from-file]]`     | Local signature verification against an address or a key. No `--no-hash`.                                          | `cast wallet verify [--data [--from-file]]`             |
 
 ## Naming a key
@@ -172,6 +172,44 @@ Error in community plugin hardhat-kms: kms sign: the typed data is for chain 1, 
 ```text
 [hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Sign only a digest you computed yourself: it can authorize a transaction or a permit.
 ```
+
+## `kms sign-tx`
+
+```text
+npx hardhat --network <network> kms sign-tx <key> <tx.json>
+```
+
+Fills the transaction in `tx.json` on the network's node, signs it with the key, and prints the raw signed transaction and its hash, one per line. It never sends the transaction. `--network` is required, because the fill reads the node and the chain id is checked against it. Like any Hardhat global option, `--network` can also follow the task's arguments.
+
+`tx.json` holds one JSON object with the field names of `eth_sendTransaction`: `from`, `to`, `gas`, `gasPrice`, `maxFeePerGas`, `maxPriorityFeePerGas`, `value`, `data`, `nonce`, `chainId`, `accessList` and `authorizationList`, plus an optional `type`. Quantities are hex strings, as in JSON-RPC.
+
+```json
+{ "to": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", "value": "0x1" }
+```
+
+```text
+0x02f86c827a6980843b9aca00844201eab38252099470997970c51812dc3a010c7d01b50e0d17dc79c80180c001a0b85916a088d886f91c1d2f0139bd231af8842ffa0e8232f46e70d543bb223af8a00ca045d1a2ebbe1dd49bc220f8714e0d6e9581e0ffc5edeee87b3b2ba2eaf031
+0x0da9e0b9ede9b780554f62432d41e2d4df3540fb1fe37264b5ceff45f4d0d4e6
+```
+
+To keep only the raw transaction, pipe the output through `head -n 1`. To send it later, pass it to `eth_sendRawTransaction`, for example with `cast publish`.
+
+The task fills what the file leaves out as [`eth_signTransaction`](rpc-methods.md) does for a KMS account: fees, gas, the chain id and the nonce. For the same request, key and chain state, the bytes are the same as those `eth_signTransaction` returns. The nonce is the node's pending count, and nothing reserves it: if the key sends another transaction first, the signed one is stale.
+
+The fields decide the transaction type: `authorizationList` gives EIP-7702 (`0x4`), `maxFeePerGas` EIP-1559 (`0x2`), `accessList` EIP-2930 (`0x1`), and `gasPrice` alone a legacy transaction (`0x0`). Without a fee field, the network's `gasPrice` setting decides; with `"auto"`, a node that has a base fee gets EIP-1559. A `type` in the file states what you expect: when the fields give another type, the task fails before the KMS signs.
+
+The task fails, and the KMS signs nothing, when:
+
+- `from` is set and is not the key's address. Leave `from` out to sign from the key.
+- `chainId` is set and is not the network's chain id.
+- The file asks for a blob transaction (EIP-4844): `type` `0x3`, `blobs`, `blobVersionedHashes` or `maxFeePerBlobGas`. KMS accounts do not sign them.
+- The file has a field that `eth_sendTransaction` does not, such as `gasLimit` or `input`. Hardhat would ignore it and sign without it, so the task names the field instead:
+
+  ```text
+  Error in community plugin hardhat-kms: kms sign-tx: unknown transaction field gasLimit (use gas instead of gasLimit). The fields are those of eth_sendTransaction: from, to, gas, gasPrice, maxFeePerGas, maxPriorityFeePerGas, value, data, nonce, chainId, accessList, authorizationList, blobs, blobVersionedHashes, type.
+  ```
+
+- The file cannot be read, is not valid JSON, or does not hold one JSON object.
 
 ## `kms verify`
 
