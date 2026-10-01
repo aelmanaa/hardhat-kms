@@ -16,8 +16,8 @@ if (typescriptVersion === undefined) {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pluginPackage = path.join(root, "packages", "hardhat-kms");
-const packages = ["hardhat-kms", "hardhat-kms-aws", "hardhat-kms-azure"].map((name) =>
-  path.join(root, "packages", name),
+const packages = ["hardhat-kms", "hardhat-kms-aws", "hardhat-kms-azure", "hardhat-kms-gcp"].map(
+  (name) => path.join(root, "packages", name),
 );
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -189,6 +189,34 @@ try {
       "",
     ].join("\n"),
   );
+  // A user of the Google Cloud package, who imports nothing from hardhat-kms.
+  writeFileSync(
+    path.join(consumer, "tsconfig.gcp.json"),
+    JSON.stringify({ extends: "./tsconfig.json", include: ["gcp-only.config.ts"] }, null, 2),
+  );
+  writeFileSync(
+    path.join(consumer, "gcp-only.config.ts"),
+    [
+      'import { configVariable, defineConfig } from "hardhat/config";',
+      'import hardhatKmsGcp from "hardhat-kms-gcp";',
+      "",
+      "export default defineConfig({",
+      "  plugins: [hardhatKmsGcp],",
+      "  kms: {",
+      "    keys: {",
+      '      deployer: { provider: "gcp", keyVersionName: configVariable("GCP_KEY_VERSION_NAME") },',
+      '      parts: { provider: "gcp", projectId: "p", location: "europe-west1", keyRing: "r", keyName: "k", keyVersion: 1 },',
+      "      // @ts-expect-error -- `keyVersion` is required: the plugin never picks a version.",
+      '      unversioned: { provider: "gcp", projectId: "p", location: "europe-west1", keyRing: "r", keyName: "k" },',
+      "    },",
+      "  },",
+      "  networks: {",
+      '    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },',
+      "  },",
+      "});",
+      "",
+    ].join("\n"),
+  );
   writeFileSync(
     path.join(consumer, "hardhat.config.ts"),
     [
@@ -280,6 +308,7 @@ try {
     "tsconfig.plugin.json",
     "tsconfig.aws.json",
     "tsconfig.azure.json",
+    "tsconfig.gcp.json",
   ]) {
     execFileSync(tsc, ["-p", project], { cwd: consumer, stdio: "inherit", shell });
   }

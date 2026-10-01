@@ -2,9 +2,9 @@
 
 Audience: Foundry users moving KMS signing to Hardhat.
 
-Status: Implemented ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)), following [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md). `--kms` keys are added to the selected network and sign messages and typed data; transactions come in M5. The AWS adapter is implemented (M3); Google Cloud and Azure come in M6.
+Status: Implemented ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)), following [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md). `--kms` keys are added to the selected network and sign messages and typed data; transactions come in M5. The AWS (M3), Google Cloud and Azure (M6) adapters are implemented.
 
-Foundry picks a KMS signer per command with `--aws`, `--gcp` or `--azure`, and reads the key from environment variables. hardhat-kms reads the same variables, in two ways. Both need the provider's package in `plugins`: for AWS keys, install `hardhat-kms-aws` as shown in [Set up an AWS KMS key](aws-kms-setup.md#3-install-the-plugin-and-configure-the-key).
+Foundry picks a KMS signer per command with `--aws`, `--gcp` or `--azure`, and reads the key from environment variables. hardhat-kms reads the same variables, in two ways. Both need the provider's package in `plugins`: `hardhat-kms-aws` ([Set up an AWS KMS key](aws-kms-setup.md#3-install-the-plugin-and-configure-the-key)), `hardhat-kms-gcp` ([Set up a Google Cloud KMS key](gcp-kms-setup.md#3-install-the-plugin-and-configure-the-key)) or `hardhat-kms-azure` ([Set up an Azure Key Vault key](azure-key-vault-setup.md#4-install-the-plugin-and-configure-the-key)).
 
 ## From the command line, as in Foundry
 

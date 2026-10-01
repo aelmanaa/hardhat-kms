@@ -9,5 +9,5 @@ export const gcpProvider: KmsProviderDescriptor = {
   resolve: (key, context) =>
     key.provider === "gcp" ? resolveGcpKey(key, context) : wrongProvider("gcp", key.provider),
   name: "Google Cloud KMS",
-  adapter: { issue: 29 },
+  adapter: { package: "hardhat-kms-gcp" },
 };

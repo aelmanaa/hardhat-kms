@@ -10,7 +10,7 @@ describe("provider registry", () => {
       assert.equal(provider.id, id);
     }
     assert.deepEqual(builtinProvider("aws")?.adapter, { package: "hardhat-kms-aws" });
-    assert.deepEqual(builtinProvider("gcp")?.adapter, { issue: 29 });
+    assert.deepEqual(builtinProvider("gcp")?.adapter, { package: "hardhat-kms-gcp" });
     assert.deepEqual(builtinProvider("azure")?.adapter, { package: "hardhat-kms-azure" });
   });
 

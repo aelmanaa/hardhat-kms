@@ -8,9 +8,11 @@
 export {
   publicKeyFromJwk,
   publicKeyFromSpkiDer,
+  publicKeyFromSpkiPem,
   InvalidPublicKeyError,
   type EcJsonWebKey,
 } from "./internal/crypto/public-key.ts";
+export { crc32c } from "./internal/crypto/crc32c.ts";
 export { kmsError, type ErrorDetails } from "./internal/errors.ts";
 export { parseAwsKeyId, type ParsedAwsKeyId } from "./internal/providers/aws/key-id.ts";
 export { parseAzureKeyId, type ParsedAzureKeyId } from "./internal/providers/azure/key-id.ts";

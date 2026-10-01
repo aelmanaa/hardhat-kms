@@ -2,7 +2,7 @@
 
 Audience: Users configuring the plugin.
 
-Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `hardhat-kms-aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). M4 adds the network hook: connections to a network with `kmsAccounts` list the KMS accounts and sign messages and typed data with them ([RPC methods](rpc-methods.md)). `kms.allowCrossChainTypedData` governs the typed-data chain check ([#20](https://github.com/aelmanaa/hardhat-kms/issues/20)), and `--kms` keys are added to the selected network ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). `kms.simulatedBalance` funds KMS accounts on `edr-simulated` networks ([#103](https://github.com/aelmanaa/hardhat-kms/issues/103)). The Azure adapter is in the `hardhat-kms-azure` package ([set up an Azure Key Vault key](../guides/azure-key-vault-setup.md), [#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). The Google Cloud adapter comes in M6.
+Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `hardhat-kms-aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). M4 adds the network hook: connections to a network with `kmsAccounts` list the KMS accounts and sign messages and typed data with them ([RPC methods](rpc-methods.md)). `kms.allowCrossChainTypedData` governs the typed-data chain check ([#20](https://github.com/aelmanaa/hardhat-kms/issues/20)), and `--kms` keys are added to the selected network ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). `kms.simulatedBalance` funds KMS accounts on `edr-simulated` networks ([#103](https://github.com/aelmanaa/hardhat-kms/issues/103)). The Azure adapter is in the `hardhat-kms-azure` package ([set up an Azure Key Vault key](../guides/azure-key-vault-setup.md), [#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). The Google Cloud adapter is in the `hardhat-kms-gcp` package ([set up a Google Cloud KMS key](../guides/gcp-kms-setup.md), [#29](https://github.com/aelmanaa/hardhat-kms/issues/29)).
 
 ## Configuration
 
@@ -135,7 +135,7 @@ Third-party providers extend the config types through the declaration-merged `Km
 | Provider         | Package                                                                                         |
 | ---------------- | ----------------------------------------------------------------------------------------------- |
 | AWS KMS          | `npm install --save-dev hardhat-kms hardhat-kms-aws`, then add `hardhatKmsAws` to `plugins`     |
-| Google Cloud KMS | Not available yet ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29))                    |
+| Google Cloud KMS | `npm install --save-dev hardhat-kms hardhat-kms-gcp`, then add `hardhatKmsGcp` to `plugins`     |
 | Azure Key Vault  | `npm install --save-dev hardhat-kms hardhat-kms-azure`, then add `hardhatKmsAzure` to `plugins` |
 
 A provider package loads `hardhat-kms` itself, so `plugins: [hardhatKmsAws]` is enough. Listing `hardhatKms` as well also works. Install `hardhat-kms` and the provider packages at the same version; they are released together.
@@ -167,7 +167,7 @@ In this order, hardhat-kms gives a transaction without `from` its default sender
 No secrets live in the Hardhat config. Each provider takes credentials from its SDK's default chain:
 
 - AWS uses the SDK default chain: environment, then SSO/ini/profile, then process, then web identity, then IMDS/ECS.
-- GCP uses Application Default Credentials.
+- GCP uses Application Default Credentials: `gcloud auth application-default login`, `GOOGLE_APPLICATION_CREDENTIALS`, or the service account of the machine or CI job.
 - Azure builds the chain below, which follows the order used by Foundry's Azure Key Vault signer (service principal, workload identity, `az`/`azd`, managed identity). The code is `packages/hardhat-kms-azure/src/internal/credential.ts`.
 
 <!-- docs-check: skip -->

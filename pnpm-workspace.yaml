@@ -10,12 +10,14 @@ linkWorkspacePackages: true
 # only checks its platform binary, lefthook's only runs `lefthook install`, which `prepare` does.
 # keccak, node-hid and usb come with @nomicfoundation/hardhat-ledger, which only the
 # coexistence test loads. keccak and usb ship prebuilt binaries, and keccak falls back to
-# JavaScript where none fits. node-hid 2.1.2 has none, so it is never built.
+# JavaScript where none fits. node-hid 2.1.2 has none, so it is never built. protobufjs comes
+# with @google-cloud/kms; its postinstall only prints a warning about version ranges.
 allowBuilds:
   esbuild: false
   keccak: false
   lefthook: false
   node-hid: false
+  protobufjs: false
   usb: false
 
 # Versions of the development tools, shared by every package (decision 0010).

@@ -20,15 +20,15 @@ Every noble `verify` call passes `prehash:false`. If trial recovery fails, the s
 
 The plugin caches a public key only after it matches the `address` pin, and it releases no signature before that check. Each provider adds its own identity checks:
 
-| Provider | Checks                                                                                                                                                    |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AWS      | Signs with the ARN returned by `GetPublicKey`, never with the alias. Asserts KeySpec, KeyUsage and SigningAlgorithms. Requests use `MessageType: DIGEST`. |
-| GCP      | Checks `name` and `algorithm`. A disabled or destroyed version gives a clear error.                                                                       |
-| Azure    | Signs with the versioned id using `ES256K`, and requires each sign response's `kid` to name that version. Checks kty, crv, enabled, keyOps, nbf and exp.  |
+| Provider | Checks                                                                                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AWS      | Signs with the ARN returned by `GetPublicKey`, never with the alias. Asserts KeySpec, KeyUsage and SigningAlgorithms. Requests use `MessageType: DIGEST`.                       |
+| GCP      | Signs with the configured key version. Checks `name` on both responses and that `algorithm` is `EC_SIGN_SECP256K1_SHA256`. A disabled or destroyed version gives a clear error. |
+| Azure    | Signs with the versioned id using `ES256K`, and requires each sign response's `kid` to name that version. Checks kty, crv, enabled, keyOps, nbf and exp.                        |
 
 Signing with the ARN instead of the alias means a repointed alias cannot switch keys between the address lookup and the signature. Azure pins the version of an unversioned key for the same reason.
 
-GCP responses get an integrity check. The plugin sends `digestCrc32c`, requires `verifiedDigestCrc32c` in the response, and checks `signatureCrc32c` with a table-based CRC32C implementation. A mismatch is retried at most three times.
+GCP responses get an integrity check. The plugin sends `digestCrc32c`, requires `verifiedDigestCrc32c` to be true in the response, and checks `signatureCrc32c` and, on the public key, `pemCrc32c`, with the core's table-based CRC32C implementation (`crc32c` in `hardhat-kms/provider-utils`). A missing checksum counts as a mismatch. A mismatch is retried at most three times; a response for another key version fails at once.
 
 ## Errors, logs and secrets
 
