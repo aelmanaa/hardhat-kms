@@ -51,6 +51,8 @@ The identity that runs Hardhat needs two permissions on this key. The conditions
 
 Use the key ARN as the resource: an IAM policy cannot name a KMS key by its alias. This IAM policy takes effect only if the key policy lets IAM policies grant access. The default key policy of a key made with `create-key` does; if you set your own key policy, grant these permissions there instead.
 
+This policy has not yet been checked against real AWS KMS: the first live test ran with an administrator identity. That check is tracked in [#43](https://github.com/aelmanaa/hardhat-kms/issues/43).
+
 Credentials come from the AWS SDK's default chain: environment variables, `~/.aws` profiles and SSO, or the role of the machine or CI job. A key's `profile` option picks a named profile.
 
 ## 3. Install the plugin and configure the key

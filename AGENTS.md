@@ -32,6 +32,7 @@ pnpm run test:unit        # fast unit tests
 pnpm test                 # unit and integration tests
 pnpm run test:localstack  # AWS adapter against LocalStack (needs Docker)
 pnpm run test:sdk-floors  # provider packages against their lowest SDK versions
+pnpm run test:live:aws    # AWS adapter against real KMS (needs HARDHAT_KMS_LIVE_AWS_KEY_ID)
 pnpm run coverage         # tests with the 95% coverage threshold
 pnpm run pkg:check        # build, publint, arethetypeswrong, knip
 pnpm run docs:check       # doc snippets typecheck, every page is indexed

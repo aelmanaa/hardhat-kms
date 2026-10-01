@@ -19,7 +19,7 @@ Upstream, the project proposes that Hardhat export its transaction filler or add
 
 ## Milestones
 
-The critical path runs M0, M1, M2, M3, M4, M5, M9, M10. M6 can start after M3 and run in parallel. The live-test setup for M9 (test keys and Sepolia funding) starts in M3, with a first live smoke test of the AWS adapter. Live tests run locally with the developer's cloud logins; running them in GitHub Actions with OIDC comes in M10.
+The critical path runs M0, M1, M2, M3, M4, M5, M9, M10. M6 can start after M3 and run in parallel. A first live smoke test of the AWS adapter ran after M3 ([#100](https://github.com/aelmanaa/hardhat-kms/issues/100)); the rest of the live-test setup for M9 (test keys for every provider and Sepolia funding) is [#43](https://github.com/aelmanaa/hardhat-kms/issues/43). Live tests run locally with the developer's cloud logins; running them in GitHub Actions with OIDC comes in M10.
 
 | Milestone | Scope                                                                                                                                                                                               | Exit criteria                                                                                                                                                                    | Effort |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
