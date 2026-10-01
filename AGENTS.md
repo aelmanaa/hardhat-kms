@@ -26,13 +26,14 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md), then [docs/contributor/architectu
 Commands (Node.js 24, see `.nvmrc`):
 
 ```sh
-pnpm install         # installs dependencies and git hooks
-pnpm run check       # format check, type-aware lint, typecheck
-pnpm run test:unit   # fast unit tests
-pnpm test            # unit and integration tests
-pnpm run coverage    # tests with the 95% coverage threshold
-pnpm run pkg:check   # build, publint, arethetypeswrong, knip
-pnpm run docs:check  # doc snippets typecheck, every page is indexed
+pnpm install              # installs dependencies and git hooks
+pnpm run check            # format check, type-aware lint, typecheck
+pnpm run test:unit        # fast unit tests
+pnpm test                 # unit and integration tests
+pnpm run test:localstack  # AWS adapter against LocalStack (needs Docker)
+pnpm run coverage         # tests with the 95% coverage threshold
+pnpm run pkg:check        # build, publint, arethetypeswrong, knip
+pnpm run docs:check       # doc snippets typecheck, every page is indexed
 ```
 
 Where things are:

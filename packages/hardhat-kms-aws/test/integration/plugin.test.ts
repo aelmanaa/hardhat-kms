@@ -8,6 +8,7 @@ import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatPlugin } from "hardhat/types/plugins";
 
 import hardhatKmsAws from "../../src/index.ts";
+import { isolateAwsEnvironment } from "../helpers/aws-env.ts";
 import { KEY_ARN } from "../helpers/fake-aws-kms.ts";
 import { type KmsServer, startKmsServer } from "../helpers/kms-server.ts";
 
@@ -19,7 +20,7 @@ const signContext = () => ({
 });
 
 let server: KmsServer;
-const savedEnv = { ...process.env };
+let restoreEnvironment: () => void;
 
 async function runtime(plugins: HardhatPlugin[] = [hardhatKmsAws]) {
   return await createHardhatRuntimeEnvironment({
@@ -64,26 +65,11 @@ async function createAdapter(
 describe("hardhat-kms-aws plugin", () => {
   before(async () => {
     server = await startKmsServer(secretKey);
-    // Credentials for the local endpoint only. Nothing may come from the developer's AWS setup:
-    // a profile or a FIPS or dual-stack setting would change how the SDK connects.
-    process.env.AWS_ACCESS_KEY_ID = "test";
-    process.env.AWS_SECRET_ACCESS_KEY = "test";
-    process.env.AWS_CONFIG_FILE = "/nonexistent/hardhat-kms-aws/config";
-    process.env.AWS_SHARED_CREDENTIALS_FILE = "/nonexistent/hardhat-kms-aws/credentials";
-    for (const name of [
-      "AWS_PROFILE",
-      "AWS_SESSION_TOKEN",
-      "AWS_REGION",
-      "AWS_DEFAULT_REGION",
-      "AWS_USE_FIPS_ENDPOINT",
-      "AWS_USE_DUALSTACK_ENDPOINT",
-    ]) {
-      Reflect.deleteProperty(process.env, name);
-    }
+    restoreEnvironment = isolateAwsEnvironment();
   });
 
   after(async () => {
-    process.env = savedEnv;
+    restoreEnvironment();
     await server.close();
   });
 
