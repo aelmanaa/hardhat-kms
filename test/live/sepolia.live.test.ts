@@ -54,6 +54,7 @@ import { authorizationDigest } from "../../packages/hardhat-kms/src/internal/cry
 import { KmsSigner } from "../../packages/hardhat-kms/src/internal/signer/kms-signer.ts";
 import { legacyGasPrice } from "./helpers/gas.ts";
 import { redact } from "./helpers/redact.ts";
+import { retryLagging } from "./helpers/retry.ts";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixture-project");
 
@@ -305,8 +306,22 @@ async function runProvider(
       `${provider.name}: ${account} holds ${formatEther(balance)} ETH, legacy gas price ${formatGwei(gasPrice)} gwei`,
     );
 
-    /** Waits for a transaction and checks it succeeded, from the KMS account, with this type. */
-    const mined = async (label: string, type: string, hash: Hash): Promise<void> => {
+    // The block of the latest receipt. Reads that check state after a write ask for this block, so
+    // a node behind the public RPC that has not reached it answers "header not found", which
+    // retryLagging waits out, instead of returning stale state.
+    let lastBlock: bigint | undefined;
+
+    /**
+     * Waits for a transaction and checks it succeeded, from the KMS account, with this type. A
+     * lagging node only delays the wait: viem keeps polling until a node returns the receipt.
+     *
+     * @returns The receipt's block and created contract.
+     */
+    const mined = async (
+      label: string,
+      type: string,
+      hash: Hash,
+    ): Promise<{ block: bigint; contractAddress: Address | null | undefined }> => {
       let receipt;
       try {
         receipt = await publicClient.waitForTransactionReceipt({
@@ -332,7 +347,15 @@ async function runProvider(
       assert.equal(receipt.type, type, `${label} is not ${type}`);
       sent.push({ label, type, hash, block: receipt.blockNumber });
       t.diagnostic(`${provider.name}: ${label} ${type} ${hash} block ${receipt.blockNumber}`);
+      lastBlock =
+        lastBlock === undefined || receipt.blockNumber > lastBlock
+          ? receipt.blockNumber
+          : lastBlock;
+      return { block: receipt.blockNumber, contractAddress: receipt.contractAddress };
     };
+    /** The account's code at a receipt's block. */
+    const codeAt = async (blockNumber: bigint): Promise<string | undefined> =>
+      await retryLagging(async () => await publicClient.getCode({ address: account, blockNumber }));
     /**
      * Sends an EIP-7702 transaction through the plugin with `eth_sendTransaction`, passing the
      * authorization in the form {@link authorize} builds. The nonce is explicit, so the
@@ -349,8 +372,18 @@ async function runProvider(
       assert.ok(isHex(hash) && hash.length === 66, "eth_sendTransaction returned no hash");
       return hash;
     };
-    const nextNonce = async (): Promise<number> =>
-      await publicClient.getTransactionCount({ address: account, blockTag: "pending" });
+    /**
+     * The account's next nonce. Every send is awaited until mined, so after the first receipt it is
+     * the count at the latest receipt's block, which a lagging node cannot understate.
+     */
+    const nextNonce = async (): Promise<number> => {
+      const blockNumber = lastBlock;
+      return blockNumber === undefined
+        ? await publicClient.getTransactionCount({ address: account, blockTag: "pending" })
+        : await retryLagging(
+            async () => await publicClient.getTransactionCount({ address: account, blockNumber }),
+          );
+    };
 
     // An account left delegated by an earlier run is cleared at the end too.
     let delegated = !NO_CODE.includes(await publicClient.getCode({ address: account }));
@@ -361,7 +394,7 @@ async function runProvider(
      */
     const clear = async (): Promise<void> => {
       const nonce = await nextNonce();
-      await mined(
+      const { block } = await mined(
         "clear the delegation",
         "eip7702",
         await sendSetCode({
@@ -372,7 +405,7 @@ async function runProvider(
         }),
       );
       assert.ok(
-        NO_CODE.includes(await publicClient.getCode({ address: account })),
+        NO_CODE.includes(await codeAt(block)),
         "the account still has code after clearing its delegation",
       );
       await mined(
@@ -387,22 +420,30 @@ async function runProvider(
       const { bytecode } = await hre.artifacts.readArtifact("LiveCheck");
       assert.ok(isHex(bytecode) && bytecode.length > 2, "LiveCheck has no bytecode");
       const deployHash = await wallet.deployContract({ abi: LIVE_CHECK_ABI, bytecode });
-      await mined("deploy LiveCheck", "eip1559", deployHash);
-      const deployReceipt = await publicClient.getTransactionReceipt({ hash: deployHash });
-      const contract = deployReceipt.contractAddress;
+      const deployed = await mined("deploy LiveCheck", "eip1559", deployHash);
+      const contract = deployed.contractAddress;
       assert.ok(contract !== null && contract !== undefined, "the deployment created no contract");
-      const count = async (at: Address = contract): Promise<bigint> =>
-        await publicClient.readContract({
-          address: at,
-          abi: LIVE_CHECK_ABI,
-          functionName: "count",
-        });
+      /** `count()` at a receipt's block, on the contract or on the delegated account. */
+      const count = async (blockNumber: bigint, at: Address = contract): Promise<bigint> =>
+        await retryLagging(
+          async () =>
+            await publicClient.readContract({
+              address: at,
+              abi: LIVE_CHECK_ABI,
+              functionName: "count",
+              blockNumber,
+            }),
+        );
       assert.equal(
-        await publicClient.readContract({
-          address: contract,
-          abi: LIVE_CHECK_ABI,
-          functionName: "owner",
-        }),
+        await retryLagging(
+          async () =>
+            await publicClient.readContract({
+              address: contract,
+              abi: LIVE_CHECK_ABI,
+              functionName: "owner",
+              blockNumber: deployed.block,
+            }),
+        ),
         account,
         "the contract's owner is not the KMS account",
       );
@@ -440,19 +481,26 @@ async function runProvider(
           accessList: [{ address: contract, storageKeys: [COUNT_SLOT] }],
         }),
       );
-      await mined("add(1)", "eip1559", await wallet.writeContract(add));
-      assert.equal(await count(), 3n, "the contract did not count three writes");
+      const third = await mined("add(1)", "eip1559", await wallet.writeContract(add));
+      assert.equal(await count(third.block), 3n, "the contract did not count three writes");
 
       // EIP-7702: the account delegates to LiveCheck and calls `add` on itself in the same
       // transaction. It sends the transaction too, so the authorization takes the nonce after it.
       const nonce = await nextNonce();
       // The account's own slot 0, which an earlier run's delegated `add` may have left non-zero.
       const countBefore = BigInt(
-        (await publicClient.getStorageAt({ address: account, slot: COUNT_SLOT })) ?? 0n,
+        (await retryLagging(
+          async () =>
+            await publicClient.getStorageAt({
+              address: account,
+              slot: COUNT_SLOT,
+              blockNumber: third.block,
+            }),
+        )) ?? 0n,
       );
       const authorization = await authorize(signer, contract, nonce + 1);
       delegated = true;
-      await mined(
+      const delegation = await mined(
         "delegate to LiveCheck and add(1)",
         "eip7702",
         await sendSetCode({
@@ -464,22 +512,31 @@ async function runProvider(
         }),
       );
       assert.equal(
-        (await publicClient.getCode({ address: account }))?.toLowerCase(),
+        (await codeAt(delegation.block))?.toLowerCase(),
         `0xef0100${contract.slice(2).toLowerCase()}`,
         "the account does not delegate to LiveCheck",
       );
-      assert.equal(await count(account), countBefore + 1n, "the delegated add did not run");
+      assert.equal(
+        await count(delegation.block, account),
+        countBefore + 1n,
+        "the delegated add did not run",
+      );
 
-      // Signatures checked by the contract: it rebuilds both digests and calls ecrecover.
+      // Signatures checked by the contract: it rebuilds both digests and calls ecrecover. The calls
+      // ask for a block the contract exists at, so a lagging node cannot answer from before it.
       const message = toHex(crypto.getRandomValues(new Uint8Array(32)));
       const personal = parseSignature(await wallet.signMessage({ message: { raw: message } }));
       assert.equal(
-        await publicClient.readContract({
-          address: contract,
-          abi: LIVE_CHECK_ABI,
-          functionName: "recoverPersonal",
-          args: [message, Number(personal.v), personal.r, personal.s],
-        }),
+        await retryLagging(
+          async () =>
+            await publicClient.readContract({
+              address: contract,
+              abi: LIVE_CHECK_ABI,
+              functionName: "recoverPersonal",
+              args: [message, Number(personal.v), personal.r, personal.s],
+              blockNumber: delegation.block,
+            }),
+        ),
         account,
         "personal_sign does not recover to the KMS account on chain",
       );
@@ -502,12 +559,16 @@ async function runProvider(
         }),
       );
       assert.equal(
-        await publicClient.readContract({
-          address: contract,
-          abi: LIVE_CHECK_ABI,
-          functionName: "recoverCheck",
-          args: [account, 3n, Number(typed.v), typed.r, typed.s],
-        }),
+        await retryLagging(
+          async () =>
+            await publicClient.readContract({
+              address: contract,
+              abi: LIVE_CHECK_ABI,
+              functionName: "recoverCheck",
+              args: [account, 3n, Number(typed.v), typed.r, typed.s],
+              blockNumber: delegation.block,
+            }),
+        ),
         account,
         "eth_signTypedData_v4 does not recover to the KMS account on chain",
       );
