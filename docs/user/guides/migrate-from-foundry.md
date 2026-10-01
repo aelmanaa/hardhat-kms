@@ -37,6 +37,7 @@ AWS_KMS_KEY_ID=alias/deployer npx hardhat run scripts/deploy.ts --network sepoli
 
 - The keys sign on the `--network` you select, after any keys the config gives that network.
 - `cast wallet address --aws` becomes `npx hardhat --kms aws kms address AWS_KMS_KEY_ID`: a task names a `--kms` key by its variable ([tasks reference](../reference/tasks.md#naming-a-key)).
+- `cast wallet sign --aws <message>` becomes `npx hardhat --kms aws kms sign AWS_KMS_KEY_ID <message>`, with the same `--data`, `--from-file` and `--no-hash` flags and the same output. Typed data that names a chain also needs `--network`, `--chain` or `--allow-cross-chain`, which cast does not check ([`kms sign`](../reference/tasks.md#kms-sign)).
 
 ## In the config
 

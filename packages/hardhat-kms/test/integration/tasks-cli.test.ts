@@ -8,7 +8,14 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
+import { privateKeyToAccount } from "viem/accounts";
+
+import {
+  COW_ACCOUNT,
+  EIP712_MAIL,
+  HARDHAT_ACCOUNT_0,
+  PERSONAL_SIGN_VECTORS,
+} from "../helpers/vectors.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const TIMEOUT_MS = 30_000;
@@ -176,5 +183,69 @@ describe("kms tasks from the Hardhat CLI", () => {
     assert.equal(run.status, 0, run.output);
     assert.match(run.output, /address\s+Print a KMS key's address/);
     assert.match(run.output, /public-key\s+Print a KMS key's uncompressed public key/);
+    assert.match(run.output, /sign\s+Sign a message, typed data or a raw digest with a KMS key/);
+  });
+
+  it("signs a 0x message as bytes, prints only the signature and exits on its own", () => {
+    const [vector] = PERSONAL_SIGN_VECTORS;
+    const run = hardhat(["kms", "sign", "deployer", `0x${vector.message}`]);
+
+    assert.equal(run.status, 0, `the task failed or did not exit:\n${run.output}`);
+    assert.equal(run.stdout, `${vector.signature}\n`);
+  });
+
+  it("signs UTF-8 text", async () => {
+    const run = hardhat(["kms", "sign", "deployer", "hello world"]);
+
+    assert.equal(run.status, 0, run.output);
+    assert.equal(
+      run.stdout,
+      `${await privateKeyToAccount(`0x${HARDHAT_ACCOUNT_0.secretKey}`).signMessage({ message: "hello world" })}\n`,
+    );
+  });
+
+  it("signs a raw digest with --no-hash, with the warning on stderr only", async () => {
+    const digest: `0x${string}` = `0x${"ab".repeat(32)}`;
+    const run = hardhat(["kms", "sign", "--no-hash", "deployer", digest]);
+
+    assert.equal(run.status, 0, run.output);
+    assert.equal(
+      run.stdout,
+      `${await privateKeyToAccount(`0x${HARDHAT_ACCOUNT_0.secretKey}`).sign({ hash: digest })}\n`,
+    );
+    assert.match(run.stderr, /\[hardhat-kms\] --no-hash signs the 32 bytes as they are/);
+  });
+
+  it("refuses a --no-hash value that is not 32 bytes", () => {
+    const run = hardhat(["kms", "sign", "--no-hash", "deployer", `0x${"ab".repeat(31)}`]);
+
+    assert.notEqual(run.status, 0);
+    assert.notEqual(run.status, null, "the task did not exit");
+    assert.equal(run.stdout, "");
+    assert.match(run.output, /--no-hash needs a 32-byte digest, got 31 bytes/);
+  });
+
+  it("signs typed data from a file with --data --from-file", async () => {
+    const file = path.join(project, "mail.json");
+    writeFileSync(file, JSON.stringify(EIP712_MAIL));
+    const run = hardhat(["kms", "sign", "--data", "--from-file", "--chain", "1", "deployer", file]);
+
+    assert.equal(run.status, 0, run.output);
+    const { domain, types, primaryType, message } = EIP712_MAIL;
+    assert.equal(
+      run.stdout,
+      `${await privateKeyToAccount(`0x${HARDHAT_ACCOUNT_0.secretKey}`).signTypedData({ domain, types, primaryType, message })}\n`,
+    );
+  });
+
+  it("refuses typed data for a chain when none is given to compare", () => {
+    const run = hardhat(["kms", "sign", "--data", "deployer", JSON.stringify(EIP712_MAIL)]);
+
+    assert.notEqual(run.status, 0);
+    assert.notEqual(run.status, null, "the task did not exit");
+    assert.match(
+      run.output,
+      /the typed data is for chain 1, and there is no chain to compare it with/,
+    );
   });
 });
