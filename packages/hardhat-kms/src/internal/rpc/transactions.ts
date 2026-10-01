@@ -93,6 +93,21 @@ export interface SignTransactionInputs {
   params: readonly unknown[];
   /** The KMS account's lowercase address. */
   from: string;
+  /**
+   * Chooses the nonce from the filled one, when the caller gave none. Sends use it for the nonce
+   * high-water mark; without it, the filled nonce is signed.
+   */
+  chooseNonce?: ((filled: bigint) => bigint) | undefined;
+}
+
+/** A signed transaction. */
+export interface SignedTransaction {
+  /** The signed raw transaction, as `0x` hex. */
+  raw: string;
+  /** Its hash, as `0x` hex. */
+  hash: string;
+  /** Its nonce. */
+  nonce: bigint;
 }
 
 /**
@@ -100,13 +115,16 @@ export interface SignTransactionInputs {
  *
  * @param signer - The KMS account's signer.
  * @param inputs - The filler, the request and the sender.
- * @returns The signed raw transaction, as `0x` hex.
+ * @returns The signed transaction.
  */
 export async function signTransaction(
   signer: KmsSigner,
   inputs: SignTransactionInputs,
-): Promise<string> {
-  const filled = await inputs.filler.fill(inputs.method, inputs.params);
+): Promise<SignedTransaction> {
+  let filled = await inputs.filler.fill(inputs.method, inputs.params);
+  if (inputs.chooseNonce !== undefined) {
+    filled = { ...filled, nonce: inputs.chooseNonce(filled.nonce) };
+  }
   if (!sameAddress(bytesToHexString(filled.from), inputs.from)) {
     throw kmsError(`the filled transaction is not from ${toChecksumAddress(inputs.from)}`, {
       operation: inputs.method,
@@ -115,5 +133,6 @@ export async function signTransaction(
   const unsigned = buildUnsignedTransaction(filled);
   lintAuthorizations(filled);
   const signature = await signer.signDigest(signingHash(unsigned));
-  return assembleSignedTransaction(unsigned, signature, inputs.from, inputs.method).toHex(true);
+  const signed = assembleSignedTransaction(unsigned, signature, inputs.from, inputs.method);
+  return { raw: signed.toHex(true), hash: `0x${signed.hash}`, nonce: filled.nonce };
 }

@@ -2,7 +2,7 @@
 
 Audience: Contributors working on transaction filling and sending.
 
-Status: The chain-id checks for typed data shipped in M4. M5 adds transaction filling ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)) and signing and sending ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)). The nonce high-water mark and the send lock ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)) and retries after broadcast are planned for M5.
+Status: The chain-id checks for typed data shipped in M4. M5 adds transaction filling ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)) signing and sending ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)), and the send lock, the nonce high-water mark and retries after broadcast ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)).
 
 ## Transaction filling
 
@@ -24,7 +24,7 @@ The filler runs Hardhat's steps in Hardhat's order. The sources are under `hardh
 
 The network hook (`packages/hardhat-kms/src/internal/hook-handlers/network.ts`) creates one `TransactionFiller` per connection, on the connection's first KMS transaction, and keeps it in a WeakMap next to the connection's `ConnectionChain`. Closing the connection drops it. One filler per connection keeps the caches Hardhat's handlers keep per connection; a filler per request would read the block gas limit on every multiplied estimate.
 
-For `eth_sendTransaction` and `eth_signTransaction`, the dispatcher (`packages/hardhat-kms/src/internal/rpc/dispatcher.ts`) resolves the sender, then `signTransaction` in `packages/hardhat-kms/src/internal/rpc/transactions.ts` runs inside `ConnectionAccounts.withSigner`, so the idle close waits for it:
+For `eth_sendTransaction` and `eth_signTransaction`, the dispatcher (`packages/hardhat-kms/src/internal/rpc/dispatcher.ts`) resolves the sender and its key, then `signTransaction` in `packages/hardhat-kms/src/internal/rpc/transactions.ts` runs inside `ConnectionAccounts.signWith`, so the idle close waits for it:
 
 1. Fill the request with the connection's filler, and build the unsigned transaction with `buildUnsignedTransaction`.
 2. Lint the pre-signed EIP-7702 authorizations (see below).
@@ -32,7 +32,7 @@ For `eth_sendTransaction` and `eth_signTransaction`, the dispatcher (`packages/h
 4. Rebuild the transaction as `Transaction#signBy` does: `new Transaction(unsigned.type, { ...unsigned.raw, r, s, yParity }, false)`.
 5. Require `recoverSender().address` to equal `from`. A mismatch, or a signature micro-eth-signer cannot recover, fails with an error and nothing is sent. The signer has already verified the signature against the key, so this check covers the step from signature to transaction.
 
-`eth_signTransaction` returns the raw hex. `eth_sendTransaction` replaces the request with `eth_sendRawTransaction` and the raw hex, and calls `next` once, as Hardhat's local accounts do. Parallel sends from one account are not serialized yet; that comes with the send lock ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)).
+`eth_signTransaction` returns the raw hex. `eth_sendTransaction` replaces the request with `eth_sendRawTransaction` and the raw hex, and calls `next` once, as Hardhat's local accounts do, under the send lock described in [Nonces and the send lock](#nonces-and-the-send-lock).
 
 ### Sender resolution
 
@@ -79,26 +79,46 @@ The long-term plan is to delete the port once Hardhat exports a filler or a post
 
 ## Nonces and the send lock
 
-The nonce for a KMS send is `max(pending, highWater + 1)`. The high-water mark is keyed by (connection, from):
+The send guard lives in `packages/hardhat-kms/src/internal/rpc/send-guard.ts`: `withSendLock`, and `ConnectionSends`, which holds a connection's high-water marks and retry entries. The network hook creates one `ConnectionSends` per connection, on its first send, and drops it when the connection closes.
+
+An `eth_sendTransaction` from KMS address `a` on chain `c` runs `withSendLock("c:a", ...)`. The lock is a process-global queue per key: holders of one key run one after the other, in arrival order, and other keys never wait. Inside the lock, `sendTransaction` in the dispatcher:
+
+1. Takes a retry entry for the request, if one is alive (see [Retries after broadcast](#retries-after-broadcast)), and sends its bytes again.
+2. Otherwise fills and signs inside `ConnectionAccounts.signWith`. The fill's reads go through `connection.provider` and pass through the hook (rule 1), so they never wait on the lock.
+3. Calls `next(eth_sendRawTransaction)` once, after `signWith` has returned. The signer cache's idle close therefore waits on KMS calls only, never on the node.
+
+The nonce for a KMS send whose caller gave none is `max(pending, highWater + 1)`, where `pending` is the filler's `eth_getTransactionCount [from, "pending"]`. `signTransaction` takes the choice as `chooseNonce`, applied after the fill. The high-water mark is keyed by (connection, from):
 
 - After a send, `hw = max(hw, usedNonce)`.
 - A nonce supplied by the caller (Ignition does this) is always honoured, and sets `hw = max(hw, nonce)`.
 - On `edr-simulated` networks the high-water mark is disabled, because the in-process pending count is authoritative there.
 
-The lock stays process-global on `chainId:from`, so parallel sends from one process get consecutive nonces.
+"After a send" means after the node accepted the transaction: `next` returned a result, or a retry's bytes were answered with "already known". A failure before the broadcast (fill, KMS or the sender check) leaves the mark as it was, so the next send gets the same nonce. A failure after the broadcast leaves it too. The transaction may or may not have reached the node, and the two errors differ in kind: if the node never got it and the mark had moved, every later send from that connection would leave a nonce gap and wait in the node's queue without an error; if the node got it and the mark stays, a node whose pending count lags can be given the same nonce again, which the node refuses with an error. The plugin takes the error.
 
-Separate processes are not coordinated. Two `hardhat run` invocations sending from the same KMS key at the same time can collide on a nonce, and the docs say so.
+The mark is per connection, as specified, and the lock is per chain. Two connections in one process to the same chain therefore wait for each other, but each keeps its own mark. A process-global mark would carry nonces from one node to another node with the same chain id, such as two local nodes on chain 31337, and leave gaps there.
+
+`eth_signTransaction` takes no lock and never reads or moves the mark (rule 5). It signs the filled nonce.
+
+Separate processes are not coordinated. Two `hardhat run` invocations sending from the same KMS key at the same time can collide on a nonce, and the [RPC methods reference](../user/reference/rpc-methods.md#parallel-sends-and-failed-broadcasts) says so.
 
 ## Retries after broadcast
 
 A send cannot be repeated blindly, because the transaction may already be on its way. The plugin handles failures after `next(eth_sendRawTransaction)` like this:
 
-- Every failure after the broadcast call returns JSON-RPC error code -32000, which viem does not retry. The error carries the local transaction hash so the caller can look it up.
+- Every failure after the broadcast call returns JSON-RPC error code -32000, which viem does not retry. The error carries the local transaction hash in `data.hash`, and in its message, so the caller can look it up. A failure is either a JSON-RPC error answer or an exception from `next`. The message quotes the answer's code and the first 200 characters of its text, which Hardhat would show for the same request from a local account. For an exception it gives only the class name, because a transport error's text can contain the node's URL and its API key.
 - A narrow cache covers clients that retry anyway. An entry is created only in that post-broadcast failure path, keyed by (connection, chainId, from, canonical JSON of the caller's params). It lives for 120 s and is consumed on the first hit. A retried identical request that hits it re-submits the same raw bytes (same hash), treats "already known" as success, and returns the same hash.
 - Successful sends are never recorded. A deliberate duplicate send is therefore never dropped.
 - The code never re-enters fill and sign after a broadcast.
 
-A hardhat-viem test over HTTP injects a timeout on the broadcast and proves there is no double broadcast.
+How the implementation reads the parts the design leaves open:
+
+- The caller's params are the request's params as the caller sent them, copied before the first `await`, without the `from` the plugin may add. A request without `from` and the same request with the default sender as `from` therefore get different keys; both resolve to the same sender, so the only cost is a missed retry.
+- `canonicalJson` sorts object keys and keeps every value's type: a string is quoted, a bigint is written as `1n` and bytes as `bytes(<hex>)`, so values of different types never share a key. A key whose value is `undefined` counts as absent, as it does for the filler. Params holding anything else (a `Date`, a `Map`, a number that is not finite) get no entry, so such a request is never re-sent, only signed again.
+- "Already known" matches `already known`, `alreadyknown` and `known transaction`, in any case, in the answer's message or the exception's message. It counts as success only when bytes are sent again; on a first send it is a failure like any other.
+- When sending a retry's bytes again fails too, a new entry with the same bytes is created, with a new 120 s lifetime. A client that keeps retrying keeps sending the same transaction.
+- A new entry for a key replaces the old one. Closing the connection drops its entries and cancels their timers. The timers come from the network hook's `Timers`, which are unref'd, so an entry never keeps the process alive.
+
+`packages/hardhat-kms/test/integration/send-lock.test.ts` sends with hardhat-viem over HTTP to the recording node, which accepts the transaction and answers after the client's timeout. viem reports the -32000 error and the node receives the transaction once. The same file sends 10 transactions in parallel from each of two accounts on a simulated network, with an `eth_signTransaction` among them, and checks nonces 0 to 9 for each. `packages/hardhat-kms/test/unit/rpc/send-lock.test.ts` drives the network hook with a fake node, fake KMS adapters and fake timers: the high-water mark, the lock across accounts, the idle close during a broadcast, and the retry cache.
 
 ## Chain-id checks
 

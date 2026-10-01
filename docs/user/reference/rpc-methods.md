@@ -2,7 +2,7 @@
 
 Audience: Users and library authors who want to know which JSON-RPC calls the plugin handles.
 
-Status: M4 implements accounts, `eth_sign`, `personal_sign` and `eth_signTypedData_v4` ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). The chain-id check for typed data is [#20](https://github.com/aelmanaa/hardhat-kms/issues/20). M5 signs `eth_sendTransaction` and `eth_signTransaction` ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)). Parallel sends from one KMS account are not serialized yet, so they can get the same nonce; the send lock is [#25](https://github.com/aelmanaa/hardhat-kms/issues/25).
+Status: M4 implements accounts, `eth_sign`, `personal_sign` and `eth_signTypedData_v4` ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). The chain-id check for typed data is [#20](https://github.com/aelmanaa/hardhat-kms/issues/20). M5 signs `eth_sendTransaction` and `eth_signTransaction` ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)), and serializes sends from one KMS account, with a nonce high-water mark and one retry of a failed broadcast ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)).
 
 ## RPC behaviour
 
@@ -26,6 +26,16 @@ An `eth_sendTransaction` or `eth_signTransaction` without `from` gets the sender
 The plugin copies a KMS account's transaction when the request arrives, so changing the request object after the call does not change what is signed. A KMS account's transaction that cannot be copied (one holding a function, for example) fails with `the transaction must be plain data`, and nothing is sent. Requests from other senders pass through as they came; for a transaction without `from`, only `from` is added, on a shallow copy.
 
 `kmsAccounts` on the `default` network prints a warning, because tasks and tests use that network when no `--network` is given; see the [configuration reference](configuration.md#configuration).
+
+## Parallel sends and failed broadcasts
+
+`eth_sendTransaction` calls from one KMS account on one chain run one at a time within a process, so parallel sends get consecutive nonces. Sends from other accounts, or to other chains, do not wait for each other. `eth_signTransaction` does not wait for sends.
+
+On an http network, a send whose caller gives no `nonce` uses the higher of the node's pending count and one more than the highest nonce the node accepted from that account on the same connection. A node whose pending count lags behind, such as a load-balanced RPC endpoint, therefore does not get a nonce twice. A `nonce` in the request is always used. On `edr-simulated` networks the node's pending count is used as it is.
+
+Separate processes are not coordinated: two `hardhat run` commands that send from the same KMS key at the same time can choose the same nonce.
+
+When the node does not confirm a broadcast, because it answers with an error or the request fails or times out, the transaction may still be on its way. `eth_sendTransaction` then fails with JSON-RPC error code `-32000`, which viem does not retry, and the error's `data.hash` is the transaction hash, so you can look the transaction up. If the same request, with the same params, is sent again on the same connection within 120 seconds, the plugin sends the same signed transaction again instead of signing a new one, and returns its hash. A node that answers "already known" counts as success. This happens once per failed broadcast; a request that succeeded is never repeated this way, so sending the same transaction twice on purpose still sends two transactions.
 
 ## Supported transaction types
 

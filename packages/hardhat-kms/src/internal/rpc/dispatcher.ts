@@ -17,6 +17,13 @@ import { parseAwsKeyId } from "../providers/aws/key-id.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { type ConnectionChain, parseChainId } from "./chain-id.ts";
+import {
+  canonicalJson,
+  type ConnectionSends,
+  RETRY_TTL_MS,
+  type SentTransaction,
+  withSendLock,
+} from "./send-guard.ts";
 import { notPlainData, type TransactionFiller } from "./transaction-filler.ts";
 import { signTransaction } from "./transactions.ts";
 
@@ -139,10 +146,29 @@ export class ConnectionAccounts {
     address: string,
     sign: (signer: KmsSigner) => Promise<T>,
   ): Promise<{ result: T } | undefined> {
-    const key = (await this.#resolve()).get(address);
-    return key === undefined
-      ? undefined
-      : { result: await this.#cache.withSigner(this.#context, key, sign) };
+    const key = await this.keyFor(address);
+    return key === undefined ? undefined : { result: await this.signWith(key, sign) };
+  }
+
+  /**
+   * Returns the key of the KMS account at an address.
+   *
+   * @param address - A lowercase address.
+   * @returns The key, or `undefined` if the address is not a KMS account.
+   */
+  public async keyFor(address: string): Promise<KmsKeyConfig | undefined> {
+    return (await this.#resolve()).get(address);
+  }
+
+  /**
+   * Signs with a key's signer. The idle close waits until `sign` has finished.
+   *
+   * @param key - A key from {@link ConnectionAccounts.keyFor}.
+   * @param sign - What to do with the key's signer.
+   * @returns What `sign` returns.
+   */
+  public async signWith<T>(key: KmsKeyConfig, sign: (signer: KmsSigner) => Promise<T>): Promise<T> {
+    return await this.#cache.withSigner(this.#context, key, sign);
   }
 
   async #resolve(): Promise<Map<string, KmsKeyConfig>> {
@@ -235,6 +261,10 @@ export interface ConnectionTransactions {
    * `from`, else the first account of `eth_accounts`.
    */
   defaultSender(): Promise<unknown>;
+  /** Returns the connection's chain id. */
+  chainId(): Promise<bigint>;
+  /** Returns the connection's send state: nonce high-water marks and retry entries. */
+  sends(): ConnectionSends;
 }
 
 /**
@@ -288,14 +318,24 @@ export async function dispatch(
       return response(request, signed.result);
     }
   } else if (TRANSACTION_METHODS.has(request.method)) {
-    const outcome = await signTransactionFor(accounts, request.method, params, transactions);
-    if ("raw" in outcome && request.method === "eth_signTransaction") {
-      return response(request, outcome.raw);
+    const outcome = await kmsTransactionOf(accounts, request.method, params, transactions);
+    if ("kms" in outcome && request.method === "eth_sendTransaction") {
+      return await sendTransaction(accounts, request, outcome.kms, transactions, next);
     }
-    if ("raw" in outcome) {
-      // Like Hardhat's local accounts: the signed transaction replaces the request. Parallel
-      // sends from one account are not serialized yet (#25).
-      return await next({ ...request, method: "eth_sendRawTransaction", params: [outcome.raw] });
+    if ("kms" in outcome) {
+      // eth_signTransaction takes no lock and leaves the high-water mark alone (rule 5).
+      const { key, address, params: signParams } = outcome.kms;
+      const signed = await accounts.signWith(
+        key,
+        async (signer) =>
+          await signTransaction(signer, {
+            filler: transactions.filler(),
+            method: request.method,
+            params: signParams,
+            from: address,
+          }),
+      );
+      return response(request, signed.raw);
     }
     if (outcome.params !== undefined) {
       return await next({ ...request, params: outcome.params });
@@ -304,14 +344,28 @@ export async function dispatch(
   return await next(request);
 }
 
-/**
- * What happens to a transaction request: it was signed, or it goes on to the rest of the chain,
- * either unchanged (`params` undefined) or with the sender the plugin chose.
- */
-type TransactionOutcome = { raw: string } | { params: unknown[] | undefined };
+/** A transaction to sign with a KMS account. */
+interface KmsTransaction {
+  /** The account's key. */
+  key: KmsKeyConfig;
+  /** The account's lowercase address. */
+  address: string;
+  /** The copied params, with `from` set to the account. */
+  params: unknown[];
+  /** The copied params as the caller sent them, for the retry key. */
+  callerParams: unknown[];
+  /** Whether the caller chose the nonce. */
+  callerNonce: boolean;
+}
 
 /**
- * Fills and signs a transaction whose sender is a KMS account.
+ * What happens to a transaction request: a KMS account signs it, or it goes on to the rest of the
+ * chain, either unchanged (`params` undefined) or with the sender the plugin chose.
+ */
+type TransactionOutcome = { kms: KmsTransaction } | { params: unknown[] | undefined };
+
+/**
+ * Finds the KMS account that signs a transaction, and copies the transaction.
  *
  * The transaction is copied before the first `await`, so a caller that changes its object
  * meanwhile cannot change what is signed. A transaction that cannot be copied is refused only
@@ -322,9 +376,9 @@ type TransactionOutcome = { raw: string } | { params: unknown[] | undefined };
  * connection, and may otherwise pick a KMS address the plugin did not see, so the transaction
  * would reach the node unsigned. The sender is set on a shallow copy of the caller's transaction.
  *
- * @returns The signed raw transaction, or the params to pass on.
+ * @returns The KMS transaction, or the params to pass on.
  */
-async function signTransactionFor(
+async function kmsTransactionOf(
   accounts: ConnectionAccounts,
   method: string,
   params: unknown[],
@@ -360,18 +414,136 @@ async function signTransactionFor(
     }
     return { params: forward };
   }
+  const key = await accounts.keyFor(address);
+  if (key === undefined) {
+    return { params: forward };
+  }
   const { transaction, rest } = copy;
-  const signed = await accounts.withSigner(
-    address,
-    async (signer) =>
-      await signTransaction(signer, {
-        filler: transactions.filler(),
-        method,
-        params: [{ ...transaction, from }, ...rest],
-        from: address,
-      }),
-  );
-  return signed === undefined ? { params: forward } : { raw: signed.result };
+  return {
+    kms: {
+      key,
+      address,
+      params: [{ ...transaction, from }, ...rest],
+      callerParams: [transaction, ...rest],
+      callerNonce: transaction.nonce !== undefined,
+    },
+  };
+}
+
+/**
+ * Sends a KMS account's transaction under the send lock for its chain and address (rule 4).
+ * Inside the lock: a retry entry for the same request is sent again; otherwise the transaction is
+ * filled and signed inside `signWith`, then broadcast once with `next`, after `signWith` has
+ * returned, so the idle close never waits on the node.
+ */
+async function sendTransaction(
+  accounts: ConnectionAccounts,
+  request: JsonRpcRequest,
+  kms: KmsTransaction,
+  transactions: ConnectionTransactions,
+  next: Next,
+): Promise<JsonRpcResponse> {
+  const chainId = await transactions.chainId();
+  const sends = transactions.sends();
+  const { address } = kms;
+  const callerParams = canonicalJson(kms.callerParams);
+  const retryKey =
+    callerParams === undefined ? undefined : `${chainId}\0${address}\0${callerParams}`;
+  return await withSendLock(`${chainId}:${address}`, async () => {
+    const retry = retryKey === undefined ? undefined : sends.takeRetry(retryKey);
+    if (retry !== undefined) {
+      log("sending transaction %s again for a retried request", retry.hash);
+      return await broadcast(request, retry, { address, sends, retryKey, next, resend: true });
+    }
+    const signed = await accounts.signWith(
+      kms.key,
+      async (signer) =>
+        await signTransaction(signer, {
+          filler: transactions.filler(),
+          method: request.method,
+          params: kms.params,
+          from: address,
+          chooseNonce: kms.callerNonce ? undefined : (pending) => sends.nonceFor(address, pending),
+        }),
+    );
+    return await broadcast(request, signed, { address, sends, retryKey, next, resend: false });
+  });
+}
+
+/** What a broadcast needs besides the request and the transaction. */
+interface BroadcastContext {
+  address: string;
+  sends: ConnectionSends;
+  /** The retry key, or `undefined` when the params cannot be serialized for one. */
+  retryKey: string | undefined;
+  next: Next;
+  /** Whether this sends a retry entry's bytes again. */
+  resend: boolean;
+}
+
+/** The longest part of a node's error message that a send failure quotes. */
+const NODE_MESSAGE_MAX = 200;
+
+/**
+ * Tells whether a node refused a raw transaction because it already has it. Geth says
+ * "already known", older Geth and EDR "known transaction", Nethermind "AlreadyKnown".
+ */
+function isAlreadyKnown(message: string): boolean {
+  return /already ?known|known transaction/i.test(message);
+}
+
+/**
+ * Sends a signed transaction with exactly one `next(eth_sendRawTransaction)`. The node's answer is
+ * returned as it is when it accepts the transaction. Any failure becomes a JSON-RPC error -32000,
+ * which viem does not retry, carrying the transaction hash; the transaction is kept for one retry
+ * of the same request. When bytes are sent again, "already known" counts as success.
+ */
+async function broadcast(
+  request: JsonRpcRequest,
+  transaction: SentTransaction,
+  context: BroadcastContext,
+): Promise<JsonRpcResponse> {
+  const { address, sends, retryKey, next, resend } = context;
+  let failure: string;
+  try {
+    const answer = await next({
+      ...request,
+      method: "eth_sendRawTransaction",
+      params: [transaction.raw],
+    });
+    if (!("error" in answer)) {
+      sends.recordSent(address, transaction.nonce);
+      return answer;
+    }
+    if (resend && isAlreadyKnown(answer.error.message)) {
+      sends.recordSent(address, transaction.nonce);
+      return response(request, transaction.hash);
+    }
+    // The node's own answer, which Hardhat would show for any other request, cut short so that a
+    // long answer cannot flood the output.
+    const message = answer.error.message.slice(0, NODE_MESSAGE_MAX);
+    failure = `the node answered ${answer.error.code}: ${message}`;
+  } catch (error) {
+    if (resend && error instanceof Error && isAlreadyKnown(error.message)) {
+      sends.recordSent(address, transaction.nonce);
+      return response(request, transaction.hash);
+    }
+    // Only the class name: a transport error's text can include the node's URL.
+    failure = `${errorName(error)} was thrown`;
+  }
+  if (retryKey !== undefined) {
+    sends.rememberFailure(retryKey, transaction);
+  }
+  log("sending transaction %s failed", transaction.hash);
+  return {
+    jsonrpc: "2.0",
+    id: request.id,
+    error: {
+      code: -32000,
+      message: `${request.method}: transaction ${transaction.hash} was handed to the node, but the send failed (${failure}). It may still be mined: look it up by its hash before sending another transaction. Repeating the same request within ${RETRY_TTL_MS / 1000} s sends the same transaction again.`,
+      data: { hash: transaction.hash },
+    },
+  };
 }
 
 /**
