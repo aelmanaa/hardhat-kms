@@ -19,6 +19,8 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 | [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md)   | How-to      |
 | [Migrate from Foundry](user/guides/migrate-from-foundry.md)           | How-to      |
 | [Comparison with Foundry](user/explanation/foundry-comparison.md)     | Explanation |
+| [How hardhat-kms works](user/explanation/how-it-works.md)             | Explanation |
+| [Security model](user/explanation/security-model.md)                  | Explanation |
 
 Runnable projects for viem, ethers and Ignition are in [examples/](../examples/README.md). Tutorials and the remaining guides are listed under [Planned pages](contributor/documentation.md#planned-pages).
 

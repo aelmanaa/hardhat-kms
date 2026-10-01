@@ -16,4 +16,4 @@ sign with a different key than configured, leak credentials or identifiers marke
 broadcast a transaction twice, or bypass the chain-id checks.
 
 Out of scope: the security of the cloud KMS services themselves and of the credentials on the
-machine running Hardhat (see the [threat model](docs/contributor/signing-pipeline.md#threat-model-summary)).
+machine running Hardhat (see the [security model](docs/user/explanation/security-model.md) and the [threat model](docs/contributor/signing-pipeline.md#threat-model-summary)).

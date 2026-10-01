@@ -44,5 +44,4 @@ The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/iss
 - Tutorials: first deploy on Sepolia with AWS KMS ([#65](https://github.com/aelmanaa/hardhat-kms/issues/65)), Google Cloud KMS ([#66](https://github.com/aelmanaa/hardhat-kms/issues/66)) and Azure Key Vault ([#67](https://github.com/aelmanaa/hardhat-kms/issues/67)).
 - Guides: GitHub Actions with OIDC ([#68](https://github.com/aelmanaa/hardhat-kms/issues/68)), multiple keys ([#69](https://github.com/aelmanaa/hardhat-kms/issues/69)) and key rotation ([#70](https://github.com/aelmanaa/hardhat-kms/issues/70)).
 - Reference: errors ([#72](https://github.com/aelmanaa/hardhat-kms/issues/72)), public API ([#73](https://github.com/aelmanaa/hardhat-kms/issues/73)).
-- Explanation: how it works, security model ([#39](https://github.com/aelmanaa/hardhat-kms/issues/39)).
 - A docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).
