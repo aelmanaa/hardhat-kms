@@ -254,13 +254,16 @@ describe("kms tasks from the Hardhat CLI", () => {
     assert.equal(run.status, 0, run.output);
     const parsed: unknown = JSON.parse(run.stdout);
     assert.deepEqual(parsed, {
+      version: 1,
       accounts: [
         {
           name: "AWS_KMS_KEY_ID",
+          source: "--kms",
           otherNames: [],
           provider: "aws",
-          source: "--kms",
           keyId: "aws:<AWS_KMS_KEY_ID>",
+          region: null,
+          profile: null,
           address: HARDHAT_ACCOUNT_0.address,
           pin: null,
           pinStatus: "none",

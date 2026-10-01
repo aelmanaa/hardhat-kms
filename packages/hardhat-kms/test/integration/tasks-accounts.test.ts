@@ -7,8 +7,7 @@ import { HardhatPluginError } from "hardhat/plugins";
 import { isResult } from "hardhat/utils/result";
 
 import hardhatKms from "../../src/index.ts";
-import type { AccountEntry, AccountsReport } from "../../src/internal/tasks/accounts.ts";
-import type { KmsKeyUserConfig } from "../../src/types.ts";
+import type { AccountEntry, AccountsReport, KmsKeyUserConfig } from "../../src/types.ts";
 import { type FakeAdapter, fakeAdapter, type FakeAdapterOptions } from "../helpers/fake-adapter.ts";
 import { vaultKey } from "../helpers/vault-key.ts";
 import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
@@ -203,6 +202,8 @@ describe("kms accounts", () => {
         provider: "aws",
         source: "--kms",
         keyId: "aws:<AWS_KMS_KEY_ID>",
+        region: null,
+        profile: null,
         address: COW_ACCOUNT.address,
         pin: null,
         pinStatus: "none",
@@ -359,6 +360,67 @@ describe("kms accounts", () => {
     });
   });
 
+  it("shows where AWS keys whose ids read the same are looked up, and endpoints only with --show-ids", async () => {
+    const id = { provider: "aws", keyId: "alias/deployer" } as const;
+    const { hre } = await runtime({
+      keys: {
+        plain: id,
+        elsewhere: { ...id, region: "eu-west-1" },
+        ops: { ...id, profile: "ops" },
+        local: { ...id, endpoint: "http://10.0.0.7:4566" },
+        other: { provider: "aws", keyId: "alias/other", region: "eu-west-1" },
+      },
+      adapters: Object.fromEntries(
+        ["plain", "elsewhere", "ops", "local", "other"].map((name) => [
+          name,
+          () => closableAdapter(),
+        ]),
+      ),
+    });
+
+    const run = await accounts(hre);
+
+    assert.deepEqual(
+      lines(run.printed)
+        .slice(1, 6)
+        .map((line) => line.split(/ {2,}/).at(-1)),
+      [
+        "aws:alias/deployer (region default, profile default, default endpoint)",
+        // Every setting that varies among the rows with this id, on each of them.
+        "aws:alias/deployer (region eu-west-1, profile default, default endpoint)",
+        "aws:alias/deployer (region default, profile ops, default endpoint)",
+        "aws:alias/deployer (region default, profile default, custom endpoint)",
+        // Its id reads differently, so nothing is added.
+        "aws:alias/other",
+      ],
+    );
+    assert.equal(run.printed.includes("10.0.0.7"), false);
+    assert.deepEqual(
+      run.accounts.map((entry) => [entry.region, entry.profile, "endpoint" in entry]),
+      [
+        [null, null, false],
+        ["eu-west-1", null, false],
+        [null, "ops", false],
+        [null, null, false],
+        ["eu-west-1", null, false],
+      ],
+    );
+
+    const shown = await accounts(hre, { showIds: true });
+    assert.match(
+      shown.printed,
+      /aws:alias\/deployer \(region default, profile default, endpoint http:\/\/10\.0\.0\.7:4566\)/,
+    );
+    assert.match(
+      shown.printed,
+      /aws:alias\/deployer \(region default, profile default, endpoint default\)/,
+    );
+    assert.deepEqual(
+      shown.accounts.map((entry) => entry.endpoint),
+      [null, null, null, "http://10.0.0.7:4566", null],
+    );
+  });
+
   it("prints JSON with --json and nothing else on standard output", async () => {
     const { hre } = await runtime({
       keys: { deployer: vaultKey("deployer"), broken: vaultKey("broken") },
@@ -371,12 +433,12 @@ describe("kms accounts", () => {
     const run = await accounts(hre, { json: true });
 
     const parsed: unknown = JSON.parse(run.printed);
-    assert.deepEqual(parsed, { accounts: run.accounts });
+    assert.deepEqual(parsed, { version: 1, accounts: run.accounts });
     assert.deepEqual(Object.keys(run.accounts[0] ?? {}), [
       "name",
+      "source",
       "otherNames",
       "provider",
-      "source",
       "keyId",
       "address",
       "pin",
@@ -402,14 +464,22 @@ describe("kms accounts", () => {
       const run = await accounts(hre);
 
       assert.equal(run.success, true);
-      assert.deepEqual(
-        run.accounts.map((entry) => [entry.name, entry.otherNames]),
-        [["deployer", ["local.kmsAccounts[1]", "other.kmsAccounts[0]", "AWS_KMS_KEY_ID"]]],
-      );
-      assert.match(
-        lines(run.printed)[1] ?? "",
-        /^deployer, local\.kmsAccounts\[1\], other\.kmsAccounts\[0\], AWS_KMS_KEY_ID {2}aws/,
-      );
+      assert.deepEqual(run.accounts[0]?.otherNames, [
+        { name: "local.kmsAccounts[1]", source: "kmsAccounts" },
+        { name: "other.kmsAccounts[0]", source: "kmsAccounts" },
+        { name: "AWS_KMS_KEY_ID", source: "--kms" },
+      ]);
+      assert.equal(run.accounts.length, 1);
+      // The other names go on a line of their own, and every config entry gets its pin line.
+      assert.deepEqual(lines(run.printed), [
+        "NAME      PROVIDER  SOURCE    ADDRESS                                     PIN   KEY ID",
+        `deployer  aws       kms.keys  ${HARDHAT_ACCOUNT_0.address}  none  aws:alias/deployer`,
+        "  also: local.kmsAccounts[1], other.kmsAccounts[0], AWS_KMS_KEY_ID",
+        "Address pins to add to each key's config:",
+        `  kms.keys.deployer: address: "${HARDHAT_ACCOUNT_0.address}",`,
+        `  networks.local.kmsAccounts[1]: address: "${HARDHAT_ACCOUNT_0.address}",`,
+        `  networks.other.kmsAccounts[0]: address: "${HARDHAT_ACCOUNT_0.address}",`,
+      ]);
       assert.equal(created.length, 1);
     });
 
@@ -467,6 +537,10 @@ describe("kms accounts", () => {
         ],
       );
       assert.equal(run.success, true);
+      assert.equal(
+        run.stderr,
+        "[hardhat-kms] AWS_KMS_KEY_ID names the same KMS key as local.kmsAccounts[0]; connections to local refuse two entries for one key, so use one of them.\n",
+      );
     });
 
     it("lists only the --kms keys of a network without kmsAccounts", async () => {
@@ -507,7 +581,10 @@ describe("kms accounts", () => {
     assert.equal(run.printed, "");
     assert.match(run.stderr, /no KMS keys are configured/);
 
-    assert.equal((await accounts(hre, { json: true })).printed, '{\n  "accounts": []\n}\n');
+    assert.equal(
+      (await accounts(hre, { json: true })).printed,
+      '{\n  "version": 1,\n  "accounts": []\n}\n',
+    );
   });
 
   it("asks the KMS about at most 8 keys at once", async () => {
