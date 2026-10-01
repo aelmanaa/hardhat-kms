@@ -123,6 +123,7 @@ describe("signing transactions for KMS accounts", () => {
         kmsFrom: { ...on, kmsAccounts: ["cow", "zero"], from: FROM },
         kmsAutomatic: { ...on, kmsAccounts: ["cow", "zero"] },
         otherFrom: { ...on, kmsAccounts: ["cow"], from: STRANGER },
+        kmsCow: { ...on, kmsAccounts: ["cow"] },
         localFirst: { ...on, accounts: [`0x${ACCOUNT_1.secretKey}`], kmsAccounts: ["zero"] },
       },
     });
@@ -237,6 +238,59 @@ describe("signing transactions for KMS accounts", () => {
     );
   });
 
+  it("refuses a transaction for another chain, and sends nothing", async () => {
+    const sent = node.raw.length;
+    const connection = await hre.network.create("kms");
+    await assert.rejects(
+      connection.provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: FROM, to: TO, chainId: "0x1" }],
+      }),
+      /the transaction is for chain 1, but this network is chain 31337/,
+    );
+    await connection.close();
+    assert.equal(node.raw.length, sent);
+  });
+
+  it("signs the transaction as it was when requested, whatever the caller changes later", async () => {
+    const request = {
+      from: FROM,
+      to: TO,
+      value: "0x1",
+      gasPrice: "0x3b9aca00",
+      accessList: [{ address: TO, storageKeys: [`0x${"00".repeat(31)}01`] }],
+    };
+    const expected = await rawOf("hardhat", request);
+    const connection = await hre.network.create("kms");
+    const tx = structuredClone(request);
+    const pending = connection.provider.request({ method: "eth_signTransaction", params: [tx] });
+    tx.from = COW_ACCOUNT.address;
+    tx.to = FROM;
+    tx.value = "0x2";
+    tx.accessList[0] = { address: FROM, storageKeys: [] };
+    assert.equal(await pending, expected);
+    await connection.close();
+  });
+
+  it("fills a connection's caches once for several sends", async () => {
+    const connection = await hre.network.create("kms");
+    const send = async (): Promise<void> => {
+      await connection.provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: FROM, to: TO, value: "0x1" }],
+      });
+    };
+    const blockReads = (from: number) =>
+      node.methods.slice(from).filter((method) => method === "eth_getBlockByNumber").length;
+    const start = node.methods.length;
+    await send();
+    const second = node.methods.length;
+    await send();
+    await connection.close();
+    assert.equal(blockReads(start), 1, "the latest block was read once, for EIP-1559 support");
+    assert.equal(blockReads(second), 0);
+  });
+
   it("passes on a request whose transaction is not an object", async () => {
     const signatures = created.zero?.calls.signDigest ?? 0;
     const connection = await hre.network.create("kms");
@@ -267,6 +321,43 @@ describe("signing transactions for KMS accounts", () => {
       assert.equal(senderOf(signed), COW_ACCOUNT.address);
     });
 
+    it("sets `from` itself, also when no gas estimate passes through Hardhat", async () => {
+      const raw = await rawOf("kmsAutomatic", { to: TO, value: "0x1", gas: "0x5208" });
+      assert.equal(senderOf(raw), COW_ACCOUNT.address);
+    });
+
+    it("never lets Hardhat's cached sender reach the node with a KMS address", async () => {
+      const connection = await hre.network.create("kmsCow");
+      const start = node.requests.length;
+      node.accounts = [STRANGER];
+      try {
+        // eth_accounts fails once: the plugin lists only cow, and Hardhat's automatic sender
+        // keeps cow as this connection's sender.
+        node.faults.set("eth_accounts", "unavailable");
+        await connection.provider.request({ method: "eth_call", params: [{ to: TO }, "latest"] });
+        node.faults.delete("eth_accounts");
+        // Now the first account is STRANGER, which the node cannot sign for.
+        await assert.rejects(
+          connection.provider.request({
+            method: "eth_sendTransaction",
+            params: [{ to: TO, value: "0x1" }],
+          }),
+        );
+      } finally {
+        node.faults.delete("eth_accounts");
+        node.accounts = [];
+        await connection.close();
+      }
+      const sends = node.requests
+        .slice(start)
+        .filter(({ method }) => method === "eth_sendTransaction")
+        .map(({ params }): unknown => (Array.isArray(params) ? params.at(0) : undefined));
+      assert.equal(sends.length, 1);
+      const [send] = sends;
+      assert.ok(typeof send === "object" && send !== null);
+      assert.equal(String(Reflect.get(send, "from")).toLowerCase(), STRANGER.toLowerCase());
+    });
+
     it("lets Hardhat's local account sign when it comes first", async () => {
       const signatures = created.zero?.calls.signDigest ?? 0;
       const raw = await rawOf("localFirst", { to: FROM, value: "0x1" });
@@ -289,6 +380,31 @@ describe("signing transactions for KMS accounts", () => {
       assert.ok(node.methods.slice(methods).includes("eth_sendTransaction"));
       assert.equal(created.cow?.calls.signDigest ?? 0, signatures, "no KMS signature");
     });
+  });
+
+  it("passes a from-less request on unchanged when eth_accounts is not a list", async () => {
+    const other = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKms],
+      kms: { keys: { cow: vaultKey("cow") } },
+      networks: { kmsCow: { type: "http", url: node.url, chainId: 31337, kmsAccounts: ["cow"] } },
+    });
+    const adapters = serveAdapters(other);
+    // A handler registered at run time runs before the plugin's.
+    other.hooks.registerHandlers("network", {
+      onRequest: async (context, connection, request, next) =>
+        request.method === "eth_accounts"
+          ? { jsonrpc: "2.0", id: request.id, result: "not a list" }
+          : await next(context, connection, request),
+    });
+    const connection = await other.network.create("kmsCow");
+    const start = node.methods.length;
+    await assert.rejects(
+      connection.provider.request({ method: "eth_sendTransaction", params: [{ to: TO }] }),
+      /eth_accounts did not return an array/,
+    );
+    await connection.close();
+    assert.ok(!node.methods.slice(start).includes("eth_sendTransaction"));
+    assert.equal(adapters.cow?.calls.signDigest ?? 0, 0);
   });
 
   describe("EIP-7702 authorization lint", () => {

@@ -41,7 +41,13 @@ Hardhat's sender handlers run after the plugin's hook. Without help, a transacti
 - The network's `from`, as `FixedSenderHandler` does.
 - Otherwise the first address of `eth_accounts`, sent through `connection.provider`, so the plugin's own order applies, as `AutomaticSenderHandler` sees it.
 
-When that sender is a KMS account, the plugin sets `from` and signs. Otherwise the request goes on unchanged, and Hardhat's handlers fill `from` as usual. Hardhat fills `from` only for `eth_sendTransaction`; the plugin also does it for `eth_signTransaction`, since its filler treats both alike.
+The plugin sets `from` to that sender and signs when it is a KMS account. Otherwise the request goes on with `from` set, so Hardhat's sender handlers do nothing. Passing it on without `from` is not safe: `AutomaticSenderHandler` reads `eth_accounts` once per connection and keeps the first address, while the plugin reads it on each request. If the two answers differ, for example because `eth_accounts` failed downstream once and the plugin listed only the KMS addresses, Hardhat would fill a KMS address the plugin did not choose, and the node would get an unsigned KMS transaction. Without a sender (an empty list, or an answer that is not a list), the request goes on unchanged and Hardhat reports the error.
+
+Hardhat fills `from` only for `eth_sendTransaction`; the plugin also does it for `eth_signTransaction`, since its filler treats both alike.
+
+### Copies
+
+The dispatcher copies the request's params with `structuredClone` before its first `await`, and the filler copies them again. A caller that changes the transaction object, including its access or authorization list, while the request runs cannot change what is signed. Params that are not plain data are refused with an error. `signTransaction` also checks that the filled transaction's `from` is the KMS account it signs for.
 
 ### EIP-7702 authorization lint
 

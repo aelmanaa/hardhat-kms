@@ -12,6 +12,10 @@ export interface RecordingNode {
   raw: string[];
   /** Every method the node received, in order. */
   methods: string[];
+  /** Every request the node received, in order. */
+  requests: { method: string; params: unknown }[];
+  /** The node's `eth_accounts` answer; empty, like a remote node's, unless a test changes it. */
+  accounts: unknown;
   /** Methods the node answers with an error, and the error message. */
   faults: Map<string, string>;
 }
@@ -29,19 +33,23 @@ export async function startRecordingNode(
 ): Promise<RecordingNode> {
   const raw: string[] = [];
   const methods: string[] = [];
+  const requests: { method: string; params: unknown }[] = [];
   const faults = new Map<string, string>();
   const hre = await createHardhatRuntimeEnvironment({
     networks: { node: { type: "edr-simulated", chainId: 31337, ...config } },
   });
+  // Set once the server listens, before any request can arrive.
+  let node: RecordingNode | undefined;
   hre.hooks.registerHandlers("network", {
     onRequest: async (context, connection, request, next) => {
       methods.push(request.method);
+      requests.push({ method: request.method, params: structuredClone(request.params) });
       const fault = faults.get(request.method);
       if (fault !== undefined) {
         return { jsonrpc: "2.0", id: request.id, error: { code: -32000, message: fault } };
       }
       if (request.method === "eth_accounts") {
-        return { jsonrpc: "2.0", id: request.id, result: [] };
+        return { jsonrpc: "2.0", id: request.id, result: node?.accounts ?? [] };
       }
       if (request.method !== "eth_sendRawTransaction" || !Array.isArray(request.params)) {
         return await next(context, connection, request);
@@ -55,5 +63,6 @@ export async function startRecordingNode(
   });
   const server = await hre.network.createServer("node", "127.0.0.1", 0);
   const { address, port } = await server.listen();
-  return { server, url: `http://${address}:${port}`, raw, methods, faults };
+  node = { server, url: `http://${address}:${port}`, raw, methods, requests, accounts: [], faults };
+  return node;
 }

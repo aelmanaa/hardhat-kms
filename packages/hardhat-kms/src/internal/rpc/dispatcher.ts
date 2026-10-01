@@ -17,7 +17,7 @@ import { parseAwsKeyId } from "../providers/aws/key-id.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { type ConnectionChain, parseChainId } from "./chain-id.ts";
-import type { TransactionFiller } from "./transaction-filler.ts";
+import { copyParams, type TransactionFiller } from "./transaction-filler.ts";
 import { signTransaction } from "./transactions.ts";
 
 const log = kmsDebug("rpc");
@@ -278,40 +278,57 @@ export async function dispatch(
       return response(request, signed.result);
     }
   } else if (TRANSACTION_METHODS.has(request.method)) {
-    const raw = await signTransactionFor(accounts, request.method, params, transactions);
-    if (raw !== undefined && request.method === "eth_signTransaction") {
-      return response(request, raw);
+    const outcome = await signTransactionFor(accounts, request.method, params, transactions);
+    if ("raw" in outcome && request.method === "eth_signTransaction") {
+      return response(request, outcome.raw);
     }
-    if (raw !== undefined) {
+    if ("raw" in outcome) {
       // Like Hardhat's local accounts: the signed transaction replaces the request. Parallel
       // sends from one account are not serialized yet (#25).
-      return await next({ ...request, method: "eth_sendRawTransaction", params: [raw] });
+      return await next({ ...request, method: "eth_sendRawTransaction", params: [outcome.raw] });
+    }
+    if (outcome.params !== undefined) {
+      return await next({ ...request, params: outcome.params });
     }
   }
   return await next(request);
 }
 
 /**
- * Fills and signs a transaction whose sender is a KMS account. A transaction without `from` gets
- * the sender Hardhat would give it, so it never reaches the node unsigned with a KMS sender.
+ * What happens to a transaction request: it was signed, or it goes on to the rest of the chain,
+ * either unchanged (`params` undefined) or with the sender the plugin chose.
+ */
+type TransactionOutcome = { raw: string } | { params: unknown[] | undefined };
+
+/**
+ * Fills and signs a transaction whose sender is a KMS account.
  *
- * @returns The signed raw transaction, or `undefined` when the sender is not a KMS account.
+ * The transaction is copied before the first `await`, so a caller that changes its object
+ * meanwhile cannot change what is signed. A transaction without `from` gets the sender Hardhat
+ * would give it, and goes on with that sender set even when it is not a KMS account: Hardhat's
+ * automatic sender caches its first answer per connection, and may otherwise pick a KMS address
+ * the plugin did not see, so the transaction would reach the node unsigned.
+ *
+ * @returns The signed raw transaction, or the params to pass on.
  */
 async function signTransactionFor(
   accounts: ConnectionAccounts,
   method: string,
   params: unknown[],
   transactions: ConnectionTransactions,
-): Promise<string | undefined> {
-  const [transaction, ...rest] = params;
+): Promise<TransactionOutcome> {
+  const [transaction, ...rest] = copyParams(params, method);
   if (!isObject(transaction)) {
-    return undefined;
+    return { params: undefined };
   }
-  let txParams = params;
+  let forward: unknown[] | undefined;
   let from: unknown = transaction.from;
   if (from === undefined) {
     from = await transactions.defaultSender();
-    txParams = [{ ...transaction, from }, ...rest];
+    if (from === undefined) {
+      return { params: undefined };
+    }
+    forward = [{ ...transaction, from }, ...rest];
   }
   const address = addressParam(from);
   const signed =
@@ -323,11 +340,11 @@ async function signTransactionFor(
             await signTransaction(signer, {
               filler: transactions.filler(),
               method,
-              params: txParams,
+              params: [{ ...transaction, from }, ...rest],
               from: address,
             }),
         );
-  return signed?.result;
+  return signed === undefined ? { params: forward } : { raw: signed.result };
 }
 
 /**

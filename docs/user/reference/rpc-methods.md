@@ -21,7 +21,9 @@ The plugin installs a network hook on every connection. On a connection whose ne
 
 When `from` (or the address param) is not a KMS address, the request passes through. If the sender turns out not to be a local account either, the resulting error lists the loaded KMS addresses (planned for M5).
 
-A transaction without `from` gets the sender Hardhat would give it: the network's `from` when the config sets one, otherwise the first address of `eth_accounts`, in the plugin's order (the network's own accounts, then the KMS addresses). When that sender is a KMS account, the plugin sets `from` and signs. Otherwise the request passes through unchanged and Hardhat handles it. A transaction therefore never reaches the node unsigned with a KMS address as its sender. Unlike Hardhat, which fills `from` only for `eth_sendTransaction`, the plugin does this for `eth_signTransaction` too.
+An `eth_sendTransaction` or `eth_signTransaction` without `from` gets the sender Hardhat would give it: the network's `from` when the config sets one, otherwise the first address of `eth_accounts`, in the plugin's order (the network's own accounts, then the KMS addresses). The plugin sets `from` to that sender. When the sender is a KMS account, the plugin signs; otherwise the request passes on with `from` set, and Hardhat or the node signs it. A transaction therefore never reaches the node unsigned with a KMS address as its sender. Hardhat's sender handlers cover `eth_sendTransaction` but not `eth_signTransaction`; the plugin chooses the sender for both. When there is no sender (an empty or invalid `eth_accounts` answer), the request passes on unchanged.
+
+The plugin copies the transaction when the request arrives. Changing the request object after the call does not change what is signed.
 
 `kmsAccounts` on the `default` network prints a warning, because tasks and tests use that network when no `--network` is given; see the [configuration reference](configuration.md#configuration).
 

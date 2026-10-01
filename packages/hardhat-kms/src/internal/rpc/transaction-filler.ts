@@ -127,7 +127,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
    * @returns The filled transaction.
    */
   public async fill(method: string, params: readonly unknown[]): Promise<FilledTransaction> {
-    const [first, ...rest] = params;
+    const [first, ...rest] = copyParams(params, method);
     if (!isObject(first)) {
       throw kmsError("the transaction must be an object", { operation: method });
     }
@@ -137,7 +137,8 @@ export class HardhatTransactionFiller implements TransactionFiller {
         { operation: method },
       );
     }
-    const tx: Record<string, unknown> = { ...first };
+    // A deep copy: the caller's objects, including access and authorization lists, stay as they are.
+    const tx: Record<string, unknown> = first;
     // Hardhat estimates gas with the request's params, after the fees are filled in.
     const filledParams = [tx, ...rest];
     if (this.#settings.gasPrice === "auto") {
@@ -335,6 +336,24 @@ export class HardhatTransactionFiller implements TransactionFiller {
       });
     }
     return hexStringToNumber(gasLimit);
+  }
+}
+
+/**
+ * Copies a request's params deeply with `structuredClone`, which runs each getter once. A
+ * transaction that is not plain data (JSON values, bigints and byte arrays) is refused.
+ *
+ * @param params - The request's params.
+ * @param method - The RPC method, for the error message.
+ * @returns The copy.
+ */
+export function copyParams(params: readonly unknown[], method: string): unknown[] {
+  try {
+    return structuredClone([...params]);
+  } catch {
+    throw kmsError("the transaction must be plain data (JSON values, bigints and byte arrays)", {
+      operation: method,
+    });
   }
 }
 

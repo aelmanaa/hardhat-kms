@@ -1,6 +1,7 @@
 // Signs a KMS account's transaction the way Hardhat's LocalAccountsHandler#getSignedTransaction
 // does: fill, build the unsigned transaction, sign its hash, and rebuild it with the signature
 // (as micro-eth-signer's Transaction#signBy does).
+import { bytesToHexString } from "@nomicfoundation/hardhat-utils/hex";
 import { bytesToBigInt, bytesToNumber } from "@nomicfoundation/hardhat-utils/number";
 import { Transaction } from "micro-eth-signer";
 
@@ -106,6 +107,11 @@ export async function signTransaction(
   inputs: SignTransactionInputs,
 ): Promise<string> {
   const filled = await inputs.filler.fill(inputs.method, inputs.params);
+  if (!sameAddress(bytesToHexString(filled.from), inputs.from)) {
+    throw kmsError(`the filled transaction is not from ${toChecksumAddress(inputs.from)}`, {
+      operation: inputs.method,
+    });
+  }
   const unsigned = buildUnsignedTransaction(filled);
   lintAuthorizations(filled);
   const signature = await signer.signDigest(signingHash(unsigned));
