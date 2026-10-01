@@ -62,11 +62,13 @@ describe("--kms from the Hardhat CLI", () => {
   });
 
   it("reads --kms and its HARDHAT_KMS form", () => {
-    const flag = hardhat(["--kms", "aws", "run", "show.ts"], { AWS_KMS_KEY_ID: "alias/a" });
+    const flag = hardhat(["--kms", "aws", "run", "--no-compile", "show.ts"], {
+      AWS_KMS_KEY_ID: "alias/a",
+    });
     assert.equal(flag.status, 0, flag.output);
     assert.match(flag.output, /keys: aws:<AWS_KMS_KEY_ID>/);
 
-    const env = hardhat(["run", "show.ts"], {
+    const env = hardhat(["run", "--no-compile", "show.ts"], {
       HARDHAT_KMS: "aws",
       AWS_KMS_KEY_IDS: "alias/a,alias/b",
     });
@@ -75,7 +77,7 @@ describe("--kms from the Hardhat CLI", () => {
   });
 
   it("fails before the task with a clear error, but still shows help", () => {
-    const failed = hardhat(["run", "show.ts"], { HARDHAT_KMS: "aws" });
+    const failed = hardhat(["run", "--no-compile", "show.ts"], { HARDHAT_KMS: "aws" });
     assert.notEqual(failed.status, 0);
     assert.match(
       failed.output,
