@@ -60,6 +60,12 @@
       "rule": "type-predicate",
       "count": 1,
       "reason": "assertAdapter runs the adapter contract checks (describe(), signing and identity methods) before the adapter is used."
+    },
+    {
+      "file": "packages/hardhat-kms-azure/src/internal/hook-handlers/kms.ts",
+      "rule": "node/no-process-env",
+      "count": 1,
+      "reason": "AZURE_CLIENT_ID selects a user-assigned managed identity. ManagedIdentityCredential does not read it itself; only DefaultAzureCredential does, and DefaultAzureCredential tries its sources in another order than Foundry's. The explicit chain therefore reads it and passes it on."
     }
   ]
 }

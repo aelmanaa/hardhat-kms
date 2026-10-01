@@ -9,6 +9,9 @@
       "path": "./packages/hardhat-kms-aws"
     },
     {
+      "path": "./packages/hardhat-kms-azure"
+    },
+    {
       "path": "./tsconfig.scripts.json"
     }
   ]

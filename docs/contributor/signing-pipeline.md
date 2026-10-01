@@ -24,7 +24,7 @@ The plugin caches a public key only after it matches the `address` pin, and it r
 | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | AWS      | Signs with the ARN returned by `GetPublicKey`, never with the alias. Asserts KeySpec, KeyUsage and SigningAlgorithms. Requests use `MessageType: DIGEST`. |
 | GCP      | Checks `name` and `algorithm`. A disabled or destroyed version gives a clear error.                                                                       |
-| Azure    | Signs with the versioned id using `ES256K`. Checks enabled, keyOps, nbf and exp, and that the public point is on the curve.                               |
+| Azure    | Signs with the versioned id using `ES256K`, and requires each sign response's `kid` to name that version. Checks kty, crv, enabled, keyOps, nbf and exp.  |
 
 Signing with the ARN instead of the alias means a repointed alias cannot switch keys between the address lookup and the signature. Azure pins the version of an unversioned key for the same reason.
 

@@ -2,7 +2,7 @@
 
 Audience: Users configuring the plugin.
 
-Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `hardhat-kms-aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). M4 adds the network hook: connections to a network with `kmsAccounts` list the KMS accounts and sign messages and typed data with them ([RPC methods](rpc-methods.md)). `kms.allowCrossChainTypedData` governs the typed-data chain check ([#20](https://github.com/aelmanaa/hardhat-kms/issues/20)), and `--kms` keys are added to the selected network ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). `kms.simulatedBalance` funds KMS accounts on `edr-simulated` networks ([#103](https://github.com/aelmanaa/hardhat-kms/issues/103)). The Google Cloud and Azure adapters come in M6.
+Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `hardhat-kms-aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). M4 adds the network hook: connections to a network with `kmsAccounts` list the KMS accounts and sign messages and typed data with them ([RPC methods](rpc-methods.md)). `kms.allowCrossChainTypedData` governs the typed-data chain check ([#20](https://github.com/aelmanaa/hardhat-kms/issues/20)), and `--kms` keys are added to the selected network ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). `kms.simulatedBalance` funds KMS accounts on `edr-simulated` networks ([#103](https://github.com/aelmanaa/hardhat-kms/issues/103)). The Azure adapter is in the `hardhat-kms-azure` package ([set up an Azure Key Vault key](../guides/azure-key-vault-setup.md), [#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). The Google Cloud adapter comes in M6.
 
 ## Configuration
 
@@ -57,7 +57,7 @@ A network's `kmsAccounts` lists key names or inline key objects. The full set of
 | `kms.allowCrossChainTypedData` | Allow typed data whose `domain.chainId` differs from the connection's chain. Default `false`. Typed data without `domain.chainId` is always signed.                                                                                                                                                                                                                                  |
 | `kms.simulatedBalance`         | A bigint in wei. On `edr-simulated` networks only, each new connection sets every KMS account's balance to this value with `hardhat_setBalance`, before the connection is returned. Addresses come from pins, or from key lookups, so connecting calls KMS for unpinned keys (pin addresses to avoid it); a failed lookup fails the connection. `hardhat_reset` clears the balances. |
 | `networks.<name>.kmsAccounts`  | Key names or inline key objects for that network, on http and `edr-simulated` networks.                                                                                                                                                                                                                                                                                              |
-| `address` (per key)            | Optional address pin. Recommended: it avoids a KMS call to learn the address and guards against key substitution.                                                                                                                                                                                                                                                                    |
+| `address` (per key)            | Optional address pin. Recommended: it guards against key substitution, and for AWS and GCP keys it avoids a KMS call to learn the address (Azure keys are read anyway, to pin their version).                                                                                                                                                                                        |
 | `timeoutMs` (per key)          | Overrides the default timeout for that key.                                                                                                                                                                                                                                                                                                                                          |
 | `approvalTimeoutMs`            | Timeout for providers with asynchronous approval flows, set alongside `timeoutMs`.                                                                                                                                                                                                                                                                                                   |
 
@@ -132,11 +132,11 @@ Third-party providers extend the config types through the declaration-merged `Km
 
 `hardhat-kms` validates the keys of every provider, but signs only through a provider package. Each provider package is a Hardhat plugin that depends on its cloud SDK, so installing it installs the SDK:
 
-| Provider         | Package                                                                                     |
-| ---------------- | ------------------------------------------------------------------------------------------- |
-| AWS KMS          | `npm install --save-dev hardhat-kms hardhat-kms-aws`, then add `hardhatKmsAws` to `plugins` |
-| Google Cloud KMS | Not available yet ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29))                |
-| Azure Key Vault  | Not available yet ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30))                |
+| Provider         | Package                                                                                         |
+| ---------------- | ----------------------------------------------------------------------------------------------- |
+| AWS KMS          | `npm install --save-dev hardhat-kms hardhat-kms-aws`, then add `hardhatKmsAws` to `plugins`     |
+| Google Cloud KMS | Not available yet ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29))                    |
+| Azure Key Vault  | `npm install --save-dev hardhat-kms hardhat-kms-azure`, then add `hardhatKmsAzure` to `plugins` |
 
 A provider package loads `hardhat-kms` itself, so `plugins: [hardhatKmsAws]` is enough. Listing `hardhatKms` as well also works. Install `hardhat-kms` and the provider packages at the same version; they are released together.
 
@@ -168,18 +168,18 @@ No secrets live in the Hardhat config. Each provider takes credentials from its 
 
 - AWS uses the SDK default chain: environment, then SSO/ini/profile, then process, then web identity, then IMDS/ECS.
 - GCP uses Application Default Credentials.
-- Azure builds the chain below, which follows the order used by Foundry's Azure Key Vault signer (service principal, workload identity, `az`/`azd`, managed identity).
+- Azure builds the chain below, which follows the order used by Foundry's Azure Key Vault signer (service principal, workload identity, `az`/`azd`, managed identity). The code is `packages/hardhat-kms-azure/src/internal/credential.ts`.
 
 <!-- docs-check: skip -->
 
 ```ts
 new ChainedTokenCredential(
-  EnvironmentCredential,
-  WorkloadIdentityCredential,
-  AzureCliCredential,
-  AzureDeveloperCliCredential,
-  ManagedIdentityCredential({ clientId: AZURE_CLIENT_ID }),
+  new EnvironmentCredential(),
+  new WorkloadIdentityCredential(), // only when its variables are set
+  new AzureCliCredential(),
+  new AzureDeveloperCliCredential(),
+  new ManagedIdentityCredential({ clientId: AZURE_CLIENT_ID, httpClient }), // 3 s per request, 10 s in all
 );
 ```
 
-`AZURE_CLIENT_ID` selects a user-assigned managed identity. The managed identity `getToken` call has a 10 s timeout.
+`AZURE_CLIENT_ID` selects a user-assigned managed identity. The managed identity has 10 s to return a token, after which it counts as unavailable, and each of its HTTP requests times out after 3 s. @azure/identity does not pass an abort signal on to those requests, so the request timeout is what ends one to an endpoint that never answers and lets `hardhat run` exit. Where the managed identity refuses a client id (Azure Cloud Shell, Service Fabric), it is left out of the chain. A source that is not configured is skipped; a configured source that fails, such as a service principal with a wrong secret, stops the chain with its error. All Azure keys of a run share the chain and its tokens, so `az login` users see one `az` call per run, not one per key. See [Set up an Azure Key Vault key](../guides/azure-key-vault-setup.md#3-sign-in).
