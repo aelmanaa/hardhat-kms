@@ -2,7 +2,7 @@
 
 Audience: Users configuring the plugin.
 
-Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `hardhat-kms-aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). M4 adds the network hook: connections to a network with `kmsAccounts` list the KMS accounts and sign messages and typed data with them ([RPC methods](rpc-methods.md)). `kms.allowCrossChainTypedData` and `kms.simulatedBalance` are validated but have no effect yet, and `--kms` keys are not added to networks yet ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). The Google Cloud and Azure adapters come in M6.
+Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `hardhat-kms-aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). M4 adds the network hook: connections to a network with `kmsAccounts` list the KMS accounts and sign messages and typed data with them ([RPC methods](rpc-methods.md)). `kms.allowCrossChainTypedData` governs the typed-data chain check ([#20](https://github.com/aelmanaa/hardhat-kms/issues/20)), and `--kms` keys are added to the selected network ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). `kms.simulatedBalance` is validated but has no effect yet ([#103](https://github.com/aelmanaa/hardhat-kms/issues/103)). The Google Cloud and Azure adapters come in M6.
 
 ## Configuration
 
@@ -65,7 +65,7 @@ When `kmsAccounts` is set on the `default` network, the plugin prints a warning 
 
 ## Keys from the command line
 
-Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. These keys inherit `kms.defaults` and pass the same checks as config keys. See [Migrate from Foundry](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry) and [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md).
+Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. These keys inherit `kms.defaults` and pass the same checks as config keys. They are added to the selected network only (the `--network` value, or `default` without one), after the network's `kmsAccounts`. A command-line key that names the same KMS key as a config key on that network is an error that names both, without the value. See [Migrate from Foundry](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry) and [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md).
 
 ## Validation rules
 
