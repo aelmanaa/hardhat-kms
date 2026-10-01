@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { HardhatPluginError } from "hardhat/plugins";
+
+import { PLUGIN_ID } from "../../../src/internal/constants.ts";
 import {
   canonicalJson,
   ConnectionSends,
   MAX_RETRY_ENTRIES,
+  MAX_SEND_LOCK_WAITERS,
   RETRY_TTL_MS,
+  SEND_LOCK_STALL_MS,
   sendLocksInUse,
   withSendLock,
 } from "../../../src/internal/rpc/send-guard.ts";
+import type { Timers } from "../../../src/internal/signer/timeout.ts";
 import { fakeTimers } from "../../helpers/fake-timers.ts";
 
 /** A promise and the function that resolves it. */
@@ -24,6 +30,92 @@ function gate(): { promise: Promise<void>; open: () => void } {
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
+
+/** Timers driven by a fake clock: {@link ClockTimers.advance} fires what falls due, in order. */
+interface ClockTimers extends Timers {
+  /** Moves the clock forward by `ms`, firing each due timer and letting its callbacks run. */
+  advance(ms: number): Promise<void>;
+  /** Number of timers scheduled and not cancelled. */
+  pending(): number;
+}
+
+/**
+ * Creates timers on a fake clock that starts at 0.
+ *
+ * @returns The timers.
+ */
+function clockTimers(): ClockTimers {
+  let now = 0;
+  const timers = new Set<{ at: number; callback: () => void }>();
+  return {
+    setTimeout(callback, ms) {
+      const timer = { at: now + ms, callback };
+      timers.add(timer);
+      return () => {
+        timers.delete(timer);
+      };
+    },
+    async advance(ms) {
+      const end = now + ms;
+      for (;;) {
+        const due = [...timers]
+          .filter((timer) => timer.at <= end)
+          .toSorted((a, b) => a.at - b.at)[0];
+        if (due === undefined) {
+          break;
+        }
+        timers.delete(due);
+        now = due.at;
+        due.callback();
+        await settle();
+      }
+      now = end;
+      await settle();
+    },
+    pending: () => timers.size,
+  };
+}
+
+/**
+ * Records how a promise settles, without awaiting it.
+ *
+ * @param promise - The promise.
+ * @returns An object whose `error` and `done` fields fill in when the promise settles.
+ */
+function watch(promise: Promise<unknown>): { error?: unknown; done: boolean } {
+  const state: { error?: unknown; done: boolean } = { done: false };
+  promise.then(
+    () => {
+      state.done = true;
+      return undefined;
+    },
+    (error: unknown) => {
+      state.error = error;
+      state.done = true;
+    },
+  );
+  return state;
+}
+
+// Each test below uses its own address, so a failed test leaves no lock that a later one waits on.
+/**
+ * Checks that an error is the plugin's own error, from this plugin.
+ *
+ * @param error - The error.
+ */
+function assertPluginError(error: unknown): void {
+  assert.ok(error instanceof HardhatPluginError);
+  assert.equal(error.pluginId, PLUGIN_ID);
+}
+
+const REENTRANT = (address: string): RegExp =>
+  new RegExp(`${address} on chain 1 was made from inside an earlier send .* not signed or sent`);
+const STALLED = (address: string): RegExp =>
+  new RegExp(`${address} on chain 1 waited 120 s .* not signed or sent`);
+const QUEUE_FULL = (address: string): RegExp =>
+  new RegExp(
+    `Too many sends from ${address} on chain 1 are waiting: the limit is 1024\\. .* not signed or sent`,
+  );
 
 describe("withSendLock", () => {
   it("runs holders of one key one after the other, in order", async () => {
@@ -68,6 +160,281 @@ describe("withSendLock", () => {
       /boom/,
     );
     assert.equal(await withSendLock("1:0xa", async () => await Promise.resolve(1)), 1);
+    assert.equal(sendLocksInUse(), 0);
+  });
+});
+
+describe("withSendLock re-entrancy", () => {
+  it("fails a send for the key its own context holds within one tick, and the holder completes", async () => {
+    let inner: { error?: unknown; done: boolean } | undefined;
+    const outer = await withSendLock("1:0xa1", async () => {
+      inner = watch(withSendLock("1:0xa1", async () => await Promise.resolve("inner")));
+      await Promise.resolve();
+      await Promise.resolve();
+      assert.equal(inner.done, true, "the re-entrant send settled within one tick");
+      return "outer";
+    });
+    assert.equal(outer, "outer");
+    assert.match(String(inner?.error), REENTRANT("0xa1"));
+    assertPluginError(inner?.error);
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("still sees the hold after an await and inside a timer", async () => {
+    const errors: unknown[] = [];
+    await withSendLock("1:0xa2", async () => {
+      await settle();
+      await withSendLock("1:0xa2", async () => await Promise.resolve()).catch((error: unknown) => {
+        errors.push(error);
+      });
+      await new Promise<void>((resolve) => {
+        setTimeout(() => {
+          withSendLock("1:0xa2", async () => await Promise.resolve())
+            .catch((error: unknown) => {
+              errors.push(error);
+            })
+            .finally(resolve);
+        }, 0);
+      });
+    });
+    assert.equal(errors.length, 2);
+    for (const error of errors) {
+      assert.match(String(error), REENTRANT("0xa2"));
+    }
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("lets a holder send for another key, and for the same account on another chain", async () => {
+    const results = await withSendLock("1:0xa3", async () => [
+      await withSendLock("1:0xb", async () => await Promise.resolve("other account")),
+      await withSendLock("2:0xa3", async () => await Promise.resolve("other chain")),
+      await withSendLock(
+        "1:0xb",
+        async () =>
+          // A nested holder of 1:0xb still holds 1:0xa through its parent.
+          await withSendLock("1:0xa3", async () => await Promise.resolve("never")).catch(
+            (error: unknown) => (REENTRANT("0xa3").test(String(error)) ? "refused" : "wrong"),
+          ),
+      ),
+    ]);
+    assert.deepEqual(results, ["other account", "other chain", "refused"]);
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("queues work that a holder started but did not wait for, once the hold is released", async () => {
+    const release = gate();
+    let later: Promise<string> | undefined;
+    await withSendLock("1:0xa4", async () => {
+      later = (async () => {
+        await release.promise;
+        return await withSendLock("1:0xa4", async () => await Promise.resolve("later"));
+      })();
+      await Promise.resolve();
+    });
+    release.open();
+    assert.equal(await later, "later");
+    assert.equal(sendLocksInUse(), 0);
+  });
+});
+
+describe("withSendLock limits", () => {
+  it(`fails a waiter after ${SEND_LOCK_STALL_MS} ms without progress, and frees the lock after`, async () => {
+    const timers = clockTimers();
+    const held = gate();
+    const holder = withSendLock("1:0xa5", async () => await held.promise, timers);
+    let ran = false;
+    const waiter = watch(
+      withSendLock(
+        "1:0xa5",
+        async () => {
+          ran = true;
+          await Promise.resolve();
+        },
+        timers,
+      ),
+    );
+    await timers.advance(SEND_LOCK_STALL_MS - 1);
+    assert.equal(waiter.done, false, "not before the limit");
+    await timers.advance(1);
+    assert.equal(waiter.done, true);
+    assert.match(String(waiter.error), STALLED("0xa5"));
+    assertPluginError(waiter.error);
+    assert.equal(ran, false, "the waiter's work never ran");
+    held.open();
+    await holder;
+    assert.equal(sendLocksInUse(), 0);
+    assert.equal(timers.pending(), 0);
+  });
+
+  it("counts each waiter's limit from when it joined or the queue last moved", async () => {
+    const timers = clockTimers();
+    const held = gate();
+    const order: string[] = [];
+    const holder = withSendLock("1:0xa6", async () => await held.promise, timers);
+    const first = watch(withSendLock("1:0xa6", async () => await Promise.resolve(), timers));
+    await timers.advance(60_000);
+    const second = withSendLock(
+      "1:0xa6",
+      async () => {
+        order.push("second");
+        await Promise.resolve();
+      },
+      timers,
+    );
+    await timers.advance(60_000);
+    assert.match(String(first.error), STALLED("0xa6"));
+    held.open();
+    await Promise.all([holder, second]);
+    assert.deepEqual(order, ["second"]);
+    assert.equal(sendLocksInUse(), 0);
+    assert.equal(timers.pending(), 0);
+  });
+
+  it("runs both waiters in order when the holder throws", async () => {
+    const timers = clockTimers();
+    const held = gate();
+    const order: string[] = [];
+    const holder = withSendLock(
+      "1:0xb1",
+      async () => {
+        await held.promise;
+        throw new Error("boom");
+      },
+      timers,
+    );
+    const waiters = ["first", "second"].map(
+      async (name) =>
+        await withSendLock(
+          "1:0xb1",
+          async () => {
+            order.push(name);
+            await Promise.resolve();
+          },
+          timers,
+        ),
+    );
+    held.open();
+    await assert.rejects(holder, /boom/);
+    await Promise.all(waiters);
+    assert.deepEqual(order, ["first", "second"]);
+    assert.equal(sendLocksInUse(), 0);
+    assert.equal(timers.pending(), 0);
+  });
+
+  it("keeps the order of the others when only a waiter in the middle times out", async () => {
+    // Timers fired one by one, so that only B's limit runs out.
+    const scheduled: { callback: () => void; live: boolean }[] = [];
+    const timers: Timers = {
+      setTimeout(callback) {
+        const timer = { callback, live: true };
+        scheduled.push(timer);
+        return () => {
+          timer.live = false;
+        };
+      },
+    };
+    const held = gate();
+    const order: string[] = [];
+    const send = async (name: string): Promise<void> => {
+      await withSendLock(
+        "1:0xb2",
+        async () => {
+          order.push(name);
+          await Promise.resolve();
+        },
+        timers,
+      );
+    };
+    const holder = withSendLock("1:0xb2", async () => await held.promise, timers);
+    const a = send("a");
+    const b = watch(send("b"));
+    const c = send("c");
+    await settle();
+    assert.equal(scheduled.length, 3, "one limit per waiter");
+    const limitOfB = scheduled[1];
+    assert.ok(limitOfB !== undefined);
+    limitOfB.live = false;
+    limitOfB.callback();
+    await settle();
+    assert.match(String(b.error), STALLED("0xb2"));
+    held.open();
+    await Promise.all([holder, a, c]);
+    assert.deepEqual(order, ["a", "c"]);
+    assert.equal(sendLocksInUse(), 0);
+    assert.equal(
+      scheduled.filter((timer) => timer.live).length,
+      0,
+      "every limit was cancelled or fired",
+    );
+  });
+
+  it("never trips the limit while each holder takes 100 s", async () => {
+    const timers = clockTimers();
+    const order: number[] = [];
+    const sends = Array.from({ length: 4 }, async (_, index) => {
+      await withSendLock(
+        "1:0xa7",
+        async () => {
+          order.push(index);
+          await new Promise<void>((resolve) => {
+            timers.setTimeout(resolve, 100_000);
+          });
+        },
+        timers,
+      );
+    });
+    for (let step = 0; step < 4; step++) {
+      await timers.advance(100_000);
+    }
+    await Promise.all(sends);
+    assert.deepEqual(order, [0, 1, 2, 3]);
+    assert.equal(sendLocksInUse(), 0);
+    assert.equal(timers.pending(), 0);
+  });
+
+  it(`fails the waiter after ${MAX_SEND_LOCK_WAITERS} at once, and runs the others in order`, async () => {
+    const timers = clockTimers();
+    const held = gate();
+    const order: number[] = [];
+    const holder = withSendLock("1:0xa8", async () => await held.promise, timers);
+    const waiters = Array.from(
+      { length: MAX_SEND_LOCK_WAITERS },
+      async (_, index) =>
+        await withSendLock(
+          "1:0xa8",
+          async () => {
+            order.push(index);
+            await Promise.resolve();
+          },
+          timers,
+        ),
+    );
+    const extra = watch(withSendLock("1:0xa8", async () => await Promise.resolve(), timers));
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(extra.done, true, "the extra waiter failed at once");
+    assert.match(String(extra.error), QUEUE_FULL("0xa8"));
+    assertPluginError(extra.error);
+    held.open();
+    await Promise.all([holder, ...waiters]);
+    assert.deepEqual(
+      order,
+      Array.from({ length: MAX_SEND_LOCK_WAITERS }, (_, index) => index),
+    );
+    assert.equal(sendLocksInUse(), 0);
+    assert.equal(timers.pending(), 0);
+  });
+
+  it("names only the account and chain in its errors", async () => {
+    const timers = clockTimers();
+    const held = gate();
+    const holder = withSendLock("1:0xa9", async () => await held.promise, timers);
+    const waiter = watch(withSendLock("1:0xa9", async () => await Promise.resolve(), timers));
+    await timers.advance(SEND_LOCK_STALL_MS);
+    assert.ok(waiter.error instanceof Error);
+    assert.doesNotMatch(waiter.error.message, /1:0xa9/);
+    held.open();
+    await holder;
     assert.equal(sendLocksInUse(), 0);
   });
 });

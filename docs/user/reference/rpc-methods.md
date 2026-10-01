@@ -43,7 +43,19 @@ The plugin copies a KMS account's transaction when the request arrives, so chang
 
 ## Parallel sends and failed broadcasts
 
-`eth_sendTransaction` calls from one KMS account on one chain run one at a time within a process, so parallel sends get consecutive nonces. Sends from other accounts, or to other chains, do not wait for each other. `eth_signTransaction` does not wait for sends. A send whose broadcast hangs makes the account's other sends wait until Hardhat's network timeout (the network's `timeout`, 300 seconds by default) ends it; a shorter limit is planned in [#120](https://github.com/aelmanaa/hardhat-kms/issues/120).
+`eth_sendTransaction` calls from one KMS account on one chain run one at a time within a process, so parallel sends get consecutive nonces. Sends from other accounts, or to other chains, do not wait for each other. `eth_signTransaction` does not wait for sends.
+
+A send whose broadcast hangs keeps the account's turn until Hardhat's network timeout (the network's `timeout`, 300 seconds by default) ends it. The account's sends waiting behind it do not wait that long: each fails after 120 seconds in which none of the account's earlier sends finished. A slow RPC endpoint can trigger this.
+
+Three limits keep a waiting send from hanging. Each one fails the send with an error that names the account and the chain, and that send is not signed or sent:
+
+- A send from an account and chain, made by code that runs inside a send from the same account and chain, fails at once. Another plugin's network hook that sends while the plugin fills a transaction is one example. It would otherwise wait for itself forever.
+- A send that has waited 120 seconds while none of the account's earlier sends finished fails.
+- When 1024 sends from one account on one chain are already waiting, the next one fails at once.
+
+The first limit also covers a send that nothing waits for. A send started from inside another send's hook, or from a listener that the hook triggers (an `EventEmitter.emit`, or a callback queued with `setImmediate` or `queueMicrotask` during the hook), fails at once even if no code awaits it. If nothing catches that error, it is an unhandled rejection, which ends the Node.js process. Await such a send and catch its error, or start it after the outer send returns.
+
+The numbers 120 and 1024 are fixed, and cannot be configured in 1.0.
 
 On an http network, a send whose caller gives no `nonce` uses the higher of the node's pending count and one more than the highest nonce the node accepted from that account on the same connection. A node whose pending count lags behind, such as a load-balanced RPC endpoint, therefore does not get a nonce twice. A `nonce` in the request is always used, also one that was already sent, so a replacement transaction with the same nonce and higher fees goes through, as Hardhat Ignition sends for a stuck transaction. On `edr-simulated` networks the node's pending count is used as it is.
 

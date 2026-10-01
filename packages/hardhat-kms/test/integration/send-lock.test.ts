@@ -172,6 +172,65 @@ describe("a reverted send on a simulated network", () => {
   });
 });
 
+describe("a re-entrant send on a simulated network", () => {
+  it("fails a send that a hook makes from the same account during the fill, and mines the outer send", async () => {
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKms],
+      kms: { keys: vaultKeys(), simulatedBalance: 10n ** 18n },
+      networks: { local: { type: "edr-simulated", kmsAccounts: ["cow", "zero"] } },
+    });
+    const counts = serveAdapters(hre);
+    const inner: { cow?: unknown; zero?: unknown } = {};
+    let estimates = 0;
+    hre.hooks.registerHandlers("network", {
+      onRequest: async (context, connection, request, next) => {
+        if (request.method === "eth_estimateGas" && estimates++ === 0) {
+          // Runs inside the outer send's lock: the same account must fail fast, another works.
+          await connection.provider
+            .request({
+              method: "eth_sendTransaction",
+              params: [{ from: COW, to: TO, value: "0x2" }],
+            })
+            .catch((error: unknown) => {
+              inner.cow = error;
+            });
+          inner.zero = await connection.provider.request({
+            method: "eth_sendTransaction",
+            params: [{ from: ZERO, to: TO, value: "0x3" }],
+          });
+        }
+        return await next(context, connection, request);
+      },
+    });
+    const { provider } = await hre.network.create("local");
+    const hash = await within(
+      provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: COW, to: TO, value: "0x1" }],
+      }),
+      30_000,
+      "the outer send",
+    );
+    assert.ok(inner.cow instanceof Error, "the re-entrant send failed");
+    assert.match(
+      inner.cow.message,
+      new RegExp(`${COW.toLowerCase()} on chain 31337 was made from inside an earlier send`, "i"),
+    );
+    assert.match(inner.cow.message, /not signed or sent/);
+    assert.doesNotMatch(inner.cow.message, /myvault|cow\b/);
+    assert.equal(counts.signatures, 2, "the outer send and the other account's send were signed");
+    for (const sent of [hash, inner.zero]) {
+      const receipt: unknown = await provider.request({
+        method: "eth_getTransactionReceipt",
+        params: [sent],
+      });
+      assert.ok(typeof receipt === "object" && receipt !== null);
+      assert.equal(Reflect.get(receipt, "status"), "0x1");
+    }
+    assert.equal(sendLocksInUse(), 0);
+  });
+});
+
 describe("sends over HTTP to a node", () => {
   let node: RecordingNode;
   let hre: HardhatRuntimeEnvironment;
