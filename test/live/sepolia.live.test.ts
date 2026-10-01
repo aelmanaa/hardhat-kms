@@ -1,15 +1,18 @@
-// The live tests: `pnpm run test:live`. For each provider whose key variable is set, it deploys a
-// contract from the KMS account through the plugin, sends one transaction of each type (legacy,
-// EIP-2930, EIP-1559 and EIP-7702), and checks a `personal_sign` and an `eth_signTypedData_v4`
-// signature on chain with `ecrecover`. A run that delegated the account, or found it delegated,
-// ends by clearing the delegation and sending 1 wei to the account. Providers without a key are
-// skipped and reported; the configured ones run in parallel.
+// The live tests: `pnpm run test:live`. For each provider whose key variable is set, it runs the
+// cases of the transaction matrix (`matrix.ts`, steps in `cases.ts`) from the KMS account through
+// the plugin: transfers, deploys, calls with value, reverts, replacements and EIP-7702 delegations
+// across the transaction types, and a `personal_sign` and an `eth_signTypedData_v4` signature
+// checked on chain with `ecrecover`. A run ends by clearing every delegation it made or found, also
+// after a failure, and then checks that every cell it runs has a receipt with the expected status,
+// sender and type. Providers without a key are skipped and reported; the configured ones run in
+// parallel.
 //
 // By default the suite runs on a local anvil fork of Sepolia, with each account funded by
-// `anvil_setBalance`: it signs with the real keys and spends nothing. Anvil reads Sepolia through
-// a proxy that refuses and records any send, and the run fails if one was attempted.
-// HARDHAT_KMS_LIVE_NETWORK=sepolia runs it on Sepolia itself, which spends Sepolia ETH and
-// produces the hashes for `docs/live-proof.md`.
+// `anvil_setBalance`: it signs with the real keys and spends nothing. It runs the live and the
+// fork-only cases. Anvil reads Sepolia through a proxy that refuses and records any send, and the
+// run fails if one was attempted. HARDHAT_KMS_LIVE_NETWORK=sepolia runs the live cases on Sepolia
+// itself, which spends Sepolia ETH and writes `test/live/proof.json`, from which
+// `pnpm run docs:live-proof` renders `docs/live-proof.md`.
 //
 // - HARDHAT_KMS_LIVE_AWS_KEY_ID: an ECC_SECG_P256K1 key id, alias or ARN. AWS_REGION, or the key's
 //   ARN, gives the region.
@@ -18,10 +21,12 @@
 // - HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL: optional; a public RPC without an API key is the default.
 //
 // The tests use the developer's own cloud logins and create no cloud resources. Each account must
-// hold at least MIN_BALANCE, and on Sepolia the legacy gas price must be at most MAX_GAS_PRICE, or
-// the test fails before sending anything. Key ids, resource names, URLs and signed data are
-// redacted from every failure.
+// hold the run's floor (the case table's gas at the run's gas price), and on Sepolia the legacy gas
+// price must be at most MAX_GAS_PRICE, or the test fails before sending anything. Key ids, resource
+// names, URLs and signed data are redacted from every failure.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -33,51 +38,46 @@ import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 import {
   type Address,
-  encodeFunctionData,
   formatEther,
   formatGwei,
   getAddress,
-  type Hash,
-  type Hex,
-  hexToBytes,
-  isHex,
   parseEther,
   parseGwei,
-  parseSignature,
   toHex,
-  type TransactionReceipt,
-  WaitForTransactionReceiptTimeoutError,
-  zeroAddress,
 } from "viem";
 
 // The EIP-7702 authorizations are signed by the core signer loaded from `src`, while the
-// transactions go through the plugin built in `dist`. The plugin has no public way to sign an
-// authorization yet; switch to it once #35 adds one.
+// transactions go through the plugin built in `dist`. The plugin has no library API to sign an
+// authorization yet (#51).
 // The provider plugins come from their `src`, so their types resolve before any package is built,
 // as in the lint job.
 import hardhatKmsAws from "../../packages/hardhat-kms-aws/src/index.ts";
 import hardhatKmsAzure from "../../packages/hardhat-kms-azure/src/index.ts";
 import hardhatKmsGcp from "../../packages/hardhat-kms-gcp/src/index.ts";
-import { authorizationDigest } from "../../packages/hardhat-kms/src/internal/crypto/digests.ts";
 import { KmsSigner } from "../../packages/hardhat-kms/src/internal/signer/kms-signer.ts";
+import { ProviderRun, SEPOLIA_CHAIN_ID, setLiveCheckBytecode } from "./cases.ts";
 import { type AnvilFork, findAnvil, startAnvilFork } from "./helpers/anvil.ts";
 import { legacyGasPrice } from "./helpers/gas.ts";
+import { SharedLock } from "./helpers/lock.ts";
 import { liveMode, MODE_VARIABLE } from "./helpers/mode.ts";
+import { type Proof, proofProblems, type ProviderProof } from "./helpers/proof.ts";
 import { redact } from "./helpers/redact.ts";
 import { retryLagging } from "./helpers/retry.ts";
 import { type RecordingProxy, startRecordingProxy } from "./helpers/rpc-proxy.ts";
+import { balanceFloor, casesFor, missingCells } from "./matrix.ts";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixture-project");
 
-/** Where the transactions go; throws at load on a value other than `fork` or `sepolia`. */
-const onFork = liveMode(process.env) === "fork";
+/** Where the Sepolia run writes its proof. */
+const PROOF_FILE = path.join(path.dirname(root), "proof.json");
 
-const SEPOLIA_CHAIN_ID = 11_155_111;
+/** Where the transactions go; throws at load on a value other than `fork` or `sepolia`. */
+const mode = liveMode(process.env);
+const onFork = mode === "fork";
+
 /** Used when HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL is not set. Needs no API key. */
 const DEFAULT_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
 const RPC_VARIABLE = "HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL";
-/** A run spends well under this; an account with less is refused before any transaction. */
-const MIN_BALANCE = parseEther("0.01");
 /** Above this gas price the test refuses to send, so a fee spike cannot drain the accounts. */
 const MAX_GAS_PRICE = parseGwei("20");
 /** How long to wait for each receipt: 25 Sepolia blocks, or a minute on the fork, which mines at once. */
@@ -124,6 +124,10 @@ const configured = PROVIDERS.filter((provider) => env(provider.variable) !== "")
 const forkAccounts = new Set<Address>();
 /** How many times the fork run mined a block itself with `evm_mine`. */
 let nudges = 0;
+/** Held shared by every case, and alone by a replacement case, which stops automine on the fork. */
+const lock = new SharedLock();
+/** What each provider of a Sepolia run proved, for test/live/proof.json. */
+const proofs: { proof: ProviderProof; firstBlockTime: string; lastBlockTime: string }[] = [];
 /** Reads of an account's state that anvil sends upstream the first time it touches the account. */
 const ACCOUNT_READS = new Set([
   "eth_getAccount",
@@ -144,67 +148,6 @@ async function redacted<T>(step: () => Promise<T>): Promise<T> {
     const message = error instanceof Error ? error.message : String(error);
     return assert.fail(redact(`${name}: ${message}`, process.env));
   }
-}
-
-/** The ABI of `fixture-project/contracts/LiveCheck.sol`. */
-const LIVE_CHECK_ABI = [
-  {
-    type: "function",
-    name: "owner",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "address" }],
-  },
-  {
-    type: "function",
-    name: "count",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "add",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "amount", type: "uint256" }],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "recoverPersonal",
-    stateMutability: "pure",
-    inputs: [
-      { name: "message", type: "bytes32" },
-      { name: "v", type: "uint8" },
-      { name: "r", type: "bytes32" },
-      { name: "s", type: "bytes32" },
-    ],
-    outputs: [{ name: "", type: "address" }],
-  },
-  {
-    type: "function",
-    name: "recoverCheck",
-    stateMutability: "view",
-    inputs: [
-      { name: "account", type: "address" },
-      { name: "value", type: "uint256" },
-      { name: "v", type: "uint8" },
-      { name: "r", type: "bytes32" },
-      { name: "s", type: "bytes32" },
-    ],
-    outputs: [{ name: "", type: "address" }],
-  },
-] as const;
-
-/** The storage slot of `count`; `owner` is immutable and takes none. */
-const COUNT_SLOT = toHex(0, { size: 32 });
-
-/** One mined transaction, as `docs/live-proof.md` records it. */
-interface Sent {
-  label: string;
-  type: string;
-  hash: Hash;
-  block: bigint;
 }
 
 /**
@@ -267,48 +210,16 @@ async function coreSigner(hre: HardhatRuntimeEnvironment, key: KmsKeyConfig): Pr
   });
 }
 
-/** An EIP-7702 authorization in JSON-RPC form, as Hardhat's request schema takes it. */
-interface RpcAuthorization {
-  chainId: Hex;
-  address: Address;
-  nonce: Hex;
-  yParity: Hex;
-  r: Hex;
-  s: Hex;
-}
-
-/** One authorization for the account, signed through the core signer. */
-async function authorize(
-  signer: KmsSigner,
-  delegate: Address,
-  nonce: number,
-): Promise<RpcAuthorization> {
-  const signature = await signer.signDigest(
-    authorizationDigest({
-      chainId: BigInt(SEPOLIA_CHAIN_ID),
-      address: hexToBytes(delegate),
-      nonce: BigInt(nonce),
-    }),
-  );
-  // r and s stay 32 bytes. viem would send them as quantities without leading zeros, which
-  // Hardhat's request schema (and so the plugin) refuses for about one signature in 128.
-  return {
-    chainId: toHex(SEPOLIA_CHAIN_ID),
-    address: delegate,
-    nonce: toHex(nonce),
-    yParity: toHex(signature.yParity),
-    r: toHex(signature.r, { size: 32 }),
-    s: toHex(signature.s, { size: 32 }),
-  };
-}
-
 const errorText = (error: Error): string => `${error.name}: ${error.message}`;
+const asError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(String(error));
 
-/** Runs one provider's checks, and reports what it sent as test diagnostics. */
+/** Runs one provider's cases, and reports what it sent as test diagnostics. */
 async function runProvider(
   hre: HardhatRuntimeEnvironment,
   provider: Provider,
   t: TestContext,
+  forkUrl: string | undefined,
 ): Promise<void> {
   const signer = await coreSigner(hre, keyOf(hre, provider.name));
   try {
@@ -319,7 +230,6 @@ async function runProvider(
     const { viem, provider: rpc } = await hre.network.create(provider.name);
     const publicClient = await viem.getPublicClient();
     const wallet = await viem.getWalletClient(account);
-    const sent: Sent[] = [];
 
     assert.equal(await publicClient.getChainId(), SEPOLIA_CHAIN_ID, "the RPC is not Sepolia");
     if (onFork) {
@@ -338,13 +248,6 @@ async function runProvider(
         accounts.some((item) => typeof item === "string" && getAddress(item) === account),
       "eth_accounts does not list the KMS account",
     );
-    const balance = await publicClient.getBalance({ address: account });
-    if (balance < MIN_BALANCE) {
-      assert.fail(
-        `${account} holds ${formatEther(balance)} ETH, below the floor of ${formatEther(MIN_BALANCE)} ETH. ` +
-          "Fund it with Sepolia ETH and run again.",
-      );
-    }
     // The legacy and EIP-2930 transactions pay this price; it must clear a rising base fee.
     const nodeGasPrice = await publicClient.getGasPrice();
     const { baseFeePerGas } = await publicClient.getBlock({ blockTag: "latest" });
@@ -358,337 +261,158 @@ async function runProvider(
           "Run again when Sepolia is cheaper.",
       );
     }
+    // The floor comes from the case table: every case's gas budget at this price, which is at
+    // least twice the base fee, so it also covers the EIP-1559 and EIP-7702 transactions.
+    const floor = balanceFloor(mode, gasPrice);
+    const balance = await publicClient.getBalance({ address: account });
+    if (balance < floor) {
+      assert.fail(
+        `${account} holds ${formatEther(balance)} ETH, below this run's floor of ${formatEther(floor)} ETH ` +
+          `at ${formatGwei(gasPrice)} gwei. Fund it with Sepolia ETH and run again.`,
+      );
+    }
     t.diagnostic(
       `${provider.name}: ${account} holds ${formatEther(balance)} ETH${onFork ? " on the fork" : ""}, ` +
-        `legacy gas price ${formatGwei(gasPrice)} gwei`,
+        `floor ${formatEther(floor)} ETH, legacy gas price ${formatGwei(gasPrice)} gwei`,
     );
 
-    // The block of the latest receipt. Reads that check state after a write ask for this block, so
-    // a node behind the public RPC that has not reached it answers "header not found", which
-    // retryLagging waits out, instead of returning stale state.
-    let lastBlock: bigint | undefined;
-
-    /**
-     * Waits for a transaction and checks it succeeded, from the KMS account, with this type. A
-     * lagging node only delays the wait: viem keeps polling until a node returns the receipt.
-     *
-     * @returns The receipt's block and created contract.
-     */
-    const mined = async (
-      label: string,
-      type: string,
-      hash: Hash,
-    ): Promise<{ block: bigint; contractAddress: Address | null | undefined }> => {
-      const waitFor = async (timeout: number): Promise<TransactionReceipt | undefined> => {
-        try {
-          return await publicClient.waitForTransactionReceipt({ hash, timeout });
-        } catch (error) {
-          if (error instanceof WaitForTransactionReceiptTimeoutError) {
-            return undefined;
-          }
-          throw error;
-        }
-      };
-      let receipt = await waitFor(onFork ? FORK_NUDGE_MS : RECEIPT_TIMEOUT_MS);
-      if (receipt === undefined && onFork) {
-        // Anvil mines on each transaction it receives, but under concurrent sends it has once left
-        // a valid transaction pending with no later send to trigger a block. One more block takes
-        // it; a transaction that is not valid stays out and fails below as on Sepolia.
-        await rpc.request({ method: "evm_mine" });
+    const run = new ProviderRun({
+      provider: provider.name,
+      t,
+      account,
+      signer,
+      rpc,
+      publicClient,
+      wallet,
+      gasPrice,
+      forkUrl,
+      receiptTimeoutMs: RECEIPT_TIMEOUT_MS,
+      forkNudgeMs: FORK_NUDGE_MS,
+      onNudge: () => {
         nudges++;
-        t.diagnostic(`${provider.name}: ${label} was still pending; mined a block with evm_mine`);
-        receipt = await waitFor(RECEIPT_TIMEOUT_MS - FORK_NUDGE_MS);
-      }
-      if (receipt === undefined) {
-        const nonce = await publicClient
-          .getTransaction({ hash })
-          .then((tx) => String(tx.nonce))
-          .catch(() => "unknown");
-        const count = await publicClient
-          .getTransactionCount({ address: account, blockTag: "latest" })
-          .then(String)
-          .catch(() => "unknown");
-        return assert.fail(
-          `${label} was not mined within ${RECEIPT_TIMEOUT_MS / 1000} s: transaction ${hash}, nonce ${nonce}, ` +
-            `and the account's mined transaction count is ${count}. ` +
-            (onFork
-              ? "On the fork this is a test or anvil problem; nothing reached Sepolia."
-              : `It may be priced below the base fee. Replace it: send a transaction from ${account} with nonce ` +
-                `${nonce} and a higher fee, for example 0 ETH to itself, before running again.`),
-        );
-      }
-      assert.equal(receipt.status, "success", `${label} reverted (${hash})`);
-      assert.equal(getAddress(receipt.from), account, `${label} was not sent by the KMS account`);
-      assert.equal(receipt.type, type, `${label} is not ${type}`);
-      sent.push({ label, type, hash, block: receipt.blockNumber });
-      t.diagnostic(`${provider.name}: ${label} ${type} ${hash} block ${receipt.blockNumber}`);
-      lastBlock =
-        lastBlock === undefined || receipt.blockNumber > lastBlock
-          ? receipt.blockNumber
-          : lastBlock;
-      return { block: receipt.blockNumber, contractAddress: receipt.contractAddress };
-    };
-    /** The account's code at a receipt's block. */
-    const codeAt = async (blockNumber: bigint): Promise<string | undefined> =>
-      await retryLagging(async () => await publicClient.getCode({ address: account, blockNumber }));
-    /**
-     * Sends an EIP-7702 transaction through the plugin with `eth_sendTransaction`, passing the
-     * authorization in the form {@link authorize} builds. The nonce is explicit, so the
-     * authorization's nonce (this one + 1) matches the transaction's.
-     */
-    const sendSetCode = async (request: {
-      from: Address;
-      to: Address;
-      nonce: Hex;
-      data?: Hex;
-      authorizationList: RpcAuthorization[];
-    }): Promise<Hash> => {
-      const hash: unknown = await rpc.request({ method: "eth_sendTransaction", params: [request] });
-      assert.ok(isHex(hash) && hash.length === 66, "eth_sendTransaction returned no hash");
-      return hash;
-    };
-    /**
-     * The account's next nonce. Every send is awaited until mined, so after the first receipt it is
-     * the count at the latest receipt's block, which a lagging node cannot understate.
-     */
-    const nextNonce = async (): Promise<number> => {
-      const blockNumber = lastBlock;
-      return blockNumber === undefined
-        ? await publicClient.getTransactionCount({ address: account, blockTag: "pending" })
-        : await retryLagging(
-            async () => await publicClient.getTransactionCount({ address: account, blockNumber }),
-          );
-    };
-
+      },
+    });
     // An account left delegated by an earlier run is cleared at the end too.
-    let delegated = !NO_CODE.includes(await publicClient.getCode({ address: account }));
-
-    /**
-     * Clears the delegation with an authorization to the zero address, checks the account has no
-     * code, and sends it 1 wei, which a delegation without `receive` would refuse.
-     */
-    const clear = async (): Promise<void> => {
-      const nonce = await nextNonce();
-      const { block } = await mined(
-        "clear the delegation",
-        "eip7702",
-        await sendSetCode({
-          from: account,
-          to: account,
-          nonce: toHex(nonce),
-          authorizationList: [await authorize(signer, zeroAddress, nonce + 1)],
-        }),
-      );
-      assert.ok(
-        NO_CODE.includes(await codeAt(block)),
-        "the account still has code after clearing its delegation",
-      );
-      await mined(
-        "send 1 wei to itself",
-        "eip1559",
-        await wallet.sendTransaction({ to: account, value: 1n }),
-      );
-    };
+    run.delegated = !NO_CODE.includes(await publicClient.getCode({ address: account }));
 
     let failure: Error | undefined;
     try {
-      const { bytecode } = await hre.artifacts.readArtifact("LiveCheck");
-      assert.ok(isHex(bytecode) && bytecode.length > 2, "LiveCheck has no bytecode");
-      const deployHash = await wallet.deployContract({ abi: LIVE_CHECK_ABI, bytecode });
-      const deployed = await mined("deploy LiveCheck", "eip1559", deployHash);
-      const contract = deployed.contractAddress;
-      assert.ok(contract !== null && contract !== undefined, "the deployment created no contract");
-      /** `count()` at a receipt's block, on the contract or on the delegated account. */
-      const count = async (blockNumber: bigint, at: Address = contract): Promise<bigint> =>
-        await retryLagging(
-          async () =>
-            await publicClient.readContract({
-              address: at,
-              abi: LIVE_CHECK_ABI,
-              functionName: "count",
-              blockNumber,
-            }),
-        );
-      assert.equal(
-        await retryLagging(
-          async () =>
-            await publicClient.readContract({
-              address: contract,
-              abi: LIVE_CHECK_ABI,
-              functionName: "owner",
-              blockNumber: deployed.block,
-            }),
-        ),
-        account,
-        "the contract's owner is not the KMS account",
-      );
-
-      // `add` succeeds only from the owner, so each write also shows who sent it.
-      const add = {
-        address: contract,
-        abi: LIVE_CHECK_ABI,
-        functionName: "add",
-        args: [1n],
-      } as const;
-      const legacyHash = await wallet.writeContract({ ...add, gasPrice });
-      await mined("add(1)", "legacy", legacyHash);
-      // EIP-155: a legacy transaction signs over the chain id, which its v carries as
-      // chainId * 2 + 35 or 36. Some nodes also return the chain id itself.
-      const legacy = await publicClient.getTransaction({ hash: legacyHash });
-      assert.equal(
-        (legacy.v - 35n) / 2n,
-        BigInt(SEPOLIA_CHAIN_ID),
-        `the legacy transaction's v (${legacy.v}) does not carry chain id ${SEPOLIA_CHAIN_ID}`,
-      );
-      if (legacy.chainId !== undefined) {
-        assert.equal(
-          legacy.chainId,
-          SEPOLIA_CHAIN_ID,
-          "the legacy transaction has another chain id",
-        );
+      for (const item of casesFor(mode)) {
+        if (item.cleanup === true) {
+          continue;
+        }
+        // The cleanup case runs after the loop, also after a failure. A replacement turns
+        // automine off on the shared fork, so it runs while no other provider's case does.
+        const alone = item.covers.some((cell) => cell.startsWith("replacement/"));
+        await (alone
+          ? lock.exclusive(async () => await run.run(item.id))
+          : lock.shared(async () => await run.run(item.id)));
       }
-      await mined(
-        "add(1) with an access list",
-        "eip2930",
-        await wallet.writeContract({
-          ...add,
-          gasPrice,
-          accessList: [{ address: contract, storageKeys: [COUNT_SLOT] }],
-        }),
-      );
-      const third = await mined("add(1)", "eip1559", await wallet.writeContract(add));
-      assert.equal(await count(third.block), 3n, "the contract did not count three writes");
-
-      // EIP-7702: the account delegates to LiveCheck and calls `add` on itself in the same
-      // transaction. It sends the transaction too, so the authorization takes the nonce after it.
-      const nonce = await nextNonce();
-      // The account's own slot 0, which an earlier run's delegated `add` may have left non-zero.
-      const countBefore = BigInt(
-        (await retryLagging(
-          async () =>
-            await publicClient.getStorageAt({
-              address: account,
-              slot: COUNT_SLOT,
-              blockNumber: third.block,
-            }),
-        )) ?? 0n,
-      );
-      const authorization = await authorize(signer, contract, nonce + 1);
-      delegated = true;
-      const delegation = await mined(
-        "delegate to LiveCheck and add(1)",
-        "eip7702",
-        await sendSetCode({
-          from: account,
-          to: account,
-          nonce: toHex(nonce),
-          data: encodeFunctionData({ abi: LIVE_CHECK_ABI, functionName: "add", args: [1n] }),
-          authorizationList: [authorization],
-        }),
-      );
-      assert.equal(
-        (await codeAt(delegation.block))?.toLowerCase(),
-        `0xef0100${contract.slice(2).toLowerCase()}`,
-        "the account does not delegate to LiveCheck",
-      );
-      assert.equal(
-        await count(delegation.block, account),
-        countBefore + 1n,
-        "the delegated add did not run",
-      );
-
-      // Signatures checked by the contract: it rebuilds both digests and calls ecrecover. The calls
-      // ask for a block the contract exists at, so a lagging node cannot answer from before it.
-      const message = toHex(crypto.getRandomValues(new Uint8Array(32)));
-      const personal = parseSignature(await wallet.signMessage({ message: { raw: message } }));
-      assert.equal(
-        await retryLagging(
-          async () =>
-            await publicClient.readContract({
-              address: contract,
-              abi: LIVE_CHECK_ABI,
-              functionName: "recoverPersonal",
-              args: [message, Number(personal.v), personal.r, personal.s],
-              blockNumber: delegation.block,
-            }),
-        ),
-        account,
-        "personal_sign does not recover to the KMS account on chain",
-      );
-      const typed = parseSignature(
-        await wallet.signTypedData({
-          domain: {
-            name: "hardhat-kms live",
-            version: "1",
-            chainId: SEPOLIA_CHAIN_ID,
-            verifyingContract: contract,
-          },
-          types: {
-            Check: [
-              { name: "account", type: "address" },
-              { name: "count", type: "uint256" },
-            ],
-          },
-          primaryType: "Check",
-          message: { account, count: 3n },
-        }),
-      );
-      assert.equal(
-        await retryLagging(
-          async () =>
-            await publicClient.readContract({
-              address: contract,
-              abi: LIVE_CHECK_ABI,
-              functionName: "recoverCheck",
-              args: [account, 3n, Number(typed.v), typed.r, typed.s],
-              blockNumber: delegation.block,
-            }),
-        ),
-        account,
-        "eth_signTypedData_v4 does not recover to the KMS account on chain",
-      );
-      t.diagnostic(`${provider.name}: LiveCheck ${contract}`);
     } catch (error) {
-      failure = error instanceof Error ? error : new Error(String(error));
+      failure = asError(error);
     }
 
-    // Always clear a delegation, even after a failure: the account must stay a plain account.
-    if (delegated) {
-      try {
-        await clear();
-      } catch (error) {
-        const cleared = error instanceof Error ? error : new Error(String(error));
-        failure =
-          failure === undefined
-            ? cleared
-            : new Error(
-                `${errorText(failure)}; clearing the delegation also failed: ${errorText(cleared)}`,
-              );
-      }
+    // Always clear a delegation, even after a failure: no account may stay delegated.
+    try {
+      await lock.shared(async () => {
+        await run.cleanUp();
+      });
+    } catch (error) {
+      const cleared = asError(error);
+      failure =
+        failure === undefined
+          ? cleared
+          : new Error(
+              `${errorText(failure)}; clearing the delegations also failed: ${errorText(cleared)}`,
+            );
     }
     if (failure !== undefined) {
       throw failure;
     }
 
-    // A fork run's hashes exist on no public chain, so it reports no proof for docs/live-proof.md.
+    // The per-run check: every cell this mode runs has a receipt with its case's status, sender
+    // and type.
+    assert.deepEqual(missingCells(mode, run.records), [], "cells without a receipt");
+    const sent = run.records.filter((record) => record.hash !== null).length;
+    // The gas the live cases used, which is what a Sepolia run pays for.
+    const liveGas = run.records
+      .filter(
+        (record) =>
+          record.from === "kms" && casesFor("sepolia").some((item) => item.id === record.case),
+      )
+      .reduce((sum, record) => sum + BigInt(record.gasUsed ?? "0"), 0n);
+
+    // A fork run's hashes exist on no public chain, so it writes no proof for docs/live-proof.md.
     if (onFork) {
       t.diagnostic(
-        `${provider.name}: fork run passed with ${sent.length} transactions; not a live proof`,
+        `${provider.name}: fork run passed: ${casesFor(mode).length} cases, ${sent} transactions, ` +
+          `${liveGas} gas in the live cases; not a live proof`,
       );
       return;
     }
-    t.diagnostic(
-      `${provider.name}: proof ${JSON.stringify({
+    const contract = run.contract;
+    const first = run.firstBlock;
+    const last = run.lastBlock;
+    assert.ok(
+      contract !== undefined && first !== undefined && last !== undefined,
+      "the run sent nothing",
+    );
+    const spent = run.records
+      .filter((record) => record.from === "kms" && record.hash !== null)
+      .reduce(
+        (sum, record) =>
+          sum + BigInt(record.gasUsed ?? "0") * BigInt(record.effectiveGasPrice ?? "0"),
+        0n,
+      );
+    const timeOf = async (blockNumber: bigint): Promise<string> =>
+      new Date(
+        Number(
+          (await retryLagging(async () => await publicClient.getBlock({ blockNumber }))).timestamp,
+        ) * 1000,
+      ).toISOString();
+    proofs.push({
+      proof: {
         provider: provider.name,
-        chainId: SEPOLIA_CHAIN_ID,
         account,
-        transactions: sent.map((item) => ({ ...item, block: item.block.toString() })),
-        spent: formatEther(balance - (await publicClient.getBalance({ address: account }))),
-      })}`,
+        liveCheck: contract,
+        spent: formatEther(spent),
+        records: run.records,
+      },
+      firstBlockTime: await timeOf(first),
+      lastBlockTime: await timeOf(last),
+    });
+    t.diagnostic(
+      `${provider.name}: ${sent} transactions, ${liveGas} gas, spent ${formatEther(spent)} ETH`,
     );
   } finally {
     await signer.close();
   }
+}
+
+const git = (...args: string[]): string =>
+  execFileSync("git", args, { cwd: path.dirname(root), encoding: "utf8" }).trim();
+
+/** Writes test/live/proof.json from a Sepolia run in which every configured provider passed. */
+function writeProof(): void {
+  const order = PROVIDERS.map((provider) => provider.name);
+  const sorted = proofs.toSorted(
+    (a, b) => order.indexOf(a.proof.provider) - order.indexOf(b.proof.provider),
+  );
+  const proof: Proof = {
+    chainId: SEPOLIA_CHAIN_ID,
+    commit: git("rev-parse", "--short", "HEAD"),
+    subject: git("log", "-1", "--format=%s"),
+    firstBlockTime: sorted.map((item) => item.firstBlockTime).toSorted()[0] ?? "",
+    lastBlockTime:
+      sorted
+        .map((item) => item.lastBlockTime)
+        .toSorted()
+        .at(-1) ?? "",
+    providers: sorted.map((item) => item.proof),
+  };
+  const problems = proofProblems(proof);
+  assert.deepEqual(problems, [], "the run's proof is incomplete");
+  writeFileSync(PROOF_FILE, `${JSON.stringify(proof, null, 2)}\n`);
 }
 
 describe(onFork ? "live on a Sepolia fork" : "live on Sepolia", () => {
@@ -714,6 +438,7 @@ describe(onFork ? "live on a Sepolia fork" : "live on Sepolia", () => {
       }
       hre = await runtime(fork?.url);
       await hre.tasks.getTask("build").run({ quiet: true });
+      setLiveCheckBytecode((await hre.artifacts.readArtifact("LiveCheck")).bytecode);
     });
   });
 
@@ -726,15 +451,27 @@ describe(onFork ? "live on a Sepolia fork" : "live on Sepolia", () => {
     for (const provider of PROVIDERS) {
       const skip = configured.includes(provider) ? false : `${provider.variable} is not set`;
       it(
-        `${provider.name}: deploys, sends every transaction type and verifies signatures`,
+        `${provider.name}: runs every ${onFork ? "live and fork" : "live"} case of the matrix`,
         { skip },
         async (t) => {
           await redacted(async () => {
-            await runProvider(hre, provider, t);
+            await runProvider(hre, provider, t, fork?.url);
           });
         },
       );
     }
+  });
+
+  // Only a Sepolia run in which every configured provider passed writes the proof.
+  const skipWrite = onFork
+    ? "a fork run writes no proof"
+    : configured.length === 0
+      ? "no provider is configured"
+      : false;
+  it("sepolia: writes test/live/proof.json", { skip: skipWrite }, (t) => {
+    assert.equal(proofs.length, configured.length, "a provider failed, so no proof was written");
+    writeProof();
+    t.diagnostic("wrote test/live/proof.json; render it with pnpm run docs:live-proof");
   });
 
   // Anvil's only way to Sepolia is its fork URL, the proxy. The proxy forwards no send and keeps
