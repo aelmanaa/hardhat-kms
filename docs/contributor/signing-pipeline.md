@@ -54,7 +54,7 @@ The plugin does not protect against these (the full security model is [#39](http
 
 - Nonce collisions between separate processes using the same key.
 - Access to the key itself, which the provider's IAM or RBAC controls. The setup guides for [AWS](../user/guides/aws-kms-setup.md), [Google Cloud](../user/guides/gcp-kms-setup.md) and [Azure](../user/guides/azure-key-vault-setup.md) give minimal permissions, including the AWS conditions `kms:SigningAlgorithm` and `kms:MessageType`.
-- Key deletion. Deleting a KMS key loses the funds at its address forever.
+- Key deletion. Deleting a KMS key loses the funds at its address forever. The user guide [Prevent and recover from losing a key](../user/guides/key-loss.md) covers each provider's waiting period, the undo paths and lockout.
 
 ## Vendored EIP-712
 
