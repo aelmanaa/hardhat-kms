@@ -7,12 +7,13 @@ Requirements: Node.js 24 (see `.nvmrc`) and pnpm. Install pnpm with `npm i -g pn
 The repository is a pnpm workspace ([decision 0010](docs/contributor/decisions/0010-pnpm-workspaces.md)). The core plugin is in `packages/hardhat-kms`, and each cloud provider has its own package beside it ([decision 0009](docs/contributor/decisions/0009-one-package-per-provider.md)): `packages/hardhat-kms-aws` today, Google Cloud and Azure in M6. Run the commands below from the repository root; they cover every package.
 
 ```sh
-pnpm install        # also installs the git hooks (lefthook)
-pnpm run check      # format check, lint (type-aware) and typecheck
-pnpm test           # unit + integration tests
-pnpm run coverage   # tests with coverage thresholds
-pnpm run pkg:check  # build + publint + arethetypeswrong + knip
-pnpm run docs:check # doc snippets typecheck, every page is indexed
+pnpm install              # also installs the git hooks (lefthook)
+pnpm run check            # format check, lint (type-aware) and typecheck
+pnpm test                 # unit + integration tests
+pnpm run test:localstack  # AWS adapter against LocalStack (needs Docker)
+pnpm run coverage         # tests with coverage thresholds
+pnpm run pkg:check        # build + publint + arethetypeswrong + knip
+pnpm run docs:check       # doc snippets typecheck, every page is indexed
 ```
 
 ## Issues first
@@ -41,6 +42,6 @@ Issues that affect what gets signed, keys or secrets also get `security`. New is
 - Every exported symbol has TSDoc (enforced by lint).
 - No `process.env` reads outside the few documented places (enforced by lint).
 - Errors are `HardhatPluginError`s built from an allow-list of fields; never include credentials or raw SDK errors.
-- Tests: each package has `test/unit` (pure, fast) and `test/integration` (real Hardhat runtime; for a provider package, also its real SDK against a local endpoint). Emulated AWS KMS tests (LocalStack) and live cloud tests arrive with [#17](https://github.com/aelmanaa/hardhat-kms/issues/17) and the live-test milestone.
+- Tests: each package has `test/unit` (pure, fast) and `test/integration` (real Hardhat runtime; for a provider package, also its real SDK against a local endpoint). `hardhat-kms-aws` also has `test/localstack`, run with `pnpm run test:localstack` (needs Docker). Live cloud tests arrive with the live-test milestone.
 
 See [docs/contributor/architecture.md](docs/contributor/architecture.md) for how the code fits together, and [docs/README.md](docs/README.md) for all docs. [AGENTS.md](AGENTS.md) is the same index for coding agents. To add a KMS or HSM provider, see [docs/contributor/providers.md](docs/contributor/providers.md).
