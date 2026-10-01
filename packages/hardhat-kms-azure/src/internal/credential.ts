@@ -17,6 +17,25 @@ const MANAGED_IDENTITY_REQUEST_TIMEOUT_MS = 3_000;
 /** A token is fetched again when it has less than this left, so no request carries a stale one. */
 const TOKEN_REFRESH_MARGIN_MS = 5 * 60_000;
 
+/** Timer functions, injectable so tests can control time. */
+export interface Timers {
+  /**
+   * Schedules `callback` after `ms` milliseconds.
+   *
+   * @returns A function that cancels the timer.
+   */
+  setTimeout(callback: () => void, ms: number): () => void;
+}
+
+const systemTimers: Timers = {
+  setTimeout(callback, ms) {
+    const handle = setTimeout(callback, ms);
+    return () => {
+      clearTimeout(handle);
+    };
+  },
+};
+
 /** The parts of @azure/identity the credential chain uses; tests pass fakes with the same shape. */
 export interface AzureIdentitySdk {
   ChainedTokenCredential: new (...sources: TokenCredential[]) => TokenCredential;
@@ -39,15 +58,18 @@ class TimeoutCredential implements TokenCredential {
   readonly #inner: TokenCredential;
   readonly #timeoutMs: number;
   readonly #unavailable: AzureIdentitySdk["CredentialUnavailableError"];
+  readonly #timers: Timers;
 
   public constructor(
     inner: TokenCredential,
     timeoutMs: number,
     unavailable: AzureIdentitySdk["CredentialUnavailableError"],
+    timers: Timers,
   ) {
     this.#inner = inner;
     this.#timeoutMs = timeoutMs;
     this.#unavailable = unavailable;
+    this.#timers = timers;
   }
 
   public async getToken(
@@ -58,24 +80,29 @@ class TimeoutCredential implements TokenCredential {
     // on to its HTTP requests; the request timeout of the managed identity's HTTP client is what
     // ends them. The caller's own signal never reaches here: the shared token cache drops it.
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => {
-        controller.abort();
-        reject(
-          new this.#unavailable(
-            `ManagedIdentityCredential: no token within ${this.#timeoutMs / 1000} s`,
-          ),
-        );
-      }, this.#timeoutMs);
+      controller.signal.addEventListener(
+        "abort",
+        () => {
+          reject(
+            new this.#unavailable(
+              `ManagedIdentityCredential: no token within ${this.#timeoutMs / 1000} s`,
+            ),
+          );
+        },
+        { once: true },
+      );
     });
+    const cancel = this.#timers.setTimeout(() => {
+      controller.abort();
+    }, this.#timeoutMs);
     try {
       return await Promise.race([
         this.#inner.getToken(scopes, { ...options, abortSignal: controller.signal }),
         timeout,
       ]);
     } finally {
-      clearTimeout(timer);
+      cancel();
     }
   }
 }
@@ -204,6 +231,8 @@ export interface ManagedIdentitySettings {
   requestTimeoutMs?: number;
   /** The HTTP client its requests go through, before the request timeout is added. */
   httpClient?: HttpClient;
+  /** The timers that run the time limit. Default: the global timers. */
+  timers?: Timers;
 }
 
 /**
@@ -259,6 +288,7 @@ export function createAzureCredential(
         managed,
         managedIdentity.timeoutMs ?? MANAGED_IDENTITY_TIMEOUT_MS,
         identity.CredentialUnavailableError,
+        managedIdentity.timers ?? systemTimers,
       ),
     );
   }
