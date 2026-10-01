@@ -2,4 +2,4 @@
 "hardhat-kms": patch
 ---
 
-Accept an EIP-7702 authorization's `r` and `s` as quantities, the form viem sends. The plugin left-pads them to 32 bytes before it validates and signs a KMS account's transaction, so an authorization whose `r` or `s` starts with a zero byte is no longer refused. Values longer than 32 bytes, or not hex, are still refused.
+Accept an EIP-7702 authorization's `r` and `s` as quantities, the form viem sends. For a KMS account's transaction, the plugin sends `r` and `s` to `eth_estimateGas` as quantities, which geth requires, and pads them to 32 bytes to validate and sign, so an authorization whose `r` or `s` starts with a zero byte is no longer refused. An `r` or `s` outside [1, n - 1] is now refused before any request to the node. Values longer than 32 bytes, or not hex, are still refused.

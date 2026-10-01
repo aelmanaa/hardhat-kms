@@ -488,12 +488,17 @@ describe("HardhatTransactionFiller checks", () => {
 
 const hex = (value: string) => new Uint8Array(Buffer.from(value.slice(2), "hex"));
 
+/** A number as a JSON-RPC quantity. */
+const quantity = (value: bigint) => `0x${value.toString(16)}`;
+/** A number as 32 bytes. */
+const word = (value: bigint) => `0x${value.toString(16).padStart(64, "0")}`;
+
 /** An EIP-7702 authorization in JSON-RPC form, with the given r and s. */
 function authorizationWith(r: string, s: string) {
   return { chainId: "0x7a69", address: TO, nonce: "0x0", yParity: "0x1", r, s };
 }
 
-/** Fills an EIP-7702 transaction; returns the filled r and s and the estimate's authorization. */
+/** Fills an EIP-7702 transaction; returns the signed r and s and the estimate's r and s. */
 async function fillSignature(r: string, s: string) {
   const tx = { from: FROM, to: TO, authorizationList: [authorizationWith(r, s)] };
   const { node, filler: instance } = filler(EIP1559_NODE);
@@ -504,10 +509,15 @@ async function fillSignature(r: string, s: string) {
   const estimate = node.calls.find((call) => call.method === "eth_estimateGas");
   const sent: unknown = estimate?.params?.[0];
   assert.ok(typeof sent === "object" && sent !== null && "authorizationList" in sent);
+  const list: unknown = sent.authorizationList;
+  assert.ok(Array.isArray(list));
+  const [estimated]: unknown[] = list;
+  assert.ok(typeof estimated === "object" && estimated !== null);
+  assert.ok("r" in estimated && "s" in estimated);
   return {
     r: `0x${Buffer.from(item.r).toString("hex")}`,
     s: `0x${Buffer.from(item.s).toString("hex")}`,
-    estimated: sent.authorizationList,
+    estimated: { r: estimated.r, s: estimated.s },
   };
 }
 
@@ -516,31 +526,72 @@ describe("HardhatTransactionFiller authorization signatures", () => {
   const SHORT = `0x${"ab".repeat(31)}`;
   const PADDED = `0x00${"ab".repeat(31)}`;
   const FULL = `0x${"cd".repeat(32)}`;
+  const N = secp256k1.Point.CURVE().n;
 
-  it("left-pads an r with a leading zero byte", async () => {
-    const filled = await fillSignature(SHORT, FULL);
-    assert.equal(filled.r, PADDED);
-    assert.equal(filled.s, FULL);
-    // The estimate already gets the padded form.
-    assert.deepEqual(filled.estimated, [authorizationWith(PADDED, FULL)]);
+  it("signs an r with a leading zero byte as 32 bytes, and estimates with the quantity", async () => {
+    // Both forms a caller may send: viem's quantity, and 32 bytes.
+    for (const r of [SHORT, PADDED]) {
+      const filled = await fillSignature(r, FULL);
+      assert.equal(filled.r, PADDED);
+      assert.equal(filled.s, FULL);
+      assert.deepEqual(filled.estimated, { r: SHORT, s: FULL });
+    }
   });
 
-  it("left-pads an s with a leading zero byte", async () => {
-    const filled = await fillSignature(FULL, SHORT);
-    assert.equal(filled.r, FULL);
-    assert.equal(filled.s, PADDED);
+  it("signs an s with a leading zero byte as 32 bytes, and estimates with the quantity", async () => {
+    for (const s of [SHORT, PADDED]) {
+      const filled = await fillSignature(FULL, s);
+      assert.equal(filled.r, FULL);
+      assert.equal(filled.s, PADDED);
+      assert.deepEqual(filled.estimated, { r: FULL, s: SHORT });
+    }
   });
 
-  it("left-pads both, down to a one-digit quantity", async () => {
+  it("handles both, down to a one-digit quantity", async () => {
     const filled = await fillSignature(SHORT, "0x7");
     assert.equal(filled.r, PADDED);
     assert.equal(filled.s, `0x${"00".repeat(31)}07`);
+    assert.deepEqual(filled.estimated, { r: SHORT, s: "0x7" });
+    const padded = await fillSignature(PADDED, word(7n));
+    assert.deepEqual(padded.estimated, { r: SHORT, s: "0x7" });
   });
 
-  it("keeps 32-byte values, including ones with leading zero bytes", async () => {
-    const filled = await fillSignature(FULL, PADDED);
-    assert.equal(filled.r, FULL);
-    assert.equal(filled.s, PADDED);
+  it("accepts uppercase hex digits and a 0X prefix", async () => {
+    for (const r of [SHORT.toUpperCase(), `0x${"AB".repeat(31)}`, `0X00${"Ab".repeat(31)}`]) {
+      const filled = await fillSignature(r, FULL.toUpperCase());
+      assert.equal(filled.r, PADDED);
+      assert.equal(filled.s, FULL);
+      assert.deepEqual(filled.estimated, { r: SHORT, s: FULL });
+    }
+  });
+
+  it("accepts r and s up to the curve order minus 1", async () => {
+    const filled = await fillSignature("0x1", word(N - 1n));
+    assert.deepEqual(filled.estimated, { r: "0x1", s: quantity(N - 1n) });
+    assert.equal(filled.s, word(N - 1n));
+  });
+
+  it("refuses r or s outside [1, n - 1] before any request to the node", async () => {
+    const outside = [
+      "0x0",
+      `0x${"00".repeat(32)}`,
+      quantity(N),
+      word(N + 1n),
+      `0x${"ff".repeat(32)}`,
+    ];
+    for (const value of outside) {
+      for (const [field, item] of [
+        ["r", authorizationWith(value, FULL)],
+        ["s", authorizationWith(FULL, value)],
+      ] as const) {
+        const { node, filler: instance } = filler(EIP1559_NODE);
+        await assertKmsError(
+          instance.fill("eth_sendTransaction", [{ from: FROM, to: TO, authorizationList: [item] }]),
+          `eth_sendTransaction: authorizationList[0].${field} must be between 1 and the secp256k1 curve order minus 1`,
+        );
+        assert.equal(node.calls.length, 0, value);
+      }
+    }
   });
 
   it("still refuses a value over 32 bytes, non-hex, or not a quantity", async () => {

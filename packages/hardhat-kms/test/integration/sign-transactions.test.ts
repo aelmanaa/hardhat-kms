@@ -479,6 +479,26 @@ describe("signing transactions for KMS accounts", () => {
     assert.equal(adapters.cow?.calls.signDigest ?? 0, 0);
   });
 
+  it("refuses an authorization whose r or s is outside [1, n - 1], and sends nothing", async () => {
+    const sent = node.raw.length;
+    const connection = await hre.network.create("kms");
+    for (const item of [
+      { ...AUTHORIZATION, r: 0n },
+      { ...AUTHORIZATION, r: CURVE_ORDER },
+      { ...AUTHORIZATION, s: CURVE_ORDER + 1n },
+    ]) {
+      await assert.rejects(
+        connection.provider.request({
+          method: "eth_sendTransaction",
+          params: [{ from: FROM, to: FROM, authorizationList: [rpcAuthorization(item)] }],
+        }),
+        /authorizationList\[0\]\.[rs] must be between 1 and the secp256k1 curve order minus 1/,
+      );
+    }
+    await connection.close();
+    assert.equal(node.raw.length, sent);
+  });
+
   describe("EIP-7702 authorization lint", () => {
     it("warns about a high-S authorization", async () => {
       const highS = {
@@ -492,7 +512,8 @@ describe("signing transactions for KMS accounts", () => {
     });
 
     it("warns about an authorization whose authority does not recover", async () => {
-      const warnings = await warningsFor({ yParity: 0, r: CURVE_ORDER + 1n, s: 1n });
+      // No curve point has x = 5, so no public key recovers.
+      const warnings = await warningsFor({ yParity: 0, r: 5n, s: 1n });
       assert.equal(warnings.length, 1, warnings.join("\n"));
       assert.match(warnings[0] ?? "", /authorizationList\[0\]'s signature does not recover/);
     });
