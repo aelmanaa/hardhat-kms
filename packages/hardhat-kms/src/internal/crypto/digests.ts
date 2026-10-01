@@ -1,4 +1,6 @@
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import { eip191Signer, verifyTyped } from "micro-eth-signer";
+import { RLP } from "micro-eth-signer/core/rlp.js";
 
 import { sigHash } from "../vendor/micro-eth-signer/typed-data.ts";
 
@@ -89,6 +91,32 @@ export function parseTypedData(input: unknown): TypedData {
  */
 export function personalMessageDigest(message: Uint8Array): Uint8Array {
   return hexToBytes(eip191Signer._getHash(message));
+}
+
+/** The fields of an EIP-7702 authorization that its signature covers. */
+export interface AuthorizationRequest {
+  chainId: bigint;
+  /** The 20-byte address of the code to delegate to. */
+  address: Uint8Array;
+  nonce: bigint;
+}
+
+/** EIP-7702's `MAGIC`, the first byte of an authorization's signed message. */
+const AUTHORIZATION_MAGIC = 0x05;
+
+/**
+ * Computes the digest an EIP-7702 authority signs: `keccak256(0x05 || rlp([chainId, address,
+ * nonce]))`.
+ *
+ * @param request - The authorization's chain id, address and nonce.
+ * @returns The 32-byte digest.
+ */
+export function authorizationDigest(request: AuthorizationRequest): Uint8Array {
+  const encoded = RLP.encode([request.chainId, request.address, request.nonce]);
+  const message = new Uint8Array(encoded.length + 1);
+  message[0] = AUTHORIZATION_MAGIC;
+  message.set(encoded, 1);
+  return keccak_256(message);
 }
 
 /**

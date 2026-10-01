@@ -251,21 +251,6 @@ describe("network hook", () => {
     assert.equal(created.cow?.calls.signDigest ?? 0, 0);
   });
 
-  it("refuses transactions from KMS accounts until they are supported", async () => {
-    const { hre } = await runtime(
-      { cow: vaultKey("cow", COW_ACCOUNT.address) },
-      { cow: () => fakeAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }) },
-    );
-    const { provider } = await hre.network.create("local");
-
-    for (const method of ["eth_sendTransaction", "eth_signTransaction"]) {
-      await assertKmsError(
-        provider.request({ method, params: [{ from: COW_ACCOUNT.address, to: ACCOUNT_0 }] }),
-        [`${method} from KMS accounts is not available yet`, "issues/24"],
-      );
-    }
-  });
-
   it("reports an adapter that fails to open by its error class only", async () => {
     const { hre } = await runtime(
       { cow: vaultKey("cow") },

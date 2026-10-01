@@ -2,7 +2,7 @@
 
 Audience: Contributors working on transaction filling and sending.
 
-Status: The chain-id checks for typed data shipped in M4, and transaction filling in M5 ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)). Signing and sending transactions, nonces and the send lock are planned for M5.
+Status: The chain-id checks for typed data shipped in M4. M5 adds transaction filling ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)) and signing and sending ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)). The nonce high-water mark and the send lock ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)) and retries after broadcast are planned for M5.
 
 ## Transaction filling
 
@@ -18,7 +18,46 @@ The filler runs Hardhat's steps in Hardhat's order. The sources are under `hardh
 4. Chain id. The filler reads the connection's `ConnectionChain`, and a request's own `chainId` must equal it (see [Chain-id checks](#chain-id-checks)). Hardhat signs whatever `chainId` the request names.
 5. Nonce, from `accounts/local-accounts.js` (`#getNonce`): `eth_getTransactionCount [from, "pending"]` when the request has none.
 
-`buildUnsignedTransaction` mirrors `LocalAccountsHandler#getSignedTransaction` field for field, with micro-eth-signer `^0.19` (the version Hardhat 3.18 depends on) and strict mode off. The fields decide the type: `authorizationList` gives EIP-7702, `maxFeePerGas` EIP-1559, `accessList` EIP-2930, and anything else legacy. `signingHash` returns the digest that `Transaction#signBy` signs. Signing, rebuilding the signed transaction from the verified r, s and yParity, and the `recoverSender().address === from` check come with sending ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)).
+`buildUnsignedTransaction` mirrors `LocalAccountsHandler#getSignedTransaction` field for field, with micro-eth-signer `^0.19` (the version Hardhat 3.18 depends on) and strict mode off. The fields decide the type: `authorizationList` gives EIP-7702, `maxFeePerGas` EIP-1559, `accessList` EIP-2930, and anything else legacy. `signingHash` returns the digest that `Transaction#signBy` signs.
+
+## Signing and sending
+
+The network hook (`packages/hardhat-kms/src/internal/hook-handlers/network.ts`) creates one `TransactionFiller` per connection, on the connection's first KMS transaction, and keeps it in a WeakMap next to the connection's `ConnectionChain`. Closing the connection drops it. One filler per connection keeps the caches Hardhat's handlers keep per connection; a filler per request would read the block gas limit on every multiplied estimate.
+
+For `eth_sendTransaction` and `eth_signTransaction`, the dispatcher (`packages/hardhat-kms/src/internal/rpc/dispatcher.ts`) resolves the sender, then `signTransaction` in `packages/hardhat-kms/src/internal/rpc/transactions.ts` runs inside `ConnectionAccounts.withSigner`, so the idle close waits for it:
+
+1. Fill the request with the connection's filler, and build the unsigned transaction with `buildUnsignedTransaction`.
+2. Lint the pre-signed EIP-7702 authorizations (see below).
+3. Sign `signingHash(unsigned)` with `KmsSigner.signDigest`, which returns a low-S signature verified against the key ([decision 0004](decisions/0004-verify-every-signature.md)).
+4. Rebuild the transaction as `Transaction#signBy` does: `new Transaction(unsigned.type, { ...unsigned.raw, r, s, yParity }, false)`.
+5. Require `recoverSender().address` to equal `from`. A mismatch, or a signature micro-eth-signer cannot recover, fails with an error and nothing is sent. The signer has already verified the signature against the key, so this check covers the step from signature to transaction.
+
+`eth_signTransaction` returns the raw hex. `eth_sendTransaction` replaces the request with `eth_sendRawTransaction` and the raw hex, and calls `next` once, as Hardhat's local accounts do. Parallel sends from one account are not serialized yet; that comes with the send lock ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)).
+
+### Sender resolution
+
+Hardhat's sender handlers run after the plugin's hook. Without help, a transaction without `from` on an http network without local accounts would get a KMS address from Hardhat's `AutomaticSenderHandler` (its `eth_accounts` call goes through the hook) and reach the node unsigned. The plugin therefore resolves the sender first, the way Hardhat would:
+
+- The network's `from`, as `FixedSenderHandler` does.
+- Otherwise the first address of `eth_accounts`, sent through `connection.provider`, so the plugin's own order applies, as `AutomaticSenderHandler` sees it.
+
+The plugin sets `from` to that sender and signs when it is a KMS account. Otherwise the request goes on with `from` set, so Hardhat's sender handlers do nothing. Passing it on without `from` is not safe: `AutomaticSenderHandler` reads `eth_accounts` once per connection and keeps the first address, while the plugin reads it on each request. If the two answers differ, for example because `eth_accounts` failed downstream once and the plugin listed only the KMS addresses, Hardhat would fill a KMS address the plugin did not choose, and the node would get an unsigned KMS transaction. Without a sender (an empty list, or an answer that is not a list), the request goes on unchanged and Hardhat reports the error.
+
+Hardhat fills `from` only for `eth_sendTransaction`; the plugin also does it for `eth_signTransaction`, since its filler treats both alike.
+
+### Copies
+
+Before its first `await`, the dispatcher reads `from` from the caller's transaction and copies the transaction and the other params with `structuredClone`; the filler copies them again. A caller that changes the transaction object, including its access or authorization list, while the request runs cannot change what is signed. `signTransaction` also checks that the filled transaction's `from` is the KMS account it signs for.
+
+When the copy fails, the dispatcher resolves the sender first (the `from` it read, or the default sender). A KMS sender gets the `the transaction must be plain data` error and nothing is sent. Any other sender's request passes on as it came, following rule 1; without `from`, the default sender is set on a shallow copy of the caller's transaction, so Hardhat's sender handlers still choose nothing. A first param that is not an object passes on without any copy.
+
+### EIP-7702 authorization lint
+
+The RPC path signs only transactions whose `authorizationList` entries are already signed; Hardhat's request schema requires the signature fields. When the sender is a KMS account, `lintAuthorizations` checks each tuple: its `s` must be in the lower half of the curve order, and a public key must recover from its signature over `keccak256(0x05 || rlp([chainId, address, nonce]))` (`authorizationDigest` in `packages/hardhat-kms/src/internal/crypto/digests.ts`). A failing tuple prints a warning through `packages/hardhat-kms/src/internal/warnings.ts`, the plugin's one `console.warn`, and the transaction is still signed. EIP-7702 nodes accept such a transaction and skip the authorization, so an error would block a transaction the chain accepts.
+
+### Byte-identical test
+
+`packages/hardhat-kms/test/integration/sign-transactions.test.ts` runs the recording node of the differential test (`packages/hardhat-kms/test/helpers/recording-node.ts`). A fake adapter holds Hardhat's account-0 key and signs deterministically (RFC 6979), as Hardhat's local accounts do. For legacy, EIP-2930, EIP-1559 with automatic fees, a contract creation and EIP-7702 with a pre-signed tuple, the raw transaction the plugin sends must equal the one Hardhat sends from a local account, also when the adapter returns high-S signatures. `eth_signTransaction` must return the same bytes and broadcast nothing. `packages/hardhat-kms-aws/test/integration/network.test.ts` signs an `eth_signTransaction` through the real AWS SDK against a local KMS server and compares it with Hardhat's bytes.
 
 ### Deliberate differences
 
@@ -63,7 +102,7 @@ A hardhat-viem test over HTTP injects a timeout on the broadcast and proves ther
 
 ## Chain-id checks
 
-Each `NetworkConnection` has one `ConnectionChain` (`packages/hardhat-kms/src/internal/rpc/chain-id.ts`, held in a WeakMap) that reads `eth_chainId` once. If the network config sets `chainId`, the two must be equal. The check fails closed, and because a failure is never kept, the next request tries again. Typed data that names a chain reads it now ([decision 0011](decisions/0011-typed-data-chain-check.md)); transactions will in M5. Messages do not: the chain is not part of their signature, and they sign without a reachable node.
+Each `NetworkConnection` has one `ConnectionChain` (`packages/hardhat-kms/src/internal/rpc/chain-id.ts`, held in a WeakMap) that reads `eth_chainId` once. If the network config sets `chainId`, the two must be equal. The check fails closed, and because a failure is never kept, the next request tries again. Typed data that names a chain reads it ([decision 0011](decisions/0011-typed-data-chain-check.md)), and so does every transaction from a KMS account. Messages do not: the chain is not part of their signature, and they sign without a reachable node.
 
 Hardhat adds its `ChainIdValidator` only to http networks that set a `chainId`, and it validates once per connection, on the first request the built-in handlers see. The fill reads of a transaction pass through it; message and typed-data signing never reach the built-in handlers. This check covers every case.
 

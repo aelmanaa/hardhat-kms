@@ -103,6 +103,26 @@ function outOfGas(options: { name?: string; code?: number; reason?: string } = {
   });
 }
 
+describe("HardhatTransactionFiller copies", () => {
+  it("leaves the caller's transaction and its lists unchanged", async () => {
+    const accessList = [{ address: TO, storageKeys: [] }];
+    const tx = { from: FROM, to: TO, accessList };
+    const { filler: instance } = filler(EIP1559_NODE);
+    await instance.fill("eth_sendTransaction", [tx]);
+    assert.deepEqual(tx, { from: FROM, to: TO, accessList: [{ address: TO, storageKeys: [] }] });
+    assert.equal(tx.accessList, accessList);
+  });
+
+  it("refuses a transaction that is not plain data", async () => {
+    const { node, filler: instance } = filler(EIP1559_NODE);
+    await assertKmsError(
+      instance.fill("eth_sendTransaction", [{ from: FROM, to: TO, data: () => "0x" }]),
+      "the transaction must be plain data",
+    );
+    assert.deepEqual(node.methods(), []);
+  });
+});
+
 describe("HardhatTransactionFiller fees", () => {
   it("suggests EIP-1559 fees from eth_feeHistory", async () => {
     const { node, filled } = await fill(EIP1559_NODE, {});

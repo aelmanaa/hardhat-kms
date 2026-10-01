@@ -26,9 +26,9 @@
       "count": 1
     },
     {
-      "file": "packages/hardhat-kms/src/internal/hook-handlers/network.ts",
+      "file": "packages/hardhat-kms/src/internal/warnings.ts",
       "rule": "eslint/no-console",
-      "reason": "The warning about KMS keys on the default network is printed for the user, as Hardhat plugins print warnings.",
+      "reason": "The plugin's one warning helper prints for the user, as Hardhat plugins print warnings: KMS keys on the default network, and EIP-7702 authorizations that nodes would skip.",
       "count": 1
     },
     {

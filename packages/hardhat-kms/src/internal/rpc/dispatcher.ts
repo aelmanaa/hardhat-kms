@@ -1,3 +1,4 @@
+import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import {
   rpcAddress,
   rpcAny,
@@ -16,6 +17,8 @@ import { parseAwsKeyId } from "../providers/aws/key-id.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { type ConnectionChain, parseChainId } from "./chain-id.ts";
+import { notPlainData, type TransactionFiller } from "./transaction-filler.ts";
+import { signTransaction } from "./transactions.ts";
 
 const log = kmsDebug("rpc");
 
@@ -223,15 +226,27 @@ export interface TypedDataPolicy {
   allowCrossChainTypedData: boolean;
 }
 
+/** What signing transactions needs from the connection. */
+export interface ConnectionTransactions {
+  /** Returns the connection's transaction filler. */
+  filler(): TransactionFiller;
+  /**
+   * The sender Hardhat's sender handlers would give a transaction without `from`: the network's
+   * `from`, else the first account of `eth_accounts`.
+   */
+  defaultSender(): Promise<unknown>;
+}
+
 /**
  * Handles one JSON-RPC request for a connection with KMS accounts: lists the accounts, and signs
- * messages and typed data for them. Everything else, including requests for other addresses, goes
- * to `next`, which is called at most once (rule 2).
+ * transactions, messages and typed data for them. Everything else, including requests for other
+ * addresses, goes to `next`, which is called at most once (rule 2).
  *
  * @param accounts - The connection's KMS accounts.
  * @param request - The request.
  * @param next - The rest of the chain.
  * @param policy - The typed-data chain check's inputs.
+ * @param transactions - The connection's filler and default sender.
  * @returns The response.
  */
 export async function dispatch(
@@ -239,6 +254,7 @@ export async function dispatch(
   request: JsonRpcRequest,
   next: Next,
   policy: TypedDataPolicy,
+  transactions: ConnectionTransactions,
 ): Promise<JsonRpcResponse> {
   if (accounts.isEmpty) {
     return await next(request);
@@ -272,20 +288,90 @@ export async function dispatch(
       return response(request, signed.result);
     }
   } else if (TRANSACTION_METHODS.has(request.method)) {
-    const transaction: unknown = params[0];
-    const from: unknown =
-      typeof transaction === "object" && transaction !== null
-        ? Reflect.get(transaction, "from")
-        : undefined;
-    const address = addressParam(from);
-    if (address !== undefined && (await accounts.isKmsAccount(address))) {
-      throw kmsError(
-        `${request.method} from KMS accounts is not available yet (https://github.com/aelmanaa/hardhat-kms/issues/24); messages and typed data can be signed`,
-        { operation: request.method },
-      );
+    const outcome = await signTransactionFor(accounts, request.method, params, transactions);
+    if ("raw" in outcome && request.method === "eth_signTransaction") {
+      return response(request, outcome.raw);
+    }
+    if ("raw" in outcome) {
+      // Like Hardhat's local accounts: the signed transaction replaces the request. Parallel
+      // sends from one account are not serialized yet (#25).
+      return await next({ ...request, method: "eth_sendRawTransaction", params: [outcome.raw] });
+    }
+    if (outcome.params !== undefined) {
+      return await next({ ...request, params: outcome.params });
     }
   }
   return await next(request);
+}
+
+/**
+ * What happens to a transaction request: it was signed, or it goes on to the rest of the chain,
+ * either unchanged (`params` undefined) or with the sender the plugin chose.
+ */
+type TransactionOutcome = { raw: string } | { params: unknown[] | undefined };
+
+/**
+ * Fills and signs a transaction whose sender is a KMS account.
+ *
+ * The transaction is copied before the first `await`, so a caller that changes its object
+ * meanwhile cannot change what is signed. A transaction that cannot be copied is refused only
+ * when its sender is a KMS account; any other request passes on as it came (rule 1).
+ *
+ * A transaction without `from` gets the sender Hardhat would give it, and goes on with that sender
+ * set even when it is not a KMS account: Hardhat's automatic sender caches its first answer per
+ * connection, and may otherwise pick a KMS address the plugin did not see, so the transaction
+ * would reach the node unsigned. The sender is set on a shallow copy of the caller's transaction.
+ *
+ * @returns The signed raw transaction, or the params to pass on.
+ */
+async function signTransactionFor(
+  accounts: ConnectionAccounts,
+  method: string,
+  params: unknown[],
+  transactions: ConnectionTransactions,
+): Promise<TransactionOutcome> {
+  const [original, ...originalRest] = params;
+  if (!isObject(original)) {
+    return { params: undefined };
+  }
+  const requestedFrom: unknown = original.from;
+  let copy: { transaction: Record<string, unknown>; rest: unknown[] } | undefined;
+  try {
+    copy = structuredClone({ transaction: original, rest: originalRest });
+  } catch {
+    copy = undefined;
+  }
+  let from = requestedFrom;
+  let forward: unknown[] | undefined;
+  if (from === undefined) {
+    from = await transactions.defaultSender();
+    if (from === undefined) {
+      return { params: undefined };
+    }
+    forward = [{ ...original, from }, ...originalRest];
+  }
+  const address = addressParam(from);
+  if (address === undefined) {
+    return { params: forward };
+  }
+  if (copy === undefined) {
+    if (await accounts.isKmsAccount(address)) {
+      throw notPlainData(method);
+    }
+    return { params: forward };
+  }
+  const { transaction, rest } = copy;
+  const signed = await accounts.withSigner(
+    address,
+    async (signer) =>
+      await signTransaction(signer, {
+        filler: transactions.filler(),
+        method,
+        params: [{ ...transaction, from }, ...rest],
+        from: address,
+      }),
+  );
+  return signed === undefined ? { params: forward } : { raw: signed.result };
 }
 
 /**
