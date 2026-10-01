@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { inspect } from "node:util";
 
+import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
+import type { ConfigurationVariable, ResolvedConfigurationVariable } from "hardhat/types/config";
 import type { HookContext } from "hardhat/types/hooks";
 
 import hardhatKms from "../../../src/index.ts";
+import { resolveIdentifier } from "../../../src/internal/config/identifiers.ts";
+import { resolveKey } from "../../../src/internal/config/resolve.ts";
 import { SignerCache } from "../../../src/internal/signer/key-cache.ts";
 import type {
   AwsKmsKeyConfig,
@@ -262,9 +267,25 @@ describe("SignerCache idle close", () => {
   });
 });
 
-/** An identifier with a literal value, as config resolution builds one. */
+/** A resolved configuration variable whose value comes from `get`. */
+function resolvedWith(get: () => Promise<string>): ResolvedConfigurationVariable {
+  return {
+    _type: "ResolvedConfigurationVariable",
+    format: "{variable}",
+    get,
+    getUrl: get,
+    getBigInt: async () => BigInt(await get()),
+    getHexString: get,
+  };
+}
+
+/** A literal identifier, built by config resolution. */
 function literal(value: string): KmsIdentifier {
-  return { get: async () => await Promise.resolve(value), display: value };
+  return resolveIdentifier(
+    value,
+    () => resolvedWith(async () => await Promise.resolve(value)),
+    "test",
+  );
 }
 
 /** Reads the value both test variables hold. */
@@ -272,9 +293,39 @@ async function deployerAlias(): Promise<string> {
   return await Promise.resolve("alias/deployer");
 }
 
-/** An identifier from a configuration variable, which displays as `<NAME>`. */
-function variable(name: string, get: () => Promise<string>): KmsIdentifier {
-  return { get, display: `<${name}>` };
+/** An identifier that config resolution did not build, so it has no comparison form. */
+function handMade(): KmsIdentifier {
+  return { get: deployerAlias, display: "alias/deployer" };
+}
+
+/** An identifier from a configuration variable, built by config resolution. */
+function variable(
+  name: string,
+  get: () => Promise<string>,
+  fields: Pick<ConfigurationVariable, "format" | "default"> = {},
+): KmsIdentifier {
+  const written: ConfigurationVariable = { _type: "ConfigurationVariable", name, ...fields };
+  return resolveIdentifier(written, () => resolvedWith(get), "test");
+}
+
+/** A Google Cloud key given as components, resolved as the config resolves it. */
+function gcpComponentsKey(projectId: ConfigurationVariable): KmsKeyConfig {
+  return resolveKey(
+    {
+      provider: "gcp",
+      projectId,
+      location: "global",
+      keyRing: "ring",
+      keyName: "key",
+      keyVersion: 1,
+    },
+    {
+      name: "gcp",
+      path: "kms.keys.gcp",
+      resolveVariable: () => resolvedWith(async () => await Promise.resolve("project")),
+      defaults: { aws: {}, timeoutMs: 1000 },
+    },
+  );
 }
 
 /** A new AWS key object; each call returns a separate copy, as Hardhat does for an override. */
@@ -423,6 +474,79 @@ describe("SignerCache identity", () => {
       assert.equal(state.created, 2);
     });
   }
+
+  const sameName: Record<string, [KmsIdentifier, KmsIdentifier]> = {
+    format: [
+      variable("KEY", deployerAlias),
+      variable("KEY", deployerAlias, { format: "alias/{variable}" }),
+    ],
+    default: [
+      variable("KEY", deployerAlias, { default: "alias/first" }),
+      variable("KEY", deployerAlias, { default: "alias/second" }),
+    ],
+  };
+  for (const [field, [first, second]] of Object.entries(sameName)) {
+    it(`gives one variable name with a different ${field} two signers`, async () => {
+      const { context, state } = await identitySetUp();
+      const cache = new SignerCache(fakeTimers());
+
+      assert.notEqual(
+        await cache.signerFor(context, awsKey({ keyId: first })),
+        await cache.signerFor(context, awsKey({ keyId: second })),
+      );
+      assert.equal(state.created, 2);
+    });
+  }
+
+  it("shares a signer between copies of a variable with the same format and default", async () => {
+    const { context, state } = await identitySetUp();
+    const cache = new SignerCache(fakeTimers());
+    const fields = { format: "alias/{variable}", default: "deployer" };
+
+    assert.equal(
+      await cache.signerFor(context, awsKey({ keyId: variable("KEY", deployerAlias, fields) })),
+      await cache.signerFor(context, awsKey({ keyId: variable("KEY", deployerAlias, fields) })),
+    );
+    assert.equal(state.created, 1);
+  });
+
+  it("gives Google Cloud keys whose parts differ only in one part's format two signers", async () => {
+    const { context, state } = await identitySetUp();
+    const cache = new SignerCache(fakeTimers());
+    const plain = gcpComponentsKey(configVariable("GCP_PROJECT"));
+
+    assert.equal(
+      await cache.signerFor(context, plain),
+      await cache.signerFor(context, gcpComponentsKey(configVariable("GCP_PROJECT"))),
+    );
+    assert.notEqual(
+      await cache.signerFor(context, plain),
+      await cache.signerFor(
+        context,
+        gcpComponentsKey(configVariable("GCP_PROJECT", { format: "p-{variable}" })),
+      ),
+    );
+    assert.equal(state.created, 2);
+  });
+
+  it("keeps a variable's default out of the identifier's printed and serialized forms", () => {
+    const identifier = variable("KEY", deployerAlias, { default: "secret-default-value" });
+
+    assert.equal(identifier.display, "<KEY>");
+    assert.ok(!inspect(identifier, { showHidden: true, depth: 5 }).includes("secret-default"));
+    assert.ok(!JSON.stringify(identifier).includes("secret-default"));
+  });
+
+  it("gives a key whose identifier config resolution did not build its own signer", async () => {
+    const { context, state } = await identitySetUp();
+    const cache = new SignerCache(fakeTimers());
+
+    assert.notEqual(
+      await cache.signerFor(context, awsKey({ keyId: handMade() })),
+      await cache.signerFor(context, awsKey({ keyId: handMade() })),
+    );
+    assert.equal(state.created, 2);
+  });
 
   it("gives each object of a third-party key its own signer", async () => {
     const { context, key, state } = await setUp();

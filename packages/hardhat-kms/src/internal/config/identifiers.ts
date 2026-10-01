@@ -25,6 +25,43 @@ export function isConfigurationVariable(value: unknown): value is ConfigurationV
   );
 }
 
+/**
+ * Each resolved identifier's comparison form: the identifier as written in the config, built
+ * without reading any configuration variable. A literal gives its value; a configuration variable
+ * gives every field Hardhat resolves it with (its name, `format` and `default`); a joined
+ * identifier gives its parts' forms, joined the way the value is. Two identifiers with the same
+ * form resolve to the same value in one runtime.
+ *
+ * Never print or log a comparison form: a variable's `default` can be a secret. It is kept here,
+ * not on the identifier, so that printing or inspecting a resolved config cannot show it.
+ */
+const comparisonForms = new WeakMap<KmsIdentifier, string>();
+
+/**
+ * Returns an identifier's comparison form, for telling whether two keys name the same KMS key.
+ * Never print or log the result.
+ *
+ * @param identifier - A resolved identifier.
+ * @returns Its comparison form, or `undefined` for an identifier that config resolution did not
+ * build.
+ */
+export function identifierComparisonForm(identifier: KmsIdentifier): string | undefined {
+  return comparisonForms.get(identifier);
+}
+
+/** The comparison form of a literal or a configuration variable, read from the raw config. */
+function writtenForm(value: KmsIdentifierUserConfig): string {
+  if (!isConfigurationVariable(value)) {
+    return JSON.stringify(["literal", value]);
+  }
+  // Every field but the marker, so a field Hardhat adds later is compared too. A field set to
+  // `undefined` counts as absent, as it does for Hardhat.
+  const fields = Object.entries(value)
+    .filter(([field, fieldValue]) => field !== "_type" && fieldValue !== undefined)
+    .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return JSON.stringify(["variable", fields]);
+}
+
 function checked(
   value: string,
   check: IdentifierCheck | undefined,
@@ -59,10 +96,12 @@ export function resolveIdentifier(
 ): KmsIdentifier {
   const resolved = resolveVariable(value);
   const display = isConfigurationVariable(value) ? `<${value.name}>` : value;
-  return {
+  const identifier: KmsIdentifier = {
     get: async () => checked((await resolved.get()).trim(), check, path, display),
     display,
   };
+  comparisonForms.set(identifier, writtenForm(value));
+  return identifier;
 }
 
 type PartValues<Parts> = { [K in keyof Parts]: string };
@@ -112,7 +151,7 @@ export function joinIdentifiers<Parts extends IdentifierParts<Parts>>(
   for (const key in parts) {
     list.push(parts[key]);
   }
-  return {
+  const identifier: KmsIdentifier = {
     get: async () => {
       const values = new Map<KmsIdentifier, string>(
         await Promise.all(list.map(async (part) => [part, await part.get()] as const)),
@@ -126,4 +165,10 @@ export function joinIdentifiers<Parts extends IdentifierParts<Parts>>(
     },
     display,
   };
+  // The parts' forms are JSON, whose escaping keeps them apart wherever `build` puts them.
+  if (list.every((part) => comparisonForms.has(part))) {
+    const forms = mapParts(parts, (part) => comparisonForms.get(part) ?? "");
+    comparisonForms.set(identifier, JSON.stringify(["joined", build(forms)]));
+  }
+  return identifier;
 }

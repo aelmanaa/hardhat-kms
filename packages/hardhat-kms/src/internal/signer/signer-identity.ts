@@ -1,4 +1,5 @@
-import type { KmsKeyCommonConfig, KmsKeyConfig } from "../../types.ts";
+import type { KmsIdentifier, KmsKeyCommonConfig, KmsKeyConfig } from "../../types.ts";
+import { identifierComparisonForm } from "../config/identifiers.ts";
 
 /**
  * The settings of every key that the signer and its adapter use: the key's name and display form
@@ -15,46 +16,45 @@ function commonSettings(key: KmsKeyCommonConfig): unknown[] {
 }
 
 /**
- * What decides the signer a key of a first-party provider gets: the provider, how the config gives
- * the identifier, every setting the adapter connects with, and the settings the signer takes. Two
- * key objects with the same identity share one signer, such as the copies Hardhat makes of a key
- * for each connection with config overrides.
+ * What decides the signer a key of a first-party provider gets: the provider, the identifier as
+ * written in the config, every setting the adapter connects with, and the settings the signer
+ * takes. Two key objects with the same identity share one signer, such as the copies Hardhat makes
+ * of a key for each connection with config overrides.
  *
- * The identifier counts by its display form: the literal value, or `<NAME>` for a configuration
- * variable. Literal identifiers are checked against their provider's format when the config loads,
- * and no format allows `<` or `>`, so a literal never looks like a variable. The identity is
- * therefore computed without reading a configuration variable: it cannot fail or prompt for a
- * keystore password, and the adapter stays the first to read the value, after the provider
- * plugin's checks. Within a runtime, the signer reads a variable once, when it is created, as it
- * does for the connections without overrides. Two variables that hold the same value get two
- * signers.
+ * The identifier counts by its comparison form (`identifierComparisonForm`): a literal's value, or
+ * a configuration variable's name, `format` and `default`. It is built without reading any
+ * configuration variable, so computing the identity cannot fail or prompt for a keystore password,
+ * and the adapter stays the first to read the value, after the provider plugin's checks. Within a
+ * runtime, the signer reads a variable once, when it is created, as it does for the connections
+ * without overrides. Two variables that hold the same value get two signers.
  *
  * Unlike `keyIdentity`, an AWS key always includes its region, profile and endpoint, even for an
  * ARN: the profile selects the credentials, and the endpoint where requests go. The key's name is
  * part of the identity too, so two names for one key get two signers and errors name the right
  * key. Google Cloud and Azure keys have no other connection settings: credentials and endpoints
- * come from the environment, and an Azure key URL names its vault. The identity is for comparing
- * keys, never for printing.
+ * come from the environment, and an Azure key URL names its vault.
+ *
+ * Never print or log the identity: a variable's `default` can be a secret.
  *
  * @param key - The resolved key.
- * @returns The identity, or `undefined` for a key of a third-party provider.
+ * @returns The identity, or `undefined` for a key of a third-party provider or an identifier that
+ * config resolution did not build.
  */
 export function signerIdentity(key: KmsKeyConfig): string | undefined {
+  let parts: unknown[];
+  let identifier: KmsIdentifier;
   if ("keyVersionName" in key) {
-    return JSON.stringify(["gcp", key.keyVersionName.display, ...commonSettings(key)]);
+    parts = ["gcp"];
+    identifier = key.keyVersionName;
+  } else if (key.provider === "azure") {
+    parts = ["azure"];
+    identifier = key.keyId;
+  } else if (key.provider === "aws") {
+    parts = ["aws", key.region ?? null, key.profile ?? null, key.endpoint ?? null];
+    identifier = key.keyId;
+  } else {
+    return undefined;
   }
-  if (key.provider === "azure") {
-    return JSON.stringify(["azure", key.keyId.display, ...commonSettings(key)]);
-  }
-  if (key.provider === "aws") {
-    return JSON.stringify([
-      "aws",
-      key.keyId.display,
-      key.region ?? null,
-      key.profile ?? null,
-      key.endpoint ?? null,
-      ...commonSettings(key),
-    ]);
-  }
-  return undefined;
+  const form = identifierComparisonForm(identifier);
+  return form === undefined ? undefined : JSON.stringify([...parts, form, ...commonSettings(key)]);
 }
