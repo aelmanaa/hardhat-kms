@@ -24,7 +24,7 @@ export default defineConfig({
   plugins: [hardhatKmsAws],
   kms: {
     keys: {
-      deployer: { provider: "aws", keyId: "alias/deployer", address: "0x…" },
+      deployer: { provider: "aws", keyId: "alias/deployer" },
     },
   },
   networks: {
@@ -37,7 +37,7 @@ export default defineConfig({
 });
 ```
 
-`hardhat-kms-aws` loads `hardhat-kms` itself. Azure Key Vault and Managed HSM keys need `hardhat-kms-azure` instead ([setup guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/azure-key-vault-setup.md)). Google Cloud KMS keys need `hardhat-kms-gcp` ([setup guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/gcp-kms-setup.md)). See the [configuration reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/configuration.md) for every option.
+To see the key's address, run `npx hardhat kms accounts`, then pin it in the key's config with `address`. `hardhat-kms-aws` loads `hardhat-kms` itself. Azure Key Vault and Managed HSM keys need `hardhat-kms-azure` instead ([setup guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/azure-key-vault-setup.md)). Google Cloud KMS keys need `hardhat-kms-gcp` ([setup guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/gcp-kms-setup.md)). See the [configuration reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/configuration.md) for every option.
 
 ## Docs
 

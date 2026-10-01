@@ -74,7 +74,8 @@ export default defineConfig({
       deployer: {
         provider: "aws",
         keyId: "alias/deployer",
-        // Optional, recommended: the address the key derives to. The plugin refuses to sign if they differ.
+        // Optional, recommended: the address that `npx hardhat kms accounts` prints for this key.
+        // The plugin refuses to sign if the key derives to another address.
         address: "0x…",
       },
     },

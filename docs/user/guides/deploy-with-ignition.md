@@ -27,7 +27,7 @@ export default defineConfig({
   plugins: [hardhatKmsAws, hardhatIgnitionViem],
   solidity: "0.8.24",
   kms: {
-    keys: { deployer: { provider: "aws", keyId: "alias/deployer", address: "0x…" } },
+    keys: { deployer: { provider: "aws", keyId: "alias/deployer" } },
     // Funds the KMS accounts of edr-simulated networks, for rehearsals.
     simulatedBalance: 10n ** 18n,
   },
@@ -54,7 +54,7 @@ export default buildModule("Counter", (m) => {
 
 Ignition sends from its default sender, the first address of `eth_accounts`. The plugin lists the network's own accounts first and the KMS accounts after them ([RPC methods](../reference/rpc-methods.md)), so a KMS account is the default sender only when the network has no accounts of its own. That is the case for an http network whose node lists no accounts, as public RPC endpoints do, and for a network with `accounts: []`.
 
-The KMS account's position in `eth_accounts` therefore differs between networks. On `sepolia` above it is index 0; on the `rehearsal` network below, which has EDR's 20 default accounts, it is index 20. Choose the deployer by address with `--default-sender`, which works on every network the key is listed on:
+The KMS account's position in `eth_accounts` therefore differs between networks. On `sepolia` above it is index 0; on the `rehearsal` network below, which has EDR's 20 default accounts, it is index 20. Choose the deployer by address with `--default-sender`, which works on every network the key is listed on. `npx hardhat kms accounts` prints the key's address:
 
 ```sh
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --default-sender 0x…

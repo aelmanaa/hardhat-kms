@@ -4,7 +4,7 @@ This file tells coding agents where things are in hardhat-kms. Humans can start 
 
 hardhat-kms is a Hardhat 3 plugin that signs transactions, messages and typed data with secp256k1 keys in AWS KMS, Google Cloud KMS and Azure Key Vault. It works at the JSON-RPC layer, so viem, ethers and Ignition see KMS keys as ordinary accounts. The private key never leaves the KMS.
 
-Status: in development, not on npm yet. What the docs describe is on `main`, unless a page marks it as planned.
+Status: not on npm yet. Unless a page marks something as planned, everything the docs describe has merged to `main`, and the plugin is still in development until the 1.0 release.
 
 ## If you are helping someone use the plugin
 
