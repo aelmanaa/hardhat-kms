@@ -134,7 +134,7 @@ The chain runs in `packages/hardhat-kms/src/internal/providers/create-adapter.ts
 To add a first-party provider package, such as `hardhat-kms-gcp` (M6):
 
 1. Create `packages/hardhat-kms-<id>` with the layout of `packages/hardhat-kms-aws` (see [Module layout](architecture.md#module-layout)). The plugin declares `dependencies: () => [import("hardhat-kms")]` and a `kms` hook handler. The handler claims the provider's keys, passes other keys to `next`, and loads the adapter and the SDK with dynamic `import()`. The adapter takes the SDK as an argument, so unit tests can pass a fake.
-2. In its `package.json`, put the SDK in `dependencies` with the tested version as the lower bound, and `hardhat` and `hardhat-kms` in `peerDependencies`.
+2. In its `package.json`, put the SDK in `dependencies` as a caret range on a tested version (`^x.y.z`), and `hardhat` and `hardhat-kms` in `peerDependencies`. `pnpm run test:sdk-floors` tests every dependency under `@aws-sdk/`, `@google-cloud/` or `@azure/` at its floor and rejects other range forms. An SDK in another scope goes into `CLOUD_SDK` in `scripts/test-sdk-floors.ts` and into the Dependabot `cloud-sdks` group.
 3. In the core, set the descriptor's `adapter` to `{ package: "hardhat-kms-<id>" }`.
 4. Move any helper the adapter needs from the core to `packages/hardhat-kms/src/provider-utils.ts`, and update the export list checked by `packages/hardhat-kms/test/unit/plugin.test.ts`.
 5. Register the package with the tooling: the `fixed` group in `.changeset/config.json`, a workspace entry in `knip.json`, a reference in the root `tsconfig.json`, a root devDependency so doc snippets can import it, and the package list in `scripts/consumer-typecheck.ts`.
