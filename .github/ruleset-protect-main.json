@@ -49,19 +49,13 @@
             "context": "Workflow security (zizmor)"
           },
           {
-            "context": "Test (ubuntu-latest, Node 22.13.0)"
+            "context": "Test (Linux, Node 22.13.0)"
           },
           {
-            "context": "Test (ubuntu-latest, Node 24.0.0)"
+            "context": "Test (Linux, Node 24.0.0)"
           },
           {
-            "context": "Test (ubuntu-latest, Node 26.0.0)"
-          },
-          {
-            "context": "Test (macos-latest, Node 22.13.0)"
-          },
-          {
-            "context": "Test (windows-latest, Node 22.13.0)"
+            "context": "Test (Linux, Node 26.0.0)"
           },
           {
             "context": "Consumer typecheck (TypeScript 5.9.3)"

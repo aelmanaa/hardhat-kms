@@ -16,7 +16,7 @@ concurrency:
 jobs:
   lint:
     name: Lint, format and typecheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,7 +32,7 @@ jobs:
 
   docs:
     name: Docs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,8 +52,11 @@ jobs:
           args: --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'packages/*/README.md' 'examples/README.md' 'examples/*/README.md' 'docs/**/*.md'
 
   test:
-    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
-    runs-on: ${{ matrix.os }}
+    # Linux only. macOS and Windows run in ci-all-os.yml: on pushes to main, on manual dispatch and on
+    # pull requests labelled ci:all-os. Job names give the OS family, not the image, so an image change
+    # leaves the required check names alone.
+    name: Test (Linux, Node ${{ matrix.node }})
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
       # Developing needs Node >= 22.18 (root devEngines), but the published package supports 22.13;
@@ -62,14 +65,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Mirrors Hardhat's own matrix: the exact supported floors, plus macOS/Windows on the lowest one.
-        os: [ubuntu-latest]
+        # Mirrors Hardhat's own matrix: the exact supported floors. ci-all-os.yml adds macOS and
+        # Windows on the lowest one.
         node: ["22.13.0", "24.0.0", "26.0.0"]
-        include:
-          - os: macos-latest
-            node: "22.13.0"
-          - os: windows-latest
-            node: "22.13.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -101,7 +99,7 @@ jobs:
 
   localstack:
     name: LocalStack (AWS KMS)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -118,7 +116,7 @@ jobs:
 
   examples:
     name: Examples (LocalStack)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -145,7 +143,7 @@ jobs:
 
   coverage:
     name: Coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -173,7 +171,7 @@ jobs:
 
   package:
     name: Package checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -189,7 +187,7 @@ jobs:
 
   consumer-types:
     name: Consumer typecheck (TypeScript ${{ matrix.typescript }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -211,7 +209,7 @@ jobs:
 
   zizmor:
     name: Workflow security (zizmor)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
