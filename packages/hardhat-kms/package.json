@@ -75,12 +75,15 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^4.2.0",
+    "@nomicfoundation/hardhat-viem": "^3.0.9",
     "@types/node": "catalog:",
     "c8": "catalog:",
     "fast-check": "catalog:",
     "hardhat": "catalog:",
     "tsx": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "viem": "^2.57.1"
   },
   "peerDependencies": {
     "hardhat": "^3.18.0"

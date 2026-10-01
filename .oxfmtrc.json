@@ -10,6 +10,8 @@
     "packages/*/src/internal/vendor/**",
     "**/CHANGELOG.md",
     ".changeset/*.md",
-    "pnpm-lock.yaml"
+    "pnpm-lock.yaml",
+    "packages/*/test/fixture-projects/**/artifacts/**",
+    "packages/*/test/fixture-projects/**/cache/**"
   ]
 }

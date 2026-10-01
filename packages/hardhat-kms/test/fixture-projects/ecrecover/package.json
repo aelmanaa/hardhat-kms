@@ -1,0 +1,5 @@
+{
+  "name": "hardhat-kms-fixture-ecrecover",
+  "private": true,
+  "type": "module"
+}
