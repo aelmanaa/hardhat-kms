@@ -11,6 +11,7 @@ pnpm install              # also installs the git hooks (lefthook)
 pnpm run check            # format check, lint (type-aware) and typecheck
 pnpm test                 # unit + integration tests
 pnpm run test:localstack  # AWS adapter against LocalStack (needs Docker)
+pnpm run test:sdk-floors  # provider packages against their lowest SDK versions
 pnpm run coverage         # tests with coverage thresholds
 pnpm run pkg:check        # build + publint + arethetypeswrong + knip
 pnpm run docs:check       # doc snippets typecheck, every page is indexed
