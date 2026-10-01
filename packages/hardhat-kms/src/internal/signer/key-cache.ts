@@ -1,0 +1,139 @@
+import type { HookContext } from "hardhat/types/hooks";
+
+import type { KmsKeyConfig } from "../../types.ts";
+import { kmsDebug } from "../debug.ts";
+import { createKeyAdapter } from "../providers/create-adapter.ts";
+import { KmsSigner } from "./kms-signer.ts";
+import { systemTimers, type Timers } from "./timeout.ts";
+
+const log = kmsDebug("signer");
+
+/** How long the cache waits after its last connection closes before it closes the signers. */
+const IDLE_CLOSE_MS = 5000;
+
+/**
+ * The signers of one Hardhat runtime, by resolved key config. Every connection of the runtime
+ * shares them, so an address is looked up once. Connections are counted: when the last one closes,
+ * an idle timer closes the signers and their SDK clients, so they do not keep `hardhat run` alive;
+ * the next use creates them again.
+ */
+export class SignerCache {
+  readonly #signers = new Map<KmsKeyConfig, Promise<KmsSigner>>();
+  readonly #timers: Timers;
+  #connections = 0;
+  /** Calls to {@link SignerCache.withSigner} that have not finished. */
+  #active = 0;
+  #cancelIdleClose: (() => void) | undefined;
+
+  /**
+   * @param timers - Timer functions, for tests.
+   */
+  public constructor(timers: Timers = systemTimers) {
+    this.#timers = timers;
+  }
+
+  /**
+   * Runs `use` with the signer for a key, creating its adapter through the `kms` hook on first use.
+   * While `use` runs, the idle close waits, so a request in flight keeps its SDK client.
+   *
+   * @param context - The Hardhat runtime.
+   * @param key - The resolved key.
+   * @param use - What to do with the signer.
+   * @returns What `use` returns.
+   */
+  public async withSigner<T>(
+    context: HookContext,
+    key: KmsKeyConfig,
+    use: (signer: KmsSigner) => Promise<T>,
+  ): Promise<T> {
+    this.#active++;
+    try {
+      return await use(await this.signerFor(context, key));
+    } finally {
+      this.#active--;
+    }
+  }
+
+  /**
+   * Returns the signer for a key, creating its adapter through the `kms` hook on first use.
+   *
+   * @param context - The Hardhat runtime.
+   * @param key - The resolved key.
+   * @returns The signer.
+   */
+  public async signerFor(context: HookContext, key: KmsKeyConfig): Promise<KmsSigner> {
+    let signer = this.#signers.get(key);
+    if (signer === undefined) {
+      signer = this.#create(context, key);
+      this.#signers.set(key, signer);
+      // Never cache a failure: the next request retries.
+      signer.catch(() => {
+        if (this.#signers.get(key) === signer) {
+          this.#signers.delete(key);
+        }
+      });
+    }
+    return await signer;
+  }
+
+  /** Counts a new connection, and keeps the signers open while it lasts. */
+  public connectionOpened(): void {
+    this.#connections++;
+    this.#cancelIdleClose?.();
+    this.#cancelIdleClose = undefined;
+  }
+
+  /** Counts a closed connection; after the last one, closes the signers once idle. */
+  public connectionClosed(): void {
+    this.#connections = Math.max(0, this.#connections - 1);
+    if (this.#connections > 0 || this.#signers.size === 0) {
+      return;
+    }
+    this.#scheduleIdleClose();
+  }
+
+  #scheduleIdleClose(): void {
+    // The system timers are unref'd: an idle timer never keeps the process running.
+    this.#cancelIdleClose?.();
+    this.#cancelIdleClose = this.#timers.setTimeout(() => {
+      this.#cancelIdleClose = undefined;
+      if (this.#connections > 0) {
+        return;
+      }
+      if (this.#active > 0) {
+        // A request is still signing: try again later rather than close its client.
+        this.#scheduleIdleClose();
+        return;
+      }
+      void this.closeAll();
+    }, IDLE_CLOSE_MS);
+  }
+
+  /** Closes every signer and empties the cache. Errors from closing are logged, not thrown. */
+  public async closeAll(): Promise<void> {
+    const signers = [...this.#signers.values()];
+    this.#signers.clear();
+    log("closing %d signers", signers.length);
+    await Promise.all(
+      signers.map(async (pending) => {
+        try {
+          await (await pending).close();
+        } catch {
+          // A signer that failed to open, or to close, has nothing left to release.
+        }
+      }),
+    );
+  }
+
+  async #create(context: HookContext, key: KmsKeyConfig): Promise<KmsSigner> {
+    const adapter = await createKeyAdapter(context, key);
+    return new KmsSigner(adapter, {
+      expectedAddress: key.address,
+      timeoutMs: key.timeoutMs,
+      displayId: key.displayId,
+      displayMessage: async (message) => {
+        await context.interruptions.displayMessage("hardhat-kms", message);
+      },
+    });
+  }
+}

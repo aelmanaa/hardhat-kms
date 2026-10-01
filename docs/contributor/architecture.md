@@ -2,7 +2,7 @@
 
 Audience: Contributors and reviewers who want to understand how the code fits together.
 
-Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry and the `kms` hook (`providers/`). M3 adds the AWS adapter, which lives in its own package, `packages/hardhat-kms-aws` ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)). The other modules are planned; the code map gives each one's milestone.
+Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry and the `kms` hook (`providers/`). M3 adds the AWS adapter, which lives in its own package, `packages/hardhat-kms-aws` ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)). M4 adds the network hook, the RPC dispatcher for accounts, messages and typed data, and the per-runtime signer cache ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). The other modules are planned; the code map gives each one's milestone.
 
 ## Module map
 
@@ -10,12 +10,14 @@ Each arrow points from a module to a module it may import. Blue modules are impl
 
 ```mermaid
 flowchart TD
-  index["index.ts<br/>plugin definition"] --> hooks["hook-handlers/<br/>config, network"]
+  index["index.ts<br/>plugin definition"] --> hooks["hook-handlers/<br/>config, hre, network"]
   index --> tasks["tasks/"]
   hooks --> config["config/<br/>schema and resolution"]
   hooks --> registry["providers/registry.ts<br/>providers/create-adapter.ts"]
-  hooks --> rpc["rpc/<br/>dispatcher, accounts,<br/>messages, transactions"]
-  rpc --> signer["signer/<br/>KmsSigner, timeouts"]
+  hooks --> rpc["rpc/<br/>dispatcher: accounts, messages<br/>(transactions in M5)"]
+  hooks --> signer
+  rpc --> signer["signer/<br/>KmsSigner, signer cache, timeouts"]
+  signer --> registry
   tasks --> signer
   registry --> descriptors["providers/aws, gcp, azure<br/>descriptor, key format"]
   signer --> crypto["crypto/<br/>keys, signatures, digests"]
@@ -24,13 +26,13 @@ flowchart TD
   utils --> descriptors
   crypto --> vendor["vendor/micro-eth-signer<br/>EIP-712 encoder"]
   classDef done fill:#0847F7,color:#fff,stroke:#0847F7
-  class crypto,signer,vendor,config,registry,descriptors,packages,utils done
+  class index,hooks,rpc,crypto,signer,vendor,config,registry,descriptors,packages,utils done
 ```
 
 The rules behind the arrows:
 
 - `crypto/` is pure: no cloud SDK, no Hardhat runtime, no I/O. Everything in it is testable with vectors and property tests.
-- `signer/` owns every check on the signature itself: parsing, low-S, parity recovery and verification. It receives an adapter and never looks one up.
+- `signer/` owns every check on the signature itself: parsing, low-S, parity recovery and verification. `KmsSigner` receives an adapter and never looks one up; the signer cache (`signer/key-cache.ts`) creates adapters through `providers/create-adapter.ts`.
 - Adapters translate between the provider's wire format and `SignatureOutput`, and run the provider-specific identity checks listed in [Key identity and pinning](signing-pipeline.md#key-identity-and-pinning). They never decide whether a signature belongs to the key.
 - The core depends on no cloud SDK. Each provider package depends on its own SDK and imports it only when it creates an adapter (see [SDK loading](#sdk-loading)), so loading a config never loads a cloud SDK.
 
@@ -61,12 +63,14 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 | `--kms` option (Foundry's variables)       | `packages/hardhat-kms/src/internal/config/env-keys.ts`, `packages/hardhat-kms/src/internal/hook-handlers/hre.ts`                                          | M2, M4    |
 | AWS plugin, `kms` hook handler and adapter | `packages/hardhat-kms-aws/src/index.ts`, `packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts`, `packages/hardhat-kms-aws/src/internal/adapter.ts` | M3        |
 | GCP and Azure adapters                     | `packages/hardhat-kms-gcp/`, `packages/hardhat-kms-azure/` (planned)                                                                                      | M6        |
-| RPC dispatcher and methods                 | `packages/hardhat-kms/src/internal/rpc/`                                                                                                                  | M4, M5    |
+| Network hook                               | `packages/hardhat-kms/src/internal/hook-handlers/network.ts`                                                                                              | M4        |
+| Signer cache                               | `packages/hardhat-kms/src/internal/signer/key-cache.ts`                                                                                                   | M4        |
+| RPC dispatcher and methods                 | `packages/hardhat-kms/src/internal/rpc/dispatcher.ts` (accounts, messages, typed data); transactions planned                                              | M4, M5    |
 | Tasks                                      | `packages/hardhat-kms/src/internal/tasks/`                                                                                                                | M7        |
 
 ## Signing a message
 
-A `personal_sign` request for a KMS account reaches the provider only after the signer knows the key's address. The signer checks the returned signature twice before the hook answers. The hook half of this flow is planned for M4; the `KmsSigner` half exists in M1.
+A `personal_sign` request for a KMS account reaches the provider only after the signer knows the key's address. The signer checks the returned signature twice before the hook answers. The hook half is `packages/hardhat-kms/src/internal/rpc/dispatcher.ts` (M4); the `KmsSigner` half is from M1.
 
 ```mermaid
 sequenceDiagram
@@ -146,7 +150,8 @@ packages/hardhat-kms/src/
                             (path ["networks", n, "kmsAccounts", i]); pure resolve
     hook-handlers/
       config.ts             validate/resolve (imports provider *descriptors* only)
-      network.ts            onRequest / closeConnection
+      hre.ts                reads --kms when the runtime is created; keeps the keys per runtime
+      network.ts            newConnection (default-network warning) / onRequest / closeConnection
     providers/
       registry.ts           provider id -> descriptor; a built-in provider = one folder + its types + one entry here
       create-adapter.ts     runs the `kms` hook chain; a key no handler claims fails; checks the adapter
@@ -154,17 +159,18 @@ packages/hardhat-kms/src/
                             config.ts, key-id.ts (pure: key formats and parsing)
     crypto/                 pure, no SDKs: public-key.ts, signature.ts, address.ts, crc32c.ts
     signer/
-      key-cache.ts          per-HRE cache: (provider, canonical configured id) -> adapter + public key promise
+      key-cache.ts          SignerCache: per-runtime signers by resolved key config; idle close after the last connection
       kms-signer.ts         signDigest -> {r, s, yParity}: parse -> range -> low-S -> trial recovery -> verify
     rpc/
-      dispatcher.ts         request flow (see "Request flow and re-entrancy rules")
-      accounts.ts  messages.ts  transactions.ts
+      dispatcher.ts         request flow (see "Request flow and re-entrancy rules"); ConnectionAccounts;
+                            accounts, eth_sign, personal_sign, eth_signTypedData_v4
+      transactions.ts       (M5)
       transaction-filler.ts port of Hardhat's built-in fill logic, pinned to an upstream commit
       send-guard.ts         process-global lock + nonce high-water + idempotency cache
     tasks/                  accounts, address, public-key, sign, sign-auth, sign-tx, verify
     vendor/micro-eth-signer/  vendored EIP-712 hashing (MIT, see "Vendored EIP-712")
     errors.ts               allow-listed error builder
-    debug.ts                createDebug("hardhat:kms:hook-handlers:…" etc.)
+    debug.ts                kmsDebug: hardhat:kms:config, providers, signer, rpc; plain values only
 ```
 
 The plugin object sets `npmPackage: "hardhat-kms"`. The config hook handler imports provider descriptors only, and no descriptor imports an SDK.
@@ -188,19 +194,23 @@ The dispatcher follows these rules. They keep the hook from deadlocking on its o
 
 1. Pass-through is the default. Only `eth_accounts`, `eth_requestAccounts` and the five signing methods are inspected. Everything else goes straight to `next`, so no allow-list of other methods is needed.
 2. `next` is called at most once per request. Every internal RPC call (for example the reads during fill) goes through `connection.provider.request`, which re-enters the hook chain and is passed through by rule 1.
-3. Per-HRE initialisation holds a mutex only while it builds plain objects. No I/O happens under that mutex.
+3. Per-runtime and per-connection state (`SignerCache`, `ConnectionAccounts`) is memoised as promises, with no lock. A failed promise is dropped, so the next request retries.
 4. `eth_sendTransaction` for KMS address `a` on chain `c` takes the process-global lock `c:a`. Inside the lock the code may issue read calls (fill), make any number of KMS signature attempts (retries), and make exactly one `next(eth_sendRawTransaction)`.
 5. `eth_signTransaction` takes no lock and never touches the nonce high-water mark, because it never broadcasts.
 
 ## Other signing plugins
 
-Hardhat runs dynamically registered handlers first, then plugins in reverse order of the `plugins` array, and its built-in handlers last. Another plugin that intercepts `eth_accounts` or `eth_sendTransaction`, such as `@nomicfoundation/hardhat-ledger`, therefore runs before or after hardhat-kms depending on where each appears in `plugins`. hardhat-kms only acts on addresses it owns and passes everything else on, so both plugins can coexist; an integration test in M4 loads hardhat-kms together with hardhat-ledger to keep it that way.
+Hardhat runs dynamically registered handlers first, then plugins in reverse order of the `plugins` array, and its built-in handlers last. Another plugin that intercepts `eth_accounts` or `eth_sendTransaction`, such as `@nomicfoundation/hardhat-ledger`, therefore runs before or after hardhat-kms depending on where each appears in `plugins`. hardhat-kms only acts on addresses it owns and passes everything else on, so both plugins can coexist. No test loads hardhat-kms together with hardhat-ledger yet.
 
 ## Lifetimes and caching
 
-Adapters, SDK clients and public-key promises are cached per HRE, inside the hook-factory closure. Every connection and every test file shares them. The cache key is (provider, canonical configured id after `.get()`), with a secondary index by the resolved ARN or key version.
+The network hook's factory runs once per runtime. Its closure holds a `SignerCache` (`packages/hardhat-kms/src/internal/signer/key-cache.ts`), so every connection of the runtime shares the same signers, and an address is looked up once. The cache is keyed by the resolved key config object, by identity. It does not deduplicate by provider and canonical key id: two key entries that name the same KMS key, such as a named key and an inline key, get two signers. On one network, the dispatcher then refuses them as the same account. A connection created with an `override` resolves the config again, so it gets new key objects and new signers ([#105](https://github.com/aelmanaa/hardhat-kms/issues/105)). A signer that fails to open is not cached.
 
-SDK clients are refcounted by connections. When the count reaches zero, an idle timer (`unref`'d, about 5 s) closes them, and they are re-created lazily on next use. They are never closed from `closeConnection`. GCP uses `{ fallback: true }` (REST) by default, so no gRPC channel keeps `hardhat run` alive. A test checks that `hardhat run` exits.
+Each connection with KMS keys gets a `ConnectionAccounts` (`packages/hardhat-kms/src/internal/rpc/dispatcher.ts`), which maps its addresses to keys. Its lookups run in parallel on first use, and a failed lookup is not cached.
+
+The cache counts connections that have KMS keys. Five seconds after the last of them closes, an `unref`'d idle timer closes the signers, and with them the adapters and SDK clients; the next use creates them again. A connection that opens before the timer fires cancels it, and a connection closed twice is counted once. While a request is still signing, the idle close waits and tries again, so the request keeps its SDK client. Because the timer is `unref`'d and nothing else holds the event loop, a script that signs and never closes its connection still exits. `packages/hardhat-kms-aws/test/integration/network.test.ts` checks this with `packages/hardhat-kms-aws/test/fixtures/sign-and-exit.ts`. GCP will use `{ fallback: true }` (REST) by default, so no gRPC channel keeps `hardhat run` alive.
+
+Status messages from adapters go to Hardhat's `interruptions.displayMessage` with the title `hardhat-kms`.
 
 ## Timeouts and retries
 

@@ -2,7 +2,7 @@
 
 Audience: Users configuring the plugin.
 
-Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `hardhat-kms-aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). Signing from scripts and tasks needs the network hook (M4); the Google Cloud and Azure adapters come in M6.
+Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `hardhat-kms-aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). M4 adds the network hook: connections to a network with `kmsAccounts` list the KMS accounts and sign messages and typed data with them ([RPC methods](rpc-methods.md)). `kms.allowCrossChainTypedData` and `kms.simulatedBalance` are validated but have no effect yet, and `--kms` keys are not added to networks yet ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). The Google Cloud and Azure adapters come in M6.
 
 ## Configuration
 
@@ -49,19 +49,19 @@ export default defineConfig({
 
 A network's `kmsAccounts` lists key names or inline key objects. The full set of plugin config fields:
 
-| Field                          | Meaning                                                                                                                           |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `kms.keys`                     | Named keys, reused across networks.                                                                                               |
-| `kms.defaults.aws.region`      | Default AWS region (see the region precedence below).                                                                             |
-| `kms.defaults.timeoutMs`       | Default per-call timeout. Default 30 s.                                                                                           |
-| `kms.allowCrossChainTypedData` | Allow typed data whose `domain.chainId` differs from the connection's chain. Default `false`.                                     |
-| `kms.simulatedBalance`         | A bigint in wei. On `edr-simulated` networks only, the plugin calls `hardhat_setBalance` for each KMS address on `newConnection`. |
-| `networks.<name>.kmsAccounts`  | Key names or inline key objects for that network, on http and `edr-simulated` networks.                                           |
-| `address` (per key)            | Optional address pin. Recommended: it avoids a KMS call to learn the address and guards against key substitution.                 |
-| `timeoutMs` (per key)          | Overrides the default timeout for that key.                                                                                       |
-| `approvalTimeoutMs`            | Timeout for providers with asynchronous approval flows, set alongside `timeoutMs`.                                                |
+| Field                          | Meaning                                                                                                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `kms.keys`                     | Named keys, reused across networks.                                                                                                                                                        |
+| `kms.defaults.aws.region`      | Default AWS region (see the region precedence below).                                                                                                                                      |
+| `kms.defaults.timeoutMs`       | Default per-call timeout. Default 30 s.                                                                                                                                                    |
+| `kms.allowCrossChainTypedData` | Allow typed data whose `domain.chainId` differs from the connection's chain. Default `false`. The check comes with [#20](https://github.com/aelmanaa/hardhat-kms/issues/20).               |
+| `kms.simulatedBalance`         | A bigint in wei. On `edr-simulated` networks only, the plugin calls `hardhat_setBalance` for each KMS address on `newConnection`. Not implemented yet: the value is validated and ignored. |
+| `networks.<name>.kmsAccounts`  | Key names or inline key objects for that network, on http and `edr-simulated` networks.                                                                                                    |
+| `address` (per key)            | Optional address pin. Recommended: it avoids a KMS call to learn the address and guards against key substitution.                                                                          |
+| `timeoutMs` (per key)          | Overrides the default timeout for that key.                                                                                                                                                |
+| `approvalTimeoutMs`            | Timeout for providers with asynchronous approval flows, set alongside `timeoutMs`.                                                                                                         |
 
-The plugin will warn when `kmsAccounts` is set on the `default` network (planned for M4).
+When `kmsAccounts` is set on the `default` network, the plugin prints a warning once per run: tasks and tests use that network when no `--network` is given, so they would call KMS. Put KMS keys on a named network instead.
 
 ## Keys from the command line
 

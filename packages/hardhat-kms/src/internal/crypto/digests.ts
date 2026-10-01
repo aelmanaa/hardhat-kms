@@ -17,6 +17,58 @@ export interface TypedData {
 
 type EncoderInput = Parameters<typeof sigHash>[0];
 
+/** Thrown when a value does not have the shape of EIP-712 typed data. */
+export class InvalidTypedDataError extends Error {
+  public override readonly name = "InvalidTypedDataError";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isField(value: unknown): value is { name: string; type: string } {
+  return isRecord(value) && typeof value.name === "string" && typeof value.type === "string";
+}
+
+/**
+ * Checks that a value has the shape of EIP-712 typed data and computes its digest once, so that a
+ * malformed payload fails here, before any KMS call.
+ *
+ * @param value - The payload, for example the parsed `eth_signTypedData_v4` param.
+ * @returns The same value, typed.
+ * @throws {InvalidTypedDataError} If the shape is wrong or the encoder rejects it.
+ */
+export function parseTypedData(value: unknown): TypedData {
+  if (!isRecord(value)) {
+    throw new InvalidTypedDataError("the typed data must be an object");
+  }
+  const { types, primaryType, domain, message } = value;
+  if (!isRecord(types)) {
+    throw new InvalidTypedDataError("`types` must map each type name to a list of {name, type}");
+  }
+  const entries: [string, { name: string; type: string }[]][] = [];
+  for (const [name, fields] of Object.entries(types)) {
+    if (!Array.isArray(fields) || !fields.every(isField)) {
+      throw new InvalidTypedDataError(`\`types.${name}\` must be a list of {name, type}`);
+    }
+    entries.push([name, fields]);
+  }
+  if (typeof primaryType !== "string" || !isRecord(domain) || !isRecord(message)) {
+    throw new InvalidTypedDataError(
+      "the typed data needs a string `primaryType` and object `domain` and `message`",
+    );
+  }
+  // fromEntries defines own properties, so a type named `__proto__` cannot reach the prototype.
+  const typedFields: TypedData["types"] = Object.fromEntries(entries);
+  const typedData: TypedData = { types: typedFields, primaryType, domain, message };
+  try {
+    typedDataDigest(typedData);
+  } catch (error) {
+    throw new InvalidTypedDataError(error instanceof Error ? error.message : String(error));
+  }
+  return typedData;
+}
+
 /**
  * Computes the EIP-191 ("personal message") digest of `message`.
  *

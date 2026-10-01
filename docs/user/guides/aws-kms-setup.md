@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in AWS KMS.
 
-Status: the AWS adapter is implemented (M3), in the `hardhat-kms-aws` package. Signing from scripts and tasks needs the network hook (M4), so these steps prepare a key that the plugin checks and can sign with once M4 lands.
+Status: the AWS adapter is implemented (M3), in the `hardhat-kms-aws` package. With the network hook (M4), a connection lists the key's account and signs messages and typed data with it. Sending transactions comes in M5 ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)).
 
 ## 1. Create a secp256k1 signing key
 
@@ -87,7 +87,29 @@ export default defineConfig({
 
 `keyId` accepts a key id, a key ARN, an alias name or an alias ARN; the [configuration reference](../reference/configuration.md) lists every option. The region comes from the ARN if `keyId` is one, then the key's `region`, then `kms.defaults.aws.region`, then the SDK's own chain (`AWS_REGION`, then the profile's region).
 
-To use a key without a config entry, set `AWS_KMS_KEY_ID` and pass `--kms aws`; see [Migrate from Foundry](migrate-from-foundry.md).
+To use a key without a config entry, set `AWS_KMS_KEY_ID` and pass `--kms aws`; see [Migrate from Foundry](migrate-from-foundry.md). Signing with such keys comes with [#84](https://github.com/aelmanaa/hardhat-kms/issues/84).
+
+## 4. Check that the key signs
+
+Save this script as `scripts/check-kms.ts`. It lists the accounts on `sepolia`, then signs the message `hello` with the last one, which is the KMS account:
+
+```ts
+import { network } from "hardhat";
+
+const { provider } = await network.create("sepolia");
+const accounts = await provider.request({ method: "eth_accounts" });
+const address: unknown = Array.isArray(accounts) ? accounts.at(-1) : undefined;
+if (typeof address !== "string") {
+  throw new Error("no accounts");
+}
+const signature = await provider.request({
+  method: "personal_sign",
+  params: ["0x68656c6c6f", address],
+});
+console.log(address, signature);
+```
+
+Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. The first run calls `GetPublicKey` unless the key has an `address` pin, then `Sign` once.
 
 ## How the plugin uses the key
 
