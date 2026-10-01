@@ -2,7 +2,7 @@
 
 Audience: Users running the `kms` tasks.
 
-Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so is `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)). The other tasks are planned for M7.
+Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). The other tasks are planned for M7.
 
 ## Tasks
 
@@ -15,7 +15,7 @@ All tasks live in the `kms` namespace, which is an `emptyTask` in the same style
 | `kms sign <key> <message> [--data [--from-file]] [--no-hash]`                          | EIP-191, EIP-712, or a raw 32-byte digest. `--no-hash` exists only here, as an explicit human action.              | `cast wallet sign [--data [--from-file]] [--no-hash]`   |
 | `kms sign-auth <key> <delegate> --chain <id> [--nonce n] [--self-broadcast] [--force]` | EIP-7702 authorization. Chain 0 requires `--force`; `--self-broadcast` uses nonce+1.                               | `cast wallet sign-auth`                                 |
 | `kms sign-tx <key> --network n <tx.json>`                                              | Filled and signed, not broadcast.                                                                                  | `cast mktx`                                             |
-| `kms verify <address> <message> <signature>`                                           | Local signature verification.                                                                                      | `cast wallet verify`                                    |
+| `kms verify (--address a \| --key k) <message> <signature> [--data [--from-file]]`     | Local signature verification against an address or a key. No `--no-hash`.                                          | `cast wallet verify [--data [--from-file]]`             |
 
 ## Naming a key
 
@@ -140,6 +140,62 @@ Error in community plugin hardhat-kms: kms sign: the typed data is for chain 1, 
 ```text
 [hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Sign only a digest you computed yourself: it can authorize a transaction or a permit.
 ```
+
+## `kms verify`
+
+```text
+npx hardhat kms verify --address <address> <message> <signature>
+npx hardhat kms verify --key <key> <message> <signature>
+npx hardhat kms verify --data [--from-file] (--address <address> | --key <key>) <typed-data> <signature>
+```
+
+Recovers the address that signed the message or typed data and compares it with the expected signer. The check runs locally. Name the expected signer with exactly one of these options:
+
+- `--address` takes the address to expect, and no KMS is contacted. An all-lowercase or all-uppercase address is accepted; a mixed-case one must have a correct EIP-55 checksum.
+- `--key` takes a key name, as in [Naming a key](#naming-a-key), and gets the key's address as [`kms address`](#kms-address) does: from the public key, or from the address an address-only provider reports, checked against an `address` pin. The KMS never signs. If the provider can report neither, the signature is checked against the `address` pin, with a note on standard error that the pin itself is not confirmed.
+
+The message and typed data are read as in [`kms sign`](#kms-sign):
+
+| Input                 | What is verified                                                                                           |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `<message>`           | An EIP-191 message. A value that starts with `0x` is hex bytes; anything else is UTF-8 text, as in `cast`. |
+| `--data <typed-data>` | EIP-712 typed data, as a JSON string, the format `eth_signTypedData_v4` takes.                             |
+| `--data --from-file`  | EIP-712 typed data read from the JSON file `<typed-data>` names.                                           |
+
+`--from-file` requires `--data`. JSON numbers above 2^53 - 1 are refused, since `JSON.parse` would round them; write such values as strings. Verifying typed data checks no chain: the domain's `chainId` is part of the signed digest, so a signature for another chain does not match. A message that starts with `-` goes after `--`, so that Hardhat does not read it as an option:
+
+```bash
+npx hardhat kms verify --address 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 "hello world" 0xa461…5b1b
+npx hardhat kms verify --data --from-file --key deployer permit.json 0x…
+npx hardhat kms verify --address 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 -- "-1 ETH" 0x…
+```
+
+The signature is 65 bytes, `r || s || v`, as `kms sign`, `personal_sign` and `eth_signTypedData_v4` return it. The task reads it as cast does, through alloy:
+
+- `v` may be 27 or 28, the bare recovery bit 0 or 1, or an EIP-155 value of 35 or more, whose recovery bit is `(v - 35) % 2`. Any other `v` is refused.
+- A high-S signature, the malleable twin of the low-S one, is accepted: it recovers the same address. On a match the task adds a note to standard error, since OpenZeppelin's `ECDSA.recover` rejects the high-S form, and gives the low-S form to use instead.
+- A value that is not `0x`-prefixed hex, is not 65 bytes, or has `r` or `s` outside 1 to n - 1 is refused with an error that says which.
+
+On a match the task prints one line to standard output and exits with code 0:
+
+```text
+Valid: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 signed this message.
+```
+
+On a mismatch it prints both addresses to standard error and exits with code 1:
+
+```text
+Invalid: the signature over this message recovers to 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, not to the expected signer 0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826.
+```
+
+Invalid input also exits with code 1, with an `Error in community plugin hardhat-kms: kms verify:` message. As in cast, the exit code does not tell a mismatch from invalid input. From a script, `hre.tasks.getTask(["kms", "verify"]).run({ message, signature, address })` returns Hardhat's result object, `{ success: true, value: { address } }` or `{ success: false, error: { recovered, expected } }`, and throws only on invalid input.
+
+Compared with `cast wallet verify`:
+
+- The message, `--data` and `--from-file`, the `v` values and the high-S handling are the same.
+- There is no `--no-hash`, on purpose. Only `kms sign --no-hash` handles raw 32-byte digests, as an explicit human action ([decision 0003](../../contributor/decisions/0003-no-bare-digest-over-rpc.md)). Verifying a signature over a raw digest may come later if users ask for it ([#31](https://github.com/aelmanaa/hardhat-kms/issues/31)).
+- `--key` checks against a KMS key without copying its address.
+- Only EOA signatures are checked. A smart-contract wallet's EIP-1271 `isValidSignature` is not called.
 
 ## Details for the planned tasks
 

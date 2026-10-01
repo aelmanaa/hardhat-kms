@@ -84,7 +84,7 @@ describe("SDK loading", () => {
       assert.deepEqual(sdkModules(urls), []);
     });
 
-    for (const task of ["address", "public-key"]) {
+    for (const task of ["address", "public-key", "verify"]) {
       it(`runs kms ${task} on a key of another provider without loading the Google Cloud SDK (${hooks} hooks)`, () => {
         const { urls, stdout } = run({
           ...recorderEnv,

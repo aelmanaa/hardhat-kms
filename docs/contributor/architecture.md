@@ -77,7 +77,9 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 | Key lookup and signers for tasks            | `packages/hardhat-kms/src/internal/tasks/keys.ts`                                                                                                                 | M7        |
 | `kms address`, `kms public-key`             | `packages/hardhat-kms/src/internal/tasks/{address,public-key}.ts`                                                                                                 | M7        |
 | `kms sign`                                  | `packages/hardhat-kms/src/internal/tasks/sign.ts`                                                                                                                 | M7        |
-| Typed-data parsing and chain check          | `packages/hardhat-kms/src/internal/rpc/typed-data.ts`, shared by `eth_signTypedData_v4` and `kms sign --data`                                                     | M4, M7    |
+| `kms verify`                                | `packages/hardhat-kms/src/internal/tasks/verify.ts`                                                                                                               | M7        |
+| Message and typed-data arguments of tasks   | `packages/hardhat-kms/src/internal/tasks/inputs.ts`, shared by `kms sign` and `kms verify`                                                                        | M7        |
+| Typed-data parsing and chain check          | `packages/hardhat-kms/src/internal/rpc/typed-data.ts`, shared by `eth_signTypedData_v4`, `kms sign --data` and `kms verify --data`                                | M4, M7    |
 | Other tasks                                 | `packages/hardhat-kms/src/internal/tasks/` (planned)                                                                                                              | M7        |
 
 ## Signing a message
@@ -183,8 +185,8 @@ packages/hardhat-kms/src/
       send-guard.ts         process-global send lock; per connection: nonce high-water marks, retry entries,
                             uncertain transactions; SendOutcomeUnknownError
     tasks/                  keys.ts: key lookup by name, signers closed after each run, printLine;
-                            one action module per task: address, public-key, sign (accounts, sign-auth,
-                            sign-tx, verify planned)
+                            inputs.ts: message and --data arguments; one action module per task:
+                            address, public-key, sign, verify (accounts, sign-auth, sign-tx planned)
     vendor/micro-eth-signer/  vendored EIP-712 hashing (MIT, see "Vendored EIP-712")
     errors.ts               allow-listed error builder
     warnings.ts             the one console.warn: warnings for the user
@@ -230,7 +232,7 @@ The user documentation therefore recommends listing hardhat-ledger first ([Other
 
 ## Tasks
 
-The plugin definition declares `emptyTask("kms")` and one `task(["kms", <name>])` per task, each with `setAction(() => import(...))`, as hardhat-keystore does. Defining the tasks loads no action module and no SDK. The SDK-loading tests in the provider packages check both, and that running `kms address` and `kms public-key` on another provider's key loads no SDK.
+The plugin definition declares `emptyTask("kms")` and one `task(["kms", <name>])` per task, each with `setAction(() => import(...))`, as hardhat-keystore does. Defining the tasks loads no action module and no SDK. The SDK-loading tests in the provider packages check both, and that running `kms address`, `kms public-key` and `kms verify --key` on another provider's key loads no SDK.
 
 Every task that takes a key uses `packages/hardhat-kms/src/internal/tasks/keys.ts`:
 
@@ -242,6 +244,8 @@ Every task that takes a key uses `packages/hardhat-kms/src/internal/tasks/keys.t
 `kms address` uses `KmsSigner.confirmedAddress()`, which, unlike `getAddress()`, asks an address-only adapter even when the key has a pin, and says when the address is an unchecked pin. An action module's default export is a `NewTaskActionFunction`. It prints its result with `printLine` and also returns it, so `hre.tasks.getTask(["kms", "address"]).run({ key })` gives the value to scripts and tests. Errors are `kmsError`s, which the CLI prints and turns into exit code 1. The key's argument is the positional argument `key`, described by `KEY_ARGUMENT_DESCRIPTION` in `index.ts`. The user-facing rules are in the [tasks reference](../user/reference/tasks.md).
 
 `kms sign` checks its input before it opens a signer. Typed data goes through `readTypedData` and `checkTypedDataChain` in `rpc/typed-data.ts`, the functions `eth_signTypedData_v4` uses, and the chain to compare with is `--chain`, else the `chainId` in the `--network` config. Only a network config without `chainId` makes the task open a connection to read `eth_chainId`; creating it runs the network hook, which can call the KMS, since Hardhat funds an `edr-simulated` network's accounts then. After signing, the task recovers the address from the printed `r || s || v` and refuses a signature that does not recover to the key. That catches a substituted or wrong signer output. It is no independent check of the digest: the task computes the digest with the signer's own code.
+
+`kms sign` and `kms verify` read their message the same way, through `tasks/inputs.ts`: `readMessage` decodes `0x` hex or UTF-8, and `readTypedDataArgument` reads `--data` JSON, from the file with `--from-file`, through `readTypedData`. `kms verify` checks every input before it contacts the KMS, then parses the signature with `parseRpcSignature` in `crypto/signature.ts`, which reads `v` and folds a high-S signature to low S as alloy does, and recovers the address with `recoverAddress`. With `--key`, it gets the key's address with `confirmedAddress()`, as `kms address` does; with `--address`, it opens no signer. A mismatch returns Hardhat's `errorResult`, which the CLI turns into exit code 1 without printing an error.
 
 ## Lifetimes and caching
 

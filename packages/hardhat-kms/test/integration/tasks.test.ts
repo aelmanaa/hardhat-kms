@@ -163,6 +163,7 @@ describe("kms tasks", () => {
       "address",
       "public-key",
       "sign",
+      "verify",
     ]);
   });
 

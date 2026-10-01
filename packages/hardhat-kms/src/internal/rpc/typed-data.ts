@@ -1,6 +1,6 @@
 import { InvalidTypedDataError, parseTypedData, type TypedData } from "../crypto/digests.ts";
 import { kmsDebug } from "../debug.ts";
-import { kmsError } from "../errors.ts";
+import { errorName, kmsError } from "../errors.ts";
 import { parseChainId } from "./chain-id.ts";
 
 const log = kmsDebug("rpc");
@@ -22,7 +22,15 @@ export function readTypedData(data: unknown, operation: string): TypedData {
       if (error instanceof InvalidTypedDataError) {
         throw kmsError(`the typed data is invalid: ${error.message}`, { operation });
       }
-      throw kmsError("the typed data is not valid JSON", { operation });
+      if (error instanceof SyntaxError) {
+        throw kmsError("the typed data is not valid JSON", { operation });
+      }
+      // Not a syntax error: JSON.parse with a reviver recurses, so deep nesting overflows the
+      // stack with a RangeError.
+      throw kmsError(
+        `the typed data could not be read (${errorName(error)}); it may be nested too deeply`,
+        { operation },
+      );
     }
   }
   try {
