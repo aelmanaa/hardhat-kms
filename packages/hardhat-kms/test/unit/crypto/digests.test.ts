@@ -20,7 +20,17 @@ import {
   verifyTypedDataSignature,
 } from "../../../src/internal/crypto/digests.ts";
 import { InvalidPublicKeyError } from "../../../src/internal/crypto/public-key.ts";
+import { ERRORS } from "../../../src/internal/error-catalog.ts";
+import { catalogMessage } from "../../../src/internal/errors.ts";
 import { EIP712_MAIL } from "../../helpers/vectors.ts";
+
+/** Matches an `InvalidTypedDataError` whose message is exactly `message`, a catalogue entry's. */
+function invalidTypedData(message: string): (error: unknown) => boolean {
+  return (error) =>
+    error instanceof InvalidTypedDataError &&
+    error.name === "InvalidTypedDataError" &&
+    error.message === message;
+}
 
 describe("digests", () => {
   it("computes the EIP-712 digest of the specification example", () => {
@@ -131,7 +141,14 @@ describe("addresses", () => {
       "0xF39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
       "0Xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
     ]) {
-      assert.throws(() => toChecksumAddress(address), InvalidAddressError, address);
+      assert.throws(
+        () => toChecksumAddress(address),
+        (error: unknown) =>
+          error instanceof InvalidAddressError &&
+          error.name === "InvalidAddressError" &&
+          error.message === catalogMessage(ERRORS.invalidAddress, { address }),
+        address,
+      );
     }
   });
 });
@@ -142,25 +159,58 @@ describe("parseTypedData", () => {
   });
 
   it("rejects payloads that are not EIP-712 typed data", () => {
-    const cases: Array<[string, unknown, RegExp]> = [
-      ["not an object", 42, /must be an object/],
-      ["an array", [], /must be an object/],
-      ["types not an object", { ...EIP712_MAIL, types: [] }, /`types` must map/],
+    const notAnObject = catalogMessage(ERRORS.typedDataObject, {});
+    const mailFields = catalogMessage(ERRORS.typedDataTypeFields, { typeName: "Mail" });
+    const shape = catalogMessage(ERRORS.typedDataShape, {});
+    const unknownType = { ...EIP712_MAIL, primaryType: "Missing" };
+    // The encoder's own error, whose message the refusal passes on.
+    const encoderError = (() => {
+      try {
+        typedDataDigest(unknownType);
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    })();
+    assert.ok(encoderError instanceof Error);
+    const cases: Array<[string, unknown, string]> = [
+      ["not an object", 42, notAnObject],
+      ["an array", [], notAnObject],
       [
-        "a field without a type",
-        { ...EIP712_MAIL, types: { Mail: [{ name: "x" }] } },
-        /`types.Mail`/,
+        "types not an object",
+        { ...EIP712_MAIL, types: [] },
+        catalogMessage(ERRORS.typedDataTypes, {}),
       ],
-      ["a missing primaryType", { ...EIP712_MAIL, primaryType: 1 }, /string `primaryType`/],
-      ["a missing message", { ...EIP712_MAIL, message: null }, /object `domain` and `message`/],
-      ["an unknown primaryType", { ...EIP712_MAIL, primaryType: "Missing" }, /./],
+      ["fields not a list", { ...EIP712_MAIL, types: { Mail: {} } }, mailFields],
+      // Each of these would reach the encoder, which fails on them with its own message.
+      ["a field that is null", { ...EIP712_MAIL, types: { Mail: [null] } }, mailFields],
+      [
+        "a field without a name",
+        { ...EIP712_MAIL, types: { Mail: [{ type: "string" }] } },
+        mailFields,
+      ],
+      ["a field without a type", { ...EIP712_MAIL, types: { Mail: [{ name: "x" }] } }, mailFields],
+      ["a missing primaryType", { ...EIP712_MAIL, primaryType: 1 }, shape],
+      ["a missing domain", { ...EIP712_MAIL, domain: [] }, shape],
+      ["a missing message", { ...EIP712_MAIL, message: null }, shape],
+      [
+        "an unknown primaryType",
+        unknownType,
+        catalogMessage(ERRORS.typedDataEncoder, { message: encoderError.message }),
+      ],
     ];
     for (const [name, value, message] of cases) {
-      assert.throws(
-        () => parseTypedData(value),
-        (error: unknown) => error instanceof InvalidTypedDataError && message.test(error.message),
-        name,
-      );
+      assert.throws(() => parseTypedData(value), invalidTypedData(message), name);
+    }
+  });
+
+  it("refuses values that are not plain data, before reading them", () => {
+    const plainData = catalogMessage(ERRORS.typedDataPlainData, {});
+    for (const [name, value] of [
+      ["a function", { ...EIP712_MAIL, message: { ...EIP712_MAIL.message, hook: () => 1 } }],
+      ["a symbol", { ...EIP712_MAIL, primaryType: Symbol("Mail") }],
+    ] as const) {
+      assert.throws(() => parseTypedData(value), invalidTypedData(plainData), name);
     }
   });
 

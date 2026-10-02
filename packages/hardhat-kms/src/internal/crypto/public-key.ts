@@ -31,7 +31,13 @@ export function publicKeyFromSpkiDer(der: Uint8Array): Uint8Array {
   // Node also accepts trailing bytes and compressed points; require the one canonical encoding,
   // as the signature parser does for signatures.
   const canonical = Uint8Array.from([...SECP256K1_SPKI_PREFIX, ...publicKey]);
-  if (der.length !== canonical.length || !der.every((byte, index) => byte === canonical[index])) {
+  // Without the length check, a longer der still fails every() at its first extra byte, and a
+  // shorter one would be a truncated prefix of the canonical encoding, which Node cannot read.
+  if (
+    !der.every((byte, index) => byte === canonical[index]) ||
+    // Stryker disable next-line ConditionalExpression: every() refuses any der Node can read
+    der.length !== canonical.length
+  ) {
     throw new InvalidPublicKeyError(catalogMessage(ERRORS.spkiDer, {}));
   }
   return publicKey;
@@ -65,8 +71,9 @@ export interface EcJsonWebKey {
   y?: Uint8Array | string | undefined;
 }
 
-const JWK_KEY_TYPES = new Set(["EC", "EC-HSM"]);
-const JWK_SECP256K1_CURVES = new Set(["P-256K", "SECP256K1", "secp256k1"]);
+// Typed to take undefined, so that a missing kty or crv fails the lookup like any other value.
+const JWK_KEY_TYPES = new Set<string | undefined>(["EC", "EC-HSM"]);
+const JWK_SECP256K1_CURVES = new Set<string | undefined>(["P-256K", "SECP256K1", "secp256k1"]);
 
 /**
  * Builds the uncompressed public key from a JSON Web Key (as returned by Azure Key Vault).
@@ -79,12 +86,12 @@ const JWK_SECP256K1_CURVES = new Set(["P-256K", "SECP256K1", "secp256k1"]);
  * @throws {InvalidPublicKeyError} If the key type or curve is wrong, or the point is not on the curve.
  */
 export function publicKeyFromJwk(jwk: EcJsonWebKey): Uint8Array {
-  if (jwk.kty === undefined || !JWK_KEY_TYPES.has(jwk.kty)) {
+  if (!JWK_KEY_TYPES.has(jwk.kty)) {
     throw new InvalidPublicKeyError(
       catalogMessage(ERRORS.jwkKeyType, { keyType: String(jwk.kty) }),
     );
   }
-  if (jwk.crv === undefined || !JWK_SECP256K1_CURVES.has(jwk.crv)) {
+  if (!JWK_SECP256K1_CURVES.has(jwk.crv)) {
     throw new InvalidPublicKeyError(catalogMessage(ERRORS.jwkCurve, { curve: String(jwk.crv) }));
   }
   const x = leftPad(coordinateBytes(jwk.x, "x"), "x");
@@ -118,10 +125,18 @@ function publicKeyFromKeyObject(load: () => KeyObject): Uint8Array {
   } catch {
     throw new InvalidPublicKeyError(catalogMessage(ERRORS.spkiParse, {}));
   }
-  if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "secp256k1") {
+  // A key that is not EC fails the curve check too, with the same error. Node returns an object
+  // from asymmetricKeyDetails for every key it loads, {} when it has no details for the type.
+  if (
+    // Stryker disable next-line OptionalChaining: Node never returns undefined details
+    key.asymmetricKeyDetails?.namedCurve !== "secp256k1" ||
+    // Stryker disable next-line ConditionalExpression: the curve check refuses non-EC keys too
+    key.asymmetricKeyType !== "ec"
+  ) {
     throw new InvalidPublicKeyError(
       catalogMessage(ERRORS.spkiCurve, {
         keyType: String(key.asymmetricKeyType),
+        // Stryker disable next-line OptionalChaining: Node never returns undefined details
         curve: String(key.asymmetricKeyDetails?.namedCurve),
       }),
     );
@@ -136,6 +151,7 @@ function coordinateBytes(value: Uint8Array | string | undefined, name: string): 
       catalogMessage(ERRORS.jwkCoordinateMissing, { coordinate: name }),
     );
   }
+  // Stryker disable next-line ConditionalExpression: Buffer.from(bytes, encoding) copies the bytes
   return typeof value === "string" ? new Uint8Array(Buffer.from(value, "base64url")) : value;
 }
 

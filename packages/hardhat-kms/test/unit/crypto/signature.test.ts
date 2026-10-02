@@ -16,8 +16,39 @@ import {
   toLowS,
   toRpcSignature,
 } from "../../../src/internal/crypto/signature.ts";
+import { ERRORS } from "../../../src/internal/error-catalog.ts";
+import { catalogMessage } from "../../../src/internal/errors.ts";
 
 const N = secp256k1.Point.CURVE().n;
+
+/** Matches an `InvalidSignatureError` whose message is exactly `message`, a catalogue entry's. */
+function invalidSignature(message: string): (error: unknown) => boolean {
+  return (error) =>
+    error instanceof InvalidSignatureError &&
+    error.name === "InvalidSignatureError" &&
+    error.message === message;
+}
+
+const NO_RECOVERY = invalidSignature(catalogMessage(ERRORS.signatureNoRecovery, {}));
+
+/**
+ * Whether `x` is the x coordinate of a secp256k1 point: whether x^3 + 7 is a square mod p, by
+ * Euler's criterion, computed in noble's field.
+ */
+function isCurveX(x: bigint): boolean {
+  const { Fp } = secp256k1.Point;
+  const rhs = Fp.add(Fp.pow(Fp.create(x), 3n), Fp.create(secp256k1.Point.CURVE().b));
+  return Fp.eql(Fp.pow(rhs, (Fp.ORDER - 1n) >> 1n), Fp.ONE);
+}
+
+/** The smallest `r` that is no point's x coordinate, so no public key recovers from it: 5. */
+const OFF_CURVE_R = (() => {
+  let r = 1n;
+  while (isCurveX(r)) {
+    r++;
+  }
+  return r;
+})();
 
 function signCompact(digest: Uint8Array, secretKey: Uint8Array) {
   return secp256k1.Signature.fromBytes(
@@ -99,7 +130,7 @@ describe("signatures", () => {
               digest,
               secp256k1.getPublicKey(expectedKey, false),
             ),
-          InvalidSignatureError,
+          NO_RECOVERY,
         );
       }),
       { numRuns: 100 },
@@ -111,10 +142,17 @@ describe("signatures", () => {
     const signature = signCompact(digest, secp256k1.utils.randomSecretKey());
     const otherKey = secp256k1.getPublicKey(secp256k1.utils.randomSecretKey(), false);
 
-    assert.throws(
-      () => recoverYParity(digest, signature.r, signature.s, otherKey),
-      InvalidSignatureError,
-    );
+    assert.throws(() => recoverYParity(digest, signature.r, signature.s, otherKey), NO_RECOVERY);
+  });
+
+  it("throws from recoverYParity when r is no point's x coordinate, so neither parity recovers", () => {
+    const digest = keccak_256(Uint8Array.of(3));
+    const publicKey = secp256k1.getPublicKey(secp256k1.utils.randomSecretKey(), false);
+    assert.equal(OFF_CURVE_R, 5n);
+    assert.ok(isCurveX(1n) && isCurveX(secp256k1.Point.CURVE().Gx));
+    assert.throws(() => secp256k1.Point.fromHex(`02${word(OFF_CURVE_R)}`));
+
+    assert.throws(() => recoverYParity(digest, OFF_CURVE_R, 1n, publicKey), NO_RECOVERY);
   });
 
   it("rejects random bytes as DER", () => {
@@ -124,7 +162,10 @@ describe("signatures", () => {
         try {
           parsed = parseSignature({ format: "der", bytes });
         } catch (error) {
-          assert.ok(error instanceof InvalidSignatureError);
+          assert.ok(
+            invalidSignature(catalogMessage(ERRORS.signatureParse, { format: "der" }))(error) ||
+              invalidSignature(catalogMessage(ERRORS.signatureRange, {}))(error),
+          );
           return;
         }
         // The rare random input that is valid DER must round-trip exactly.
@@ -140,12 +181,14 @@ describe("signatures", () => {
 
     assert.throws(
       () => parseSignature({ format: "der", bytes: Uint8Array.from([...der, 0]) }),
-      InvalidSignatureError,
+      invalidSignature(catalogMessage(ERRORS.signatureParse, { format: "der" })),
     );
-    assert.throws(
-      () => parseSignature({ format: "compact", bytes: new Uint8Array(65) }),
-      InvalidSignatureError,
-    );
+    for (const length of [63, 65]) {
+      assert.throws(
+        () => parseSignature({ format: "compact", bytes: new Uint8Array(length) }),
+        invalidSignature(catalogMessage(ERRORS.signatureCompactLength, { length })),
+      );
+    }
   });
 
   it("rejects signature formats other than der and compact, without echoing them", () => {
@@ -154,10 +197,7 @@ describe("signatures", () => {
 
     assert.throws(
       () => Reflect.apply(parseSignature, undefined, [output]),
-      (error: unknown) =>
-        error instanceof InvalidSignatureError &&
-        error.message.includes("unsupported signature format") &&
-        !error.message.includes("hhkms-secret"),
+      invalidSignature(catalogMessage(ERRORS.signatureFormat, {})),
     );
   });
 
@@ -168,7 +208,10 @@ describe("signatures", () => {
       [N, 1n],
       [1n, N],
     ] as const) {
-      assert.throws(() => parseSignature({ r, s }), InvalidSignatureError);
+      assert.throws(
+        () => parseSignature({ r, s }),
+        invalidSignature(catalogMessage(ERRORS.signatureRange, {})),
+      );
     }
   });
 
@@ -180,17 +223,16 @@ describe("signatures", () => {
 
   it("returns undefined when no public key can be recovered", () => {
     const digest = keccak_256(Uint8Array.of(2));
-    // x = r must be on the curve for recovery to work; find the first r that is not.
-    let r = 1n;
-    while (recoverPublicKey(digest, r, 1n, 0) !== undefined) {
-      r++;
-    }
 
-    assert.equal(recoverPublicKey(digest, r, 1n, 1), undefined);
+    assert.equal(recoverPublicKey(digest, OFF_CURVE_R, 1n, 0), undefined);
+    assert.equal(recoverPublicKey(digest, OFF_CURVE_R, 1n, 1), undefined);
   });
 
   it("rejects digests that are not 32 bytes", () => {
-    assert.throws(() => recoverPublicKey(new Uint8Array(31), 1n, 1n, 0), InvalidSignatureError);
+    assert.throws(
+      () => recoverPublicKey(new Uint8Array(31), 1n, 1n, 0),
+      invalidSignature(catalogMessage(ERRORS.signatureDigestLength, { length: 31 })),
+    );
   });
 
   it("encodes RPC signatures as r || s || v with v = 27 + yParity, left-padded", () => {
@@ -212,12 +254,12 @@ function rpc(r: bigint, s: bigint, v: number): string {
   return `0x${word(r)}${word(s)}${v.toString(16).padStart(2, "0")}`;
 }
 
-function rejects(signature: string, message: RegExp): void {
-  assert.throws(
-    () => parseRpcSignature(signature),
-    (error: unknown) => error instanceof InvalidSignatureError && message.test(error.message),
-  );
+function rejects(signature: string, message: string): void {
+  assert.throws(() => parseRpcSignature(signature), invalidSignature(message), signature);
 }
+
+const NOT_HEX = catalogMessage(ERRORS.signatureHex, {});
+const OUT_OF_RANGE = catalogMessage(ERRORS.signatureRange, {});
 
 /** The recovery bit `parseRpcSignature` reads from a signature. */
 function bit(signature: string): 0 | 1 {
@@ -289,41 +331,39 @@ describe("parseRpcSignature and recoverAddress", () => {
 
   it("refuses the v values alloy refuses: 2 to 26 and 29 to 34", () => {
     for (const v of [2, 26, 29, 34]) {
-      rejects(
-        rpc(1n, 2n, v),
-        new RegExp(`v must be 0 or 1, 27 or 28, or 35 or more \\(EIP-155\\), got ${v}$`),
-      );
+      rejects(rpc(1n, 2n, v), catalogMessage(ERRORS.signatureV, { v }));
     }
   });
 
   it("refuses input that is not 0x-prefixed hex", () => {
-    rejects(rpc(1n, 2n, 27).slice(2), /must be 0x-prefixed hex/);
-    rejects(`${rpc(1n, 2n, 27).slice(0, -1)}g`, /must be 0x-prefixed hex/);
+    rejects(rpc(1n, 2n, 27).slice(2), NOT_HEX);
+    rejects(`${rpc(1n, 2n, 27).slice(0, -1)}g`, NOT_HEX);
+    // 130 hex digits after the 0x, but the 0x is not at the start.
+    rejects(`a${rpc(1n, 2n, 27).slice(0, -1)}`, NOT_HEX);
   });
 
   it("refuses signatures that are not 65 bytes", () => {
-    rejects("0x", /got 0 hex digits/);
-    rejects(rpc(1n, 2n, 27).slice(0, -2), /expected a 65-byte signature .*got 128 hex digits/);
-    rejects(`${rpc(1n, 2n, 27)}0`, /got 131 hex digits/);
+    rejects("0x", catalogMessage(ERRORS.signatureRpcLength, { digits: 0 }));
+    rejects(
+      rpc(1n, 2n, 27).slice(0, -2),
+      catalogMessage(ERRORS.signatureRpcLength, { digits: 128 }),
+    );
+    rejects(`${rpc(1n, 2n, 27)}0`, catalogMessage(ERRORS.signatureRpcLength, { digits: 131 }));
   });
 
   it("refuses r or s outside [1, n - 1]", () => {
-    rejects(rpc(0n, 2n, 27), /outside the range/);
-    rejects(rpc(1n, 0n, 27), /outside the range/);
-    rejects(rpc(N, 2n, 27), /outside the range/);
-    rejects(rpc(1n, N, 27), /outside the range/);
+    rejects(rpc(0n, 2n, 27), OUT_OF_RANGE);
+    rejects(rpc(1n, 0n, 27), OUT_OF_RANGE);
+    rejects(rpc(N, 2n, 27), OUT_OF_RANGE);
+    rejects(rpc(1n, N, 27), OUT_OF_RANGE);
   });
 
   it("fails when no public key recovers", () => {
     const digest = keccak_256(Uint8Array.of(2));
-    let r = 1n;
-    while (recoverPublicKey(digest, r, 1n, 0) !== undefined) {
-      r++;
-    }
 
     assert.throws(
-      () => recoverAddress(digest, { r, s: 1n, yParity: 0 }),
-      /no public key recovers from the signature/,
+      () => recoverAddress(digest, { r: OFF_CURVE_R, s: 1n, yParity: 0 }),
+      invalidSignature(catalogMessage(ERRORS.signatureNoPublicKey, {})),
     );
   });
 });
