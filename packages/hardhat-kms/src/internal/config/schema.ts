@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogMessage } from "../errors.ts";
 import { BUILTIN_PROVIDERS } from "../providers/registry.ts";
+import { auditSchema } from "./audit.ts";
 import { commonKeyFields, nonEmptyString, timeoutSchema } from "./common.ts";
 
 /** Key names are kept simple because tasks will take them as command-line arguments. */
@@ -113,6 +114,7 @@ const kmsSchema = z
       .bigint({ invalid_type_error: catalogMessage(ERRORS.simulatedBalanceType, {}) })
       .nonnegative(catalogMessage(ERRORS.simulatedBalanceNegative, {}))
       .optional(),
+    audit: auditSchema.optional(),
   })
   .strict();
 

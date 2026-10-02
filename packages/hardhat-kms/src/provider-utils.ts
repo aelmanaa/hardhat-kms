@@ -30,3 +30,5 @@ export {
 export { parseAwsKeyId, type ParsedAwsKeyId } from "./internal/providers/aws/key-id.ts";
 export { parseAzureKeyId, type ParsedAzureKeyId } from "./internal/providers/azure/key-id.ts";
 export { checkProviderVersion } from "./internal/providers/version.ts";
+// For history readers, first-party or not: the errors kms history expects when a log cannot be read.
+export { auditLogAccessDenied, auditLogThrottled } from "./internal/history/errors.ts";

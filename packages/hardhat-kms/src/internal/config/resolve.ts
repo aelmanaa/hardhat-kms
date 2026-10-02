@@ -10,6 +10,7 @@ import type {
 import { ERRORS } from "../error-catalog.ts";
 import { internalError } from "../errors.ts";
 import { builtinProvider } from "../providers/registry.ts";
+import { resolveAuditConfig } from "./audit.ts";
 import { DEFAULT_TIMEOUT_MS } from "./common.ts";
 import { isConfigurationVariable } from "./identifiers.ts";
 import { type KeyResolveContext, resolveCommonKeyConfig } from "./key-common.ts";
@@ -107,6 +108,7 @@ export function resolveKmsConfig(
     defaults,
     allowCrossChainTypedData: user.allowCrossChainTypedData ?? false,
     ...(user.simulatedBalance === undefined ? {} : { simulatedBalance: user.simulatedBalance }),
+    audit: resolveAuditConfig(user.audit, resolveVariable),
   };
 }
 
