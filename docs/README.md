@@ -6,9 +6,10 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 
 ## Tutorials
 
-| Page                                                                       | Kind     |
-| -------------------------------------------------------------------------- | -------- |
-| [First deploy on Sepolia with AWS KMS](user/tutorials/first-deploy-aws.md) | Tutorial |
+| Page                                                                                | Kind     |
+| ----------------------------------------------------------------------------------- | -------- |
+| [First deploy on Sepolia with AWS KMS](user/tutorials/first-deploy-aws.md)          | Tutorial |
+| [First deploy on Sepolia with Google Cloud KMS](user/tutorials/first-deploy-gcp.md) | Tutorial |
 
 ## Using the plugin
 
