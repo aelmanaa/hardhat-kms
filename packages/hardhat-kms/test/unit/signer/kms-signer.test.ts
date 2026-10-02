@@ -172,6 +172,52 @@ describe("KmsSigner", () => {
         await kms.signDigest(new Uint8Array(32).fill(2));
         assert.deepEqual(await kms.getPublicKey(), expected);
       });
+
+      it("returns copies the caller cannot use to change the key, when the adapter returned a Buffer", async () => {
+        const kms = holdingSigner(Buffer.from(expected));
+
+        // Before the copy, the signer kept the adapter's Buffer, and `.slice()` of a Buffer is a
+        // view of the same memory.
+        (await kms.getPublicKey()).fill(0);
+        await kms.signDigest(new Uint8Array(32).fill(1));
+        assert.deepEqual(await kms.getPublicKey(), expected);
+      });
+
+      it("checks the bytes it keeps, not a first read that differs from them", async () => {
+        // On the curve's x-axis prefix but not a point on secp256k1.
+        const offCurve = new Uint8Array(expected.length);
+        offCurve[0] = 0x04;
+        // Indexed reads and methods see the valid key; iterating, as a copy does, sees the other.
+        const twoFaced = new Proxy(new Uint8Array(expected), {
+          get(target, property) {
+            if (property === Symbol.iterator) {
+              return () => offCurve[Symbol.iterator]();
+            }
+            const value: unknown = Reflect.get(target, property, target);
+            if (typeof value !== "function") {
+              return value;
+            }
+            return (...args: unknown[]): unknown => Reflect.apply(value, target, args);
+          },
+        });
+        assert.ok(twoFaced instanceof Uint8Array);
+
+        await assertPluginError(holdingSigner(twoFaced).getAddress(), [
+          "fake, get public key",
+          "the public key is not a point on secp256k1",
+        ]);
+      });
+
+      it("reports a value that is not a byte array as a wrong key", async () => {
+        const adapter = fakeAdapter({ secretKey });
+        // A third-party adapter written in JavaScript can break the contract's types.
+        Reflect.set(adapter, "getPublicKey", async () => await Promise.resolve(undefined));
+
+        await assertPluginError(new KmsSigner(adapter, baseOptions).getAddress(), [
+          "fake, get public key",
+          "expected a 65-byte uncompressed public key",
+        ]);
+      });
     });
 
     it("has a public key for an address-only key only once it has signed", async () => {
@@ -562,6 +608,22 @@ describe("KmsSigner", () => {
       assert.equal(await kms.signTypedData(typedData), EIP712_MAIL_SIGNATURE);
       assert.deepEqual(typedData, EIP712_MAIL);
     });
+
+    it("refuses typed data it cannot copy before calling the provider", async () => {
+      const methods: string[] = [];
+      const { inner, kms } = copyingAdapter(async (digest, ctx, method) => {
+        methods.push(method);
+        return await (inner.signDigest?.({ digest }, ctx) ?? Promise.reject(new Error("missing")));
+      }, {});
+      // The digest reads the message through the proxy, but structuredClone cannot copy a proxy.
+      const typedData = { ...EIP712_MAIL, message: new Proxy(EIP712_MAIL.message, {}) };
+
+      await assertPluginError(kms.signTypedData(typedData), [
+        "fake, sign",
+        "the typed data is invalid: the typed data must be plain data",
+      ]);
+      assert.deepEqual(methods, []);
+    });
   });
 
   describe("provider-native signing", () => {
@@ -634,7 +696,7 @@ describe("KmsSigner", () => {
 
       await assertPluginError(
         new KmsSigner(adapter, baseOptions).signDigest(new Uint8Array(32).fill(7)),
-        ["RangeError"],
+        ["fake, sign, key fake-key-1", "RangeError"],
         ["throttled"],
       );
       assert.equal(calls, 2);
