@@ -2,54 +2,83 @@
 
 Audience: Contributors adding or changing a KMS or HSM provider.
 
-Status: M1 implements `KmsKeyAdapter` and `SignContext` in `packages/hardhat-kms/src/internal/signer/types.ts`, without `signTransaction` and `sendTransaction`. M2 adds the built-in providers' descriptors and the registry as internal code (see [Built-in descriptors](#built-in-descriptors)), and the `kms` hook with the adapter contract exported from `hardhat-kms/types` (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). M3 adds `hardhat-kms-aws`, the first provider package (see [First-party provider packages](#first-party-provider-packages)), and M6 adds `hardhat-kms-gcp` and `hardhat-kms-azure`. The code below is the planned full contract; the types exported today are in `packages/hardhat-kms/src/types.ts`. Transactions (M5) go through the adapter's `signDigest`. The exported types therefore have no `signTransaction` or `sendTransaction` yet; those arrive with the providers that need them, Turnkey ([#54](https://github.com/aelmanaa/hardhat-kms/issues/54)) and Fireblocks ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)).
+Status: the adapter contract is in `packages/hardhat-kms/src/internal/signer/types.ts`, and `hardhat-kms/types` exports it (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). The built-in providers' descriptors and the registry are internal code (see [Built-in descriptors](#built-in-descriptors)). `hardhat-kms-aws`, `hardhat-kms-gcp` and `hardhat-kms-azure` are the first-party provider packages (see [First-party provider packages](#first-party-provider-packages)). Transactions are signed through the adapter's `signDigest`. `signTransaction` and `sendTransaction` are planned and arrive with the providers that need them, Turnkey ([#54](https://github.com/aelmanaa/hardhat-kms/issues/54)) and Fireblocks ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)).
 
 ## Provider contract
 
-The contract is exported from `hardhat-kms/types`. It is frozen before 1.0 so that Turnkey and Fireblocks adapters can be added later without breaking changes. A provider is a plugin whose `kms` hook handler returns a key adapter for each of its keys:
+The contract is exported from `hardhat-kms/types`. It is marked `@experimental` and is frozen at 1.0, so that the Turnkey and Fireblocks adapters can add their methods before then. A provider is a plugin whose `kms` hook handler returns a key adapter for each of its keys. This is the contract as exported today:
+
+```ts
+import type { TypedData } from "hardhat-kms/types";
+
+interface SignContext {
+  signal: AbortSignal;
+  displayMessage(message: string): Promise<void>;
+  requestId: string;
+  idempotencyKey?: string | undefined; // declared for transaction sends; the core does not set it yet
+  chainId?: bigint | undefined; // declared; the core does not set it yet
+}
+interface KeyDescription {
+  provider: string;
+  pinnedId: string;
+  displayId: string;
+}
+interface KmsKeyAdapter {
+  describe(): KeyDescription;
+  getPublicKey?(ctx: SignContext): Promise<Uint8Array>;
+  getAddress?(ctx: SignContext): Promise<string>; // API/vault signers without a public-key call
+  signDigest?(request: { digest: Uint8Array }, ctx: SignContext): Promise<SignatureOutput>;
+  signMessage?(
+    request: { message: Uint8Array; digest: Uint8Array },
+    ctx: SignContext,
+  ): Promise<SignatureOutput>;
+  signTypedData?(
+    request: { typedData: TypedData; digest: Uint8Array },
+    ctx: SignContext,
+  ): Promise<SignatureOutput>;
+  close?(): Promise<void>;
+}
+type SignatureOutput =
+  | { format: "der" | "compact"; bytes: Uint8Array }
+  | { r: bigint; s: bigint; yParity?: 0 | 1 | undefined }; // the core ignores yParity and derives it
+```
+
+Two methods are planned and not yet in the exported types. They arrive with Turnkey ([#54](https://github.com/aelmanaa/hardhat-kms/issues/54)) and Fireblocks ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)):
 
 <!-- docs-check: skip -->
 
 ```ts
-interface SignContext {
-  signal: AbortSignal;
-  displayMessage(m: string): Promise<void>;
-  requestId: string;
-  idempotencyKey?: string;
-  chainId?: bigint;
-}
+// Planned, not exported yet.
 interface KmsKeyAdapter {
-  describe(): { provider: string; pinnedId: string; displayId: string };
-  getPublicKey?(ctx: SignContext): Promise<Uint8Array>;
-  getAddress?(ctx: SignContext): Promise<Address>; // API/vault signers without a public-key call
-  signDigest?(req: { digest: Uint8Array }, ctx: SignContext): Promise<SignatureOutput>;
-  signMessage?(
-    req: { message: Uint8Array; digest: Uint8Array },
-    ctx: SignContext,
-  ): Promise<SignatureOutput>;
-  signTypedData?(
-    req: { typedData: TypedData; digest: Uint8Array },
-    ctx: SignContext,
-  ): Promise<SignatureOutput>;
   signTransaction?(
-    req: { unsigned: Uint8Array; digest: Uint8Array; tx: FilledTx },
+    request: { unsigned: Uint8Array; digest: Uint8Array; tx: FilledTx },
     ctx: SignContext,
   ): Promise<SignatureOutput>;
-  sendTransaction?(req: { tx: FilledTx }, ctx: SignContext): Promise<{ hash: Hex }>; // remote broadcaster (Fireblocks)
-  close?(): Promise<void>;
+  sendTransaction?(request: { tx: FilledTx }, ctx: SignContext): Promise<{ hash: Hex }>; // remote broadcaster (Fireblocks)
 }
-type SignatureOutput =
-  { format: "der" | "compact"; bytes: Uint8Array } | { r: bigint; s: bigint; yParity?: 0 | 1 }; // yParity is a hint only: the core always re-derives and verifies it
 ```
+
+The core calls the adapter as follows (`packages/hardhat-kms/src/internal/signer/kms-signer.ts`):
+
+| Request                                                                                            | Adapter method                                                   |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `personal_sign`, `eth_sign`, `kms sign`                                                            | `signMessage` if present, otherwise `signDigest`                 |
+| `eth_signTypedData_v4`, `kms sign --data`                                                          | `signTypedData` if present, otherwise `signDigest`               |
+| `eth_sendTransaction`, `eth_signTransaction`, `kms sign-tx`, `kms sign-auth`, `kms sign --no-hash` | `signDigest`                                                     |
+| The key's address, on first use                                                                    | `getPublicKey`; without it, the `address` pin, then `getAddress` |
+| `kms address`, `kms accounts`, `kms verify --key`                                                  | as above, but `getAddress` is called even when the key has a pin |
 
 The core enforces these rules on adapters:
 
-- An adapter implements at least one of `getPublicKey` and `getAddress`, and at least one signing method.
-- The core prefers the structured methods (`signMessage`, `signTypedData`, `signTransaction`) and falls back to `signDigest`. Structured methods exist so that providers with a policy engine see the full request, not only a digest. Whichever method signs, the core verifies the recovered signer against the account address.
-- An adapter without `getPublicKey` (a Turnkey-style API signer) requires an `address` pin in config. Trial recovery then compares against the pinned address instead of a public key.
+- When the core builds an adapter, it checks for `describe()`, at least one signing method (`signDigest`, `signMessage` or `signTypedData`), and `getPublicKey` or `getAddress` unless the key has an `address` pin.
+- `signMessage` and `signTypedData` exist so that providers with a policy engine see the full request, not only a digest. The core uses them when present and falls back to `signDigest`. Transactions and EIP-7702 authorizations always go through `signDigest` until `signTransaction` arrives. Whichever method signs, the core verifies the recovered signer against the account address.
+- A request with no method to serve it fails with `core.signer.cannot-sign` ("the provider cannot sign a {kind}"). For example, an adapter with only `signMessage` cannot sign a transaction.
+- The core calls `getPublicKey` once per key and caches the result; a failed call is retried on the next request. It checks the key against the `address` pin before the first signature.
+- An adapter without `getPublicKey` (a Turnkey-style API signer) is identified by the `address` pin, or by `getAddress` when the key has no pin. The core recovers the public key from the first signature and checks that it matches that address.
 - Adapters receive copies of the digest, message and typed data, which they may change. The core copies the public key an adapter returns, so an adapter may also reuse or change that array later.
-- A missing capability produces a "provider X cannot do Y" error.
-- An adapter with `sendTransaction` broadcasts on its own. For those adapters the core skips the nonce high-water mark, rejects `eth_signTransaction` and EDR or fork networks with clear errors, passes the idempotency key (Fireblocks' `externalTxId`), and checks `from` against the receipt.
+- Each call gets `requestId` and a `signal` that aborts when the key's `timeoutMs` runs out. An invalid signature gets one retry with a fresh call before the core fails.
+
+Planned with `sendTransaction` ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)): an adapter with `sendTransaction` broadcasts on its own. For those adapters the core will skip the nonce high-water mark, reject `eth_signTransaction` and EDR or fork networks with clear errors, pass the idempotency key (Fireblocks' `externalTxId`), and check `from` against the receipt.
 
 Built-in providers' keys are validated inside the root zod schema with `conditionalUnionType` on `provider`. For any other `provider` id, the root schema checks only the fields every key shares. Provider packages, third-party providers and tests plug in through the plugin-owned `kms` hook category with `createKeyAdapter(context, key, next)` (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). Tests register fakes with `hre.hooks.registerHandlers("kms", …)`; the package ships no public fake provider.
 
@@ -117,19 +146,19 @@ The rules:
 - Augment `KmsProviderConfigs` as above. Without it, `key.provider === "myvault"` does not compile, because resolved keys are typed as the registered providers only.
 - The plugin validates only `provider`, `address`, `timeoutMs` and `approvalTimeoutMs`. The handler validates the rest of `userConfig`, which holds every field of the user's key. Configuration variables in it arrive as `ResolvedConfigurationVariable` objects; call `get()` to read one.
 - The core builds no adapter itself, so a key that no handler claims fails. For an `aws`, `gcp` or `azure` key the error names the provider package and the command that installs it. For any other id it says that no plugin provides the provider. With `DEBUG=hardhat:kms:providers`, the core logs `<displayId>: no plugin claimed the key` first.
-- The plugin checks every returned adapter: it must have `describe()` returning non-empty `provider`, `pinnedId` and `displayId`, a signing method (`signDigest`, `signMessage` or `signTypedData`), and either `getPublicKey`, `getAddress` or an `address` pin on the key. Any of these methods that is set must be a function. `describe()` is called once, when the adapter is created. Its signatures then go through the same [signing pipeline](signing-pipeline.md) as those of the first-party providers.
+- The plugin checks every returned adapter: it must have `describe()` returning non-empty `provider`, `pinnedId` and `displayId`, a signing method (`signDigest`, `signMessage` or `signTypedData`), and either `getPublicKey`, `getAddress` or an `address` pin on the key. Any of these methods that is set must be a function. The core calls `describe()` only while it sets up the adapter, twice: once in this check and once when it builds the signer. It keeps the result and never calls `describe()` while signing or reporting an error. Its signatures then go through the same [signing pipeline](signing-pipeline.md) as those of the first-party providers.
 - Handlers registered at run time with `hre.hooks.registerHandlers("kms", …)` run before plugin handlers, the most recently registered first. Tests use this to replace a provider with a fake.
 - Nothing stops two plugins from claiming the same id, or a plugin from claiming `aws`, `gcp` or `azure`: the handler that runs first wins, silently. Plugin handlers run in reverse order of the resolved plugin list.
 - A handler must return an adapter or the result of `next`. Returning nothing fails with an error that names the `kms.createKeyAdapter` handler.
 
-The chain runs in `packages/hardhat-kms/src/internal/providers/create-adapter.ts`. The hook and adapter types are marked `@experimental` until 1.0; the Turnkey and Fireblocks providers ([#54](https://github.com/aelmanaa/hardhat-kms/issues/54), [#55](https://github.com/aelmanaa/hardhat-kms/issues/55)) add optional transaction methods.
+The chain runs in `packages/hardhat-kms/src/internal/providers/create-adapter.ts`. The hook and adapter types are marked `@experimental` until 1.0; the Turnkey and Fireblocks providers ([#54](https://github.com/aelmanaa/hardhat-kms/issues/54), [#55](https://github.com/aelmanaa/hardhat-kms/issues/55)) will add the planned `signTransaction` and `sendTransaction` methods.
 
 ## First-party provider packages
 
-`hardhat-kms-aws` and `hardhat-kms-gcp` are provider plugins like the one above, kept in this repository and released with the core. They differ from a third-party plugin in these ways:
+`hardhat-kms-aws`, `hardhat-kms-gcp` and `hardhat-kms-azure` are provider plugins like the one above, kept in this repository and released with the core. They differ from a third-party plugin in these ways:
 
 - Its key format lives in the core, as a [built-in descriptor](#built-in-descriptors). The config schema checks `aws`, `gcp` and `azure` keys strictly, and a missing package produces an error that names it. The package declares no key types. Its `src/index.ts` starts with `/// <reference types="hardhat-kms/types" preserve="true" />`, so a project that imports only one provider package still gets the `kms` config types. A reference adds nothing to the JavaScript: if `hardhat-kms` is missing, Hardhat reports it as a missing plugin dependency instead of Node failing to find the module.
-- It builds on `hardhat-kms/provider-utils`: `publicKeyFromSpkiDer`, `publicKeyFromSpkiPem` (Google Cloud's PEM) and `InvalidPublicKeyError` to parse the key's public key, `crc32c` for Google Cloud's checksums, `kmsError` and its `ErrorDetails` for allow-listed errors, `catalogError`, `catalogMessage` and `internalError` with the `ErrorEntry` and `TemplateParams` types to build its errors from its [error catalogue](architecture.md#errors), `parseAwsKeyId` and its `ParsedAwsKeyId` to read the kind of an AWS key id and the region of an ARN, `publicKeyFromJwk` and `parseAzureKeyId` for Azure's JWK public keys and key URLs, and `checkProviderVersion`, which its handler calls before building an adapter. The entry point is marked `@experimental` until 1.0. Third-party providers may use it too, except `checkProviderVersion` and the catalogue helpers, which only fit packages released with the core: a third-party provider builds its errors with `kmsError`.
+- It builds on `hardhat-kms/provider-utils`: `publicKeyFromSpkiDer`, `publicKeyFromSpkiPem` (Google Cloud's PEM) and `InvalidPublicKeyError` to parse the key's public key, `crc32c` for Google Cloud's checksums, `kmsError` and its `ErrorDetails` for allow-listed errors, `catalogError`, `catalogMessage` and `internalError` with the `ErrorEntry` and `TemplateParams` types to build its errors from its [error catalogue](architecture.md#errors), `parseAwsKeyId` and its `ParsedAwsKeyId` to read the kind of an AWS key id and the region of an ARN, `publicKeyFromJwk` with its `EcJsonWebKey` type and `parseAzureKeyId` with its `ParsedAzureKeyId` for Azure's JWK public keys and key URLs, and `checkProviderVersion`, which its handler calls before building an adapter. The entry point is marked `@experimental` until 1.0. Third-party providers may use it too, except `checkProviderVersion` and the catalogue helpers, which only fit packages released with the core: a third-party provider builds its errors with `kmsError`.
 - It requires the same version of `hardhat-kms`. Its peer dependency on `hardhat-kms` is exact (`workspace:*` becomes the version itself when packed), so npm refuses a mismatched install. pnpm and Yarn only warn, so `checkProviderVersion` also fails at the first key with both versions and the install command.
 - It depends on its SDK and imports it in its `kms` handler on first use (see [SDK loading](architecture.md#sdk-loading)).
 
