@@ -13,9 +13,6 @@ const LOGGING_ENDPOINT = "https://logging.googleapis.com";
 /** The OAuth scope that reading log entries needs. */
 export const LOGGING_READ_SCOPE = "https://www.googleapis.com/auth/logging.read";
 
-/** How long one call may take, in milliseconds. `kms history` gives the whole read 120 seconds. */
-const REQUEST_TIMEOUT_MS = 30_000;
-
 /** The part of google-auth-library's `GoogleAuth`, or of an `AuthClient`, the call uses. */
 export interface LoggingAuth {
   request<T>(options: gaxios.GaxiosOptions): Promise<gaxios.GaxiosResponse<T>>;
@@ -28,16 +25,14 @@ export interface LoggingAuth {
  * Application Default Credentials as the Cloud KMS client does.
  * @param userAgent - The plugin's user-agent tag, such as `hardhat-kms/1.0.0`.
  * @param endpoint - Cloud Logging's endpoint; tests pass a local server.
- * @param timeoutMs - How long one call may take; tests pass less.
- * @returns The call.
+ * @returns The call. The reader gives each call its time, from its scan budget.
  */
 export function loggingTransport(
   auth: LoggingAuth,
   userAgent: string,
   endpoint: string = LOGGING_ENDPOINT,
-  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): ListEntries {
-  return async (request, signal) => {
+  return async (request, signal, timeoutMs) => {
     signal.throwIfAborted();
     // The deadline goes in the signal rather than in gaxios's `timeout`: gaxios 7 drops a signal
     // that has already aborted when it adds its own timeout, and sends the request anyway.
@@ -47,7 +42,8 @@ export function loggingTransport(
     // an abort destroys the request body with the abort error. A string or buffer body becomes a
     // stream that no one listens to, and an abort before the body is sent, such as during a token
     // refresh, then crashes the process with an unhandled 'error' event. Here the error is
-    // ignored: the call itself rejects with it.
+    // ignored: the call itself rejects with it. A stream body also turns off google-auth-library's
+    // one-time re-auth retry on 401 or 403, which only applies to credentials without expiry_date.
     const body = Readable.from([json]);
     body.on("error", () => {});
     try {

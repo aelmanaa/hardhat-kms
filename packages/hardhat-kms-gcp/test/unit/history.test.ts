@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import type { GcpKmsKeyConfig, KmsHistoryRequest } from "hardhat-kms/types";
 
 import {
+  CALL_TIMEOUT_MS,
   CallTimedOut,
   digestHex,
   keyParts,
@@ -14,18 +15,22 @@ import {
   quote,
   readGcpSignHistory,
   RETRY_DELAYS_MS,
+  SCAN_BUDGET_MS,
   signEntriesFilter,
 } from "../../src/internal/history.ts";
 import {
   CRYPTO_KEY_NAME,
   DIGEST_HEX,
   FAILED_SIGN,
+  IPV6_SIGN,
+  KEY_PATH,
   KEY_VERSION_NAME,
   kmsEntry,
   OAUTH_CLIENT,
   PLUGIN_SIGN,
   PLUGIN_USER_AGENT,
   PROJECT,
+  PROJECT_NUMBER,
   SERVICE_ACCOUNT,
   SERVICE_ACCOUNT_SIGN,
   USER,
@@ -59,14 +64,20 @@ function historyRequest(overrides: Partial<KmsHistoryRequest> = {}): KmsHistoryR
   };
 }
 
-/** An `entries.list` that answers from a list of pages or errors, and records each request. */
+/**
+ * An `entries.list` that answers from a list of pages or errors, and records each request and the
+ * time it was given.
+ */
 function fakeList(answers: Array<unknown>): {
   list: ListEntries;
   requests: ListEntriesRequest[];
+  timeouts: number[];
 } {
   const requests: ListEntriesRequest[] = [];
-  const list: ListEntries = async (request) => {
+  const timeouts: number[] = [];
+  const list: ListEntries = async (request, _signal, timeoutMs) => {
     requests.push(request);
+    timeouts.push(timeoutMs);
     // Past the last answer, the log has no more entries.
     const answer: unknown = answers.length === 0 ? {} : answers.shift();
     if (answer instanceof Error) {
@@ -74,7 +85,7 @@ function fakeList(answers: Array<unknown>): {
     }
     return await Promise.resolve(answer);
   };
-  return { list, requests };
+  return { list, requests, timeouts };
 }
 
 /** An error shaped as gaxios rejects for an HTTP error answer. */
@@ -128,6 +139,32 @@ async function failure(
   return { message: error.message, requests: fake.requests };
 }
 
+/** A clock that only the fake calls and pauses move. */
+function fakeClock(): { now: () => number; advance: (ms: number) => void } {
+  let time = NOW;
+  return {
+    now: () => time,
+    advance: (ms) => {
+      time += ms;
+    },
+  };
+}
+
+/** A page with one entry, a token for the next page, and the time it took. */
+function slowPages(clock: { advance: (ms: number) => void }, ms: number[]): ListEntries {
+  let index = 0;
+  return async () => {
+    const took = ms[index] ?? 0;
+    index++;
+    clock.advance(took);
+    const entry = kmsEntry({
+      timestamp: `2026-10-02T0${index}:00:00Z`,
+      insertId: `i-${index}`,
+    });
+    return await Promise.resolve({ entries: [entry], nextPageToken: `page-${index + 1}` });
+  };
+}
+
 describe("the Google Cloud history reader", () => {
   describe("mapping recorded entries", () => {
     it("copies a plugin signature's fields as logged", async () => {
@@ -146,9 +183,9 @@ describe("the Google Cloud history reader", () => {
           keyVersion: "1",
           digest: `0x${DIGEST_HEX}`,
           keyResource: KEY_VERSION_NAME,
+          // principalSubject is `user:` and the email, so it is left out.
           extra: {
             insertId: "insert-1",
-            principalSubject: `user:${USER}`,
             receiveTimestamp: "2026-10-02T09:06:06.982112024Z",
             statusCode: null,
           },
@@ -167,6 +204,32 @@ describe("the Google Cloud history reader", () => {
       // The digest is lowercased, whatever case the log used.
       assert.equal(event?.digest, `0x${DIGEST_HEX}`);
       assert.equal(event?.extraIds, undefined);
+      assert.equal(event?.extra?.principalSubject, undefined);
+    });
+
+    it("keeps a principal subject that says more than the email", async () => {
+      const subjects: Array<[string, Record<string, string>]> = [
+        ["other-email", { principalEmail: USER, principalSubject: "user:someone@example.com" }],
+        ["not-a-type", { principalEmail: USER, principalSubject: `principal://x:${USER}` }],
+        ["no-email", { principalSubject: `user:${USER}` }],
+      ];
+      const entries = subjects.map(([insertId, authenticationInfo], index) =>
+        kmsEntry({ timestamp: `2026-10-02T0${index}:00:00Z`, insertId, authenticationInfo }),
+      );
+      const { result } = await read([{ entries }]);
+      assert.deepEqual(
+        result.events.map((event) => event.extra?.principalSubject),
+        ["user:someone@example.com", `principal://x:${USER}`, `user:${USER}`],
+      );
+    });
+
+    it("shows an IPv6 caller address as logged", async () => {
+      const { result } = await read([{ entries: [IPV6_SIGN] }]);
+      const [event] = result.events;
+      assert.equal(event?.sourceIp, "2001:db8:85a3::8a2e:370:7334");
+      // Not an id: it is not moved to extraIds, which --show-ids alone would show.
+      assert.deepEqual(event?.extraIds, { oauthClientId: OAUTH_CLIENT });
+      assert.ok(!Object.values(event?.extra ?? {}).includes(event?.sourceIp ?? ""));
     });
 
     it("marks a refused request as failed with its status, and falls back to the principal subject", async () => {
@@ -254,6 +317,31 @@ describe("the Google Cloud history reader", () => {
       );
     });
 
+    it("finds the key's entries whether the config or the entry names the project by number", async () => {
+      const byId = kmsEntry({ timestamp: "2026-10-02T09:00:00Z", insertId: "by-id" });
+      const byNumber = kmsEntry({
+        timestamp: "2026-10-02T08:00:00Z",
+        insertId: "by-number",
+        cryptoKeyName: CRYPTO_KEY_NAME.replace(PROJECT, PROJECT_NUMBER),
+      });
+      const numbered = KEY_VERSION_NAME.replace(PROJECT, PROJECT_NUMBER);
+      for (const name of [KEY_VERSION_NAME, numbered]) {
+        const fake = fakeList([{ entries: [byId, byNumber] }]);
+        const result = await readGcpSignHistory(gcpKey(name), historyRequest(), fake.list, options);
+        assert.deepEqual(
+          result.events.map((event) => [event.extra?.insertId, event.keyVersion]),
+          [
+            ["by-id", "1"],
+            ["by-number", "1"],
+          ],
+        );
+        const [request] = fake.requests;
+        assert.deepEqual(request?.resourceNames, [`projects/${name.split("/")[1] ?? ""}`]);
+        // No clause names the project, so either form of it matches the same entries.
+        assert.doesNotMatch(request?.filter ?? "", new RegExp(`${PROJECT}|${PROJECT_NUMBER}`));
+      }
+    });
+
     it("describes what the log cannot show, with no id outside scope.ids", async () => {
       const { result } = await read([{ entries: [] }]);
       assert.equal(result.source, "cloud-logging");
@@ -300,13 +388,13 @@ describe("the Google Cloud history reader", () => {
         {
           resourceNames: [`projects/${PROJECT}`],
           filter: [
-            `logName="projects/${PROJECT}/logs/cloudaudit.googleapis.com%2Fdata_access"`,
+            'log_id("cloudaudit.googleapis.com/data_access")',
             'resource.type="cloudkms_cryptokeyversion"',
             'resource.labels.location="us-east1"',
             'resource.labels.key_ring_id="example-ring"',
             'resource.labels.crypto_key_id="deployer"',
             'protoPayload.methodName="AsymmetricSign"',
-            `protoPayload.resourceName:"${CRYPTO_KEY_NAME}/cryptoKeyVersions/"`,
+            `protoPayload.resourceName:"/${KEY_PATH}/cryptoKeyVersions/"`,
             'timestamp>="2026-10-01T10:00:00.000Z"',
             'timestamp<"2026-10-02T10:00:01.000Z"',
           ].join(" AND "),
@@ -327,7 +415,7 @@ describe("the Google Cloud history reader", () => {
     });
 
     it("builds the filter only from parts of the config check's characters", () => {
-      assert.equal(keyParts(KEY_VERSION_NAME)?.cryptoKeyName, CRYPTO_KEY_NAME);
+      assert.equal(keyParts(KEY_VERSION_NAME)?.keyPath, KEY_PATH);
       for (const name of [
         KEY_VERSION_NAME.replace("deployer", 'deployer" OR "x'),
         KEY_VERSION_NAME.replace("deployer", "deployer\\"),
@@ -396,6 +484,118 @@ describe("the Google Cloud history reader", () => {
       }));
       const { result, requests } = await read(pages);
       assert.equal(requests.length, PAGE_BUDGET);
+      assert.deepEqual(result.events, []);
+      assert.equal(result.truncated, true);
+      assert.equal(result.truncatedReason, "scan-limit");
+    });
+  });
+
+  describe("the scan budget", () => {
+    it("stops with scan-limit when the budget is spent between pages, and keeps what it read", async () => {
+      const clock = fakeClock();
+      const timeouts: number[] = [];
+      const pages = slowPages(clock, [50_000, 45_000, 1]);
+      const list: ListEntries = async (request, signal, timeoutMs) => {
+        timeouts.push(timeoutMs);
+        return await pages(request, signal, timeoutMs);
+      };
+      const result = await readGcpSignHistory(gcpKey(), historyRequest(), list, {
+        pause: noPause,
+        now: clock.now,
+      });
+      assert.deepEqual(timeouts, [CALL_TIMEOUT_MS, CALL_TIMEOUT_MS]);
+      assert.deepEqual(
+        result.events.map((event) => event.extra?.insertId),
+        ["i-1", "i-2"],
+      );
+      assert.equal(result.truncated, true);
+      assert.equal(result.truncatedReason, "scan-limit");
+    });
+
+    it("gives a call only what is left of the budget, and stops when that runs out", async () => {
+      const clock = fakeClock();
+      const timeouts: number[] = [];
+      const list: ListEntries = async (_request, _signal, timeoutMs) => {
+        timeouts.push(timeoutMs);
+        if (timeouts.length === 1) {
+          clock.advance(SCAN_BUDGET_MS - 20_000);
+          return await Promise.resolve({ entries: [PLUGIN_SIGN], nextPageToken: "page-2" });
+        }
+        // The call runs to the deadline it was given.
+        clock.advance(timeoutMs);
+        throw new CallTimedOut(timeoutMs);
+      };
+      const result = await readGcpSignHistory(gcpKey(), historyRequest(), list, {
+        pause: noPause,
+        now: clock.now,
+      });
+      // No retry: the timeout was the budget's end, not the call's own 30 seconds.
+      assert.deepEqual(timeouts, [CALL_TIMEOUT_MS, 20_000]);
+      assert.equal(result.events.length, 1);
+      assert.equal(result.truncatedReason, "scan-limit");
+    });
+
+    it("returns what it read when the budget cuts short the retry of a timed-out call", async () => {
+      const clock = fakeClock();
+      const timeouts: number[] = [];
+      const list: ListEntries = async (_request, _signal, timeoutMs) => {
+        timeouts.push(timeoutMs);
+        if (timeouts.length === 1) {
+          clock.advance(50_000);
+          return await Promise.resolve({ entries: [PLUGIN_SIGN], nextPageToken: "page-2" });
+        }
+        clock.advance(timeoutMs);
+        throw new CallTimedOut(timeoutMs);
+      };
+      const result = await readGcpSignHistory(gcpKey(), historyRequest(), list, {
+        pause: noPause,
+        now: clock.now,
+      });
+      // The second timeout would fail the read, but it was the budget's end, not the call's.
+      assert.deepEqual(timeouts, [CALL_TIMEOUT_MS, CALL_TIMEOUT_MS, SCAN_BUDGET_MS - 80_000]);
+      assert.equal(result.events.length, 1);
+      assert.equal(result.truncatedReason, "scan-limit");
+    });
+
+    it("does not pause for a retry that the budget cannot wait for", async () => {
+      const clock = fakeClock();
+      const pauses: number[] = [];
+      const fake = fakeList([
+        { entries: [PLUGIN_SIGN], nextPageToken: "page-2" },
+        httpError(503, "UNAVAILABLE"),
+      ]);
+      const list: ListEntries = async (request, signal, timeoutMs) => {
+        clock.advance(SCAN_BUDGET_MS / 2 - 100);
+        return await fake.list(request, signal, timeoutMs);
+      };
+      const result = await readGcpSignHistory(gcpKey(), historyRequest(), list, {
+        pause: async (ms) => {
+          pauses.push(ms);
+          await Promise.resolve();
+        },
+        now: clock.now,
+      });
+      assert.equal(fake.requests.length, 2);
+      assert.deepEqual(pauses, []);
+      assert.equal(result.events.length, 1);
+      assert.equal(result.truncatedReason, "scan-limit");
+    });
+
+    it("stops before a retry when the pause spent the budget", async () => {
+      const clock = fakeClock();
+      const fake = fakeList([httpError(429, "RESOURCE_EXHAUSTED"), { entries: [PLUGIN_SIGN] }]);
+      const list: ListEntries = async (request, signal, timeoutMs) => {
+        clock.advance(SCAN_BUDGET_MS - FIRST_DELAY_MS - 1);
+        return await fake.list(request, signal, timeoutMs);
+      };
+      const result = await readGcpSignHistory(gcpKey(), historyRequest(), list, {
+        pause: async (ms) => {
+          clock.advance(ms + 1);
+          await Promise.resolve();
+        },
+        now: clock.now,
+      });
+      assert.equal(fake.requests.length, 1);
       assert.deepEqual(result.events, []);
       assert.equal(result.truncated, true);
       assert.equal(result.truncatedReason, "scan-limit");
@@ -493,14 +693,34 @@ describe("the Google Cloud history reader", () => {
       assert.match((await failure([causeOnly, causeOnly, causeOnly])).message, /\(ENOTFOUND\)/);
     });
 
-    it("retries a call that got no answer in time, then says so", async () => {
+    it("retries a call that got no answer in time once, then says so", async () => {
       const { message, requests } = await failure([
         new CallTimedOut(30_000),
+        new CallTimedOut(30_000),
+        { entries: [] },
+      ]);
+      assert.equal(requests.length, 2);
+      assert.match(message, /did not answer within 30 seconds, after 2 attempts/);
+    });
+
+    it("gives a timeout after other failures its one retry too", async () => {
+      const { message, requests } = await failure([
+        httpError(503, "UNAVAILABLE"),
         new CallTimedOut(30_000),
         new CallTimedOut(30_000),
       ]);
       assert.equal(requests.length, 3);
-      assert.match(message, /did not answer within 30 seconds, after 3 attempts/);
+      assert.match(message, /after 3 attempts/);
+    });
+
+    it("does not take Node's own ERR_ codes for a network code", async () => {
+      const odd = Object.assign(new Error("invalid"), { code: "ERR_INVALID_ARG_TYPE" });
+      const fake = fakeList([odd]);
+      await assert.rejects(
+        readGcpSignHistory(gcpKey(), historyRequest(), fake.list, options),
+        (error) => error === odd,
+      );
+      assert.equal(fake.requests.length, 1);
     });
 
     it("passes any other error on as it is, for the core to reduce to its class name", async () => {

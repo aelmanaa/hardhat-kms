@@ -4,10 +4,13 @@
 // the hex digest and the empty `status` of a served request are as logged.
 
 export const PROJECT = "example-project";
+/** A project number, which names the same project as `PROJECT` in a resource name. */
+export const PROJECT_NUMBER = "123456789012";
 export const LOCATION = "us-east1";
 export const KEY_RING = "example-ring";
 export const KEY = "deployer";
-export const CRYPTO_KEY_NAME: string = `projects/${PROJECT}/locations/${LOCATION}/keyRings/${KEY_RING}/cryptoKeys/${KEY}`;
+export const KEY_PATH: string = `locations/${LOCATION}/keyRings/${KEY_RING}/cryptoKeys/${KEY}`;
+export const CRYPTO_KEY_NAME: string = `projects/${PROJECT}/${KEY_PATH}`;
 export const KEY_VERSION_NAME: string = `${CRYPTO_KEY_NAME}/cryptoKeyVersions/1`;
 export const USER = "signer@example.com";
 export const SERVICE_ACCOUNT: string = `deployer@${PROJECT}.iam.gserviceaccount.com`;
@@ -131,5 +134,13 @@ export const FAILED_SIGN: Record<string, unknown> = kmsEntry({
     message: `CryptoKeyVersion ${CRYPTO_KEY_NAME}/cryptoKeyVersions/999999 not found.`,
   },
   authenticationInfo: { principalSubject: "principal://iam.googleapis.com/placeholder" },
+  digest: DIGEST_HEX,
+});
+
+/** A signature from an IPv6 address, which Cloud Audit Logs writes in its short form. */
+export const IPV6_SIGN: Record<string, unknown> = kmsEntry({
+  timestamp: "2026-10-02T07:30:00Z",
+  insertId: "insert-6",
+  callerIp: "2001:db8:85a3::8a2e:370:7334",
   digest: DIGEST_HEX,
 });

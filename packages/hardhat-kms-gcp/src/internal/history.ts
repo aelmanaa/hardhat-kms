@@ -31,9 +31,14 @@ export interface ListEntriesRequest {
 
 /**
  * One `entries.list` call: sends the request and returns the parsed JSON answer. It rejects with
- * the HTTP client's error, which carries the HTTP status, and stops when `signal` aborts.
+ * the HTTP client's error, which carries the HTTP status, stops when `signal` aborts, and rejects
+ * with {@link CallTimedOut} when no answer came within `timeoutMs`.
  */
-export type ListEntries = (request: ListEntriesRequest, signal: AbortSignal) => Promise<unknown>;
+export type ListEntries = (
+  request: ListEntriesRequest,
+  signal: AbortSignal,
+  timeoutMs: number,
+) => Promise<unknown>;
 
 /** The error an `entries.list` call rejects with when Cloud Logging does not answer in time. */
 export class CallTimedOut extends Error {
@@ -51,7 +56,7 @@ export class CallTimedOut extends Error {
 export interface ReaderOptions {
   /** Waits before a retry, or less if `signal` aborts. */
   pause?: (ms: number, signal: AbortSignal) => Promise<void>;
-  /** The current time, in milliseconds since the epoch. */
+  /** The current time, in milliseconds since the epoch: for the scan budget and the notes. */
   now?: () => number;
 }
 
@@ -59,17 +64,37 @@ export interface ReaderOptions {
 const SOURCE = "cloud-logging";
 
 /**
- * The most `entries.list` calls one read makes. Cloud Logging allows 60 a minute per project, and
- * a page can come back empty with a token for the next one when the range is long, so the reader
- * stops here and says the range was not read in full.
+ * The most pages one read asks for: 10 pages, up to 30 `entries.list` calls with retries. Cloud
+ * Logging allows 60 calls a minute per project, and a page can come back empty with a token for
+ * the next one when the range is long, so the reader stops here and says the range was not read
+ * in full.
  */
 export const PAGE_BUDGET = 10;
+
+/**
+ * How long one read asks for pages at most, in milliseconds, before it stops with `scan-limit`:
+ * well inside the 120 seconds `kms history` waits. Checked before each page and each retry.
+ */
+export const SCAN_BUDGET_MS = 90_000;
+
+/** How long one call may take, in milliseconds, or less when the scan budget has less left. */
+export const CALL_TIMEOUT_MS = 30_000;
 
 /** The largest `pageSize` that `entries.list` takes. */
 export const MAX_PAGE_SIZE = 1000;
 
-/** The pauses before repeating a throttled, failed or unreachable call: two retries. */
+/**
+ * The pauses before repeating a throttled, failed or unreachable call: two retries. A 429 comes
+ * from a per-minute quota, which these pauses rarely outlast; they help with a short burst only.
+ */
 export const RETRY_DELAYS_MS: readonly number[] = [1000, 2000];
+
+/**
+ * How many times a call that got no answer in time is repeated. Once: `entries.list` is a read, so
+ * repeating it is safe, and a stalled connection shows up only as a timeout and is gone on a new
+ * one. A second timeout means the query itself is slow, and a third try would spend the budget.
+ */
+const TIMEOUT_RETRIES = 1;
 
 /**
  * How many days the `_Default` bucket keeps Data Access entries unless its retention was changed.
@@ -103,10 +128,14 @@ const KEY_VERSION_NAME = new RegExp(
   `^projects/(${PART})/locations/(${PART})/keyRings/(${PART})/cryptoKeys/(${PART})/cryptoKeyVersions/[1-9]\\d*$`,
 );
 const VERSION = /^[1-9]\d*$/;
+/** `projects/<p>/`, the start of a resource name. */
+const PROJECT_PREFIX = /^projects\/[^/]+\//;
 const HEX_DIGEST = /^[0-9a-fA-F]{64}$/;
 const BASE64_DIGEST = /^[A-Za-z0-9+/]{43}=$/;
+const SUBJECT_TYPE = /^[A-Za-z]+$/;
 const STATUS_TEXT = /^[A-Z][A-Z_]{0,63}$/;
-const ERRNO = /^E[A-Z0-9_]{2,31}$/;
+// A Node errno code, such as ECONNRESET, and not one of Node's own ERR_* codes.
+const ERRNO = /^E(?!RR_)[A-Z0-9_]{2,31}$/;
 
 /** The parts of a key's name the query is built from. */
 interface KeyParts {
@@ -114,8 +143,11 @@ interface KeyParts {
   location: string;
   keyRing: string;
   key: string;
-  /** `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>`, the key without its version. */
-  cryptoKeyName: string;
+  /**
+   * `locations/<l>/keyRings/<r>/cryptoKeys/<k>`: the key without its project and version. The
+   * project can be configured by its id or its number, and a log entry may name it either way.
+   */
+  keyPath: string;
 }
 
 /**
@@ -138,7 +170,7 @@ export function keyParts(name: string): KeyParts | undefined {
     location,
     keyRing,
     key,
-    cryptoKeyName: `projects/${project}/locations/${location}/keyRings/${keyRing}/cryptoKeys/${key}`,
+    keyPath: `locations/${location}/keyRings/${keyRing}/cryptoKeys/${key}`,
   };
 }
 
@@ -155,6 +187,8 @@ export function quote(value: string): string {
 /**
  * The Cloud Logging filter for a key's sign entries in a range. Cloud Logging compares these
  * strings without regard to case, so the reader checks each entry's `resourceName` exactly too.
+ * No clause names the project, which the config may give by its id or its number: the request's
+ * `resourceNames` reads the project's own logs only.
  *
  * @param parts - The key's parts.
  * @param since - The start of the range, inclusive.
@@ -165,14 +199,14 @@ export function signEntriesFilter(parts: KeyParts, since: Date, until: Date): st
   // `until` is inclusive and entries carry fractions of a second: ask for the whole second.
   const end = new Date(until.getTime() + 1000);
   return [
-    `logName=${quote(`projects/${parts.project}/logs/cloudaudit.googleapis.com%2Fdata_access`)}`,
+    `log_id("cloudaudit.googleapis.com/data_access")`,
     `resource.type="cloudkms_cryptokeyversion"`,
     `resource.labels.location=${quote(parts.location)}`,
     `resource.labels.key_ring_id=${quote(parts.keyRing)}`,
     `resource.labels.crypto_key_id=${quote(parts.key)}`,
     `protoPayload.methodName="AsymmetricSign"`,
     // Every version of the key, even when the config pins one.
-    `protoPayload.resourceName:${quote(`${parts.cryptoKeyName}/cryptoKeyVersions/`)}`,
+    `protoPayload.resourceName:${quote(`/${parts.keyPath}/cryptoKeyVersions/`)}`,
     `timestamp>=${quote(since.toISOString())}`,
     `timestamp<${quote(end.toISOString())}`,
   ].join(" AND ");
@@ -209,9 +243,24 @@ export function digestHex(value: unknown): string | null {
   return null;
 }
 
+/** Whether a principal subject is `<type>:` followed by the principal's email. */
+function repeatsEmail(subject: string | null, email: string | null): boolean {
+  return (
+    subject !== null &&
+    email !== null &&
+    subject.endsWith(`:${email}`) &&
+    SUBJECT_TYPE.test(subject.slice(0, -(email.length + 1)))
+  );
+}
+
 /** Why an answer could not be read; the text is the reader's own, with no value from the answer. */
 class BadResponse extends Error {
   public override readonly name = "BadResponse";
+}
+
+/** The scan budget ran out: the reader stops and returns what it read. */
+class ScanBudgetSpent extends Error {
+  public override readonly name = "ScanBudgetSpent";
 }
 
 /**
@@ -235,9 +284,14 @@ function signEvent(
     throw new BadResponse("an entry has no protoPayload, resourceName, methodName or timestamp");
   }
   // The filter matches without regard to case: an entry of a key whose name differs only in case
-  // belongs to another key.
-  const prefix = `${parts.cryptoKeyName}/cryptoKeyVersions/`;
-  const version = resourceName.startsWith(prefix) ? resourceName.slice(prefix.length) : "";
+  // belongs to another key. The project part is not compared, since it can be the id or the
+  // number; the request reads the key's project only.
+  const suffix = `/${parts.keyPath}/cryptoKeyVersions/`;
+  const project = PROJECT_PREFIX.exec(resourceName)?.[0];
+  const version =
+    project !== undefined && resourceName.startsWith(suffix, project.length - 1)
+      ? resourceName.slice(project.length - 1 + suffix.length)
+      : "";
   if (!VERSION.test(version) || operation !== "AsymmetricSign") {
     return undefined;
   }
@@ -256,11 +310,13 @@ function signEvent(
   const failed = (statusCode !== null && statusCode !== 0) || errorMessage !== null;
   const authentication = field(payload, "authenticationInfo");
   const metadata = field(payload, "requestMetadata");
+  const principalEmail = text(authentication, "principalEmail");
   const principalSubject = text(authentication, "principalSubject");
   const oauthClientId = text(field(authentication, "oauthInfo"), "oauthClientId");
   const extra: Record<string, KmsHistoryExtraValue> = {
     insertId: text(entry, "insertId"),
-    principalSubject,
+    // Left out when it only repeats the email, as `user:<email>` or `serviceAccount:<email>`.
+    ...(repeatsEmail(principalSubject, principalEmail) ? {} : { principalSubject }),
     receiveTimestamp: text(entry, "receiveTimestamp"),
     statusCode,
   };
@@ -271,7 +327,7 @@ function signEvent(
     errorCode:
       failed && statusCode !== null ? (statusName(statusCode) ?? String(statusCode)) : null,
     errorMessage: failed ? errorMessage : null,
-    principal: text(authentication, "principalEmail") ?? principalSubject,
+    principal: principalEmail ?? principalSubject,
     sourceIp: text(metadata, "callerIp"),
     userAgent: text(metadata, "callerSuppliedUserAgent"),
     requestId: null,
@@ -355,6 +411,9 @@ async function systemPause(ms: number, signal: AbortSignal): Promise<void> {
  * `AsymmetricSign` entry on any version of the key in the range, newest first, at most
  * `limit + 1` of them.
  *
+ * It stops with `scan-limit` after {@link PAGE_BUDGET} pages or {@link SCAN_BUDGET_MS}, and keeps
+ * what it read.
+ *
  * Cloud Audit Logs logs no request id, so `requestId` is not logged and each entry's `insertId`
  * goes in `extra`. The result never claims to see every sign request: Data Access logs can be
  * off, a principal can be exempted, and an exclusion filter or a sink can keep entries out.
@@ -391,21 +450,50 @@ export async function readGcpSignHistory(
     pageSize: Math.min(request.limit + 1, MAX_PAGE_SIZE),
   };
 
-  /** One page, with retries on throttling, server errors and network errors. */
+  const started = now();
+  /** What is left of the scan budget, in milliseconds. */
+  const budgetLeft = (): number => SCAN_BUDGET_MS - (now() - started);
+
+  /**
+   * One page, with retries on throttling, server errors, network errors and one timeout. Rejects
+   * with {@link ScanBudgetSpent} when the budget runs out before a call or a retry, or cuts a
+   * call short.
+   */
   const call = async (pageToken: string | null): Promise<unknown> => {
+    let timeouts = 0;
     for (let attempt = 0; ; attempt++) {
       signal.throwIfAborted();
+      const left = budgetLeft();
+      if (left <= 0) {
+        throw new ScanBudgetSpent();
+      }
+      const callMs = Math.min(CALL_TIMEOUT_MS, left);
       try {
-        return await listEntries(pageToken === null ? body : { ...body, pageToken }, signal);
+        return await listEntries(
+          pageToken === null ? body : { ...body, pageToken },
+          signal,
+          callMs,
+        );
       } catch (error) {
         signal.throwIfAborted();
+        const timedOut = error instanceof CallTimedOut;
+        // A call cut short by the budget's end, not by its own 30 seconds: the budget is spent.
+        if (timedOut && (callMs < CALL_TIMEOUT_MS || budgetLeft() <= 0)) {
+          throw new ScanBudgetSpent();
+        }
+        timeouts += timedOut ? 1 : 0;
         const status = httpStatus(error);
         const code = status === undefined ? networkCode(error) : undefined;
         const delay = RETRY_DELAYS_MS[attempt];
-        const retryable =
-          error instanceof CallTimedOut ||
-          (status === undefined ? code !== undefined : RETRY_STATUSES.has(status));
+        const retryable = timedOut
+          ? timeouts <= TIMEOUT_RETRIES
+          : status === undefined
+            ? code !== undefined
+            : RETRY_STATUSES.has(status);
         if (retryable && delay !== undefined) {
+          if (budgetLeft() <= delay) {
+            throw new ScanBudgetSpent();
+          }
           await pause(delay, signal);
           continue;
         }
@@ -458,8 +546,9 @@ export async function readGcpSignHistory(
   const events: KmsHistoryEvent[] = [];
   let pageToken: string | null = null;
   let pages = 0;
+  let scanStopped = false;
   try {
-    do {
+    for (;;) {
       const answer = page(await call(pageToken));
       pages++;
       for (const entry of answer.entries) {
@@ -469,12 +558,23 @@ export async function readGcpSignHistory(
         }
       }
       pageToken = answer.nextPageToken;
-    } while (pageToken !== null && events.length <= request.limit && pages < PAGE_BUDGET);
-  } catch (error) {
-    if (error instanceof BadResponse) {
-      throw fail(ERRORS.historyBadResponse, { problem: error.message });
+      if (pageToken === null || events.length > request.limit) {
+        break;
+      }
+      if (pages >= PAGE_BUDGET) {
+        scanStopped = true;
+        break;
+      }
     }
-    throw error;
+  } catch (error) {
+    if (error instanceof ScanBudgetSpent) {
+      // The pages read so far are kept; the result says the range was not read in full.
+      scanStopped = true;
+    } else if (error instanceof BadResponse) {
+      throw fail(ERRORS.historyBadResponse, { problem: error.message });
+    } else {
+      throw error;
+    }
   }
 
   const notes: KmsHistoryNote[] = [];
@@ -494,9 +594,9 @@ export async function readGcpSignHistory(
     events: events.slice(0, request.limit + 1),
     ...(overLimit
       ? { truncated: true, truncatedReason: "limit" as const }
-      : pageToken === null
-        ? { truncated: false }
-        : { truncated: true, truncatedReason: "scan-limit" as const }),
+      : scanStopped
+        ? { truncated: true, truncatedReason: "scan-limit" as const }
+        : { truncated: false }),
     completeForKey: false,
     scope: { description: SCOPE_DESCRIPTION, ids: { project: parts.project } },
     setupHint: SETUP_HINT,

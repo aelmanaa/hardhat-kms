@@ -7,10 +7,12 @@ import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 
 import hardhatKmsGcp from "../../src/index.ts";
+import { CALL_TIMEOUT_MS } from "../../src/internal/history.ts";
 import { kmsHandlers } from "../../src/internal/hook-handlers/kms.ts";
 import { loggingTransport } from "../../src/internal/logging-client.ts";
 import {
   FAILED_SIGN,
+  IPV6_SIGN,
   KEY_RING,
   KEY_VERSION_NAME,
   PLUGIN_SIGN,
@@ -159,7 +161,9 @@ describe("kms history on a Google Cloud key", () => {
     // Without --show-ids, no project, key ring or key name reaches the output. Principals are
     // shown as logged, so a service account's email keeps its project.
     assert.match(stdout, new RegExp(`"principal": "${SERVICE_ACCOUNT}"`));
-    assert.match(stdout, /"principalSubject": "serviceAccount:deployer@<hidden>\.iam/);
+    // A subject that only repeats the email is left out; one that says more is kept.
+    assert.doesNotMatch(stdout, /"principalSubject": "serviceAccount:/);
+    assert.match(stdout, /"principalSubject": "principal:\/\/iam\.googleapis\.com\/placeholder"/);
     assert.match(stdout, /"scope": "project <hidden>, /);
     for (const text of [stdout.replaceAll(SERVICE_ACCOUNT, ""), stderr]) {
       assert.doesNotMatch(text, new RegExp(PROJECT));
@@ -183,6 +187,17 @@ describe("kms history on a Google Cloud key", () => {
     assert.match(stdout, /AsymmetricSign/);
     assert.match(stdout, /0xbbc5f4ce/);
     assert.doesNotMatch(stdout, new RegExp(PROJECT));
+  });
+
+  it("shows an IPv6 caller address as logged, in the table and the JSON, without --show-ids", async () => {
+    const ip = "2001:db8:85a3::8a2e:370:7334";
+    server.answers.push(page([IPV6_SIGN]));
+    const json = await history();
+    assert.equal(json.report?.events[0]?.sourceIp, ip);
+    assert.match(json.stdout, new RegExp(`"sourceIp": "${ip}"`));
+    server.answers.push(page([IPV6_SIGN]));
+    const table = await history({ json: false });
+    assert.ok(table.stdout.includes(ip), "the table does not show the address");
   });
 
   it("follows page tokens over HTTP", async () => {
@@ -280,7 +295,7 @@ describe("kms history on a Google Cloud key", () => {
       const list = await localLogging(server.endpoint)("hardhat-kms/test");
       const controller = new AbortController();
       controller.abort(new Error("deadline"));
-      await assert.rejects(list(body, controller.signal), /deadline/);
+      await assert.rejects(list(body, controller.signal, CALL_TIMEOUT_MS), /deadline/);
       assert.equal(server.requests.length, 0);
     });
 
@@ -299,7 +314,7 @@ describe("kms history on a Google Cloud key", () => {
         "hardhat-kms/test",
         server.endpoint,
       );
-      await assert.rejects(list(body, controller.signal));
+      await assert.rejects(list(body, controller.signal, CALL_TIMEOUT_MS));
       // Give an unhandled 'error' event the chance to surface and fail the run.
       await new Promise((resolve) => setTimeout(resolve, 50));
       assert.equal(server.requests.length, 0);
@@ -307,8 +322,8 @@ describe("kms history on a Google Cloud key", () => {
 
     it("gives up on a call with no answer after its time", async () => {
       server.answers.push("hang");
-      const list = loggingTransport(localAuth(), "hardhat-kms/test", server.endpoint, 100);
-      await assert.rejects(list(body, new AbortController().signal), {
+      const list = loggingTransport(localAuth(), "hardhat-kms/test", server.endpoint);
+      await assert.rejects(list(body, new AbortController().signal, 100), {
         name: "CallTimedOut",
       });
     });
@@ -320,14 +335,14 @@ describe("kms history on a Google Cloud key", () => {
       setTimeout(() => {
         controller.abort();
       }, 100);
-      await assert.rejects(list(body, controller.signal));
+      await assert.rejects(list(body, controller.signal, CALL_TIMEOUT_MS));
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
 
     it("sends the request as JSON and returns the parsed answer", async () => {
       server.answers.push(page([PLUGIN_SIGN]));
       const list = await localLogging(server.endpoint)("hardhat-kms/test");
-      const answer = await list(body, new AbortController().signal);
+      const answer = await list(body, new AbortController().signal, CALL_TIMEOUT_MS);
       assert.deepEqual(server.requests.at(-1)?.body, body);
       assert.equal(server.requests.at(-1)?.headers["content-type"], "application/json");
       assert.deepEqual(answer, { entries: [PLUGIN_SIGN] });
@@ -344,7 +359,7 @@ describe("kms history on a Google Cloud key", () => {
         },
         "hardhat-kms/test",
       );
-      await assert.rejects(list(body, new AbortController().signal), /offline/);
+      await assert.rejects(list(body, new AbortController().signal, CALL_TIMEOUT_MS), /offline/);
       assert.deepEqual(urls, ["https://logging.googleapis.com/v2/entries:list"]);
     });
   });

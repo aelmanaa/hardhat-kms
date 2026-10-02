@@ -248,7 +248,7 @@ export const ERRORS = {
     group: "History",
     template: "Cloud Logging did not answer within {seconds} seconds, after {attempts} attempts",
     cause:
-      "Each `entries.list` call has 30 seconds. A long range over many entries, or a slow network, can take longer.",
+      "Each `entries.list` call has 30 seconds, and one that gets no answer in time is retried once. A long range over many entries, or a slow network, can take longer.",
     fix: "Narrow the range with `--since` and `--until`, or check the network.",
   },
   historyBadResponse: {

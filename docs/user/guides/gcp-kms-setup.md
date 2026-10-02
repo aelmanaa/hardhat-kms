@@ -158,18 +158,20 @@ The reader uses Application Default Credentials, as signing does, with the `logg
 
 ### What the history shows
 
-| Column       | From the log entry                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------- |
-| Time         | `timestamp`                                                                                                   |
-| Outcome      | `protoPayload.status`: empty for a served request; a code and a message for a refused one                     |
-| Principal    | `authenticationInfo.principalEmail`, or `principalSubject` when there is no email                             |
-| Source IP    | `requestMetadata.callerIp`, which reads `private` or `gce-internal-ip` for calls from inside Google Cloud     |
-| User agent   | `requestMetadata.callerSuppliedUserAgent`, reported by the client                                             |
-| Key version  | the last segment of `resourceName`                                                                            |
-| Digest       | `request.digest.sha256`, logged as 64 hex characters; the reader adds `0x`                                    |
-| Other fields | `insertId`, `principalSubject`, `receiveTimestamp` and the status code; the OAuth client id with `--show-ids` |
+| Column       | From the log entry                                                                                                                                        |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Time         | `timestamp`                                                                                                                                               |
+| Outcome      | `protoPayload.status`: empty for a served request; a code and a message for a refused one                                                                 |
+| Principal    | `authenticationInfo.principalEmail`, or `principalSubject` when there is no email                                                                         |
+| Source IP    | `requestMetadata.callerIp`, which reads `private` or `gce-internal-ip` for calls from inside Google Cloud                                                 |
+| User agent   | `requestMetadata.callerSuppliedUserAgent`, reported by the client                                                                                         |
+| Key version  | the last segment of `resourceName`                                                                                                                        |
+| Digest       | `request.digest.sha256`, logged as 64 hex characters; the reader adds `0x`                                                                                |
+| Other fields | `insertId`, `principalSubject` when it is more than the type and the email, `receiveTimestamp` and the status code; the OAuth client id with `--show-ids` |
 
 Cloud Audit Logs records no request id, so the history lists it as not logged. An entry's own id, `insertId`, is shown instead. No entry holds the message, the transaction or the signature, so the history cannot show what was signed; the digest identifies it if you have the transaction.
+
+The history is the same whether `keyVersionName` names the project by its id or by its number. Signing needs the id: in a live test on 2026-10-02, Cloud KMS refused a sign request whose key name held the project number.
 
 The project shows as `<hidden>` unless you pass `--show-ids`. Principals are shown as logged, so a service account's email keeps its project.
 
@@ -184,7 +186,7 @@ An empty history does not mean the key signed nothing, so the task says so inste
 
 Google documents no delivery delay for audit logs. In the live test on 2026-10-02 each entry reached the log about one second after its call, and `kms history` found the test's signature on its second read, 10 seconds after signing. When the range ends less than 15 minutes ago, the task still notes that recent events may be missing.
 
-Each run makes at most 10 `entries.list` calls of up to 1000 entries each. Cloud Logging allows 60 such calls a minute per project. A throttled call is retried twice, after 1 and 2 seconds, before the task fails. When the reader stops after 10 calls, the task says that the range was not read in full.
+Each run reads at most 10 pages of up to 1000 entries each, with up to 30 `entries.list` calls with retries. Cloud Logging allows 60 such calls a minute per project. A throttled call, a server error or a network error is retried twice, after 1 and 2 seconds, before the task fails. These pauses rarely outlast a per-minute quota. A call gets 30 seconds, and one that gets no answer in time is retried once. The reader also stops after 90 seconds. When it stops after 10 pages or 90 seconds, the task shows what it read and says that the range was not read in full.
 
 ### Cost
 
