@@ -2,7 +2,7 @@
 
 Audience: developers who have an Azure subscription and the Azure CLI signed in, and have not used Azure Key Vault with Hardhat.
 
-Status: followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH ([#67](https://github.com/aelmanaa/hardhat-kms/issues/67)). The run used an existing Standard vault with RBAC, so it did not run the commands that create the resource group and the vault, assign roles or delete the vault; it ran every command on the key. The plugin is not on npm yet; step 4 says how to install it until then.
+Status: followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH ([#67](https://github.com/aelmanaa/hardhat-kms/issues/67)). The run used an existing Standard vault with RBAC: it ran the key commands of steps 2 and 8, and listed the role assignments at the vault scope. It did not create the resource group or the vault, create or delete role assignments, or delete the vault. Signing with only the Key Vault Crypto User role of step 3 is not checked live yet. The plugin is not on npm yet; step 4 says how to install it until then.
 
 In this tutorial you create a Hardhat project, create a signing key in Azure Key Vault, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Key Vault: Hardhat asks Key Vault for a signature each time it sends a transaction.
 
@@ -11,7 +11,7 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 You need:
 
 - Node.js 22.13 or later, and npm.
-- The Azure CLI, signed in with `az login`, with a subscription where you can create a resource group and a key vault and assign roles, such as one where you have the Owner role. The plugin finds the same sign-in as the CLI. If `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` or `AZURE_CLIENT_SECRET` are set in your shell, the plugin tries them first; see [Sign in](../guides/azure-key-vault-setup.md#3-sign-in).
+- The Azure CLI, signed in with `az login`, with a subscription where you can create a resource group and a key vault and assign roles, such as one where you have the Owner role. The plugin finds the same sign-in as the CLI. It tries environment variables first, but only a complete set: `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` with `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE`. `AZURE_CLIENT_ID` alone only chooses a user-assigned managed identity, which the plugin tries after the CLI. See [Sign in](../guides/azure-key-vault-setup.md#3-sign-in).
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
 - About 0.01 Sepolia ETH, from a faucet or another account.
 
@@ -31,7 +31,7 @@ The template has a `Counter` contract, the Ignition module `ignition/modules/Cou
 
 A Standard vault has no monthly fee, and an `EC` key in it has none either. Each `get` or `sign` operation on the key costs $0.15 per 10,000, the price of "advanced key operations" in East US on 2026-10-02; prices vary by region. A deleted key cannot be used, so it costs nothing. See [Azure Key Vault pricing](https://azure.microsoft.com/pricing/details/key-vault/). Step 8 removes the key and the vault.
 
-This tutorial uses an `EC` key in a Standard vault, the cheapest kind that can sign for Ethereum. Key Vault keeps its private key in software. For production, consider an `EC-HSM` key in a Premium vault, which keeps the private key in a hardware security module and costs $5 a month per key ([About keys](https://learn.microsoft.com/azure/key-vault/keys/about-keys)).
+This tutorial uses an `EC` key in a Standard vault, the cheapest kind that can sign for Ethereum. Key Vault keeps its private key in software. For production, consider an `EC-HSM` key in a Premium vault, which keeps the private key in a hardware security module and costs $5 a month per key version, less above 250 keys ([About keys](https://learn.microsoft.com/azure/key-vault/keys/about-keys)).
 
 Choose a region and a vault name. The name must be unique across Azure, 3 to 24 letters, digits and hyphens, starting with a letter. `az account list-locations --query '[].name' --output tsv` lists the regions:
 
@@ -41,26 +41,38 @@ VAULT="kms-tutorial-$(openssl rand -hex 4)"
 echo "$VAULT"
 ```
 
+In a subscription that has never used Key Vault, register its resource provider first. Registering again does no harm:
+
+```sh
+az provider register --namespace Microsoft.KeyVault --wait
+```
+
 Create a resource group and a Standard vault in it:
 
 ```sh
 az group create --name hardhat-kms-tutorial --location "$LOCATION"
-az keyvault create --name "$VAULT" --resource-group hardhat-kms-tutorial --location "$LOCATION" --sku standard
+az keyvault create --name "$VAULT" --resource-group hardhat-kms-tutorial --location "$LOCATION" \
+  --sku standard --enable-rbac-authorization true --retention-days 7
 ```
 
-Some regions refuse new vaults for some subscriptions. If `az keyvault create` fails for the region, delete the resource group with `az group delete --name hardhat-kms-tutorial`, choose another region and run both commands again.
+`--enable-rbac-authorization true` makes the vault use Azure role-based access control (RBAC). Recent Azure CLIs do so by default, older ones create a vault with access policies, where the role assignments below have no effect. To check, `az keyvault show --name "$VAULT" --query properties.enableRbacAuthorization` prints `true`. `--retention-days 7` keeps a deleted key or vault recoverable for 7 days instead of the default 90, the shortest period Key Vault allows; it is enough for a throwaway vault.
 
-A new vault uses Azure role-based access control (RBAC), and creating it gives you no access to its keys, even as the subscription's Owner. Give yourself the **Key Vault Crypto Officer** role on the vault, which can create and delete keys:
+Some regions refuse new vaults for some subscriptions. If `az keyvault create` fails for the region, run it again with another `--location`; the resource group can stay where it is.
+
+If `az keyvault create` fails because an Azure Policy requires purge protection, add `--enable-purge-protection true`. Keep `--retention-days 7`: with purge protection, step 8's purges are refused, and the key and the vault stay recoverable until the retention period ends. Purge protection can never be turned off.
+
+Creating an RBAC vault gives you no access to its keys, even as the subscription's Owner. Give yourself the **Key Vault Crypto Officer** role on the vault, which can create and delete keys:
 
 ```sh
 VAULT_ID=$(az keyvault show --name "$VAULT" --query id --output tsv)
 
 az role assignment create --role "Key Vault Crypto Officer" \
-  --assignee "$(az ad signed-in-user show --query id --output tsv)" \
+  --assignee-object-id "$(az ad signed-in-user show --query id --output tsv)" \
+  --assignee-principal-type User \
   --scope "$VAULT_ID"
 ```
 
-`az ad signed-in-user` works when you signed in as a user. A role assignment can take a few minutes to take effect; if the next command fails with `Forbidden`, wait and run it again.
+`az ad signed-in-user` works when you signed in as a user. Passing the object id and the principal type saves a directory lookup, which a guest user may not be allowed to make. A role assignment can take a few minutes to take effect; if the next command fails with `Forbidden`, wait and run it again.
 
 Create a secp256k1 signing key, which Key Vault calls an `EC` key on the `P-256K` curve, and print its id:
 
@@ -86,13 +98,14 @@ az role definition list --name "Key Vault Crypto User" --query '[0].permissions[
 
 It prints nine data actions on keys: `read`, which the plugin needs to get the public key, `sign`, which it needs to sign, and `update`, `backup`, `encrypt`, `decrypt`, `wrap`, `unwrap` and `verify`, which it does not use. It allows no delete or purge. For a role with only `read` and `sign`, create the custom role in [Allow get and sign, and nothing else](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) and assign it the same way.
 
-To give a deployer identity the role on the key, assign it with the key's scope. The assignee is the object id of a user, group, service principal or managed identity:
+To give a deployer identity the role on the key, assign it with the key's scope, or give each deployer its own vault and assign the role on that vault. The assignee is the object id of a user, group, service principal or managed identity; its principal type is `User`, `Group` or `ServicePrincipal`, which covers managed identities:
 
 ```sh
 KEY_SCOPE="$VAULT_ID/keys/hardhat-kms-tutorial"
 
 az role assignment create --role "Key Vault Crypto User" \
-  --assignee <deployer object id> \
+  --assignee-object-id <deployer object id> \
+  --assignee-principal-type <principal type> \
   --scope "$KEY_SCOPE"
 ```
 
@@ -309,7 +322,7 @@ When this verifies the contract, Blockscout's part of the output ends like this:
 📤 Submitted source code for verification on Blockscout:
 
   contracts/Counter.sol:Counter
-  Address: 0xc93b1fa3aB9Db68E28897528246b7ec4C5492865
+  Address: <contract address>
 
 ⏳ Waiting for verification result...
 
@@ -388,12 +401,18 @@ RETURN_TO=<return address> npx hardhat run scripts/return-funds.ts
 
 A tiny amount stays behind, 0.0000015 ETH in the recorded run, because the script reserves the fee at the highest price the transaction may pay. Run again, the script stops with `the balance of <deployer address>, … ETH, does not cover the fee` and sends nothing.
 
-Then remove the key. If you closed the shell since step 2, set `VAULT`, `VAULT_ID` and `KEY_ID` again first, with the vault name that step 2 printed:
+Then remove the key. If you closed the shell since step 2, set `VAULT` and `VAULT_ID` again first, with the vault name that step 2 printed:
 
 ```sh
 VAULT=<vault name>
 VAULT_ID=$(az keyvault show --name "$VAULT" --query id --output tsv)
-KEY_ID=$(az keyvault key show --vault-name "$VAULT" --name hardhat-kms-tutorial --query key.kid --output tsv)
+```
+
+Set `KEY_ID` from the `keyId` in `hardhat.config.ts`, the version your config signs with. `az keyvault key show` returns the latest version, which is another one if someone rotated the key:
+
+```sh
+KEY_ID=$(grep -o 'https://[^"]*/keys/hardhat-kms-tutorial/[0-9a-f]*' hardhat.config.ts)
+echo "$KEY_ID"
 ```
 
 Disable the key version your config uses. A disabled version cannot sign, and `--enabled true` brings it back:
@@ -407,7 +426,7 @@ To keep the key instead, run only the disable step, and stop here. A disabled ke
 If you gave a deployer the Key Vault Crypto User role in step 3, remove that assignment:
 
 ```sh
-az role assignment delete --role "Key Vault Crypto User" --assignee <deployer object id> \
+az role assignment delete --role "Key Vault Crypto User" --assignee-object-id <deployer object id> \
   --scope "$VAULT_ID/keys/hardhat-kms-tutorial"
 ```
 
@@ -417,15 +436,15 @@ Delete the key:
 az keyvault key delete --vault-name "$VAULT" --name hardhat-kms-tutorial
 ```
 
-The vault has soft delete, which is on for every new vault. The deleted key cannot sign, and costs nothing, since nothing can use it. It stays recoverable for the vault's retention period, 90 days unless you chose another period, from 7 to 90 days, when you created the vault. Until then, `az keyvault key recover --vault-name "$VAULT" --name hardhat-kms-tutorial` brings it back as it was, with the same address; [Prevent and recover from losing a key](../guides/key-loss.md#azure-key-vault) covers it.
+The vault has soft delete, which is on for every new vault. The deleted key cannot sign, and costs nothing, since nothing can use it. It stays recoverable for the vault's retention period, 7 days with the command in step 2, 90 by default. Until then, `az keyvault key recover --vault-name "$VAULT" --name hardhat-kms-tutorial` brings it back as it was, with the same address; [Prevent and recover from losing a key](../guides/key-loss.md#azure-key-vault) covers it.
 
-To remove the key for good now, purge it. The deleted key can take a few seconds to appear in `az keyvault key list-deleted`; if the purge says the key is not found, wait and run it again:
+To remove the key for good now, purge it. The deleted key can take 10 seconds or more to appear in `az keyvault key list-deleted`. If the purge fails with `KeyNotFound`, or with a conflict that says the key is being deleted, wait and run it again:
 
 ```sh
 az keyvault key purge --vault-name "$VAULT" --name hardhat-kms-tutorial
 ```
 
-After the purge, the key is gone for good, and nothing can sign for the address again. A vault with purge protection refuses the purge; Key Vault then purges the key when the retention period ends. Purge protection can never be turned off once it is on, so leave it off for a test vault like this one.
+After the purge, the key is gone for good, and nothing can sign for the address again. A vault with purge protection refuses the purge; Key Vault then purges the key when the retention period ends. Purge protection can never be turned off once it is on, so leave it off for a test vault like this one unless a policy requires it.
 
 Last, delete the resource group, which deletes the vault and its role assignments, then purge the vault so its name is free again:
 
@@ -434,7 +453,7 @@ az group delete --name hardhat-kms-tutorial --yes
 az keyvault purge --name "$VAULT"
 ```
 
-A deleted vault, like a deleted key, stays recoverable until you purge it or its retention period ends. Recovering it does not bring back its role assignments.
+A deleted vault, like a deleted key, stays recoverable until you purge it or its retention period ends. Recovering it does not bring back its role assignments. With purge protection, `az keyvault purge` is refused too, and the vault's name stays taken until the retention period ends.
 
 ## Next steps
 
