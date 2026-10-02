@@ -31,7 +31,13 @@ export function publicKeyFromSpkiDer(der: Uint8Array): Uint8Array {
   // Node also accepts trailing bytes and compressed points; require the one canonical encoding,
   // as the signature parser does for signatures.
   const canonical = Uint8Array.from([...SECP256K1_SPKI_PREFIX, ...publicKey]);
-  if (der.length !== canonical.length || !der.every((byte, index) => byte === canonical[index])) {
+  // Without the length check, a longer der still fails every() at its first extra byte, and a
+  // shorter one would be a truncated prefix of the canonical encoding, which Node cannot read.
+  if (
+    // Stryker disable next-line ConditionalExpression: every() alone refuses any der Node could read
+    der.length !== canonical.length ||
+    !der.every((byte, index) => byte === canonical[index])
+  ) {
     throw new InvalidPublicKeyError(catalogMessage(ERRORS.spkiDer, {}));
   }
   return publicKey;
@@ -79,11 +85,13 @@ const JWK_SECP256K1_CURVES = new Set(["P-256K", "SECP256K1", "secp256k1"]);
  * @throws {InvalidPublicKeyError} If the key type or curve is wrong, or the point is not on the curve.
  */
 export function publicKeyFromJwk(jwk: EcJsonWebKey): Uint8Array {
+  // Stryker disable next-line ConditionalExpression: the set refuses undefined with the same error
   if (jwk.kty === undefined || !JWK_KEY_TYPES.has(jwk.kty)) {
     throw new InvalidPublicKeyError(
       catalogMessage(ERRORS.jwkKeyType, { keyType: String(jwk.kty) }),
     );
   }
+  // Stryker disable next-line ConditionalExpression: the set refuses undefined with the same error
   if (jwk.crv === undefined || !JWK_SECP256K1_CURVES.has(jwk.crv)) {
     throw new InvalidPublicKeyError(catalogMessage(ERRORS.jwkCurve, { curve: String(jwk.crv) }));
   }
@@ -118,10 +126,18 @@ function publicKeyFromKeyObject(load: () => KeyObject): Uint8Array {
   } catch {
     throw new InvalidPublicKeyError(catalogMessage(ERRORS.spkiParse, {}));
   }
-  if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "secp256k1") {
+  // A key that is not EC fails the curve check too, with the same error. Node returns an object
+  // from asymmetricKeyDetails for every key it loads, {} when it has no details for the type.
+  if (
+    // Stryker disable next-line ConditionalExpression: the curve check refuses non-EC keys too
+    key.asymmetricKeyType !== "ec" ||
+    // Stryker disable next-line OptionalChaining: Node never returns undefined details
+    key.asymmetricKeyDetails?.namedCurve !== "secp256k1"
+  ) {
     throw new InvalidPublicKeyError(
       catalogMessage(ERRORS.spkiCurve, {
         keyType: String(key.asymmetricKeyType),
+        // Stryker disable next-line OptionalChaining: Node never returns undefined details
         curve: String(key.asymmetricKeyDetails?.namedCurve),
       }),
     );
@@ -136,6 +152,7 @@ function coordinateBytes(value: Uint8Array | string | undefined, name: string): 
       catalogMessage(ERRORS.jwkCoordinateMissing, { coordinate: name }),
     );
   }
+  // Stryker disable next-line ConditionalExpression: Buffer.from(bytes, encoding) copies the bytes
   return typeof value === "string" ? new Uint8Array(Buffer.from(value, "base64url")) : value;
 }
 

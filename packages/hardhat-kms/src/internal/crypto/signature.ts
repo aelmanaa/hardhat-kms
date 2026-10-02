@@ -131,7 +131,9 @@ export function recoverPublicKey(
       .addRecoveryBit(yParity)
       .recoverPublicKey(digest)
       .toBytes(false);
-  } catch {
+  }
+  // Stryker disable next-line BlockStatement: an empty catch block returns undefined as well
+  catch {
     return undefined;
   }
 }
@@ -156,9 +158,21 @@ export function normalizeSignature(
   const s = toLowS(rawS);
   const yParity = recoverYParity(digest, r, s, publicKey);
   const compact = new secp256k1.Signature(r, s).toBytes("compact");
-  if (!secp256k1.verify(compact, digest, publicKey, { prehash: false, lowS: true })) {
+  // Defence in depth against a bug in the curve library: recoverYParity has already shown that
+  // (r, s) recovers to publicKey over digest, so this check cannot fail without one.
+  // Stryker disable BlockStatement: the block below is unreachable, see above
+  if (
+    // Stryker disable next-line ConditionalExpression: verify cannot fail after recovery
+    !secp256k1.verify(compact, digest, publicKey, {
+      prehash: false,
+      // Stryker disable next-line BooleanLiteral: s is already low, so lowS: false gives the same
+      lowS: true,
+    })
+  ) {
+    // Stryker disable next-line CallExpression: unreachable, since the recovered key verifies
     throw new InvalidSignatureError(catalogMessage(ERRORS.signatureNoVerify, {}));
   }
+  // Stryker restore BlockStatement
   return { r, s, yParity };
 }
 
@@ -220,10 +234,16 @@ export function parseRpcSignature(signature: string): ParsedRpcSignature {
 
 /** The recovery bit a `v` value encodes, as alloy's `normalize_v` reads it. */
 function recoveryBit(v: number): 0 | 1 {
+  // Stryker disable next-line ArithmeticOperator: v + 35 and v - 35 differ by 70, which is even
   if (v === 0 || v === 27 || (v >= 35 && (v - 35) % 2 === 0)) {
     return 0;
   }
-  if (v === 1 || v === 28 || v >= 35) {
+  if (
+    v === 1 ||
+    v === 28 ||
+    // Stryker disable next-line EqualityOperator: v > 35 is the same, since v = 35 returned above
+    v >= 35
+  ) {
     return 1;
   }
   throw new InvalidSignatureError(catalogMessage(ERRORS.signatureV, { v }));
@@ -254,5 +274,7 @@ function assertDigest(digest: Uint8Array): void {
 }
 
 function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
+  // A recovered key is always 65 bytes, and the signer's key passed assertOnCurve when it was read.
+  // Stryker disable next-line ConditionalExpression: both keys are always 65 bytes long
   return a.length === b.length && a.every((byte, index) => byte === b[index]);
 }

@@ -3,6 +3,7 @@
 
 const TABLE = (() => {
   const table = new Uint32Array(256);
+  // Stryker disable next-line EqualityOperator: a Uint32Array drops the extra write to table[256]
   for (let n = 0; n < 256; n++) {
     let c = n;
     for (let k = 0; k < 8; k++) {

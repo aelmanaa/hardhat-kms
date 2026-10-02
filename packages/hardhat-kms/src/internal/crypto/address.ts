@@ -41,6 +41,7 @@ export class InvalidAddressError extends Error {
  * @throws {InvalidAddressError} If the address is malformed or its checksum is wrong.
  */
 export function toChecksumAddress(address: string): string {
+  // Stryker disable next-line Regex: addr.isValid is anchored, so it refuses text around an address
   if (!/^0x[0-9a-fA-F]{40}$/.test(address) || !addr.isValid(address)) {
     throw new InvalidAddressError(catalogMessage(ERRORS.invalidAddress, { address }));
   }

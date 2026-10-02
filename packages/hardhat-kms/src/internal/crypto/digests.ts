@@ -169,7 +169,13 @@ export function verifyPersonalMessageSignature(
 }
 
 function hexToBytes(hex: string): Uint8Array {
-  return new Uint8Array(Buffer.from(hex.startsWith("0x") ? hex.slice(2) : hex, "hex"));
+  return new Uint8Array(
+    Buffer.from(
+      // Stryker disable next-line StringLiteral: micro-eth-signer returns both digests 0x-prefixed
+      hex.startsWith("0x") ? hex.slice(2) : hex,
+      "hex",
+    ),
+  );
 }
 
 // The encoder's types are derived from a statically known schema, which RPC requests never have.
