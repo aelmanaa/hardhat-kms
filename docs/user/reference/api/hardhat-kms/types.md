@@ -22,6 +22,13 @@ One key in the output of `kms accounts`.
 
 The EIP-55 address, or `null` if the key failed.
 
+##### balance?
+
+> `optional` **balance?**: `string` \| `null`
+
+Only with `--balances`: the address's balance on the `--network` network, in wei, as a decimal
+string, or `null` if the key or the read failed.
+
 ##### endpoint?
 
 > `optional` **endpoint?**: `string` \| `null`
@@ -32,7 +39,8 @@ AWS keys only, and only with `--show-ids`: the configured endpoint, or `null`.
 
 > **error**: `string` \| `null`
 
-Why the key failed, or `null`. A pin mismatch names both addresses.
+Why the key failed, or `null`. A pin mismatch names both addresses. A failed balance read and a
+failed sign check are each described, separated by `; `.
 
 ##### keyId
 
@@ -67,8 +75,9 @@ The configured `address` pin, or `null`.
 
 > **pinStatus**: `"match"` \| `"none"` \| `"unchecked"` \| `null`
 
-`match`: the KMS confirmed the pin. `none`: no pin. `unchecked`: the provider cannot report the
-address, so `address` is the pin. `null` if the key failed.
+`match`: the KMS confirmed the pin or, with `--check-sign`, the key signed and its signature
+recovered to the pin. `none`: no pin. `unchecked`: the provider cannot report the address, so
+`address` is the pin. `null` if the key failed.
 
 ##### profile?
 
@@ -85,6 +94,13 @@ AWS keys only: the configured profile, or `null` for the SDK's default.
 > `optional` **region?**: `string` \| `null`
 
 AWS keys only: the configured region, or `null` for the SDK's default.
+
+##### signCheck?
+
+> `optional` **signCheck?**: `"ok"` \| `null`
+
+Only with `--check-sign`: `ok` when the key signed a random EIP-191 message and the signature
+recovered to its address, or `null` if the key or the signature failed.
 
 ##### source
 
