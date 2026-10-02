@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "pnpm",
+  "testRunner": "tap",
+  "plugins_comment": "Stryker looks for @stryker-mutator/* plugins next to its own install. pnpm installs the tap runner elsewhere, so the plugin is named by path.",
+  "plugins": ["./node_modules/@stryker-mutator/tap-runner/dist/src/index.js"],
+  "tap_comment": "Every core unit test but error-types.test.ts, which runs tsc on a fixture through paths outside the package that do not exist in Stryker's sandbox, and runs no code from crypto/ or signer/.",
+  "tap": {
+    "testFiles": ["test/unit/**/!(error-types).test.ts"]
+  },
+  "mutate": [
+    "src/internal/crypto/**/*.ts",
+    "src/internal/signer/**/*.ts",
+    "!src/internal/signer/types.ts"
+  ],
+  "ignorePatterns": ["dist", "coverage", ".tmp", "test/fixture-projects"],
+  "tsconfigFile_comment": "Points at a file that does not exist on purpose. Stryker rewrites tsconfig.json in its sandbox with typescript's parseConfigFileTextToJson, which TypeScript 7 does not export. The rewrite only serves Stryker's TypeScript checker, which this setup does not use. See docs/contributor/testing.md, layer 8.",
+  "tsconfigFile": "stryker-has-no-tsconfig.json",
+  "incremental": true,
+  "incrementalFile": "reports/stryker-incremental.json",
+  "reporters": ["clear-text", "progress", "html", "json"],
+  "htmlReporter": { "fileName": "reports/mutation/mutation.html" },
+  "jsonReporter": { "fileName": "reports/mutation/mutation.json" },
+  "cleanTempDir": "always",
+  "thresholds_comment": "break = measured score rounded down, minus 2. Raise it by hand when the score rises; see docs/contributor/testing.md, layer 8.",
+  "thresholds": { "high": 90, "low": 80, "break": 80 }
+}

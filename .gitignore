@@ -18,3 +18,7 @@ test/live/fixture-project/cache/
 
 # Temporary projects of the CLI test
 packages/*/.tmp/
+
+# Stryker reports, incremental file and sandboxes
+packages/*/reports/
+packages/*/.stryker-tmp/
