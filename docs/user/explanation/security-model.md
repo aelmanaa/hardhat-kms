@@ -101,22 +101,22 @@ Any of these requests can reach the KMS and produce a signature the plugin never
 
 Each cloud provider records sign requests in its own audit log, whoever makes them. [`kms history`](../reference/tasks.md#kms-history) reads that log for one key. It shows only what the log holds: the plugin keeps no record of its own signatures, and it fills in nothing. So the history can show who signed with a key, when, from where and with which tool, including signatures made outside the plugin. It cannot show what was signed: no provider logs the message, the typed data, the transaction or the signature. Google Cloud logs the digest; AWS and Azure do not.
 
-What each provider records for a sign request, from the providers' documentation on 2026-10-02. The Google Cloud and AWS columns were also checked against real log entries on 2026-10-02; on AWS, `requestID` is the `$metadata.requestId` the SDK returns. The readers are in progress ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)), and a live test will check the entries marked with an asterisk.
+What each provider records for a sign request, from the providers' documentation on 2026-10-02. Each reader's live test checked its column against real log entries the same day. On AWS, `requestID` is the `$metadata.requestId` the SDK returns. On Azure, `CorrelationId` is the `x-ms-request-id` that Key Vault returns, and the client's `x-ms-client-request-id` is not logged.
 
-| Field           | AWS KMS (CloudTrail `Sign`)        | Google Cloud KMS (`AsymmetricSign`)                             | Azure Key Vault (`KeySign` in `AZKVAuditLogs`)    |
-| --------------- | ---------------------------------- | --------------------------------------------------------------- | ------------------------------------------------- |
-| Time            | `eventTime`                        | `timestamp`                                                     | `TimeGenerated`                                   |
-| Principal       | `userIdentity`                     | `authenticationInfo.principalEmail`                             | `Identity`                                        |
-| Key and version | key ARN in `resources`; no version | `resourceName`, the full key version name                       | `Id` and `RequestUri`, which holds the version    |
-| Source IP       | `sourceIPAddress`                  | `requestMetadata.callerIp`, which may be `private`              | `CallerIpAddress`                                 |
-| User agent      | `userAgent`                        | `requestMetadata.callerSuppliedUserAgent`                       | `ClientInfo`                                      |
-| Request id      | `requestID`, set by the service    | not logged; see below                                           | `CorrelationId`\*                                 |
-| Digest          | not logged                         | `request.digest.sha256`, 64 lowercase hex; the reader adds `0x` | not logged                                        |
-| Outcome         | `errorCode`, `errorMessage`        | `status`                                                        | `ResultType`, `HttpStatusCode`                    |
-| Setup           | none, on by default                | Data Access logs for Cloud KMS, off by default                  | a diagnostic setting to a Log Analytics workspace |
-| Delay           | about 5 minutes, not guaranteed    | not documented                                                  | up to 10 minutes                                  |
-| Retention       | 90 days                            | 30 days in the `_Default` bucket                                | set on the workspace; 31 days included            |
-| Read permission | `cloudtrail:LookupEvents`          | `roles/logging.privateLogViewer`                                | workspace query and table read                    |
+| Field           | AWS KMS (CloudTrail `Sign`)        | Google Cloud KMS (`AsymmetricSign`)                             | Azure Key Vault (`KeySign` in `AZKVAuditLogs`)                                                           |
+| --------------- | ---------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Time            | `eventTime`                        | `timestamp`                                                     | `TimeGenerated`                                                                                          |
+| Principal       | `userIdentity`                     | `authenticationInfo.principalEmail`                             | the token claims in `Identity`: `upn` or `unique_name` for a user, `appid` for an application, and `oid` |
+| Key and version | key ARN in `resources`; no version | `resourceName`, the full key version name                       | `Id`, the versioned key URL; `RequestUri` too, with a port                                               |
+| Source IP       | `sourceIPAddress`                  | `requestMetadata.callerIp`, which may be `private`              | `CallerIpAddress`                                                                                        |
+| User agent      | `userAgent`                        | `requestMetadata.callerSuppliedUserAgent`                       | `ClientInfo`                                                                                             |
+| Request id      | `requestID`, set by the service    | not logged; see below                                           | `CorrelationId`, set by the service                                                                      |
+| Digest          | not logged                         | `request.digest.sha256`, 64 lowercase hex; the reader adds `0x` | not logged                                                                                               |
+| Outcome         | `errorCode`, `errorMessage`        | `status`                                                        | `HttpStatusCode`; `ResultType` is `Success` for a refused request too                                    |
+| Setup           | none, on by default                | Data Access logs for Cloud KMS, off by default                  | a diagnostic setting to a Log Analytics workspace, resource-specific                                     |
+| Delay           | about 5 minutes, not guaranteed    | not documented                                                  | up to 10 minutes                                                                                         |
+| Retention       | 90 days                            | 30 days in the `_Default` bucket                                | set on the workspace; 30 days by default                                                                 |
+| Read permission | `cloudtrail:LookupEvents`          | `roles/logging.privateLogViewer`                                | Log Analytics Data Reader on the workspace                                                               |
 
 Google Cloud logs no request id: the only id of an entry is its `insertId`. Its reader lists `requestId` in `notLogged` and puts the `insertId` in `extra.insertId`.
 

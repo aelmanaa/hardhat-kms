@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in Azure Key Vault or Azure Managed HSM, and who have the `az` CLI.
 
-Status: the Azure adapter is implemented, in the `hardhat-kms-azure` package ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). A connection lists the key's account and signs transactions, messages and typed data with it. The unit and integration tests run against a fake Key Vault. The live smoke test and the live suite on Sepolia ran against a real vault ([#44](https://github.com/aelmanaa/hardhat-kms/issues/44)); the transactions are in [Live proof](../../live-proof.md).
+Status: the Azure adapter is implemented, in the `hardhat-kms-azure` package ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). A connection lists the key's account and signs transactions, messages and typed data with it. The unit and integration tests run against a fake Key Vault. The live smoke test and the live suite on Sepolia ran against a real vault ([#44](https://github.com/aelmanaa/hardhat-kms/issues/44)); the transactions are in [Live proof](../../live-proof.md). And `kms history` ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)) lists who signed with the key, when and from where, from the Key Vault audit log that a diagnostic setting sends to a Log Analytics workspace; see [Audit logs](#audit-logs).
 
 ## 1. Create a secp256k1 signing key
 
@@ -165,6 +165,90 @@ Run it with `npx hardhat run scripts/check-kms.ts`. Each run reads the key once,
 - It normalizes each signature to low-S, recovers the parity and verifies it against the public key before using it; see the [signing pipeline](../../contributor/signing-pipeline.md).
 - It puts `hardhat-kms/<version>` at the start of the user agent of every request, so the `ClientInfo` column of the `AZKVAuditLogs` table starts with `hardhat-kms/1.0.0` (with your installed version) when a diagnostic setting sends audit events to a workspace. The client reports this tag and anyone can send the same string, so it marks the plugin's calls but proves nothing.
 
+## Audit logs
+
+Key Vault records each sign request in its audit log, whoever makes it, as a `KeySign` event. [`kms history`](../reference/tasks.md#kms-history) lists them for one key:
+
+```sh
+npx hardhat kms history deployer --since 7d
+```
+
+Key Vault keeps no audit log you can query by itself. A diagnostic setting on the vault sends the `AuditEvent` category to a Log Analytics workspace, and the task reads the `AZKVAuditLogs` table there. Nothing is logged before the setting exists.
+
+### Send the audit log to a workspace
+
+Create a workspace, or reuse one, then add a diagnostic setting on the vault with the resource-specific destination:
+
+```sh
+az monitor log-analytics workspace create   --resource-group my-rg --workspace-name kms-audit --location eastus
+
+az monitor diagnostic-settings create   --name hardhat-kms-audit   --resource "$(az keyvault show --name my-vault --query id -o tsv)"   --workspace "$(az monitor log-analytics workspace show --resource-group my-rg --workspace-name kms-audit --query id -o tsv)"   --export-to-resource-specific true   --logs '[{"category":"AuditEvent","enabled":true}]'
+```
+
+`--export-to-resource-specific true` matters: without it, the events go to the older `AzureDiagnostics` table, which the task does not read, and the task fails with `azure.history.no-table`. The table appears in the workspace with the first event.
+
+Then give the plugin the workspace id, the GUID that `az monitor log-analytics workspace show --resource-group my-rg --workspace-name kms-audit --query customerId -o tsv` prints. It is not the workspace's resource id or name:
+
+```ts
+import { configVariable, defineConfig } from "hardhat/config";
+import hardhatKmsAzure from "hardhat-kms-azure";
+
+export default defineConfig({
+  plugins: [hardhatKmsAzure],
+  kms: {
+    keys: { deployer: { provider: "azure", keyId: configVariable("DEPLOYER_KEY_ID") } },
+    audit: { azure: { workspaceId: configVariable("KMS_AUDIT_WORKSPACE_ID") } },
+  },
+});
+```
+
+A literal GUID works too. Without `kms.audit.azure.workspaceId`, `kms history` fails on Azure keys with `azure.history.no-workspace`; signing does not need it.
+
+### The read permission
+
+The identity that runs `kms history` uses the same credential chain as signing ([step 3](#3-sign-in)) and needs to query the workspace and read the `AZKVAuditLogs` table: `Microsoft.OperationalInsights/workspaces/query/read` and table read access. The **Log Analytics Data Reader** role on the workspace grants both:
+
+```sh
+az role assignment create   --role "Log Analytics Data Reader"   --assignee <principal id>   --scope "$(az monitor log-analytics workspace show --resource-group my-rg --workspace-name kms-audit --query id -o tsv)"
+```
+
+It lets the identity read every table of the workspace, so a workspace that holds only Key Vault audit events keeps that access narrow. A refused read fails with the permissions to grant. A read that may query the workspace but not this table gets no rows and no error from Log Analytics, which the task cannot tell from a key that signed nothing.
+
+### How it reads
+
+The task sends one Log Analytics query to `api.loganalytics.io`, in Azure's public cloud. It reads the `KeySign` rows whose key URL (`Id`, or `RequestUri` when `Id` is empty) has the key's vault host and key name, without regard to case, for any version of the key, in the range. It sorts them newest first and keeps one more than `--limit`. The query is built only from the checked vault host and key name and the two times, so no configuration value can change it. Log Analytics allows 200 queries per 30 seconds per user; a throttled query is retried twice, honouring `Retry-After`, before the task reports it.
+
+Vaults in Azure China or Azure Government, and Managed HSM keys, are not read yet: Managed HSM sends its audit log to another table. The task fails with an error rather than show an empty history.
+
+### What Key Vault logs, and what it does not
+
+Each row comes from one `AZKVAuditLogs` row:
+
+| Column or field            | `AZKVAuditLogs` column                                                                                                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `time`                     | `TimeGenerated`, to the 100 nanoseconds; shown to the millisecond                                                                                                                                                                           |
+| `principal`                | from the token claims in `Identity`: `upn`, else `unique_name`, else, for an application, `appid`, else the object id `oid`. For a user, `appid` names the client application, such as the Azure CLI, so it is never shown as the principal |
+| `sourceIp`                 | `CallerIpAddress`                                                                                                                                                                                                                           |
+| `userAgent`                | `ClientInfo`; the plugin's calls start with `hardhat-kms/<version>`                                                                                                                                                                         |
+| `requestId`                | `CorrelationId`: the `x-ms-request-id` that Key Vault returned to the caller, not the client's `x-ms-client-request-id`                                                                                                                     |
+| `keyVersion`               | the version segment of `Id`                                                                                                                                                                                                                 |
+| `error`                    | for a request whose `HttpStatusCode` is not 2xx: `ResultSignature`, such as `Bad Request`, and `ResultDescription` with `--show-ids`. Key Vault logs a refused sign request with `ResultType` `Success`, so the status decides              |
+| `keyResource`              | `Id`, the versioned key URL, shown with `--show-ids`                                                                                                                                                                                        |
+| `extra`                    | `ResultType`, `ResultSignature`, `HttpStatusCode`, `Algorithm` (`ES256K`), `DurationMs`, `OperationVersion` (the API version), the token's `idtyp`, `IsRbacAuthorized`, `IsAccessPolicyMatch` and the TLS version, when logged              |
+| `extra`, with `--show-ids` | the `oid` and `appid` claims that are not the principal, `AppliedAssignmentId` (the role assignment that allowed the call) and `SubnetId`                                                                                                   |
+
+Key Vault never logs the digest, the message, the transaction or the signature, so the task cannot tell which signature an event made.
+
+### Delay, retention and cost
+
+- **Delay.** Key Vault documents that events reach the workspace at most 10 minutes after the request. In our tests on 2026-10-02, `KeySign` rows took 2.7 minutes on average and at most 9.2 minutes to arrive, and not always in order. A history that ends in the last 15 minutes says that recent events may be missing.
+- **Retention.** The workspace keeps rows for its retention period, 30 days by default and up to 730. The task cannot know it, so a range that starts earlier just shows what is left.
+- **Cost.** Log Analytics bills ingestion beyond the free allowance of its pricing tier. A `KeySign` row is about 1.9 KB, so a thousand signatures add about 2 MB. The setting also sends the vault's other events, such as `KeyGet` and `Authentication`. Remove the diagnostic setting to stop.
+
+### Several settings and workspaces
+
+A vault can have up to five diagnostic settings, each sending to its own workspace, storage account or event hub. The task reads only the workspace in `kms.audit.azure.workspaceId`, so it never claims to see every sign request on the key. An empty history gets the `logging-not-confirmed` note with what to check.
+
 ## Errors
 
 Each message starts with the provider, the operation and the key, for example `azure, sign, key azure:https://my-vault.vault.azure.net/keys/deployer: Key Vault answered 403 Forbidden: …`. The table lists the part after the colon.
@@ -185,5 +269,8 @@ Each message starts with the provider, the operation and the key, for example `a
 | `the key's permitted operations do not include sign`                      | The key was created without `sign` in `--ops`. Add it with `az keyvault key set-attributes --ops sign verify`.                                                                                                                                                                                     |
 | `the key derives to 0x…, but the configured address is 0x…`               | The key id names another key or version than the one the pin was taken from. Check the key id, then update `address`.                                                                                                                                                                              |
 | `no answer within … ms`                                                   | Key Vault did not answer in time. Check the network, or raise `timeoutMs`.                                                                                                                                                                                                                         |
+| `kms.audit.azure.workspaceId is not set`                                  | `kms history` needs the workspace that the vault's diagnostic setting sends to. See [Audit logs](#send-the-audit-log-to-a-workspace).                                                                                                                                                              |
+| `the Log Analytics workspace has no AZKVAuditLogs table`                  | No diagnostic setting sends Key Vault audit events to this workspace in resource-specific mode. Add one with `--export-to-resource-specific true`, or check the workspace id.                                                                                                                      |
+| `cannot read the audit log: the credentials lack Microsoft.Operational…`  | The identity may not query the workspace. Assign **Log Analytics Data Reader** on it, as in [The read permission](#the-read-permission).                                                                                                                                                           |
 
 Errors show the HTTP status and Key Vault's error code, never the service's message, which names the vault, the key and the caller. Run with `DEBUG=hardhat:kms:*` to see each call; see [Debug output](debug-output.md). The table lists the most common errors; the [errors reference](../reference/errors.md#hardhat-kms-azure) lists every one, with its id, cause and fix, and the [core plugin's errors](../reference/errors.md#hardhat-kms) too.

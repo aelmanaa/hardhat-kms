@@ -49,7 +49,7 @@ export type QueryWorkspace = (
 const SOURCE = "log-analytics";
 
 /** The table that a vault's diagnostic setting fills in resource-specific mode. */
-export const TABLE = "AZKVAuditLogs";
+const TABLE = "AZKVAuditLogs";
 
 /** Key Vault's name for a sign request in its audit log, checked live. */
 const OPERATION = "KeySign";
