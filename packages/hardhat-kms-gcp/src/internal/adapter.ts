@@ -1,5 +1,12 @@
 import type { KeyManagementServiceClient, protos } from "@google-cloud/kms";
-import { crc32c, kmsError, publicKeyFromSpkiPem } from "hardhat-kms/provider-utils";
+import {
+  catalogError,
+  catalogMessage,
+  crc32c,
+  type ErrorEntry,
+  publicKeyFromSpkiPem,
+  type TemplateParams,
+} from "hardhat-kms/provider-utils";
 import type {
   GcpKmsKeyConfig,
   KmsKeyAdapter,
@@ -7,6 +14,7 @@ import type {
   SignContext,
 } from "hardhat-kms/types";
 
+import { ERRORS } from "./error-catalog.ts";
 import { crc32cMatches, networkErrorCode, type StatusName, statusOf } from "./wire.ts";
 
 const ALGORITHM = "EC_SIGN_SECP256K1_SHA256";
@@ -62,18 +70,18 @@ export interface GcpKmsSdk {
   gax?: GaxModule;
 }
 
-/** Why a failed call is worth repeating, and what to say if it keeps failing. */
-const RETRY_HINTS = {
-  checksum: "Data is being corrupted between this machine and Google Cloud KMS",
-  unavailable: "Check the network connection, DNS and any proxy",
+/** Why a failed call is worth repeating, and the error to give if it keeps failing. */
+const RETRY_ERRORS = {
+  checksum: ERRORS.checksumExhausted,
+  unavailable: ERRORS.unavailableExhausted,
 } as const;
 
 /** A call that failed in a way that repeating it may fix. */
 class RetryableFailure extends Error {
   public override readonly name = "RetryableFailure";
-  public readonly kind: keyof typeof RETRY_HINTS;
+  public readonly kind: keyof typeof RETRY_ERRORS;
 
-  public constructor(kind: keyof typeof RETRY_HINTS, message: string) {
+  public constructor(kind: keyof typeof RETRY_ERRORS, message: string) {
     super(message);
     this.kind = kind;
   }
@@ -100,18 +108,13 @@ async function pause(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /** What to tell the user for each status the SDK reports. Nothing from the server's message. */
-const STATUS_MESSAGES: Partial<Record<StatusName, string>> = {
-  NOT_FOUND:
-    "the key version was not found (NOT_FOUND). Check the project, location, key ring, key and version",
-  PERMISSION_DENIED:
-    "permission denied (PERMISSION_DENIED). The caller needs cloudkms.cryptoKeyVersions.viewPublicKey and cloudkms.cryptoKeyVersions.useToSign on the key, for example through roles/cloudkms.signer and roles/cloudkms.publicKeyViewer",
-  FAILED_PRECONDITION:
-    "the key version cannot be used (FAILED_PRECONDITION). It may be disabled, destroyed or scheduled for destruction; enable it or configure another version",
-  UNAUTHENTICATED:
-    "the Google Cloud credentials were refused (UNAUTHENTICATED). Run `gcloud auth application-default login` again, or check GOOGLE_APPLICATION_CREDENTIALS",
-  RESOURCE_EXHAUSTED:
-    "Google Cloud KMS is throttling requests (RESOURCE_EXHAUSTED). Try again later, or raise the project's Cloud KMS quota",
-  DEADLINE_EXCEEDED: "Google Cloud KMS did not answer in time (DEADLINE_EXCEEDED)",
+const STATUS_ERRORS: Partial<Record<StatusName, ErrorEntry<string, "error">>> = {
+  NOT_FOUND: ERRORS.notFound,
+  PERMISSION_DENIED: ERRORS.permissionDenied,
+  FAILED_PRECONDITION: ERRORS.failedPrecondition,
+  UNAUTHENTICATED: ERRORS.unauthenticated,
+  RESOURCE_EXHAUSTED: ERRORS.resourceExhausted,
+  DEADLINE_EXCEEDED: ERRORS.deadlineExceeded,
 };
 
 /**
@@ -151,28 +154,19 @@ class GcpKeyAdapter implements KmsKeyAdapter {
       );
       // The checks below do not trust the SDK's types: every field of a response is optional.
       if (key.name !== this.#name) {
-        throw this.#error(
-          operation,
-          "the response is for another key version than the one requested",
-        );
+        throw this.#error(operation, ERRORS.responseVersion, {});
       }
       const pem: unknown = key.pem;
       if (typeof pem !== "string" || pem === "") {
-        throw this.#error(operation, "the response has no public key");
+        throw this.#error(operation, ERRORS.noPublicKey, {});
       }
       if (!crc32cMatches(new TextEncoder().encode(pem), key.pemCrc32c)) {
-        throw new RetryableFailure(
-          "checksum",
-          "the public key does not match its checksum (pemCrc32c)",
-        );
+        throw new RetryableFailure("checksum", catalogMessage(ERRORS.pemChecksum, {}));
       }
       return { pem, algorithm: key.algorithm };
     });
     if (response.algorithm !== ALGORITHM) {
-      throw this.#error(
-        operation,
-        `the key version's algorithm is ${String(response.algorithm)}, not ${ALGORITHM} (secp256k1). Create the key with --purpose asymmetric-signing --default-algorithm ec-sign-secp256k1-sha256 --protection-level hsm`,
-      );
+      throw this.#error(operation, ERRORS.algorithm, { algorithm: String(response.algorithm) });
     }
     const publicKey = publicKeyFromSpkiPem(response.pem);
     // Trust the algorithm only from a call that was not abandoned, as the signer does.
@@ -192,10 +186,7 @@ class GcpKeyAdapter implements KmsKeyAdapter {
       await this.getPublicKey(ctx);
     }
     if (!this.#checked) {
-      throw this.#error(
-        operation,
-        "the key lookup did not finish, so the key version's algorithm is not checked",
-      );
+      throw this.#error(operation, ERRORS.lookupUnfinished, {});
     }
     const digestCrc32c = crc32c(request.digest);
     const signature = await this.#withRetries(operation, ctx, async () => {
@@ -212,28 +203,18 @@ class GcpKeyAdapter implements KmsKeyAdapter {
           ),
       );
       if (response.name !== this.#name) {
-        throw this.#error(
-          operation,
-          "the response is for another key version than the one requested",
-        );
+        throw this.#error(operation, ERRORS.responseVersion, {});
       }
       // False means the checksum sent with the digest did not arrive: never sign on without it.
       if (response.verifiedDigestCrc32c !== true) {
-        throw new RetryableFailure(
-          "checksum",
-
-          "Google Cloud KMS did not confirm the digest's checksum (verifiedDigestCrc32c)",
-        );
+        throw new RetryableFailure("checksum", catalogMessage(ERRORS.digestNotConfirmed, {}));
       }
       const bytes: unknown = response.signature;
       if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
-        throw this.#error(operation, "the response has no signature");
+        throw this.#error(operation, ERRORS.noSignature, {});
       }
       if (!crc32cMatches(bytes, response.signatureCrc32c)) {
-        throw new RetryableFailure(
-          "checksum",
-          "the signature does not match its checksum (signatureCrc32c)",
-        );
+        throw new RetryableFailure("checksum", catalogMessage(ERRORS.signatureChecksum, {}));
       }
       return bytes;
     });
@@ -265,17 +246,17 @@ class GcpKeyAdapter implements KmsKeyAdapter {
           throw error;
         }
         if (retries === MAX_RETRIES) {
-          throw this.#error(
-            operation,
-            `${error.message}, after ${retries + 1} attempts. ${RETRY_HINTS[error.kind]}`,
-          );
+          throw this.#error(operation, RETRY_ERRORS[error.kind], {
+            reason: error.message,
+            attempts: retries + 1,
+          });
         }
         if (error.kind === "unavailable") {
           await pause(UNAVAILABLE_DELAY_MS * 2 ** retries, ctx.signal);
         }
         if (ctx.signal.aborted) {
           // The call was abandoned: report the failure, but do not ask again.
-          throw this.#error(operation, error.message);
+          throw this.#error(operation, ERRORS.abandoned, { reason: error.message });
         }
       }
     }
@@ -294,8 +275,8 @@ class GcpKeyAdapter implements KmsKeyAdapter {
         throw new RetryableFailure(
           "unavailable",
           code === undefined
-            ? "Google Cloud KMS is unavailable (UNAVAILABLE)"
-            : `could not reach Google Cloud KMS (${code})`,
+            ? catalogMessage(ERRORS.unavailable, {})
+            : catalogMessage(ERRORS.unreachable, { code }),
         );
       }
       // Cloud KMS refuses a digest whose checksum does not match: the request was corrupted on
@@ -305,17 +286,14 @@ class GcpKeyAdapter implements KmsKeyAdapter {
         error instanceof Error &&
         /digest_?crc32c/i.test(error.message)
       ) {
-        throw new RetryableFailure(
-          "checksum",
-          "Google Cloud KMS refused the digest's checksum (digestCrc32c, INVALID_ARGUMENT)",
-        );
+        throw new RetryableFailure("checksum", catalogMessage(ERRORS.digestChecksumRefused, {}));
       }
       if (status !== undefined) {
         // Only the status: the server's message names the project and the key.
-        throw this.#error(
-          operation,
-          STATUS_MESSAGES[status] ?? `the Google Cloud KMS call failed (${status})`,
-        );
+        const known = STATUS_ERRORS[status];
+        throw known === undefined
+          ? this.#error(operation, ERRORS.callFailed, { status })
+          : this.#error(operation, known, {});
       }
       // google-auth-library's message for missing Application Default Credentials. It holds no
       // request details, so it is safe to recognise.
@@ -323,17 +301,18 @@ class GcpKeyAdapter implements KmsKeyAdapter {
         error instanceof Error &&
         error.message.includes("Could not load the default credentials")
       ) {
-        throw this.#error(
-          "connect",
-          "no Google Cloud credentials found. Run `gcloud auth application-default login`, or set GOOGLE_APPLICATION_CREDENTIALS",
-        );
+        throw this.#error("connect", ERRORS.noCredentials, {});
       }
       throw error;
     }
   }
 
-  #error(operation: string, message: string) {
-    return kmsError(message, { provider: "gcp", operation, key: this.#key.displayId });
+  #error<Template extends string>(
+    operation: string,
+    entry: ErrorEntry<Template, "error">,
+    params: TemplateParams<Template>,
+  ): Error {
+    return catalogError(entry, params, { provider: "gcp", operation, key: this.#key.displayId });
   }
 }
 

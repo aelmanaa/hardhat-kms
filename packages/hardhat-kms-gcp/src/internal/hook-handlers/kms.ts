@@ -1,9 +1,10 @@
 import { createRequire } from "node:module";
 
-import { checkProviderVersion } from "hardhat-kms/provider-utils";
+import { checkProviderVersion, internalError } from "hardhat-kms/provider-utils";
 import type { KmsHooks } from "hardhat-kms/types";
 
 import type { GcpKmsSdk } from "../adapter.ts";
+import { ERRORS } from "../error-catalog.ts";
 
 const PACKAGE_NAME = "hardhat-kms-gcp";
 
@@ -15,7 +16,7 @@ function ownVersion(): string {
       ? Reflect.get(manifest, "version")
       : undefined;
   if (typeof version !== "string" || version === "") {
-    throw new Error(`${PACKAGE_NAME}/package.json has no version`);
+    throw internalError(ERRORS.noPackageVersion, { packageName: PACKAGE_NAME });
   }
   return version;
 }

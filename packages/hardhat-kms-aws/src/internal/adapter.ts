@@ -4,13 +4,21 @@ import type {
   KMSClientConfig,
   SignCommand,
 } from "@aws-sdk/client-kms";
-import { kmsError, parseAwsKeyId, publicKeyFromSpkiDer } from "hardhat-kms/provider-utils";
+import {
+  catalogError,
+  type ErrorEntry,
+  parseAwsKeyId,
+  publicKeyFromSpkiDer,
+  type TemplateParams,
+} from "hardhat-kms/provider-utils";
 import type {
   AwsKmsKeyConfig,
   KmsKeyAdapter,
   SignatureOutput,
   SignContext,
 } from "hardhat-kms/types";
+
+import { ERRORS } from "./error-catalog.ts";
 
 const KEY_SPEC = "ECC_SECG_P256K1";
 const KEY_USAGE = "SIGN_VERIFY";
@@ -61,26 +69,23 @@ class AwsKeyAdapter implements KmsKeyAdapter {
     // The checks below do not trust the SDK's types: every field of a response is optional.
     const keySpec = response.KeySpec;
     if (keySpec !== KEY_SPEC) {
-      throw this.#error(
-        "get public key",
-        `the key spec is ${String(keySpec)}, not ${KEY_SPEC} (secp256k1). Create the key with --key-spec ${KEY_SPEC} --key-usage ${KEY_USAGE}`,
-      );
+      throw this.#error("get public key", ERRORS.keySpec, { keySpec: String(keySpec) });
     }
     const keyUsage = response.KeyUsage;
     if (keyUsage !== KEY_USAGE) {
-      throw this.#error("get public key", `the key usage is ${String(keyUsage)}, not ${KEY_USAGE}`);
+      throw this.#error("get public key", ERRORS.keyUsage, { keyUsage: String(keyUsage) });
     }
     const algorithms: unknown = response.SigningAlgorithms;
     if (!Array.isArray(algorithms) || !algorithms.includes(SIGNING_ALGORITHM)) {
-      throw this.#error("get public key", `the key does not support ${SIGNING_ALGORITHM}`);
+      throw this.#error("get public key", ERRORS.signingAlgorithm, {});
     }
     const keyArn = response.KeyId;
     if (typeof keyArn !== "string" || parseAwsKeyId(keyArn)?.kind !== "keyArn") {
-      throw this.#error("get public key", "the response has no key ARN");
+      throw this.#error("get public key", ERRORS.noKeyArn, {});
     }
     const publicKey: unknown = response.PublicKey;
     if (!(publicKey instanceof Uint8Array)) {
-      throw this.#error("get public key", "the response has no public key");
+      throw this.#error("get public key", ERRORS.noPublicKey, {});
     }
     const parsed = publicKeyFromSpkiDer(publicKey);
     // Keep the ARN only for a validated key from a call that was not abandoned, so a late answer
@@ -102,10 +107,7 @@ class AwsKeyAdapter implements KmsKeyAdapter {
     const keyArn = this.#keyArn;
     if (keyArn === undefined) {
       // The lookup above was abandoned (its signal aborted): never sign without the ARN.
-      throw this.#error(
-        "sign",
-        "the key lookup did not finish, so there is no key ARN to sign with",
-      );
+      throw this.#error("sign", ERRORS.lookupUnfinished, {});
     }
     const command = new this.#sdk.SignCommand({
       KeyId: keyArn,
@@ -117,14 +119,14 @@ class AwsKeyAdapter implements KmsKeyAdapter {
       async () => await this.#client.send(command, { abortSignal: ctx.signal }),
     );
     if (response.KeyId !== keyArn) {
-      throw this.#error("sign", "the response is for another key than the one requested");
+      throw this.#error("sign", ERRORS.responseKey, {});
     }
     if (response.SigningAlgorithm !== SIGNING_ALGORITHM) {
-      throw this.#error("sign", `the response does not use ${SIGNING_ALGORITHM}`);
+      throw this.#error("sign", ERRORS.responseAlgorithm, {});
     }
     const signature: unknown = response.Signature;
     if (!(signature instanceof Uint8Array)) {
-      throw this.#error("sign", "the response has no signature");
+      throw this.#error("sign", ERRORS.noSignature, {});
     }
     return { format: "der", bytes: signature };
   }
@@ -136,10 +138,7 @@ class AwsKeyAdapter implements KmsKeyAdapter {
       // The SDK reports a missing region with a plain Error, which the signer would show only as
       // "Error". Its message holds no request details, so it is safe to recognise.
       if (error instanceof Error && error.message.includes("Region is missing")) {
-        throw this.#error(
-          "connect",
-          "no AWS region is configured. Set `region` on the key, `kms.defaults.aws.region`, AWS_REGION, or a region in the AWS profile, or use a key ARN",
-        );
+        throw this.#error("connect", ERRORS.noRegion, {});
       }
       throw error;
     }
@@ -150,8 +149,12 @@ class AwsKeyAdapter implements KmsKeyAdapter {
     await Promise.resolve();
   }
 
-  #error(operation: string, message: string) {
-    return kmsError(message, { provider: "aws", operation, key: this.#key.displayId });
+  #error<Template extends string>(
+    operation: string,
+    entry: ErrorEntry<Template, "error">,
+    params: TemplateParams<Template>,
+  ): Error {
+    return catalogError(entry, params, { provider: "aws", operation, key: this.#key.displayId });
   }
 }
 
