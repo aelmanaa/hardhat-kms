@@ -258,6 +258,8 @@ export type {
   AccountSource,
   AccountsReport,
 } from "./internal/tasks/accounts.ts";
+/** The output of the `kms history` task: its `--json` output and its result. */
+export type { KmsHistoryEntry, KmsHistoryReport } from "./internal/history/report.ts";
 
 /**
  * The `kms` hook category, which provider plugins use to add their adapters.

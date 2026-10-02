@@ -1,0 +1,577 @@
+import assert from "node:assert/strict";
+import { afterEach, describe, it, mock } from "node:test";
+
+import { configVariable } from "hardhat/config";
+import { createHardhatRuntimeEnvironment } from "hardhat/hre";
+import { HardhatPluginError } from "hardhat/plugins";
+
+import hardhatKms from "../../src/index.ts";
+import { auditLogAccessDenied, auditLogThrottled } from "../../src/provider-utils.ts";
+import type {
+  KmsHistoryReport,
+  KmsHistoryRequest,
+  KmsHooks,
+  KmsKeyUserConfig,
+} from "../../src/types.ts";
+import {
+  fakeHistoryReader,
+  historyEvent,
+  historyResult,
+  PLACEHOLDERS,
+} from "../helpers/fake-history-reader.ts";
+import { vaultKey } from "../helpers/vault-key.ts";
+
+const HOUR = 60 * 60 * 1000;
+// A configuration variable's value, a valid key ARN in an account no other fixture uses: the
+// plugin must never print it without --show-ids.
+const SECRET_KEY_ID = "arn:aws:kms:eu-west-1:999988887777:key/5ec2e7aa-1111-4222-8333-944455556666";
+const SECRET = /999988887777/;
+
+const VARIABLES = ["AWS_KMS_KEY_ID", "HHKMS_HISTORY_KEY_ID"];
+const saved = new Map(VARIABLES.map((name) => [name, process.env[name]]));
+afterEach(() => {
+  for (const [name, value] of saved) {
+    if (value === undefined) {
+      Reflect.deleteProperty(process.env, name);
+    } else {
+      process.env[name] = value;
+    }
+  }
+});
+
+/** A runtime with a `myvault` key, an AWS key from a configuration variable, and the readers. */
+async function runtime(
+  options: {
+    readers?: Array<Partial<KmsHooks>>;
+    keys?: Record<string, KmsKeyUserConfig>;
+    kms?: string;
+  } = {},
+) {
+  process.env.HHKMS_HISTORY_KEY_ID = SECRET_KEY_ID;
+  const hre = await createHardhatRuntimeEnvironment(
+    {
+      plugins: [hardhatKms],
+      kms: {
+        keys: options.keys ?? {
+          deployer: vaultKey("deployer"),
+          treasury: { provider: "aws", keyId: configVariable("HHKMS_HISTORY_KEY_ID") },
+        },
+      },
+    },
+    options.kms === undefined ? {} : { kms: options.kms },
+  );
+  for (const handlers of options.readers ?? []) {
+    hre.hooks.registerHandlers("kms", handlers);
+  }
+  return hre;
+}
+
+interface HistoryArgs {
+  key: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+  json?: boolean;
+  showIds?: boolean;
+}
+
+interface HistoryRun {
+  report: KmsHistoryReport | undefined;
+  error: unknown;
+  stdout: string;
+  stderr: string;
+}
+
+function isReport(value: unknown): value is KmsHistoryReport {
+  return typeof value === "object" && value !== null && Reflect.get(value, "version") === 1;
+}
+
+/** Runs `kms history` and returns its report or error and what it printed on each stream. */
+async function history(
+  hre: Awaited<ReturnType<typeof runtime>>,
+  args: HistoryArgs,
+): Promise<HistoryRun> {
+  let stdout = "";
+  let stderr = "";
+  const write = mock.method(process.stdout, "write", (chunk: unknown) => {
+    stdout += String(chunk);
+    return true;
+  });
+  const writeError = mock.method(process.stderr, "write", (chunk: unknown) => {
+    stderr += String(chunk);
+    return true;
+  });
+  let result: unknown;
+  let error: unknown;
+  try {
+    result = await hre.tasks.getTask(["kms", "history"]).run({
+      key: args.key,
+      since: args.since,
+      until: args.until,
+      limit: args.limit ?? 100,
+      json: args.json ?? false,
+      showIds: args.showIds ?? false,
+    });
+  } catch (thrown) {
+    error = thrown;
+  } finally {
+    write.mock.restore();
+    writeError.mock.restore();
+  }
+  return { report: isReport(result) ? result : undefined, error, stdout, stderr };
+}
+
+/** A settled range: a day that ended a day ago. */
+const SETTLED = {
+  since: new Date(Date.now() - 2 * 24 * HOUR).toISOString(),
+  until: new Date(Date.now() - 24 * HOUR).toISOString(),
+};
+
+/** A result whose one event lies inside the request's range. */
+function answerIn(request: KmsHistoryRequest, overrides = {}) {
+  return historyResult({
+    events: [historyEvent({ time: request.until.toISOString(), ...overrides })],
+  });
+}
+
+function assertPluginError(error: unknown, message: string | RegExp): void {
+  assert.ok(error instanceof HardhatPluginError, `expected a plugin error, got ${String(error)}`);
+  if (typeof message === "string") {
+    assert.equal(error.message, message);
+  } else {
+    assert.match(error.message, message);
+  }
+}
+
+describe("kms history", () => {
+  it("is a subtask of kms", async () => {
+    const hre = await runtime();
+
+    assert.ok(hre.tasks.getTask("kms").subtasks.has("history"));
+  });
+
+  it("asks the reader for the last 24 hours and 100 events by default", async () => {
+    const reader = fakeHistoryReader("myvault", (request) => answerIn(request));
+    const hre = await runtime({ readers: [reader.handlers] });
+    const before = Date.now();
+
+    const run = await history(hre, { key: "deployer" });
+
+    assert.equal(run.error, undefined);
+    const [request] = reader.requests;
+    assert.ok(request !== undefined);
+    assert.equal(request.key.name, "deployer");
+    assert.equal(request.limit, 100);
+    assert.ok(request.until.getTime() >= before && request.until.getTime() <= Date.now());
+    assert.equal(request.until.getTime() - request.since.getTime(), 24 * HOUR);
+  });
+
+  it("passes the range and the limit as given", async () => {
+    const reader = fakeHistoryReader("myvault", () => historyResult({ events: [] }));
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    await history(hre, {
+      key: "deployer",
+      since: "2026-09-01",
+      until: "2026-09-02T12:00:00+02:00",
+      limit: 7,
+    });
+
+    assert.equal(reader.requests[0]?.since.toISOString(), "2026-09-01T00:00:00.000Z");
+    assert.equal(reader.requests[0]?.until.toISOString(), "2026-09-02T10:00:00.000Z");
+    assert.equal(reader.requests[0]?.limit, 7);
+  });
+
+  it("checks the range and the limit before it reads anything", async () => {
+    const reader = fakeHistoryReader("myvault", () => historyResult());
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    for (const [args, message] of [
+      [{ since: "yesterday" }, /--since "yesterday" is not a time/],
+      [{ since: "1h", until: "2h" }, /must be before --until/],
+      [{ limit: 0 }, /--limit must be an integer from 1 to 1000, got 0/],
+      [{ limit: 1001 }, /got 1001/],
+    ] as const) {
+      const run = await history(hre, { key: "deployer", ...args });
+      assertPluginError(run.error, message);
+    }
+    assert.equal(reader.requests.length, 0);
+  });
+
+  it("resolves the key as other tasks do, including --kms names, and lists the known keys when it is unknown", async () => {
+    process.env.AWS_KMS_KEY_ID = "alias/from-env";
+    const reader = fakeHistoryReader("aws", (request) => answerIn(request));
+    const hre = await runtime({ readers: [reader.handlers], kms: "aws" });
+
+    const run = await history(hre, { key: "AWS_KMS_KEY_ID", ...SETTLED });
+    assert.equal(run.error, undefined);
+    assert.equal(reader.requests[0]?.key.name, "AWS_KMS_KEY_ID");
+    assert.equal(run.report?.key.displayId, "aws:<AWS_KMS_KEY_ID>");
+
+    const unknown = await history(hre, { key: "nope" });
+    assertPluginError(
+      unknown.error,
+      /unknown key "nope"\. Known keys: deployer, treasury, AWS_KMS_KEY_ID\./,
+    );
+  });
+
+  it("fails and names the provider when no plugin reads a third-party provider's log", async () => {
+    const hre = await runtime();
+
+    const run = await history(hre, { key: "deployer" });
+
+    assertPluginError(
+      run.error,
+      'myvault, history, key myvault:deployer: no plugin reads the audit log of "myvault" keys, so kms history cannot list this key\'s sign events',
+    );
+    assert.equal(run.stdout, "");
+  });
+
+  it("fails and names the provider package for a built-in provider without a reader", async () => {
+    const hre = await runtime();
+
+    const run = await history(hre, { key: "treasury" });
+
+    assertPluginError(
+      run.error,
+      "aws, history, key aws:<HHKMS_HISTORY_KEY_ID>: AWS KMS audit logs are read by the hardhat-kms-aws plugin. Install it with `npm install --save-dev hardhat-kms-aws`, at the same version as hardhat-kms, and add it to `plugins` in your Hardhat config",
+    );
+  });
+
+  it("passes keys along the chain: each reader reads only its own provider", async () => {
+    const aws = fakeHistoryReader("aws", (request) => answerIn(request, { requestId: "from-aws" }));
+    const vault = fakeHistoryReader("myvault", (request) =>
+      answerIn(request, { requestId: "from-vault" }),
+    );
+    const hre = await runtime({ readers: [aws.handlers, vault.handlers] });
+
+    const run = await history(hre, { key: "deployer", ...SETTLED });
+
+    assert.equal(run.report?.events[0]?.requestId, "from-vault");
+    assert.equal(aws.requests.length, 0);
+    assert.equal(vault.requests.length, 1);
+  });
+
+  it("fails and names the missing permission when the reader is refused, printing nothing on standard output", async () => {
+    const reader = fakeHistoryReader("aws", (request) => {
+      throw auditLogAccessDenied("cloudtrail:LookupEvents", {
+        provider: "aws",
+        operation: "history",
+        key: request.key.displayId,
+      });
+    });
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const run = await history(hre, { key: "treasury", json: true });
+
+    assertPluginError(
+      run.error,
+      "aws, history, key aws:<HHKMS_HISTORY_KEY_ID>: cannot read the audit log: the credentials lack cloudtrail:LookupEvents. Grant it, or run with credentials that have it",
+    );
+    assert.equal(run.stdout, "");
+  });
+
+  it("fails with a clear error when the log keeps throttling", async () => {
+    const reader = fakeHistoryReader("myvault", () => {
+      throw auditLogThrottled("2 lookups per second");
+    });
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const run = await history(hre, { key: "deployer" });
+
+    assertPluginError(
+      run.error,
+      "the audit log kept refusing requests as too frequent (2 lookups per second)",
+    );
+  });
+
+  it("keeps only the class name of a reader's own error, whose text could carry request details", async () => {
+    class LookupFailure extends Error {
+      override name = "LookupFailure";
+    }
+    const reader = fakeHistoryReader("aws", () => {
+      throw new LookupFailure(`request for ${SECRET_KEY_ID} failed`);
+    });
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const run = await history(hre, { key: "treasury" });
+
+    assertPluginError(
+      run.error,
+      "aws, history, key aws:<HHKMS_HISTORY_KEY_ID>: reading the audit log failed (LookupFailure)",
+    );
+    assert.doesNotMatch(`${String(run.error)}${run.stdout}${run.stderr}`, SECRET);
+  });
+
+  it("refuses a result that breaks the contract, naming the problem", async () => {
+    const reader = fakeHistoryReader("myvault", () =>
+      historyResult({ events: [historyEvent({ time: "2001-01-01T00:00:00Z", keyVersion: "1" })] }),
+    );
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const run = await history(hre, { key: "deployer" });
+
+    assertPluginError(
+      run.error,
+      "myvault, history, key myvault:deployer: the history reader returned an invalid result: events[0].time is outside the requested range; events[0].keyVersion has a value, but the reader lists it as not logged",
+    );
+    const nothing = await history(
+      await runtime({ readers: [fakeHistoryReader("myvault", () => undefined).handlers] }),
+      { key: "deployer" },
+    );
+    assertPluginError(nothing.error, /invalid result: the result must be an object$/);
+  });
+
+  it("prints the version 1 JSON report, with ids masked and only the error code", async () => {
+    const reader = fakeHistoryReader("aws", (request) =>
+      historyResult({
+        events: [
+          historyEvent({ time: request.until.toISOString() }),
+          historyEvent({
+            time: request.since.toISOString(),
+            outcome: "failed",
+            errorCode: "AccessDeniedException",
+            errorMessage: PLACEHOLDERS.errorMessage,
+            // A reader that leaks the configured key id into a free field is still masked.
+            extra: { requestKeyId: SECRET_KEY_ID },
+          }),
+        ],
+      }),
+    );
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const run = await history(hre, { key: "treasury", json: true, ...SETTLED });
+
+    assert.equal(run.error, undefined);
+    const printed: unknown = JSON.parse(run.stdout);
+    assert.deepEqual(printed, run.report);
+    assert.deepEqual(run.report, {
+      version: 1,
+      key: { name: "treasury", provider: "aws", displayId: "aws:<HHKMS_HISTORY_KEY_ID>" },
+      source: "fake-audit-log",
+      range: {
+        since: new Date(SETTLED.since).toISOString(),
+        until: new Date(SETTLED.until).toISOString(),
+      },
+      notLogged: ["keyVersion", "digest"],
+      events: [
+        {
+          time: new Date(SETTLED.until).toISOString(),
+          operation: "Sign",
+          outcome: "success",
+          error: null,
+          principal: "arn:aws:iam::111122223333:role/deployer",
+          sourceIp: "203.0.113.7",
+          userAgent: "aws-sdk-js/3.0.0 hardhat-kms/0.0.0",
+          requestId: "11111111-2222-3333-4444-555555555555",
+          keyVersion: null,
+          digest: null,
+          keyResource: "aws:<HHKMS_HISTORY_KEY_ID>",
+          extra: { readOnly: true },
+        },
+        {
+          time: new Date(SETTLED.since).toISOString(),
+          operation: "Sign",
+          outcome: "failed",
+          error: { code: "AccessDeniedException", message: null },
+          principal: "arn:aws:iam::111122223333:role/deployer",
+          sourceIp: "203.0.113.7",
+          userAgent: "aws-sdk-js/3.0.0 hardhat-kms/0.0.0",
+          requestId: "11111111-2222-3333-4444-555555555555",
+          keyVersion: null,
+          digest: null,
+          keyResource: "aws:<HHKMS_HISTORY_KEY_ID>",
+          extra: { requestKeyId: "aws:<HHKMS_HISTORY_KEY_ID>" },
+        },
+      ],
+      truncated: false,
+      notes: [],
+    });
+    assert.doesNotMatch(
+      `${run.stdout}${run.stderr}`,
+      /PLACEHOLDER|999988887777|AKIA/,
+      "no key id, access key id, error message or variable value by default",
+    );
+  });
+
+  it("shows ids, error messages and the variable's value with --show-ids, after a warning", async () => {
+    const reader = fakeHistoryReader("aws", (request) =>
+      answerIn(request, {
+        outcome: "failed",
+        errorCode: "AccessDeniedException",
+        errorMessage: PLACEHOLDERS.errorMessage,
+        extra: { requestKeyId: SECRET_KEY_ID },
+      }),
+    );
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const run = await history(hre, { key: "treasury", ...SETTLED, showIds: true });
+
+    assert.match(
+      run.stderr,
+      /--show-ids prints key ids, account ids and provider error messages in full/,
+    );
+    assert.ok(run.stdout.includes(`key: ${PLACEHOLDERS.keyArn}`));
+    assert.ok(run.stdout.includes(`error: ${PLACEHOLDERS.errorMessage}`));
+    assert.ok(run.stdout.includes(`accessKeyId: ${PLACEHOLDERS.accessKeyId}`));
+    assert.ok(run.stdout.includes(`requestKeyId: ${SECRET_KEY_ID}`));
+  });
+
+  it("prints a table by default, with principal, IP and user agent, and masked ids", async () => {
+    const reader = fakeHistoryReader("aws", (request) => answerIn(request));
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const run = await history(hre, { key: "treasury", ...SETTLED });
+
+    const lines = run.stdout.split("\n");
+    assert.equal(
+      lines[0],
+      "Sign events of treasury (aws:<HHKMS_HISTORY_KEY_ID>), from fake-audit-log",
+    );
+    assert.equal(lines[2], "Not logged by this provider: key version, digest");
+    assert.match(lines[4] ?? "", /^TIME +OPERATION +OUTCOME +PRINCIPAL +SOURCE IP$/);
+    assert.match(
+      lines[5] ?? "",
+      / success +arn:aws:iam::111122223333:role\/deployer +203\.0\.113\.7$/,
+    );
+    assert.equal(lines[6], "  user agent (client-reported): aws-sdk-js/3.0.0 hardhat-kms/0.0.0");
+    assert.doesNotMatch(run.stdout, /PLACEHOLDER|999988887777|AKIA/);
+    assert.equal(run.stderr, "");
+  });
+
+  it("hides nothing more for a literal key id, or for a variable it cannot read", async () => {
+    const gcpName = "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1";
+    const reader = fakeHistoryReader("gcp", (request) =>
+      answerIn(request, { principal: `caller of ${gcpName}` }),
+    );
+    const unreadable = fakeHistoryReader("aws", (request) =>
+      answerIn(request, { principal: "caller of not-a-key-id" }),
+    );
+    process.env.HHKMS_HISTORY_KEY_ID = "not-a-key-id";
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKms],
+      kms: {
+        keys: {
+          literal: { provider: "gcp", keyVersionName: gcpName },
+          broken: { provider: "aws", keyId: configVariable("HHKMS_HISTORY_KEY_ID") },
+        },
+      },
+    });
+    hre.hooks.registerHandlers("kms", reader.handlers);
+    hre.hooks.registerHandlers("kms", unreadable.handlers);
+
+    const literal = await history(hre, { key: "literal", ...SETTLED, json: true });
+    const broken = await history(hre, { key: "broken", ...SETTLED, json: true });
+
+    // The literal id is in the config and in the display id already.
+    assert.equal(literal.report?.events[0]?.principal, `caller of ${gcpName}`);
+    // A real reader fails on an invalid id first; the report has no value to hide.
+    assert.equal(broken.report?.events[0]?.principal, "caller of not-a-key-id");
+  });
+
+  it("says an empty result does not confirm logging, and never that there were no signatures", async () => {
+    const reader = fakeHistoryReader("myvault", () =>
+      historyResult({
+        events: [],
+        loggingAlwaysOn: false,
+        setupHint: "Check that Data Access logs are on for Cloud KMS.",
+      }),
+    );
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const json = await history(hre, { key: "deployer", ...SETTLED, json: true });
+    const table = await history(hre, { key: "deployer", ...SETTLED });
+
+    assert.deepEqual(json.report?.events, []);
+    assert.deepEqual(
+      json.report?.notes.map((note) => note.code),
+      ["logging-not-confirmed"],
+    );
+    assert.match(
+      json.stderr,
+      /\[hardhat-kms\] The log returned no sign events in this range\. That does not show that the key signed nothing: .* Check that Data Access logs are on for Cloud KMS\./,
+    );
+    assert.match(table.stdout, /No sign events in the log for this range\./);
+    assert.doesNotMatch(
+      `${json.stdout}${json.stderr}${table.stdout}${table.stderr}`,
+      /no signatures/i,
+    );
+  });
+
+  it("notes that recent events may be missing when the range ends within 15 minutes", async () => {
+    const reader = fakeHistoryReader("aws", () => historyResult({ events: [] }));
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const recent = await history(hre, { key: "treasury", json: true });
+    const settled = await history(hre, { key: "treasury", until: "16m", json: true });
+
+    assert.deepEqual(
+      recent.report?.notes.map((note) => note.code),
+      ["recent-events-may-be-missing"],
+    );
+    assert.match(
+      recent.stderr,
+      /Events from the last 15 minutes may not be in the log yet: AWS KMS documents a delivery delay of about 5 minutes\./,
+    );
+    assert.deepEqual(settled.report?.notes, []);
+  });
+
+  it("notes that the log holds nothing before its retention when --since is older", async () => {
+    const reader = fakeHistoryReader("aws", () => historyResult({ events: [] }));
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const old = await history(hre, { key: "treasury", since: "91d", until: "1d", json: true });
+    const inside = await history(hre, { key: "treasury", since: "89d", until: "1d", json: true });
+
+    assert.deepEqual(
+      old.report?.notes.map((note) => note.code),
+      ["before-retention"],
+    );
+    assert.match(old.stderr, /The log keeps 90 days of events, so it holds none from before /);
+    assert.deepEqual(inside.report?.notes, []);
+  });
+
+  it("prints the reader's own notes after the plugin's", async () => {
+    const reader = fakeHistoryReader("myvault", () =>
+      historyResult({
+        events: [],
+        notes: [{ code: "other-account", message: "These credentials see only one account." }],
+      }),
+    );
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const run = await history(hre, { key: "deployer", json: true });
+
+    assert.deepEqual(
+      run.report?.notes.map((note) => note.code),
+      ["recent-events-may-be-missing", "other-account"],
+    );
+    assert.match(run.stderr, /These credentials see only one account\./);
+  });
+
+  it("keeps the newest events up to --limit and says the log holds more", async () => {
+    const reader = fakeHistoryReader("myvault", (request) =>
+      historyResult({
+        events: [1, 2, 3].map((hour) =>
+          historyEvent({
+            time: new Date(request.until.getTime() - hour * HOUR).toISOString(),
+            requestId: `r${hour}`,
+          }),
+        ),
+      }),
+    );
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const run = await history(hre, { key: "deployer", ...SETTLED, limit: 2, json: true });
+
+    assert.deepEqual(
+      run.report?.events.map((event) => event.requestId),
+      ["r1", "r2"],
+    );
+    assert.equal(run.report?.truncated, true);
+    assert.match(
+      run.stderr,
+      /the log holds more events in this range than --limit 2; these are the newest 2\. Narrow the range with --since and --until, or raise --limit\./,
+    );
+  });
+});

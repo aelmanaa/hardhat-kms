@@ -153,12 +153,128 @@ The rules:
 
 The chain runs in `packages/hardhat-kms/src/internal/providers/create-adapter.ts`. The hook and adapter types are marked `@experimental` until 1.0; the Turnkey and Fireblocks providers ([#54](https://github.com/aelmanaa/hardhat-kms/issues/54), [#55](https://github.com/aelmanaa/hardhat-kms/issues/55)) will add the planned `signTransaction` and `sendTransaction` methods.
 
+## History readers
+
+`kms history` reads a key's sign events from its provider's audit log ([tasks reference](../user/reference/tasks.md#kms-history), [decision 0013](decisions/0013-history-from-cloud-logs.md)). A provider plugin adds a reader with a second, optional method of the `kms` hook, `readSignHistory`. It is `@experimental` and frozen at 1.0 with the rest of the hook. A provider without a reader still signs; only `kms history` fails for its keys, with an error that names the provider. The types are exported from `hardhat-kms/types`:
+
+```ts
+import type { HookContext } from "hardhat/types/hooks";
+import type { KmsKeyConfig } from "hardhat-kms/types";
+
+type KmsHistoryField =
+  "principal" | "sourceIp" | "userAgent" | "requestId" | "keyVersion" | "digest";
+
+interface KmsHistoryRequest {
+  key: KmsKeyConfig;
+  since: Date; // inclusive
+  until: Date; // inclusive
+  limit: number; // 1 to 1000
+}
+interface KmsHistoryEvent {
+  time: string; // ISO 8601 with a time zone
+  operation: string; // Sign, AsymmetricSign, KeySign
+  outcome: "success" | "failed";
+  errorCode: string | null;
+  errorMessage: string | null; // shown only with --show-ids
+  principal: string | null;
+  sourceIp: string | null;
+  userAgent: string | null;
+  requestId: string | null;
+  keyVersion: string | null;
+  digest: string | null; // 0x-prefixed lowercase hex
+  keyResource: string | null; // shown only with --show-ids
+  extra?: Readonly<Record<string, string | number | boolean | null>> | undefined;
+  extraIds?: Readonly<Record<string, string | null>> | undefined; // shown only with --show-ids
+}
+interface KmsHistoryResult {
+  source: string;
+  notLogged: readonly KmsHistoryField[];
+  events: readonly KmsHistoryEvent[]; // newest first, at most `limit`
+  truncated: boolean;
+  loggingAlwaysOn: boolean;
+  setupHint?: string | undefined;
+  deliveryDelayMinutes?: number | undefined;
+  retentionDays?: number | undefined;
+  notes?: readonly { code: string; message: string }[] | undefined;
+}
+interface KmsHooks {
+  readSignHistory(
+    context: HookContext,
+    request: KmsHistoryRequest,
+    next: (nextContext: HookContext, nextRequest: KmsHistoryRequest) => Promise<KmsHistoryResult>,
+  ): Promise<KmsHistoryResult>;
+}
+```
+
+A reader for the `myvault` provider of the example above:
+
+```ts
+import type { HardhatPlugin } from "hardhat/types/plugins";
+import { auditLogAccessDenied } from "hardhat-kms/provider-utils";
+import type { KmsHistoryEvent, KmsHistoryRequest, KmsHooks } from "hardhat-kms/types";
+
+// The plugin's own code: queries the vault's audit log and maps each entry to an event.
+declare function queryMyVaultLog(
+  request: KmsHistoryRequest,
+): Promise<{ denied: boolean; events: KmsHistoryEvent[]; more: boolean }>;
+
+const plugin: HardhatPlugin = {
+  id: "hardhat-kms-myvault",
+  dependencies: () => [import("hardhat-kms")],
+  hookHandlers: {
+    kms: async () => ({
+      default: async (): Promise<Partial<KmsHooks>> => ({
+        readSignHistory: async (context, request, next) => {
+          const provider: string = request.key.provider;
+          if (provider !== "myvault") {
+            return await next(context, request);
+          }
+          const { denied, events, more } = await queryMyVaultLog(request);
+          if (denied) {
+            throw auditLogAccessDenied("vault:ReadAuditLog", {
+              provider,
+              operation: "history",
+              key: request.key.displayId,
+            });
+          }
+          return {
+            source: "myvault-audit-log",
+            notLogged: ["digest"],
+            events,
+            truncated: more,
+            loggingAlwaysOn: false,
+            setupHint: "Check that audit logging is on in the vault's settings.",
+            deliveryDelayMinutes: 5,
+          };
+        },
+      }),
+    }),
+  },
+};
+
+export default plugin;
+```
+
+The rules:
+
+- The handler reads only its own provider ids and passes every other request to `next`, as `createKeyAdapter` does. Handlers registered with `hre.hooks.registerHandlers("kms", …)` run first; tests use this to register a fake reader.
+- Copy each field from the log entry and invent nothing. A field the provider never records goes in `notLogged` and is `null` in every event; a field it records but left empty in this entry is `null` too. Put the rest of the entry in `extra`, and any field that names a key, an account or a credential, such as an AWS access key id, in `extraIds`.
+- `kms history` shows `keyResource`, `errorMessage` and `extraIds` only with `--show-ids`. Without it, the core shows the key's display id instead, keeps only the error code, and replaces any of those values found in another field. Never put key ids or account ids in `extra`.
+- Return the events of the range, `since` and `until` included, newest first. Read at most `limit` of them, and set `truncated` when the log holds more. Respect the provider's rate limits and let its SDK retry; when it still throttles, throw `auditLogThrottled` from `hardhat-kms/provider-utils`.
+- When the log cannot be read, throw. Never return an empty result instead. For a refused read, throw `auditLogAccessDenied` with the permission to grant. The core passes the plugin's and Hardhat's errors through, and reduces any other error to its class name, as it does for adapters.
+- Set `loggingAlwaysOn` only when the provider logs every sign request with no setting that turns it off, as AWS CloudTrail event history does. Otherwise an empty result gets the `logging-not-confirmed` note, followed by `setupHint`.
+- Set `deliveryDelayMinutes` and `retentionDays` to the provider's documented figures, or leave them out. The core uses them for the `recent-events-may-be-missing` and `before-retention` notes. Add notes of your own in `notes`, with codes in lowercase words joined by `-`; the core's three codes are reserved.
+- Build a log query only from identifiers checked against the provider's character set, so a configuration variable cannot inject query text. Settings a reader needs live in `context.config.kms.audit`, such as `kms.audit.azure.workspaceId`.
+- Load the log SDK inside `readSignHistory`, with a dynamic `import()`, so that loading the config and running other tasks never loads it.
+
+The core checks every result in `packages/hardhat-kms/src/internal/history/read.ts`: an event outside the range, a value for a field in `notLogged`, a digest that is not 32 bytes of lowercase hex, or an error on a successful event fails with `core.history.reader-invalid`. It sorts the events newest first and cuts them to `limit`.
+
 ## First-party provider packages
 
 `hardhat-kms-aws`, `hardhat-kms-gcp` and `hardhat-kms-azure` are provider plugins like the one above, kept in this repository and released with the core. They differ from a third-party plugin in these ways:
 
 - Its key format lives in the core, as a [built-in descriptor](#built-in-descriptors). The config schema checks `aws`, `gcp` and `azure` keys strictly, and a missing package produces an error that names it. The package declares no key types. Its `src/index.ts` starts with `/// <reference types="hardhat-kms/types" preserve="true" />`, so a project that imports only one provider package still gets the `kms` config types. A reference adds nothing to the JavaScript: if `hardhat-kms` is missing, Hardhat reports it as a missing plugin dependency instead of Node failing to find the module.
-- It builds on `hardhat-kms/provider-utils`: `publicKeyFromSpkiDer`, `publicKeyFromSpkiPem` (Google Cloud's PEM) and `InvalidPublicKeyError` to parse the key's public key, `crc32c` for Google Cloud's checksums, `kmsError` and its `ErrorDetails` for allow-listed errors, `catalogError`, `catalogMessage` and `internalError` with the `ErrorEntry` and `TemplateParams` types to build its errors from its [error catalogue](architecture.md#errors), `parseAwsKeyId` and its `ParsedAwsKeyId` to read the kind of an AWS key id and the region of an ARN, `publicKeyFromJwk` with its `EcJsonWebKey` type and `parseAzureKeyId` with its `ParsedAzureKeyId` for Azure's JWK public keys and key URLs, and `checkProviderVersion`, which its handler calls before building an adapter. The entry point is marked `@experimental` until 1.0. Third-party providers may use it too, except `checkProviderVersion` and the catalogue helpers, which only fit packages released with the core: a third-party provider builds its errors with `kmsError`.
+- It builds on `hardhat-kms/provider-utils`: `publicKeyFromSpkiDer`, `publicKeyFromSpkiPem` (Google Cloud's PEM) and `InvalidPublicKeyError` to parse the key's public key, `crc32c` for Google Cloud's checksums, `kmsError` and its `ErrorDetails` for allow-listed errors, `catalogError`, `catalogMessage` and `internalError` with the `ErrorEntry` and `TemplateParams` types to build its errors from its [error catalogue](architecture.md#errors), `parseAwsKeyId` and its `ParsedAwsKeyId` to read the kind of an AWS key id and the region of an ARN, `publicKeyFromJwk` with its `EcJsonWebKey` type and `parseAzureKeyId` with its `ParsedAzureKeyId` for Azure's JWK public keys and key URLs, `checkProviderVersion`, which its handler calls before building an adapter, and `auditLogAccessDenied` and `auditLogThrottled` for [history readers](#history-readers). The entry point is marked `@experimental` until 1.0. Third-party providers may use it too, including the history reader errors, except `checkProviderVersion` and the catalogue helpers, which only fit packages released with the core: a third-party provider builds its errors with `kmsError`.
 - It requires the same version of `hardhat-kms`. Its peer dependency on `hardhat-kms` is exact (`workspace:*` becomes the version itself when packed), so npm refuses a mismatched install. pnpm and Yarn only warn, so `checkProviderVersion` also fails at the first key with both versions and the install command.
 - It depends on its SDK and imports it in its `kms` handler on first use (see [SDK loading](architecture.md#sdk-loading)).
 

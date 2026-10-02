@@ -162,6 +162,7 @@ describe("kms tasks", () => {
     assert.deepEqual([...hre.tasks.getTask("kms").subtasks.keys()].toSorted(), [
       "accounts",
       "address",
+      "history",
       "public-key",
       "sign",
       "sign-auth",

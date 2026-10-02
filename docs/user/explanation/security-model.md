@@ -97,6 +97,35 @@ Any of these requests can reach the KMS and produce a signature the plugin never
 - If you use a third-party provider plugin that asks a person to approve each signature, an approval request can stay open after the plugin has given up on it. Approving it then signs a digest that the plugin drops, and your script has already seen an error.
 - A timeout on a send leaves no transaction behind. Check the error, then run the script again; the plugin fills the transaction afresh.
 
+## Audit logs
+
+Each cloud provider records sign requests in its own audit log, whoever makes them. [`kms history`](../reference/tasks.md#kms-history) reads that log for one key. It shows only what the log holds: the plugin keeps no record of its own signatures, and it fills in nothing. So the history can show who signed with a key, when, from where and with which tool, including signatures made outside the plugin. It cannot show what was signed: no provider logs the message, the typed data, the transaction or the signature. Google Cloud logs the digest; AWS and Azure do not.
+
+What each provider records for a sign request, from the providers' documentation on 2026-10-02. The readers are in progress ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)), and a live test will check the rows marked with an asterisk.
+
+| Field           | AWS KMS (CloudTrail `Sign`)        | Google Cloud KMS (`AsymmetricSign`)                | Azure Key Vault (`KeySign` in `AZKVAuditLogs`)    |
+| --------------- | ---------------------------------- | -------------------------------------------------- | ------------------------------------------------- |
+| Time            | `eventTime`                        | `timestamp`                                        | `TimeGenerated`                                   |
+| Principal       | `userIdentity`                     | `authenticationInfo.principalEmail`                | `Identity`                                        |
+| Key and version | key ARN in `resources`; no version | `resourceName`\*                                   | `Id` and `RequestUri`, which holds the version    |
+| Source IP       | `sourceIPAddress`                  | `requestMetadata.callerIp`, which may be `private` | `CallerIpAddress`                                 |
+| User agent      | `userAgent`                        | `requestMetadata.callerSuppliedUserAgent`          | `ClientInfo`                                      |
+| Request id      | `requestID`, set by the service    | `insertId`                                         | `CorrelationId`\*                                 |
+| Digest          | not logged                         | `request.digest.sha256`\*                          | not logged                                        |
+| Outcome         | `errorCode`, `errorMessage`        | `status`                                           | `ResultType`, `HttpStatusCode`                    |
+| Setup           | none, on by default                | Data Access logs for Cloud KMS, off by default     | a diagnostic setting to a Log Analytics workspace |
+| Delay           | about 5 minutes, not guaranteed    | not documented                                     | up to 10 minutes                                  |
+| Retention       | 90 days                            | 30 days in the `_Default` bucket                   | set on the workspace; 31 days included            |
+| Read permission | `cloudtrail:LookupEvents`          | `roles/logging.privateLogViewer`                   | workspace query and table read                    |
+
+What this means for you:
+
+- **An empty history proves little.** On Google Cloud and Azure, logging can be off, a caller can be exempted, logs can be routed elsewhere, and a protected table returns no rows. `kms history` says so instead of reporting "no signatures".
+- **The user agent is a claim.** The plugin's requests can carry a `hardhat-kms/<version>` user agent, but any client can send the same string.
+- **Retries show up.** One signature can appear as several log entries for the same digest; see [How many sign requests one call can send](#how-many-sign-requests-one-call-can-send).
+- **The output is sensitive.** It holds principals, IP addresses and user agents. Key ids and provider error messages are masked unless you pass `--show-ids`.
+- **Reading signs nothing.** The task holds no key material and makes no signing call. On AWS, finding the key ARN of an alias may need one `GetPublicKey` call, which CloudTrail logs.
+
 ## Read next
 
 - [Threat model summary](../../contributor/signing-pipeline.md#threat-model-summary), and the signature pipeline and key pinning, for contributors and security reviewers.

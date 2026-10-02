@@ -100,7 +100,12 @@ async function hardhatAsync(
   return { status: typeof status === "number" ? status : null, output };
 }
 
-const CONFIG = (plugin: string, adapter: string) => `import kms from ${JSON.stringify(plugin)};
+const CONFIG = (
+  plugin: string,
+  adapter: string,
+  utils: string,
+) => `import kms from ${JSON.stringify(plugin)};
+import { auditLogAccessDenied } from ${JSON.stringify(utils)};
 import { fakeAdapter } from ${JSON.stringify(adapter)};
 
 const secretKey = new Uint8Array(Buffer.from(${JSON.stringify(HARDHAT_ACCOUNT_0.secretKey)}, "hex"));
@@ -128,6 +133,16 @@ const vault = {
             };
           }
           return adapter;
+        },
+        // kms history: an empty log for deployer, a refused read for pinned, no reader otherwise.
+        readSignHistory: async (context, request, next) => {
+          if (request.key.name === "deployer") {
+            return { source: "fake-log", notLogged: [], events: [], truncated: false, loggingAlwaysOn: false };
+          }
+          if (request.key.name === "pinned") {
+            throw auditLogAccessDenied("logs:Read");
+          }
+          return await next(context, request);
         },
       }),
     }),
@@ -171,6 +186,7 @@ describe("kms tasks from the Hardhat CLI", () => {
       CONFIG(
         pathToFileURL(path.join(repo, "src/index.ts")).href,
         pathToFileURL(path.join(repo, "test/helpers/fake-adapter.ts")).href,
+        pathToFileURL(path.join(repo, "src/provider-utils.ts")).href,
       ),
     );
   });
@@ -319,11 +335,37 @@ describe("kms tasks from the Hardhat CLI", () => {
     assert.equal(run.status, 0, run.output);
     assert.match(run.output, /accounts\s+List the KMS keys/);
     assert.match(run.output, /address\s+Print a KMS key's address/);
+    assert.match(
+      run.output,
+      /history\s+List a KMS key's sign events from its provider's audit log/,
+    );
     assert.match(run.output, /public-key\s+Print a KMS key's uncompressed public key/);
     assert.match(run.output, /sign-tx\s+Fill and sign a transaction on --network/);
     assert.match(run.output, /sign\s+Sign a message, typed data or a raw digest with a KMS key/);
     assert.match(run.output, /sign-auth\s+Sign an EIP-7702 authorization with a KMS key/);
     assert.match(run.output, /verify\s+Check that an address signed a message or typed data/);
+  });
+
+  it("prints the history as JSON on standard output and the notes on standard error", () => {
+    const run = hardhat(["kms", "history", "--json", "--since", "2d", "--until", "1d", "deployer"]);
+
+    assert.equal(run.status, 0, `the task failed or did not exit:\n${run.output}`);
+    const report: unknown = JSON.parse(run.stdout);
+    assert.ok(typeof report === "object" && report !== null);
+    assert.equal(Reflect.get(report, "version"), 1);
+    assert.deepEqual(Reflect.get(report, "events"), []);
+    assert.match(run.stderr, /The log returned no sign events in this range/);
+  });
+
+  it("exits with code 1 when the log cannot be read or no plugin reads it", () => {
+    const refused = hardhat(["kms", "history", "pinned"]);
+    const unread = hardhat(["kms", "history", "chatty"]);
+
+    assert.equal(refused.status, 1, refused.output);
+    assert.match(refused.stderr, /cannot read the audit log: the credentials lack logs:Read/);
+    assert.equal(refused.stdout, "");
+    assert.equal(unread.status, 1, unread.output);
+    assert.match(unread.stderr, /no plugin reads the audit log of "myvault" keys/);
   });
 
   it("signs a 0x message as bytes, prints only the signature and exits on its own", () => {

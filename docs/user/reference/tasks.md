@@ -2,7 +2,7 @@
 
 Audience: Users running the `kms` tasks.
 
-Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-auth` ([#35](https://github.com/aelmanaa/hardhat-kms/issues/35)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)).
+Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-auth` ([#35](https://github.com/aelmanaa/hardhat-kms/issues/35)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). `kms history` is implemented in the core; the readers for AWS, Google Cloud and Azure are in progress ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)).
 
 ## Tasks
 
@@ -16,6 +16,7 @@ All tasks live in the `kms` namespace, which is an `emptyTask` in the same style
 | `kms sign-auth <key> <delegate> (--chain <id> \| --network n) [--nonce n] [--self-broadcast] [--force]` | EIP-7702 authorization, as the JSON tuple `authorizationList` takes. Chain 0 requires `--force`; `--self-broadcast` uses the pending nonce + 1. | `cast wallet sign-auth`                                 |
 | `kms sign-tx <key> <tx.json> --network n`                                                               | Filled on the network's node and signed, never sent. Prints the raw transaction, and its hash on standard error.                                | `cast mktx`                                             |
 | `kms verify (--address a \| --key k) <message> <signature> [--data [--from-file]]`                      | Local signature verification against an address or a key. No `--no-hash`.                                                                       | `cast wallet verify [--data [--from-file]]`             |
+| `kms history <key> [--since t] [--until t] [--limit n] [--json] [--show-ids]`                           | The key's sign events, read from the provider's audit log.                                                                                      | none                                                    |
 
 ## Naming a key
 
@@ -368,3 +369,82 @@ Compared with `cast wallet verify`:
 - There is no `--no-hash`, on purpose. Only `kms sign --no-hash` handles raw 32-byte digests, as an explicit human action ([decision 0003](../../contributor/decisions/0003-no-bare-digest-over-rpc.md)). Verifying a signature over a raw digest may come later if users ask for it ([#31](https://github.com/aelmanaa/hardhat-kms/issues/31)).
 - `--key` checks against a KMS key without copying its address.
 - Only EOA signatures are checked. A smart-contract wallet's EIP-1271 `isValidSignature` is not called.
+
+## `kms history`
+
+```text
+npx hardhat kms history <key> [--since <time>] [--until <time>] [--limit <n>] [--json] [--show-ids]
+```
+
+Lists the key's sign events from its provider's audit log, newest first. The events come only from the log: the plugin stores nothing about the signatures it makes and adds nothing the log does not hold. Anyone with read access to the log gets the same list from any machine. The list includes sign requests made outside the plugin, for example from the provider's CLI or console, so it answers "who else signed with this key?". [Decision 0013](../../contributor/decisions/0013-history-from-cloud-logs.md) explains why.
+
+Each provider package reads its own provider's log. Until a package has a reader, the task fails with an error that names the package. A third-party provider adds one through the `kms` hook ([History readers](../../contributor/providers.md#history-readers)). [Audit logs](../explanation/security-model.md#audit-logs) lists what each provider records.
+
+- **`<key>`.** Named as in [Naming a key](#naming-a-key), including `--kms` variables. The task makes no KMS call; it does not need `--network`.
+- **`--since` and `--until`.** An ISO 8601 time with a time zone, such as `2026-10-02T09:00:00Z` or `2026-10-02T11:00:00+02:00`; a date, which means midnight UTC; or a duration before now: `45s`, `30m`, `6h`, `7d`. A time without a time zone is refused. `--until` defaults to now, and `--since` to 24 hours before `--until`.
+- **`--limit`.** At most this many events, the newest ones. From 1 to 1000; default 100. When the log holds more events in the range, the task says so on standard error. Narrow the range to see older ones.
+
+```text
+Sign events of deployer (aws:alias/deployer), from cloudtrail-event-history
+2026-10-01T10:00:00.000Z to 2026-10-02T10:00:00.000Z, newest first
+Not logged by this provider: key version, digest
+
+TIME                      OPERATION  OUTCOME                         PRINCIPAL                                SOURCE IP
+2026-10-02T09:14:03.512Z  Sign       success                         arn:aws:iam::111122223333:role/deployer  203.0.113.7
+  user agent (client-reported): aws-sdk-js/3.1000.0 ... hardhat-kms/1.0.0
+  request id: 11111111-2222-3333-4444-555555555555
+2026-10-02T08:02:11.004Z  Sign       failed (AccessDeniedException)  arn:aws:iam::111122223333:user/ci        198.51.100.4
+  user agent (client-reported): aws-cli/2.17.0 ...
+  request id: 66666666-7777-8888-9999-000000000000
+```
+
+Each row is one log entry, copied as it was logged. One signature can show as several entries, because the plugin and the provider SDKs retry ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)).
+
+- **Not logged and empty.** A field the provider never records has no column or line, and the header names it. A field the provider records but left empty in this entry shows as `-`.
+- **User agent.** The client chooses it, so any tool can claim to be the plugin. Treat it as a hint, never as proof.
+- **Ids.** Key ARNs, resource names and key URLs from the log show as the key's display id, and a failed request shows only its error code, since provider error messages can name accounts and keys. `--show-ids` shows them in full, with the provider's other id fields such as the AWS access key id, after a warning on standard error.
+- **Sensitive output.** Principals, IP addresses and user agents are shown by default, because an incident review needs them. Treat the output as sensitive, and do not paste it into public issues.
+
+The task adds these notes to standard error, and to `notes` in the JSON, each with a stable code:
+
+| Code                           | When                                                                                                                                                                                                                                                |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `logging-not-confirmed`        | The log returned no events, and the provider's logging can be off. Zero rows does not show that the key signed nothing: logging may be off or routed elsewhere, or the credentials may not see every entry. The task never reports "no signatures". |
+| `recent-events-may-be-missing` | The range ends within 15 minutes of now, or within the provider's documented delay if that is longer. Events take minutes to reach the log.                                                                                                         |
+| `before-retention`             | The range starts before the oldest event the log keeps, for providers whose retention does not depend on your settings.                                                                                                                             |
+
+A reader can add notes of its own, with other codes.
+
+When the task cannot read the log, it fails with exit code 1 and prints nothing on standard output. A refused read names the permission to grant. The task never shows an empty history for a log it could not read.
+
+**`--json`.** Prints the report instead of the table:
+
+```json
+{
+  "version": 1,
+  "key": { "name": "deployer", "provider": "aws", "displayId": "aws:alias/deployer" },
+  "source": "cloudtrail-event-history",
+  "range": { "since": "2026-10-01T10:00:00.000Z", "until": "2026-10-02T10:00:00.000Z" },
+  "notLogged": ["keyVersion", "digest"],
+  "events": [
+    {
+      "time": "2026-10-02T09:14:03.512Z",
+      "operation": "Sign",
+      "outcome": "success",
+      "error": null,
+      "principal": "arn:aws:iam::111122223333:role/deployer",
+      "sourceIp": "203.0.113.7",
+      "userAgent": "aws-sdk-js/3.1000.0 ... hardhat-kms/1.0.0",
+      "requestId": "11111111-2222-3333-4444-555555555555",
+      "keyVersion": null,
+      "digest": null,
+      "keyResource": "aws:alias/deployer",
+      "extra": {}
+    }
+  ],
+  "truncated": false,
+  "notes": []
+}
+```
+
+Times are UTC. `error` is `null` for a request that succeeded, and `{ "code": ..., "message": null }` for one that failed; `--show-ids` fills in `message`. `keyResource` is the key as the log names it, shown as the display id without `--show-ids`. `extra` holds the provider's other fields. A field in `notLogged` is `null` in every event. The types are `KmsHistoryReport` and `KmsHistoryEntry` in `hardhat-kms/types`, and `hre.tasks.getTask(["kms", "history"]).run({ key, limit: 100, json: false, showIds: false })` returns the same report.
