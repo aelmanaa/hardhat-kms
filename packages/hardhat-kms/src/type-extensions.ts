@@ -3,6 +3,7 @@ import type {
   KmsConfig,
   KmsHooks,
   KmsKeyConfig,
+  KmsNetworkConnection,
   KmsUserConfig,
 } from "./types.ts";
 
@@ -44,5 +45,12 @@ declare module "hardhat/types/global-options" {
   export interface GlobalOptions {
     /** Providers whose keys to load from Foundry's environment variables, such as `aws,azure`. */
     kms: string | undefined;
+  }
+}
+
+declare module "hardhat/types/network" {
+  export interface NetworkConnection<ChainTypeT extends string = DefaultChainType> {
+    /** hardhat-kms's library API: `getAccount` returns a viem account for a KMS account. */
+    kms: KmsNetworkConnection;
   }
 }

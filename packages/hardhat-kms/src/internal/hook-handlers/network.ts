@@ -8,6 +8,7 @@ import { ConnectionSends } from "../rpc/send-guard.ts";
 import { createTransactionFiller, type TransactionFiller } from "../rpc/transaction-filler.ts";
 import { SignerCache } from "../signer/key-cache.ts";
 import { systemTimers, type Timers } from "../signer/timeout.ts";
+import { createKmsNetworkConnection, type LoadViem, loadViem } from "../viem/account.ts";
 import { warn } from "../warnings.ts";
 import { commandLineKeys } from "./hre.ts";
 
@@ -81,13 +82,19 @@ const hasKeys = (keys: NetworkKeys): boolean =>
  * accounts live in this closure.
  *
  * @param timers - Timer functions for the idle close and the retry entries, for tests.
+ * @param load - Loads viem for `connection.kms.getAccount`, for tests.
  * @returns The handlers.
  */
-export function createNetworkHandlers(timers: Timers = systemTimers): Partial<NetworkHooks> {
+export function createNetworkHandlers(
+  timers: Timers = systemTimers,
+  load: LoadViem = loadViem,
+): Partial<NetworkHooks> {
   const cache = new SignerCache(timers);
   const accountsByConnection = new WeakMap<object, ConnectionAccounts>();
   // Connections counted as open. Hardhat lets a connection be closed twice; it is counted once.
   const counted = new WeakSet<object>();
+  // Closed connections: their library accounts refuse to sign.
+  const closed = new WeakSet<object>();
   let warnedAboutDefault = false;
 
   const accountsOf = (
@@ -142,6 +149,18 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
   return {
     newConnection: async (context, next) => {
       const connection = await next(context);
+      // Set on every connection, as hardhat-viem sets `connection.viem`; viem loads only when
+      // getAccount is called.
+      connection.kms = createKmsNetworkConnection(
+        {
+          network: connection.networkName,
+          accounts: accountsOf(context, connection),
+          chainId: async () => await chainOf(connection).chainId(),
+          allowCrossChainTypedData: context.config.kms.allowCrossChainTypedData,
+          closed: () => closed.has(connection),
+        },
+        load,
+      );
       const keys = connectionKeys(context, connection);
       if (hasKeys(keys)) {
         counted.add(connection);
@@ -174,6 +193,7 @@ export function createNetworkHandlers(timers: Timers = systemTimers): Partial<Ne
       return connection;
     },
     closeConnection: async (context, connection, next) => {
+      closed.add(connection);
       if (counted.delete(connection)) {
         cache.connectionClosed();
       }

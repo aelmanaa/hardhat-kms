@@ -15,6 +15,7 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 - Which JSON-RPC methods are handled, and which transaction types: [docs/user/reference/rpc-methods.md](docs/user/reference/rpc-methods.md)
 - The `kms` tasks (list accounts, sign, verify, read a key's sign events from the provider's audit log): [docs/user/reference/tasks.md](docs/user/reference/tasks.md)
 - What an error message means and how to fix it, by message text or id: [docs/user/reference/errors.md](docs/user/reference/errors.md)
+- A viem account for a KMS key in library code (`connection.kms.getAccount`, for viem's `signAuthorization`, smart-account owners and scripts), what it refuses, and why its sends bypass the send lock: [docs/user/reference/library-accounts.md](docs/user/reference/library-accounts.md)
 - The TypeScript API of `hardhat-kms`, `hardhat-kms/types` and `hardhat-kms/provider-utils`, generated from TSDoc: [docs/user/reference/api/README.md](docs/user/reference/api/README.md)
 - Set up an AWS KMS key (key spec, IAM policy, the `hardhat-kms-aws` package, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
 - Set up an Azure Key Vault key (key type and curve, RBAC role or access policy, credential order, the `hardhat-kms-azure` package): [docs/user/guides/azure-key-vault-setup.md](docs/user/guides/azure-key-vault-setup.md)
@@ -96,6 +97,7 @@ Decision records:
 - [0011: Check typed data's chain only when it names one](docs/contributor/decisions/0011-typed-data-chain-check.md)
 - [0012: Generate the API reference with TypeDoc on TypeScript 6](docs/contributor/decisions/0012-api-reference-generator.md)
 - [0013: Signing history comes only from the cloud audit logs](docs/contributor/decisions/0013-history-from-cloud-logs.md)
+- [0014: The library account signs bare digests only when asked](docs/contributor/decisions/0014-library-account-raw-sign.md)
 
 Rules for every change:
 

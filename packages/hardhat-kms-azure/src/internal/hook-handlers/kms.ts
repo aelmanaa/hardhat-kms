@@ -4,6 +4,7 @@ import { checkProviderVersion, internalError } from "hardhat-kms/provider-utils"
 import type { AzureKmsKeyConfig, KmsHooks, KmsKeyAdapter } from "hardhat-kms/types";
 
 import { ERRORS } from "../error-catalog.ts";
+import type { QueryWorkspace } from "../history.ts";
 
 const PACKAGE_NAME = "hardhat-kms-azure";
 
@@ -42,6 +43,12 @@ export function pluginUserAgent(version: string): string {
   return `hardhat-kms/${version}`;
 }
 
+/** `AZURE_CLIENT_ID`, which selects a user-assigned managed identity for signing and reading. */
+function managedIdentityClientId(): string | undefined {
+  // oxlint-disable-next-line node/no-process-env -- ManagedIdentityCredential does not read AZURE_CLIENT_ID itself, and DefaultAzureCredential has another order than Foundry's
+  return process.env.AZURE_CLIENT_ID;
+}
+
 /** Loads @azure/keyvault-keys and @azure/identity, and builds the credential chain. */
 const loadAdapterFactory: AzureAdapterFactoryLoader = async (userAgent) => {
   const [keyVault, identity, { createAzureCredential }, { createAzureKeyAdapter }] =
@@ -51,27 +58,64 @@ const loadAdapterFactory: AzureAdapterFactoryLoader = async (userAgent) => {
       import("../credential.ts"),
       import("../adapter.ts"),
     ]);
-  // oxlint-disable-next-line node/no-process-env -- ManagedIdentityCredential does not read AZURE_CLIENT_ID itself, and DefaultAzureCredential has another order than Foundry's
-  const credential = createAzureCredential(identity, process.env.AZURE_CLIENT_ID);
+  const credential = createAzureCredential(identity, managedIdentityClientId());
   return async (key) => await createAzureKeyAdapter(key, keyVault, credential, userAgent);
 };
 
 /**
- * The `kms` hook handlers: build adapters for `azure` keys and pass every other key on. The
- * adapter module, and with it the Azure SDK, loads only when an Azure key is first used. Before
- * that, the handler checks that hardhat-kms is the same version as this package. All Azure keys of
- * a runtime share one credential, so the chain runs once per scope, not once per key.
+ * Loads the history reader's query call: builds the credential chain, as for signing, and the Log
+ * Analytics query through @azure/core-rest-pipeline. Tests pass a loader whose call answers in
+ * process.
+ */
+export type AzureHistoryQueryLoader = (userAgent: string) => Promise<QueryWorkspace>;
+
+/** Loads @azure/identity and the Log Analytics call, and builds the credential chain. */
+const loadHistoryQuery: AzureHistoryQueryLoader = async (userAgent) => {
+  const [identity, { createAzureCredential }, { logAnalyticsQuery }] = await Promise.all([
+    import("@azure/identity"),
+    import("../credential.ts"),
+    import("../log-analytics.ts"),
+  ]);
+  const credential = createAzureCredential(identity, managedIdentityClientId());
+  return logAnalyticsQuery(credential, userAgent);
+};
+
+/**
+ * The `kms` hook handlers: build adapters for `azure` keys and read their history from Log
+ * Analytics, and pass every other key on. The adapter module, and with it the Azure SDK, loads
+ * only when an Azure key is first used; the history reader and its query call only when
+ * `kms history` reads an Azure key. Before either, the handler checks that hardhat-kms is the
+ * same version as this package. All Azure keys of a runtime share one credential, so the chain
+ * runs once per scope, not once per key.
  *
  * @param version - This package's version; tests pass another one to cause a mismatch.
  * @param load - Loads the SDK and the credential once, on the first Azure key; tests pass fakes.
+ * @param history - Loads the Log Analytics query call; tests pass one that answers in process.
  * @returns The handlers.
  */
 export function kmsHandlers(
   version: string = ownVersion(),
   load: AzureAdapterFactoryLoader = loadAdapterFactory,
+  history: AzureHistoryQueryLoader = loadHistoryQuery,
 ): Partial<KmsHooks> {
   let factory: Promise<AzureAdapterFactory> | undefined;
   return {
+    readSignHistory: async (context, request, next) => {
+      const { key } = request;
+      if (key.provider !== "azure") {
+        return await next(context, request);
+      }
+      checkProviderVersion(PACKAGE_NAME, version, {
+        provider: "azure",
+        operation: "history",
+        key: key.displayId,
+      });
+      const [{ readAzureSignHistory }, query] = await Promise.all([
+        import("../history.ts"),
+        history(pluginUserAgent(version)),
+      ]);
+      return await readAzureSignHistory(key, context.config.kms.audit, request, query);
+    },
     createKeyAdapter: async (context, key, next) => {
       if (key.provider !== "azure") {
         return await next(context, key);

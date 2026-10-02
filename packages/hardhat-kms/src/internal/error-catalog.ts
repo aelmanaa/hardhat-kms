@@ -1761,6 +1761,151 @@ export const ERRORS = {
     fix: "Narrow the range with `--since` and `--until`, or lower `--limit`.",
   },
 
+  // Library accounts: connection.kms.getAccount and the account it returns.
+  accountViemMissing: {
+    id: "core.account.viem-missing",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "connection.kms.getAccount needs the viem package, which could not be loaded ({reason}). Install it with `npm install --save-dev viem`",
+    cause:
+      "`getAccount` returns a viem account, and viem, an optional peer dependency of hardhat-kms, is not installed in the project, or failed to load.",
+    fix: "Install viem in the project. Nothing else in the plugin needs it.",
+  },
+  accountConnectionClosed: {
+    id: "core.account.connection-closed",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "the connection to network {network} is closed, so its KMS accounts no longer sign. Get the account from an open connection",
+    cause:
+      "`getAccount` or a method of the account it returned was called after `connection.close()`. A closed connection's library accounts refuse to sign, before any KMS call.",
+    fix: "Call `getAccount` on an open connection, from `network.create()`, and use that account.",
+  },
+  accountOption: {
+    id: "core.account.option",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "{name} is not an option of getAccount; the options are rawSign and allowChainZeroAuthorization",
+    cause:
+      "The options object of `getAccount` has a key the plugin does not know, often a typo. It is refused so that a misspelled option is not silently ignored.",
+    fix: "Correct or remove the option.",
+  },
+  accountField: {
+    id: "core.account.field",
+    kind: "error",
+    group: "Library accounts",
+    template: "{field} must be {expected}",
+    cause:
+      "A value given to `getAccount` or to one of the account's methods does not have the type or form viem gives it. Nothing was signed.",
+    fix: "Pass the value in the form the message names, as viem's own actions pass it.",
+  },
+  accountNotKms: {
+    id: "core.account.not-kms",
+    kind: "error",
+    group: "Library accounts",
+    template: "{address} is not a KMS account of network {network}.{accounts}",
+    cause:
+      "`getAccount` was given an address that none of the connection's KMS keys has. The message lists the addresses it has.",
+    fix: "Pass one of the listed addresses, or add the key to the network's `kmsAccounts`.",
+  },
+  accountTxType: {
+    id: "core.account.tx-type",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "transaction type {type} is not signed: KMS accounts sign legacy, eip2930, eip1559 and eip7702 transactions",
+    cause:
+      "The account's `signTransaction` got a transaction whose `type` is not one it signs, such as a chain-specific deposit type. Nothing was signed.",
+    fix: "Send the transaction from another account, or as one of the listed types.",
+  },
+  accountTxNoType: {
+    id: "core.account.tx-no-type",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "the transaction's type cannot be told from its fields: set type, gasPrice or maxFeePerGas",
+    cause:
+      "The transaction has no `type` and no fee field, so neither viem nor the plugin can tell how to encode it. viem's actions always set one.",
+    fix: "Set `type`, or the fee fields of the type you want.",
+  },
+  accountTxNoChain: {
+    id: "core.account.tx-no-chain",
+    kind: "error",
+    group: "Library accounts",
+    template: "the transaction has no chainId; a KMS account signs only for its network's chain",
+    cause:
+      "The account's `signTransaction` got a transaction without `chainId`. A transaction without one is valid on every chain, so it is refused.",
+    fix: "Set `chainId` to the network's chain. viem's actions set it.",
+  },
+  accountTxWrongChain: {
+    id: "core.account.tx-wrong-chain",
+    kind: "error",
+    group: "Library accounts",
+    template: "the transaction is for chain {requested}, but network {network} is chain {chainId}",
+    cause:
+      "The transaction's `chainId` is another chain than the one of the connection the account comes from. Nothing was signed.",
+    fix: "Get the account from a connection to that chain's network.",
+  },
+  accountTxInvalid: {
+    id: "core.account.tx-invalid",
+    kind: "error",
+    group: "Library accounts",
+    template: "the transaction cannot be encoded: {reason}",
+    cause:
+      "The plugin's transaction encoder refused a value of the transaction, for example a number too large for its field. Nothing was signed.",
+    fix: "Correct the value the reason names.",
+  },
+  accountSerializerFailed: {
+    id: "core.account.serializer-failed",
+    kind: "error",
+    group: "Library accounts",
+    template: "{serializer} failed on the transaction ({errorName}), so it was not signed",
+    cause:
+      "Before signing, the account encodes the transaction with viem's serializer, or with the chain serializer viem passed, to compare it with its own encoding. That serializer threw.",
+    fix: "Check the transaction's fields: viem refuses values its types do not allow.",
+  },
+  accountSerializerMismatch: {
+    id: "core.account.serializer-mismatch",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "{serializer} encodes the transaction differently from hardhat-kms, so it was not signed",
+    cause:
+      "The account signs the transaction as the plugin encodes it, and refuses when viem's serializer, or the chain serializer viem passed, encodes other bytes. A chain with its own transaction format, such as a field the plugin does not encode, causes this.",
+    fix: "Send the transaction from another account. If the chain uses the standard transaction format, open an issue at https://github.com/aelmanaa/hardhat-kms/issues with the transaction's fields.",
+  },
+  accountAuthChainZero: {
+    id: "core.account.auth-chain-zero",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "an authorization for chain 0 is valid on every chain where the account's nonce matches. Pass `allowChainZeroAuthorization: true` to getAccount to sign it",
+    cause:
+      "The account's `signAuthorization` was asked for a chain-0 authorization, which any chain accepts.",
+    fix: "Sign for the network's chain, or get the account with `allowChainZeroAuthorization: true` if a chain-0 authorization is intended.",
+  },
+  accountAuthWrongChain: {
+    id: "core.account.auth-wrong-chain",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "the authorization is for chain {requested}, but network {network} is chain {chainId}",
+    cause:
+      "The account's `signAuthorization` was asked for another chain than the one of the connection the account comes from.",
+    fix: "Get the account from a connection to that chain's network, or run `kms sign-auth --chain`.",
+  },
+  accountAuthNoRecovery: {
+    id: "core.account.auth-no-recovery",
+    kind: "error",
+    group: "Library accounts",
+    template: "the authorization does not recover to the account's address",
+    cause:
+      "The account checks the authorization it returns against its address, and the check failed.",
+    fix: "Open an issue at https://github.com/aelmanaa/hardhat-kms/issues with the message and the stack trace.",
+  },
+
   // Internal: only a bug or a broken install reaches these. They are plain `Error`s.
   identifierPartMissing: {
     id: "core.internal.identifier-part",

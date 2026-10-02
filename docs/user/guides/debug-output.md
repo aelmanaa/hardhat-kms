@@ -2,7 +2,7 @@
 
 Audience: users who want to see what the plugin does, for example when a key is slow or fails.
 
-Status: M2 adds `hardhat:kms:config`, `hardhat:kms:providers` and `hardhat:kms:signer`, and the network hook (M4) adds `hardhat:kms:rpc`. The providers and signer namespaces log when a connection first uses a key, to look up its address or to sign.
+Status: M2 adds `hardhat:kms:config`, `hardhat:kms:providers` and `hardhat:kms:signer`, the network hook (M4) adds `hardhat:kms:rpc`, and the library account (1.0) adds `hardhat:kms:account`. The providers and signer namespaces log when a connection first uses a key, to look up its address or to sign.
 
 Set `DEBUG` to turn on the plugin's debug output. It goes to standard error:
 
@@ -20,6 +20,7 @@ DEBUG=hardhat:kms:* npx hardhat run scripts/deploy.ts --network sepolia
 | `hardhat:kms:providers` | Each key whose adapter is being created, and `<display id>: no plugin claimed the key` when no provider plugin handles it, for example because `hardhat-kms-aws` is not in `plugins`. Also `<display id>: creating the adapter failed (<error class>)`.                                                          |
 | `hardhat:kms:signer`    | Each call to a key's adapter with its operation, request id, duration and, on failure, error class name. Also the derived address, retries, and the number of signers closed when the last connection has been idle for 5 s.                                                                                     |
 | `hardhat:kms:rpc`       | Each connection to a network with KMS keys, with the network name and the number of keys; the display ids of the keys once their addresses are resolved; and an `eth_accounts` or `eth_requestAccounts` call that failed downstream, with the error's class name, after which only the KMS addresses are listed. |
+| `hardhat:kms:account`   | Each library account made with `connection.kms.getAccount`, with its address and network, and each transaction or authorization it signs, with its type and chain.                                                                                                                                               |
 
 ## What the output contains
 

@@ -321,3 +321,19 @@ export interface KmsHooks {
 // Provider plugins often import only this module; this brings in the `kms` hook category and
 // the config type extensions.
 export type * from "./type-extensions.ts";
+export type {
+  KmsAccessListEntry,
+  KmsAccount,
+  KmsAccountOptions,
+  KmsAuthorizationListEntry,
+  KmsAuthorizationRequest,
+  KmsHex,
+  KmsNetworkConnection,
+  KmsRawSignAccount,
+  KmsSignableMessage,
+  KmsSignedAuthorization,
+  KmsSignTransactionOptions,
+  KmsTransactionRequest,
+  KmsTransactionSerializer,
+  KmsTypedDataDefinition,
+} from "./internal/viem/types.ts";
