@@ -56,7 +56,8 @@ const OPERATION = "KeySign";
 
 /**
  * Key Vault documents that audit events reach the destination "10 minutes (at most) after the key
- * vault operation".
+ * vault operation". Log Analytics ingestion can add to that: on 2026-10-02, rows took up to about
+ * 9.2 minutes from TimeGenerated to being queryable.
  */
 const DELIVERY_DELAY_MINUTES = 10;
 
@@ -70,7 +71,7 @@ const READ_PERMISSIONS: readonly string[] = [
 ];
 
 const SETUP_HINT =
-  "Check that a diagnostic setting on the vault sends the AuditEvent category to this workspace with the resource-specific destination, that kms.audit.azure.workspaceId names that workspace and not another one a second setting sends to, and that the identity may read the AZKVAuditLogs table: a read without access to a table gets no rows and no error.";
+  "Check that a diagnostic setting on the vault sends the AuditEvent category to this workspace with the resource-specific destination, that kms.audit.azure.workspaceId names that workspace and not another one a second setting sends to, and that the identity may read the AZKVAuditLogs table, since a read limited to other tables may get no rows from it.";
 
 const SCOPE_DESCRIPTION = `${TABLE} in one Log Analytics workspace, every version of the key`;
 
@@ -86,6 +87,20 @@ const KEY_NAME = /^[0-9A-Za-z-]{1,127}$/;
 const KEY_VERSION = /^[0-9A-Za-z]{1,64}$/;
 /** A code from an answer, shown only when it has this shape. */
 const SAFE_CODE = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
+
+/**
+ * The columns the query returns, in this order. The query names the first four directly, since it
+ * filters on them; the others through `column_ifexists`, with these defaults, so that a column a
+ * workspace lacks reads as empty instead of failing the query.
+ */
+const OPTIONAL_DEFAULTS: Readonly<Record<string, string>> = {
+  HttpStatusCode: "int(null)",
+  DurationMs: "int(null)",
+  Identity: "dynamic(null)",
+  IsRbacAuthorized: "bool(null)",
+  IsAccessPolicyMatch: "bool(null)",
+};
+const REQUIRED_COLUMNS: readonly string[] = ["TimeGenerated", "OperationName", "Id", "RequestUri"];
 
 /** The columns the query returns, in this order. */
 export const COLUMNS = [
@@ -122,15 +137,31 @@ export interface KeyTarget {
 }
 
 /**
- * A KQL string literal: double-quoted, with `\` and `"` escaped. The reader only quotes values
- * it has checked against {@link HOST} or {@link KEY_NAME}, which hold neither; the escaping is a
- * second guard.
+ * A KQL obfuscated string literal, `h"…"`, with `\` and `"` escaped. The `h` keeps the value out
+ * of the workspace's query audit log (`LAQueryLogs`). The reader only quotes values it has checked
+ * against {@link HOST} or {@link KEY_NAME}, which hold neither; the escaping is a second guard.
  *
  * @param value - The value.
  * @returns The literal.
  */
 export function kqlString(value: string): string {
-  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  return `h"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+/**
+ * The exclusive end of a range whose inclusive end is `until`: rows carry fractions of a
+ * millisecond, so the read goes up to the next millisecond.
+ */
+function exclusiveEnd(until: Date): Date {
+  return new Date(until.getTime() + 1);
+}
+
+/** One projected column: by name, or through `column_ifexists` with its default. */
+function projected(column: string): string {
+  if (REQUIRED_COLUMNS.includes(column)) {
+    return column;
+  }
+  return `${column} = column_ifexists("${column}", ${OPTIONAL_DEFAULTS[column] ?? '""'})`;
 }
 
 /** A KQL `datetime` literal for an instant. */
@@ -150,19 +181,17 @@ function kqlDatetime(date: Date): string {
  * @returns The query.
  */
 export function signEventsQuery(target: KeyTarget, since: Date, until: Date, take: number): string {
-  // `until` is inclusive and rows carry fractions of a millisecond: read up to the next millisecond.
-  const end = new Date(until.getTime() + 1);
   return [
     TABLE,
-    `| where TimeGenerated >= ${kqlDatetime(since)} and TimeGenerated < ${kqlDatetime(end)}`,
-    `| where OperationName == ${kqlString(OPERATION)}`,
+    `| where TimeGenerated >= ${kqlDatetime(since)} and TimeGenerated < ${kqlDatetime(exclusiveEnd(until))}`,
+    `| where OperationName == "${OPERATION}"`,
     "| extend hkmsUrl = parse_url(iff(isnotempty(Id), Id, RequestUri))",
     '| extend hkmsPath = split(tostring(hkmsUrl.Path), "/")',
     `| where tostring(hkmsUrl.Host) =~ ${kqlString(target.host)}`,
     `| where tostring(hkmsPath[1]) =~ "keys" and tostring(hkmsPath[2]) =~ ${kqlString(target.keyName)}`,
     "| order by TimeGenerated desc",
     `| take ${String(Math.trunc(take))}`,
-    `| project ${COLUMNS.join(", ")}`,
+    `| project ${COLUMNS.map(projected).join(", ")}`,
   ].join("\n");
 }
 
@@ -256,8 +285,10 @@ const IDENTITY_TYPE = ["idtyp"];
  * caller without being shown as the principal.
  *
  * The principal is the user principal name, else the unique name, else, for an application, the
- * application id, else the object id. For a user, the application id names the client
- * application, such as the Azure CLI, not the caller, so it is never the principal.
+ * application id, else the object id. A token is an application's when its `idtyp` claim says
+ * `app`, or when it has no `idtyp` and no `scp` (delegated scopes) claim. For a user, the
+ * application id names the client application, such as the Azure CLI, not the caller, so it is
+ * never the principal.
  */
 function principalOf(identity: unknown): {
   principal: string | null;
@@ -268,11 +299,10 @@ function principalOf(identity: unknown): {
   const objectId = claim(claims, OBJECT_ID);
   const appId = claim(claims, APP_ID);
   const identityType = claim(claims, IDENTITY_TYPE);
+  const application =
+    identityType === "app" || (identityType === null && field(claims, "scp") === undefined);
   const principal =
-    claim(claims, UPN) ??
-    claim(claims, UNIQUE_NAME) ??
-    (identityType === "user" ? null : appId) ??
-    objectId;
+    claim(claims, UPN) ?? claim(claims, UNIQUE_NAME) ?? (application ? appId : null) ?? objectId;
   // A value shown as the principal is not also an id: ids are masked wherever they appear.
   const ids: Record<string, string> = {};
   if (objectId !== null && objectId !== principal) {
@@ -520,10 +550,9 @@ export async function readAzureSignHistory(
   if (!WORKSPACE_ID.test(workspaceId)) {
     throw fail(ERRORS.historyWorkspaceId, {});
   }
-  const end = new Date(request.until.getTime() + 1);
   const body: QueryRequest = {
     query: signEventsQuery(target, request.since, request.until, request.limit + 1),
-    timespan: `${request.since.toISOString()}/${end.toISOString()}`,
+    timespan: `${request.since.toISOString()}/${exclusiveEnd(request.until).toISOString()}`,
   };
 
   signal.throwIfAborted();
@@ -543,8 +572,10 @@ export async function readAzureSignHistory(
   }
 
   const events: KmsHistoryEvent[] = [];
+  let rows = 0;
   try {
     for (const cell of rowsOf(answer.body)) {
+      rows++;
       const event = signEvent(cell);
       const at = Date.parse(event.time);
       if (!Number.isFinite(at)) {
@@ -568,8 +599,15 @@ export async function readAzureSignHistory(
     source: SOURCE,
     notLogged: ["digest"],
     events: events.slice(0, request.limit + 1),
-    ...(events.length > request.limit
-      ? { truncated: true, truncatedReason: "limit" as const }
+    // Truncated by the rows the query returned: `take limit + 1` gave one more than the limit.
+    // `limit` needs at least `limit` events; were rows outside the range left out, the read is
+    // marked as stopped short instead.
+    ...(rows > request.limit
+      ? {
+          truncated: true,
+          truncatedReason:
+            events.length >= request.limit ? ("limit" as const) : ("scan-limit" as const),
+        }
       : { truncated: false }),
     completeForKey: false,
     scope: { description: SCOPE_DESCRIPTION, ids: { workspace: workspaceId } },

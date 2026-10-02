@@ -15,6 +15,7 @@ export interface QueryHttpRequest {
   url: string;
   authorization: string | undefined;
   userAgent: string | undefined;
+  prefer: string | undefined;
   body: unknown;
 }
 
@@ -60,6 +61,7 @@ export function logAnalyticsHttp(): LogAnalyticsHttp {
         url: request.url,
         authorization: request.headers.get("authorization"),
         userAgent: request.headers.get("user-agent"),
+        prefer: request.headers.get("prefer"),
         body: typeof request.body === "string" ? JSON.parse(request.body) : undefined,
       });
       const answer = answers.shift();

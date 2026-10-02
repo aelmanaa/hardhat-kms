@@ -135,6 +135,8 @@ describe("kms history on an Azure key", () => {
     assert.equal(request?.method, "POST");
     assert.equal(request?.url, `https://api.loganalytics.io/v1/workspaces/${WORKSPACE_ID}/query`);
     assert.equal(request?.authorization, "Bearer fake-log-analytics-token");
+    // The server ends a slow query within the 120 seconds the task waits.
+    assert.equal(request?.prefer, "wait=100");
     assert.deepEqual(endpoint.scopes, [LOG_ANALYTICS_SCOPE]);
     assert.ok(
       String(request?.userAgent).startsWith(`hardhat-kms/${ownVersion} `),
@@ -142,8 +144,8 @@ describe("kms history on an Azure key", () => {
     );
     const query = String(Reflect.get(Object(request?.body), "query"));
     assert.match(query, /^AZKVAuditLogs\n/);
-    assert.match(query, new RegExp(`=~ "${VAULT_HOST.replaceAll(".", "\\.")}"`));
-    assert.match(query, new RegExp(`=~ "${KEY_NAME}"`));
+    assert.match(query, new RegExp(`=~ h"${VAULT_HOST.replaceAll(".", "\\.")}"`));
+    assert.match(query, new RegExp(`=~ h"${KEY_NAME}"`));
     // The configured version is pinned, but the history covers every version.
     assert.doesNotMatch(query, new RegExp(VERSION_1));
 

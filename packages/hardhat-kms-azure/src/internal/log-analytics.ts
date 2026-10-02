@@ -25,6 +25,9 @@ export const LOG_ANALYTICS_SCOPE = "https://api.loganalytics.io/.default";
  */
 const MAX_RETRIES = 2;
 
+/** How long Log Analytics may run the query, in seconds. Live, it answers `preference-applied`. */
+const SERVER_WAIT_SECONDS = 100;
+
 /** Builds the query call; tests pass an `httpClient` that answers in process. */
 export interface LogAnalyticsOptions {
   httpClient?: HttpClient;
@@ -59,6 +62,8 @@ export function logAnalyticsQuery(
         headers: createHttpHeaders({
           "Content-Type": "application/json",
           Accept: "application/json",
+          // Ends a slow query on the server within the 120 seconds `kms history` waits.
+          Prefer: `wait=${SERVER_WAIT_SECONDS}`,
         }),
         body: JSON.stringify(query),
         abortSignal: signal,

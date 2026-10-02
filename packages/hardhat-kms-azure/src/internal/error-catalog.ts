@@ -253,10 +253,9 @@ export const ERRORS = {
     id: "azure.history.managed-hsm",
     kind: "error",
     group: "History",
-    template:
-      "`kms history` does not read Managed HSM keys yet: Managed HSM sends its audit log to another table than AZKVAuditLogs",
+    template: "`kms history` does not support Managed HSM keys yet",
     cause:
-      "The reader queries the `AZKVAuditLogs` table, which holds Key Vault audit events only. Managed HSM logs go elsewhere, and the plugin does not read them yet.",
+      "The reader queries the `AZKVAuditLogs` table of Key Vault audit events. Reading the audit log of a Managed HSM is not supported yet.",
     fix: "Read the Managed HSM audit log in the Azure portal or with `az monitor log-analytics query`, or open an issue asking for Managed HSM support.",
   },
   historySovereignCloud: {
@@ -274,10 +273,10 @@ export const ERRORS = {
     kind: "error",
     group: "History",
     template:
-      'the Log Analytics workspace has no AZKVAuditLogs table, so no diagnostic setting sends Key Vault audit events to it in resource-specific mode. Add one, as the Azure setup guide\'s "Audit logs" section describes',
+      'the Log Analytics workspace has no AZKVAuditLogs table that this identity may read: no diagnostic setting sends Key Vault audit events to it in resource-specific mode, or the identity may not be allowed to read this table. See the Azure setup guide\'s "Audit logs" section',
     cause:
-      "The `AZKVAuditLogs` table appears once a vault's diagnostic setting sends the `AuditEvent` category to the workspace with the resource-specific destination. A setting in the older Azure diagnostics mode writes to `AzureDiagnostics`, which the plugin does not read, and a setting that sends to a storage account or an event hub writes nothing here.",
-    fix: "Create the diagnostic setting with `--export-to-resource-specific true`, or check that `kms.audit.azure.workspaceId` names the workspace it sends to.",
+      "The `AZKVAuditLogs` table appears once a vault's diagnostic setting sends the `AuditEvent` category to the workspace with the resource-specific destination. A setting in the older Azure diagnostics mode writes to `AzureDiagnostics`, which the plugin does not read, and a setting that sends to a storage account or an event hub writes nothing here. An identity whose access is limited to other tables of the workspace may also be unable to resolve this one.",
+    fix: "Create the diagnostic setting with `--export-to-resource-specific true`, check that `kms.audit.azure.workspaceId` names the workspace it sends to, or give the identity read access to the `AZKVAuditLogs` table, such as the Log Analytics Data Reader role on the workspace.",
   },
   historyWorkspaceNotFound: {
     id: "azure.history.workspace-not-found",

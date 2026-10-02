@@ -142,9 +142,9 @@ function blank(text: string): string {
   return text.replaceAll(/"(?:[^"\\]|\\.)*"/g, '""');
 }
 
-/** Every double-quoted string literal of a KQL query, with its escapes undone. */
-function literals(query: string): string[] {
-  return [...query.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(([, body = ""]) =>
+/** Every obfuscated `h"…"` string literal of a KQL query, with its escapes undone. */
+function hidden(query: string): string[] {
+  return [...query.matchAll(/\bh"((?:[^"\\]|\\.)*)"/g)].map(([, body = ""]) =>
     body.replaceAll(/\\(.)/g, "$1"),
   );
 }
@@ -243,6 +243,22 @@ describe("the Azure history reader", () => {
       });
     });
 
+    it("tells an application's token from a user's by idtyp, else by the scp claim", async () => {
+      const cases: Array<[Record<string, unknown>, string]> = [
+        // A delegated token without idtyp: a user, so not the client application's id.
+        [{ oid: USER_OBJECT_ID, appid: CLI_APP_ID, scp: "user_impersonation" }, USER_OBJECT_ID],
+        // No idtyp and no scp: an application.
+        [{ oid: SP_OBJECT_ID, appid: SP_APP_ID }, SP_APP_ID],
+        [{ oid: SP_OBJECT_ID, appid: SP_APP_ID, idtyp: "app", scp: "x" }, SP_APP_ID],
+        [{ oid: USER_OBJECT_ID, appid: CLI_APP_ID, idtyp: "user" }, USER_OBJECT_ID],
+      ];
+      for (const [claims, principal] of cases) {
+        const Identity = JSON.stringify({ claim: claims });
+        const { result } = await read([ok([{ ...PLUGIN_SIGN, Identity }])]);
+        assert.equal(result.events[0]?.principal, principal, JSON.stringify(claims));
+      }
+    });
+
     it("leaves the principal empty when the identity is missing or not JSON", async () => {
       for (const Identity of [null, "", "{not json", "[]"]) {
         const { result } = await read([ok([{ ...PLUGIN_SIGN, Identity }])]);
@@ -328,6 +344,20 @@ describe("the Azure history reader", () => {
       assert.equal(result.truncatedReason, "limit");
     });
 
+    it("counts the rows the query returned, not the rows left in the range", async () => {
+      const outside = { ...PLUGIN_SIGN, TimeGenerated: "2026-09-01T00:00:00Z" };
+      const { result } = await read([ok([PLUGIN_SIGN, outside])], { request: { limit: 1 } });
+      assert.equal(result.events.length, 1);
+      assert.equal(result.truncated, true);
+      assert.equal(result.truncatedReason, "limit");
+      // Fewer than limit events left: the read is marked as stopped short, which the core takes.
+      const { result: short } = await read([ok([PLUGIN_SIGN, outside, outside])], {
+        request: { limit: 2 },
+      });
+      assert.equal(short.events.length, 1);
+      assert.equal(short.truncatedReason, "scan-limit");
+    });
+
     it("is not truncated when the rows fit the limit", async () => {
       const { result } = await read([ok([FAILED_SIGN, PLUGIN_SIGN])], { request: { limit: 2 } });
       assert.equal(result.truncated, false);
@@ -351,11 +381,30 @@ describe("the Azure history reader", () => {
           '| where OperationName == "KeySign"',
           "| extend hkmsUrl = parse_url(iff(isnotempty(Id), Id, RequestUri))",
           '| extend hkmsPath = split(tostring(hkmsUrl.Path), "/")',
-          '| where tostring(hkmsUrl.Host) =~ "example-vault.vault.azure.net"',
-          '| where tostring(hkmsPath[1]) =~ "keys" and tostring(hkmsPath[2]) =~ "Deployer"',
+          '| where tostring(hkmsUrl.Host) =~ h"example-vault.vault.azure.net"',
+          '| where tostring(hkmsPath[1]) =~ "keys" and tostring(hkmsPath[2]) =~ h"Deployer"',
           "| order by TimeGenerated desc",
           "| take 101",
-          "| project TimeGenerated, OperationName, ResultType, ResultSignature, ResultDescription, HttpStatusCode, CorrelationId, CallerIpAddress, ClientInfo, Identity, Id, RequestUri, Algorithm, DurationMs, OperationVersion, IsRbacAuthorized, IsAccessPolicyMatch, AppliedAssignmentId, Tlsversion, SubnetId",
+          [
+            "| project TimeGenerated, OperationName",
+            'ResultType = column_ifexists("ResultType", "")',
+            'ResultSignature = column_ifexists("ResultSignature", "")',
+            'ResultDescription = column_ifexists("ResultDescription", "")',
+            'HttpStatusCode = column_ifexists("HttpStatusCode", int(null))',
+            'CorrelationId = column_ifexists("CorrelationId", "")',
+            'CallerIpAddress = column_ifexists("CallerIpAddress", "")',
+            'ClientInfo = column_ifexists("ClientInfo", "")',
+            'Identity = column_ifexists("Identity", dynamic(null))',
+            "Id, RequestUri",
+            'Algorithm = column_ifexists("Algorithm", "")',
+            'DurationMs = column_ifexists("DurationMs", int(null))',
+            'OperationVersion = column_ifexists("OperationVersion", "")',
+            'IsRbacAuthorized = column_ifexists("IsRbacAuthorized", bool(null))',
+            'IsAccessPolicyMatch = column_ifexists("IsAccessPolicyMatch", bool(null))',
+            'AppliedAssignmentId = column_ifexists("AppliedAssignmentId", "")',
+            'Tlsversion = column_ifexists("Tlsversion", "")',
+            'SubnetId = column_ifexists("SubnetId", "")',
+          ].join(", "),
         ].join("\n"),
       );
       // A pinned version still reads every version of the key.
@@ -363,8 +412,8 @@ describe("the Azure history reader", () => {
     });
 
     it("escapes quotes and backslashes in a KQL string", () => {
-      assert.equal(kqlString('a"b\\c'), String.raw`"a\"b\\c"`);
-      assert.deepEqual(literals(`x == ${kqlString('a"b\\c')}`), ['a"b\\c']);
+      assert.equal(kqlString('a"b\\c'), String.raw`h"a\"b\\c"`);
+      assert.deepEqual(hidden(`x == ${kqlString('a"b\\c')}`), ['a"b\\c']);
     });
 
     it("cannot be changed by a hostile key id: each is refused before any query", async () => {
@@ -409,11 +458,7 @@ describe("the Azure history reader", () => {
         const query = calls[0]?.request.query ?? "";
         const target = keyTarget(keyId);
         assert.ok(typeof target === "object", keyId);
-        assert.deepEqual(
-          literals(query),
-          ["KeySign", "/", target.host, "keys", target.keyName],
-          keyId,
-        );
+        assert.deepEqual(hidden(query), [target.host, target.keyName], keyId);
         for (const value of [target.host, target.keyName]) {
           assert.match(value, /^[A-Za-z0-9.-]+$/, keyId);
         }
@@ -457,7 +502,7 @@ describe("the Azure history reader", () => {
       const { error, calls } = await readError([ok([])], {
         key: azureKey("https://my-hsm.managedhsm.azure.net/keys/k"),
       });
-      assert.match(error.message, /does not read Managed HSM keys yet/);
+      assert.match(error.message, /does not support Managed HSM keys yet/);
       assert.equal(calls.length, 0);
     });
 
