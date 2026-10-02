@@ -4,11 +4,24 @@ name: Mutation testing
 # (docs/contributor/testing.md, layer 8). Not a required check and no pull_request trigger: a full
 # run takes far longer than the rest of CI.
 #
-# - Nightly: skipped before install when the core's src/ and test/, the Stryker config and the
-#   lockfile are unchanged since the last finished run; otherwise an incremental run that re-tests
-#   only the mutants in changed files and the mutants covered by changed tests.
-# - Monthly, and on dispatch with `force`: a full run, which also catches what incremental mode
-#   cannot see (dependency changes).
+# - Nightly: skipped before install when the last run on the same inputs passed; otherwise an
+#   incremental run that re-tests only the mutants in changed mutated files and the mutants covered
+#   by changed tests.
+# - Monthly, and on dispatch with `force`: a full run. Incremental mode does not see changes outside
+#   the mutated and test files, such as dependency updates or unmutated source the mutated code
+#   imports (errors.ts, error-catalog.ts, rpc/), so their effect shows only in a full run.
+#
+# Cache design. Cache entries cannot be overwritten, so every run that reaches Stryker saves its
+# incremental file under a new key:
+#   stryker-<os>-<hash of the inputs>-<run id>-<attempt>-<pass|fail>
+# The inputs are the core's src/ and test/, the Stryker config, the lockfile and this file.
+# - Skip: a lookup with the prefix stryker-<os>-<hash>- returns the newest entry for these inputs.
+#   The run is skipped only when that entry ends in -pass. After a failed run (a score below
+#   `break`, including a full run), the next night runs again and fails again until fixed.
+# - Restore: the newest entry for these inputs, else the newest entry of any inputs. Incremental
+#   results are valid whether that run passed or failed.
+# - Save: whenever Stryker ran, full runs included, so a full run replaces stale incremental results.
+#   Stryker writes the incremental file also when the score is below `break`.
 on:
   schedule:
     # To run weekly instead, change the nightly line to "17 3 * * 1". Caches unused for 7 days are
@@ -40,28 +53,30 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The key names everything that can change a result. An exact hit means the last finished run
-      # saw the same code, tests, config and lockfile.
-      - name: Cache key
+      - name: Cache key prefix
         id: key
         env:
-          HASH: ${{ hashFiles('packages/hardhat-kms/src/**', 'packages/hardhat-kms/test/**', 'packages/hardhat-kms/stryker.config.json', 'pnpm-lock.yaml') }}
-        run: echo "key=stryker-${RUNNER_OS}-${HASH}" >> "$GITHUB_OUTPUT"
-      - name: Look for a run of the same code
+          HASH: ${{ hashFiles('packages/hardhat-kms/src/**', 'packages/hardhat-kms/test/**', 'packages/hardhat-kms/stryker.config.json', 'pnpm-lock.yaml', '.github/workflows/mutation.yml') }}
+        run: echo "prefix=stryker-${RUNNER_OS}-${HASH}-" >> "$GITHUB_OUTPUT"
+      # The primary key never matches; restore-keys returns the newest entry for these inputs.
+      - name: Look for the last run on the same inputs
         id: seen
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/hardhat-kms/reports/stryker-incremental.json
-          key: ${{ steps.key.outputs.key }}
+          key: ${{ steps.key.outputs.prefix }}lookup
+          restore-keys: ${{ steps.key.outputs.prefix }}
           lookup-only: true
-      - name: Skip, nothing changed
-        if: steps.seen.outputs.cache-hit == 'true' && env.FULL_RUN != 'true'
-        run: |
-          echo "No change to the core's code, tests, Stryker config or lockfile since the last finished run; skipped." >> "$GITHUB_STEP_SUMMARY"
-      - name: Set whether to run
+      - name: Decide whether to run
         id: run
-        if: steps.seen.outputs.cache-hit != 'true' || env.FULL_RUN == 'true'
-        run: echo "go=true" >> "$GITHUB_OUTPUT"
+        env:
+          MATCHED: ${{ steps.seen.outputs.cache-matched-key }}
+        run: |
+          if [ "$FULL_RUN" != "true" ] && [ -n "$MATCHED" ] && [ "${MATCHED%-pass}" != "$MATCHED" ]; then
+            echo "The last run on the same code, tests, Stryker config, lockfile and workflow passed; skipped." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - if: steps.run.outputs.go == 'true'
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -72,14 +87,16 @@ jobs:
           cache: pnpm
       - if: steps.run.outputs.go == 'true'
         run: pnpm install --frozen-lockfile --ignore-scripts
-      # The newest incremental file from an earlier run. A full run does not need it.
+      # The newest incremental file from an earlier run. A full run (--force) does not read it.
       - name: Restore the incremental file
         if: steps.run.outputs.go == 'true' && env.FULL_RUN != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/hardhat-kms/reports/stryker-incremental.json
-          key: ${{ steps.key.outputs.key }}
-          restore-keys: stryker-${{ runner.os }}-
+          key: ${{ steps.key.outputs.prefix }}lookup
+          restore-keys: |
+            ${{ steps.key.outputs.prefix }}
+            stryker-${{ runner.os }}-
       - name: Stryker
         id: stryker
         if: steps.run.outputs.go == 'true'
@@ -88,7 +105,9 @@ jobs:
         run: |
           set -o pipefail
           if [ "$FULL_RUN" = "true" ]; then mode=--force; else mode=--incremental; fi
-          pnpm exec stryker run "$mode" --reporters clear-text,html,json 2>&1 | tee "$RUNNER_TEMP/stryker.log"
+          # 2 workers on the 2-vCPU runner, set explicitly: timeouts count as caught, and more workers
+          # than cores turn survivors into timeouts, so the score depends on the worker count.
+          pnpm exec stryker run "$mode" --concurrency 2 --reporters clear-text,html,json 2>&1 | tee "$RUNNER_TEMP/stryker.log"
       # Stryker's clear-text table: per-file score, killed, timeout, survived, no coverage, errors.
       - name: Score table
         if: always() && steps.stryker.outcome != 'skipped'
@@ -111,10 +130,17 @@ jobs:
           path: packages/hardhat-kms/reports/mutation/
           retention-days: 14
           if-no-files-found: ignore
-      # Saved only when Stryker passed, so a run below the break threshold is tried again the next night.
+      # Saved after every run that reached Stryker, under a new key that records pass or fail.
+      - name: Name the saved entry
+        id: save
+        if: always() && (steps.stryker.outcome == 'success' || steps.stryker.outcome == 'failure')
+        env:
+          PREFIX: ${{ steps.key.outputs.prefix }}
+          RESULT: ${{ steps.stryker.outcome == 'success' && 'pass' || 'fail' }}
+        run: echo "key=${PREFIX}${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RESULT}" >> "$GITHUB_OUTPUT"
       - name: Save the incremental file
-        if: steps.stryker.outcome == 'success' && steps.seen.outputs.cache-hit != 'true'
+        if: always() && steps.save.outcome == 'success' && hashFiles('packages/hardhat-kms/reports/stryker-incremental.json') != ''
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/hardhat-kms/reports/stryker-incremental.json
-          key: ${{ steps.key.outputs.key }}
+          key: ${{ steps.save.outputs.key }}

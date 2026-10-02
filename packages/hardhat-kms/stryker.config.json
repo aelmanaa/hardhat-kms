@@ -2,8 +2,8 @@
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "packageManager": "pnpm",
   "testRunner": "tap",
-  "plugins_comment": "Stryker looks for @stryker-mutator/* plugins next to its own install. pnpm installs the tap runner elsewhere, so the plugin is named by path.",
-  "plugins": ["./node_modules/@stryker-mutator/tap-runner/dist/src/index.js"],
+  "plugins_comment": "Stryker's default plugin glob only searches the folder next to its own install, where pnpm does not put the tap runner. Named explicitly, the runner is imported by package name and resolves through pnpm's hidden hoist (node_modules/.pnpm/node_modules).",
+  "plugins": ["@stryker-mutator/tap-runner"],
   "tap_comment": "Every core unit test but error-types.test.ts, which runs tsc on a fixture through paths outside the package that do not exist in Stryker's sandbox, and runs no code from crypto/ or signer/.",
   "tap": {
     "testFiles": ["test/unit/**/!(error-types).test.ts"]
