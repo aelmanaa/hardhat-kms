@@ -111,6 +111,50 @@ describe("hiddenSet and masker", () => {
   });
 });
 
+describe("short ids", () => {
+  const PROJECT = "my-prj";
+
+  it("masks an id of 6 or 7 characters as a whole word, in any case", () => {
+    const mask = maskKeys([], [PROJECT, "prj-123"]);
+    assert.equal(mask("project my-prj"), "project <hidden>");
+    assert.equal(mask("MY-PRJ, then prj-123."), "<hidden>, then <hidden>.");
+    assert.equal(mask("sa@my-prj.iam.gserviceaccount.com"), "sa@<hidden>.iam.gserviceaccount.com");
+    assert.equal(mask("projects/my-prj/locations/global"), "projects/<hidden>/locations/global");
+    assert.deepEqual(
+      hiddenSet({ keys: [], others: [PROJECT, "abcde"] }).map((entry) => entry.value),
+      [PROJECT],
+    );
+  });
+
+  it("never masks a short id inside a longer run of letters, digits, _ or -", () => {
+    const mask = maskKeys([], [PROJECT, "signer"]);
+    assert.equal(
+      mask("my-prj2 xmy-prj my-prj-sa my_prj_x amy-prj_"),
+      "my-prj2 xmy-prj my-prj-sa my_prj_x amy-prj_",
+    );
+    assert.equal(
+      mask("signers co-signer signer_1 cosigner"),
+      "signers co-signer signer_1 cosigner",
+    );
+    // A project named like a common word is masked where the word stands alone.
+    assert.equal(mask("the signer signed"), "the <hidden> signed");
+  });
+
+  it("masks the URL-encoded and \\/-escaped forms of a short id", () => {
+    const mask = maskKeys([], ["a/b.cd", PROJECT]);
+    assert.equal(mask("?p=a%2Fb.cd&x=1"), "?p=<hidden>&x=1");
+    assert.equal(mask('"a\\/b.cd"'), '"<hidden>"');
+    assert.equal(mask("a/b.cd"), "<hidden>");
+    // A %XX escape before a short id is a word boundary.
+    assert.equal(mask("projects%2Fmy-prj%2FkeyRings"), "projects%2F<hidden>%2FkeyRings");
+    assert.equal(mask("projects%2fMY-PRJ"), "projects%2f<hidden>");
+  });
+
+  it("still masks a long id inside a longer word", () => {
+    assert.equal(maskKeys([], ["secret-project"])("xsecret-projecty"), "x<hidden>y");
+  });
+});
+
 describe("errorMasker", () => {
   const mask = errorMasker(
     hiddenSet({ keys: ["alias/deployer-key"], others: [] }),
