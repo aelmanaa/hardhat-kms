@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - examples/*
+  - tools/*
 
 # The examples ask for hardhat-kms and hardhat-kms-aws by version range, as a project that
 # installs them from npm does. This links them to the workspace packages instead.
@@ -46,5 +47,13 @@ catalog:
   "oxlint-tsgolint": "7.0.2003"
   "publint": "0.3.24"
   "tsx": "4.23.15"
+  "typedoc": "0.28.20"
+  "typedoc-plugin-markdown": "4.13.1"
   "typescript": "7.0.2"
   "viem": "^2.57.1"
+
+# TypeDoc does not run on TypeScript 7 yet (TypeStrong/typedoc#3098), so tools/api-docs gets
+# TypeScript 6 under the name `typescript` (decision 0012). Nothing else may use this catalog.
+catalogs:
+  typescript6:
+    typescript: "npm:@typescript/typescript6@6.0.2"

@@ -4,6 +4,8 @@
 // - every page under docs/ is linked from AGENTS.md and docs/README.md, and every decision record
 //   from the decision index, with the exceptions listed in checkIndexes;
 // - docs/user/reference/errors.md matches the error catalogues (scripts/generate-errors-doc.ts);
+// - docs/user/reference/api/ matches what TypeDoc generates from the built packages
+//   (scripts/generate-api-docs.ts); its pages are skipped by the snippet typecheck;
 // - first-party source builds its errors only through the catalogue helpers (checkErrorSites).
 // lychee checks the links themselves (see lychee.toml).
 //
@@ -18,6 +20,7 @@ import { fileURLToPath } from "node:url";
 
 import { parseSync } from "oxc-parser";
 
+import { API_DOCS_COMMAND, API_DOCS_DIR, diffApiDocs, renderApiDocs } from "./generate-api-docs.ts";
 import {
   CATALOGUED_PACKAGES,
   ERRORS_DOC,
@@ -190,8 +193,17 @@ function checkIndexes(pages: string[]): string[] {
   const docsIndex = linkTargets("docs/README.md");
   const decisionsIndex = linkTargets("docs/contributor/decisions/README.md");
   const problems: string[] = [];
+  const apiIndex = `${API_DOCS_DIR}/README.md`;
+  const apiLinks = existsSync(path.join(root, apiIndex)) ? linkTargets(apiIndex) : new Set();
   for (const page of pages) {
     if (page === "docs/README.md" || page === "docs/contributor/decisions/template.md") {
+      continue;
+    }
+    // The generated API pages are linked from their own index, which the two indexes link.
+    if (page.startsWith(`${API_DOCS_DIR}/`) && page !== apiIndex) {
+      if (!apiLinks.has(page)) {
+        problems.push(`${apiIndex} does not link ${page}`);
+      }
       continue;
     }
     if (!agents.has(page)) {
@@ -225,6 +237,16 @@ async function checkErrorsDoc(): Promise<string[]> {
   return actual === expected
     ? []
     : [`${ERRORS_DOC} is out of date with the error catalogues. Run \`${ERRORS_DOC_COMMAND}\`.`];
+}
+
+/** Fails when the API pages differ from what TypeDoc generates. */
+function checkApiDocs(): string[] {
+  try {
+    const problems = diffApiDocs(renderApiDocs());
+    return problems.length === 0 ? [] : [...problems, `Run \`${API_DOCS_COMMAND}\`.`];
+  } catch (error) {
+    return [error instanceof Error ? error.message : String(error)];
+  }
 }
 
 /** The one file that may build errors without a catalogue entry: the helpers themselves. */
@@ -409,8 +431,14 @@ function checkErrorSites(): string[] {
 const pages = markdownFiles("docs");
 const problems = [
   ...checkIndexes(pages),
-  ...checkSnippets(["README.md", ...packageReadmes(), ...pages]),
+  // The API pages' code blocks are signatures and examples from TSDoc, not programs.
+  ...checkSnippets([
+    "README.md",
+    ...packageReadmes(),
+    ...pages.filter((page) => !page.startsWith(`${API_DOCS_DIR}/`)),
+  ]),
   ...(await checkErrorsDoc()),
+  ...checkApiDocs(),
   ...checkErrorSites(),
 ];
 if (problems.length > 0) {
@@ -418,5 +446,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 process.stdout.write(
-  `docs check passed: ${pages.length} pages indexed, snippets typecheck, ${ERRORS_DOC} is current, every error comes from a catalogue\n`,
+  `docs check passed: ${pages.length} pages indexed, snippets typecheck, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue\n`,
 );

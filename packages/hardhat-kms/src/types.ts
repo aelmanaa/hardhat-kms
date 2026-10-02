@@ -2,6 +2,8 @@
  * Public types of hardhat-kms: the `kms` config section, key configs and their resolved forms.
  *
  * Third-party providers add their key config type by augmenting {@link KmsProviderUserConfigs}.
+ *
+ * @module hardhat-kms/types
  */
 
 import type { ConfigurationVariable } from "hardhat/types/config";

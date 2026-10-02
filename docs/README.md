@@ -20,6 +20,7 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 | [RPC methods](user/reference/rpc-methods.md)                          | Reference   |
 | [Tasks](user/reference/tasks.md)                                      | Reference   |
 | [Errors](user/reference/errors.md)                                    | Reference   |
+| [API reference](user/reference/api/README.md)                         | Reference   |
 | [Set up an AWS KMS key](user/guides/aws-kms-setup.md)                 | How-to      |
 | [Set up an Azure Key Vault key](user/guides/azure-key-vault-setup.md) | How-to      |
 | [Set up a Google Cloud KMS key](user/guides/gcp-kms-setup.md)         | How-to      |
@@ -33,7 +34,7 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 | [How hardhat-kms works](user/explanation/how-it-works.md)             | Explanation |
 | [Security model](user/explanation/security-model.md)                  | Explanation |
 
-Runnable projects for viem, ethers and Ignition are in [examples/](../examples/README.md). The remaining tutorials and guides are listed under [Planned pages](contributor/documentation.md#planned-pages).
+Runnable projects for viem, ethers and Ignition are in [examples/](../examples/README.md). The remaining guides are listed under [Planned pages](contributor/documentation.md#planned-pages).
 
 ## Contributing
 

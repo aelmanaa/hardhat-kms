@@ -15,6 +15,7 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 - Which JSON-RPC methods are handled, and which transaction types: [docs/user/reference/rpc-methods.md](docs/user/reference/rpc-methods.md)
 - The `kms` tasks (list accounts, sign, verify): [docs/user/reference/tasks.md](docs/user/reference/tasks.md)
 - What an error message means and how to fix it, by message text or id: [docs/user/reference/errors.md](docs/user/reference/errors.md)
+- The TypeScript API of `hardhat-kms`, `hardhat-kms/types` and `hardhat-kms/provider-utils`, generated from TSDoc: [docs/user/reference/api/README.md](docs/user/reference/api/README.md)
 - Set up an AWS KMS key (key spec, IAM policy, the `hardhat-kms-aws` package, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
 - Set up an Azure Key Vault key (key type and curve, RBAC role or access policy, credential order, the `hardhat-kms-azure` package): [docs/user/guides/azure-key-vault-setup.md](docs/user/guides/azure-key-vault-setup.md)
 - Set up a Google Cloud KMS key (algorithm, HSM protection level, IAM roles, the `hardhat-kms-gcp` package, config, errors): [docs/user/guides/gcp-kms-setup.md](docs/user/guides/gcp-kms-setup.md)
@@ -27,7 +28,7 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - How a request goes from viem or ethers through the plugin to the KMS and the node: [docs/user/explanation/how-it-works.md](docs/user/explanation/how-it-works.md)
 - What the plugin protects against and what it does not, what to configure, and what happens when a KMS call times out: [docs/user/explanation/security-model.md](docs/user/explanation/security-model.md)
-- Pages not written yet (the remaining tutorials and guides, the public API): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
+- Pages not written yet (the remaining guides, a docs site): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
 
 Never ask a user to paste credentials, private keys or API-keyed RPC URLs. Credentials come from each provider SDK's default chain, never from the Hardhat config. API-keyed RPC URLs belong in `configVariable()`, which also accepts key identifiers.
 
@@ -51,8 +52,9 @@ pnpm run test:live              # deploys, sends and signs with each configured 
 pnpm run test:live:aws          # AWS adapter against real KMS (needs HARDHAT_KMS_LIVE_AWS_KEY_ID)
 pnpm run coverage               # tests with the 95% coverage threshold
 pnpm run pkg:check              # build, publint, arethetypeswrong, knip
-pnpm run docs:check             # doc snippets typecheck, every page is indexed, errors.md is current
+pnpm run docs:check             # doc snippets typecheck, every page is indexed, generated pages are current
 pnpm run docs:errors            # regenerate docs/user/reference/errors.md from the error catalogues
+pnpm run docs:api               # build, then regenerate docs/user/reference/api/ from TSDoc
 ```
 
 Where things are:
@@ -61,6 +63,7 @@ Where things are:
 - `packages/hardhat-kms-aws`: the AWS KMS provider plugin, which depends on `@aws-sdk/client-kms`.
 - `packages/hardhat-kms-azure`: the Azure Key Vault provider plugin, which depends on `@azure/keyvault-keys` and `@azure/identity`.
 - `packages/hardhat-kms-gcp`: the Google Cloud KMS provider plugin, which depends on `@google-cloud/kms`.
+- `tools/api-docs`: a private package, never published, that runs TypeDoc on TypeScript 6 for the API reference ([decision 0012](docs/contributor/decisions/0012-api-reference-generator.md)).
 - `examples/`: Hardhat projects that deploy and call a contract from a KMS account with viem, ethers and Ignition. They are workspace members, and `pnpm run test:examples` runs them against LocalStack.
 
 | Topic                                                | Page                                                                                             |
@@ -102,5 +105,6 @@ Rules for every change:
 - Do not edit `packages/hardhat-kms/src/internal/vendor/`. It is micro-eth-signer 0.19.0 code with only import paths changed; see [decision 0001](docs/contributor/decisions/0001-vendor-eip712-encoder.md).
 - Before changing code that decides what gets signed (`packages/hardhat-kms/src/internal/crypto/`, `packages/hardhat-kms/src/internal/signer/`), read [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md).
 - Never print or commit secrets, key ids from real accounts, or API-keyed RPC URLs, including in tests, logs and error messages.
+- After changing a TSDoc comment or a public type of `hardhat-kms`, run `pnpm run docs:api`.
 - Build every error from a catalogue entry (`src/internal/error-catalog.ts`) with `catalogError`, `catalogMessage` or `internalError`, then run `pnpm run docs:errors`. See [Errors](docs/contributor/architecture.md#errors).
 - Do not silence the type checker or the linter in shipped code: no `any`, no `@ts-` directives, no casts to get past a type. Use a type guard, an assertion function with real checks, narrowing on a discriminant, or a parse function that returns the checked type. `pnpm run check` runs `scripts/check-type-escapes.ts`, which fails on any escape, type predicate or assertion function not listed with its count and reason in `scripts/type-escapes.json`.

@@ -1,0 +1,25 @@
+// TypeDoc options for the API reference in docs/user/reference/api/. Run `pnpm run docs:api`:
+// scripts/generate-api-docs.ts passes the entry points (the built `.d.ts` file of each export of
+// hardhat-kms) and the output directory.
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "tsconfig": "./tsconfig.json",
+  "plugin": ["typedoc-plugin-markdown"],
+  "outputFileStrategy": "modules",
+  "readme": "none",
+  "hideBreadcrumbs": true,
+  "hidePageHeader": true,
+  // "Defined in" links would print build and node_modules paths.
+  "disableSources": true,
+  "treatWarningsAsErrors": true,
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "expandObjects": true,
+  "expandParameters": true,
+  "parametersFormat": "table",
+  "sanitizeComments": true,
+  // TemplateParams reads a template's placeholder names through this recursive helper, which
+  // cannot be inlined. It stays internal; TypeDoc warns when an entry here is no longer used.
+  "intentionallyNotExported": ["hardhat-kms/src/internal/errors.ts:PlaceholderName"],
+}
