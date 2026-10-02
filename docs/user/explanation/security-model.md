@@ -101,7 +101,7 @@ Any of these requests can reach the KMS and produce a signature the plugin never
 
 Each cloud provider records sign requests in its own audit log, whoever makes them. [`kms history`](../reference/tasks.md#kms-history) reads that log for one key. It shows only what the log holds: the plugin keeps no record of its own signatures, and it fills in nothing. So the history can show who signed with a key, when, from where and with which tool, including signatures made outside the plugin. It cannot show what was signed: no provider logs the message, the typed data, the transaction or the signature. Google Cloud logs the digest; AWS and Azure do not.
 
-What each provider records for a sign request, from the providers' documentation on 2026-10-02. The Google Cloud column was also checked against real log entries on 2026-10-02. The readers are in progress ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)), and a live test will check the entries marked with an asterisk.
+What each provider records for a sign request, from the providers' documentation on 2026-10-02. The Google Cloud and AWS columns were also checked against real log entries on 2026-10-02; on AWS, `requestID` is the `$metadata.requestId` the SDK returns. The readers are in progress ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)), and a live test will check the entries marked with an asterisk.
 
 | Field           | AWS KMS (CloudTrail `Sign`)        | Google Cloud KMS (`AsymmetricSign`)                             | Azure Key Vault (`KeySign` in `AZKVAuditLogs`)    |
 | --------------- | ---------------------------------- | --------------------------------------------------------------- | ------------------------------------------------- |
@@ -126,7 +126,7 @@ What this means for you:
 - **The user agent is a claim.** The plugin's requests can carry a `hardhat-kms/<version>` user agent, but any client can send the same string.
 - **Retries show up.** One signature can appear as several log entries for the same digest; see [How many sign requests one call can send](#how-many-sign-requests-one-call-can-send).
 - **The output is sensitive.** It holds principals, IP addresses and user agents. Key ids, provider id fields and error messages are masked unless you pass `--show-ids`. Principals are not masked, so an AWS principal ARN shows its account id. The one exception: a value the plugin hides everywhere, such as a Google Cloud project id from a configuration variable, is hidden inside a principal's email too. That is accepted, since the variable exists to keep the project out of the output.
-- **Reading signs nothing.** The task holds no key material and makes no signing call. On AWS, finding the key ARN of an alias may need one `GetPublicKey` call, which CloudTrail logs.
+- **Reading signs nothing.** The task holds no key material and makes no signing call. On AWS, finding the key ARN of an alias or a bare key id needs one `GetPublicKey` call, which CloudTrail logs.
 
 ## Read next
 

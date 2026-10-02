@@ -16,6 +16,22 @@ function sdkModules(urls: string[]): string[] {
   return urls.filter((url) => sdkPackages.some((name) => url.includes(`/node_modules/${name}`)));
 }
 
+/** The SDKs only kms history uses. */
+function logSdk(url: string): boolean {
+  return ["client-cloudtrail", "client-sts"].some((name) =>
+    url.includes(`/node_modules/@aws-sdk/${name}/`),
+  );
+}
+
+const OFFLINE: Record<string, string> = {
+  AWS_ACCESS_KEY_ID: "test",
+  AWS_SECRET_ACCESS_KEY: "test",
+  AWS_CONFIG_FILE: "/nonexistent/hardhat-kms-aws/config",
+  AWS_SHARED_CREDENTIALS_FILE: "/nonexistent/hardhat-kms-aws/credentials",
+  AWS_ENDPOINT_URL: "http://127.0.0.1:1",
+  AWS_MAX_ATTEMPTS: "1",
+};
+
 let scratch: string;
 
 /** Runs the fixture under the import recorder and returns the URLs of the modules it loaded. */
@@ -76,7 +92,7 @@ describe("SDK loading", () => {
       assert.deepEqual(sdkModules(urls), []);
     });
 
-    for (const task of ["address", "public-key", "sign-auth", "sign-tx", "verify"]) {
+    for (const task of ["address", "public-key", "sign-auth", "sign-tx", "verify", "history"]) {
       it(`runs kms ${task} on a key of another provider without loading the AWS SDK (${hooks} hooks)`, () => {
         const { urls, stdout } = run({
           ...recorderEnv,
@@ -125,6 +141,28 @@ describe("SDK loading", () => {
       assert.ok(
         urls.some((url) => url.includes("/node_modules/@aws-sdk/client-kms/")),
         "the SDK was not recorded",
+      );
+      // The log SDKs load only for kms history.
+      assert.deepEqual(urls.filter(logSdk), []);
+    });
+
+    it(`loads the CloudTrail SDK when kms history reads an AWS key (positive control, ${hooks} hooks)`, () => {
+      const { urls } = run({
+        ...recorderEnv,
+        HHKMS_FIXTURE_KEY: "aws",
+        HHKMS_FIXTURE_TASK: "history",
+        // Test credentials and an endpoint that refuses connections: the read fails fast and
+        // never reaches AWS.
+        ...OFFLINE,
+      });
+
+      assert.ok(
+        urls.some((url) => url.includes("/hardhat-kms-aws/src/internal/history.ts")),
+        "the reader was not recorded",
+      );
+      assert.ok(
+        urls.some((url) => url.includes("/node_modules/@aws-sdk/client-cloudtrail/")),
+        "the CloudTrail SDK was not recorded",
       );
     });
   }

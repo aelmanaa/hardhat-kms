@@ -33,9 +33,11 @@ export function pluginUserAgent(version: string): string {
 }
 
 /**
- * The `kms` hook handlers: build adapters for `aws` keys and pass every other key on. The adapter
- * module, and with it the AWS SDK, loads only when an AWS key is first used. Before that, the
- * handler checks that hardhat-kms is the same version as this package.
+ * The `kms` hook handlers: build adapters for `aws` keys, read their sign history from CloudTrail,
+ * and pass every other key on. The adapter module, and with it the AWS SDK, loads only when an AWS
+ * key is first used; the history reader and the CloudTrail and STS SDKs only when `kms history`
+ * reads an AWS key. Before either, the handler checks that hardhat-kms is the same version as this
+ * package.
  *
  * @param version - This package's version; tests pass another one to cause a mismatch.
  * @returns The handlers.
@@ -57,6 +59,36 @@ export function kmsHandlers(version: string = ownVersion()): Partial<KmsHooks> {
         await import("@aws-sdk/client-kms"),
         pluginUserAgent(version),
       );
+    },
+    readSignHistory: async (context, request, next) => {
+      const { key } = request;
+      if (key.provider !== "aws") {
+        return await next(context, request);
+      }
+      checkProviderVersion(PACKAGE_NAME, version, {
+        provider: "aws",
+        operation: "history",
+        key: key.displayId,
+      });
+      const [{ readAwsSignHistory }, { createAwsHistoryApi }] = await Promise.all([
+        import("../history.ts"),
+        import("../history-api.ts"),
+      ]);
+      const api = await createAwsHistoryApi(
+        key,
+        await key.keyId.get(),
+        {
+          cloudTrail: async () => await import("@aws-sdk/client-cloudtrail"),
+          sts: async () => await import("@aws-sdk/client-sts"),
+          kms: async () => await import("@aws-sdk/client-kms"),
+        },
+        pluginUserAgent(version),
+      );
+      try {
+        return await readAwsSignHistory(key, request, api);
+      } finally {
+        api.close();
+      }
     },
   };
 }
