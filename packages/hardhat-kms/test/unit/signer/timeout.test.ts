@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 
+import { ERRORS } from "../../../src/internal/error-catalog.ts";
+import { catalogMessage } from "../../../src/internal/errors.ts";
 import { systemTimers, TimeoutError, withTimeout } from "../../../src/internal/signer/timeout.ts";
 import { fakeTimers } from "../../helpers/fake-timers.ts";
 
@@ -27,8 +29,14 @@ describe("withTimeout", () => {
       timers,
     );
 
+    assert.deepEqual(timers.delays(), [50]);
     timers.fire();
-    await assert.rejects(pending, TimeoutError);
+    await assert.rejects(pending, (error: unknown) => {
+      assert.ok(error instanceof TimeoutError);
+      assert.equal(error.name, "TimeoutError");
+      assert.equal(error.message, catalogMessage(ERRORS.timedOut, { timeout: 50 }));
+      return true;
+    });
     assert.ok(aborted);
   });
 
@@ -49,6 +57,26 @@ describe("withTimeout", () => {
 
     assert.ok(fired);
     assert.equal(await withTimeout(async () => await Promise.resolve("ok"), 1000), "ok");
+  });
+
+  it("cancels a system timer, so its callback never runs", () => {
+    // Node's mock timers replace the global setTimeout and clearTimeout the system timers call.
+    mock.timers.enable({ apis: ["setTimeout"] });
+    try {
+      const fired: string[] = [];
+      const cancel = systemTimers.setTimeout(() => {
+        fired.push("cancelled");
+      }, 1000);
+      systemTimers.setTimeout(() => {
+        fired.push("kept");
+      }, 1000);
+      cancel();
+      mock.timers.tick(1000);
+
+      assert.deepEqual(fired, ["kept"]);
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it("does not keep the process alive with a pending timer", () => {

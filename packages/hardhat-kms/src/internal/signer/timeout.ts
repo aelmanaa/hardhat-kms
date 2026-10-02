@@ -51,6 +51,7 @@ export async function withTimeout<T>(
       () => {
         reject(new TimeoutError(catalogMessage(ERRORS.timedOut, { timeout: timeoutMs })));
       },
+      // Stryker disable next-line ObjectLiteral,BooleanLiteral: a signal fires "abort" at most once
       { once: true },
     );
   });

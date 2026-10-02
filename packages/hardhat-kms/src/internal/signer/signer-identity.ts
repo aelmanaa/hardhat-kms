@@ -43,16 +43,28 @@ function commonSettings(key: KmsKeyCommonConfig): unknown[] {
 export function signerIdentity(key: KmsKeyConfig): string | undefined {
   let parts: unknown[];
   let identifier: KmsIdentifier;
+  // The identity is only compared for equality. An AWS identity has 10 parts, a Google Cloud or
+  // Azure one 7, so the provider tags only have to tell Google Cloud from Azure: changing any one
+  // of them, or dropping it, still leaves every provider's identities apart. This rests on the
+  // lengths: a new provider whose identity also has 7 parts needs a test that tells its tag apart.
   if ("keyVersionName" in key) {
+    // Stryker disable next-line ArrayDeclaration,StringLiteral: one tag alone is redundant
     parts = ["gcp"];
     identifier = key.keyVersionName;
   } else if (key.provider === "azure") {
+    // Stryker disable next-line ArrayDeclaration,StringLiteral: one tag alone is redundant
     parts = ["azure"];
     identifier = key.keyId;
-  } else if (key.provider === "aws") {
+  } else if (
+    // A resolved third-party key keeps its own fields under `userConfig`, so it has no `keyId`:
+    // the AWS branch would return `undefined` for it too, from identifierComparisonForm.
+    // Stryker disable next-line ConditionalExpression: a third-party key gets undefined either way
+    key.provider === "aws"
+  ) {
+    // Stryker disable next-line StringLiteral: one tag alone is redundant
     parts = ["aws", key.region ?? null, key.profile ?? null, key.endpoint ?? null];
     identifier = key.keyId;
-  } else {
+  } else /* Stryker disable next-line BlockStatement: undefined either way, see above */ {
     return undefined;
   }
   const form = identifierComparisonForm(identifier);

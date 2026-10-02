@@ -30,8 +30,10 @@ export function fakeTimers(): FakeTimers {
     },
     fire() {
       for (const callback of Array.from(timers.keys())) {
-        timers.delete(callback);
-        callback();
+        // Skip a timer that an earlier callback of this round cancelled, as real timers do.
+        if (timers.delete(callback)) {
+          callback();
+        }
       }
     },
     pending: () => timers.size,
