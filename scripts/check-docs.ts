@@ -304,17 +304,26 @@ function callsCatalogMessage(node: unknown): boolean {
   return found;
 }
 
-/** Whether a subtree holds a string or template literal with text. */
-function hasText(node: unknown): boolean {
-  let found = false;
-  walk(node, (child) => {
-    const type = field(child, "type");
-    const value = field(child, "value");
-    if ((type === "Literal" && typeof value === "string") || type === "TemplateLiteral") {
-      found = true;
-    }
-  });
-  return found;
+/** Whether a node is text: a string, a template literal or a `+` with one of them. */
+function isText(node: unknown): boolean {
+  const type = field(node, "type");
+  if (type === "TemplateLiteral") {
+    return true;
+  }
+  if (type === "Literal") {
+    return typeof field(node, "value") === "string";
+  }
+  return (
+    type === "BinaryExpression" && (isText(field(node, "left")) || isText(field(node, "right")))
+  );
+}
+
+/**
+ * Whether an argument list passes text directly. Strings inside an options object, such as an SDK
+ * command's fields, do not count.
+ */
+function hasText(args: unknown): boolean {
+  return Array.isArray(args) && args.some((arg) => isText(arg));
 }
 
 /** An error class: a capitalised name that ends in Error, Failure or Exception. */
