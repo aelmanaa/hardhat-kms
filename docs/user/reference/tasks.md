@@ -81,7 +81,7 @@ The failure messages are the plugin's own, or Hardhat's for a configuration vari
 
 `hre.tasks.getTask(["kms", "accounts"]).run({ json: false, showIds: false })` returns a Hardhat `Result` holding the same `{ version, accounts }` report: a successful one when every key works, a failed one otherwise.
 
-`kms accounts --balances` and `--check-sign` are planned for v1.1 ([#52](https://github.com/aelmanaa/hardhat-kms/issues/52)).
+`kms accounts --balances` and `--check-sign` are planned for 1.0 ([#52](https://github.com/aelmanaa/hardhat-kms/issues/52)).
 
 ## `kms address`
 

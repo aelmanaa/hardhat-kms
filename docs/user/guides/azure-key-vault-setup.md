@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in Azure Key Vault or Azure Managed HSM, and who have the `az` CLI.
 
-Status: the Azure adapter is implemented, in the `hardhat-kms-azure` package ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). A connection lists the key's account and signs transactions, messages and typed data with it. The unit and integration tests run against a fake Key Vault; the first run against a real vault is pending.
+Status: the Azure adapter is implemented, in the `hardhat-kms-azure` package ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). A connection lists the key's account and signs transactions, messages and typed data with it. The unit and integration tests run against a fake Key Vault. The live smoke test and the live suite on Sepolia ran against a real vault ([#44](https://github.com/aelmanaa/hardhat-kms/issues/44)); the transactions are in [Live proof](../../live-proof.md).
 
 ## 1. Create a secp256k1 signing key
 
