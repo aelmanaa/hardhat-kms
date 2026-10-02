@@ -118,7 +118,11 @@ describe("parseHistoryResult", () => {
 
   it("keeps truncated from the reader when the events fit the limit", () => {
     assert.equal(
-      parseHistoryResult(historyResult({ truncated: true }), REQUEST, [])?.truncated,
+      parseHistoryResult(
+        historyResult({ truncated: true, truncatedReason: "scan-limit" }),
+        REQUEST,
+        [],
+      )?.truncated,
       true,
     );
     assert.equal(
@@ -233,9 +237,9 @@ describe("parseHistoryResult", () => {
       "events[0].requestId must be a string or null",
       "events[0].operation must be a non-empty string",
       "events[0].keyResource must be a string or null",
-      "events[0].extra.nested must be a string, a finite number, a boolean or null",
-      "events[0].extra.infinite must be a string, a finite number, a boolean or null",
-      "events[0].extraIds.number must be a string or null",
+      "events[0].extra holds a value that is not a string, a finite number, a boolean or null",
+      "events[0].extra holds a value that is not a string, a finite number, a boolean or null",
+      "events[0].extraIds holds a value that is not a string or null",
       "events[1] must be an object",
       "events[2].extra must be an object",
       "events[2].extraIds must be an object",
@@ -259,8 +263,8 @@ describe("parseHistoryResult", () => {
       }),
       [
         "result.source must be a non-empty string",
-        "notLogged holds an unknown field: signature",
-        "notLogged holds an unknown field: number",
+        "notLogged holds a value that is not a field name",
+        "notLogged holds a value that is not a field name",
         "events must be an array",
         "truncated must be a boolean",
         "completeForKey must be a boolean",
@@ -285,18 +289,66 @@ describe("parseHistoryResult", () => {
     assert.equal(parsed?.events[0] !== undefined && "extraIds" in parsed.events[0], false);
   });
 
-  it("refuses a source that is not a stable id, which could carry an id into the output", () => {
+  it("refuses a source that is not words of letters, which could carry an id into the output", () => {
     for (const source of [
       "cloudtrail 111122223333",
+      "cloudtrail-111122223333",
+      "logs-v2",
       "arn:aws:kms:eu-west-1:1:key/x",
       "Fake",
       "a--b",
+      "-a",
+      `a${"-a".repeat(32)}`,
     ]) {
       assert.deepEqual(problemsOf(historyResult({ source })), [
-        "result.source must be lowercase words joined by -",
+        "result.source must be words of lowercase letters joined by -, at most 64 long",
       ]);
     }
     assert.deepEqual(problemsOf(historyResult({ source: "cloudtrail-event-history" })), []);
+    assert.deepEqual(problemsOf(historyResult({ source: `a${"-a".repeat(31)}` })), []);
+  });
+
+  it("refuses extra, extraIds and scope.ids names that are not field names, without repeating them", () => {
+    const badNames = { "arn:aws:kms:eu-west-1:111122223333:key/x": "v", "1abc": "v", "": "v" };
+    const problems = problemsOf(
+      historyResult({
+        events: [historyEvent({ extra: { ...badNames, "ok.name_1": 1 }, extraIds: badNames })],
+        scope: { description: "d", ids: { ...badNames, account: "1" } },
+      }),
+    );
+
+    assert.deepEqual(problems, [
+      "events[0].extra holds a field name that is not a letter followed by at most 63 letters, digits, _ and .",
+      "events[0].extraIds holds a field name that is not a letter followed by at most 63 letters, digits, _ and .",
+      "scope.ids holds a field name that is not a letter followed by at most 63 letters, digits, _ and .",
+    ]);
+    assert.doesNotMatch(problems.join(" "), /111122223333|1abc/);
+    const parsed = parseHistoryResult(
+      historyResult({ events: [historyEvent({ extra: { [`a${"b".repeat(63)}`]: 1 } })] }),
+      REQUEST,
+      [],
+    );
+    assert.deepEqual(parsed?.events[0]?.extra, { [`a${"b".repeat(63)}`]: 1 });
+    assert.deepEqual(
+      problemsOf(
+        historyResult({ events: [historyEvent({ extra: { [`a${"b".repeat(64)}`]: 1 } })] }),
+      ),
+      [
+        "events[0].extra holds a field name that is not a letter followed by at most 63 letters, digits, _ and .",
+      ],
+    );
+  });
+
+  it("never repeats a value the reader chose in a problem", () => {
+    const problems = problemsOf({
+      ...historyResult(),
+      notLogged: ["arn:aws:kms:eu-west-1:111122223333:key/x"],
+      events: [{ ...historyEvent(), extra: { readerField: { id: "111122223333" } } }],
+      scope: { description: "d", ids: { account: 111122223333 } },
+    });
+
+    assert.equal(problems.length, 3);
+    assert.doesNotMatch(problems.join(" "), /111122223333|readerField/);
   });
 
   it("refuses a key version that is a resource name or URL, and accepts a version id", () => {
@@ -341,7 +393,11 @@ describe("parseHistoryResult", () => {
     );
     assert.equal(scan?.truncatedReason, "scan-limit");
     assert.equal(
-      parseHistoryResult(historyResult({ truncated: true }), REQUEST, [])?.truncatedReason,
+      parseHistoryResult(
+        historyResult({ truncated: true, truncatedReason: "limit", events: eventsOf(3) }),
+        REQUEST,
+        [],
+      )?.truncatedReason,
       "limit",
     );
     assert.equal(parseHistoryResult(historyResult(), REQUEST, [])?.truncatedReason, undefined);
@@ -351,6 +407,28 @@ describe("parseHistoryResult", () => {
     assert.deepEqual(
       problemsOf({ ...historyResult({ truncated: true }), truncatedReason: "time" }),
       ['truncatedReason must be "limit" or "scan-limit" when set'],
+    );
+  });
+
+  it("requires a reason when truncated, and refuses limit with fewer than limit events", () => {
+    assert.deepEqual(problemsOf(historyResult({ truncated: true })), [
+      "truncated is true, but truncatedReason is not set",
+    ]);
+    for (const count of [0, 2]) {
+      assert.deepEqual(
+        problemsOf(
+          historyResult({ truncated: true, truncatedReason: "limit", events: eventsOf(count) }),
+        ),
+        ['truncatedReason is "limit", but the result holds fewer than limit events'],
+      );
+    }
+    assert.deepEqual(
+      problemsOf(historyResult({ truncated: true, truncatedReason: "limit", events: eventsOf(4) })),
+      [],
+    );
+    assert.deepEqual(
+      problemsOf(historyResult({ truncated: true, truncatedReason: "scan-limit", events: [] })),
+      [],
     );
   });
 
@@ -378,8 +456,8 @@ describe("parseHistoryResult", () => {
       }),
       [
         "scope.description must be a non-empty string",
-        "scope.ids.account must be a non-empty string",
-        "scope.ids.empty must be a non-empty string",
+        "scope.ids holds a value that is not a non-empty string",
+        "scope.ids holds a value that is not a non-empty string",
         "hiddenValues must hold strings only",
       ],
     );

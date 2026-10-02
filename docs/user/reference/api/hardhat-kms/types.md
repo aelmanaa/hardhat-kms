@@ -936,7 +936,7 @@ Who made the request, as logged.
 
 > **requestId**: `string` \| `null`
 
-The provider's id for the request or the log entry.
+The id the provider assigned to the request, as logged.
 
 ##### sourceIp
 
@@ -968,8 +968,8 @@ entry is `null`, and so is a field listed in [KmsHistoryResult.notLogged](#notlo
 
 `kms history` prints `principal`, `sourceIp`, `userAgent`, `requestId`, `keyVersion`, `digest`
 and `extra` as they are, and the error code. It shows `keyResource`, `errorMessage` and
-`extraIds` only with `--show-ids`, and by default replaces any of their values found in other
-fields with the key's display id.
+`extraIds` only with `--show-ids`. By default it replaces a key resource found in another field
+with the key's display id, and an `extraIds` value with `<hidden>`.
 
 May gain optional fields before 1.0.
 
@@ -997,14 +997,16 @@ The provider's error message. It can name accounts, projects and keys.
 
 > `optional` **extra?**: `Readonly`\<`Record`\<`string`, [`KmsHistoryExtraValue`](#kmshistoryextravalue)\>\>
 
-Other fields of the entry, shown as they are. Never put key ids or account ids here.
+Other fields of the entry, shown as they are. Never put key ids or account ids here. Each name
+starts with a letter, then up to 63 letters, digits, `_` and `.`.
 
 ##### extraIds?
 
 > `optional` **extraIds?**: `Readonly`\<`Record`\<`string`, `string` \| `null`\>\>
 
 Other fields of the entry that identify keys, accounts or credentials, such as an AWS access
-key id. Shown only with `--show-ids`.
+key id. Shown only with `--show-ids`; without it, their values are masked as `<hidden>`
+wherever they appear. Names as in `extra`.
 
 ##### keyResource
 
@@ -1041,7 +1043,9 @@ Who made the request: an ARN, an email address or a token claim.
 
 > **requestId**: `string` \| `null`
 
-The provider's id for the request or the log entry.
+The id the provider assigned to the request. A provider that logs none, such as Google Cloud,
+lists `requestId` in `notLogged`; a log entry's own id, such as Google Cloud's `insertId`, goes
+in `extra`.
 
 ##### sourceIp
 
@@ -1187,7 +1191,7 @@ What `kms history` asks a reader for: the sign events of one key in a time range
 The history covers the whole key: every version, even when the config pins one. Each event
 names its version in `keyVersion` where the provider logs it.
 
-May gain optional fields before 1.0, such as an abort signal.
+May gain optional fields before 1.0.
 
 #### Properties
 
@@ -1204,6 +1208,15 @@ The resolved key, as `kms.createKeyAdapter` receives it.
 How many events `kms history` shows, the newest ones. Return at most `limit + 1` events: the
 extra one tells the plugin there are more, and it then marks the result truncated. An
 integer from 1 to 1000.
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+Aborts when `kms history` stops waiting for the reader: 120 seconds after the read starts.
+Pass it to the log SDK's calls and stop paging when it fires. The plugin fails the read with
+`core.history.timed-out` at that time even when the reader ignores it. Set by the plugin on
+every request; optional so that a reader called by other code still type-checks.
 
 ##### since
 
@@ -1263,8 +1276,9 @@ The events in the range, newest first, at most `limit + 1` of them.
 
 > `optional` **hiddenValues?**: readonly `string`[]
 
-Other values that identify the key, such as the key ARN an alias resolved to. Without
-`--show-ids`, the plugin replaces them, in any case, wherever they appear.
+Other values that must not print, such as the key ARN an alias resolved to. Without
+`--show-ids`, the plugin replaces them and the parts they contain, in any case and in their
+URL-encoded and `/`-escaped forms, with `<hidden>` wherever they appear.
 
 ##### notes?
 
@@ -1301,8 +1315,9 @@ Added to the `logging-not-confirmed` note.
 
 > **source**: `string`
 
-Where the events come from, as a stable id in lowercase letters, digits and `-`, such as
-`cloudtrail-event-history`.
+Where the events come from, as a stable id of lowercase words joined by `-`, such as
+`cloudtrail-event-history`: letters only, no digits, at most 64 characters. It is printed as
+it is, so it cannot carry an account or project number.
 
 ##### truncated
 
@@ -1315,10 +1330,11 @@ reader stopped early; see `truncatedReason`.
 
 > `optional` **truncatedReason?**: `"limit"` \| `"scan-limit"`
 
-Why the result is truncated: `limit` when the log holds more events than `limit`, and
-`scan-limit` when the reader stopped before reading the whole range, for example after
-scanning as many log entries as it allows itself. Only set with `truncated`; the plugin
-assumes `limit` when it is absent.
+Why the result is truncated, required when `truncated` is `true` and refused otherwise:
+`limit` when the log holds more events in the range than `limit`, with at least `limit` events
+returned, and `scan-limit` when the reader stopped before reading the whole range, for example
+after scanning as many log entries as it allows itself. A result with `limit + 1` events and
+`truncated: false` is marked truncated by `limit` by the plugin.
 
 ---
 
@@ -1343,7 +1359,9 @@ What the read covered, free of ids, such as `us-east-1`.
 > `optional` **ids?**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
 Ids that bound the read, by name, such as `{ account: "111122223333" }`. Shown only with
-`--show-ids`; otherwise each prints as `<name> <hidden>`.
+`--show-ids`; otherwise each prints as `<name> <hidden>`, and its value is masked as `<hidden>`
+wherever it appears, except in principals, which are shown as logged. Names as in
+[KmsHistoryEvent.extra](#extra-1).
 
 ---
 

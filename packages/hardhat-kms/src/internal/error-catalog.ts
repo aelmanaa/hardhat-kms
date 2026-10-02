@@ -1721,18 +1721,47 @@ export const ERRORS = {
       "The provider throttled the reads, and the reader's retries did not get through. Long ranges need many requests.",
     fix: "Wait a minute and run again, or narrow the range with `--since` and `--until`, or lower `--limit`.",
   },
+  historyAccessDeniedUnprintable: {
+    id: "core.history.access-denied-unprintable",
+    kind: "error",
+    group: "History",
+    template:
+      "cannot read the audit log: the credentials lack a permission. The history reader named it in a form that could carry an id, so it is not shown; this is a bug in the reader",
+    cause:
+      "The provider refused to return log entries, and the history reader passed `auditLogAccessDenied` a permission with characters, a URL, an ARN, a resource path or a run of digits or hex that could be an account or key id. Such a value would be printed without `--show-ids`.",
+    fix: "Grant the read permission that the provider setup guide lists, and report the bug to the provider plugin.",
+  },
+  historyThrottledUnprintable: {
+    id: "core.history.throttled-unprintable",
+    kind: "error",
+    group: "History",
+    template:
+      "the audit log kept refusing requests as too frequent. The history reader named the limit in a form that could carry an id, so it is not shown; this is a bug in the reader",
+    cause:
+      "The provider throttled the reads, and the history reader passed `auditLogThrottled` a limit that could carry an id.",
+    fix: "Wait a minute and run again, or narrow the range with `--since` and `--until`, and report the bug to the provider plugin.",
+  },
+  historyReaderError: {
+    id: "core.history.reader-error",
+    kind: "error",
+    group: "History",
+    template: "{message}",
+    cause:
+      "The history reader threw a plugin or Hardhat error. Its text is shown with key ids, workspace ids and other values that must not print masked, and without the errors it wraps, which are not masked.",
+    fix: "Follow the message. Run with `--show-ids` to see it unmasked, or with `DEBUG=hardhat:kms:*` to see the step that failed.",
+  },
+  historyTimedOut: {
+    id: "core.history.timed-out",
+    kind: "error",
+    group: "History",
+    template:
+      "reading the audit log took more than {seconds} seconds, so kms history stopped waiting",
+    cause:
+      "The history reader did not return within the deadline. Long ranges on a slow or throttled log need many requests.",
+    fix: "Narrow the range with `--since` and `--until`, or lower `--limit`.",
+  },
 
   // Internal: only a bug or a broken install reaches these. They are plain `Error`s.
-  historyErrorArgument: {
-    id: "core.internal.history-error-argument",
-    kind: "internal",
-    group: "Internal",
-    template:
-      "auditLogAccessDenied and auditLogThrottled take a short permission or limit with no ids: letters, digits, spaces and . , : _ / * -",
-    cause:
-      "A history reader passed a value with other characters, a URL, or a run of digits or hex that looks like an account or key id, which would be printed without `--show-ids`.",
-    fix: "Report it to the provider plugin. Pass the permission or limit as documented, without ids.",
-  },
   identifierPartMissing: {
     id: "core.internal.identifier-part",
     kind: "internal",

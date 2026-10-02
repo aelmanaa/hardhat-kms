@@ -266,18 +266,21 @@ A value a message template placeholder takes.
 
 ### auditLogAccessDenied()
 
-> **auditLogAccessDenied**(`permission`: `string`, `details?`: [`ErrorDetails`](#errordetails)): `HardhatPluginError`
+> **auditLogAccessDenied**(`permission`: `string` \| readonly `string`[], `details?`: [`ErrorDetails`](#errordetails)): `HardhatPluginError`
 
 The error a history reader throws when the provider refuses to return log entries: it names the
-permission to grant. Throwing it, rather than returning no events, keeps `kms history` from
+permissions to grant. Throwing it, rather than returning no events, keeps `kms history` from
 reporting an empty history for a log it could not read.
+
+A value that looks like it could carry an id is not printed: the error then says that the read
+was refused and that the reader named the permission in a form the plugin does not print.
 
 #### Parameters
 
-| Parameter    | Type                            | Description                                                                                                                                                 |
-| ------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `permission` | `string`                        | What to grant, such as `cloudtrail:LookupEvents` or `roles/logging.privateLogViewer`. Never an id: at most 128 letters, digits, spaces and `. , : _ / * -`. |
-| `details?`   | [`ErrorDetails`](#errordetails) | The provider, the operation and the key's display id.                                                                                                       |
+| Parameter    | Type                            | Description                                                                                                                                                                                                                                                                                    |
+| ------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `permission` | `string` \| readonly `string`[] | What to grant, such as `cloudtrail:LookupEvents`, or several values, such as the two Azure permissions. Never an id: each at most 200 letters, digits, spaces and `. , : ; ( ) _ / * -`, with no URL, ARN, alias, `projects/` path, Azure host, or run of five digits or eight hex characters. |
+| `details?`   | [`ErrorDetails`](#errordetails) | The provider, the operation and the key's display id.                                                                                                                                                                                                                                          |
 
 #### Returns
 
@@ -296,10 +299,10 @@ reader's own retries.
 
 #### Parameters
 
-| Parameter  | Type                            | Description                                                                                                             |
-| ---------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `limit`    | `string`                        | The provider's documented limit, such as `2 lookups per second`. Never an id, with the same characters as a permission. |
-| `details?` | [`ErrorDetails`](#errordetails) | The provider, the operation and the key's display id.                                                                   |
+| Parameter  | Type                            | Description                                                                                                                                                  |
+| ---------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `limit`    | `string`                        | The provider's documented limit, such as `2 requests per second`. Never an id, with the same rules as a permission. A value that breaks them is not printed. |
+| `details?` | [`ErrorDetails`](#errordetails) | The provider, the operation and the key's display id.                                                                                                        |
 
 #### Returns
 

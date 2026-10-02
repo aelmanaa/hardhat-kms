@@ -3,7 +3,12 @@ import { describe, it } from "node:test";
 
 import { HardhatPluginError } from "hardhat/plugins";
 
-import { historyRange, MAX_LIMIT, parseHistoryTime } from "../../../src/internal/history/time.ts";
+import {
+  historyRange,
+  MAX_LIMIT,
+  parseHistoryTime,
+  parseLoggedTime,
+} from "../../../src/internal/history/time.ts";
 
 const NOW = new Date("2026-10-02T12:00:00.000Z");
 const HOUR = 60 * 60 * 1000;
@@ -163,6 +168,20 @@ describe("historyRange", () => {
     assert.equal(MAX_LIMIT, 1000);
     for (const limit of [0, -1, MAX_LIMIT + 1, 1.5, Number.NaN]) {
       rejects(() => limitOf(limit), /--limit must be an integer from 1 to 1000, got/);
+    }
+  });
+});
+
+describe("parseLoggedTime", () => {
+  it("reads the fractions and offsets the providers log, to the millisecond", () => {
+    // Google Cloud logs nanoseconds, Azure seven digits, AWS whole seconds.
+    for (const [time, expected] of [
+      ["2026-10-02T08:25:00.123456789Z", "2026-10-02T08:25:00.123Z"],
+      ["2026-10-02T08:25:00.123456Z", "2026-10-02T08:25:00.123Z"],
+      ["2026-10-02T08:25:00.1234567+00:00", "2026-10-02T08:25:00.123Z"],
+      ["2026-10-02T08:25:00+02:00", "2026-10-02T06:25:00.000Z"],
+    ] as const) {
+      assert.equal(new Date(parseLoggedTime(time) ?? Number.NaN).toISOString(), expected, time);
     }
   });
 });

@@ -54,6 +54,22 @@ describe("historyNotes", () => {
     );
   });
 
+  it("says the reader found no sign events before it stopped, for a truncated empty result", () => {
+    assert.match(
+      historyNotes(
+        historyResult({
+          events: [],
+          completeForKey: false,
+          truncated: true,
+          truncatedReason: "scan-limit",
+        }),
+        OLD_RANGE,
+        NOW,
+      )[0]?.message ?? "",
+      /^The reader found no sign events before it stopped\. That does not show that the key signed nothing/,
+    );
+  });
+
   it("warns when the range ends within 15 minutes of now, with the provider's documented delay", () => {
     const until = (minutesAgo: number) => ({
       since: OLD_RANGE.since,
@@ -134,7 +150,7 @@ function input(overrides: Partial<HistoryReportInput> = {}): HistoryReportInput 
     result: historyResult(),
     notes: [],
     showIds: false,
-    hiddenValues: [],
+    hidden: { keys: [], others: [] },
     ...overrides,
   };
 }
@@ -205,7 +221,7 @@ describe("buildHistoryReport", () => {
     });
   });
 
-  it("replaces hidden values found in any other field with the display id, longest first", () => {
+  it("replaces key values found in any other field with the display id and other values with <hidden>, longest first", () => {
     const configured = "arn:aws:kms:eu-west-1:111122223333:alias/CONFIGURED-PLACEHOLDER";
     const event = historyEvent({
       principal: `assumed ${PLACEHOLDERS.keyArn}`,
@@ -225,7 +241,7 @@ describe("buildHistoryReport", () => {
           { code: "reader-note", message: `key ${PLACEHOLDERS.keyArn} is in another account` },
         ],
         // Short values are never hidden, so they cannot garble ordinary text.
-        hiddenValues: [configured, "Sign", "aws"],
+        hidden: { keys: [configured, "Sign", "aws"], others: [] },
       }),
     );
     const text = JSON.stringify(report);
@@ -233,11 +249,12 @@ describe("buildHistoryReport", () => {
     assert.doesNotMatch(text, /PLACEHOLDER/);
     const [entry] = report.events;
     assert.equal(entry?.principal, "assumed aws:<AWS_KMS_KEY_ID>");
-    assert.equal(entry?.userAgent, "ua aws:<AWS_KMS_KEY_ID>");
+    // An extraIds value is not the key: it never prints as the key's display id.
+    assert.equal(entry?.userAgent, "ua <hidden>");
     assert.equal(entry?.requestId, "aws:<AWS_KMS_KEY_ID>");
     assert.equal(entry?.operation, "Sign aws:<AWS_KMS_KEY_ID>");
     assert.equal(entry?.sourceIp, "aws:<AWS_KMS_KEY_ID>");
-    assert.deepEqual(entry?.error, { code: "aws:<AWS_KMS_KEY_ID>", message: null });
+    assert.deepEqual(entry?.error, { code: "<hidden>", message: null });
     assert.deepEqual(entry?.extra, {
       requestKeyId: "aws:<AWS_KMS_KEY_ID>",
       count: 2,
@@ -260,8 +277,65 @@ describe("buildHistoryReport", () => {
       }),
     );
 
-    assert.equal(report.events[0]?.principal, "assumed aws:<AWS_KMS_KEY_ID>");
+    assert.equal(report.events[0]?.principal, "assumed <hidden>");
     assert.equal(report.events[0]?.userAgent, "cli --key-id aws:<AWS_KMS_KEY_ID>");
+  });
+
+  it("masks a key resource in its URL-encoded and \\/-escaped forms, and an Azure vault by its host, name and resource id", () => {
+    const keyUrl =
+      "https://secret-vault.vault.azure.net/keys/deployer/0123456789abcdef0123456789abcdef";
+    const event = historyEvent({
+      keyResource: keyUrl,
+      extra: {
+        encoded: `GET ${encodeURIComponent(keyUrl)}`,
+        escaped: keyUrl.replaceAll("/", "\\/"),
+        resource:
+          "/subscriptions/s/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/secret-vault",
+        host: "SECRET-VAULT.vault.azure.net",
+        name: "vault secret-vault",
+      },
+    });
+    const report = buildHistoryReport(input({ result: historyResult({ events: [event] }) }));
+
+    assert.deepEqual(report.events[0]?.extra, {
+      encoded: "GET aws:<AWS_KMS_KEY_ID>",
+      escaped: "aws:<AWS_KMS_KEY_ID>",
+      resource: "/subscriptions/s/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/<hidden>",
+      host: "<hidden>",
+      name: "vault <hidden>",
+    });
+  });
+
+  it("masks other values as <hidden>, never as the key: a workspace id, variable parts, extraIds and scope ids", () => {
+    const workspace = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const event = historyEvent({
+      principal: "signer@secret-project.iam.gserviceaccount.com in 999988887777",
+      userAgent: `ua ${workspace} ${PLACEHOLDERS.accessKeyId}`,
+      extra: { project: "secret-project", account: "999988887777" },
+    });
+    const report = buildHistoryReport(
+      input({
+        result: historyResult({
+          events: [event],
+          scope: { description: "account 999988887777", ids: { account: "999988887777" } },
+        }),
+        notes: [{ code: "reader-note", message: `workspace ${workspace.toUpperCase()}` }],
+        hidden: { keys: [], others: [workspace, "secret-project"] },
+      }),
+    );
+    const [entry] = report.events;
+
+    assert.equal(entry?.userAgent, "ua <hidden> <hidden>");
+    assert.deepEqual(entry?.extra, { project: "<hidden>", account: "<hidden>" });
+    assert.equal(report.scope, "account <hidden>, account <hidden>");
+    assert.equal(report.notes[0]?.message, "workspace <hidden>");
+    // Principals are shown as logged: a scope id stays, a hidden project is masked in an email.
+    assert.equal(entry?.principal, "signer@<hidden>.iam.gserviceaccount.com in 999988887777");
+    // The display id stands only for the key.
+    assert.doesNotMatch(
+      JSON.stringify({ ...entry, keyResource: null, notes: report.notes, scope: report.scope }),
+      /AWS_KMS_KEY_ID/,
+    );
   });
 
   it("prints the scope with its ids hidden, and in full with --show-ids", () => {
@@ -303,7 +377,7 @@ describe("buildHistoryReport", () => {
       input({
         result: historyResult({ events: [event] }),
         showIds: true,
-        hiddenValues: ["x".repeat(9)],
+        hidden: { keys: ["x".repeat(9)], others: ["y".repeat(9)] },
       }),
     );
 
@@ -438,5 +512,21 @@ describe("renderHistoryTable", () => {
       "",
       "No sign events in fake-audit-log for this range.",
     ]);
+  });
+
+  it("says no sign events were found before the reader stopped, for a truncated empty result", () => {
+    const lines = renderHistoryTable(
+      buildHistoryReport(
+        input({
+          result: historyResult({ events: [], truncated: true, truncatedReason: "scan-limit" }),
+        }),
+      ),
+    );
+
+    assert.equal(
+      lines.at(-1),
+      "No sign events found before the reader stopped (it stopped before reading the whole range).",
+    );
+    assert.doesNotMatch(lines.join("\n"), /No sign events in /);
   });
 });

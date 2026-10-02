@@ -104,7 +104,9 @@ const CONFIG = (
   plugin: string,
   adapter: string,
   utils: string,
-) => `import kms from ${JSON.stringify(plugin)};
+) => `import { HardhatError } from "@nomicfoundation/hardhat-errors";
+import { HardhatPluginError } from "hardhat/plugins";
+import kms from ${JSON.stringify(plugin)};
 import { auditLogAccessDenied } from ${JSON.stringify(utils)};
 import { fakeAdapter } from ${JSON.stringify(adapter)};
 
@@ -141,6 +143,16 @@ const vault = {
           }
           if (request.key.name === "pinned") {
             throw auditLogAccessDenied("logs:Read");
+          }
+          // Reader errors that carry the key ARN where masking the message cannot reach it.
+          if (request.key.name === "AWS_KMS_KEY_ID") {
+            const id = process.env.AWS_KMS_KEY_ID;
+            if (process.env.HHKMS_CLI_HISTORY_ERROR === "hardhat") {
+              throw new HardhatError(HardhatError.ERRORS.CORE.INTERNAL.ASSERTION_ERROR, {
+                message: "lookup of " + id + " failed",
+              });
+            }
+            throw new HardhatPluginError("a-reader", "lookup failed", new Error("for " + id));
           }
           return await next(context, request);
         },
@@ -366,6 +378,26 @@ describe("kms tasks from the Hardhat CLI", () => {
     assert.equal(refused.stdout, "");
     assert.equal(unread.status, 1, unread.output);
     assert.match(unread.stderr, /no plugin reads the audit log of "myvault" keys/);
+  });
+
+  it("never prints a key id from a reader's error, even with --show-stack-traces", () => {
+    const arn = "arn:aws:kms:eu-west-1:444455556666:key/0a1b2c3d-1111-4222-8333-944455556666";
+    const args = ["--show-stack-traces", "--kms", "aws", "kms", "history", "AWS_KMS_KEY_ID"];
+    const fromArguments = hardhat(args, {
+      AWS_KMS_KEY_ID: arn,
+      HHKMS_CLI_HISTORY_ERROR: "hardhat",
+    });
+    const fromCause = hardhat(args, { AWS_KMS_KEY_ID: arn, HHKMS_CLI_HISTORY_ERROR: "plugin" });
+
+    assert.equal(fromArguments.status, 1, fromArguments.output);
+    assert.match(fromArguments.stderr, /lookup of aws:<AWS_KMS_KEY_ID> failed/);
+    assert.equal(fromCause.status, 1, fromCause.output);
+    assert.match(fromCause.stderr, /lookup failed/);
+    for (const run of [fromArguments, fromCause]) {
+      // The stack trace is printed, so the check covers it and any cause chain.
+      assert.match(run.stderr, /\n\s+at /);
+      assert.doesNotMatch(run.output, /444455556666|0a1b2c3d/);
+    }
   });
 
   it("signs a 0x message as bytes, prints only the signature and exits on its own", () => {

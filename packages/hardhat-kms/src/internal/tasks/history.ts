@@ -1,7 +1,8 @@
 import type { NewTaskActionFunction } from "hardhat/types/tasks";
 
 import type { KmsAuditConfig, KmsIdentifier, KmsKeyConfig } from "../../types.ts";
-import { hiddenSet, masker } from "../history/mask.ts";
+import { identifierParts } from "../config/identifiers.ts";
+import { errorMasker, type HiddenSources, hiddenSet } from "../history/mask.ts";
 import { readSignHistory } from "../history/read.ts";
 import {
   buildHistoryReport,
@@ -23,14 +24,11 @@ interface HistoryArguments {
 }
 
 /**
- * An identifier's value when it differs from what its display shows, that is, when it comes from
- * a configuration variable. Empty for a literal, or for a variable that cannot be read: the reader
- * fails on it first.
+ * An identifier's value when it comes from a configuration variable: when it differs from what its
+ * display shows. Empty for a literal, or for a variable that cannot be read: the reader fails on
+ * it first.
  */
-async function variableValue(identifier: KmsIdentifier | undefined): Promise<string[]> {
-  if (identifier === undefined) {
-    return [];
-  }
+async function variableValue(identifier: KmsIdentifier): Promise<string[]> {
   try {
     const value = await identifier.get();
     return value === identifier.display ? [] : [value];
@@ -39,19 +37,73 @@ async function variableValue(identifier: KmsIdentifier | undefined): Promise<str
   }
 }
 
+/** An identifier's value, literal or from configuration variables; empty when it cannot be read. */
+async function anyValue(identifier: KmsIdentifier): Promise<string[]> {
+  try {
+    return [await identifier.get()];
+  } catch {
+    return [];
+  }
+}
+
 /**
- * The values `kms history` hides before it reads anything: a built-in key's identifier and the
- * Azure workspace id, when they come from configuration variables. The report adds what the
- * reader returns, and each value's parts that identify the key on their own.
+ * The values `kms history` hides before it reads anything:
+ *
+ * - as the key: a built-in key's identifier, literal or from configuration variables, so that the
+ *   message of an error a reader throws is masked even for a literal key;
+ * - as `<hidden>`: the value of each configuration variable part of a joined identifier, such as a
+ *   Google Cloud project id, and, for an Azure key only, the workspace id when it comes from a
+ *   configuration variable. Other keys never read the workspace variable, so they never prompt
+ *   for it.
+ *
+ * The report adds what the reader returns, and each value's parts that name something on their own.
  */
-async function configuredHiddenValues(key: KmsKeyConfig, audit: KmsAuditConfig): Promise<string[]> {
+async function configuredHiddenValues(
+  key: KmsKeyConfig,
+  audit: KmsAuditConfig,
+): Promise<HiddenSources> {
   const identifier =
     "keyVersionName" in key
       ? key.keyVersionName
       : key.provider === "aws" || key.provider === "azure"
         ? key.keyId
         : undefined;
-  return [...(await variableValue(identifier)), ...(await variableValue(audit.azure?.workspaceId))];
+  if (identifier === undefined) {
+    return { keys: [], others: [] };
+  }
+  const parts = await Promise.all(identifierParts(identifier).map(variableValue));
+  const workspace =
+    key.provider === "azure" && audit.azure !== undefined
+      ? await variableValue(audit.azure.workspaceId)
+      : [];
+  return { keys: await anyValue(identifier), others: [...parts.flat(), ...workspace] };
+}
+
+/** `n event` or `n events`. */
+function eventCount(count: number): string {
+  return `${count} event${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * What standard error says about a truncated report, or `undefined` when it is complete.
+ *
+ * @param report - The report.
+ * @param limit - The `--limit` it was read with.
+ * @returns The note.
+ */
+function truncationNote(report: KmsHistoryReport, limit: number): string | undefined {
+  const shown = report.events.length;
+  if (report.truncatedReason === "limit") {
+    return `the log holds more events in this range than --limit ${limit}; these are the newest ${eventCount(shown)}. Narrow the range with --since and --until, or raise --limit.`;
+  }
+  if (report.truncatedReason === "scan-limit") {
+    return `${
+      shown === 0
+        ? "the reader stopped before reading the whole range and found no sign events before it stopped"
+        : `the reader stopped before reading the whole range; these are the newest ${eventCount(shown)} it found`
+    }, so the range may hold events it did not read. Narrow the range with --since and --until.`;
+  }
+  return undefined;
 }
 
 /**
@@ -77,7 +129,7 @@ const kmsHistory: NewTaskActionFunction<HistoryArguments> = async (args, hre) =>
   const result = await readSignHistory(
     hre,
     { key, since: range.since, until: range.until, limit: range.limit },
-    args.showIds ? (text) => text : masker(hiddenSet(configured), key.displayId),
+    args.showIds ? (text) => text : errorMasker(hiddenSet(configured), key.displayId),
   );
   const report: KmsHistoryReport = buildHistoryReport({
     name: args.key,
@@ -86,19 +138,14 @@ const kmsHistory: NewTaskActionFunction<HistoryArguments> = async (args, hre) =>
     result,
     notes: historyNotes(result, range, now),
     showIds: args.showIds,
-    hiddenValues: configured,
+    hidden: configured,
   });
   for (const note of report.notes) {
     printNote(note.message);
   }
-  if (report.truncatedReason === "limit") {
-    printNote(
-      `the log holds more events in this range than --limit ${range.limit}; these are the newest ${report.events.length}. Narrow the range with --since and --until, or raise --limit.`,
-    );
-  } else if (report.truncatedReason === "scan-limit") {
-    printNote(
-      `the reader stopped before reading the whole range; these are the newest ${report.events.length} events it found, and older ones in the range may be missing. Narrow the range with --since and --until.`,
-    );
+  const truncation = truncationNote(report, range.limit);
+  if (truncation !== undefined) {
+    printNote(truncation);
   }
   if (args.json) {
     printLine(JSON.stringify(report, null, 2));

@@ -382,7 +382,8 @@ The history covers the whole key: every version, even when the config pins one, 
 
 - **`<key>`.** Named as in [Naming a key](#naming-a-key), including `--kms` variables. The task makes no sign call. On AWS it may read the key's public key to find the key ARN of an alias, which CloudTrail logs as a `GetPublicKey` event. It does not need `--network`.
 - **`--since` and `--until`.** An ISO 8601 time with a time zone, such as `2026-10-02T09:00:00Z` or `2026-10-02T11:00:00+02:00`; a date, which means midnight UTC; or a duration before now: `45s`, `30m`, `6h`, `7d`. A time without a time zone, or an `--until` more than 5 minutes after now, is refused. `--until` defaults to now, and `--since` to 24 hours before `--until`. The task reads whole seconds: it rounds `--since` down and `--until` up, and prints the range it read.
-- **`--limit`.** At most this many events, the newest ones. From 1 to 1000; default 100. When the log holds more events in the range, or the reader stopped before reading the whole range, the task says so on standard error. Narrow the range to see older ones.
+- **`--limit`.** At most this many events, the newest ones. From 1 to 1000; default 100. When the log holds more events in the range, or the reader stopped before reading the whole range, the task says so on standard error. Narrow the range to see older ones. If the reader stopped before it found any event, the table says "No sign events found before the reader stopped" instead of "No sign events in <source>".
+- **Time limit.** The task waits 120 seconds for the reader, then fails with `core.history.timed-out`. Narrow the range if a long range hits it.
 
 ```text
 Sign events of deployer (aws:alias/deployer), from cloudtrail-event-history
@@ -404,7 +405,8 @@ Each row is one log entry, copied as it was logged. One signature can show as se
 - **Not logged and empty.** A field the provider never records has no column or line, and the header names it. A field the provider records but left empty in this entry shows as `-`.
 - **User agent.** The client chooses it, so any tool can claim to be the plugin. Treat it as a hint, never as proof.
 - **Scope.** The header says which part of the log the read covered, when the reader says, such as one AWS account and Region. Ids in it show as `<hidden>`.
-- **Ids.** Key ARNs, resource names and key URLs from the log show as the key's display id, wherever they appear and in any case, with the parts that name the key on their own, such as an AWS key id or an Azure vault host. A failed request shows only its error code, since provider error messages can name accounts and keys. `--show-ids` shows key ids, provider id fields such as the AWS access key id, and error messages in full, after a warning on standard error. Principals are shown either way, so an AWS principal ARN shows its account id by design.
+- **Ids.** Key ARNs, resource names and key URLs from the log show as the key's display id, wherever they appear and in any case, with the parts that name the key on their own, such as an AWS key id. Other values that must not print show as `<hidden>`: an Azure vault host and name, a Google Cloud key ring, the Azure workspace id, the value of each configuration variable part of a key, provider id fields such as the AWS access key id, and scope ids. Their URL-encoded and `\/`-escaped forms are masked too. A failed request shows only its error code, since provider error messages can name accounts and keys. `--show-ids` shows key ids, provider id fields and error messages in full, after a warning on standard error.
+- **Principals.** Principals are shown either way, so an AWS principal ARN shows its account id by design. Scope ids are not masked in principals. A key value, or a hidden configuration variable value such as a Google Cloud project id, is masked there too, so a service account email can show as `signer@<hidden>.iam.gserviceaccount.com`. This is accepted: the variable exists to keep the project out of the output.
 - **Sensitive output.** Principals, IP addresses and user agents are shown by default, because an incident review needs them. Treat the output as sensitive, and do not paste it into public issues.
 
 The task adds these notes to standard error, and to `notes` in the JSON, each with a stable code:
@@ -417,7 +419,7 @@ The task adds these notes to standard error, and to `notes` in the JSON, each wi
 
 A reader can add notes of its own, with other codes.
 
-When the task cannot read the log, it fails with exit code 1 and prints nothing on standard output. A refused read names the permission to grant. The task never shows an empty history for a log it could not read.
+When the task cannot read the log, it fails with exit code 1 and prints nothing on standard output. A refused read names the permission to grant. The task never shows an empty history for a log it could not read. The text of a reader's error is masked like the output, and anything in it shaped like an ARN, an Azure vault URL, a Google Cloud resource name, a GUID or an AWS account id shows as `<hidden>`. The errors it wraps are not shown, even with `--show-stack-traces`.
 
 **`--json`.** Prints the report instead of the table:
 

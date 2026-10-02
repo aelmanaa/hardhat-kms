@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 
+import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import { HardhatPluginError } from "hardhat/plugins";
 import type { HardhatUserConfig } from "hardhat/types/config";
 
 import hardhatKms from "../../src/index.ts";
+import { HISTORY_DEADLINE_MS, readSignHistory } from "../../src/internal/history/read.ts";
 import { auditLogAccessDenied, auditLogThrottled } from "../../src/provider-utils.ts";
 import type {
   KmsHistoryReport,
@@ -20,6 +22,7 @@ import {
   historyResult,
   PLACEHOLDERS,
 } from "../helpers/fake-history-reader.ts";
+import { fakeTimers } from "../helpers/fake-timers.ts";
 import { vaultKey } from "../helpers/vault-key.ts";
 
 const HOUR = 60 * 60 * 1000;
@@ -28,7 +31,13 @@ const HOUR = 60 * 60 * 1000;
 const SECRET_KEY_ID = "arn:aws:kms:eu-west-1:999988887777:key/5ec2e7aa-1111-4222-8333-944455556666";
 const SECRET = /999988887777/;
 
-const VARIABLES = ["AWS_KMS_KEY_ID", "HHKMS_HISTORY_KEY_ID", "HHKMS_HISTORY_WORKSPACE"];
+const VARIABLES = [
+  "AWS_KMS_KEY_ID",
+  "HHKMS_HISTORY_KEY_ID",
+  "HHKMS_HISTORY_WORKSPACE",
+  "HHKMS_HISTORY_PROJECT",
+  "HHKMS_HISTORY_AZURE_KEY",
+];
 const saved = new Map(VARIABLES.map((name) => [name, process.env[name]]));
 afterEach(() => {
   for (const [name, value] of saved) {
@@ -445,7 +454,7 @@ describe("kms history", () => {
     assert.equal(run.stderr, "");
   });
 
-  it("hides nothing more for a literal key id, or for a variable it cannot read", async () => {
+  it("shows a literal key id as the display id, and hides nothing for a variable it cannot read", async () => {
     const gcpName = "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1";
     const reader = fakeHistoryReader("gcp", (request) =>
       answerIn(request, { principal: `caller of ${gcpName}` }),
@@ -469,8 +478,8 @@ describe("kms history", () => {
     const literal = await history(hre, { key: "literal", ...SETTLED, json: true });
     const broken = await history(hre, { key: "broken", ...SETTLED, json: true });
 
-    // The literal id is in the config and in the display id already.
-    assert.equal(literal.report?.events[0]?.principal, `caller of ${gcpName}`);
+    // The literal id is in the config and in the display id already, which masking never rewrites.
+    assert.equal(literal.report?.events[0]?.principal, `caller of gcp:${gcpName}`);
     // A real reader fails on an invalid id first; the report has no value to hide.
     assert.equal(broken.report?.events[0]?.principal, "caller of not-a-key-id");
   });
@@ -576,31 +585,32 @@ describe("kms history", () => {
     assert.equal(run.report?.events[0]?.time, "2026-09-01T10:00:00.000Z");
   });
 
-  it("masks key ids in a plugin error the reader throws, and the Azure workspace id from a variable", async () => {
+  it("masks the Azure workspace id from a variable as <hidden>, in a reader error and in its notes", async () => {
     const workspace = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const keyUrl = "https://secret-vault.vault.azure.net/keys/deployer";
     process.env.HHKMS_HISTORY_WORKSPACE = workspace;
+    process.env.HHKMS_HISTORY_AZURE_KEY = keyUrl;
     const config: HardhatUserConfig = {
       plugins: [hardhatKms],
       kms: {
-        keys: { treasury: { provider: "aws", keyId: configVariable("HHKMS_HISTORY_KEY_ID") } },
+        keys: { vault: { provider: "azure", keyId: configVariable("HHKMS_HISTORY_AZURE_KEY") } },
         audit: { azure: { workspaceId: configVariable("HHKMS_HISTORY_WORKSPACE") } },
       },
     };
-    process.env.HHKMS_HISTORY_KEY_ID = SECRET_KEY_ID;
     const throwing = await createHardhatRuntimeEnvironment(config);
     throwing.hooks.registerHandlers(
       "kms",
-      fakeHistoryReader("aws", () => {
+      fakeHistoryReader("azure", () => {
         throw new HardhatPluginError(
           "a-reader",
-          `cannot read ${SECRET_KEY_ID.toUpperCase()} in workspace ${workspace}`,
+          `cannot read ${keyUrl.toUpperCase()} in workspace ${workspace} of vault secret-vault`,
         );
       }).handlers,
     );
     const noting = await createHardhatRuntimeEnvironment(config);
     noting.hooks.registerHandlers(
       "kms",
-      fakeHistoryReader("aws", () =>
+      fakeHistoryReader("azure", () =>
         historyResult({
           events: [],
           notes: [{ code: "workspace", message: `read workspace ${workspace.toUpperCase()}` }],
@@ -608,15 +618,253 @@ describe("kms history", () => {
       ).handlers,
     );
 
-    const thrown = await history(throwing, { key: "treasury" });
-    const noted = await history(noting, { key: "treasury", ...SETTLED, json: true });
+    const thrown = await history(throwing, { key: "vault" });
+    const noted = await history(noting, { key: "vault", ...SETTLED, json: true });
 
+    // The key value prints as the key; the workspace and the vault name are not the key.
     assertPluginError(
       thrown.error,
-      "cannot read aws:<HHKMS_HISTORY_KEY_ID> in workspace aws:<HHKMS_HISTORY_KEY_ID>",
+      "cannot read azure:<HHKMS_HISTORY_AZURE_KEY> in workspace <hidden> of vault <hidden>",
     );
-    assert.equal(noted.report?.notes[0]?.message, "read workspace aws:<HHKMS_HISTORY_KEY_ID>");
-    assert.doesNotMatch(`${noted.stdout}${noted.stderr}`, /0f8fad5b|999988887777/i);
+    assert.equal(noted.report?.notes[0]?.message, "read workspace <hidden>");
+    assert.doesNotMatch(`${noted.stdout}${noted.stderr}`, /0f8fad5b|secret-vault/i);
+  });
+
+  it("reads the workspace variable only for Azure keys, so other keys never prompt for it", async () => {
+    const fetched: string[] = [];
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKms],
+      kms: {
+        keys: {
+          treasury: { provider: "aws", keyId: configVariable("HHKMS_HISTORY_KEY_ID") },
+          vault: { provider: "azure", keyId: "https://secret-vault.vault.azure.net/keys/deployer" },
+        },
+        audit: { azure: { workspaceId: configVariable("HHKMS_HISTORY_WORKSPACE") } },
+      },
+    });
+    // A keystore: Hardhat asks it for a variable only when the environment does not set it.
+    const keystore: Record<string, string> = {
+      HHKMS_HISTORY_KEY_ID: SECRET_KEY_ID,
+      HHKMS_HISTORY_WORKSPACE: "0f8fad5b-d9cb-469f-a165-70867728950e",
+    };
+    hre.hooks.registerHandlers("configurationVariables", {
+      fetchValue: async (context, variable, next) => {
+        fetched.push(variable.name);
+        return keystore[variable.name] ?? (await next(context, variable));
+      },
+    });
+    Reflect.deleteProperty(process.env, "HHKMS_HISTORY_KEY_ID");
+    Reflect.deleteProperty(process.env, "HHKMS_HISTORY_WORKSPACE");
+    for (const provider of ["aws", "azure"]) {
+      hre.hooks.registerHandlers(
+        "kms",
+        fakeHistoryReader(provider, (request) => answerIn(request)).handlers,
+      );
+    }
+
+    await history(hre, { key: "treasury", ...SETTLED });
+    assert.deepEqual(fetched, ["HHKMS_HISTORY_KEY_ID"]);
+    await history(hre, { key: "vault", ...SETTLED });
+    assert.deepEqual(fetched, ["HHKMS_HISTORY_KEY_ID", "HHKMS_HISTORY_WORKSPACE"]);
+  });
+
+  it("leaves a workspace variable it cannot read to the reader", async () => {
+    Reflect.deleteProperty(process.env, "HHKMS_HISTORY_WORKSPACE");
+    const reader = fakeHistoryReader("azure", (request) => answerIn(request));
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKms],
+      kms: {
+        keys: {
+          vault: { provider: "azure", keyId: "https://secret-vault.vault.azure.net/keys/a" },
+        },
+        audit: { azure: { workspaceId: configVariable("HHKMS_HISTORY_WORKSPACE") } },
+      },
+    });
+    hre.hooks.registerHandlers("kms", reader.handlers);
+
+    const run = await history(hre, { key: "vault", ...SETTLED });
+
+    assert.equal(run.error, undefined);
+    assert.equal(reader.requests.length, 1);
+  });
+
+  it("masks the value of a variable part of a Google Cloud key as <hidden>, and the joined key as the key", async () => {
+    process.env.HHKMS_HISTORY_PROJECT = "secret-project-42";
+    const name =
+      "projects/secret-project-42/locations/global/keyRings/ring/cryptoKeys/deployer/cryptoKeyVersions/1";
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKms],
+      kms: {
+        keys: {
+          joined: {
+            provider: "gcp",
+            projectId: configVariable("HHKMS_HISTORY_PROJECT"),
+            location: "global",
+            keyRing: "ring",
+            keyName: "deployer",
+            keyVersion: 1,
+          },
+        },
+      },
+    });
+    hre.hooks.registerHandlers(
+      "kms",
+      fakeHistoryReader("gcp", (request) =>
+        answerIn(request, {
+          principal: "signer@secret-project-42.iam.gserviceaccount.com",
+          keyResource: name,
+          extra: { project: "secret-project-42", resource: name },
+        }),
+      ).handlers,
+    );
+
+    const run = await history(hre, { key: "joined", ...SETTLED, json: true });
+
+    const displayId =
+      "gcp:projects/<HHKMS_HISTORY_PROJECT>/locations/global/keyRings/ring/cryptoKeys/deployer/cryptoKeyVersions/1";
+    assert.equal(run.report?.key.displayId, displayId);
+    assert.deepEqual(run.report?.events[0]?.extra, {
+      project: "<hidden>",
+      resource: displayId,
+    });
+    // A hidden project is masked inside a principal's email too.
+    assert.equal(run.report?.events[0]?.principal, "signer@<hidden>.iam.gserviceaccount.com");
+    assert.doesNotMatch(run.stdout, /secret-project-42/);
+  });
+
+  it("throws a new error with the masked text of a reader's Hardhat error and no cause", async () => {
+    const reader = fakeHistoryReader("aws", () => {
+      throw new HardhatError(HardhatError.ERRORS.CORE.INTERNAL.ASSERTION_ERROR, {
+        message: `lookup of ${SECRET_KEY_ID} failed`,
+      });
+    });
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const run = await history(hre, { key: "treasury" });
+
+    assertPluginError(
+      run.error,
+      /^An internal invariant was violated: lookup of aws:<HHKMS_HISTORY_KEY_ID> failed$/,
+    );
+    assert.ok(!HardhatError.isHardhatError(run.error));
+    assert.equal(run.error instanceof Error ? run.error.cause : "not an error", undefined);
+    assert.doesNotMatch(String(run.error instanceof Error ? run.error.stack : ""), SECRET);
+  });
+
+  it("drops the cause of a reader's plugin error, which masking cannot reach", async () => {
+    const reader = fakeHistoryReader("aws", () => {
+      throw new HardhatPluginError("a-reader", "lookup failed", new Error(`for ${SECRET_KEY_ID}`));
+    });
+    const hre = await runtime({ readers: [reader.handlers] });
+
+    const run = await history(hre, { key: "treasury" });
+
+    assertPluginError(run.error, "lookup failed");
+    assert.equal(run.error instanceof Error ? run.error.cause : "not an error", undefined);
+  });
+
+  it("masks ids a reader's error holds that the plugin was never given, such as the ARN of a literal alias", async () => {
+    const resolved = "arn:aws:kms:eu-west-1:444455556666:key/0a1b2c3d-1111-4222-8333-944455556666";
+    const reader = fakeHistoryReader("aws", () => {
+      throw new HardhatPluginError("a-reader", `no events for ${resolved}`);
+    });
+    const hre = await runtime({
+      readers: [reader.handlers],
+      keys: { literal: { provider: "aws", keyId: "alias/deployer", region: "eu-west-1" } },
+    });
+
+    const run = await history(hre, { key: "literal" });
+
+    assertPluginError(run.error, "no events for <hidden>");
+  });
+
+  it("passes the reader a signal that aborts at the deadline, and fails then even if the reader ignores it", async () => {
+    const signals: AbortSignal[] = [];
+    const hre = await runtime({
+      readers: [
+        fakeHistoryReader("myvault", async (request) => {
+          if (request.signal !== undefined) {
+            signals.push(request.signal);
+          }
+          // Never answers.
+          return await new Promise(() => {});
+        }).handlers,
+      ],
+    });
+    const timers = fakeTimers();
+    const key = hre.config.kms.keys.deployer;
+    assert.ok(key !== undefined);
+
+    const read = readSignHistory(
+      hre,
+      {
+        key,
+        since: new Date(Date.parse(SETTLED.since)),
+        until: new Date(Date.parse(SETTLED.until)),
+        limit: 1,
+      },
+      (text) => text,
+      timers,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(timers.delays(), [HISTORY_DEADLINE_MS]);
+    assert.equal(HISTORY_DEADLINE_MS, 120_000);
+    assert.equal(signals[0]?.aborted, false);
+    timers.fire();
+
+    await assert.rejects(read, (error: unknown) => {
+      assertPluginError(
+        error,
+        "myvault, history, key myvault:deployer: reading the audit log took more than 120 seconds, so kms history stopped waiting",
+      );
+      return true;
+    });
+    assert.equal(signals[0]?.aborted, true);
+  });
+
+  it("refuses a limit reason with fewer than limit events, and says when an early stop found nothing", async () => {
+    const refused = await history(
+      await runtime({
+        readers: [
+          fakeHistoryReader("myvault", () =>
+            historyResult({ events: [], truncated: true, truncatedReason: "limit" }),
+          ).handlers,
+        ],
+      }),
+      { key: "deployer", ...SETTLED },
+    );
+    assertPluginError(
+      refused.error,
+      /invalid result: truncatedReason is "limit", but the result holds fewer than limit events$/,
+    );
+
+    const hre = await runtime({
+      readers: [
+        fakeHistoryReader("myvault", () =>
+          historyResult({
+            events: [],
+            truncated: true,
+            truncatedReason: "scan-limit",
+            completeForKey: false,
+          }),
+        ).handlers,
+      ],
+    });
+    const run = await history(hre, { key: "deployer", ...SETTLED });
+
+    assert.match(
+      run.stdout,
+      /^No sign events found before the reader stopped \(it stopped before reading the whole range\)\.$/m,
+    );
+    assert.doesNotMatch(run.stdout, /No sign events in /);
+    assert.match(
+      run.stderr,
+      /The reader found no sign events before it stopped\. That does not show/,
+    );
+    assert.match(
+      run.stderr,
+      /the reader stopped before reading the whole range and found no sign events before it stopped, so the range may hold events it did not read\./,
+    );
   });
 
   it("prints the scope with ids hidden, and says when the reader stopped early", async () => {
@@ -636,7 +884,7 @@ describe("kms history", () => {
     assert.doesNotMatch(run.stdout, /999988887777/);
     assert.match(
       run.stderr,
-      /the reader stopped before reading the whole range; these are the newest 1 events it found/,
+      /the reader stopped before reading the whole range; these are the newest 1 event it found, so the range may hold events it did not read\./,
     );
     assert.doesNotMatch(run.stderr, /than --limit/);
   });
@@ -663,7 +911,7 @@ describe("kms history", () => {
     assert.equal(run.report?.truncated, true);
     assert.match(
       run.stderr,
-      /the log holds more events in this range than --limit 2; these are the newest 2\. Narrow the range with --since and --until, or raise --limit\./,
+      /the log holds more events in this range than --limit 2; these are the newest 2 events\. Narrow the range with --since and --until, or raise --limit\./,
     );
   });
 });

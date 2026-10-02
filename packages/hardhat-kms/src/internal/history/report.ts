@@ -1,4 +1,4 @@
-import { hiddenSet, masker } from "./mask.ts";
+import { type HiddenSources, hiddenSet, masker } from "./mask.ts";
 import type {
   KmsHistoryEvent,
   KmsHistoryExtraValue,
@@ -25,7 +25,7 @@ export interface KmsHistoryEntry {
   sourceIp: string | null;
   /** The user agent the client reported. Any client can send any value. */
   userAgent: string | null;
-  /** The provider's id for the request or the log entry. */
+  /** The id the provider assigned to the request, as logged. */
   requestId: string | null;
   /** The version id of the key version that signed, as logged. */
   keyVersion: string | null;
@@ -70,6 +70,11 @@ export interface KmsHistoryReport {
   notes: KmsHistoryNote[];
 }
 
+/** Shows a text as it is, for `--show-ids`. */
+function unmasked(text: string): string {
+  return text;
+}
+
 /** Within this many minutes of now, an event may not have reached the log yet. */
 const RECENT_WINDOW_MINUTES: number = 15;
 
@@ -96,7 +101,10 @@ export function historyNotes(
     notes.push({
       code: "logging-not-confirmed",
       message: [
-        "The log returned no sign events in this range. That does not show that the key signed nothing: logging may be off or sent elsewhere, or this read may not see every sign request on the key, such as those from another account or Region.",
+        result.truncated
+          ? "The reader found no sign events before it stopped."
+          : "The log returned no sign events in this range.",
+        "That does not show that the key signed nothing: logging may be off or sent elsewhere, or this read may not see every sign request on the key, such as those from another account or Region.",
         ...(result.setupHint === undefined ? [] : [result.setupHint]),
       ].join(" "),
     });
@@ -136,31 +144,41 @@ export interface HistoryReportInput {
   notes: KmsHistoryNote[];
   showIds: boolean;
   /**
-   * Values that identify the key beyond its display id, such as a configuration variable's value.
-   * Hidden like key resources without `--show-ids`.
+   * Values to hide without `--show-ids` before anything the reader returns: the key's identifier
+   * as `keys`, and the workspace id and the values of the key's configuration variable parts as
+   * `others`.
    */
-  hiddenValues: readonly string[];
+  hidden: HiddenSources;
 }
 
 /**
  * Builds the report `kms history` prints. Without `--show-ids`, each event's key resource shows
- * as the key's display id, error messages and `extraIds` are left out, and any of their values,
- * or of `hiddenValues`, found in another field is replaced with the display id.
+ * as the key's display id, error messages, `extraIds` and scope ids are left out, and any of their
+ * values, or of the hidden values, found in another field is replaced: a key value with the
+ * display id, any other value with `<hidden>`. Principals are shown as logged, apart from key
+ * values and the values of the key's configuration variables, so scope ids are not masked there.
  *
  * @param input - The key, the range, the checked result and the notes.
  * @returns The report.
  */
 export function buildHistoryReport(input: HistoryReportInput): KmsHistoryReport {
   const { key, result, showIds } = input;
-  const hidden = hiddenSet([
-    ...input.hiddenValues,
-    ...(result.hiddenValues ?? []),
-    ...result.events.flatMap((event) => [
-      event.keyResource,
-      ...Object.values(event.extraIds ?? {}),
-    ]),
-  ]);
-  const mask = showIds ? (text: string): string => text : masker(hidden, key.displayId);
+  const sources: HiddenSources = {
+    keys: [...input.hidden.keys, ...result.events.map((event) => event.keyResource)],
+    others: [
+      ...input.hidden.others,
+      ...(result.hiddenValues ?? []),
+      ...result.events.flatMap((event) => Object.values(event.extraIds ?? {})),
+    ],
+  };
+  const scopeIds = Object.values(result.scope?.ids ?? {});
+  const mask = showIds
+    ? unmasked
+    : masker(
+        hiddenSet({ keys: sources.keys, others: [...sources.others, ...scopeIds] }),
+        key.displayId,
+      );
+  const maskPrincipal = showIds ? unmasked : masker(hiddenSet(sources), key.displayId);
   const maskOrNull = (text: string | null): string | null => (text === null ? null : mask(text));
 
   const entry = (event: KmsHistoryEvent): KmsHistoryEntry => ({
@@ -174,7 +192,7 @@ export function buildHistoryReport(input: HistoryReportInput): KmsHistoryReport 
             message: showIds ? event.errorMessage : null,
           }
         : null,
-    principal: maskOrNull(event.principal),
+    principal: event.principal === null ? null : maskPrincipal(event.principal),
     sourceIp: maskOrNull(event.sourceIp),
     userAgent: maskOrNull(event.userAgent),
     requestId: maskOrNull(event.requestId),
@@ -213,6 +231,12 @@ export function buildHistoryReport(input: HistoryReportInput): KmsHistoryReport 
   };
 }
 
+/** Why a report is truncated, in words. */
+const TRUNCATED_WORDING: Readonly<Record<"limit" | "scan-limit", string>> = {
+  limit: "the log holds more events in this range than --limit",
+  "scan-limit": "it stopped before reading the whole range",
+};
+
 /** How the table and its lines name each field. */
 const FIELD_LABELS: Readonly<Record<KmsHistoryField, string>> = {
   principal: "principal",
@@ -248,7 +272,11 @@ export function renderHistoryTable(report: KmsHistoryReport): string[] {
   }
   lines.push("");
   if (report.events.length === 0) {
-    lines.push(`No sign events in ${report.source} for this range.`);
+    lines.push(
+      report.truncatedReason === null
+        ? `No sign events in ${report.source} for this range.`
+        : `No sign events found before the reader stopped (${TRUNCATED_WORDING[report.truncatedReason]}).`,
+    );
     return lines;
   }
 

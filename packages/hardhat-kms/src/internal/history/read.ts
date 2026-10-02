@@ -7,6 +7,7 @@ import { kmsDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, type ErrorDetails, errorName } from "../errors.ts";
 import { builtinProvider } from "../providers/registry.ts";
+import { systemTimers, TimeoutError, type Timers, withTimeout } from "../signer/timeout.ts";
 import { parseLoggedTime } from "./time.ts";
 import type {
   KmsHistoryEvent,
@@ -19,6 +20,14 @@ import type {
 } from "./types.ts";
 
 const log = kmsDebug("history");
+
+/**
+ * How long `kms history` waits for a reader, in milliseconds. A read can take many requests: pages
+ * of a long range, and the SDK's retries on a throttled log (AWS allows 2 lookups per second,
+ * Google Cloud 60 reads per minute). The deadline does not depend on the key's `timeoutMs`, which
+ * bounds a single sign request.
+ */
+export const HISTORY_DEADLINE_MS = 120_000;
 
 /** Every field a reader may list as not logged, in the order the output shows them. */
 const HISTORY_FIELDS: readonly KmsHistoryField[] = [
@@ -38,6 +47,10 @@ const CORE_NOTE_CODES: readonly string[] = [
 ];
 
 const NOTE_CODE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+// Words of letters only: no account, project or key number fits in a source.
+const SOURCE = /^(?=.{1,64}$)[a-z]+(?:-[a-z]+)*$/;
+// A field name in `extra`, `extraIds` and `scope.ids`.
+const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_.]{0,63}$/;
 const DIGEST = /^0x[0-9a-f]{64}$/;
 const KEY_VERSION = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -55,43 +68,76 @@ function noReaderError(key: KmsKeyConfig, details: ErrorDetails): Error {
 }
 
 /**
- * Reads a key's sign events: runs the `kms.readSignHistory` hook chain, then checks what the
- * reader returned against the contract. Events come back newest first, at most `limit` of them.
+ * The error `kms history` throws for an error a reader threw. A plugin or Hardhat error becomes a
+ * new error with its text masked and no cause: Hardhat prints a `HardhatError`'s formatted message
+ * and, with `--show-stack-traces`, the stack and the cause chain, none of which masking the
+ * original's `message` would reach. Any other error may carry request details, so only its class
+ * name is kept, as for adapters.
+ */
+function readerError(
+  error: unknown,
+  key: KmsKeyConfig,
+  details: ErrorDetails,
+  mask: (text: string) => string,
+): HardhatPluginError {
+  if (error instanceof TimeoutError) {
+    log("%s: the reader did not return in time", key.displayId);
+    return catalogError(
+      ERRORS.historyTimedOut,
+      { seconds: Math.round(HISTORY_DEADLINE_MS / 1000) },
+      details,
+    );
+  }
+  if (HardhatError.isHardhatError(error) || HardhatPluginError.isHardhatPluginError(error)) {
+    const text = HardhatError.isHardhatError(error) ? error.formattedMessage : error.message;
+    // No details: the reader's own text carries them, as the reader built it.
+    return catalogError(ERRORS.historyReaderError, { message: mask(text) });
+  }
+  log("%s: reading the audit log failed (%s)", key.displayId, errorName(error));
+  return catalogError(ERRORS.historyReadFailed, { errorName: errorName(error) }, details);
+}
+
+/**
+ * Reads a key's sign events: runs the `kms.readSignHistory` hook chain with a signal that aborts
+ * at {@link HISTORY_DEADLINE_MS}, then checks what the reader returned against the contract.
+ * Events come back newest first, at most `limit` of them.
  *
  * @param context - The Hardhat runtime.
- * @param request - The key, the range and the limit.
- * @param mask - Hides key ids in the message of an error the reader throws.
+ * @param request - The key, the range and the limit. The signal is added here.
+ * @param mask - Hides key ids and other values in the text of an error the reader throws.
+ * @param timers - Timer functions, injectable so tests can control the deadline.
  * @returns The checked result.
  */
 export async function readSignHistory(
   context: HookContext,
-  request: KmsHistoryRequest,
+  request: Omit<KmsHistoryRequest, "signal">,
   mask: (text: string) => string,
+  timers: Timers = systemTimers,
 ): Promise<KmsHistoryResult> {
   const { key } = request;
   const details = { provider: key.provider, operation: "history", key: key.displayId };
   log("reading the audit log of %s", key.displayId);
+  let unclaimed: Error | undefined;
   let result: unknown;
   try {
-    result = await context.hooks.runHandlerChain(
-      "kms",
-      "readSignHistory",
-      [request],
-      async (_finalContext, finalRequest) => {
-        log("%s: no plugin reads this provider's audit log", finalRequest.key.displayId);
-        return await Promise.reject(noReaderError(finalRequest.key, details));
-      },
+    result = await withTimeout(
+      async (signal) =>
+        await context.hooks.runHandlerChain(
+          "kms",
+          "readSignHistory",
+          [{ ...request, signal }],
+          async (_finalContext, finalRequest) => {
+            log("%s: no plugin reads this provider's audit log", finalRequest.key.displayId);
+            unclaimed = noReaderError(finalRequest.key, details);
+            return await Promise.reject(unclaimed);
+          },
+        ),
+      HISTORY_DEADLINE_MS,
+      timers,
     );
   } catch (error) {
-    // As for adapters: the plugin's and Hardhat's errors are written to be shown; anything else
-    // may carry request details, so only its class name is kept.
-    if (HardhatPluginError.isHardhatPluginError(error) || HardhatError.isHardhatError(error)) {
-      // A reader's error message should hold no ids; mask any it holds anyway.
-      error.message = mask(error.message);
-      throw error;
-    }
-    log("%s: reading the audit log failed (%s)", key.displayId, errorName(error));
-    throw catalogError(ERRORS.historyReadFailed, { errorName: errorName(error) }, details);
+    // The plugin's own error for a key no reader claimed holds no reader text.
+    throw error === unclaimed ? error : readerError(error, key, details, mask);
   }
   const problems: string[] = [];
   const checked = parseHistoryResult(result, request, problems);
@@ -151,6 +197,21 @@ function optionalCount(source: object, name: string, problems: string[]): number
   return undefined;
 }
 
+/**
+ * The names of an object's fields that are valid field names. Each invalid name adds a problem
+ * that does not repeat it, since the reader's text is not printed.
+ */
+function namedFields(fields: object, path: string, problems: string[]): string[] {
+  const names = Object.keys(fields);
+  const valid = names.filter((name) => FIELD_NAME.test(name));
+  if (valid.length < names.length) {
+    problems.push(
+      `${path} holds a field name that is not a letter followed by at most 63 letters, digits, _ and .`,
+    );
+  }
+  return valid;
+}
+
 /** `extra`: scalars by name, or `undefined` when absent. */
 function extraFields(
   source: object,
@@ -167,7 +228,7 @@ function extraFields(
     return undefined;
   }
   const entries: Array<[string, KmsHistoryExtraValue]> = [];
-  for (const field of Object.keys(fields)) {
+  for (const field of namedFields(fields, `${path}.extra`, problems)) {
     const item = property(fields, field);
     if (
       item === null ||
@@ -177,7 +238,9 @@ function extraFields(
     ) {
       entries.push([field, item]);
     } else {
-      problems.push(`${path}.extra.${field} must be a string, a finite number, a boolean or null`);
+      problems.push(
+        `${path}.extra holds a value that is not a string, a finite number, a boolean or null`,
+      );
     }
   }
   return Object.fromEntries(entries);
@@ -199,12 +262,12 @@ function extraIdFields(
     return undefined;
   }
   const entries: Array<[string, string | null]> = [];
-  for (const field of Object.keys(fields)) {
+  for (const field of namedFields(fields, `${path}.extraIds`, problems)) {
     const item = property(fields, field);
     if (item === null || typeof item === "string") {
       entries.push([field, item]);
     } else {
-      problems.push(`${path}.extraIds.${field} must be a string or null`);
+      problems.push(`${path}.extraIds holds a value that is not a string or null`);
     }
   }
   return Object.fromEntries(entries);
@@ -213,7 +276,7 @@ function extraIdFields(
 function parseEvent(
   input: unknown,
   path: string,
-  request: KmsHistoryRequest,
+  request: Omit<KmsHistoryRequest, "signal">,
   notLogged: readonly KmsHistoryField[],
   problems: string[],
 ): KmsHistoryEvent | undefined {
@@ -306,12 +369,12 @@ function parseScope(source: object, problems: string[]): KmsHistoryScope | undef
   }
   const idFields = asObject(rawIds);
   const ids: Array<[string, string]> = [];
-  for (const field of idFields === undefined ? [] : Object.keys(idFields)) {
+  for (const field of idFields === undefined ? [] : namedFields(idFields, "scope.ids", problems)) {
     const item = idFields === undefined ? undefined : property(idFields, field);
     if (typeof item === "string" && item !== "") {
       ids.push([field, item]);
     } else {
-      problems.push(`scope.ids.${field} must be a non-empty string`);
+      problems.push("scope.ids holds a value that is not a non-empty string");
     }
   }
   if (idFields === undefined) {
@@ -342,8 +405,9 @@ function parseHiddenValues(source: object, problems: string[]): string[] {
 
 /**
  * Checks a reader's result against the contract and copies it, sorted newest first and cut to the
- * limit. A result with more than `limit` events, or `truncated` without a reason, is truncated by
- * `limit`. Problems are added to `problems`; the result is `undefined` when it is not an object.
+ * limit. A result with more than `limit` events is truncated by `limit`. Problems are added to
+ * `problems`, never with a value the reader chose, since they are printed; the result is
+ * `undefined` when it is not an object.
  *
  * @param value - What the reader returned.
  * @param request - The request it answered.
@@ -352,7 +416,7 @@ function parseHiddenValues(source: object, problems: string[]): string[] {
  */
 export function parseHistoryResult(
   input: unknown,
-  request: KmsHistoryRequest,
+  request: Omit<KmsHistoryRequest, "signal">,
   problems: string[],
 ): KmsHistoryResult | undefined {
   const value = asObject(input);
@@ -361,8 +425,8 @@ export function parseHistoryResult(
     return undefined;
   }
   const source = nonEmptyString(value, "source", "result", problems);
-  if (source !== "" && !NOTE_CODE.test(source)) {
-    problems.push("result.source must be lowercase words joined by -");
+  if (source !== "" && !SOURCE.test(source)) {
+    problems.push("result.source must be words of lowercase letters joined by -, at most 64 long");
   }
   const listed = property(value, "notLogged");
   const notLogged: KmsHistoryField[] = [];
@@ -370,9 +434,7 @@ export function parseHistoryResult(
     for (const item of listed) {
       const field = HISTORY_FIELDS.find((known) => known === item);
       if (field === undefined) {
-        problems.push(
-          `notLogged holds an unknown field: ${typeof item === "string" ? item : typeof item}`,
-        );
+        problems.push("notLogged holds a value that is not a field name");
       } else if (!notLogged.includes(field)) {
         notLogged.push(field);
       }
@@ -408,6 +470,14 @@ export function parseHistoryResult(
     problems.push('truncatedReason must be "limit" or "scan-limit" when set');
   } else if (truncatedReason !== undefined && truncated !== true) {
     problems.push("truncatedReason is set, but truncated is not true");
+  } else if (truncatedReason === undefined && truncated === true) {
+    problems.push("truncated is true, but truncatedReason is not set");
+  } else if (
+    truncatedReason === "limit" &&
+    Array.isArray(rawEvents) &&
+    rawEvents.length < request.limit
+  ) {
+    problems.push('truncatedReason is "limit", but the result holds fewer than limit events');
   }
   const completeForKey = property(value, "completeForKey");
   if (typeof completeForKey !== "boolean") {
@@ -442,6 +512,7 @@ export function parseHistoryResult(
     notLogged,
     events: sorted.slice(0, request.limit),
     truncated: isTruncated,
+    // A reader that returned limit + 1 events without truncated is truncated by the limit.
     ...(isTruncated
       ? { truncatedReason: truncatedReason === "scan-limit" ? "scan-limit" : "limit" }
       : {}),
