@@ -10,7 +10,8 @@ import {
   recoverAddress,
   toRpcSignature,
 } from "../crypto/signature.ts";
-import { kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError } from "../errors.ts";
 import { readMessage, readTypedDataArgument } from "./inputs.ts";
 import { printLine, printNote, withNamedSigner } from "./keys.ts";
 
@@ -59,7 +60,7 @@ const kmsVerify: NewTaskActionFunction<VerifyArguments> = async (args, hre) => {
   // Check every input before the KMS is asked for anything.
   const signer = expectedSigner(args);
   if (args.fromFile && !args.data) {
-    throw kmsError("--from-file requires --data", { operation: OPERATION });
+    throw catalogError(ERRORS.fromFileNeedsData, {}, { operation: OPERATION });
   }
   const digest = args.data
     ? typedDataDigest(await readTypedDataArgument(args.message, args.fromFile, OPERATION))
@@ -70,9 +71,11 @@ const kmsVerify: NewTaskActionFunction<VerifyArguments> = async (args, hre) => {
     parsed = parseRpcSignature(args.signature);
     recovered = recoverAddress(digest, parsed.signature);
   } catch (error) {
-    throw kmsError(`invalid signature: ${error instanceof Error ? error.message : String(error)}`, {
-      operation: OPERATION,
-    });
+    throw catalogError(
+      ERRORS.verifyInvalidSignature,
+      { reason: error instanceof Error ? error.message : String(error) },
+      { operation: OPERATION },
+    );
   }
   // --address is compared as given, case-insensitively, and shown checksummed.
   const expected = "key" in signer ? await keyAddress(hre, signer.key) : signer.address;
@@ -101,22 +104,22 @@ export default kmsVerify;
  */
 function expectedSigner(args: VerifyArguments): ExpectedSigner {
   if (args.address !== undefined && args.key !== undefined) {
-    throw kmsError("pass either --address or --key, not both", { operation: OPERATION });
+    throw catalogError(ERRORS.verifyAddressAndKey, {}, { operation: OPERATION });
   }
   if (args.key !== undefined) {
     return { key: args.key };
   }
   if (args.address === undefined) {
-    throw kmsError("pass the expected signer with --address <address> or --key <key>", {
-      operation: OPERATION,
-    });
+    throw catalogError(ERRORS.verifyNoSigner, {}, { operation: OPERATION });
   }
   try {
     return { address: args.address, checksummed: toChecksumAddress(args.address) };
   } catch (error) {
-    throw kmsError(`--address: ${error instanceof Error ? error.message : String(error)}`, {
-      operation: OPERATION,
-    });
+    throw catalogError(
+      ERRORS.verifyAddressInvalid,
+      { reason: error instanceof Error ? error.message : String(error) },
+      { operation: OPERATION },
+    );
   }
 }
 

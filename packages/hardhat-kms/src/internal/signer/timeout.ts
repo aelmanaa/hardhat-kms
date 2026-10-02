@@ -1,3 +1,6 @@
+import { ERRORS } from "../error-catalog.ts";
+import { catalogMessage } from "../errors.ts";
+
 /** Timer functions, injectable so tests can control time. */
 export interface Timers {
   /**
@@ -46,7 +49,7 @@ export async function withTimeout<T>(
     controller.signal.addEventListener(
       "abort",
       () => {
-        reject(new TimeoutError(`timed out after ${timeoutMs} ms`));
+        reject(new TimeoutError(catalogMessage(ERRORS.timedOut, { timeout: timeoutMs })));
       },
       { once: true },
     );

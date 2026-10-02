@@ -1,5 +1,7 @@
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 
+import { ERRORS } from "../error-catalog.ts";
+import { catalogMessage } from "../errors.ts";
 import { addressFromPublicKey } from "./address.ts";
 
 /**
@@ -46,23 +48,25 @@ export function parseSignature(output: SignatureOutput): { r: bigint; s: bigint 
   if ("format" in output) {
     // The adapter controls this value, and it ends up in error messages: allow only known formats.
     if (output.format !== "der" && output.format !== "compact") {
-      throw new InvalidSignatureError("unsupported signature format; expected der or compact");
+      throw new InvalidSignatureError(catalogMessage(ERRORS.signatureFormat, {}));
     }
     if (output.format === "compact" && output.bytes.length !== COMPACT_LENGTH) {
       throw new InvalidSignatureError(
-        `expected a 64-byte compact signature, got ${output.bytes.length} bytes`,
+        catalogMessage(ERRORS.signatureCompactLength, { length: output.bytes.length }),
       );
     }
     try {
       ({ r, s } = secp256k1.Signature.fromBytes(output.bytes, output.format));
     } catch {
-      throw new InvalidSignatureError(`the ${output.format} signature could not be parsed`);
+      throw new InvalidSignatureError(
+        catalogMessage(ERRORS.signatureParse, { format: output.format }),
+      );
     }
   } else {
     ({ r, s } = output);
   }
   if (r <= 0n || r >= CURVE_ORDER || s <= 0n || s >= CURVE_ORDER) {
-    throw new InvalidSignatureError("r or s is outside the range [1, n - 1]");
+    throw new InvalidSignatureError(catalogMessage(ERRORS.signatureRange, {}));
   }
   return { r, s };
 }
@@ -102,7 +106,7 @@ export function recoverYParity(
       return yParity;
     }
   }
-  throw new InvalidSignatureError("the signature does not recover to the expected public key");
+  throw new InvalidSignatureError(catalogMessage(ERRORS.signatureNoRecovery, {}));
 }
 
 /**
@@ -153,9 +157,7 @@ export function normalizeSignature(
   const yParity = recoverYParity(digest, r, s, publicKey);
   const compact = new secp256k1.Signature(r, s).toBytes("compact");
   if (!secp256k1.verify(compact, digest, publicKey, { prehash: false, lowS: true })) {
-    throw new InvalidSignatureError(
-      "the signature does not verify against the expected public key",
-    );
+    throw new InvalidSignatureError(catalogMessage(ERRORS.signatureNoVerify, {}));
   }
   return { r, s, yParity };
 }
@@ -198,19 +200,17 @@ export interface ParsedRpcSignature {
  */
 export function parseRpcSignature(signature: string): ParsedRpcSignature {
   if (!/^0x[0-9a-fA-F]*$/.test(signature)) {
-    throw new InvalidSignatureError("the signature must be 0x-prefixed hex");
+    throw new InvalidSignatureError(catalogMessage(ERRORS.signatureHex, {}));
   }
   const digits = signature.length - 2;
   if (digits !== (COMPACT_LENGTH + 1) * 2) {
-    throw new InvalidSignatureError(
-      `expected a 65-byte signature (r || s || v, 130 hex digits), got ${digits} hex digits`,
-    );
+    throw new InvalidSignatureError(catalogMessage(ERRORS.signatureRpcLength, { digits }));
   }
   const r = BigInt(`0x${signature.slice(2, 66)}`);
   const s = BigInt(`0x${signature.slice(66, 130)}`);
   const v = Number.parseInt(signature.slice(130), 16);
   if (r <= 0n || r >= CURVE_ORDER || s <= 0n || s >= CURVE_ORDER) {
-    throw new InvalidSignatureError("r or s is outside the range [1, n - 1]");
+    throw new InvalidSignatureError(catalogMessage(ERRORS.signatureRange, {}));
   }
   const bit = recoveryBit(v);
   const highS = s > HALF_CURVE_ORDER;
@@ -226,7 +226,7 @@ function recoveryBit(v: number): 0 | 1 {
   if (v === 1 || v === 28 || v >= 35) {
     return 1;
   }
-  throw new InvalidSignatureError(`v must be 0 or 1, 27 or 28, or 35 or more (EIP-155), got ${v}`);
+  throw new InvalidSignatureError(catalogMessage(ERRORS.signatureV, { v }));
 }
 
 /**
@@ -240,14 +240,16 @@ function recoveryBit(v: number): 0 | 1 {
 export function recoverAddress(digest: Uint8Array, signature: RecoverableSignature): string {
   const publicKey = recoverPublicKey(digest, signature.r, signature.s, signature.yParity);
   if (publicKey === undefined) {
-    throw new InvalidSignatureError("no public key recovers from the signature");
+    throw new InvalidSignatureError(catalogMessage(ERRORS.signatureNoPublicKey, {}));
   }
   return addressFromPublicKey(publicKey);
 }
 
 function assertDigest(digest: Uint8Array): void {
   if (digest.length !== DIGEST_LENGTH) {
-    throw new InvalidSignatureError(`expected a 32-byte digest, got ${digest.length} bytes`);
+    throw new InvalidSignatureError(
+      catalogMessage(ERRORS.signatureDigestLength, { length: digest.length }),
+    );
   }
 }
 

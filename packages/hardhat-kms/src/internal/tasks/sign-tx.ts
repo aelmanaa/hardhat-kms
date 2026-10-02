@@ -6,7 +6,8 @@ import type { NewTaskActionFunction } from "hardhat/types/tasks";
 import { addr } from "micro-eth-signer";
 
 import { sameAddress, toChecksumAddress } from "../crypto/address.ts";
-import { errorName, kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError, errorName } from "../errors.ts";
 import { createConnectionChain } from "../rpc/chain-id.ts";
 import { createTransactionFiller, type UnsignedTransaction } from "../rpc/transaction-filler.ts";
 import { type SignedTransaction, signTransaction } from "../rpc/transactions.ts";
@@ -26,9 +27,6 @@ const OPERATION = "kms sign-tx";
  * `blobVersionedHashes`. The task gives it for `type` 0x3 and `maxFeePerBlobGas`, which Hardhat's
  * request schema does not read.
  */
-const BLOB_MESSAGE =
-  "blob transactions (EIP-4844) cannot be signed with KMS accounts; send them from another account";
-
 /**
  * The fields of Hardhat 3.18's request schema (`rpcTransactionRequest`). The type makes the
  * compiler require every key of `RpcTransactionRequest` here, and no other.
@@ -107,8 +105,9 @@ async function readTransaction(file: string): Promise<Record<string, unknown>> {
     text = await readFile(file, "utf8");
   } catch (error) {
     const code: unknown = isObject(error) ? error.code : undefined;
-    throw kmsError(
-      `cannot read the transaction file ${file} (${typeof code === "string" ? code : errorName(error)})`,
+    throw catalogError(
+      ERRORS.txFileUnreadable,
+      { file, code: typeof code === "string" ? code : errorName(error) },
       { operation: OPERATION },
     );
   }
@@ -117,15 +116,10 @@ async function readTransaction(file: string): Promise<Record<string, unknown>> {
     parsed = JSON.parse(text);
   } catch (error) {
     const reason = error instanceof Error ? error.message : errorName(error);
-    throw kmsError(`the transaction file ${file} is not valid JSON: ${reason}`, {
-      operation: OPERATION,
-    });
+    throw catalogError(ERRORS.txFileNotJson, { file, reason }, { operation: OPERATION });
   }
   if (!isObject(parsed) || Array.isArray(parsed)) {
-    throw kmsError(
-      `the transaction file ${file} must hold one JSON object with eth_sendTransaction fields`,
-      { operation: OPERATION },
-    );
+    throw catalogError(ERRORS.txFileNotObject, { file }, { operation: OPERATION });
   }
   return parsed;
 }
@@ -153,10 +147,7 @@ function checkChecksum(where: string, value: unknown): void {
     return;
   }
   if (addr.addChecksum(value) !== value) {
-    throw kmsError(
-      `${where} ${value} has a wrong EIP-55 checksum, which usually means a typo. Check the address, or write it in lowercase.`,
-      { operation: OPERATION },
-    );
+    throw catalogError(ERRORS.txFileChecksum, { field: where, value }, { operation: OPERATION });
   }
 }
 
@@ -188,7 +179,7 @@ function checkAddressChecksums(tx: Record<string, unknown>): void {
  */
 function checkFields(tx: Record<string, unknown>): string | undefined {
   if (tx.maxFeePerBlobGas !== undefined) {
-    throw kmsError(BLOB_MESSAGE, { operation: OPERATION });
+    throw catalogError(ERRORS.txBlob, {}, { operation: OPERATION });
   }
   const unknown = Object.keys(tx).filter((field) => !KNOWN_FIELDS.has(field));
   if (unknown.length > 0) {
@@ -196,19 +187,24 @@ function checkFields(tx: Record<string, unknown>): string | undefined {
       const renamed = RENAMED_FIELDS[field];
       return renamed === undefined ? [] : [`use ${renamed} instead of ${field}`];
     });
-    throw kmsError(
-      `unknown transaction ${unknown.length === 1 ? "field" : "fields"} ${unknown.join(", ")}${
-        hints.length > 0 ? ` (${hints.join("; ")})` : ""
-      }. The fields are those of eth_sendTransaction: ${LISTED_FIELDS.join(", ")}.`,
+    throw catalogError(
+      ERRORS.txFileUnknownFields,
+      {
+        fields: `${unknown.length === 1 ? "field" : "fields"} ${unknown.join(", ")}`,
+        hints: hints.length > 0 ? ` (${hints.join("; ")})` : "",
+        known: LISTED_FIELDS.join(", "),
+      },
       { operation: OPERATION },
     );
   }
   for (const field of QUANTITY_FIELDS) {
     const value = tx[field];
     if (value !== undefined && (typeof value !== "string" || !/^0x[0-9a-fA-F]+$/.test(value))) {
-      throw kmsError(`${field} must be a hex quantity, such as "0x1", got ${shown(value)}`, {
-        operation: OPERATION,
-      });
+      throw catalogError(
+        ERRORS.txFileNotQuantity,
+        { field, value: shown(value) },
+        { operation: OPERATION },
+      );
     }
   }
   checkAddressChecksums(tx);
@@ -216,18 +212,15 @@ function checkFields(tx: Record<string, unknown>): string | undefined {
     return undefined;
   }
   if (typeof tx.type !== "string" || !/^0x[0-9a-fA-F]+$/.test(tx.type)) {
-    throw kmsError('type must be a hex quantity, such as "0x2"', { operation: OPERATION });
+    throw catalogError(ERRORS.txFileTypeNotQuantity, {}, { operation: OPERATION });
   }
   const number = Number.parseInt(tx.type, 16);
   if (number === 3) {
-    throw kmsError(BLOB_MESSAGE, { operation: OPERATION });
+    throw catalogError(ERRORS.txBlob, {}, { operation: OPERATION });
   }
   const type = TYPES[number];
   if (type === undefined) {
-    throw kmsError(
-      `transaction type ${tx.type} is not supported; KMS accounts sign types 0x0, 0x1, 0x2 and 0x4`,
-      { operation: OPERATION },
-    );
+    throw catalogError(ERRORS.txFileUnsupportedType, { type: tx.type }, { operation: OPERATION });
   }
   return type;
 }
@@ -241,8 +234,9 @@ function checkFields(tx: Record<string, unknown>): string | undefined {
  */
 function checkType(requested: string | undefined, unsigned: UnsignedTransaction): void {
   if (requested !== undefined && requested !== unsigned.type) {
-    throw kmsError(
-      `the transaction asks for type ${describeType(requested)}, but its fields make it type ${describeType(unsigned.type)}; nothing was signed. Set the fee fields of type ${describeType(requested)}, or remove type.`,
+    throw catalogError(
+      ERRORS.txTypeMismatch,
+      { requested: describeType(requested), actual: describeType(unsigned.type) },
       { operation: OPERATION },
     );
   }
@@ -260,10 +254,7 @@ function checkType(requested: string | undefined, unsigned: UnsignedTransaction)
 const kmsSignTx: NewTaskActionFunction<SignTxArguments> = async ({ key, tx: file }, hre) => {
   const network = hre.globalOptions.network;
   if (network === undefined) {
-    throw kmsError(
-      "--network is required: the transaction is filled on that network's node, and its chain id is checked against it",
-      { operation: OPERATION },
-    );
+    throw catalogError(ERRORS.signTxNeedsNetwork, {}, { operation: OPERATION });
   }
   const tx = await readTransaction(file);
   const requestedType = checkFields(tx);
@@ -275,8 +266,13 @@ const kmsSignTx: NewTaskActionFunction<SignTxArguments> = async ({ key, tx: file
     const address = (await signer.getAddress()).toLowerCase();
     const { from } = request;
     if (from !== undefined && (typeof from !== "string" || !sameAddress(from, address))) {
-      throw kmsError(
-        `the transaction's from is ${typeof from === "string" ? from : typeof from}, but key ${key} has the address ${toChecksumAddress(address)}. Remove from, or name the key of that address.`,
+      throw catalogError(
+        ERRORS.signTxWrongFrom,
+        {
+          from: typeof from === "string" ? from : typeof from,
+          keyName: key,
+          address: toChecksumAddress(address),
+        },
         { operation: OPERATION },
       );
     }

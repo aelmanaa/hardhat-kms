@@ -4,7 +4,9 @@ import type { AwsKmsKeyConfig, AwsKmsKeyUserConfig } from "../../../types.ts";
 import { commonKeyFields, identifierSchema, nonEmptyString } from "../../config/common.ts";
 import { resolveIdentifier } from "../../config/identifiers.ts";
 import { type KeyResolveContext, resolveCommonKeyConfig } from "../../config/key-common.ts";
-import { AWS_KEY_ID_FORMS, parseAwsKeyId } from "./key-id.ts";
+import { ERRORS } from "../../error-catalog.ts";
+import { catalogMessage } from "../../errors.ts";
+import { parseAwsKeyId } from "./key-id.ts";
 
 function isHttpUrl(value: string): boolean {
   try {
@@ -23,13 +25,7 @@ export const awsKeySchema: z.ZodTypeAny = z
     keyId: identifierSchema,
     region: nonEmptyString.optional(),
     profile: nonEmptyString.optional(),
-    endpoint: z
-      .string()
-      .refine(
-        isHttpUrl,
-        "Expected an http or https URL without credentials, such as http://localhost:4566",
-      )
-      .optional(),
+    endpoint: z.string().refine(isHttpUrl, catalogMessage(ERRORS.awsEndpoint, {})).optional(),
     ...commonKeyFields,
   })
   .strict()
@@ -42,7 +38,7 @@ export const awsKeySchema: z.ZodTypeAny = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["keyId"],
-        message: `Expected ${AWS_KEY_ID_FORMS}`,
+        message: catalogMessage(ERRORS.awsKeyId, {}),
       });
     } else if (
       parsed.region !== undefined &&
@@ -52,7 +48,7 @@ export const awsKeySchema: z.ZodTypeAny = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["region"],
-        message: `Conflicts with the region in the key ARN (${parsed.region})`,
+        message: catalogMessage(ERRORS.awsRegionConflict, { region: parsed.region }),
       });
     }
   });
@@ -75,10 +71,10 @@ export function resolveAwsKey(
     (value) => {
       const parsed = parseAwsKeyId(value);
       if (parsed === undefined) {
-        return `expected ${AWS_KEY_ID_FORMS}`;
+        return catalogMessage(ERRORS.awsKeyIdReason, {});
       }
       if (parsed.region !== undefined && key.region !== undefined && parsed.region !== key.region) {
-        return `the key ARN's region conflicts with \`region\` (${key.region})`;
+        return catalogMessage(ERRORS.awsRegionConflictReason, { region: key.region });
       }
       return undefined;
     },

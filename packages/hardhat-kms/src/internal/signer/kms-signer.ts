@@ -27,7 +27,14 @@ import {
   toRpcSignature,
 } from "../crypto/signature.ts";
 import { kmsDebug } from "../debug.ts";
-import { errorName, kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import {
+  catalogError,
+  catalogMessage,
+  type ErrorEntry,
+  errorName,
+  type TemplateParams,
+} from "../errors.ts";
 import { systemTimers, TimeoutError, type Timers, withTimeout } from "./timeout.ts";
 import type { KeyDescription, KmsKeyAdapter, SignContext } from "./types.ts";
 
@@ -96,20 +103,14 @@ export class KmsSigner {
       adapter.getAddress === undefined &&
       options.expectedAddress === undefined
     ) {
-      throw kmsError(
-        "the adapter can neither return a public key nor an address; set an `address` pin",
-        context,
-      );
+      throw catalogError(ERRORS.signerNoIdentity, {}, context);
     }
     if (
       !Number.isInteger(options.timeoutMs) ||
       options.timeoutMs < 1 ||
       options.timeoutMs > MAX_TIMEOUT_MS
     ) {
-      throw kmsError(
-        `the timeout must be an integer from 1 to ${MAX_TIMEOUT_MS} ms, got ${options.timeoutMs}`,
-        context,
-      );
+      throw catalogError(ERRORS.signerTimeoutRange, { timeout: options.timeoutMs }, context);
     }
     let expectedAddress = options.expectedAddress;
     if (expectedAddress !== undefined) {
@@ -117,7 +118,7 @@ export class KmsSigner {
         expectedAddress = toChecksumAddress(expectedAddress);
       } catch (error) {
         if (error instanceof InvalidAddressError) {
-          throw kmsError(`the configured address is invalid: ${error.message}`, context);
+          throw catalogError(ERRORS.signerAddressInvalid, { reason: error.message }, context);
         }
         throw error;
       }
@@ -182,10 +183,7 @@ export class KmsSigner {
   public async getPublicKey(): Promise<Uint8Array> {
     const { publicKey } = await this.#resolveIdentity();
     if (publicKey === undefined) {
-      throw this.#error(
-        "get public key",
-        "the provider returns only the key's address, not its public key",
-      );
+      throw this.#error("get public key", ERRORS.signerAddressOnly, {});
     }
     return publicKey.slice();
   }
@@ -210,7 +208,7 @@ export class KmsSigner {
     const signature = toRpcSignature(await this.#sign({ kind: "message", message }));
     const { address } = await this.#resolveIdentity();
     if (!verifyPersonalMessageSignature(signature, message, address)) {
-      throw this.#error("sign message", "the signature failed EIP-191 verification");
+      throw this.#error("sign message", ERRORS.signerEip191Failed, {});
     }
     return signature;
   }
@@ -225,7 +223,7 @@ export class KmsSigner {
     const signature = toRpcSignature(await this.#sign({ kind: "typedData", typedData }));
     const { address } = await this.#resolveIdentity();
     if (!verifyTypedDataSignature(signature, typedData, address)) {
-      throw this.#error("sign typed data", "the signature failed EIP-712 verification");
+      throw this.#error("sign typed data", ERRORS.signerEip712Failed, {});
     }
     return signature;
   }
@@ -266,7 +264,7 @@ export class KmsSigner {
     }
     const getAddress = this.#adapter.getAddress?.bind(this.#adapter);
     if (getAddress === undefined) {
-      throw this.#error("get address", "the adapter cannot identify its key");
+      throw this.#error("get address", ERRORS.signerCannotIdentify, {});
     }
     return {
       address: await this.#call("get address", async (ctx) =>
@@ -278,21 +276,17 @@ export class KmsSigner {
   #assertPin(address: string): void {
     const expected = this.#options.expectedAddress;
     if (expected !== undefined && !sameAddress(expected, address)) {
-      throw this.#error(
-        "check address",
-        `the key derives to ${address}, but the configured address is ${expected}. ` +
-          "If the key was rotated or an alias now points to another key, update the configuration.",
-      );
+      throw this.#error("check address", ERRORS.addressMismatch, { address, expected });
     }
   }
 
   async #sign(request: SignRequest): Promise<RecoverableSignature> {
     if (request.kind === "digest" && request.digest.length !== DIGEST_LENGTH) {
       // A caller error: never send it to the provider, and never retry it.
-      throw this.#error(
-        "sign",
-        `expected a ${DIGEST_LENGTH}-byte digest, got ${request.digest.length} bytes`,
-      );
+      throw this.#error("sign", ERRORS.signerDigestLength, {
+        expected: DIGEST_LENGTH,
+        length: request.digest.length,
+      });
     }
     const identity = await this.#resolveIdentity();
     const digest = digestOf(request);
@@ -308,10 +302,7 @@ export class KmsSigner {
         return await this.#signOnce(request, digest, identity);
       } catch (retryError) {
         if (retryError instanceof InvalidSignatureError) {
-          throw this.#error(
-            "sign",
-            `the provider returned an invalid signature (${retryError.message})`,
-          );
+          throw this.#error("sign", ERRORS.signerInvalidSignature, { reason: retryError.message });
         }
         throw retryError;
       }
@@ -348,7 +339,7 @@ export class KmsSigner {
     if (adapter.signDigest !== undefined) {
       return await adapter.signDigest({ digest }, ctx);
     }
-    throw this.#error("sign", `the provider cannot sign a ${REQUEST_KIND_NAMES[request.kind]}`);
+    throw this.#error("sign", ERRORS.signerCannotSign, { kind: REQUEST_KIND_NAMES[request.kind] });
   }
 
   async #call<T>(operation: string, run: (ctx: SignContext) => Promise<T>): Promise<T> {
@@ -378,20 +369,24 @@ export class KmsSigner {
       }
       if (error instanceof InvalidPublicKeyError || error instanceof InvalidAddressError) {
         // Our own message about the key material, safe to show.
-        throw this.#error(operation, error.message);
+        throw this.#error(operation, ERRORS.signerKeyMaterial, { reason: error.message });
       }
       if (error instanceof TimeoutError) {
-        throw this.#error(operation, `no answer within ${this.#options.timeoutMs} ms`);
+        throw this.#error(operation, ERRORS.signerNoAnswer, { timeout: this.#options.timeoutMs });
       }
       // Only the error's class name: SDK errors can carry request metadata and headers.
-      throw this.#error(operation, `the provider call failed (${errorName(error)})`);
+      throw this.#error(operation, ERRORS.signerCallFailed, { errorName: errorName(error) });
     }
   }
 
-  #error(operation: string, message: string): HardhatPluginError {
+  #error<Template extends string>(
+    operation: string,
+    entry: ErrorEntry<Template, "error">,
+    params: TemplateParams<Template>,
+  ): HardhatPluginError {
     const { provider } = this.#description;
     const displayId = this.#displayId;
-    return kmsError(message, { provider, operation, key: displayId });
+    return catalogError(entry, params, { provider, operation, key: displayId });
   }
 }
 
@@ -424,5 +419,5 @@ function recoverForAddress(
       return { publicKey };
     }
   }
-  throw new InvalidSignatureError("the signature does not recover to the configured address");
+  throw new InvalidSignatureError(catalogMessage(ERRORS.signatureNotConfiguredAddress, {}));
 }

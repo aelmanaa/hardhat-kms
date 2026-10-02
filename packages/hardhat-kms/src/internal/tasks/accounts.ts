@@ -6,7 +6,8 @@ import { errorResult, successfulResult } from "hardhat/utils/result";
 
 import type { KmsKeyConfig } from "../../types.ts";
 import { keyIdentity } from "../config/key-identity.ts";
-import { errorName, kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError, errorName } from "../errors.ts";
 import { commandLineKeys } from "../hook-handlers/hre.ts";
 import { printLine, printNote, type TaskKey, taskKeys, withTaskSigners } from "./keys.ts";
 
@@ -146,7 +147,7 @@ export default kmsAccounts;
 async function networkKeys(hre: HardhatRuntimeEnvironment, name: string): Promise<ListedKey[]> {
   const config = hre.config.networks[name];
   if (config === undefined) {
-    throw kmsError(`unknown network "${name}"`);
+    throw catalogError(ERRORS.unknownNetwork, { name });
   }
   const named = new Set(Object.values(hre.config.kms.keys));
   const fromConfig = config.kmsAccounts.map((key): TaskKey => ({

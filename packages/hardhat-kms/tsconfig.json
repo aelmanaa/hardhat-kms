@@ -11,7 +11,8 @@
     "node_modules",
     "test/fixture-projects/**/artifacts",
     "test/fixture-projects/**/cache",
-    "src/internal/vendor"
+    "src/internal/vendor",
+    "test/type-fixtures"
   ],
   "references": [
     {

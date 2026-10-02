@@ -1,7 +1,8 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 
 import type { KmsKeyConfig } from "../../types.ts";
-import { kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError } from "../errors.ts";
 import { commandLineKeys } from "../hook-handlers/hre.ts";
 import { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
@@ -69,20 +70,21 @@ export function findTaskKey(hre: HardhatRuntimeEnvironment, name: string): KmsKe
   if (match !== undefined && other !== undefined) {
     // Only a key in `kms.keys` and a `--kms` key can share a name today, such as AWS_KMS_KEY_ID.
     const sources = matches.map((candidate) => candidate.source);
-    throw kmsError(
-      `"${name}" names more than one key, from ${sources.join(" and ")}; rename the key in kms.keys`,
-    );
+    throw catalogError(ERRORS.keyNameAmbiguous, { name, sources: sources.join(" and ") });
   }
   const known = keys.map((candidate) => candidate.name);
   if (known.length === 0) {
-    throw kmsError(
-      `unknown key "${name}". No KMS keys are configured: add them to kms.keys or a network's kmsAccounts, or pass --kms.`,
-    );
+    throw catalogError(ERRORS.taskUnknownKeyNoKeys, { name });
   }
   // Key names are case-sensitive; a slip in case is the likeliest mistake.
   const sameLetters = known.filter((candidate) => candidate.toLowerCase() === name.toLowerCase());
-  const hint = sameLetters.length === 0 ? "" : ` Did you mean "${sameLetters.join('" or "')}"?`;
-  throw kmsError(`unknown key "${name}".${hint} Known keys: ${known.join(", ")}.`);
+  throw sameLetters.length === 0
+    ? catalogError(ERRORS.taskUnknownKey, { name, known: known.join(", ") })
+    : catalogError(ERRORS.taskUnknownKeySuggested, {
+        name,
+        suggestions: sameLetters.join('" or "'),
+        known: known.join(", "),
+      });
 }
 
 /**

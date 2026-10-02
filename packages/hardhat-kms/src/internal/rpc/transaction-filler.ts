@@ -25,7 +25,8 @@ import type { HardhatPluginError } from "hardhat/plugins";
 import type { NetworkConnection } from "hardhat/types/network";
 import { addr, Transaction } from "micro-eth-signer";
 
-import { kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError } from "../errors.ts";
 import type { ConnectionChain } from "./chain-id.ts";
 
 /** Sends one JSON-RPC request on the connection, through the whole hook chain. */
@@ -131,13 +132,10 @@ export class HardhatTransactionFiller implements TransactionFiller {
   public async fill(method: string, params: readonly unknown[]): Promise<FilledTransaction> {
     const [first, ...rest] = copyParams(params, method);
     if (!isObject(first)) {
-      throw kmsError("the transaction must be an object", { operation: method });
+      throw catalogError(ERRORS.txNotObject, {}, { operation: method });
     }
     if (first.blobs !== undefined || first.blobVersionedHashes !== undefined) {
-      throw kmsError(
-        "blob transactions (EIP-4844) cannot be signed with KMS accounts; send them from another account",
-        { operation: method },
-      );
+      throw catalogError(ERRORS.txBlob, {}, { operation: method });
     }
     // A deep copy: the caller's objects, including access and authorization lists, stay as they are.
     const tx: Record<string, unknown> = first;
@@ -167,7 +165,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     const { gas } = request;
     // The gas step always sets gas; this narrows the type and keeps Hardhat's check.
     if (gas === undefined) {
-      throw kmsError("the transaction has no gas limit", { operation: method });
+      throw catalogError(ERRORS.txNoGas, {}, { operation: method });
     }
     checkFeeFields(request, method);
     const chainId = await this.#checkChain(request.chainId, method);
@@ -179,10 +177,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
   async #checkChain(requested: bigint | undefined, method: string): Promise<bigint> {
     const chainId = await this.#chainId();
     if (requested !== undefined && requested !== chainId) {
-      throw kmsError(
-        `the transaction is for chain ${requested}, but this network is chain ${chainId}`,
-        { operation: method },
-      );
+      throw catalogError(ERRORS.txWrongChain, { requested, chainId }, { operation: method });
     }
     return chainId;
   }
@@ -246,7 +241,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     if (this.#nodeSupportsEip1559 === undefined) {
       const block = await this.#request("eth_getBlockByNumber", ["latest", false]);
       if (!isObject(block)) {
-        throw kmsError("the node returned no latest block", { operation: "eth_getBlockByNumber" });
+        throw catalogError(ERRORS.txNoLatestBlock, {}, { operation: "eth_getBlockByNumber" });
       }
       this.#nodeSupportsEip1559 = block.baseFeePerGas !== undefined;
     }
@@ -258,7 +253,9 @@ export class HardhatTransactionFiller implements TransactionFiller {
       const baseFees: unknown = isObject(history) ? history.baseFeePerGas : undefined;
       const rewards: unknown = isObject(history) ? history.reward : undefined;
       if (!Array.isArray(baseFees) || !Array.isArray(rewards)) {
-        throw new TypeError("eth_feeHistory returned no baseFeePerGas or reward");
+        // eth_feeHistory returned no baseFeePerGas or reward: treat it as missing, as below.
+        this.#nodeHasFeeHistory = false;
+        return undefined;
       }
       const firstReward: unknown = Array.isArray(rewards[0]) ? rewards[0][0] : undefined;
       let maxPriorityFeePerGas = hexStringToBigInt(
@@ -338,9 +335,11 @@ export class HardhatTransactionFiller implements TransactionFiller {
     const block = await this.#request("eth_getBlockByNumber", [blockTag, false]);
     const gasLimit: unknown = isObject(block) ? block.gasLimit : undefined;
     if (typeof gasLimit !== "string") {
-      throw kmsError(`the ${blockTag} block has no gasLimit`, {
-        operation: "eth_getBlockByNumber",
-      });
+      throw catalogError(
+        ERRORS.txNoBlockGasLimit,
+        { blockTag },
+        { operation: "eth_getBlockByNumber" },
+      );
     }
     return hexStringToNumber(gasLimit);
   }
@@ -396,10 +395,7 @@ function canonicalAuthorizationSignatures(tx: Record<string, unknown>, method: s
       }
       const scalar = BigInt(value);
       if (scalar < 1n || scalar >= CURVE_ORDER) {
-        throw kmsError(
-          `authorizationList[${index}].${field} must be between 1 and the secp256k1 curve order minus 1`,
-          { operation: method },
-        );
+        throw catalogError(ERRORS.txAuthorizationScalar, { index, field }, { operation: method });
       }
       item[field] = numberToHexString(scalar);
     }
@@ -441,9 +437,7 @@ function withPaddedAuthorizationSignatures(tx: Record<string, unknown>): Record<
  * @returns The error to throw.
  */
 export function notPlainData(method: string): HardhatPluginError {
-  return kmsError("the transaction must be plain data (JSON values, bigints and byte arrays)", {
-    operation: method,
-  });
+  return catalogError(ERRORS.txNotPlainData, {}, { operation: method });
 }
 
 /**
@@ -456,7 +450,7 @@ export function notPlainData(method: string): HardhatPluginError {
  */
 function stringResult(value: unknown, what: string, operation: string): string {
   if (typeof value !== "string") {
-    throw kmsError(`the node's ${what} answer is not a string`, { operation });
+    throw catalogError(ERRORS.nodeAnswerNotString, { what }, { operation });
   }
   return value;
 }
@@ -466,24 +460,22 @@ function checkFeeFields(request: RpcTransactionRequest, method: string): void {
   const hasGasPrice = request.gasPrice !== undefined;
   const hasEip1559Fields =
     request.maxFeePerGas !== undefined || request.maxPriorityFeePerGas !== undefined;
-  const fail = (message: string): never => {
-    throw kmsError(message, { operation: method });
-  };
+  const details = { operation: method };
   // Unreachable through fill, which always sets a fee; kept as Hardhat's defensive check.
   if (!hasGasPrice && !hasEip1559Fields) {
-    fail("the transaction has no gasPrice, maxFeePerGas or maxPriorityFeePerGas");
+    throw catalogError(ERRORS.txNoFee, {}, details);
   }
   if (hasGasPrice && request.authorizationList !== undefined) {
-    fail("an EIP-7702 transaction (authorizationList) cannot have a gasPrice");
+    throw catalogError(ERRORS.txGasPrice7702, {}, details);
   }
   if (hasGasPrice && hasEip1559Fields) {
-    fail("the transaction cannot have both gasPrice and maxFeePerGas or maxPriorityFeePerGas");
+    throw catalogError(ERRORS.txBothFees, {}, details);
   }
   if (hasEip1559Fields && request.maxFeePerGas === undefined) {
-    fail("the transaction has maxPriorityFeePerGas but no maxFeePerGas");
+    throw catalogError(ERRORS.txNoMaxFee, {}, details);
   }
   if (hasEip1559Fields && request.maxPriorityFeePerGas === undefined) {
-    fail("the transaction has maxFeePerGas but no maxPriorityFeePerGas");
+    throw catalogError(ERRORS.txNoPriorityFee, {}, details);
   }
 }
 
@@ -561,7 +553,7 @@ export function buildUnsignedTransaction(tx: FilledTransaction): UnsignedTransac
     }),
   );
   if ((tx.to === undefined || tx.to === null) && tx.data === undefined) {
-    throw kmsError("a contract creation (no `to`) needs `data`", { operation: "sign transaction" });
+    throw catalogError(ERRORS.txCreationNoData, {}, { operation: "sign transaction" });
   }
   // Hardhat's own comment: strict mode is not meant to be used in the context of Hardhat.
   const strict = false;
@@ -576,9 +568,7 @@ export function buildUnsignedTransaction(tx: FilledTransaction): UnsignedTransac
   const { maxFeePerGas, maxPriorityFeePerGas } = tx;
   if (maxFeePerGas !== undefined || authorizationList !== undefined) {
     if (maxFeePerGas === undefined || maxPriorityFeePerGas === undefined) {
-      throw kmsError("an EIP-1559 or EIP-7702 transaction needs both maxFeePerGas fields", {
-        operation: "sign transaction",
-      });
+      throw catalogError(ERRORS.txBothMaxFees, {}, { operation: "sign transaction" });
     }
     const fees = { ...base, maxFeePerGas, maxPriorityFeePerGas, accessList: accessList ?? [] };
     return authorizationList === undefined

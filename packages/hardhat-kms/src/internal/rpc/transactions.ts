@@ -8,7 +8,8 @@ import { Transaction } from "micro-eth-signer";
 import { sameAddress, toChecksumAddress } from "../crypto/address.ts";
 import { authorizationDigest } from "../crypto/digests.ts";
 import { type RecoverableSignature, recoverPublicKey, toLowS } from "../crypto/signature.ts";
-import { kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError } from "../errors.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { warn } from "../warnings.ts";
 import {
@@ -46,8 +47,9 @@ export function assembleSignedTransaction(
     sender = undefined;
   }
   if (sender === undefined || !sameAddress(sender, from)) {
-    throw kmsError(
-      `the signed transaction does not recover to ${toChecksumAddress(from)}; nothing was sent`,
+    throw catalogError(
+      ERRORS.txNoRecovery,
+      { from: toChecksumAddress(from) },
       { operation: method },
     );
   }
@@ -131,9 +133,11 @@ export async function signTransaction(
     filled = { ...filled, nonce: inputs.chooseNonce(filled.nonce) };
   }
   if (!sameAddress(bytesToHexString(filled.from), inputs.from)) {
-    throw kmsError(`the filled transaction is not from ${toChecksumAddress(inputs.from)}`, {
-      operation: inputs.method,
-    });
+    throw catalogError(
+      ERRORS.txNotFrom,
+      { from: toChecksumAddress(inputs.from) },
+      { operation: inputs.method },
+    );
   }
   const unsigned = buildUnsignedTransaction(filled);
   inputs.checkUnsigned?.(unsigned);

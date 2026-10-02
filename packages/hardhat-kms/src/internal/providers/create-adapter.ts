@@ -4,7 +4,8 @@ import type { HookContext } from "hardhat/types/hooks";
 
 import type { KmsKeyConfig } from "../../types.ts";
 import { kmsDebug } from "../debug.ts";
-import { errorName, kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError, type ErrorDetails, errorName } from "../errors.ts";
 import type { KmsKeyAdapter } from "../signer/types.ts";
 import { builtinProvider } from "./registry.ts";
 
@@ -23,52 +24,56 @@ const OPTIONAL_METHODS = [...SIGNING_METHODS, ...IDENTITY_METHODS, "close"] as c
  * @throws A `HardhatPluginError` that says what is missing.
  */
 function assertAdapter(adapter: unknown, key: KmsKeyConfig): asserts adapter is KmsKeyAdapter {
-  const problem = adapterProblem(adapter, key);
+  const problem = adapterProblem(adapter, key, {
+    provider: key.provider,
+    operation: "create adapter",
+    key: key.displayId,
+  });
   if (problem !== undefined) {
-    throw kmsError(problem, {
-      provider: key.provider,
-      operation: "create adapter",
-      key: key.displayId,
-    });
+    throw problem;
   }
 }
 
-function adapterProblem(adapter: unknown, key: KmsKeyConfig): string | undefined {
+function adapterProblem(
+  adapter: unknown,
+  key: KmsKeyConfig,
+  details: ErrorDetails,
+): Error | undefined {
   if (adapter === undefined || adapter === null) {
-    return "a kms.createKeyAdapter handler returned nothing for this key. Handlers must return `await next(context, key)` for keys of other providers";
+    return catalogError(ERRORS.adapterNothing, {}, details);
   }
   if (typeof adapter !== "object") {
-    return "the adapter for this key is not an object";
+    return catalogError(ERRORS.adapterNotObject, {}, details);
   }
   const method = (name: string): unknown => Reflect.get(adapter, name);
   const has = (name: string): boolean => typeof method(name) === "function";
   if (!has("describe")) {
-    return "the adapter for this key has no describe() method";
+    return catalogError(ERRORS.adapterNoDescribe, {}, details);
   }
   const notFunction = OPTIONAL_METHODS.find((name) => method(name) !== undefined && !has(name));
   if (notFunction !== undefined) {
-    return `the adapter's ${notFunction} is not a function`;
+    return catalogError(ERRORS.adapterNotFunction, { method: notFunction }, details);
   }
   if (!SIGNING_METHODS.some(has)) {
-    return `the adapter for this key has no signing method (${SIGNING_METHODS.join(", ")})`;
+    return catalogError(ERRORS.adapterNoSigning, { methods: SIGNING_METHODS.join(", ") }, details);
   }
   if (!IDENTITY_METHODS.some(has) && key.address === undefined) {
-    return "the adapter for this key can neither return a public key nor an address, and the key has no `address` pin";
+    return catalogError(ERRORS.adapterNoIdentity, {}, details);
   }
-  return describeProblem(adapter);
+  return describeProblem(adapter, details);
 }
 
-function describeProblem(adapter: object): string | undefined {
+function describeProblem(adapter: object, details: ErrorDetails): Error | undefined {
   const describe: unknown = Reflect.get(adapter, "describe");
   if (typeof describe !== "function") {
-    return "the adapter for this key has no describe() method";
+    return catalogError(ERRORS.adapterNoDescribe, {}, details);
   }
   let description: unknown;
   try {
     description = Reflect.apply(describe, adapter, []);
   } catch (error) {
     // Only the class name: a provider's error text may carry request details.
-    return `the adapter's describe() failed (${errorName(error)})`;
+    return catalogError(ERRORS.adapterDescribeFailed, { errorName: errorName(error) }, details);
   }
   const field = (name: string): unknown =>
     typeof description === "object" && description !== null
@@ -80,7 +85,7 @@ function describeProblem(adapter: object): string | undefined {
   });
   return missing.length === 0
     ? undefined
-    : `the adapter's describe() must return non-empty strings for ${missing.join(", ")}`;
+    : catalogError(ERRORS.adapterDescribeFields, { fields: missing.join(", ") }, details);
 }
 
 /**
@@ -91,20 +96,18 @@ function unclaimedKeyError(key: KmsKeyConfig): Error {
   const details = { provider: key.provider, operation: "create adapter", key: key.displayId };
   const provider = builtinProvider(key.provider);
   if (provider === undefined) {
-    return kmsError(
-      `no plugin provides "${key.provider}" keys. Add the plugin for this provider to \`plugins\` in your Hardhat config, or check the \`provider\` field`,
-      details,
-    );
+    return catalogError(ERRORS.noPlugin, { provider: key.provider }, details);
   }
   if ("issue" in provider.adapter) {
-    return kmsError(
-      `signing with ${provider.name} keys is not available yet (https://github.com/aelmanaa/hardhat-kms/issues/${provider.adapter.issue})`,
+    return catalogError(
+      ERRORS.providerNotAvailable,
+      { name: provider.name, issue: provider.adapter.issue },
       details,
     );
   }
-  const name = provider.adapter.package;
-  return kmsError(
-    `${provider.name} keys need the ${name} plugin. Install it with \`npm install --save-dev ${name}\` and add it to \`plugins\` in your Hardhat config`,
+  return catalogError(
+    ERRORS.providerPackageMissing,
+    { name: provider.name, package: provider.adapter.package },
     details,
   );
 }
@@ -142,11 +145,11 @@ export async function createKeyAdapter(
       throw error;
     }
     log("%s: creating the adapter failed (%s)", key.displayId, errorName(error));
-    throw kmsError(`creating the adapter failed (${errorName(error)})`, {
-      provider: key.provider,
-      operation: "create adapter",
-      key: key.displayId,
-    });
+    throw catalogError(
+      ERRORS.adapterFailed,
+      { errorName: errorName(error) },
+      { provider: key.provider, operation: "create adapter", key: key.displayId },
+    );
   }
   try {
     assertAdapter(adapter, key);

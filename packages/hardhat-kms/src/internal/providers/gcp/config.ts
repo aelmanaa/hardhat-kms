@@ -14,6 +14,8 @@ import type {
 import { commonKeyFields, identifierSchema } from "../../config/common.ts";
 import { joinIdentifiers, resolveIdentifier } from "../../config/identifiers.ts";
 import { type KeyResolveContext, resolveCommonKeyConfig } from "../../config/key-common.ts";
+import { ERRORS } from "../../error-catalog.ts";
+import { catalogMessage } from "../../errors.ts";
 import {
   gcpKeyVersionName,
   isGcpKeyVersion,
@@ -22,8 +24,7 @@ import {
 } from "./key-version-name.ts";
 
 const COMPONENTS = ["projectId", "location", "keyRing", "keyName", "keyVersion"] as const;
-const EITHER_FORM =
-  "Use either `keyVersionName` or `projectId`, `location`, `keyRing`, `keyName` and `keyVersion`, not both";
+const EITHER_FORM = catalogMessage(ERRORS.gcpEitherForm, {});
 
 const keyVersionNameSchema = z
   .object({
@@ -41,8 +42,7 @@ const keyVersionNameSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["keyVersionName"],
-        message:
-          "Expected projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>/cryptoKeyVersions/<version>",
+        message: catalogMessage(ERRORS.gcpKeyVersionName, {}),
       });
     }
   });
@@ -57,7 +57,7 @@ const componentsSchema = z
     keyName: identifierSchema,
     keyVersion: unionType(
       [identifierSchema, z.number().int().positive().max(Number.MAX_SAFE_INTEGER)],
-      "Expected a positive integer, a string or a Configuration Variable",
+      catalogMessage(ERRORS.gcpKeyVersionType, {}),
     ),
     ...commonKeyFields,
   })
@@ -69,7 +69,7 @@ const componentsSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: [field],
-          message: "Expected letters, digits, `_`, `.`, `:` or `-`, and not `.` or `..`",
+          message: catalogMessage(ERRORS.gcpSegment, {}),
         });
       }
     }
@@ -78,7 +78,7 @@ const componentsSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["keyVersion"],
-        message: "Expected a positive integer version",
+        message: catalogMessage(ERRORS.gcpKeyVersion, {}),
       });
     }
   });
@@ -97,16 +97,14 @@ export const gcpKeySchema: z.ZodTypeAny = conditionalUnionType(
 
 const checkKeyVersionName = (value: string): string | undefined =>
   parseGcpKeyVersionName(value) === undefined
-    ? "expected projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>/cryptoKeyVersions/<version>"
+    ? catalogMessage(ERRORS.gcpKeyVersionNameReason, {})
     : undefined;
 
 const checkSegment = (value: string): string | undefined =>
-  isGcpSegment(value)
-    ? undefined
-    : "expected letters, digits, `_`, `.`, `:` or `-`, and not `.` or `..`";
+  isGcpSegment(value) ? undefined : catalogMessage(ERRORS.gcpSegmentReason, {});
 
 const checkKeyVersion = (value: string): string | undefined =>
-  isGcpKeyVersion(value) ? undefined : "expected a positive integer version";
+  isGcpKeyVersion(value) ? undefined : catalogMessage(ERRORS.gcpKeyVersionReason, {});
 
 /**
  * Resolves a Google Cloud KMS key config into a key version name.

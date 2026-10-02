@@ -1,5 +1,7 @@
 import { addr } from "micro-eth-signer";
 
+import { ERRORS } from "../error-catalog.ts";
+import { catalogMessage } from "../errors.ts";
 import { assertOnCurve } from "./public-key.ts";
 
 /**
@@ -40,7 +42,7 @@ export class InvalidAddressError extends Error {
  */
 export function toChecksumAddress(address: string): string {
   if (!/^0x[0-9a-fA-F]{40}$/.test(address) || !addr.isValid(address)) {
-    throw new InvalidAddressError(`${address} is not a valid Ethereum address`);
+    throw new InvalidAddressError(catalogMessage(ERRORS.invalidAddress, { address }));
   }
   return addr.addChecksum(address);
 }

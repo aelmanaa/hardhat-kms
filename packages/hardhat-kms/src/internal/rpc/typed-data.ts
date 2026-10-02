@@ -1,6 +1,7 @@
 import { InvalidTypedDataError, parseTypedData, type TypedData } from "../crypto/digests.ts";
 import { kmsDebug } from "../debug.ts";
-import { errorName, kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError, catalogMessage, errorName } from "../errors.ts";
 import { parseChainId } from "./chain-id.ts";
 
 const log = kmsDebug("rpc");
@@ -20,15 +21,16 @@ export function readTypedData(data: unknown, operation: string): TypedData {
       typedData = JSON.parse(data, refuseUnsafeIntegers);
     } catch (error) {
       if (error instanceof InvalidTypedDataError) {
-        throw kmsError(`the typed data is invalid: ${error.message}`, { operation });
+        throw catalogError(ERRORS.typedDataInvalid, { reason: error.message }, { operation });
       }
       if (error instanceof SyntaxError) {
-        throw kmsError("the typed data is not valid JSON", { operation });
+        throw catalogError(ERRORS.typedDataNotJson, {}, { operation });
       }
       // Not a syntax error: JSON.parse with a reviver recurses, so deep nesting overflows the
       // stack with a RangeError.
-      throw kmsError(
-        `the typed data could not be read (${errorName(error)}); it may be nested too deeply`,
+      throw catalogError(
+        ERRORS.typedDataUnreadable,
+        { errorName: errorName(error) },
         { operation },
       );
     }
@@ -40,7 +42,7 @@ export function readTypedData(data: unknown, operation: string): TypedData {
       throw error;
     }
     // Our own message about the user's typed data: safe to show, and the user's to fix.
-    throw kmsError(`the typed data is invalid: ${error.message}`, { operation });
+    throw catalogError(ERRORS.typedDataInvalid, { reason: error.message }, { operation });
   }
 }
 
@@ -51,9 +53,7 @@ export function readTypedData(data: unknown, operation: string): TypedData {
  */
 function refuseUnsafeIntegers(_key: string, value: unknown): unknown {
   if (typeof value === "number" && Number.isInteger(value) && !Number.isSafeInteger(value)) {
-    throw new InvalidTypedDataError(
-      `a number is above 2^53 - 1 (read as ${value}), so JSON cannot hold it exactly; write it as a string`,
-    );
+    throw new InvalidTypedDataError(catalogMessage(ERRORS.typedDataUnsafeInteger, { value }));
   }
   return value;
 }
@@ -76,8 +76,8 @@ export interface TypedDataChainPolicy {
    * signing is not allowed; it may throw when there is no chain to compare with.
    */
   expectedChain(domainChain: bigint): Promise<ExpectedChain>;
-  /** Ends a mismatch error: how to sign for another chain. */
-  allowHint: string;
+  /** The error for a mismatch, which ends with how to sign for another chain. */
+  mismatch: typeof ERRORS.typedDataChainMismatchNetwork | typeof ERRORS.typedDataChainMismatchTask;
 }
 
 /**
@@ -102,8 +102,9 @@ export async function checkTypedDataChain(
   }
   const expected = await policy.expectedChain(domainChain);
   if (domainChain !== expected.chainId) {
-    throw kmsError(
-      `the typed data is for chain ${domainChain}, but ${expected.name} is chain ${expected.chainId}. ${policy.allowHint}`,
+    throw catalogError(
+      policy.mismatch,
+      { domainChain, name: expected.name, chainId: expected.chainId },
       { operation: policy.operation },
     );
   }

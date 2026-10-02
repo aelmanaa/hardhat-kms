@@ -1,6 +1,8 @@
 import { conditionalUnionType } from "@nomicfoundation/hardhat-zod-utils";
 import { z } from "zod";
 
+import { ERRORS } from "../error-catalog.ts";
+import { catalogMessage } from "../errors.ts";
 import { BUILTIN_PROVIDERS } from "../providers/registry.ts";
 import { commonKeyFields, nonEmptyString, timeoutSchema } from "./common.ts";
 
@@ -53,7 +55,10 @@ const misspelledProviderSchema = z
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["provider"],
-      message: `Unknown provider "${key.provider}". Did you mean "${builtinLookalike(key.provider) ?? ""}"?`,
+      message: catalogMessage(ERRORS.providerMisspelled, {
+        provider: key.provider,
+        suggestion: builtinLookalike(key.provider) ?? "",
+      }),
     });
   });
 
@@ -79,7 +84,7 @@ const keySchema: z.ZodTypeAny = conditionalUnionType(
     ],
     [(data) => isObject(data) && typeof data.provider === "string", externalKeySchema],
   ],
-  'Expected a key object with a `provider` field, for example { provider: "aws", keyId: "alias/deployer" }',
+  catalogMessage(ERRORS.keyShape, {}),
 );
 
 const accountSchema = conditionalUnionType(
@@ -87,21 +92,13 @@ const accountSchema = conditionalUnionType(
     [(data) => typeof data === "string", z.string()],
     [isObject, keySchema],
   ],
-  "Expected the name of a key in `kms.keys` or a key object",
+  catalogMessage(ERRORS.accountShape, {}),
 );
 
 const kmsSchema = z
   .object({
     keys: z
-      .record(
-        z
-          .string()
-          .regex(
-            KEY_NAME_PATTERN,
-            "Key names start with a letter and use at most 64 letters, digits, `_` or `-`",
-          ),
-        keySchema,
-      )
+      .record(z.string().regex(KEY_NAME_PATTERN, catalogMessage(ERRORS.keyName, {})), keySchema)
       .optional(),
     defaults: z
       .object({
@@ -113,8 +110,8 @@ const kmsSchema = z
       .optional(),
     allowCrossChainTypedData: z.boolean().optional(),
     simulatedBalance: z
-      .bigint({ invalid_type_error: "Expected a bigint amount of wei, for example 10n ** 18n" })
-      .nonnegative("Expected a non-negative amount of wei")
+      .bigint({ invalid_type_error: catalogMessage(ERRORS.simulatedBalanceType, {}) })
+      .nonnegative(catalogMessage(ERRORS.simulatedBalanceNegative, {}))
       .optional(),
   })
   .strict();
@@ -145,13 +142,16 @@ export const kmsUserConfigSchema: z.ZodTypeAny = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path,
-            message: `Unknown key "${account}". ${known.length === 0 ? "`kms.keys` is empty." : `Known keys: ${known.join(", ")}.`}`,
+            message:
+              known.length === 0
+                ? catalogMessage(ERRORS.unknownKeyNoKeys, { account })
+                : catalogMessage(ERRORS.unknownKey, { account, known: known.join(", ") }),
           });
         } else if (seen.has(account)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path,
-            message: `Key "${account}" is listed twice`,
+            message: catalogMessage(ERRORS.keyListedTwice, { account }),
           });
         }
         seen.add(account);

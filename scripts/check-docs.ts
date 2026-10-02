@@ -2,7 +2,9 @@
 // - every TypeScript snippet in the READMEs and docs/ typechecks against the built package, the way
 //   a user's project imports it (run `pnpm run build` first; `pnpm run docs:check` does);
 // - every page under docs/ is linked from AGENTS.md and docs/README.md, and every decision record
-//   from the decision index, with the exceptions listed in checkIndexes.
+//   from the decision index, with the exceptions listed in checkIndexes;
+// - docs/user/reference/errors.md matches the error catalogues (scripts/generate-errors-doc.ts);
+// - first-party source builds its errors only through the catalogue helpers (checkErrorSites).
 // lychee checks the links themselves (see lychee.toml).
 //
 // A snippet that is not meant to compile, such as a sketch of a planned API, is preceded by
@@ -13,6 +15,16 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { parseSync } from "oxc-parser";
+
+import {
+  CATALOGUED_PACKAGES,
+  ERRORS_DOC,
+  ERRORS_DOC_COMMAND,
+  loadCatalogues,
+  renderErrorsDoc,
+} from "./generate-errors-doc.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SKIP_MARKER = "<!-- docs-check: skip -->";
@@ -205,13 +217,206 @@ function packageReadmes(): string[] {
     .filter((file) => existsSync(path.join(root, file)));
 }
 
+/** Fails when the errors page differs from what the catalogues generate. */
+async function checkErrorsDoc(): Promise<string[]> {
+  const expected = renderErrorsDoc(await loadCatalogues());
+  const file = path.join(root, ERRORS_DOC);
+  const actual = existsSync(file) ? readFileSync(file, "utf8") : "";
+  return actual === expected
+    ? []
+    : [`${ERRORS_DOC} is out of date with the error catalogues. Run \`${ERRORS_DOC_COMMAND}\`.`];
+}
+
+/** The one file that may build errors without a catalogue entry: the helpers themselves. */
+const ERROR_HELPERS = "packages/hardhat-kms/src/internal/errors.ts";
+
+function sourceFiles(directory: string): string[] {
+  return readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap((entry) => {
+    const relative = path.posix.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      return entry.name === "vendor" ? [] : sourceFiles(relative);
+    }
+    return entry.name.endsWith(".ts") ? [relative] : [];
+  });
+}
+
+/** Files that may name `kmsError`: its definition, and the entry point that exports it. */
+const KMS_ERROR_FILES = new Set([
+  "packages/hardhat-kms/src/internal/errors.ts",
+  "packages/hardhat-kms/src/provider-utils.ts",
+]);
+
+/** Reads a field of an AST node. */
+function field(node: unknown, name: string): unknown {
+  return typeof node === "object" && node !== null ? Reflect.get(node, name) : undefined;
+}
+
+/** Calls `visit` on every node of an AST, parents first. */
+function walk(node: unknown, visit: (node: object) => void): void {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      walk(child, visit);
+    }
+    return;
+  }
+  if (typeof node !== "object" || node === null) {
+    return;
+  }
+  if (typeof field(node, "type") === "string") {
+    visit(node);
+  }
+  for (const [key, child] of Object.entries(node)) {
+    if (key !== "parent" && typeof child === "object" && child !== null) {
+      walk(child, visit);
+    }
+  }
+}
+
+/** The name a constructor or function is called by: the last segment of `a.b.C` or `this.#c`. */
+function calleeName(callee: unknown): string | undefined {
+  const type = field(callee, "type");
+  if (type === "Identifier") {
+    const name = field(callee, "name");
+    return typeof name === "string" ? name : undefined;
+  }
+  if (type === "MemberExpression" && field(callee, "computed") !== true) {
+    const property = field(callee, "property");
+    const name = field(property, "name");
+    if (typeof name !== "string") {
+      return undefined;
+    }
+    return field(property, "type") === "PrivateIdentifier" ? `#${name}` : name;
+  }
+  return undefined;
+}
+
+/** Whether a subtree calls `catalogMessage`. */
+function callsCatalogMessage(node: unknown): boolean {
+  let found = false;
+  walk(node, (child) => {
+    if (
+      field(child, "type") === "CallExpression" &&
+      calleeName(field(child, "callee")) === "catalogMessage"
+    ) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+/** Whether a node is text: a string, a template literal or a `+` with one of them. */
+function isText(node: unknown): boolean {
+  const type = field(node, "type");
+  if (type === "TemplateLiteral") {
+    return true;
+  }
+  if (type === "Literal") {
+    return typeof field(node, "value") === "string";
+  }
+  return (
+    type === "BinaryExpression" && (isText(field(node, "left")) || isText(field(node, "right")))
+  );
+}
+
+/**
+ * Whether an argument list passes text directly. Strings inside an options object, such as an SDK
+ * command's fields, do not count.
+ */
+function hasText(args: unknown): boolean {
+  return Array.isArray(args) && args.some((arg) => isText(arg));
+}
+
+/** An error class: a capitalised name that ends in Error, Failure or Exception. */
+const ERROR_NAME = /^(?:[A-Z]\w*)?(?:Error|Failure|Exception)$/;
+
+/**
+ * Fails on first-party code that builds an error without the catalogue helpers of
+ * packages/hardhat-kms/src/internal/errors.ts. It reads each file's syntax tree, so comments,
+ * strings and regular expressions cannot hide or fake a match:
+ *
+ * - `kmsError` named anywhere (a call, an import, an alias), apart from its definition and export;
+ * - `new HardhatPluginError(…)`;
+ * - `new X(…)` or `X(…)` where the last segment of `X` ends in `Error`, `Failure` or `Exception`,
+ *   such as `new ns.FooError(…)` or a bare `Error(…)`, without `catalogMessage` in its arguments;
+ * - `new this.#x(…)` or `new obj.X(…)` with text in its arguments and no `catalogMessage`;
+ * - `throw "…"` or ``throw `…` ``.
+ */
+function checkErrorSites(): string[] {
+  const problems: string[] = [];
+  const directories = CATALOGUED_PACKAGES.map((name) => path.posix.join("packages", name, "src"));
+  for (const file of directories.flatMap((directory) => sourceFiles(directory))) {
+    if (file === ERROR_HELPERS) {
+      continue;
+    }
+    const source = readFileSync(path.join(root, file), "utf8");
+    const parsed = parseSync(file, source);
+    if (parsed.errors.length > 0) {
+      problems.push(`${file}: cannot parse (${parsed.errors[0]?.message ?? "unknown error"})`);
+      continue;
+    }
+    const report = (node: object, what: string): void => {
+      const start = field(node, "start");
+      const line = source.slice(0, typeof start === "number" ? start : 0).split("\n").length;
+      problems.push(
+        `${file}:${line}: ${what}; build it from a catalogue entry with catalogError, catalogMessage or internalError`,
+      );
+    };
+    walk(parsed.program, (node) => {
+      const type = field(node, "type");
+      if (
+        type === "Identifier" &&
+        field(node, "name") === "kmsError" &&
+        !KMS_ERROR_FILES.has(file)
+      ) {
+        report(node, "kmsError named");
+      }
+      if (type === "NewExpression" || type === "CallExpression") {
+        const callee = field(node, "callee");
+        const name = calleeName(callee);
+        const args = field(node, "arguments");
+        const isNew = type === "NewExpression";
+        if (isNew && name === "HardhatPluginError") {
+          report(node, "new HardhatPluginError()");
+        } else if (name !== undefined && ERROR_NAME.test(name) && !callsCatalogMessage(args)) {
+          report(
+            node,
+            `${isNew ? "new " : ""}${name}() with a message that is not from catalogMessage`,
+          );
+        } else if (
+          isNew &&
+          field(callee, "type") === "MemberExpression" &&
+          hasText(args) &&
+          !callsCatalogMessage(args)
+        ) {
+          report(node, `new ${name ?? "(computed)"}() with text that is not from catalogMessage`);
+        }
+      }
+      if (type === "ThrowStatement") {
+        const argument = field(node, "argument");
+        const argumentType = field(argument, "type");
+        if (
+          argumentType === "TemplateLiteral" ||
+          (argumentType === "Literal" && typeof field(argument, "value") === "string")
+        ) {
+          report(node, "thrown string");
+        }
+      }
+    });
+  }
+  return problems.toSorted((a, b) => a.localeCompare(b, "en", { numeric: true }));
+}
+
 const pages = markdownFiles("docs");
 const problems = [
   ...checkIndexes(pages),
   ...checkSnippets(["README.md", ...packageReadmes(), ...pages]),
+  ...(await checkErrorsDoc()),
+  ...checkErrorSites(),
 ];
 if (problems.length > 0) {
   process.stderr.write(`${problems.join("\n")}\n`);
   process.exit(1);
 }
-process.stdout.write(`docs check passed: ${pages.length} pages indexed, snippets typecheck\n`);
+process.stdout.write(
+  `docs check passed: ${pages.length} pages indexed, snippets typecheck, ${ERRORS_DOC} is current, every error comes from a catalogue\n`,
+);

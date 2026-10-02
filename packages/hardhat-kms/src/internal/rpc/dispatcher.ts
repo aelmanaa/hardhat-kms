@@ -13,7 +13,8 @@ import type { KmsKeyConfig } from "../../types.ts";
 import { keyIdentity } from "../config/key-identity.ts";
 import { toChecksumAddress } from "../crypto/address.ts";
 import { kmsDebug } from "../debug.ts";
-import { errorName, kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError, catalogMessage, errorName } from "../errors.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import type { ConnectionChain } from "./chain-id.ts";
@@ -189,8 +190,9 @@ export class ConnectionAccounts {
       const normalized = address.toLowerCase();
       const existing = byAddress.get(normalized);
       if (existing !== undefined) {
-        throw kmsError(
-          `${key.name} and ${existing.name} are the same account (${toChecksumAddress(address)}); list each key once`,
+        throw catalogError(
+          ERRORS.sameAccount,
+          { name: key.name, other: existing.name, address: toChecksumAddress(address) },
           { operation: "load accounts" },
         );
       }
@@ -224,10 +226,11 @@ export class ConnectionAccounts {
         // An inline key is named after its place in the network.
         const named =
           existing.name === `${name}.kmsAccounts[${index}]` ? "" : ` ("${existing.name}")`;
-        throw kmsError(`${key.name} is already ${path}${named}; use one of them`, {
-          provider: key.provider,
-          operation: "load accounts",
-        });
+        throw catalogError(
+          ERRORS.alreadyListed,
+          { name: key.name, path, named },
+          { provider: key.provider, operation: "load accounts" },
+        );
       }
     }
   }
@@ -430,8 +433,8 @@ export function kmsAccountsSentence(addresses: readonly string[]): string | unde
   const more = addresses.length - LISTED_KMS_ADDRESSES;
   const list = more > 0 ? `${shown} and ${more} more` : shown;
   return addresses.length === 1
-    ? `The KMS account on this network is ${list}.`
-    : `The KMS accounts on this network are ${list}.`;
+    ? catalogMessage(ERRORS.kmsAccountSentence, { list })
+    : catalogMessage(ERRORS.kmsAccountsSentence, { list });
 }
 
 /**
@@ -821,7 +824,12 @@ async function broadcast(
       const cause = errorName(thrown);
       log("sending transaction %s got no answer (%s)", transaction.hash, cause);
       throw new SendOutcomeUnknownError(
-        `${request.method}: transaction ${transaction.hash} was handed to the node, but no answer came back (${cause}). It may still be mined: look it up by its hash before sending another transaction. Repeating the same request within ${RETRY_TTL_MS / 1000} s sends the same transaction again.`,
+        catalogMessage(ERRORS.sendOutcomeUnknown, {
+          method: request.method,
+          hash: transaction.hash,
+          cause,
+          seconds: RETRY_TTL_MS / 1000,
+        }),
         transaction.hash,
       );
     }
@@ -918,7 +926,7 @@ async function signTypedData(
     operation,
     allowCrossChain: policy.allowCrossChainTypedData,
     expectedChain: async () => ({ chainId: await policy.chain.chainId(), name: "this network" }),
-    allowHint: "Set `kms.allowCrossChainTypedData: true` to sign typed data for other chains",
+    mismatch: ERRORS.typedDataChainMismatchNetwork,
   });
   return await signer.signTypedData(typedData);
 }

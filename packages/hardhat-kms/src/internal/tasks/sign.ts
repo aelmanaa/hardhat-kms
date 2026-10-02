@@ -4,7 +4,8 @@ import type { NewTaskActionFunction } from "hardhat/types/tasks";
 import { addressFromPublicKey, sameAddress } from "../crypto/address.ts";
 import { personalMessageDigest, type TypedData, typedDataDigest } from "../crypto/digests.ts";
 import { recoverPublicKey, toRpcSignature } from "../crypto/signature.ts";
-import { kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError } from "../errors.ts";
 import { createConnectionChain, parseChainId } from "../rpc/chain-id.ts";
 import { checkTypedDataChain, type ExpectedChain } from "../rpc/typed-data.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
@@ -50,9 +51,7 @@ const kmsSign: NewTaskActionFunction<SignArguments> = async (args, hre) => {
     // or wrong signer output; the digest comes from the same code the signer uses, so it is not
     // an independent check of the digest.
     if (!recoversTo(signed, digestOf(payload), await signer.getAddress())) {
-      throw kmsError("the signature does not recover to the key's address", {
-        operation: OPERATION,
-      });
+      throw catalogError(ERRORS.signNoRecovery, {}, { operation: OPERATION });
     }
     return signed;
   });
@@ -64,19 +63,17 @@ export default kmsSign;
 
 async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment): Promise<Payload> {
   if (args.fromFile && !args.data) {
-    throw kmsError("--from-file requires --data", { operation: OPERATION });
+    throw catalogError(ERRORS.fromFileNeedsData, {}, { operation: OPERATION });
   }
   if (args.noHash && args.data) {
-    throw kmsError("--no-hash cannot be combined with --data", { operation: OPERATION });
+    throw catalogError(ERRORS.noHashWithData, {}, { operation: OPERATION });
   }
   if (!args.data && (args.chain !== undefined || args.allowCrossChain)) {
-    throw kmsError("--chain and --allow-cross-chain apply only to --data", {
-      operation: OPERATION,
-    });
+    throw catalogError(ERRORS.chainOptionsNeedData, {}, { operation: OPERATION });
   }
   if (args.data) {
     if (args.chain !== undefined && hre.globalOptions.network !== undefined) {
-      throw kmsError("pass --chain or --network, not both", { operation: OPERATION });
+      throw catalogError(ERRORS.signChainAndNetwork, {}, { operation: OPERATION });
     }
     const chain = parseChainId(args.chain, "--chain", OPERATION);
     const typedData = await readTypedDataArgument(args.message, args.fromFile, OPERATION);
@@ -87,7 +84,7 @@ async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment):
       operation: OPERATION,
       allowCrossChain: args.allowCrossChain || hre.config.kms.allowCrossChainTypedData,
       expectedChain: async (domainChain) => await expectedChain(chain, hre, domainChain),
-      allowHint: "Pass --allow-cross-chain to sign it for another chain",
+      mismatch: ERRORS.typedDataChainMismatchTask,
     });
     return { kind: "typedData", typedData };
   }
@@ -98,9 +95,11 @@ async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment):
     );
     const digest = decodeHex(args.message, "the --no-hash digest", OPERATION);
     if (digest.length !== DIGEST_LENGTH) {
-      throw kmsError(`--no-hash needs a ${DIGEST_LENGTH}-byte digest, got ${digest.length} bytes`, {
-        operation: OPERATION,
-      });
+      throw catalogError(
+        ERRORS.noHashDigestLength,
+        { expected: DIGEST_LENGTH, length: digest.length },
+        { operation: OPERATION },
+      );
     }
     return { kind: "digest", digest };
   }
@@ -122,10 +121,7 @@ async function expectedChain(
   }
   const network = hre.globalOptions.network;
   if (network === undefined) {
-    throw kmsError(
-      `the typed data is for chain ${domainChain}, and there is no chain to compare it with. Pass --network or --chain, or --allow-cross-chain to sign it for any chain`,
-      { operation: OPERATION },
-    );
+    throw catalogError(ERRORS.signNoChainToCompare, { domainChain }, { operation: OPERATION });
   }
   const configured = hre.config.networks[network]?.chainId;
   if (configured !== undefined) {

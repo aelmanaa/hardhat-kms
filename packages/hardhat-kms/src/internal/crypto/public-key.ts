@@ -2,6 +2,9 @@ import { createPublicKey, type KeyObject } from "node:crypto";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 
+import { ERRORS } from "../error-catalog.ts";
+import { catalogMessage } from "../errors.ts";
+
 /** Length in bytes of an uncompressed secp256k1 public key: `0x04 || x || y`. */
 const UNCOMPRESSED_PUBLIC_KEY_LENGTH = 65;
 
@@ -29,9 +32,7 @@ export function publicKeyFromSpkiDer(der: Uint8Array): Uint8Array {
   // as the signature parser does for signatures.
   const canonical = Uint8Array.from([...SECP256K1_SPKI_PREFIX, ...publicKey]);
   if (der.length !== canonical.length || !der.every((byte, index) => byte === canonical[index])) {
-    throw new InvalidPublicKeyError(
-      "expected the canonical DER encoding of an uncompressed secp256k1 SubjectPublicKeyInfo",
-    );
+    throw new InvalidPublicKeyError(catalogMessage(ERRORS.spkiDer, {}));
   }
   return publicKey;
 }
@@ -79,10 +80,12 @@ const JWK_SECP256K1_CURVES = new Set(["P-256K", "SECP256K1", "secp256k1"]);
  */
 export function publicKeyFromJwk(jwk: EcJsonWebKey): Uint8Array {
   if (jwk.kty === undefined || !JWK_KEY_TYPES.has(jwk.kty)) {
-    throw new InvalidPublicKeyError(`expected an EC key, got key type "${String(jwk.kty)}"`);
+    throw new InvalidPublicKeyError(
+      catalogMessage(ERRORS.jwkKeyType, { keyType: String(jwk.kty) }),
+    );
   }
   if (jwk.crv === undefined || !JWK_SECP256K1_CURVES.has(jwk.crv)) {
-    throw new InvalidPublicKeyError(`expected curve P-256K (secp256k1), got "${String(jwk.crv)}"`);
+    throw new InvalidPublicKeyError(catalogMessage(ERRORS.jwkCurve, { curve: String(jwk.crv) }));
   }
   const x = leftPad(coordinateBytes(jwk.x, "x"), "x");
   const y = leftPad(coordinateBytes(jwk.y, "y"), "y");
@@ -98,12 +101,12 @@ export function publicKeyFromJwk(jwk: EcJsonWebKey): Uint8Array {
  */
 export function assertOnCurve(publicKey: Uint8Array): Uint8Array {
   if (publicKey.length !== UNCOMPRESSED_PUBLIC_KEY_LENGTH || publicKey[0] !== 0x04) {
-    throw new InvalidPublicKeyError("expected a 65-byte uncompressed public key");
+    throw new InvalidPublicKeyError(catalogMessage(ERRORS.publicKeyLength, {}));
   }
   try {
     secp256k1.Point.fromBytes(publicKey).assertValidity();
   } catch {
-    throw new InvalidPublicKeyError("the public key is not a point on secp256k1");
+    throw new InvalidPublicKeyError(catalogMessage(ERRORS.notOnCurve, {}));
   }
   return publicKey;
 }
@@ -113,11 +116,14 @@ function publicKeyFromKeyObject(load: () => KeyObject): Uint8Array {
   try {
     key = load();
   } catch {
-    throw new InvalidPublicKeyError("the public key could not be parsed as SubjectPublicKeyInfo");
+    throw new InvalidPublicKeyError(catalogMessage(ERRORS.spkiParse, {}));
   }
   if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "secp256k1") {
     throw new InvalidPublicKeyError(
-      `expected a secp256k1 key, got ${String(key.asymmetricKeyType)} ${String(key.asymmetricKeyDetails?.namedCurve)}`,
+      catalogMessage(ERRORS.spkiCurve, {
+        keyType: String(key.asymmetricKeyType),
+        curve: String(key.asymmetricKeyDetails?.namedCurve),
+      }),
     );
   }
   const jwk = key.export({ format: "jwk" });
@@ -126,14 +132,16 @@ function publicKeyFromKeyObject(load: () => KeyObject): Uint8Array {
 
 function coordinateBytes(value: Uint8Array | string | undefined, name: string): Uint8Array {
   if (value === undefined) {
-    throw new InvalidPublicKeyError(`the key has no "${name}" coordinate`);
+    throw new InvalidPublicKeyError(
+      catalogMessage(ERRORS.jwkCoordinateMissing, { coordinate: name }),
+    );
   }
   return typeof value === "string" ? new Uint8Array(Buffer.from(value, "base64url")) : value;
 }
 
 function leftPad(bytes: Uint8Array, name: string): Uint8Array {
   if (bytes.length > COORDINATE_LENGTH) {
-    throw new InvalidPublicKeyError(`the "${name}" coordinate is longer than 32 bytes`);
+    throw new InvalidPublicKeyError(catalogMessage(ERRORS.jwkCoordinateLong, { coordinate: name }));
   }
   const padded = new Uint8Array(COORDINATE_LENGTH);
   padded.set(bytes, COORDINATE_LENGTH - bytes.length);

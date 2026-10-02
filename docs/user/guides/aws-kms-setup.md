@@ -136,4 +136,4 @@ Each message starts with the provider, the operation and the key, for example `a
 | `no AWS region is configured`                                           | Set `region` on the key or `kms.defaults.aws.region`, set `AWS_REGION`, give the profile a region, or use a key ARN.                              |
 | `no answer within … ms`                                                 | KMS did not answer in time. Check the network and region, or raise `timeoutMs`.                                                                   |
 
-Provider errors show only the error's class name, never its message, since SDK messages can carry request details. Run with `DEBUG=hardhat:kms:*` to see each call; see [Debug output](debug-output.md).
+Provider errors show only the error's class name, never its message, since SDK messages can carry request details. Run with `DEBUG=hardhat:kms:*` to see each call; see [Debug output](debug-output.md). Errors of the core plugin, such as configuration, address and signature errors, are listed with their causes and fixes in the [errors reference](../reference/errors.md).

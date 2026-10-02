@@ -2,6 +2,8 @@ import { keccak_256 } from "@noble/hashes/sha3.js";
 import { eip191Signer, verifyTyped } from "micro-eth-signer";
 import { RLP } from "micro-eth-signer/core/rlp.js";
 
+import { ERRORS } from "../error-catalog.ts";
+import { catalogMessage } from "../errors.ts";
 import { sigHash } from "../vendor/micro-eth-signer/typed-data.ts";
 
 /**
@@ -48,26 +50,26 @@ export function parseTypedData(input: unknown): TypedData {
   try {
     value = structuredClone(input);
   } catch {
-    throw new InvalidTypedDataError("the typed data must be plain data (JSON values and bigints)");
+    throw new InvalidTypedDataError(catalogMessage(ERRORS.typedDataPlainData, {}));
   }
   if (!isRecord(value)) {
-    throw new InvalidTypedDataError("the typed data must be an object");
+    throw new InvalidTypedDataError(catalogMessage(ERRORS.typedDataObject, {}));
   }
   const { types, primaryType, domain, message } = value;
   if (!isRecord(types)) {
-    throw new InvalidTypedDataError("`types` must map each type name to a list of {name, type}");
+    throw new InvalidTypedDataError(catalogMessage(ERRORS.typedDataTypes, {}));
   }
   const entries: [string, { name: string; type: string }[]][] = [];
   for (const [name, fields] of Object.entries(types)) {
     if (!Array.isArray(fields) || !fields.every(isField)) {
-      throw new InvalidTypedDataError(`\`types.${name}\` must be a list of {name, type}`);
+      throw new InvalidTypedDataError(
+        catalogMessage(ERRORS.typedDataTypeFields, { typeName: name }),
+      );
     }
     entries.push([name, fields]);
   }
   if (typeof primaryType !== "string" || !isRecord(domain) || !isRecord(message)) {
-    throw new InvalidTypedDataError(
-      "the typed data needs a string `primaryType` and object `domain` and `message`",
-    );
+    throw new InvalidTypedDataError(catalogMessage(ERRORS.typedDataShape, {}));
   }
   // fromEntries defines own properties, so a type named `__proto__` cannot reach the prototype.
   const typedFields: TypedData["types"] = Object.fromEntries(entries);
@@ -75,7 +77,11 @@ export function parseTypedData(input: unknown): TypedData {
   try {
     typedDataDigest(typedData);
   } catch (error) {
-    throw new InvalidTypedDataError(error instanceof Error ? error.message : String(error));
+    throw new InvalidTypedDataError(
+      catalogMessage(ERRORS.typedDataEncoder, {
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
   }
   return typedData;
 }

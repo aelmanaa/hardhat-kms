@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 
 import type { TypedData } from "../crypto/digests.ts";
-import { errorName, kmsError } from "../errors.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError, errorName } from "../errors.ts";
 import { readTypedData } from "../rpc/typed-data.ts";
 
 const HEX_BYTES = /^0x(?:[0-9a-fA-F]{2})*$/;
@@ -16,9 +17,7 @@ const HEX_BYTES = /^0x(?:[0-9a-fA-F]{2})*$/;
  */
 export function decodeHex(value: string, what: string, operation: string): Uint8Array {
   if (!HEX_BYTES.test(value)) {
-    throw kmsError(`${what} is not 0x-prefixed hex with an even number of digits`, {
-      operation,
-    });
+    throw catalogError(ERRORS.notHex, { what }, { operation });
   }
   return new Uint8Array(Buffer.from(value.slice(2), "hex"));
 }
@@ -57,8 +56,10 @@ async function readTypedDataFile(file: string, operation: string): Promise<strin
   try {
     return await readFile(file, "utf8");
   } catch (error) {
-    throw kmsError(`cannot read the typed data file ${file} (${errorName(error)})`, {
-      operation,
-    });
+    throw catalogError(
+      ERRORS.typedDataFileUnreadable,
+      { file, errorName: errorName(error) },
+      { operation },
+    );
   }
 }

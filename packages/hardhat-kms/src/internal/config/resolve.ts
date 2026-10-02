@@ -7,6 +7,8 @@ import type {
   KmsKeyConfig,
   KmsKeyUserConfig,
 } from "../../types.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { internalError } from "../errors.ts";
 import { builtinProvider } from "../providers/registry.ts";
 import { DEFAULT_TIMEOUT_MS } from "./common.ts";
 import { isConfigurationVariable } from "./identifiers.ts";
@@ -130,7 +132,7 @@ export function resolveKmsUserConfig(
           const key = Object.hasOwn(kms.keys, account) ? kms.keys[account] : undefined;
           if (key === undefined) {
             // Validation rejects unknown names; this guards against resolving an unvalidated config.
-            throw new Error(`Unknown key "${account}" in networks.${network}.kmsAccounts`);
+            throw internalError(ERRORS.unvalidatedKey, { account, network });
           }
           return key;
         }

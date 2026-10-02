@@ -57,6 +57,7 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 | Signer and adapter interface                | `packages/hardhat-kms/src/internal/signer/kms-signer.ts`, `packages/hardhat-kms/src/internal/signer/types.ts`                                                     | M1        |
 | Per-call timeout                            | `packages/hardhat-kms/src/internal/signer/timeout.ts`                                                                                                             | M1        |
 | Error builder                               | `packages/hardhat-kms/src/internal/errors.ts`                                                                                                                     | M1        |
+| Error catalogue                             | `packages/hardhat-kms/src/internal/error-catalog.ts`, `scripts/generate-errors-doc.ts`                                                                            | M8        |
 | Vendored EIP-712 encoder                    | `packages/hardhat-kms/src/internal/vendor/micro-eth-signer/`                                                                                                      | M1        |
 | Config schema and resolution                | `packages/hardhat-kms/src/internal/config/`                                                                                                                       | M2        |
 | Provider descriptors and registry           | `packages/hardhat-kms/src/internal/providers/{registry,types}.ts`, `packages/hardhat-kms/src/internal/providers/*/descriptor.ts`                                  | M2        |
@@ -191,7 +192,8 @@ packages/hardhat-kms/src/
                             inputs.ts: message and --data arguments; one action module per task:
                             accounts, address, public-key, sign, sign-auth, sign-tx, verify
     vendor/micro-eth-signer/  vendored EIP-712 hashing (MIT, see "Vendored EIP-712")
-    errors.ts               allow-listed error builder
+    errors.ts               allow-listed error builder; catalogError, catalogMessage, internalError
+    error-catalog.ts        every error the core builds: id, message template, cause, fix
     warnings.ts             the one console.warn: warnings for the user
     debug.ts                kmsDebug: hardhat:kms:config, providers, signer, rpc; plain values only
 ```
@@ -244,7 +246,7 @@ Every task that takes a key uses `packages/hardhat-kms/src/internal/tasks/keys.t
 - `withTaskSigners(hre, use)` gives `use` a `signerFor(key)` function backed by a new `SignerCache`, and closes every signer in a `finally`. A task run therefore never shares the network hook's signers, and the process exits once the task returns. The cache's display function writes adapters' status messages to standard error with `printNote`; the network hook's cache keeps Hardhat's `interruptions.displayMessage`, which prints to standard output. `withNamedSigner(hre, name, use)` combines it with `findTaskKey` for single-key tasks.
 - `printLine(line)` writes the result to standard output, and `printNote(line)` writes a note to standard error, prefixed with `[hardhat-kms]`.
 
-`kms address` uses `KmsSigner.confirmedAddress()`, which, unlike `getAddress()`, asks an address-only adapter even when the key has a pin, and says when the address is an unchecked pin. An action module's default export is a `NewTaskActionFunction`. It prints its result with `printLine` and also returns it, so `hre.tasks.getTask(["kms", "address"]).run({ key })` gives the value to scripts and tests. Errors are `kmsError`s, which the CLI prints and turns into exit code 1. The key's argument is the positional argument `key`, described by `KEY_ARGUMENT_DESCRIPTION` in `index.ts`. The user-facing rules are in the [tasks reference](../user/reference/tasks.md).
+`kms address` uses `KmsSigner.confirmedAddress()`, which, unlike `getAddress()`, asks an address-only adapter even when the key has a pin, and says when the address is an unchecked pin. An action module's default export is a `NewTaskActionFunction`. It prints its result with `printLine` and also returns it, so `hre.tasks.getTask(["kms", "address"]).run({ key })` gives the value to scripts and tests. Errors are `HardhatPluginError`s from the [error catalogue](#errors), which the CLI prints and turns into exit code 1. The key's argument is the positional argument `key`, described by `KEY_ARGUMENT_DESCRIPTION` in `index.ts`. The user-facing rules are in the [tasks reference](../user/reference/tasks.md).
 
 `kms sign` checks its input before it opens a signer. Typed data goes through `readTypedData` and `checkTypedDataChain` in `rpc/typed-data.ts`, the functions `eth_signTypedData_v4` uses, and the chain to compare with is `--chain`, else the `chainId` in the `--network` config. Only a network config without `chainId` makes the task open a connection to read `eth_chainId`; creating it runs the network hook, which can call the KMS, since Hardhat funds an `edr-simulated` network's accounts then. After signing, the task recovers the address from the printed `r || s || v` and refuses a signature that does not recover to the key. That catches a substituted or wrong signer output. It is no independent check of the digest: the task computes the digest with the signer's own code.
 
@@ -266,6 +268,20 @@ Each connection with KMS keys gets a `ConnectionAccounts` (`packages/hardhat-kms
 The cache counts connections that have KMS keys, for the whole cache rather than per signer. A signer shared by a plain and an override connection therefore stays open while either is open. Five seconds after the last of them closes, an `unref`'d idle timer closes every signer once, and with them the adapters and SDK clients; the next use creates them again. A connection that opens before the timer fires cancels it, and a connection closed twice is counted once. While a request is still signing, the idle close waits and tries again, so the request keeps its SDK client. A running request also starts the timer, even before its signer is cached. Because the timer is `unref`'d and nothing else holds the event loop, a script that signs and never closes its connection still exits. `packages/hardhat-kms-aws/test/integration/network.test.ts` checks this with `packages/hardhat-kms-aws/test/fixtures/sign-and-exit.ts`. The GCP adapter creates its client with `{ fallback: true }` (REST), so no gRPC channel keeps `hardhat run` alive; `packages/hardhat-kms-gcp/test/integration/network.test.ts` runs the same exit check with `packages/hardhat-kms-gcp/test/fixtures/sign-and-exit.ts`.
 
 Status messages from adapters go to Hardhat's `interruptions.displayMessage` with the title `hardhat-kms`.
+
+## Errors
+
+Every error that first-party code builds has an entry in its package's error catalogue, `src/internal/error-catalog.ts`: a stable id (`<package>.<area>.<name>`), a kind, a group, a message template with `{name}` placeholders, a cause and a fix. The catalogue is an `as const` object, so each template keeps its literal type, and `TemplateParams<Template>` in `packages/hardhat-kms/src/internal/errors.ts` turns its placeholders into required parameters: a missing or misspelt value does not compile. A `{` that does not start a `{name}` placeholder, as in `{name, type}`, is literal text, for the type and for `fillTemplate` alike.
+
+Code builds errors with three helpers from `errors.ts`, which `hardhat-kms/provider-utils` also exports:
+
+- `catalogError(entry, params, details)` for an `error` entry: a `HardhatPluginError` with `kmsError`'s prefix (provider, operation, key).
+- `catalogMessage(entry, params)` for text: a `reason` that another error includes (the messages of `InvalidSignatureError`, `InvalidPublicKeyError`, `InvalidAddressError` and `InvalidTypedDataError`, and the problems an identifier check returns), a `validation` message for the zod schemas, or an `error` entry that has a class of its own (`SendOutcomeUnknownError`).
+- `internalError(entry, params)` for an `internal` entry: a plain `Error` for a state that only a bug or a broken install reaches, such as a config resolved without validation or a `package.json` without a version. These throws keep the `Error` class they always had, and each has its own entry, whose fix is to report it.
+
+A placeholder holds a value: a name, a number, an address or a list. Where the wording around a value changes, the catalogue has one entry per wording, such as `core.task.unknown-key` and `core.task.unknown-key-suggested`. Messages do not print the id yet; the ids appear in the catalogue and in the [errors reference](../user/reference/errors.md).
+
+`kmsError(message, details)` stays for third-party providers. To add an error, add its entry, build it with one of the helpers and run `pnpm run docs:errors`, which writes the reference. `pnpm run docs:check` fails when the reference is out of date, and when first-party source builds an error outside the helpers (see [Documentation](documentation.md#checks)).
 
 ## Timeouts and retries
 

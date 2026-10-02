@@ -5,6 +5,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import { PLUGIN_ID } from "../constants.ts";
+import { ERRORS } from "../error-catalog.ts";
+import { catalogError } from "../errors.ts";
 import { systemTimers, type Timers } from "../signer/timeout.ts";
 
 /** How long a retry entry lives after a failed broadcast. */
@@ -98,10 +100,10 @@ function describeKey(key: string): string {
  */
 async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise<void> {
   if (lock.waiters.length >= MAX_SEND_LOCK_WAITERS) {
-    throw new HardhatPluginError(
-      PLUGIN_ID,
-      `Too many sends from ${describeKey(key)} are waiting: the limit is ${MAX_SEND_LOCK_WAITERS}. This send was not signed or sent.`,
-    );
+    throw catalogError(ERRORS.sendWaitersFull, {
+      account: describeKey(key),
+      limit: MAX_SEND_LOCK_WAITERS,
+    });
   }
   await new Promise<void>((resolve, reject) => {
     let cancel: (() => void) | undefined;
@@ -119,10 +121,10 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
           }
           lock.waiters.splice(index, 1);
           reject(
-            new HardhatPluginError(
-              PLUGIN_ID,
-              `A send from ${describeKey(key)} waited ${SEND_LOCK_STALL_MS / 1000} s for the account's earlier sends, and none finished. This send was not signed or sent.`,
-            ),
+            catalogError(ERRORS.sendStalled, {
+              account: describeKey(key),
+              seconds: SEND_LOCK_STALL_MS / 1000,
+            }),
           );
         }, SEND_LOCK_STALL_MS);
       },
@@ -154,10 +156,7 @@ export async function withSendLock<T>(
 ): Promise<T> {
   const held = holds.getStore() ?? [];
   if (held.some((hold) => hold.key === key && !hold.released)) {
-    throw new HardhatPluginError(
-      PLUGIN_ID,
-      `A send from ${describeKey(key)} was made from inside an earlier send from the same account on that chain, for example by a hook during its fill or broadcast. It would wait for itself, so it was not signed or sent.`,
-    );
+    throw catalogError(ERRORS.sendReentrant, { account: describeKey(key) });
   }
   let lock = locks.get(key);
   if (lock === undefined) {
