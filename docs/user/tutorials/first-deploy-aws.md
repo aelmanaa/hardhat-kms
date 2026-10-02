@@ -3,6 +3,9 @@
 <!--
 This page is the template for the Google Cloud KMS (#66) and Azure Key Vault (#67) tutorials.
 Shared, copy as is: step 1, step 5, steps 6 and 7, the return-funds half of step 8, Next steps.
+In the shared parts, change only the provider's name and key terms (key or key version, Sign or
+AsymmetricSign) in: the audience and intro lines, step 5's second paragraph, step 6's sentence on
+the Sign call, step 7's last sentence and step 8's opening sentence.
 Provider-specific, rewrite per provider: the region and credentials prerequisites, the cost
 paragraph, steps 2 and 3, the install line and the kms.keys entry in step 4, the key removal in step 8.
 -->
@@ -425,7 +428,7 @@ rm "$POLICY"
 aws iam delete-role-policy --role-name hardhat-deployer --policy-name hardhat-kms-tutorial
 ```
 
-To keep the key instead, leave it disabled: a disabled key cannot sign, `aws kms enable-key` brings it back, and it still costs $1 a month.
+To keep the key instead, run only the `disable-key` command: a disabled key cannot sign, `aws kms enable-key` brings it back, and it still costs $1 a month.
 
 ## Next steps
 
