@@ -708,6 +708,42 @@ describe("connection.kms.getAccount", () => {
   });
 
   describe("refuses once the connection is closed, before any KMS call", () => {
+    it("when the connection closes during a call, before its KMS call", async () => {
+      // The close lands while the call waits for the chain id, after its first check.
+      const { adapter, connection, state } = setup();
+      const closing: AccountConnection = {
+        ...connection,
+        chainId: async () => {
+          state.closed = true;
+          return await connection.chainId();
+        },
+      };
+      const account = await createKmsNetworkConnection(closing).getAccount(ADDRESS);
+      await assertClosed(
+        adapter,
+        "signTransaction",
+        async () => await account.signTransaction(EIP1559),
+      );
+      state.closed = false;
+      await assertClosed(
+        adapter,
+        "signAuthorization",
+        async () =>
+          await account.signAuthorization({
+            contractAddress: DELEGATE,
+            chainId: CHAIN_ID,
+            nonce: 0,
+          }),
+      );
+      state.closed = false;
+      await assertClosed(
+        adapter,
+        "signTypedData",
+        async () => await account.signTypedData(TYPED_DATA),
+      );
+      assert.equal(adapter.calls.signDigest, 0, "no KMS signature");
+    });
+
     it("every method of the account, and getAccount", async () => {
       const { adapter, connection, chainCalls, state } = setup();
       const kms = createKmsNetworkConnection(connection);
@@ -716,6 +752,29 @@ describe("connection.kms.getAccount", () => {
       state.closed = true;
       const chainBefore = chainCalls.count;
       await assertClosed(adapter, "getAccount", async () => await kms.getAccount(ADDRESS));
+      // getAccount refuses before loading viem or looking the key up, which can call the KMS.
+      let lookups = 0;
+      const counting: AccountConnection = {
+        ...connection,
+        accounts: {
+          ...connection.accounts,
+          keyFor: async (address) => {
+            lookups++;
+            return await connection.accounts.keyFor(address);
+          },
+        },
+      };
+      let loads = 0;
+      const countingLoad: LoadViem = async () => {
+        loads++;
+        return await loadViem();
+      };
+      await assertClosed(
+        adapter,
+        "getAccount",
+        async () => await createKmsNetworkConnection(counting, countingLoad).getAccount(ADDRESS),
+      );
+      assert.deepEqual({ lookups, loads }, { lookups: 0, loads: 0 });
       await assertClosed(
         adapter,
         "signMessage",

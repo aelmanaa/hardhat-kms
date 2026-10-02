@@ -170,8 +170,12 @@ function word(value: bigint): KmsHex {
   return `0x${value.toString(16).padStart(64, "0")}`;
 }
 
-/** Signs with the account's key, through the connection's signer cache. */
-type WithSigner = <T>(use: (signer: KmsSigner) => Promise<T>) => Promise<T>;
+/**
+ * Signs with the account's key, through the connection's signer cache. It refuses when the
+ * connection is closed, checked right before the KMS call, so a close during a call's earlier
+ * steps (such as the chain id lookup) still stops it.
+ */
+type WithSigner = <T>(operation: string, use: (signer: KmsSigner) => Promise<T>) => Promise<T>;
 
 /** What the account methods share. */
 interface AccountContext {
@@ -225,12 +229,13 @@ async function signTransaction(
       { operation },
     );
   }
-  warnAboutSends();
   log("%s: signing a %s transaction for chain %s", address, input.type, chainId.toString());
-  const signed = await context.withSigner(async (signer) => {
+  const signed = await context.withSigner(operation, async (signer) => {
     const signature = await signer.signDigest(keccak_256(unsignedBytes));
     return assembleSignedTransaction(input.unsigned, signature, address, operation);
   });
+  // After the signature: a transaction the KMS did not sign is never sent.
+  warnAboutSends();
   return hex(signed.toHex(true));
 }
 
@@ -262,7 +267,10 @@ async function signAuthorization(
     nonce: BigInt(request.nonce),
   });
   log("%s: signing an authorization for chain %d", address, request.chainId);
-  const signature = await context.withSigner(async (signer) => await signer.signDigest(digest));
+  const signature = await context.withSigner(
+    operation,
+    async (signer) => await signer.signDigest(digest),
+  );
   const signed: KmsSignedAuthorization = {
     address: request.delegate,
     chainId: request.chainId,
@@ -298,9 +306,13 @@ function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | 
     source: "hardhat-kms",
     type: "local",
     signMessage: async (parameters: { message: unknown }) => {
-      checkOpen(connection, "signMessage");
       const message = readMessage(parameters, "signMessage");
-      return hex(await withSigner(async (signer) => await signer.signPersonalMessage(message)));
+      return hex(
+        await withSigner(
+          "signMessage",
+          async (signer) => await signer.signPersonalMessage(message),
+        ),
+      );
     },
     signTypedData: async (parameters: KmsTypedDataDefinition) => {
       const operation = "signTypedData";
@@ -315,7 +327,9 @@ function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | 
         }),
         mismatch: ERRORS.typedDataChainMismatchNetwork,
       });
-      return hex(await withSigner(async (signer) => await signer.signTypedData(typedData)));
+      return hex(
+        await withSigner(operation, async (signer) => await signer.signTypedData(typedData)),
+      );
     },
     signTransaction: async (transaction, options) =>
       await signTransaction(context, transaction, options),
@@ -327,9 +341,8 @@ function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | 
   const raw: KmsRawSignAccount = {
     ...account,
     sign: async (parameters: { hash: unknown }) => {
-      checkOpen(connection, "sign");
       const digest = readHash(parameters, "sign");
-      const signature = await withSigner(async (signer) => await signer.signDigest(digest));
+      const signature = await withSigner("sign", async (signer) => await signer.signDigest(digest));
       return hex(toRpcSignature(signature));
     },
   };
@@ -357,6 +370,7 @@ export function createKmsNetworkConnection(
     options?: KmsAccountOptions,
   ): Promise<KmsAccount | KmsRawSignAccount> {
     const operation = "getAccount";
+    // Also checked before the KMS call, but the key lookup before it can call the KMS too.
     checkOpen(connection, operation);
     let viem: ViemParts;
     try {
@@ -380,9 +394,12 @@ export function createKmsNetworkConnection(
         { operation },
       );
     }
-    const withSigner: WithSigner = async (use) => await accounts.signWith(key, use);
+    const withSigner: WithSigner = async (method, use) => {
+      checkOpen(connection, method);
+      return await accounts.signWith(key, use);
+    };
     // The one KMS call of getAccount; it also checks the key's address pin.
-    const publicKey = await withSigner(async (signer) => await signer.getPublicKey());
+    const publicKey = await withSigner(operation, async (signer) => await signer.getPublicKey());
     if (checked.rawSign) {
       warn(
         `the account ${checksummed} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,

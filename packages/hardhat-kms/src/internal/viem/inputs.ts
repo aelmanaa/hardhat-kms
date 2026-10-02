@@ -193,7 +193,7 @@ export function readAuthorization(parameters: unknown, operation: string): Autho
   const delegate: unknown = parameters.contractAddress ?? parameters.address;
   const checksummed = readAddress(delegate, "address", operation);
   return {
-    // Stryker disable next-line ConditionalExpression: readAddress above refuses a non-string
+    // Stryker disable next-line ConditionalExpression: `true` is equivalent, since readAddress above refuses a non-string; `false` is killed by the tests but skipped by this line
     delegate: typeof delegate === "string" ? `0x${delegate.slice(2)}` : checksummed,
     delegateBytes: new Uint8Array(Buffer.from(checksummed.slice(2), "hex")),
     chainId: readSafeInteger(parameters.chainId, "chainId", operation),
@@ -413,7 +413,7 @@ export function readTransaction(transaction: unknown, operation: string): Transa
     // micro-eth-signer's own message about the caller's values: safe to show.
     throw catalogError(
       ERRORS.accountTxInvalid,
-      // Stryker disable next-line MethodExpression: micro-eth-signer's messages are short fixed texts
+      // Stryker disable next-line MethodExpression: the micro-eth-signer messages that can reach here are short
       { reason: error instanceof Error ? error.message.slice(0, 200) : String(error) },
       { operation },
     );
