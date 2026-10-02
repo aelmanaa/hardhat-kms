@@ -11,7 +11,7 @@ Every signature, from any adapter, goes through the same pipeline in `signer/kms
 1. Strict parse with noble (DER or compact).
 2. Range check on r and s.
 3. Low-S normalization.
-4. Trial recovery against the cached public key, or against the pinned address for adapters without `getPublicKey`. No match throws. Recovery ids that need an x-reduced point are rejected.
+4. Trial recovery against the cached public key, or against the pinned address for adapters without `getPublicKey`. No match throws. Recovery ids that need an x-reduced point are rejected. The signer checks against its own copy of the public key, made before the curve check, and gives each adapter call fresh copies of the digest, message and typed data, so an adapter that changes what it returned or received cannot change what the signature is checked against.
 5. A final check with the matching verifier: `recoverSender` for transactions, `eip191Signer.verify` for messages, `verifyTyped` for typed data.
 
 Every noble `verify` call passes `prehash:false`. If trial recovery fails, the signer makes one fresh signature attempt and then throws. The `yParity` an adapter returns is a hint only; the core always re-derives and verifies it.

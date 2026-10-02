@@ -1,11 +1,16 @@
+// Resizable ArrayBuffers (ES2024), which Node runs from 20 on; the shipped code targets ES2023.
+/// <reference lib="es2024.arraybuffer" />
+
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { HardhatPluginError } from "hardhat/plugins";
 
+import type { TypedData } from "../../../src/internal/crypto/digests.ts";
+import { recoverAddress, type SignatureOutput } from "../../../src/internal/crypto/signature.ts";
 import { KmsSigner, type KmsSignerOptions } from "../../../src/internal/signer/kms-signer.ts";
-import type { KmsKeyAdapter } from "../../../src/internal/signer/types.ts";
+import type { KmsKeyAdapter, SignContext } from "../../../src/internal/signer/types.ts";
 import {
   addressOfSecretKey,
   fakeAdapter,
@@ -98,6 +103,121 @@ describe("KmsSigner", () => {
       assert.deepEqual(await kms.getPublicKey(), expected);
       assert.equal(await kms.getAddress(), HARDHAT_ACCOUNT_0.address);
       assert.equal(adapter.calls.getPublicKey, 1);
+    });
+
+    describe("keeps its own copy of the provider's public key", () => {
+      const secretKey = hex(HARDHAT_ACCOUNT_0.secretKey);
+      const expected = secp256k1.getPublicKey(secretKey, false);
+
+      /**
+       * A signer whose adapter returns `held` as the public key and signs with the key
+       * `signingKey()` returns, so a test can change both after the signer checked the key.
+       */
+      function holdingSigner(held: Uint8Array, signingKey: () => Uint8Array = () => secretKey) {
+        const adapter: KmsKeyAdapter = {
+          describe: () => fakeAdapter({ secretKey }).describe(),
+          getPublicKey: async () => await Promise.resolve(held),
+          signDigest: async (request, ctx) =>
+            await (fakeAdapter({ secretKey: signingKey() }).signDigest?.(request, ctx) ??
+              Promise.reject(new Error("missing"))),
+        };
+        return new KmsSigner(adapter, baseOptions);
+      }
+
+      it("checks later signatures against the original key after the adapter changes it", async () => {
+        const held = new Uint8Array(expected);
+        const otherKey = hex(COW_ACCOUNT.secretKey);
+        let signingKey = secretKey;
+        const kms = holdingSigner(held, () => signingKey);
+        await kms.signDigest(new Uint8Array(32).fill(1));
+
+        // The adapter swaps another valid key into the array it returned, and signs with it.
+        held.set(secp256k1.getPublicKey(otherKey, false));
+        signingKey = otherKey;
+        await assertPluginError(kms.signDigest(new Uint8Array(32).fill(2)), [
+          "fake, sign",
+          "invalid signature",
+        ]);
+
+        // Signing with the original key still verifies.
+        signingKey = secretKey;
+        const digest = new Uint8Array(32).fill(3);
+        assert.equal(
+          recoverAddress(digest, await kms.signDigest(digest)),
+          HARDHAT_ACCOUNT_0.address,
+        );
+        assert.deepEqual(await kms.getPublicKey(), expected);
+      });
+
+      it("keeps signing after the adapter zeroes the Buffer it returned", async () => {
+        const held = Buffer.from(expected);
+        const kms = holdingSigner(held);
+        await kms.signDigest(new Uint8Array(32).fill(1));
+
+        held.fill(0);
+        await kms.signDigest(new Uint8Array(32).fill(2));
+        assert.deepEqual(await kms.getPublicKey(), expected);
+      });
+
+      it("keeps signing after the adapter shrinks the resizable buffer it returned", async () => {
+        const buffer = new ArrayBuffer(expected.length, { maxByteLength: expected.length });
+        // A length-tracking view: it shrinks with its buffer.
+        const held = new Uint8Array(buffer);
+        held.set(expected);
+        const kms = holdingSigner(held);
+        await kms.signDigest(new Uint8Array(32).fill(1));
+
+        buffer.resize(0);
+        assert.equal(held.length, 0);
+        await kms.signDigest(new Uint8Array(32).fill(2));
+        assert.deepEqual(await kms.getPublicKey(), expected);
+      });
+
+      it("returns copies the caller cannot use to change the key, when the adapter returned a Buffer", async () => {
+        const kms = holdingSigner(Buffer.from(expected));
+
+        // Before the copy, the signer kept the adapter's Buffer, and `.slice()` of a Buffer is a
+        // view of the same memory.
+        (await kms.getPublicKey()).fill(0);
+        await kms.signDigest(new Uint8Array(32).fill(1));
+        assert.deepEqual(await kms.getPublicKey(), expected);
+      });
+
+      it("checks the bytes it keeps, not a first read that differs from them", async () => {
+        // On the curve's x-axis prefix but not a point on secp256k1.
+        const offCurve = new Uint8Array(expected.length);
+        offCurve[0] = 0x04;
+        // Indexed reads and methods see the valid key; iterating, as a copy does, sees the other.
+        const twoFaced = new Proxy(new Uint8Array(expected), {
+          get(target, property) {
+            if (property === Symbol.iterator) {
+              return () => offCurve[Symbol.iterator]();
+            }
+            const value: unknown = Reflect.get(target, property, target);
+            if (typeof value !== "function") {
+              return value;
+            }
+            return (...args: unknown[]): unknown => Reflect.apply(value, target, args);
+          },
+        });
+        assert.ok(twoFaced instanceof Uint8Array);
+
+        await assertPluginError(holdingSigner(twoFaced).getAddress(), [
+          "fake, get public key",
+          "the public key is not a point on secp256k1",
+        ]);
+      });
+
+      it("reports a value that is not a byte array as a wrong key", async () => {
+        const adapter = fakeAdapter({ secretKey });
+        // A third-party adapter written in JavaScript can break the contract's types.
+        Reflect.set(adapter, "getPublicKey", async () => await Promise.resolve(undefined));
+
+        await assertPluginError(new KmsSigner(adapter, baseOptions).getAddress(), [
+          "fake, get public key",
+          "expected a 65-byte uncompressed public key",
+        ]);
+      });
     });
 
     it("has a public key for an address-only key only once it has signed", async () => {
@@ -399,7 +519,8 @@ describe("KmsSigner", () => {
       };
 
       await assertPluginError(new KmsSigner(adapter, baseOptions).signDigest(new Uint8Array(32)), [
-        "cannot sign",
+        "fake, sign",
+        "the provider cannot sign a digest",
       ]);
     });
   });
@@ -410,6 +531,98 @@ describe("KmsSigner", () => {
 
       await assertPluginError(kms.signDigest(new Uint8Array(31)), ["32-byte digest", "31 bytes"]);
       assert.equal(adapter.calls.signDigest, 0);
+    });
+  });
+
+  describe("hands the provider copies of what it signs", () => {
+    const secretKey = hex(COW_ACCOUNT.secretKey);
+
+    /** An adapter that signs digests with `sign`, through each of the three adapter methods. */
+    function copyingAdapter(
+      sign: (digest: Uint8Array, ctx: SignContext, method: string) => Promise<SignatureOutput>,
+      hooks: { message?: (message: Uint8Array) => void; typedData?: (data: TypedData) => void },
+    ) {
+      const inner = fakeAdapter({ secretKey });
+      const adapter: KmsKeyAdapter = {
+        describe: () => inner.describe(),
+        getPublicKey: async (ctx) =>
+          await (inner.getPublicKey?.(ctx) ?? Promise.reject(new Error("missing"))),
+        signDigest: async ({ digest }, ctx) => await sign(digest, ctx, "signDigest"),
+        signMessage: async ({ message, digest }, ctx) => {
+          hooks.message?.(message);
+          return await sign(digest, ctx, "signMessage");
+        },
+        signTypedData: async ({ typedData, digest }, ctx) => {
+          hooks.typedData?.(typedData);
+          return await sign(digest, ctx, "signTypedData");
+        },
+      };
+      return { inner, kms: new KmsSigner(adapter, baseOptions) };
+    }
+
+    it("refuses a signature over a digest the provider overwrote, on every signing path", async () => {
+      const methods: string[] = [];
+      const { inner, kms } = copyingAdapter(async (digest, ctx, method) => {
+        methods.push(method);
+        // The adapter overwrites the digest it received, then signs the overwritten one.
+        digest.fill(9);
+        return await (inner.signDigest?.({ digest }, ctx) ?? Promise.reject(new Error("missing")));
+      }, {});
+      const expected = ["fake, sign", "the provider returned an invalid signature"];
+
+      const digest = new Uint8Array(32).fill(1);
+      await assertPluginError(kms.signDigest(digest), expected);
+      assert.deepEqual(digest, new Uint8Array(32).fill(1));
+      await assertPluginError(kms.signPersonalMessage(Uint8Array.of(1, 2, 3)), expected);
+      await assertPluginError(kms.signTypedData(structuredClone(EIP712_MAIL)), expected);
+      // Each request goes to its own adapter method, once and then for the one retry.
+      assert.deepEqual(methods, [
+        "signDigest",
+        "signDigest",
+        "signMessage",
+        "signMessage",
+        "signTypedData",
+        "signTypedData",
+      ]);
+    });
+
+    it("keeps the caller's message and typed data when the provider changes its copies", async () => {
+      const { inner, kms } = copyingAdapter(
+        async (digest, ctx) =>
+          await (inner.signDigest?.({ digest }, ctx) ?? Promise.reject(new Error("missing"))),
+        {
+          message: (message) => {
+            message.fill(0);
+          },
+          typedData: (typedData) => {
+            typedData.message["contents"] = "Changed by the provider";
+          },
+        },
+      );
+
+      const message = Uint8Array.of(1, 2, 3);
+      await kms.signPersonalMessage(message);
+      assert.deepEqual(message, Uint8Array.of(1, 2, 3));
+
+      const typedData = structuredClone(EIP712_MAIL);
+      assert.equal(await kms.signTypedData(typedData), EIP712_MAIL_SIGNATURE);
+      assert.deepEqual(typedData, EIP712_MAIL);
+    });
+
+    it("refuses typed data it cannot copy before calling the provider", async () => {
+      const methods: string[] = [];
+      const { inner, kms } = copyingAdapter(async (digest, ctx, method) => {
+        methods.push(method);
+        return await (inner.signDigest?.({ digest }, ctx) ?? Promise.reject(new Error("missing")));
+      }, {});
+      // The digest reads the message through the proxy, but structuredClone cannot copy a proxy.
+      const typedData = { ...EIP712_MAIL, message: new Proxy(EIP712_MAIL.message, {}) };
+
+      await assertPluginError(kms.signTypedData(typedData), [
+        "fake, sign",
+        "the typed data is invalid: the typed data must be plain data",
+      ]);
+      assert.deepEqual(methods, []);
     });
   });
 
@@ -483,7 +696,7 @@ describe("KmsSigner", () => {
 
       await assertPluginError(
         new KmsSigner(adapter, baseOptions).signDigest(new Uint8Array(32).fill(7)),
-        ["RangeError"],
+        ["fake, sign, key fake-key-1", "RangeError"],
         ["throttled"],
       );
       assert.equal(calls, 2);

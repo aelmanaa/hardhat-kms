@@ -250,8 +250,12 @@ export class KmsSigner {
     const expected = this.#options.expectedAddress;
     const getPublicKey = this.#adapter.getPublicKey?.bind(this.#adapter);
     if (getPublicKey !== undefined) {
+      // Kept for every later signature check: copy the key, then check the copy, so the adapter
+      // cannot change or shrink the bytes it returned, and an object that reads differently each
+      // time cannot pass the check with one key and be kept as another. Not `.slice()`: on a
+      // Node `Buffer` that returns a view of the same memory.
       const publicKey = await this.#call("get public key", async (ctx) =>
-        assertOnCurve(await getPublicKey(ctx)),
+        assertOnCurve(new Uint8Array(await getPublicKey(ctx))),
       );
       const address = addressFromPublicKey(publicKey);
       log("%s: public key derives to %s", this.#displayId, address);
@@ -314,32 +318,59 @@ export class KmsSigner {
     digest: Uint8Array,
     identity: KeyIdentity,
   ): Promise<RecoverableSignature> {
-    const output = await this.#call("sign", (ctx) => this.#invokeAdapter(request, digest, ctx));
+    // Built before the call, so that a payload the signer cannot copy is not blamed on the provider.
+    const call = this.#adapterCall(request, digest);
+    const output = await this.#call("sign", call);
     if (identity.publicKey !== undefined) {
       return normalizeSignature(output, digest, identity.publicKey);
     }
-    // Address-only key: recover the public key, check it matches the address, then keep it.
+    // Address-only key: recover the public key, check it matches the address, then keep it. The
+    // recovered key is a new array from the curve library, not the adapter's, so it needs no copy.
     const recovered = recoverForAddress(output, digest, identity.address);
     identity.publicKey = recovered.publicKey;
     return normalizeSignature(output, digest, recovered.publicKey);
   }
 
-  async #invokeAdapter(
+  /**
+   * Builds one attempt's adapter call. The adapter gets its own copies, never the signer's or the
+   * caller's objects: the signer checks the signature against `digest`, also on the retry, and
+   * the final EIP-191 and EIP-712 checks read the caller's message and typed data again. An
+   * adapter that changes what it received must not change what the signature is checked against.
+   */
+  #adapterCall(
     request: SignRequest,
     digest: Uint8Array,
-    ctx: SignContext,
-  ): Promise<SignatureOutput> {
+  ): (ctx: SignContext) => Promise<SignatureOutput> {
     const adapter = this.#adapter;
-    if (request.kind === "typedData" && adapter.signTypedData !== undefined) {
-      return await adapter.signTypedData({ typedData: request.typedData, digest }, ctx);
+    const signTypedData = adapter.signTypedData?.bind(adapter);
+    if (request.kind === "typedData" && signTypedData !== undefined) {
+      const payload = {
+        typedData: this.#copyTypedData(request.typedData),
+        digest: new Uint8Array(digest),
+      };
+      return async (ctx) => await signTypedData(payload, ctx);
     }
-    if (request.kind === "message" && adapter.signMessage !== undefined) {
-      return await adapter.signMessage({ message: request.message, digest }, ctx);
+    const signMessage = adapter.signMessage?.bind(adapter);
+    if (request.kind === "message" && signMessage !== undefined) {
+      const payload = { message: new Uint8Array(request.message), digest: new Uint8Array(digest) };
+      return async (ctx) => await signMessage(payload, ctx);
     }
-    if (adapter.signDigest !== undefined) {
-      return await adapter.signDigest({ digest }, ctx);
+    const signDigest = adapter.signDigest?.bind(adapter);
+    if (signDigest !== undefined) {
+      const payload = { digest: new Uint8Array(digest) };
+      return async (ctx) => await signDigest(payload, ctx);
     }
     throw this.#error("sign", ERRORS.signerCannotSign, { kind: REQUEST_KIND_NAMES[request.kind] });
+  }
+
+  #copyTypedData(typedData: TypedData): TypedData {
+    try {
+      return structuredClone(typedData);
+    } catch {
+      throw this.#error("sign", ERRORS.typedDataInvalid, {
+        reason: catalogMessage(ERRORS.typedDataPlainData, {}),
+      });
+    }
   }
 
   async #call<T>(operation: string, run: (ctx: SignContext) => Promise<T>): Promise<T> {
