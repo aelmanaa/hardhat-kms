@@ -220,6 +220,120 @@ export const ERRORS = {
       "The key id is not a Key Vault key URL. The config checks refuse such values first, so this is a guard.",
     fix: "Open an issue at https://github.com/aelmanaa/hardhat-kms/issues with the message and the stack trace.",
   },
+  historyNoWorkspace: {
+    id: "azure.history.no-workspace",
+    kind: "error",
+    group: "History",
+    template:
+      "`kms history` reads Azure Key Vault's audit log from a Log Analytics workspace, and kms.audit.azure.workspaceId is not set. Set it to the workspace id (a GUID) that the vault's diagnostic setting sends AuditEvent logs to",
+    cause:
+      "Key Vault keeps no audit log of its own: a diagnostic setting on the vault sends it to a Log Analytics workspace, and the plugin needs to know which one.",
+    fix: 'Set `kms.audit.azure.workspaceId` to the workspace id, as the Azure setup guide\'s "Audit logs" section describes. `az monitor log-analytics workspace show --query customerId` prints it.',
+  },
+  historyWorkspaceId: {
+    id: "azure.history.workspace-id",
+    kind: "error",
+    group: "History",
+    template: "kms.audit.azure.workspaceId is not a GUID, so no Log Analytics query is sent to it",
+    cause:
+      "The reader puts the workspace id in the query URL, so it accepts a GUID only. The config check refuses other values first, so this means a value reached the reader without it.",
+    fix: "Set `kms.audit.azure.workspaceId` to the workspace id (`customerId`), not its name or resource id.",
+  },
+  historyKeyId: {
+    id: "azure.history.key-id",
+    kind: "error",
+    group: "History",
+    template:
+      "the key id is not a Key Vault key URL with a host of letters, digits, . and - and a key name of letters, digits and -, so no Log Analytics query is built from it",
+    cause:
+      "`kms history` builds its query only from the checked host and key name of the key URL, so that no part can change the query. The config check refuses other values first, so this means a key reached the reader without it.",
+    fix: "Check `keyId`, or `vaultUrl` and `keyName`.",
+  },
+  historyManagedHsm: {
+    id: "azure.history.managed-hsm",
+    kind: "error",
+    group: "History",
+    template: "`kms history` does not support Managed HSM keys yet",
+    cause:
+      "The reader queries the `AZKVAuditLogs` table of Key Vault audit events. Reading the audit log of a Managed HSM is not supported yet.",
+    fix: "Read the Managed HSM audit log in the Azure portal or with `az monitor log-analytics query`, or open an issue asking for Managed HSM support.",
+  },
+  historySovereignCloud: {
+    id: "azure.history.sovereign-cloud",
+    kind: "error",
+    group: "History",
+    template:
+      "`kms history` reads only vaults in Azure's public cloud (vault.azure.net) for now, since other clouds use another Log Analytics endpoint",
+    cause:
+      "Azure China and Azure Government answer Log Analytics queries on their own endpoints, which the plugin does not call yet.",
+    fix: "Query `AZKVAuditLogs` with `az monitor log-analytics query` in that cloud, or open an issue asking for it.",
+  },
+  historyNoTable: {
+    id: "azure.history.no-table",
+    kind: "error",
+    group: "History",
+    template:
+      'the Log Analytics workspace has no AZKVAuditLogs table that this identity may read: no diagnostic setting sends Key Vault audit events to it in resource-specific mode, or the identity may not be allowed to read this table. See the Azure setup guide\'s "Audit logs" section',
+    cause:
+      "The `AZKVAuditLogs` table appears once a vault's diagnostic setting sends the `AuditEvent` category to the workspace with the resource-specific destination. A setting in the older Azure diagnostics mode writes to `AzureDiagnostics`, which the plugin does not read, and a setting that sends to a storage account or an event hub writes nothing here. An identity whose access is limited to other tables of the workspace may also be unable to resolve this one.",
+    fix: "Create the diagnostic setting with `--export-to-resource-specific true`, check that `kms.audit.azure.workspaceId` names the workspace it sends to, or give the identity read access to the `AZKVAuditLogs` table, such as the Log Analytics Data Reader role on the workspace.",
+  },
+  historyWorkspaceNotFound: {
+    id: "azure.history.workspace-not-found",
+    kind: "error",
+    group: "History",
+    template:
+      "Log Analytics found no workspace with the id in kms.audit.azure.workspaceId (404 WorkspaceNotFoundError)",
+    cause:
+      "No workspace has this id, or the id is the workspace's resource id or name instead of its workspace id.",
+    fix: "Set `kms.audit.azure.workspaceId` to the workspace's `customerId`, which `az monitor log-analytics workspace show` prints.",
+  },
+  historyUnauthorized: {
+    id: "azure.history.401",
+    kind: "error",
+    group: "History",
+    template: "Log Analytics answered {status}: the credential was not accepted",
+    cause: "The token is for another tenant than the workspace's, or has expired.",
+    fix: "Run `az login` again, or check `AZURE_TENANT_ID`.",
+  },
+  historyReadFailed: {
+    id: "azure.history.read-failed",
+    kind: "error",
+    group: "History",
+    template: "the Log Analytics query failed ({status})",
+    cause:
+      "Log Analytics answered the query with an error. Only the HTTP status and the service's error codes are shown, since its message can name the workspace and the vault.",
+    fix: "For a 5xx status, try again later. Run with `DEBUG=hardhat:kms:*` to see the call, and report a 400 with the codes it names.",
+  },
+  historyPartial: {
+    id: "azure.history.partial",
+    kind: "error",
+    group: "History",
+    template:
+      "Log Analytics returned part of the result with an error ({code}), so the history would be incomplete",
+    cause:
+      "A query can succeed with only part of its result, for example when it hits a limit of the service. The reader fails rather than show part of the history as if it were all of it.",
+    fix: "Narrow the range with `--since` and `--until`, or lower `--limit`, and run again.",
+  },
+  historyUnreachable: {
+    id: "azure.history.unreachable",
+    kind: "error",
+    group: "History",
+    template:
+      "could not reach Log Analytics ({code}). Check the network connection, DNS and any proxy",
+    cause:
+      "The query got no HTTP answer, after the Azure SDK's retries. The code says why, for example `ENOTFOUND` for DNS.",
+    fix: "Check that `api.loganalytics.io` can be reached, and any `HTTPS_PROXY`.",
+  },
+  historyBadResponse: {
+    id: "azure.history.bad-response",
+    kind: "error",
+    group: "History",
+    template: "Log Analytics answered in a form this plugin does not read: {problem}",
+    cause:
+      "The query answer, or a `KeySign` row in it, lacks a field such an answer always has. The reader fails rather than show part of the history as if it were all of it.",
+    fix: "Run again; if it repeats, report it with the problem the message names.",
+  },
   noPackageVersion: {
     id: "azure.internal.no-package-version",
     kind: "internal",

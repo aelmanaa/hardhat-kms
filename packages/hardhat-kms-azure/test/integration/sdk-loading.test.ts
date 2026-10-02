@@ -12,8 +12,15 @@ const recorder = pathToFileURL(path.join(here, "../helpers/import-recorder.mjs")
 // The Azure SDK and the packages it pulls in.
 const sdkPackages = ["@azure/", "@azure-rest/", "@typespec/"];
 
+// The history reader's modules, which only `kms history` on an Azure key loads.
+const historyModules = ["/src/internal/history.ts", "/src/internal/log-analytics.ts"];
+
 function sdkModules(urls: string[]): string[] {
-  return urls.filter((url) => sdkPackages.some((name) => url.includes(`/node_modules/${name}`)));
+  return urls.filter(
+    (url) =>
+      sdkPackages.some((name) => url.includes(`/node_modules/${name}`)) ||
+      historyModules.some((name) => url.includes(`/hardhat-kms-azure${name}`)),
+  );
 }
 
 let scratch: string;
@@ -76,7 +83,7 @@ describe("SDK loading", () => {
       assert.deepEqual(sdkModules(urls), []);
     });
 
-    for (const task of ["address", "public-key", "sign-auth", "sign-tx", "verify"]) {
+    for (const task of ["address", "public-key", "sign-auth", "sign-tx", "verify", "history"]) {
       it(`runs kms ${task} on a key of another provider without loading the Azure SDK (${hooks} hooks)`, () => {
         const { urls, stdout } = run({
           ...recorderEnv,
@@ -122,6 +129,14 @@ describe("SDK loading", () => {
     it(`loads the Azure SDK once an Azure key's adapter is created (positive control, ${hooks} hooks)`, () => {
       const { urls } = run({ ...recorderEnv, HHKMS_FIXTURE_KEY: "azure" });
 
+      // Creating an adapter does not load the history reader.
+      assert.deepEqual(
+        urls.filter((url) =>
+          historyModules.some((name) => url.includes(`/hardhat-kms-azure${name}`)),
+        ),
+        [],
+      );
+
       assert.ok(
         urls.some((url) => url.includes("/node_modules/@azure/keyvault-keys/")),
         "the Key Vault SDK was not recorded",
@@ -130,6 +145,24 @@ describe("SDK loading", () => {
         urls.some((url) => url.includes("/node_modules/@azure/identity/")),
         "the identity SDK was not recorded",
       );
+    });
+
+    it(`loads the history reader when kms history reads an Azure key (positive control, ${hooks} hooks)`, () => {
+      const { urls } = run({
+        ...recorderEnv,
+        HHKMS_FIXTURE_KEY: "azure",
+        HHKMS_FIXTURE_TASK: "history",
+      });
+
+      for (const name of historyModules) {
+        assert.ok(
+          urls.some((url) => url.includes(`/hardhat-kms-azure${name}`)),
+          `${name} was not recorded`,
+        );
+      }
+      // The query goes through the pipeline the Key Vault SDK already installs.
+      assert.ok(urls.some((url) => url.includes("/node_modules/@azure/core-rest-pipeline/")));
+      assert.ok(!urls.some((url) => url.includes("/node_modules/@azure/keyvault-keys/")));
     });
   }
 });
