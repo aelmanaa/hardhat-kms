@@ -1,9 +1,13 @@
+// Resizable ArrayBuffers (ES2024), which Node runs from 20 on; the shipped code targets ES2023.
+/// <reference lib="es2024.arraybuffer" />
+
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { HardhatPluginError } from "hardhat/plugins";
 
+import { recoverAddress } from "../../../src/internal/crypto/signature.ts";
 import { KmsSigner, type KmsSignerOptions } from "../../../src/internal/signer/kms-signer.ts";
 import type { KmsKeyAdapter } from "../../../src/internal/signer/types.ts";
 import {
@@ -98,6 +102,75 @@ describe("KmsSigner", () => {
       assert.deepEqual(await kms.getPublicKey(), expected);
       assert.equal(await kms.getAddress(), HARDHAT_ACCOUNT_0.address);
       assert.equal(adapter.calls.getPublicKey, 1);
+    });
+
+    describe("keeps its own copy of the provider's public key", () => {
+      const secretKey = hex(HARDHAT_ACCOUNT_0.secretKey);
+      const expected = secp256k1.getPublicKey(secretKey, false);
+
+      /**
+       * A signer whose adapter returns `held` as the public key and signs with the key
+       * `signingKey()` returns, so a test can change both after the signer checked the key.
+       */
+      function holdingSigner(held: Uint8Array, signingKey: () => Uint8Array = () => secretKey) {
+        const adapter: KmsKeyAdapter = {
+          describe: () => fakeAdapter({ secretKey }).describe(),
+          getPublicKey: async () => await Promise.resolve(held),
+          signDigest: async (request, ctx) =>
+            await (fakeAdapter({ secretKey: signingKey() }).signDigest?.(request, ctx) ??
+              Promise.reject(new Error("missing"))),
+        };
+        return new KmsSigner(adapter, baseOptions);
+      }
+
+      it("checks later signatures against the original key after the adapter changes it", async () => {
+        const held = new Uint8Array(expected);
+        const otherKey = hex(COW_ACCOUNT.secretKey);
+        let signingKey = secretKey;
+        const kms = holdingSigner(held, () => signingKey);
+        await kms.signDigest(new Uint8Array(32).fill(1));
+
+        // The adapter swaps another valid key into the array it returned, and signs with it.
+        held.set(secp256k1.getPublicKey(otherKey, false));
+        signingKey = otherKey;
+        await assertPluginError(kms.signDigest(new Uint8Array(32).fill(2)), [
+          "fake, sign",
+          "invalid signature",
+        ]);
+
+        // Signing with the original key still verifies.
+        signingKey = secretKey;
+        const digest = new Uint8Array(32).fill(3);
+        assert.equal(
+          recoverAddress(digest, await kms.signDigest(digest)),
+          HARDHAT_ACCOUNT_0.address,
+        );
+        assert.deepEqual(await kms.getPublicKey(), expected);
+      });
+
+      it("keeps signing after the adapter zeroes the Buffer it returned", async () => {
+        const held = Buffer.from(expected);
+        const kms = holdingSigner(held);
+        await kms.signDigest(new Uint8Array(32).fill(1));
+
+        held.fill(0);
+        await kms.signDigest(new Uint8Array(32).fill(2));
+        assert.deepEqual(await kms.getPublicKey(), expected);
+      });
+
+      it("keeps signing after the adapter shrinks the resizable buffer it returned", async () => {
+        const buffer = new ArrayBuffer(expected.length, { maxByteLength: expected.length });
+        // A length-tracking view: it shrinks with its buffer.
+        const held = new Uint8Array(buffer);
+        held.set(expected);
+        const kms = holdingSigner(held);
+        await kms.signDigest(new Uint8Array(32).fill(1));
+
+        buffer.resize(0);
+        assert.equal(held.length, 0);
+        await kms.signDigest(new Uint8Array(32).fill(2));
+        assert.deepEqual(await kms.getPublicKey(), expected);
+      });
     });
 
     it("has a public key for an address-only key only once it has signed", async () => {

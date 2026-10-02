@@ -250,9 +250,13 @@ export class KmsSigner {
     const expected = this.#options.expectedAddress;
     const getPublicKey = this.#adapter.getPublicKey?.bind(this.#adapter);
     if (getPublicKey !== undefined) {
-      const publicKey = await this.#call("get public key", async (ctx) =>
-        assertOnCurve(await getPublicKey(ctx)),
-      );
+      const publicKey = await this.#call("get public key", async (ctx) => {
+        const checked = assertOnCurve(await getPublicKey(ctx));
+        // Kept for every later signature check: copy it in the same step as the check, so the
+        // adapter cannot change or shrink the bytes it returned. Not `.slice()`: on a Node
+        // `Buffer` that returns a view of the same memory.
+        return new Uint8Array(checked);
+      });
       const address = addressFromPublicKey(publicKey);
       log("%s: public key derives to %s", this.#displayId, address);
       this.#assertPin(address);
@@ -318,7 +322,8 @@ export class KmsSigner {
     if (identity.publicKey !== undefined) {
       return normalizeSignature(output, digest, identity.publicKey);
     }
-    // Address-only key: recover the public key, check it matches the address, then keep it.
+    // Address-only key: recover the public key, check it matches the address, then keep it. The
+    // recovered key is a new array from the curve library, not the adapter's, so it needs no copy.
     const recovered = recoverForAddress(output, digest, identity.address);
     identity.publicKey = recovered.publicKey;
     return normalizeSignature(output, digest, recovered.publicKey);
