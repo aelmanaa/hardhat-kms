@@ -53,17 +53,24 @@ async function runtime(
     adapters?: Record<string, () => ClosableAdapter>;
     kms?: string;
     network?: string;
+    simulatedBalance?: bigint;
+    otherUrl?: string;
   } = {},
 ) {
   const hre = await createHardhatRuntimeEnvironment(
     {
       plugins: [hardhatKms],
-      kms: { keys: options.keys ?? {} },
+      kms: {
+        keys: options.keys ?? {},
+        ...(options.simulatedBalance === undefined
+          ? {}
+          : { simulatedBalance: options.simulatedBalance }),
+      },
       networks: {
         local: { type: "edr-simulated", kmsAccounts: options.kmsAccounts ?? [] },
         other: {
           type: "http",
-          url: "http://127.0.0.1:1",
+          url: options.otherUrl ?? "http://127.0.0.1:1",
           kmsAccounts: options.otherAccounts ?? [],
         },
       },
@@ -88,6 +95,29 @@ async function runtime(
   return { hre, created };
 }
 
+/** A fake adapter that also signs messages itself, so the test sees what it was asked to sign. */
+function messageAdapter(signed: string[], options: Partial<FakeAdapterOptions> = {}) {
+  return (): ClosableAdapter => {
+    const adapter = closableAdapter(options);
+    const signDigest = adapter.signDigest?.bind(adapter);
+    assert.ok(signDigest !== undefined);
+    adapter.signMessage = async ({ message, digest }, ctx) => {
+      signed.push(Buffer.from(message).toString("utf8"));
+      return await signDigest({ digest }, ctx);
+    };
+    return adapter;
+  };
+}
+
+/** A fake adapter whose KMS refuses to sign. */
+function refusing(): ClosableAdapter {
+  const adapter = closableAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) });
+  adapter.signDigest = async () => {
+    throw new Error("AccessDeniedException for 10.0.0.1");
+  };
+  return adapter;
+}
+
 interface AccountsRun {
   success: boolean;
   accounts: AccountEntry[];
@@ -104,7 +134,7 @@ function isReport(value: unknown): value is AccountsReport {
 /** Runs `kms accounts` and returns its result and what it printed on each stream. */
 async function accounts(
   hre: Awaited<ReturnType<typeof runtime>>["hre"],
-  args: { json?: boolean; showIds?: boolean } = {},
+  args: { json?: boolean; showIds?: boolean; balances?: boolean; checkSign?: boolean } = {},
 ): Promise<AccountsRun> {
   let printed = "";
   let stderr = "";
@@ -118,9 +148,12 @@ async function accounts(
   });
   let result: unknown;
   try {
-    result = await hre.tasks
-      .getTask(["kms", "accounts"])
-      .run({ json: args.json ?? false, showIds: args.showIds ?? false });
+    result = await hre.tasks.getTask(["kms", "accounts"]).run({
+      json: args.json ?? false,
+      showIds: args.showIds ?? false,
+      balances: args.balances ?? false,
+      checkSign: args.checkSign ?? false,
+    });
   } finally {
     write.mock.restore();
     writeError.mock.restore();
@@ -621,5 +654,331 @@ describe("kms accounts", () => {
       created.every((adapter) => adapter.closed === 1),
       true,
     );
+  });
+
+  describe("--balances", () => {
+    it("is refused without --network, with a message that names --network", async () => {
+      const { hre, created } = await runtime({
+        keys: { deployer: vaultKey("deployer") },
+        adapters: { deployer: () => closableAdapter() },
+      });
+
+      await assert.rejects(
+        accounts(hre, { balances: true }),
+        (error: unknown) =>
+          error instanceof HardhatPluginError &&
+          error.message.includes("--balances reads balances on one network: pass --network"),
+      );
+      // Refused before any key is opened.
+      assert.equal(created.length, 0);
+    });
+
+    it("shows kms.simulatedBalance for each key of a simulated network", async () => {
+      const balance = 1_500_000_000_000_000_001n;
+      const { hre } = await runtime({
+        kmsAccounts: [vaultKey("deployer"), vaultKey("ops")],
+        network: "local",
+        simulatedBalance: balance,
+        adapters: {
+          "local.kmsAccounts[0]": () => closableAdapter(),
+          "local.kmsAccounts[1]": () => closableAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }),
+        },
+      });
+
+      const run = await accounts(hre, { balances: true });
+
+      assert.equal(run.success, true, run.printed);
+      assert.deepEqual(
+        run.accounts.map((entry) => [entry.address, entry.balance]),
+        [
+          [HARDHAT_ACCOUNT_0.address, balance.toString()],
+          [COW_ACCOUNT.address, balance.toString()],
+        ],
+      );
+      assert.deepEqual(lines(run.printed).slice(0, 3), [
+        "NAME                  PROVIDER  SOURCE       ADDRESS                                     PIN   BALANCE (ETH)         KEY ID",
+        `local.kmsAccounts[0]  myvault   kmsAccounts  ${HARDHAT_ACCOUNT_0.address}  none  1.500000000000000001  myvault:local.kmsAccounts[0]`,
+        `local.kmsAccounts[1]  myvault   kmsAccounts  ${COW_ACCOUNT.address}  none  1.500000000000000001  myvault:local.kmsAccounts[1]`,
+      ]);
+
+      const json = await accounts(hre, { json: true, balances: true });
+      const parsed: unknown = JSON.parse(json.printed);
+      assert.deepEqual(parsed, { version: 1, accounts: json.accounts });
+      assert.deepEqual(Object.keys(json.accounts[0] ?? {}), [
+        "name",
+        "source",
+        "otherNames",
+        "provider",
+        "keyId",
+        "address",
+        "pin",
+        "pinStatus",
+        "balance",
+        "error",
+      ]);
+    });
+
+    it("fails only the row whose balance cannot be read", async () => {
+      const { hre } = await runtime({
+        kmsAccounts: [vaultKey("deployer"), vaultKey("ops")],
+        network: "local",
+        adapters: {
+          "local.kmsAccounts[0]": () => closableAdapter(),
+          "local.kmsAccounts[1]": () => closableAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }),
+        },
+      });
+      hre.hooks.registerHandlers("network", {
+        onRequest: async (context, connection, request, next) => {
+          const [address]: unknown[] = Array.isArray(request.params) ? request.params : [];
+          if (request.method === "eth_getBalance" && address === COW_ACCOUNT.address) {
+            // Not a hex quantity.
+            return { jsonrpc: "2.0", id: request.id, result: 12 };
+          }
+          return await next(context, connection, request);
+        },
+      });
+
+      const run = await accounts(hre, { balances: true, checkSign: true });
+
+      assert.equal(run.success, false);
+      const [deployer, ops] = run.accounts;
+      assert.equal(deployer?.error, null);
+      assert.equal(typeof deployer?.balance, "string");
+      assert.equal(deployer?.signCheck, "ok");
+      assert.equal(ops?.balance, null);
+      // The sign check still ran on the failed row.
+      assert.equal(ops?.signCheck, "ok");
+      assert.equal(ops?.address, COW_ACCOUNT.address);
+      assert.equal(
+        ops?.error,
+        "could not read the balance: eth_getBalance: the node answered eth_getBalance with number, not a hex quantity",
+      );
+      const printed = lines(run.printed);
+      const row = printed.findIndex((line) => line.startsWith("local.kmsAccounts[1] "));
+      assert.match(printed[row] ?? "", / none {2}FAILED {9,}ok /);
+      assert.match(printed[row + 1] ?? "", /^ {2}error: could not read the balance: /);
+    });
+
+    it("fails every row's balance, and still checks the keys, when the network cannot be reached", async () => {
+      const { hre } = await runtime({
+        otherAccounts: [vaultKey("deployer")],
+        network: "other",
+        adapters: { "other.kmsAccounts[0]": () => closableAdapter() },
+      });
+
+      const run = await accounts(hre, { balances: true, checkSign: true });
+
+      assert.equal(run.success, false);
+      assert.equal(run.accounts[0]?.address, HARDHAT_ACCOUNT_0.address);
+      assert.equal(run.accounts[0]?.signCheck, "ok");
+      assert.equal(run.accounts[0]?.balance, null);
+      assert.match(run.accounts[0]?.error ?? "", /^could not read the balance: /);
+    });
+
+    it("fails every row's balance when opening the connection fails", async () => {
+      // Funding a simulated network's accounts needs every key; the broken one fails the connection.
+      const { hre } = await runtime({
+        kmsAccounts: [vaultKey("deployer"), vaultKey("broken")],
+        network: "local",
+        simulatedBalance: 1n,
+        adapters: {
+          "local.kmsAccounts[0]": () => closableAdapter(),
+          "local.kmsAccounts[1]": () => closableAdapter({ throwError: new Error("nope") }),
+        },
+      });
+
+      const run = await accounts(hre, { balances: true });
+
+      assert.equal(run.success, false);
+      const [deployer, broken] = run.accounts;
+      assert.equal(deployer?.address, HARDHAT_ACCOUNT_0.address);
+      assert.equal(deployer?.balance, null);
+      assert.match(deployer?.error ?? "", /^could not read the balance: .*get public key/);
+      // A key that fails first shows its own error, and its checks show "-".
+      assert.equal(broken?.balance, null);
+      assert.match(broken?.error ?? "", /get public key/);
+      const printed = lines(run.printed);
+      assert.match(
+        printed.find((line) => line.startsWith("local.kmsAccounts[1] ")) ?? "",
+        / - {2,}- /,
+      );
+    });
+  });
+
+  describe("--check-sign", () => {
+    it("has each key sign a random EIP-191 message once, with no extra public key read", async () => {
+      const signed: string[] = [];
+      const { hre, created } = await runtime({
+        keys: { deployer: vaultKey("deployer"), ops: vaultKey("ops") },
+        adapters: {
+          deployer: () => closableAdapter(),
+          ops: messageAdapter(signed, { secretKey: hex(COW_ACCOUNT.secretKey) }),
+        },
+      });
+
+      const run = await accounts(hre, { checkSign: true });
+
+      assert.equal(run.success, true, run.printed);
+      assert.deepEqual(
+        run.accounts.map((entry) => [entry.name, entry.signCheck, entry.error]),
+        [
+          ["deployer", "ok", null],
+          ["ops", "ok", null],
+        ],
+      );
+      // One signature per key, and the public key read for the address is reused to check it.
+      assert.deepEqual(
+        created.map((adapter) => [adapter.calls.signDigest, adapter.calls.getPublicKey]),
+        [
+          [1, 1],
+          [1, 1],
+        ],
+      );
+      assert.equal(signed.length, 1);
+      assert.match(signed[0] ?? "", /^hardhat-kms check-sign [0-9a-f]{64}$/);
+      assert.deepEqual(lines(run.printed).slice(0, 3), [
+        "NAME      PROVIDER  SOURCE    ADDRESS                                     PIN   SIGN  KEY ID",
+        `deployer  myvault   kms.keys  ${HARDHAT_ACCOUNT_0.address}  none  ok    myvault:deployer`,
+        `ops       myvault   kms.keys  ${COW_ACCOUNT.address}  none  ok    myvault:ops`,
+      ]);
+    });
+
+    it("signs a different message each run", async () => {
+      const signed: string[] = [];
+      const { hre } = await runtime({
+        keys: { deployer: vaultKey("deployer") },
+        adapters: { deployer: messageAdapter(signed) },
+      });
+
+      await accounts(hre, { checkSign: true });
+      await accounts(hre, { checkSign: true });
+
+      assert.equal(signed.length, 2);
+      assert.notEqual(signed[0], signed[1]);
+    });
+
+    it("prints no signature on standard output, in the table or in JSON", async () => {
+      const { hre } = await runtime({
+        kmsAccounts: [vaultKey("deployer")],
+        network: "local",
+        simulatedBalance: 10n ** 18n,
+        adapters: { "local.kmsAccounts[0]": () => closableAdapter() },
+      });
+
+      for (const json of [false, true]) {
+        const run = await accounts(hre, { json, balances: true, checkSign: true });
+
+        assert.equal(run.success, true, run.printed);
+        assert.equal(run.accounts[0]?.signCheck, "ok");
+        // A 65-byte signature is 130 hex digits; nothing that long is printed or returned.
+        assert.doesNotMatch(run.printed, /[0-9a-fA-F]{130}/);
+        assert.doesNotMatch(run.stderr, /[0-9a-fA-F]{130}/);
+        assert.doesNotMatch(JSON.stringify(run.accounts), /[0-9a-fA-F]{130}/);
+        assert.deepEqual(Object.keys(run.accounts[0] ?? {}).slice(-3), [
+          "balance",
+          "signCheck",
+          "error",
+        ]);
+      }
+    });
+
+    it("fails only the row of a key that refuses to sign, and returns a failed result", async () => {
+      const { hre } = await runtime({
+        keys: {
+          deployer: vaultKey("deployer"),
+          refusing: vaultKey("refusing"),
+          ops: vaultKey("ops"),
+        },
+        adapters: {
+          deployer: () => closableAdapter(),
+          refusing,
+          ops: () => closableAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }),
+        },
+      });
+
+      const run = await accounts(hre, { checkSign: true });
+
+      assert.equal(run.success, false);
+      assert.deepEqual(
+        run.accounts.map((entry) => [entry.name, entry.signCheck, entry.address]),
+        [
+          ["deployer", "ok", HARDHAT_ACCOUNT_0.address],
+          ["refusing", null, COW_ACCOUNT.address],
+          ["ops", "ok", COW_ACCOUNT.address],
+        ],
+      );
+      const refused = run.accounts[1]?.error ?? "";
+      assert.match(
+        refused,
+        /^the sign check failed: fake, sign, key myvault:refusing: the provider call failed /,
+      );
+      assert.equal(refused.includes("10.0.0.1"), false, refused);
+      assert.equal(run.accounts[0]?.error, null);
+      assert.equal(run.accounts[2]?.error, null);
+      const printed = lines(run.printed);
+      const row = printed.findIndex((line) => line.startsWith("refusing "));
+      assert.match(printed[row] ?? "", / none {2}FAILED {2}/);
+      assert.match(printed[row + 1] ?? "", /^ {2}error: the sign check failed: /);
+    });
+
+    it("fails the row of a key whose signature is from another key", async () => {
+      const { hre } = await runtime({
+        keys: { deployer: vaultKey("deployer") },
+        adapters: {
+          deployer: () => closableAdapter({ signWithSecretKey: hex(COW_ACCOUNT.secretKey) }),
+        },
+      });
+
+      const run = await accounts(hre, { checkSign: true, json: true });
+
+      assert.equal(run.success, false);
+      assert.equal(run.accounts[0]?.signCheck, null);
+      assert.match(run.accounts[0]?.error ?? "", /^the sign check failed: /);
+    });
+
+    it("turns a pin that was not checked into a match once the key signs", async () => {
+      const { hre } = await runtime({
+        keys: { deployer: vaultKey("deployer", HARDHAT_ACCOUNT_0.address) },
+        adapters: { deployer: () => closableAdapter({ identity: "none" }) },
+      });
+
+      const plain = await accounts(hre);
+      assert.equal(plain.accounts[0]?.pinStatus, "unchecked");
+
+      const run = await accounts(hre, { checkSign: true });
+
+      assert.equal(run.success, true);
+      assert.equal(run.accounts[0]?.pinStatus, "match");
+      assert.equal(run.accounts[0]?.signCheck, "ok");
+      assert.match(run.printed, / matches {2}ok /);
+    });
+
+    it("fails a pin that was not checked when the key signs as another address", async () => {
+      const { hre } = await runtime({
+        keys: { deployer: vaultKey("deployer", COW_ACCOUNT.address) },
+        adapters: { deployer: () => closableAdapter({ identity: "none" }) },
+      });
+
+      const run = await accounts(hre, { checkSign: true });
+
+      assert.equal(run.success, false);
+      assert.equal(run.accounts[0]?.pinStatus, "unchecked");
+      assert.equal(run.accounts[0]?.signCheck, null);
+      assert.match(run.accounts[0]?.error ?? "", /^the sign check failed: /);
+    });
+
+    it("skips the checks of a key that failed, and shows - for them", async () => {
+      const { hre } = await runtime({
+        keys: { broken: vaultKey("broken") },
+        adapters: { broken: () => closableAdapter({ throwError: new Error("nope") }) },
+      });
+
+      const run = await accounts(hre, { checkSign: true });
+
+      assert.equal(run.success, false);
+      assert.equal(run.accounts[0]?.signCheck, null);
+      assert.equal(run.accounts[0]?.error?.startsWith("the sign check failed"), false);
+      assert.match(lines(run.printed)[1] ?? "", /^broken +myvault +kms\.keys +FAILED +- +- /);
+    });
   });
 });

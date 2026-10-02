@@ -1573,6 +1573,40 @@ export const ERRORS = {
     cause: "The network's node did not answer `eth_getTransactionCount` with a hex number.",
     fix: "Check the network's RPC URL, or pass `--nonce`.",
   },
+  balancesNeedNetwork: {
+    id: "core.task.balances-need-network",
+    kind: "error",
+    group: "Tasks",
+    template: "--balances reads balances on one network: pass --network <name>",
+    cause: "`kms accounts --balances` was run without `--network`, so it has no node to ask.",
+    fix: "Add `--network` with the network whose balances you want.",
+  },
+  balanceReadFailed: {
+    id: "core.task.balance-read-failed",
+    kind: "reason",
+    group: "Tasks",
+    template: "could not read the balance: {reason}",
+    cause:
+      "`kms accounts --balances` could not connect to the network, or the node did not answer `eth_getBalance` for the key's address. The row fails, and the task exits with code 1.",
+    fix: "Check the network's RPC URL and that the node is reachable. The text after the colon says what failed.",
+  },
+  balanceNotHex: {
+    id: "core.task.balance-not-hex",
+    kind: "error",
+    group: "Tasks",
+    template: "the node answered eth_getBalance with {answer}, not a hex quantity",
+    cause: "The network's node answered `eth_getBalance` with something other than a hex number.",
+    fix: "Check the network's RPC URL; the node may not be an Ethereum JSON-RPC node.",
+  },
+  checkSignFailed: {
+    id: "core.task.check-sign-failed",
+    kind: "reason",
+    group: "Tasks",
+    template: "the sign check failed: {reason}",
+    cause:
+      "`kms accounts --check-sign` asked the key to sign a random EIP-191 message, and the KMS refused or the signature did not recover to the key's address. Reading a public key and signing need different permissions, so a key can pass the plain check and fail this one.",
+    fix: "Give the credentials the provider's sign permission: `kms:Sign` on AWS, `cloudkms.cryptoKeyVersions.useToSign` on Google Cloud, `Microsoft.KeyVault/vaults/keys/sign/action` (the Key Vault Crypto User role) or the `sign` key permission on Azure. The text after the colon says what failed.",
+  },
 
   // Internal: only a bug or a broken install reaches these. They are plain `Error`s.
   identifierPartMissing: {

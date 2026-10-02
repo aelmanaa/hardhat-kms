@@ -40,6 +40,14 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
         name: "showIds",
         description: "Show key ids in full, including values read from configuration variables",
       })
+      .addFlag({
+        name: "balances",
+        description: "Show each address's balance on the --network network",
+      })
+      .addFlag({
+        name: "checkSign",
+        description: "Have each key sign a random message, to check that it may sign",
+      })
       .setAction(() => import("./internal/tasks/accounts.ts"))
       .build(),
     task(["kms", "address"], "Print a KMS key's address")
