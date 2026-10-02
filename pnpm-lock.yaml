@@ -325,9 +325,15 @@ importers:
 
   packages/hardhat-kms-aws:
     dependencies:
+      '@aws-sdk/client-cloudtrail':
+        specifier: ^3.1143.0
+        version: 3.1144.0
       '@aws-sdk/client-kms':
         specifier: ^3.1143.0
         version: 3.1143.0
+      '@aws-sdk/client-sts':
+        specifier: ^3.1143.0
+        version: 3.1144.0
     devDependencies:
       '@noble/curves':
         specifier: ^2.4.0
@@ -463,8 +469,16 @@ packages:
     resolution: {integrity: sha512-9ytjzGwxjm9Uz7I9avfbt5vlQt6uk9uRRESzJjqrznl6WKvI6dwYTo+vJ3U02Wrq/mR3iql/PzhvHhKdJIAjDQ==}
     engines: {node: '>=20'}
 
+  '@aws-sdk/client-cloudtrail@3.1144.0':
+    resolution: {integrity: sha512-5/2e5jMJXcGu/uLWLPPjtk3hheTwIfoe/d8F7Iatblfi1Vs7iN/R8pLVpzDOee8eHehhalwQS8Z9N+XQbNwPWQ==}
+    engines: {node: '>=20.0.0'}
+
   '@aws-sdk/client-kms@3.1143.0':
     resolution: {integrity: sha512-Wg48khz2jUgA1psyuNAqrTKN1y2I2PZHhCPvV/BgvNPcwaXQ726sGuMeSHeW9SdXHFSIBezXPG5TfFfUnEOqRw==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/client-sts@3.1144.0':
+    resolution: {integrity: sha512-54Tn8DqDn7rX0ZEQzR8uhBrhlid93OiQgv72L3v1xFwrnsOxISeng3DzP5lngi7kTKHcgi7QAZR5ePgi36vxlw==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/core@3.978.1':
@@ -4572,10 +4586,33 @@ snapshots:
       typescript: 5.6.1-rc
       validate-npm-package-name: 5.0.1
 
+  '@aws-sdk/client-cloudtrail@3.1144.0':
+    dependencies:
+      '@aws-sdk/core': 3.978.1
+      '@aws-sdk/credential-provider-node': 3.972.84
+      '@aws-sdk/types': 3.974.6
+      '@smithy/core': 3.35.0
+      '@smithy/fetch-http-handler': 5.8.0
+      '@smithy/node-http-handler': 4.12.1
+      '@smithy/types': 4.19.0
+      tslib: 2.8.1
+
   '@aws-sdk/client-kms@3.1143.0':
     dependencies:
       '@aws-sdk/core': 3.978.1
       '@aws-sdk/credential-provider-node': 3.972.84
+      '@aws-sdk/types': 3.974.6
+      '@smithy/core': 3.35.0
+      '@smithy/fetch-http-handler': 5.8.0
+      '@smithy/node-http-handler': 4.12.1
+      '@smithy/types': 4.19.0
+      tslib: 2.8.1
+
+  '@aws-sdk/client-sts@3.1144.0':
+    dependencies:
+      '@aws-sdk/core': 3.978.1
+      '@aws-sdk/credential-provider-node': 3.972.84
+      '@aws-sdk/signature-v4-multi-region': 3.996.47
       '@aws-sdk/types': 3.974.6
       '@smithy/core': 3.35.0
       '@smithy/fetch-http-handler': 5.8.0

@@ -56,7 +56,9 @@
     "test:live:aws": "node --test --test-concurrency=1 --test-timeout=300000 \"test/live/**/*.test.ts\""
   },
   "dependencies": {
-    "@aws-sdk/client-kms": "^3.1143.0"
+    "@aws-sdk/client-cloudtrail": "^3.1143.0",
+    "@aws-sdk/client-kms": "^3.1143.0",
+    "@aws-sdk/client-sts": "^3.1143.0"
   },
   "devDependencies": {
     "@noble/curves": "^2.4.0",

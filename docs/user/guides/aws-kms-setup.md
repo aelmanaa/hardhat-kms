@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in AWS KMS.
 
-Status: the AWS adapter is implemented (M3), in the `hardhat-kms-aws` package. With the network hook (M4), a connection lists the key's account and signs messages and typed data with it. M5 adds signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)).
+Status: the AWS adapter is implemented (M3), in the `hardhat-kms-aws` package. With the network hook (M4), a connection lists the key's account and signs messages and typed data with it. M5 adds signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)). And `kms history` ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)) lists who signed with the key, when and from where, from the CloudTrail event history that AWS keeps for every account without any setup.
 
 ## 1. Create a secp256k1 signing key
 
@@ -120,21 +120,77 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 - It parses every signature, normalizes it to low-S and verifies it against the public key before using it; see the [signing pipeline](../../contributor/signing-pipeline.md).
 - It adds `hardhat-kms/<version>` to the end of the user agent of every request, so the `userAgent` field of a CloudTrail event ends in `hardhat-kms/1.0.0` (with your installed version). The client reports this tag and anyone can send the same string, so it marks the plugin's calls but proves nothing.
 
+## Audit logs
+
+AWS CloudTrail records every successful `Sign` call on the key, whoever makes it, and some failed ones. [`kms history`](../reference/tasks.md#kms-history) lists them for one key from CloudTrail event history:
+
+```sh
+npx hardhat kms history deployer --since 7d
+```
+
+There is nothing to turn on. Event history is on in every AWS account, holds every management event, keeps 90 days for each Region, and costs nothing to read. Events take minutes to appear: AWS says about 5 minutes on average, with no guarantee; in our tests on 2026-10-02 they took 2 to 3 minutes.
+
+### The read permission
+
+The identity that runs `kms history` needs `cloudtrail:LookupEvents`. That action takes no resource, so the policy names `*`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{ "Effect": "Allow", "Action": "cloudtrail:LookupEvents", "Resource": "*" }]
+}
+```
+
+It lets the identity read every management event of the account in that Region, not only this key's. For a key named by an alias or a bare key id, the task also calls `GetPublicKey` once to learn the key ARN, with the `kms:GetPublicKey` permission that signing already needs. CloudTrail logs that call as a `GetPublicKey` event. For a key ARN, the task asks STS `GetCallerIdentity` for the account of the credentials, which needs no permission.
+
+### How it reads
+
+CloudTrail files each `Sign` event under the key id the caller passed: the key ARN, the bare key id or an alias. A lookup by the key ARN alone would miss the calls made with the other two. So the task looks up the account's `Sign` events in the key's Region and keeps those whose `resources` list holds the key ARN. It pages through them newest first, 50 events a page, at most two requests a second. An event with no `resources` list is matched by the `keyId` the caller passed; one that names only an alias the task cannot tie to the key is counted, not listed, and the `unattributed-events` note gives the count. The task stops after 60 pages, which is 3,000 `Sign` events of all the account's keys, or after 90 seconds. If the range holds more, the task says that it stopped before reading the whole range; narrow it with `--since` and `--until`.
+
+### What CloudTrail logs, and what it does not
+
+Each row comes from one CloudTrail event:
+
+| Column or field            | CloudTrail field                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `time`                     | `eventTime`, in whole seconds                                                                                                                                                                                                                                                                                                                                                |
+| `principal`                | `userIdentity.arn`. Empty for calls by AWS services, callers from other accounts and IAM Identity Center users: see `invokedBy`, `callerAccountId` and `onBehalfOfUserId` below                                                                                                                                                                                              |
+| `sourceIp`                 | `sourceIPAddress`                                                                                                                                                                                                                                                                                                                                                            |
+| `userAgent`                | `userAgent`; the plugin's calls end in `hardhat-kms/<version>`                                                                                                                                                                                                                                                                                                               |
+| `requestId`                | `requestID`, set by AWS KMS: the `$metadata.requestId` the AWS SDK returns                                                                                                                                                                                                                                                                                                   |
+| `error`                    | `errorCode`, and `errorMessage` with `--show-ids`                                                                                                                                                                                                                                                                                                                            |
+| `keyResource`              | the key ARN in `resources`, shown with `--show-ids`                                                                                                                                                                                                                                                                                                                          |
+| `extra`                    | `eventID`, the identity's `type`, `userName` and `invokedBy`, `crossAccount` (whether the caller's account differs from the key's), `messageType`, `signingAlgorithm`, `sharedEventID`, the TLS version and `readOnly`, when logged                                                                                                                                          |
+| `extra`, with `--show-ids` | the identity's `accessKeyId` and `principalId`; `callerAccountId`, the caller's account when there is no principal ARN and it is another account; `onBehalfOfUserId` for an Identity Center user; `sourceIdentity` and `sessionIssuerArn` (the role) for an assumed role; `invokedByDelegateAccountId`; the `keyId` the caller passed as `requestKeyId`; and `vpcEndpointId` |
+
+CloudTrail never logs the digest, so the task cannot tell which signature an event made. An AWS KMS asymmetric key has no versions, so there is no key version either. Neither the message, the transaction nor the signature is logged.
+
+### Calls from other accounts and Regions
+
+Event history is kept for each account and each Region. A call from another account that uses the key is recorded twice: in the caller's account and in the key's account, with the same `sharedEventID`. Reading with credentials of the key's account, in the key's Region, shows every successful `Sign` call on the key. Failed calls are logged only in some cases, and a call from another account that was refused for access is recorded only in the caller's account. The task reads the key's Region: the Region of the key ARN, or the one the key is configured with.
+
+When the credentials belong to another account, the task can show only the calls recorded in that account, and it adds the `other-account` note. An empty history then gets the `logging-not-confirmed` note too, since the key may have signed for others. Run the task with credentials of the key's account to see every successful call. If STS cannot tell the account of the credentials, the task goes on and adds the `caller-account-unknown` note instead.
+
+A multi-Region key (its id starts with `mrk-`) has replicas in other Regions that sign with the same key material. CloudTrail records a replica's calls in the replica's Region, under the replica's own ARN, so the task adds the `multi-region-key` note and never calls the history complete. Run `kms history` on each replica's key ARN to see them.
+
 ## Errors
 
 Each message starts with the provider, the operation and the key, for example `aws, sign, key aws:alias/deployer: the provider call failed (AccessDeniedException)`. The table lists the part after the colon.
 
-| Error                                                                   | Cause and fix                                                                                                                                     |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS KMS keys need the hardhat-kms-aws plugin`                          | Run `npm install --save-dev hardhat-kms-aws` in the Hardhat project, and add `hardhatKmsAws` to `plugins` in the config.                          |
-| `hardhat-kms-aws … needs hardhat-kms …, but hardhat-kms … is installed` | The two packages are released together and must be the same version. Run the install command the error prints.                                    |
-| `the key spec is …, not ECC_SECG_P256K1 (secp256k1)`                    | The key is not a secp256k1 key. A key's spec cannot be changed, so create a new key as in step 1.                                                 |
-| `the key derives to 0x…, but the configured address is 0x…`             | The alias points at another key, or the pin is wrong. Check the alias, then update `address`.                                                     |
-| `the provider call failed (AccessDeniedException)`                      | The identity lacks `kms:GetPublicKey` or `kms:Sign` on this key, the `Sign` conditions do not match, or the key policy does not allow IAM access. |
-| `the provider call failed (NotFoundException)`                          | The key id or alias does not exist in this account and region. Check `keyId` and the region.                                                      |
-| `the provider call failed (DisabledException)`                          | The key is disabled. Enable it with `aws kms enable-key`.                                                                                         |
-| `the provider call failed (KMSInvalidStateException)`                   | The key's state does not allow the call, usually because it is pending deletion. Run `aws kms cancel-key-deletion`, then `aws kms enable-key`.    |
-| `no AWS region is configured`                                           | Set `region` on the key or `kms.defaults.aws.region`, set `AWS_REGION`, give the profile a region, or use a key ARN.                              |
-| `no answer within … ms`                                                 | KMS did not answer in time. Check the network and region, or raise `timeoutMs`.                                                                   |
+| Error                                                                     | Cause and fix                                                                                                                                     |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS KMS keys need the hardhat-kms-aws plugin`                            | Run `npm install --save-dev hardhat-kms-aws` in the Hardhat project, and add `hardhatKmsAws` to `plugins` in the config.                          |
+| `hardhat-kms-aws … needs hardhat-kms …, but hardhat-kms … is installed`   | The two packages are released together and must be the same version. Run the install command the error prints.                                    |
+| `the key spec is …, not ECC_SECG_P256K1 (secp256k1)`                      | The key is not a secp256k1 key. A key's spec cannot be changed, so create a new key as in step 1.                                                 |
+| `the key derives to 0x…, but the configured address is 0x…`               | The alias points at another key, or the pin is wrong. Check the alias, then update `address`.                                                     |
+| `the provider call failed (AccessDeniedException)`                        | The identity lacks `kms:GetPublicKey` or `kms:Sign` on this key, the `Sign` conditions do not match, or the key policy does not allow IAM access. |
+| `the provider call failed (NotFoundException)`                            | The key id or alias does not exist in this account and region. Check `keyId` and the region.                                                      |
+| `the provider call failed (DisabledException)`                            | The key is disabled. Enable it with `aws kms enable-key`.                                                                                         |
+| `the provider call failed (KMSInvalidStateException)`                     | The key's state does not allow the call, usually because it is pending deletion. Run `aws kms cancel-key-deletion`, then `aws kms enable-key`.    |
+| `no AWS region is configured`                                             | Set `region` on the key or `kms.defaults.aws.region`, set `AWS_REGION`, give the profile a region, or use a key ARN.                              |
+| `no answer within … ms`                                                   | KMS did not answer in time. Check the network and region, or raise `timeoutMs`.                                                                   |
+| `cannot read the audit log: the credentials lack cloudtrail:LookupEvents` | `kms history` needs `cloudtrail:LookupEvents`; see [The read permission](#the-read-permission).                                                   |
+| `cannot find the key ARN: the credentials lack kms:GetPublicKey`          | `kms history` reads the key ARN of an alias or a bare key id with `GetPublicKey`. Grant it, or set `keyId` to the key ARN.                        |
+| `the audit log kept refusing requests as too frequent`                    | CloudTrail allows two lookups a second per account and Region, shared with other tools. Wait a minute, or narrow the range.                       |
 
 Provider errors show only the error's class name, never its message, since SDK messages can carry request details. Run with `DEBUG=hardhat:kms:*` to see each call; see [Debug output](debug-output.md). The table lists the most common errors; the [errors reference](../reference/errors.md#hardhat-kms-aws) lists every one, with its id, cause and fix, and the [core plugin's errors](../reference/errors.md#hardhat-kms) too.
