@@ -6,6 +6,7 @@
     "src/type-extensions.ts",
     "src/types.ts",
     "src/internal/signer/types.ts",
+    "src/internal/history/types.ts",
     "src/internal/providers/types.ts",
     "src/internal/vendor/**",
     "test/**"

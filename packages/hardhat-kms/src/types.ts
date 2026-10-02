@@ -9,6 +9,7 @@
 import type { ConfigurationVariable } from "hardhat/types/config";
 import type { HookContext } from "hardhat/types/hooks";
 
+import type { KmsHistoryRequest, KmsHistoryResult } from "./internal/history/types.ts";
 import type { KmsKeyAdapter } from "./internal/signer/types.ts";
 
 /** A value that can be written literally or read from a configuration variable. */
@@ -109,6 +110,18 @@ export type KmsKeyUserConfig = KmsProviderUserConfigs[keyof KmsProviderUserConfi
 /** An entry of a network's `kmsAccounts`: the name of a key in `kms.keys`, or an inline key. */
 export type KmsAccountUserConfig = string | KmsKeyUserConfig;
 
+/** Where `kms history` reads each provider's audit log, for providers that need a setting. */
+export interface KmsAuditUserConfig {
+  /** Azure Key Vault's audit log. */
+  azure?: {
+    /**
+     * The Log Analytics workspace that the vault's diagnostic setting sends `AuditEvent` logs to,
+     * as its workspace id (a GUID). Literal or a configuration variable.
+     */
+    workspaceId?: KmsIdentifierUserConfig;
+  };
+}
+
 /** The `kms` section of the Hardhat config. */
 export interface KmsUserConfig {
   /** Named keys, referenced by name from any network's `kmsAccounts`. */
@@ -125,6 +138,8 @@ export interface KmsUserConfig {
   allowCrossChainTypedData?: boolean;
   /** On `edr-simulated` networks only, give each KMS address this balance, in wei. */
   simulatedBalance?: bigint;
+  /** Where `kms history` reads the providers' audit logs. */
+  audit?: KmsAuditUserConfig;
 }
 
 /**
@@ -203,6 +218,15 @@ export interface KmsProviderConfigs {
 /** A resolved key of any registered provider. Narrow it with `key.provider === "aws"`. */
 export type KmsKeyConfig = KmsProviderConfigs[keyof KmsProviderConfigs];
 
+/** The resolved `kms.audit` section. */
+export interface KmsAuditConfig {
+  /** Set when `kms.audit.azure.workspaceId` is. */
+  azure?: {
+    /** The Log Analytics workspace id, checked to be a GUID when read. */
+    workspaceId: KmsIdentifier;
+  };
+}
+
 /** The resolved `kms` section. */
 export interface KmsConfig {
   keys: Record<string, KmsKeyConfig>;
@@ -213,9 +237,19 @@ export interface KmsConfig {
   };
   allowCrossChainTypedData: boolean;
   simulatedBalance?: bigint;
+  audit: KmsAuditConfig;
 }
 
 export type { KeyDescription, KmsKeyAdapter, SignContext } from "./internal/signer/types.ts";
+export type {
+  KmsHistoryEvent,
+  KmsHistoryExtraValue,
+  KmsHistoryField,
+  KmsHistoryNote,
+  KmsHistoryRequest,
+  KmsHistoryResult,
+  KmsHistoryScope,
+} from "./internal/history/types.ts";
 export type { SignatureOutput } from "./internal/crypto/signature.ts";
 export type { TypedData } from "./internal/crypto/digests.ts";
 /** The output of the `kms accounts` task: its `--json` output and its result. */
@@ -225,6 +259,8 @@ export type {
   AccountSource,
   AccountsReport,
 } from "./internal/tasks/accounts.ts";
+/** The output of the `kms history` task: its `--json` output and its result. */
+export type { KmsHistoryEntry, KmsHistoryReport } from "./internal/history/report.ts";
 
 /**
  * The `kms` hook category, which provider plugins use to add their adapters.
@@ -254,6 +290,32 @@ export interface KmsHooks {
     key: KmsKeyConfig,
     next: (nextContext: HookContext, nextKey: KmsKeyConfig) => Promise<KmsKeyAdapter>,
   ): Promise<KmsKeyAdapter>;
+
+  /**
+   * Reads one key's sign events from its provider's audit log, for `kms history`. A handler
+   * reads the log for its own provider ids and calls `next` for any other key. When no handler
+   * reads a key's provider, `kms history` fails with an error that names the provider. The
+   * first-party provider packages add their readers through this method.
+   *
+   * The reader copies each event from the log and fills in nothing. It lists the fields its
+   * provider never records in `notLogged`. It throws when it cannot read the log, for example
+   * without permission, and never returns an empty result instead. The plugin checks the result,
+   * keeps the newest `limit` events, masks key ids and adds notes for an empty result, a recent
+   * `until` and a `since` past the log's retention.
+   *
+   * Settings a reader needs, such as `kms.audit.azure.workspaceId`, are in
+   * `context.config.kms.audit`.
+   *
+   * @param context - The Hardhat runtime, without tasks.
+   * @param request - The key, the time range and the most events to return.
+   * @param next - Passes the request to the next handler.
+   * @returns The events and what the log can show.
+   */
+  readSignHistory(
+    context: HookContext,
+    request: KmsHistoryRequest,
+    next: (nextContext: HookContext, nextRequest: KmsHistoryRequest) => Promise<KmsHistoryResult>,
+  ): Promise<KmsHistoryResult>;
 }
 
 // Provider plugins often import only this module; this brings in the `kms` hook category and

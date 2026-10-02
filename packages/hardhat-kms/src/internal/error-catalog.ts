@@ -219,6 +219,16 @@ export const ERRORS = {
     cause: "An Azure key's `keyVersion` is not a Key Vault version id.",
     fix: "Copy the version from `az keyvault key list-versions`, or remove `keyVersion` to use the current version.",
   },
+  azureWorkspaceId: {
+    id: "core.config.azure-workspace-id",
+    kind: "validation",
+    group: "Configuration",
+    template:
+      "Expected a Log Analytics workspace id, a GUID such as 00000000-0000-0000-0000-000000000000",
+    cause:
+      "`kms.audit.azure.workspaceId` is not a GUID. It takes the workspace id, not the workspace name or resource id.",
+    fix: "Copy the workspace id from `az monitor log-analytics workspace show --query customerId`, or from the workspace's overview in the portal.",
+  },
   gcpEitherForm: {
     id: "core.config.gcp-either-form",
     kind: "validation",
@@ -298,6 +308,15 @@ export const ERRORS = {
     cause:
       "An Azure `keyId`, or the URL built from `vaultUrl`, `keyName` and `keyVersion`, is not a key URL.",
     fix: "Copy the key identifier from `az keyvault key show`, or fix the parts.",
+  },
+  azureWorkspaceIdReason: {
+    id: "core.config.azure-workspace-id-reason",
+    kind: "reason",
+    group: "Configuration",
+    template: "expected a Log Analytics workspace id, a GUID",
+    cause:
+      "The configuration variable of `kms.audit.azure.workspaceId` holds something other than a GUID.",
+    fix: "Set the variable to the workspace id from `az monitor log-analytics workspace show --query customerId`.",
   },
   gcpKeyVersionNameReason: {
     id: "core.config.gcp-key-version-name-reason",
@@ -1606,6 +1625,140 @@ export const ERRORS = {
     cause:
       "`kms accounts --check-sign` asked the key to sign a random EIP-191 message, and the KMS refused or the signature did not recover to the key's address. Reading a public key and signing need different permissions, so a key can pass the plain check and fail this one.",
     fix: "Give the credentials the provider's sign permission: `kms:Sign` on AWS, `cloudkms.cryptoKeyVersions.useToSign` on Google Cloud, `Microsoft.KeyVault/vaults/keys/sign/action` (the Key Vault Crypto User role) or the `sign` key permission on Azure. The text after the colon says what failed.",
+  },
+
+  // kms history: reading a key's sign events from its provider's audit log.
+  historyTimeInvalid: {
+    id: "core.history.time-invalid",
+    kind: "error",
+    group: "History",
+    template:
+      '--{option} "{value}" is not a time. Use an ISO 8601 time with a time zone, such as 2026-10-02T09:00:00Z, a date such as 2026-10-02, or a duration before now, such as 30m, 6h or 7d',
+    cause:
+      "`kms history` was given a `--since` or `--until` it cannot read. A time without a time zone is refused, because it could mean any zone.",
+    fix: "Add `Z` or an offset such as `+02:00` to the time, or use a duration in `s`, `m`, `h` or `d`.",
+  },
+  historyRangeEmpty: {
+    id: "core.history.range-empty",
+    kind: "error",
+    group: "History",
+    template: "--since ({since}) must be before --until ({until})",
+    cause:
+      "The start of the range is not before its end. Without `--until`, the end is now, so a `--since` in the future fails too.",
+    fix: "Swap the two values, or move `--since` back.",
+  },
+  historyUntilFuture: {
+    id: "core.history.until-future",
+    kind: "error",
+    group: "History",
+    template: "--until ({until}) is more than 5 minutes after now ({now})",
+    cause:
+      "`kms history --until` names a time in the future. The log cannot hold events from then, and a range that ends later would look complete when it is not.",
+    fix: "Leave `--until` out to read up to now, or check the date and its time zone.",
+  },
+  historyLimitRange: {
+    id: "core.history.limit-range",
+    kind: "error",
+    group: "History",
+    template: "--limit must be an integer from 1 to {max}, got {limit}",
+    cause: "`kms history --limit` is 0, negative or above the maximum.",
+    fix: "Use a smaller `--limit`, and narrow the range with `--since` and `--until` to see older events.",
+  },
+  historyNoReader: {
+    id: "core.history.no-reader",
+    kind: "error",
+    group: "History",
+    template:
+      'no plugin reads the audit log of "{provider}" keys, so kms history cannot list this key\'s sign events',
+    cause:
+      "No plugin in the Hardhat config implements the `kms.readSignHistory` hook for the key's provider. A third-party provider plugin may sign without offering a history reader.",
+    fix: "Read the provider's audit log with its own tools, or ask the provider plugin's authors to add a reader (see the provider contract).",
+  },
+  historyNoReaderBuiltin: {
+    id: "core.history.no-reader-builtin",
+    kind: "error",
+    group: "History",
+    template:
+      "no installed plugin reads {name} audit logs. The reader ships in {package}; install or update it to the same version as hardhat-kms, and add it to `plugins` in your Hardhat config",
+    cause:
+      "The key's provider is built in, but its provider package is not in `plugins`, or it is a version without a history reader.",
+    fix: "Install the package the message names, at the same version as hardhat-kms, and add its plugin to `plugins`.",
+  },
+  historyReadFailed: {
+    id: "core.history.read-failed",
+    kind: "error",
+    group: "History",
+    template: "reading the audit log failed ({errorName})",
+    cause:
+      "The history reader threw an error that is not one of the plugin's own. Only its class name is shown, since SDK messages can carry request details.",
+    fix: "Run with `DEBUG=hardhat:kms:*` to see the step that failed, and check the provider's read permission.",
+  },
+  historyReaderInvalid: {
+    id: "core.history.reader-invalid",
+    kind: "error",
+    group: "History",
+    template: "the history reader returned an invalid result: {problem}",
+    cause:
+      "A provider plugin's `kms.readSignHistory` handler returned something that does not follow the contract, such as an event outside the range or a value for a field it lists as not logged.",
+    fix: "Report it to the provider plugin; see the reader contract in the provider guide.",
+  },
+  historyAccessDenied: {
+    id: "core.history.access-denied",
+    kind: "error",
+    group: "History",
+    template:
+      "cannot read the audit log: the credentials lack {permission}. Grant it, or run with credentials that have it",
+    cause:
+      "The provider refused to return log entries to the credentials in use. A reader never reports an empty history for a log it could not read.",
+    fix: "Grant the permission the message names to the identity that runs `kms history`. The provider setup guides list it.",
+  },
+  historyThrottled: {
+    id: "core.history.throttled",
+    kind: "error",
+    group: "History",
+    template: "the audit log kept refusing requests as too frequent ({limit})",
+    cause:
+      "The provider throttled the reads, and the reader's retries did not get through. Long ranges need many requests.",
+    fix: "Wait a minute and run again, or narrow the range with `--since` and `--until`, or lower `--limit`.",
+  },
+  historyAccessDeniedUnprintable: {
+    id: "core.history.access-denied-unprintable",
+    kind: "error",
+    group: "History",
+    template:
+      "cannot read the audit log: the credentials lack a permission. The history reader named it in a form that could carry an id, so it is not shown; this is a bug in the reader",
+    cause:
+      "The provider refused to return log entries, and the history reader passed `auditLogAccessDenied` a permission with characters, a URL, an ARN, a resource path or a run of digits or hex that could be an account or key id. Such a value would be printed without `--show-ids`.",
+    fix: "Grant the read permission that the provider setup guide lists, and report the bug to the provider plugin.",
+  },
+  historyThrottledUnprintable: {
+    id: "core.history.throttled-unprintable",
+    kind: "error",
+    group: "History",
+    template:
+      "the audit log kept refusing requests as too frequent. The history reader named the limit in a form that could carry an id, so it is not shown; this is a bug in the reader",
+    cause:
+      "The provider throttled the reads, and the history reader passed `auditLogThrottled` a limit that could carry an id.",
+    fix: "Wait a minute and run again, or narrow the range with `--since` and `--until`, and report the bug to the provider plugin.",
+  },
+  historyReaderError: {
+    id: "core.history.reader-error",
+    kind: "error",
+    group: "History",
+    template: "{message}",
+    cause:
+      "The history reader threw a plugin or Hardhat error. Its text is shown with key ids, workspace ids and other values that must not print masked, and without the errors it wraps, which are not masked.",
+    fix: "Follow the message. Run with `--show-ids` to see it unmasked, or with `DEBUG=hardhat:kms:*` to see the step that failed.",
+  },
+  historyTimedOut: {
+    id: "core.history.timed-out",
+    kind: "error",
+    group: "History",
+    template:
+      "reading the audit log took more than {seconds} seconds, so kms history stopped waiting",
+    cause:
+      "The history reader did not return within the deadline. Long ranges on a slow or throttled log need many requests.",
+    fix: "Narrow the range with `--since` and `--until`, or lower `--limit`.",
   },
 
   // Internal: only a bug or a broken install reaches these. They are plain `Error`s.

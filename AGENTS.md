@@ -13,7 +13,7 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 - The same first deploy with Azure Key Vault (create a vault and an `EC` key on `P-256K`, deploy and verify a contract on Sepolia, delete and purge the key): [docs/user/tutorials/first-deploy-azure.md](docs/user/tutorials/first-deploy-azure.md)
 - Configure keys and networks: [docs/user/reference/configuration.md](docs/user/reference/configuration.md)
 - Which JSON-RPC methods are handled, and which transaction types: [docs/user/reference/rpc-methods.md](docs/user/reference/rpc-methods.md)
-- The `kms` tasks (list accounts, sign, verify): [docs/user/reference/tasks.md](docs/user/reference/tasks.md)
+- The `kms` tasks (list accounts, sign, verify, read a key's sign events from the provider's audit log): [docs/user/reference/tasks.md](docs/user/reference/tasks.md)
 - What an error message means and how to fix it, by message text or id: [docs/user/reference/errors.md](docs/user/reference/errors.md)
 - The TypeScript API of `hardhat-kms`, `hardhat-kms/types` and `hardhat-kms/provider-utils`, generated from TSDoc: [docs/user/reference/api/README.md](docs/user/reference/api/README.md)
 - Set up an AWS KMS key (key spec, IAM policy, the `hardhat-kms-aws` package, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
@@ -95,6 +95,7 @@ Decision records:
 - [0010: Use pnpm workspaces](docs/contributor/decisions/0010-pnpm-workspaces.md)
 - [0011: Check typed data's chain only when it names one](docs/contributor/decisions/0011-typed-data-chain-check.md)
 - [0012: Generate the API reference with TypeDoc on TypeScript 6](docs/contributor/decisions/0012-api-reference-generator.md)
+- [0013: Signing history comes only from the cloud audit logs](docs/contributor/decisions/0013-history-from-cloud-logs.md)
 
 Rules for every change:
 

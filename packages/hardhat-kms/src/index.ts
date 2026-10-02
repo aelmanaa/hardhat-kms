@@ -186,6 +186,38 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
       })
       .setAction(() => import("./internal/tasks/sign-auth.ts"))
       .build(),
+    task(["kms", "history"], "List a KMS key's sign events from its provider's audit log")
+      .addPositionalArgument({
+        name: "key",
+        type: ArgumentType.STRING,
+        description: KEY_ARGUMENT_DESCRIPTION,
+      })
+      .addOption({
+        name: "since",
+        description:
+          "Start of the range: an ISO 8601 time with a time zone, a date, or a duration before now such as 6h or 7d. Default: 24 hours before --until",
+        type: ArgumentType.STRING_WITHOUT_DEFAULT,
+        defaultValue: undefined,
+      })
+      .addOption({
+        name: "until",
+        description: "End of the range, in the same forms as --since. Default: now",
+        type: ArgumentType.STRING_WITHOUT_DEFAULT,
+        defaultValue: undefined,
+      })
+      .addOption({
+        name: "limit",
+        description: "At most this many events, the newest ones (1 to 1000)",
+        type: ArgumentType.INT,
+        defaultValue: 100,
+      })
+      .addFlag({ name: "json", description: "Print the events as JSON" })
+      .addFlag({
+        name: "showIds",
+        description: "Show key ids, provider id fields and error messages in full",
+      })
+      .setAction(() => import("./internal/tasks/history.ts"))
+      .build(),
   ],
   globalOptions: [
     globalOption({

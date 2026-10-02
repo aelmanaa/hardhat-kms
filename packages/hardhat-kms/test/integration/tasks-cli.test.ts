@@ -100,7 +100,14 @@ async function hardhatAsync(
   return { status: typeof status === "number" ? status : null, output };
 }
 
-const CONFIG = (plugin: string, adapter: string) => `import kms from ${JSON.stringify(plugin)};
+const CONFIG = (
+  plugin: string,
+  adapter: string,
+  utils: string,
+) => `import { HardhatError } from "@nomicfoundation/hardhat-errors";
+import { HardhatPluginError } from "hardhat/plugins";
+import kms from ${JSON.stringify(plugin)};
+import { auditLogAccessDenied } from ${JSON.stringify(utils)};
 import { fakeAdapter } from ${JSON.stringify(adapter)};
 
 const secretKey = new Uint8Array(Buffer.from(${JSON.stringify(HARDHAT_ACCOUNT_0.secretKey)}, "hex"));
@@ -128,6 +135,26 @@ const vault = {
             };
           }
           return adapter;
+        },
+        // kms history: an empty log for deployer, a refused read for pinned, no reader otherwise.
+        readSignHistory: async (context, request, next) => {
+          if (request.key.name === "deployer") {
+            return { source: "fake-log", notLogged: [], events: [], truncated: false, completeForKey: false };
+          }
+          if (request.key.name === "pinned") {
+            throw auditLogAccessDenied("logs:Read");
+          }
+          // Reader errors that carry the key ARN where masking the message cannot reach it.
+          if (request.key.name === "AWS_KMS_KEY_ID") {
+            const id = process.env.AWS_KMS_KEY_ID;
+            if (process.env.HHKMS_CLI_HISTORY_ERROR === "hardhat") {
+              throw new HardhatError(HardhatError.ERRORS.CORE.INTERNAL.ASSERTION_ERROR, {
+                message: "lookup of " + id + " failed",
+              });
+            }
+            throw new HardhatPluginError("a-reader", "lookup failed", new Error("for " + id));
+          }
+          return await next(context, request);
         },
       }),
     }),
@@ -171,6 +198,7 @@ describe("kms tasks from the Hardhat CLI", () => {
       CONFIG(
         pathToFileURL(path.join(repo, "src/index.ts")).href,
         pathToFileURL(path.join(repo, "test/helpers/fake-adapter.ts")).href,
+        pathToFileURL(path.join(repo, "src/provider-utils.ts")).href,
       ),
     );
   });
@@ -319,11 +347,57 @@ describe("kms tasks from the Hardhat CLI", () => {
     assert.equal(run.status, 0, run.output);
     assert.match(run.output, /accounts\s+List the KMS keys/);
     assert.match(run.output, /address\s+Print a KMS key's address/);
+    assert.match(
+      run.output,
+      /history\s+List a KMS key's sign events from its provider's audit log/,
+    );
     assert.match(run.output, /public-key\s+Print a KMS key's uncompressed public key/);
     assert.match(run.output, /sign-tx\s+Fill and sign a transaction on --network/);
     assert.match(run.output, /sign\s+Sign a message, typed data or a raw digest with a KMS key/);
     assert.match(run.output, /sign-auth\s+Sign an EIP-7702 authorization with a KMS key/);
     assert.match(run.output, /verify\s+Check that an address signed a message or typed data/);
+  });
+
+  it("prints the history as JSON on standard output and the notes on standard error", () => {
+    const run = hardhat(["kms", "history", "--json", "--since", "2d", "--until", "1d", "deployer"]);
+
+    assert.equal(run.status, 0, `the task failed or did not exit:\n${run.output}`);
+    const report: unknown = JSON.parse(run.stdout);
+    assert.ok(typeof report === "object" && report !== null);
+    assert.equal(Reflect.get(report, "version"), 1);
+    assert.deepEqual(Reflect.get(report, "events"), []);
+    assert.match(run.stderr, /The log returned no sign events in this range/);
+  });
+
+  it("exits with code 1 when the log cannot be read or no plugin reads it", () => {
+    const refused = hardhat(["kms", "history", "pinned"]);
+    const unread = hardhat(["kms", "history", "chatty"]);
+
+    assert.equal(refused.status, 1, refused.output);
+    assert.match(refused.stderr, /cannot read the audit log: the credentials lack logs:Read/);
+    assert.equal(refused.stdout, "");
+    assert.equal(unread.status, 1, unread.output);
+    assert.match(unread.stderr, /no plugin reads the audit log of "myvault" keys/);
+  });
+
+  it("never prints a key id from a reader's error, even with --show-stack-traces", () => {
+    const arn = "arn:aws:kms:eu-west-1:444455556666:key/0a1b2c3d-1111-4222-8333-944455556666";
+    const args = ["--show-stack-traces", "--kms", "aws", "kms", "history", "AWS_KMS_KEY_ID"];
+    const fromArguments = hardhat(args, {
+      AWS_KMS_KEY_ID: arn,
+      HHKMS_CLI_HISTORY_ERROR: "hardhat",
+    });
+    const fromCause = hardhat(args, { AWS_KMS_KEY_ID: arn, HHKMS_CLI_HISTORY_ERROR: "plugin" });
+
+    assert.equal(fromArguments.status, 1, fromArguments.output);
+    assert.match(fromArguments.stderr, /lookup of aws:<AWS_KMS_KEY_ID> failed/);
+    assert.equal(fromCause.status, 1, fromCause.output);
+    assert.match(fromCause.stderr, /lookup failed/);
+    for (const run of [fromArguments, fromCause]) {
+      // The stack trace is printed, so the check covers it and any cause chain.
+      assert.match(run.stderr, /\n\s+at /);
+      assert.doesNotMatch(run.output, /444455556666|0a1b2c3d/);
+    }
   });
 
   it("signs a 0x message as bytes, prints only the signature and exits on its own", () => {

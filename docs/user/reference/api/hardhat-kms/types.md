@@ -793,6 +793,47 @@ Provider id, for example `aws`.
 
 ---
 
+### KmsAuditConfig
+
+The resolved `kms.audit` section.
+
+#### Properties
+
+##### azure?
+
+> `optional` **azure?**: \{ `workspaceId`: [`KmsIdentifier`](#kmsidentifier); \}
+
+Set when `kms.audit.azure.workspaceId` is.
+
+###### workspaceId
+
+> **workspaceId**: [`KmsIdentifier`](#kmsidentifier)
+
+The Log Analytics workspace id, checked to be a GUID when read.
+
+---
+
+### KmsAuditUserConfig
+
+Where `kms history` reads each provider's audit log, for providers that need a setting.
+
+#### Properties
+
+##### azure?
+
+> `optional` **azure?**: \{ `workspaceId?`: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig); \}
+
+Azure Key Vault's audit log.
+
+###### workspaceId?
+
+> `optional` **workspaceId?**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
+
+The Log Analytics workspace that the vault's diagnostic setting sends `AuditEvent` logs to,
+as its workspace id (a GUID). Literal or a configuration variable.
+
+---
+
 ### KmsConfig
 
 The resolved `kms` section.
@@ -802,6 +843,10 @@ The resolved `kms` section.
 ##### allowCrossChainTypedData
 
 > **allowCrossChainTypedData**: `boolean`
+
+##### audit
+
+> **audit**: [`KmsAuditConfig`](#kmsauditconfig)
 
 ##### defaults
 
@@ -830,6 +875,493 @@ The resolved `kms` section.
 ##### simulatedBalance?
 
 > `optional` **simulatedBalance?**: `bigint`
+
+---
+
+### KmsHistoryEntry
+
+One sign event in the output of `kms history`.
+
+#### Properties
+
+##### digest
+
+> **digest**: `string` \| `null`
+
+The signed digest as `0x` hex, where the provider logs it.
+
+##### error
+
+> **error**: \{ `code`: `string` \| `null`; `message`: `string` \| `null`; \} \| `null`
+
+For a failed request, the provider's error code, and with `--show-ids` its message, which can
+name accounts and keys. `null` for a request that succeeded.
+
+##### extra
+
+> **extra**: `Record`\<`string`, [`KmsHistoryExtraValue`](#kmshistoryextravalue)\>
+
+Other fields of the log entry. Ids of keys, accounts and credentials only with `--show-ids`.
+
+##### keyResource
+
+> **keyResource**: `string` \| `null`
+
+The key as the log names it. Without `--show-ids` it shows as the key's display id, since a
+key ARN, resource name or key URL names the account, project or vault.
+
+##### keyVersion
+
+> **keyVersion**: `string` \| `null`
+
+The version id of the key version that signed, as logged.
+
+##### operation
+
+> **operation**: `string`
+
+The provider's name for the operation, such as `Sign`.
+
+##### outcome
+
+> **outcome**: `"success"` \| `"failed"`
+
+##### principal
+
+> **principal**: `string` \| `null`
+
+Who made the request, as logged.
+
+##### requestId
+
+> **requestId**: `string` \| `null`
+
+The id the provider assigned to the request, as logged.
+
+##### sourceIp
+
+> **sourceIp**: `string` \| `null`
+
+The caller's IP address, as logged.
+
+##### time
+
+> **time**: `string`
+
+When the provider logged the request, in UTC.
+
+##### userAgent
+
+> **userAgent**: `string` \| `null`
+
+The user agent the client reported. Any client can send any value.
+
+---
+
+### KmsHistoryEvent
+
+**`Experimental`**
+
+One sign event as the provider's audit log records it. Every field is copied from the log
+entry, with no value guessed or filled in. A field the provider records but left empty in this
+entry is `null`, and so is a field listed in [KmsHistoryResult.notLogged](#notlogged-1).
+
+`kms history` prints `principal`, `sourceIp`, `userAgent`, `requestId`, `keyVersion`, `digest`
+and `extra` as they are, and the error code. It shows `keyResource`, `errorMessage` and
+`extraIds` only with `--show-ids`. By default it replaces a key resource found in another field
+with the key's display id, and an `extraIds` value with `<hidden>`.
+
+May gain optional fields before 1.0.
+
+#### Properties
+
+##### digest
+
+> **digest**: `string` \| `null`
+
+The signed digest as `0x`-prefixed lowercase hex.
+
+##### errorCode
+
+> **errorCode**: `string` \| `null`
+
+The provider's error code for a failed request, such as `AccessDeniedException`.
+
+##### errorMessage
+
+> **errorMessage**: `string` \| `null`
+
+The provider's error message. It can name accounts, projects and keys.
+
+##### extra?
+
+> `optional` **extra?**: `Readonly`\<`Record`\<`string`, [`KmsHistoryExtraValue`](#kmshistoryextravalue)\>\>
+
+Other fields of the entry, shown as they are. Never put key ids or account ids here. Each name
+starts with a letter, then up to 63 letters, digits, `_` and `.`.
+
+##### extraIds?
+
+> `optional` **extraIds?**: `Readonly`\<`Record`\<`string`, `string` \| `null`\>\>
+
+Other fields of the entry that identify keys, accounts or credentials, such as an AWS access
+key id. Shown only with `--show-ids`; without it, their values are masked as `<hidden>`
+wherever they appear. Names as in `extra`.
+
+##### keyResource
+
+> **keyResource**: `string` \| `null`
+
+The key as the log names it: a key ARN, a resource name or a key URL.
+
+##### keyVersion
+
+> **keyVersion**: `string` \| `null`
+
+The key version that signed: the version id alone, such as `1` or an Azure version segment,
+never a resource name or URL. Letters, digits, `.`, `_` and `-`, at most 64 characters.
+
+##### operation
+
+> **operation**: `string`
+
+The provider's name for the operation, such as `Sign`, `AsymmetricSign` or `KeySign`.
+
+##### outcome
+
+> **outcome**: `"success"` \| `"failed"`
+
+Whether the provider reports the request as served or refused.
+
+##### principal
+
+> **principal**: `string` \| `null`
+
+Who made the request: an ARN, an email address or a token claim.
+
+##### requestId
+
+> **requestId**: `string` \| `null`
+
+The id the provider assigned to the request. A provider that logs none, such as Google Cloud,
+lists `requestId` in `notLogged`; a log entry's own id, such as Google Cloud's `insertId`, goes
+in `extra`.
+
+##### sourceIp
+
+> **sourceIp**: `string` \| `null`
+
+The caller's IP address, or the provider's placeholder for it.
+
+##### time
+
+> **time**: `string`
+
+When the provider logged the request: an ISO 8601 date and time that exists, with `Z` or an
+offset. The plugin shows it in UTC, to the millisecond.
+
+##### userAgent
+
+> **userAgent**: `string` \| `null`
+
+The user agent the client sent. The client chooses it, so it proves nothing.
+
+---
+
+### KmsHistoryNote
+
+**`Experimental`**
+
+A note a reader adds to the result, printed on standard error and listed in the JSON output.
+
+May gain optional fields before 1.0.
+
+#### Properties
+
+##### code
+
+> **code**: `string`
+
+A stable code in lowercase letters, digits and `-`, such as `other-account`.
+
+##### message
+
+> **message**: `string`
+
+The note for the user, in one or two sentences. No key ids or account ids.
+
+---
+
+### KmsHistoryReport
+
+What `kms history` returns and what `--json` prints.
+
+#### Properties
+
+##### events
+
+> **events**: [`KmsHistoryEntry`](#kmshistoryentry)[]
+
+The events, newest first.
+
+##### key
+
+> **key**: \{ `displayId`: `string`; `name`: `string`; `provider`: `string`; \}
+
+The key, by the name the task was given and its display id.
+
+###### displayId
+
+> **displayId**: `string`
+
+###### name
+
+> **name**: `string`
+
+###### provider
+
+> **provider**: `string`
+
+##### notes
+
+> **notes**: [`KmsHistoryNote`](#kmshistorynote)[]
+
+Warnings about what the events may not show, also printed on standard error.
+
+##### notLogged
+
+> **notLogged**: [`KmsHistoryField`](#kmshistoryfield)[]
+
+The fields this provider never records. They are `null` in every event.
+
+##### range
+
+> **range**: \{ `since`: `string`; `until`: `string`; \}
+
+The range read, in UTC, on whole seconds.
+
+###### since
+
+> **since**: `string`
+
+###### until
+
+> **until**: `string`
+
+##### scope
+
+> **scope**: `string` \| `null`
+
+Which part of the log the read covered, such as `account <hidden>, us-east-1`, or `null` when
+the reader does not say. Ids in it show only with `--show-ids`.
+
+##### source
+
+> **source**: `string`
+
+Where the events come from, such as `cloudtrail-event-history`.
+
+##### truncated
+
+> **truncated**: `boolean`
+
+Whether the log may hold events in the range that the report leaves out.
+
+##### truncatedReason
+
+> **truncatedReason**: `"limit"` \| `"scan-limit"` \| `null`
+
+Why: `limit` when the log holds more events than `--limit`, `scan-limit` when the reader
+stopped before reading the whole range. `null` when not truncated.
+
+##### version
+
+> **version**: `1`
+
+The version of this shape.
+
+---
+
+### KmsHistoryRequest
+
+**`Experimental`**
+
+What `kms history` asks a reader for: the sign events of one key in a time range, newest first.
+
+The history covers the whole key: every version, even when the config pins one. Each event
+names its version in `keyVersion` where the provider logs it.
+
+May gain optional fields before 1.0.
+
+#### Properties
+
+##### key
+
+> **key**: [`KmsKeyConfig`](#kmskeyconfig)
+
+The resolved key, as `kms.createKeyAdapter` receives it.
+
+##### limit
+
+> **limit**: `number`
+
+How many events `kms history` shows, the newest ones. Return at most `limit + 1` events: the
+extra one tells the plugin there are more, and it then marks the result truncated. An
+integer from 1 to 1000.
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+Aborts when `kms history` stops waiting for the reader: 120 seconds after the read starts.
+Pass it to the log SDK's calls and stop paging when it fires. The plugin fails the read with
+`core.history.timed-out` at that time even when the reader ignores it. Set by the plugin on
+every request; optional so that a reader called by other code still type-checks.
+
+##### since
+
+> **since**: `Date`
+
+The start of the range, inclusive, on a whole second. Filter the provider's answer to the
+range too: provider queries may round their bounds.
+
+##### until
+
+> **until**: `Date`
+
+The end of the range, inclusive, on a whole second. Always after `since`.
+
+---
+
+### KmsHistoryResult
+
+**`Experimental`**
+
+What a reader returns: the events it read, newest first, and what the provider's log can and
+cannot show. A reader that cannot read the log throws instead; it never returns an empty
+result for a log it could not read.
+
+Never put key ids, account ids or other identifiers in `source`, `scope.description`,
+`setupHint`, note messages or the errors a reader throws: they are printed without
+`--show-ids`.
+
+May gain optional fields before 1.0.
+
+#### Properties
+
+##### completeForKey
+
+> **completeForKey**: `boolean`
+
+Whether every sign request on this key is visible to this read: the provider logs every
+sign request with no setting that turns it off, and the credentials and location of the
+read see all of them. On AWS this holds only when the caller's account is the key ARN's
+account and the read is in the key's Region, since CloudTrail event history is kept per
+account and Region. When it is `false`, an empty result gets the `logging-not-confirmed`
+note.
+
+##### deliveryDelayMinutes?
+
+> `optional` **deliveryDelayMinutes?**: `number`
+
+How many minutes the provider documents an event can take to appear, if it documents it.
+
+##### events
+
+> **events**: readonly [`KmsHistoryEvent`](#kmshistoryevent)[]
+
+The events in the range, newest first, at most `limit + 1` of them.
+
+##### hiddenValues?
+
+> `optional` **hiddenValues?**: readonly `string`[]
+
+Other values that must not print, such as the key ARN an alias resolved to. Without
+`--show-ids`, the plugin replaces them and the parts they contain, in any case and in their
+URL-encoded and `/`-escaped forms, with `<hidden>` wherever they appear.
+
+##### notes?
+
+> `optional` **notes?**: readonly [`KmsHistoryNote`](#kmshistorynote)[]
+
+Notes of the reader's own.
+
+##### notLogged
+
+> **notLogged**: readonly [`KmsHistoryField`](#kmshistoryfield)[]
+
+The fields this provider never records for a sign request.
+
+##### retentionDays?
+
+> `optional` **retentionDays?**: `number`
+
+How many days the log keeps events, when that does not depend on the user's settings.
+
+##### scope?
+
+> `optional` **scope?**: [`KmsHistoryScope`](#kmshistoryscope)
+
+Which part of the log the read covered, such as one account and Region.
+
+##### setupHint?
+
+> `optional` **setupHint?**: `string`
+
+What to check when the log returns no events, such as the setting that turns logging on.
+Added to the `logging-not-confirmed` note.
+
+##### source
+
+> **source**: `string`
+
+Where the events come from, as a stable id of lowercase words joined by `-`, such as
+`cloudtrail-event-history`: letters only, no digits, at most 64 characters. It is printed as
+it is, so it cannot carry an account or project number.
+
+##### truncated
+
+> **truncated**: `boolean`
+
+Whether the log may hold events in the range that the result leaves out. Also set when the
+reader stopped early; see `truncatedReason`.
+
+##### truncatedReason?
+
+> `optional` **truncatedReason?**: `"limit"` \| `"scan-limit"`
+
+Why the result is truncated, required when `truncated` is `true` and refused otherwise:
+`limit` when the log holds more events in the range than `limit`, with at least `limit` events
+returned, and `scan-limit` when the reader stopped before reading the whole range, for example
+after scanning as many log entries as it allows itself. A result with `limit + 1` events and
+`truncated: false` is marked truncated by `limit` by the plugin.
+
+---
+
+### KmsHistoryScope
+
+**`Experimental`**
+
+Which part of the log a read covered, printed in the header of `kms history`.
+
+May gain optional fields before 1.0.
+
+#### Properties
+
+##### description
+
+> **description**: `string`
+
+What the read covered, free of ids, such as `us-east-1`.
+
+##### ids?
+
+> `optional` **ids?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+Ids that bound the read, by name, such as `{ account: "111122223333" }`. Shown only with
+`--show-ids`; otherwise each prints as `<name> <hidden>`, and its value is masked as `<hidden>`
+wherever it appears, except in principals, which are shown as logged. Names as in
+[KmsHistoryEvent.extra](#extra-1).
 
 ---
 
@@ -871,6 +1403,38 @@ without a signing method, or without `getPublicKey` or `getAddress` when the key
 `Promise`\<[`KmsKeyAdapter`](#kmskeyadapter)\>
 
 The key's adapter.
+
+##### readSignHistory()
+
+> **readSignHistory**(`context`: `HookContext`, `request`: [`KmsHistoryRequest`](#kmshistoryrequest), `next`: (`nextContext`: `HookContext`, `nextRequest`: [`KmsHistoryRequest`](#kmshistoryrequest)) => `Promise`\<[`KmsHistoryResult`](#kmshistoryresult)\>): `Promise`\<[`KmsHistoryResult`](#kmshistoryresult)\>
+
+Reads one key's sign events from its provider's audit log, for `kms history`. A handler
+reads the log for its own provider ids and calls `next` for any other key. When no handler
+reads a key's provider, `kms history` fails with an error that names the provider. The
+first-party provider packages add their readers through this method.
+
+The reader copies each event from the log and fills in nothing. It lists the fields its
+provider never records in `notLogged`. It throws when it cannot read the log, for example
+without permission, and never returns an empty result instead. The plugin checks the result,
+keeps the newest `limit` events, masks key ids and adds notes for an empty result, a recent
+`until` and a `since` past the log's retention.
+
+Settings a reader needs, such as `kms.audit.azure.workspaceId`, are in
+`context.config.kms.audit`.
+
+###### Parameters
+
+| Parameter | Type                                                                                                                                             | Description                                            |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| `context` | `HookContext`                                                                                                                                    | The Hardhat runtime, without tasks.                    |
+| `request` | [`KmsHistoryRequest`](#kmshistoryrequest)                                                                                                        | The key, the time range and the most events to return. |
+| `next`    | (`nextContext`: `HookContext`, `nextRequest`: [`KmsHistoryRequest`](#kmshistoryrequest)) => `Promise`\<[`KmsHistoryResult`](#kmshistoryresult)\> | Passes the request to the next handler.                |
+
+###### Returns
+
+`Promise`\<[`KmsHistoryResult`](#kmshistoryresult)\>
+
+The events and what the log can show.
 
 ---
 
@@ -1162,6 +1726,12 @@ The `kms` section of the Hardhat config.
 
 Allow typed data whose `domain.chainId` differs from the connected chain. Default: `false`.
 
+##### audit?
+
+> `optional` **audit?**: [`KmsAuditUserConfig`](#kmsaudituserconfig)
+
+Where `kms history` reads the providers' audit logs.
+
 ##### defaults?
 
 > `optional` **defaults?**: \{ `approvalTimeoutMs?`: `number`; `aws?`: \{ `region?`: `string`; \}; `timeoutMs?`: `number`; \}
@@ -1312,6 +1882,28 @@ A Google Cloud KMS key version.
 > **KmsAccountUserConfig** = `string` \| [`KmsKeyUserConfig`](#kmskeyuserconfig)
 
 An entry of a network's `kmsAccounts`: the name of a key in `kms.keys`, or an inline key.
+
+---
+
+### KmsHistoryExtraValue
+
+> **KmsHistoryExtraValue** = `string` \| `number` \| `boolean` \| `null`
+
+A value a reader may put in [KmsHistoryEvent.extra](#extra-1).
+
+---
+
+### KmsHistoryField
+
+> **KmsHistoryField** = `"principal"` \| `"sourceIp"` \| `"userAgent"` \| `"requestId"` \| `"keyVersion"` \| `"digest"`
+
+**`Experimental`**
+
+A field of a sign event that a provider may not record. A reader lists the fields its
+provider never logs in [KmsHistoryResult.notLogged](#notlogged-1), and sets them to `null` in every
+event.
+
+May gain members before 1.0.
 
 ---
 

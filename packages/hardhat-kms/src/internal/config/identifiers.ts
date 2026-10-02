@@ -39,6 +39,23 @@ export function isConfigurationVariable(value: unknown): value is ConfigurationV
 const comparisonForms = new WeakMap<KmsIdentifier, string>();
 
 /**
+ * The parts of each joined identifier, such as the project, location, key ring, key and version of
+ * a Google Cloud key version name. Kept here, not on the identifier, as the comparison forms are.
+ */
+const joinedParts = new WeakMap<KmsIdentifier, readonly KmsIdentifier[]>();
+
+/**
+ * Returns the parts a joined identifier was built from, so that `kms history` can hide the value
+ * of each part that comes from a configuration variable.
+ *
+ * @param identifier - A resolved identifier.
+ * @returns Its parts, or an empty list for an identifier that is not joined.
+ */
+export function identifierParts(identifier: KmsIdentifier): readonly KmsIdentifier[] {
+  return joinedParts.get(identifier) ?? [];
+}
+
+/**
  * Returns an identifier's comparison form, for telling whether two keys name the same KMS key.
  * Never print or log the result.
  *
@@ -166,6 +183,7 @@ export function joinIdentifiers<Parts extends IdentifierParts<Parts>>(
     },
     display,
   };
+  joinedParts.set(identifier, list);
   // The parts' forms are JSON, whose escaping keeps them apart wherever `build` puts them.
   if (list.every((part) => comparisonForms.has(part))) {
     const forms = mapParts(parts, (part) => comparisonForms.get(part) ?? "");

@@ -61,6 +61,7 @@ describe("resolveKmsConfig", () => {
       keys: {},
       defaults: { aws: {}, timeoutMs: 30_000 },
       allowCrossChainTypedData: false,
+      audit: {},
     });
   });
 
