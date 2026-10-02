@@ -16,7 +16,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseSync } from "oxc-parser";
+
 import {
+  CATALOGUED_PACKAGES,
   ERRORS_DOC,
   ERRORS_DOC_COMMAND,
   loadCatalogues,
@@ -224,12 +227,6 @@ async function checkErrorsDoc(): Promise<string[]> {
     : [`${ERRORS_DOC} is out of date with the error catalogues. Run \`${ERRORS_DOC_COMMAND}\`.`];
 }
 
-/**
- * Packages whose errors are not in a catalogue yet; their source is not checked. The provider
- * packages get their catalogues in a follow-up to #72.
- */
-const UNCATALOGUED_PACKAGES = new Set(["hardhat-kms-aws", "hardhat-kms-azure", "hardhat-kms-gcp"]);
-
 /** The one file that may build errors without a catalogue entry: the helpers themselves. */
 const ERROR_HELPERS = "packages/hardhat-kms/src/internal/errors.ts";
 
@@ -243,113 +240,159 @@ function sourceFiles(directory: string): string[] {
   });
 }
 
-/**
- * Blanks the comments of a TypeScript file and keeps everything else, so offsets and line numbers
- * stay. A `/` that starts a regular expression is read as code, which is enough for this source.
- */
-function withoutComments(source: string): string {
-  let result = "";
-  let quote: string | undefined;
-  for (let index = 0; index < source.length; index++) {
-    const char = source[index] ?? "";
-    if (quote !== undefined) {
-      result += char;
-      if (char === "\\") {
-        result += source[index + 1] ?? "";
-        index++;
-      } else if (char === quote) {
-        quote = undefined;
-      }
-    } else if (char === '"' || char === "'" || char === "`") {
-      quote = char;
-      result += char;
-    } else if (source.startsWith("//", index)) {
-      const end = source.indexOf("\n", index);
-      const stop = end === -1 ? source.length : end;
-      result += " ".repeat(stop - index);
-      index = stop - 1;
-    } else if (source.startsWith("/*", index)) {
-      const end = source.indexOf("*/", index + 2);
-      const stop = end === -1 ? source.length : end + 2;
-      result += source.slice(index, stop).replaceAll(/[^\n]/g, " ");
-      index = stop - 1;
-    } else {
-      result += char;
-    }
-  }
-  return result;
+/** Files that may name `kmsError`: its definition, and the entry point that exports it. */
+const KMS_ERROR_FILES = new Set([
+  "packages/hardhat-kms/src/internal/errors.ts",
+  "packages/hardhat-kms/src/provider-utils.ts",
+]);
+
+/** Reads a field of an AST node. */
+function field(node: unknown, name: string): unknown {
+  return typeof node === "object" && node !== null ? Reflect.get(node, name) : undefined;
 }
 
-/** The text between the parenthesis at `open` and its match, strings and nesting included. */
-function argumentsAt(code: string, open: number): string {
-  let depth = 0;
-  let quote: string | undefined;
-  for (let index = open; index < code.length; index++) {
-    const char = code[index];
-    if (quote !== undefined) {
-      if (char === "\\") {
-        index++;
-      } else if (char === quote) {
-        quote = undefined;
-      }
-    } else if (char === '"' || char === "'" || char === "`") {
-      quote = char;
-    } else if (char === "(") {
-      depth++;
-    } else if (char === ")") {
-      depth--;
-      if (depth === 0) {
-        return code.slice(open + 1, index);
-      }
+/** Calls `visit` on every node of an AST, parents first. */
+function walk(node: unknown, visit: (node: object) => void): void {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      walk(child, visit);
+    }
+    return;
+  }
+  if (typeof node !== "object" || node === null) {
+    return;
+  }
+  if (typeof field(node, "type") === "string") {
+    visit(node);
+  }
+  for (const [key, child] of Object.entries(node)) {
+    if (key !== "parent" && typeof child === "object" && child !== null) {
+      walk(child, visit);
     }
   }
-  return code.slice(open + 1);
 }
+
+/** The name a constructor or function is called by: the last segment of `a.b.C` or `this.#c`. */
+function calleeName(callee: unknown): string | undefined {
+  const type = field(callee, "type");
+  if (type === "Identifier") {
+    const name = field(callee, "name");
+    return typeof name === "string" ? name : undefined;
+  }
+  if (type === "MemberExpression" && field(callee, "computed") !== true) {
+    const property = field(callee, "property");
+    const name = field(property, "name");
+    if (typeof name !== "string") {
+      return undefined;
+    }
+    return field(property, "type") === "PrivateIdentifier" ? `#${name}` : name;
+  }
+  return undefined;
+}
+
+/** Whether a subtree calls `catalogMessage`. */
+function callsCatalogMessage(node: unknown): boolean {
+  let found = false;
+  walk(node, (child) => {
+    if (
+      field(child, "type") === "CallExpression" &&
+      calleeName(field(child, "callee")) === "catalogMessage"
+    ) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+/** Whether a subtree holds a string or template literal with text. */
+function hasText(node: unknown): boolean {
+  let found = false;
+  walk(node, (child) => {
+    const type = field(child, "type");
+    const value = field(child, "value");
+    if ((type === "Literal" && typeof value === "string") || type === "TemplateLiteral") {
+      found = true;
+    }
+  });
+  return found;
+}
+
+/** An error class: a capitalised name that ends in Error, Failure or Exception. */
+const ERROR_NAME = /^(?:[A-Z]\w*)?(?:Error|Failure|Exception)$/;
 
 /**
  * Fails on first-party code that builds an error without the catalogue helpers of
- * packages/hardhat-kms/src/internal/errors.ts: a call to `kmsError`, a `new HardhatPluginError`,
- * an error object (`new …Error(` or `new …Failure(`) whose arguments do not call
- * `catalogMessage`, and a thrown string.
+ * packages/hardhat-kms/src/internal/errors.ts. It reads each file's syntax tree, so comments,
+ * strings and regular expressions cannot hide or fake a match:
+ *
+ * - `kmsError` named anywhere (a call, an import, an alias), apart from its definition and export;
+ * - `new HardhatPluginError(…)`;
+ * - `new X(…)` or `X(…)` where the last segment of `X` ends in `Error`, `Failure` or `Exception`,
+ *   such as `new ns.FooError(…)` or a bare `Error(…)`, without `catalogMessage` in its arguments;
+ * - `new this.#x(…)` or `new obj.X(…)` with text in its arguments and no `catalogMessage`;
+ * - `throw "…"` or ``throw `…` ``.
  */
 function checkErrorSites(): string[] {
   const problems: string[] = [];
-  const packages = readdirSync(path.join(root, "packages"), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !UNCATALOGUED_PACKAGES.has(entry.name))
-    .map((entry) => path.posix.join("packages", entry.name, "src"))
-    .filter((directory) => existsSync(path.join(root, directory)));
-  for (const file of packages.flatMap((directory) => sourceFiles(directory))) {
+  const directories = CATALOGUED_PACKAGES.map((name) => path.posix.join("packages", name, "src"));
+  for (const file of directories.flatMap((directory) => sourceFiles(directory))) {
     if (file === ERROR_HELPERS) {
       continue;
     }
-    const code = withoutComments(readFileSync(path.join(root, file), "utf8"));
-    const lineOf = (offset: number): number => code.slice(0, offset).split("\n").length;
-    const report = (offset: number, what: string): void => {
+    const source = readFileSync(path.join(root, file), "utf8");
+    const parsed = parseSync(file, source);
+    if (parsed.errors.length > 0) {
+      problems.push(`${file}: cannot parse (${parsed.errors[0]?.message ?? "unknown error"})`);
+      continue;
+    }
+    const report = (node: object, what: string): void => {
+      const start = field(node, "start");
+      const line = source.slice(0, typeof start === "number" ? start : 0).split("\n").length;
       problems.push(
-        `${file}:${lineOf(offset)}: ${what}; build it from a catalogue entry with catalogError, catalogMessage or internalError`,
+        `${file}:${line}: ${what}; build it from a catalogue entry with catalogError, catalogMessage or internalError`,
       );
     };
-    for (const match of code.matchAll(/\bkmsError\s*\(/g)) {
-      report(match.index, "kmsError() call");
-    }
-    for (const match of code.matchAll(/\bnew\s+HardhatPluginError\s*\(/g)) {
-      report(match.index, "new HardhatPluginError()");
-    }
-    for (const match of code.matchAll(/\bnew\s+((?:[A-Z]\w*)?(?:Error|Failure))\s*\(/g)) {
-      if (match[1] === "HardhatPluginError") {
-        continue;
+    walk(parsed.program, (node) => {
+      const type = field(node, "type");
+      if (
+        type === "Identifier" &&
+        field(node, "name") === "kmsError" &&
+        !KMS_ERROR_FILES.has(file)
+      ) {
+        report(node, "kmsError named");
       }
-      const open = match.index + match[0].length - 1;
-      if (!/\bcatalogMessage\s*\(/.test(argumentsAt(code, open))) {
-        report(
-          match.index,
-          `new ${match[1] ?? ""}() with a message that is not from catalogMessage`,
-        );
+      if (type === "NewExpression" || type === "CallExpression") {
+        const callee = field(node, "callee");
+        const name = calleeName(callee);
+        const args = field(node, "arguments");
+        const isNew = type === "NewExpression";
+        if (isNew && name === "HardhatPluginError") {
+          report(node, "new HardhatPluginError()");
+        } else if (name !== undefined && ERROR_NAME.test(name) && !callsCatalogMessage(args)) {
+          report(
+            node,
+            `${isNew ? "new " : ""}${name}() with a message that is not from catalogMessage`,
+          );
+        } else if (
+          isNew &&
+          field(callee, "type") === "MemberExpression" &&
+          hasText(args) &&
+          !callsCatalogMessage(args)
+        ) {
+          report(node, `new ${name ?? "(computed)"}() with text that is not from catalogMessage`);
+        }
       }
-    }
-    for (const match of code.matchAll(/\bthrow\s+["'`]/g)) {
-      report(match.index, "thrown string");
-    }
+      if (type === "ThrowStatement") {
+        const argument = field(node, "argument");
+        const argumentType = field(argument, "type");
+        if (
+          argumentType === "TemplateLiteral" ||
+          (argumentType === "Literal" && typeof field(argument, "value") === "string")
+        ) {
+          report(node, "thrown string");
+        }
+      }
+    });
   }
   return problems.toSorted((a, b) => a.localeCompare(b, "en", { numeric: true }));
 }

@@ -13,6 +13,8 @@ export {
   type EcJsonWebKey,
 } from "./internal/crypto/public-key.ts";
 export { crc32c } from "./internal/crypto/crc32c.ts";
+// The catalogue helpers and their types are for the first-party provider packages only;
+// third-party providers build their errors with kmsError.
 export {
   catalogError,
   catalogMessage,

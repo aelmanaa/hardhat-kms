@@ -433,8 +433,8 @@ export function kmsAccountsSentence(addresses: readonly string[]): string | unde
   const more = addresses.length - LISTED_KMS_ADDRESSES;
   const list = more > 0 ? `${shown} and ${more} more` : shown;
   return addresses.length === 1
-    ? `The KMS account on this network is ${list}.`
-    : `The KMS accounts on this network are ${list}.`;
+    ? catalogMessage(ERRORS.kmsAccountSentence, { list })
+    : catalogMessage(ERRORS.kmsAccountsSentence, { list });
 }
 
 /**

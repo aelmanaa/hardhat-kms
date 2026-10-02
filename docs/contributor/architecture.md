@@ -281,7 +281,7 @@ Code builds errors with three helpers from `errors.ts`, which `hardhat-kms/provi
 
 A placeholder holds a value: a name, a number, an address or a list. Where the wording around a value changes, the catalogue has one entry per wording, such as `core.task.unknown-key` and `core.task.unknown-key-suggested`. Messages do not print the id yet; the ids appear in the catalogue and in the [errors reference](../user/reference/errors.md).
 
-`kmsError(message, details)` stays for third-party providers. To add an error, add its entry, build it with one of the helpers and run `pnpm run docs:errors`, which writes the reference. `pnpm run docs:check` fails when the reference is out of date, and on a `kmsError(` call, a `new HardhatPluginError(`, a `new …Error(` or `new …Failure(` without `catalogMessage`, or a thrown string in first-party source (see [Documentation](documentation.md#checks)).
+`kmsError(message, details)` stays for third-party providers. To add an error, add its entry, build it with one of the helpers and run `pnpm run docs:errors`, which writes the reference. `pnpm run docs:check` fails when the reference is out of date, and when first-party source builds an error outside the helpers (see [Documentation](documentation.md#checks)).
 
 ## Timeouts and retries
 

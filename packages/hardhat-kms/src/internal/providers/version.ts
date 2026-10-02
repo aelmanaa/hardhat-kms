@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 
 import { PLUGIN_ID } from "../constants.ts";
 import { ERRORS } from "../error-catalog.ts";
-import { catalogError, type ErrorDetails, fillTemplate, internalError } from "../errors.ts";
+import { catalogError, catalogMessage, type ErrorDetails, internalError } from "../errors.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -89,8 +89,8 @@ export function versionMismatch(
     return undefined;
   }
   return mismatch.target === undefined
-    ? fillTemplate(ERRORS.versionMismatchNoTarget.template, mismatch.params)
-    : fillTemplate(ERRORS.versionMismatch.template, mismatch.params);
+    ? catalogMessage(ERRORS.versionMismatchNoTarget, mismatch.params)
+    : catalogMessage(ERRORS.versionMismatch, mismatch.params);
 }
 
 /**

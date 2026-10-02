@@ -270,7 +270,7 @@ export const ERRORS = {
     group: "Configuration",
     template: "invalid value for {path} ({display}): {problem}",
     cause:
-      "A key identifier does not have its provider's format. A value from a configuration variable is checked when it is read, which config validation cannot do. The message shows a variable by its name, never its value.",
+      "A key identifier does not have its provider's format. A value from a configuration variable is checked when it is read, which config validation cannot do. `{path}` is the config path, such as `kms.keys.deployer.keyId` or `--kms aws`, and `{display}` shows a variable by its name, never its value.",
     fix: "Fix the value, or the variable it comes from. The part after the colon is one of the reasons below.",
   },
   awsKeyIdReason: {
@@ -589,7 +589,7 @@ export const ERRORS = {
     group: "Signing",
     template: "the adapter cannot identify its key",
     cause:
-      "The key's adapter has neither `getPublicKey` nor `getAddress`, and the key has no `address`.",
+      "The key's adapter has neither `getPublicKey` nor `getAddress`, and the key has no `address`. Creating the adapter refuses such a key first, so this is a guard.",
     fix: "Set `address` on the key to the account's address.",
   },
   addressMismatch: {
@@ -866,12 +866,31 @@ export const ERRORS = {
       "Two keys of the network give the same address, for example an alias and the key ARN it points to.",
     fix: "Remove one of them from the network's `kmsAccounts` or from `--kms`.",
   },
+  kmsAccountSentence: {
+    id: "core.accounts.unknown-account-hint",
+    kind: "reason",
+    group: "Accounts",
+    template: "The KMS account on this network is {list}.",
+    cause:
+      "A signing request named an account that is neither a KMS account nor one of the node's accounts. The plugin appends this sentence to the error from Hardhat or the node, so you can see which account it signs for. `{list}` is the address, or the first ten and a count.",
+    fix: "Send from the address listed, or add the key of the account you meant to the network's `kmsAccounts`.",
+  },
+  kmsAccountsSentence: {
+    id: "core.accounts.unknown-account-hint-many",
+    kind: "reason",
+    group: "Accounts",
+    template: "The KMS accounts on this network are {list}.",
+    cause:
+      "As above, for a network with several KMS accounts. `{list}` holds the first ten addresses, then how many more there are.",
+    fix: "Send from one of the addresses listed, or add the key of the account you meant to the network's `kmsAccounts`.",
+  },
   alreadyListed: {
     id: "core.accounts.already-listed",
     kind: "error",
     group: "Accounts",
     template: "{name} is already {path}{named}; use one of them",
-    cause: "A `--kms` key names the same KMS key as one of the network's `kmsAccounts`.",
+    cause:
+      "A `--kms` key names the same KMS key as one of the network's `kmsAccounts`. `{path}` is that entry's place, such as `networks.sepolia.kmsAccounts[0]`, and `{named}` adds its name in brackets when it has one.",
     fix: "Drop `--kms`, or remove the key from the network's `kmsAccounts`.",
   },
 
@@ -1403,7 +1422,7 @@ export const ERRORS = {
     template:
       "unknown transaction {fields}{hints}. The fields are those of eth_sendTransaction: {known}.",
     cause:
-      "The transaction file has fields that `eth_sendTransaction` does not take, often a viem or ethers name such as `gasLimit`.",
+      "The transaction file has fields that `eth_sendTransaction` does not take, often a viem or ethers name such as `gasLimit`. `{fields}` is `field` or `fields` and the names; `{hints}` is empty or a bracketed list such as `(use gas instead of gasLimit)`.",
     fix: "Rename or remove the fields; the message suggests the right name where it knows one.",
   },
   txFileNotQuantity: {

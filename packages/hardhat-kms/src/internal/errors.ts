@@ -85,16 +85,36 @@ type IsName<S extends string> = S extends `${infer First}${infer Rest}`
     : false
   : false;
 
-/**
- * The values a message template needs: one per `{name}` placeholder. Braces around anything other
- * than a name, such as `{name, type}`, are literal text. {@link fillTemplate} reads a template the
- * same way: from each `{` to the next `}`.
- */
-export type TemplateParams<Template extends string> =
+/** One `{ name: value }` object per placeholder of a template, as an intersection. */
+type PlaceholderValues<Template extends string> =
   Template extends `${string}{${infer Tag}}${infer Rest}`
     ? (IsName<Tag> extends true ? { readonly [Name in Tag]: TemplateValue } : object) &
-        TemplateParams<Rest>
+        PlaceholderValues<Rest>
     : object;
+
+/** Turns `A | B` into `A & B`. */
+type UnionToIntersection<Union> = (Union extends unknown ? (value: Union) => void : never) extends (
+  value: infer Intersection,
+) => void
+  ? Intersection
+  : never;
+
+/** The values object of a template without placeholders: it may not hold any key. */
+type NoPlaceholders = Readonly<Record<string, never>>;
+
+type Complete<Params> = [keyof Params] extends [never] ? NoPlaceholders : Params & object;
+
+/**
+ * The values a message template needs: one per `{name}` placeholder, and no other key. Braces
+ * around anything other than a name, such as `{name, type}`, are literal text.
+ * {@link fillTemplate} reads a template the same way: from each `{` to the next `}`.
+ *
+ * - For a union of templates, such as an entry picked from a map, the values must fill every one.
+ * - A template typed only as `string` has unknown placeholders, so no value can be given for it.
+ */
+export type TemplateParams<Template extends string> = string extends Template
+  ? never
+  : Complete<UnionToIntersection<PlaceholderValues<Template>>>;
 
 /**
  * One entry of an error catalogue: a stable id, a message template, and what causes the error and
@@ -136,9 +156,10 @@ export function fillTemplate<Template extends string>(
       break;
     }
     const name = template.slice(open + 1, close);
-    const value: unknown = /^[A-Za-z][A-Za-z0-9]*$/.test(name)
-      ? Reflect.get(params, name)
-      : undefined;
+    const value: unknown =
+      /^[A-Za-z][A-Za-z0-9]*$/.test(name) && Object.hasOwn(params, name)
+        ? Reflect.get(params, name)
+        : undefined;
     message += template.slice(index, open);
     message +=
       typeof value === "string" || typeof value === "number" || typeof value === "bigint"
@@ -151,6 +172,9 @@ export function fillTemplate<Template extends string>(
 
 /**
  * Builds the `HardhatPluginError` a catalogue entry describes, with {@link kmsError}'s prefix.
+ *
+ * For hardhat-kms and its first-party provider packages; a third-party provider uses
+ * {@link kmsError}.
  *
  * @param entry - An `error` entry.
  * @param params - A value for each placeholder of its template.
@@ -169,6 +193,9 @@ export function catalogError<Template extends string>(
  * Builds the text of a `reason` or `validation` entry, or of an `error` entry for an error class
  * of its own, such as one that carries a transaction hash.
  *
+ * For hardhat-kms and its first-party provider packages; a third-party provider uses
+ * {@link kmsError}.
+ *
  * @param entry - A `reason`, `validation` or `error` entry.
  * @param params - A value for each placeholder of its template.
  * @returns The text.
@@ -183,6 +210,9 @@ export function catalogMessage<Template extends string>(
 /**
  * Builds the plain `Error` an `internal` entry describes: a state that only a bug or a broken
  * install can reach.
+ *
+ * For hardhat-kms and its first-party provider packages; a third-party provider uses
+ * {@link kmsError}.
  *
  * @param entry - An `internal` entry.
  * @param params - A value for each placeholder of its template.

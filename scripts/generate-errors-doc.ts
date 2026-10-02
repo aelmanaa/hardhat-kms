@@ -1,7 +1,8 @@
-// Writes docs/user/reference/errors.md from the error catalogues of the built packages
-// (packages/*/dist/src/internal/error-catalog.js): one table per package and group, one row per
-// entry. Run it with `pnpm run docs:errors`, which builds first. scripts/check-docs.ts calls
-// renderErrorsDoc() and fails when the page differs.
+// Writes docs/user/reference/errors.md from the error catalogues in the packages' source
+// (packages/*/src/internal/error-catalog.ts, which Node runs as TypeScript: a catalogue has only
+// type imports): one table per package and group, one row per entry. Run it with
+// `pnpm run docs:errors`. scripts/check-docs.ts calls renderErrorsDoc() and fails when the page
+// differs.
 //
 // Usage: node scripts/generate-errors-doc.ts
 import { spawnSync } from "node:child_process";
@@ -71,36 +72,53 @@ function parseEntry(value: unknown, where: string): CatalogueEntry {
   };
 }
 
-/** The workspace packages, the core first, then the providers by name. */
-function packageNames(): string[] {
-  return readdirSync(path.join(root, "packages"), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .toSorted((a, b) => (a === "hardhat-kms" ? -1 : b === "hardhat-kms" ? 1 : a.localeCompare(b)));
+/** The packages with an error catalogue, in the order of the page. */
+export const CATALOGUED_PACKAGES: readonly string[] = ["hardhat-kms"];
+
+/**
+ * Packages whose errors are not in a catalogue yet. The provider packages get theirs in the
+ * second pull request of #72.
+ */
+const UNCATALOGUED_PACKAGES: readonly string[] = [
+  "hardhat-kms-aws",
+  "hardhat-kms-azure",
+  "hardhat-kms-gcp",
+];
+
+/**
+ * Fails when a package under packages/ is in neither list, so a new package cannot be left out of
+ * the page, or of the source check, without anyone noticing.
+ */
+export function checkPackageLists(): void {
+  const listed = new Set([...CATALOGUED_PACKAGES, ...UNCATALOGUED_PACKAGES]);
+  const unlisted = readdirSync(path.join(root, "packages"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !listed.has(entry.name))
+    .map((entry) => entry.name);
+  if (unlisted.length > 0) {
+    throw new Error(
+      `${unlisted.join(", ")}: add the package to CATALOGUED_PACKAGES in scripts/generate-errors-doc.ts, with its src/internal/error-catalog.ts`,
+    );
+  }
 }
 
 /**
- * Loads the error catalogue of every built package that has one.
+ * Loads the error catalogue of every package in {@link CATALOGUED_PACKAGES}.
  *
- * @returns The catalogues, the core first.
+ * @returns The catalogues, in the order of the list.
  */
 export async function loadCatalogues(): Promise<Catalogue[]> {
+  checkPackageLists();
   const catalogues: Catalogue[] = [];
-  for (const packageName of packageNames()) {
-    const directory = path.join(root, "packages", packageName);
-    // A package without the source file has no catalogue, even if an old build left one in dist.
-    if (!existsSync(path.join(directory, "src/internal/error-catalog.ts"))) {
-      continue;
-    }
-    const file = path.join(directory, "dist/src/internal/error-catalog.js");
+  for (const packageName of CATALOGUED_PACKAGES) {
+    const file = path.join(root, "packages", packageName, "src/internal/error-catalog.ts");
     if (!existsSync(file)) {
-      throw new Error(`${packageName}: build the package first (pnpm run build)`);
+      throw new Error(`${packageName}: src/internal/error-catalog.ts is missing`);
     }
     const module: unknown = await import(pathToFileURL(file).href);
     const errors: unknown =
       typeof module === "object" && module !== null ? Reflect.get(module, "ERRORS") : undefined;
     if (typeof errors !== "object" || errors === null) {
-      throw new Error(`${packageName}: error-catalog.js exports no ERRORS object`);
+      throw new Error(`${packageName}: error-catalog.ts exports no ERRORS object`);
     }
     const entries = Object.entries(errors).map(([key, value]) =>
       parseEntry(value, `${packageName} ERRORS.${key}`),
