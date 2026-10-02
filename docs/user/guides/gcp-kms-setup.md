@@ -120,24 +120,98 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 - It parses every DER signature, normalizes it to low-S and verifies it against the public key before using it; see the [signing pipeline](../../contributor/signing-pipeline.md).
 - It puts `hardhat-kms/<version>` at the start of the user agent of every request, so `protoPayload.requestMetadata.callerSuppliedUserAgent` in the Cloud KMS audit log starts with `hardhat-kms/1.0.0` (with your installed version) when Data Access logs are on for Cloud KMS. The client reports this tag and anyone can send the same string, so it marks the plugin's calls but proves nothing.
 
+## Audit logs
+
+[`kms history`](../reference/tasks.md#kms-history) lists a key's sign requests from Cloud Audit Logs: every `AsymmetricSign` call on any version of the key, from the plugin or from any other client. Cloud KMS logs these calls as Data Access logs, which are off by default. The plugin stores nothing itself, so with the logs off there is no history to read.
+
+### Turn on Data Access logs for Cloud KMS
+
+`AsymmetricSign` is a `DATA_READ` operation. In the console, open **IAM & Admin > Audit Logs**, select **Cloud Key Management Service (KMS) API**, and check **Data Read**. With `gcloud`, add an `auditConfigs` entry to the project's IAM policy:
+
+```sh
+gcloud projects get-iam-policy my-project --format=json > policy.json
+```
+
+Add this entry to the `auditConfigs` list in `policy.json` (create the list if it is missing), then write the policy back:
+
+```json
+{ "service": "cloudkms.googleapis.com", "auditLogConfigs": [{ "logType": "DATA_READ" }] }
+```
+
+```sh
+gcloud projects set-iam-policy my-project policy.json
+```
+
+This needs `resourcemanager.projects.setIamPolicy` on the project. It changes only what is logged. A setting on the folder or the organization, or one for `allServices`, also turns the logs on. See [Configure Data Access audit logs](https://cloud.google.com/logging/docs/audit/configure-data-access).
+
+### Allow reading the logs
+
+The identity that runs `kms history` needs `logging.privateLogEntries.list` on the key's project, which `roles/logging.privateLogViewer` holds:
+
+```sh
+gcloud projects add-iam-policy-binding my-project \
+  --member user:you@example.com \
+  --role roles/logging.privateLogViewer
+```
+
+The reader uses Application Default Credentials, as signing does, with the `logging.read` scope. It calls Cloud Logging's `entries.list` over REST through `google-auth-library`, which comes with the Cloud KMS SDK, so it installs nothing more. The Cloud Logging API must be enabled in the quota project of the credentials. Reading signs nothing and makes no Cloud KMS call.
+
+### What the history shows
+
+| Column       | From the log entry                                                                                                                                        |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Time         | `timestamp`                                                                                                                                               |
+| Outcome      | `protoPayload.status`: empty for a served request; a code and a message for a refused one                                                                 |
+| Principal    | `authenticationInfo.principalEmail`, or `principalSubject` when there is no email                                                                         |
+| Source IP    | `requestMetadata.callerIp`, which reads `private` or `gce-internal-ip` for calls from inside Google Cloud                                                 |
+| User agent   | `requestMetadata.callerSuppliedUserAgent`, reported by the client                                                                                         |
+| Key version  | the last segment of `resourceName`                                                                                                                        |
+| Digest       | `request.digest.sha256`, logged as 64 hex characters; the reader adds `0x`                                                                                |
+| Other fields | `insertId`, `principalSubject` when it is more than the type and the email, `receiveTimestamp` and the status code; the OAuth client id with `--show-ids` |
+
+Cloud Audit Logs records no request id, so the history lists it as not logged. An entry's own id, `insertId`, is shown instead. No entry holds the message, the transaction or the signature, so the history cannot show what was signed; the digest identifies it if you have the transaction.
+
+The history is the same whether `keyVersionName` names the project by its id or by its number. Signing needs the id: in a live test on 2026-10-02, Cloud KMS refused a sign request whose key name held the project number.
+
+The project shows as `<hidden>` unless you pass `--show-ids`. Principals are shown as logged, so a service account's email keeps its project.
+
+### What it cannot show
+
+An empty history does not mean the key signed nothing, so the task says so instead of reporting no signatures:
+
+- the Data Access logs may be off for Cloud KMS, or may have been turned on after the signature;
+- a principal listed in `exemptedMembers` is never logged;
+- an exclusion filter can drop the entries, and a sink can send them to another bucket or project, which the reader does not search;
+- the `_Default` bucket keeps the entries for 30 days, unless its retention was changed. For a range that starts earlier, the task adds a note.
+
+Google documents no delivery delay for audit logs. In the live test on 2026-10-02 each entry reached the log about one second after its call, and `kms history` found the test's signature on its second read, 10 seconds after signing. When the range ends less than 15 minutes ago, the task still notes that recent events may be missing.
+
+Each run reads at most 10 pages of up to 1000 entries each, with up to 30 `entries.list` calls with retries. Cloud Logging allows 60 such calls a minute per project. A throttled call, a server error or a network error is retried twice, after 1 and 2 seconds, before the task fails. These pauses rarely outlast a per-minute quota. A call gets 30 seconds, and one that gets no answer in time is retried once. The reader also stops after 90 seconds. When it stops after 10 pages or 90 seconds, the task shows what it read and says that the range was not read in full.
+
+### Cost
+
+Data Access logs are billed as log ingestion beyond Cloud Logging's free monthly allotment ([pricing](https://cloud.google.com/stackdriver/pricing)). Each `AsymmetricSign` and `GetPublicKey` call adds one entry of about 2 KB of JSON, and the setting above logs every Cloud KMS read in the project, not only this key's. Turn it off again by removing the `auditConfigs` entry.
+
 ## Errors
 
 Each message starts with the provider, the operation and the key, for example `gcp, sign, key gcp:projects/…/cryptoKeyVersions/1: permission denied (PERMISSION_DENIED)`. The table lists the part after the colon.
 
-| Error                                                                        | Cause and fix                                                                                                                                                                                |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Google Cloud KMS keys need the hardhat-kms-gcp plugin`                      | Run `npm install --save-dev hardhat-kms-gcp` in the Hardhat project, and add `hardhatKmsGcp` to `plugins` in the config.                                                                     |
-| `hardhat-kms-gcp … needs hardhat-kms …, but hardhat-kms … is installed`      | The two packages are released together and must be the same version. Run the install command the error prints.                                                                               |
-| `the key version's algorithm is …, not EC_SIGN_SECP256K1_SHA256 (secp256k1)` | The key is not a secp256k1 key. A key's algorithm cannot be changed, so create a new key as in step 1.                                                                                       |
-| `the key derives to 0x…, but the configured address is 0x…`                  | The configuration names another key or version, or the pin is wrong. Check `keyVersionName`, then update `address`.                                                                          |
-| `could not reach Google Cloud KMS (ECONNREFUSED), after 4 attempts`          | The request never reached Cloud KMS. The code says why: `ENOTFOUND` or `EAI_AGAIN` for DNS, `ECONNREFUSED` or `ECONNRESET` for the connection. Check the network, DNS and any `HTTPS_PROXY`. |
-| `Google Cloud KMS is unavailable (UNAVAILABLE), after 4 attempts`            | Cloud KMS answered that it is unavailable. Try again later.                                                                                                                                  |
-| `no Google Cloud credentials found`                                          | Run `gcloud auth application-default login`, or set `GOOGLE_APPLICATION_CREDENTIALS` to a credentials file.                                                                                  |
-| `the Google Cloud credentials were refused (UNAUTHENTICATED)`                | The credentials expired or were revoked. Run `gcloud auth application-default login` again.                                                                                                  |
-| `permission denied (PERMISSION_DENIED)`                                      | The identity lacks `viewPublicKey` or `useToSign` on this key; grant the roles in step 2.                                                                                                    |
-| `the key version was not found (NOT_FOUND)`                                  | The project, location, key ring, key or version does not exist. Check `keyVersionName` or its parts.                                                                                         |
-| `the key version cannot be used (FAILED_PRECONDITION)`                       | The version is disabled, scheduled for destruction or destroyed. Enable it with `gcloud kms keys versions enable`, or restore it first with `gcloud kms keys versions restore`.              |
-| `Google Cloud KMS is throttling requests (RESOURCE_EXHAUSTED)`               | The project hit its Cloud KMS quota. Try again later, or ask for a higher quota.                                                                                                             |
-| `no answer within … ms`                                                      | Cloud KMS did not answer in time. Check the network, or raise `timeoutMs`. `did not answer in time (DEADLINE_EXCEEDED)` means the same, reported by the SDK.                                 |
+| Error                                                                                                             | Cause and fix                                                                                                                                                                                |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Google Cloud KMS keys need the hardhat-kms-gcp plugin`                                                           | Run `npm install --save-dev hardhat-kms-gcp` in the Hardhat project, and add `hardhatKmsGcp` to `plugins` in the config.                                                                     |
+| `hardhat-kms-gcp … needs hardhat-kms …, but hardhat-kms … is installed`                                           | The two packages are released together and must be the same version. Run the install command the error prints.                                                                               |
+| `the key version's algorithm is …, not EC_SIGN_SECP256K1_SHA256 (secp256k1)`                                      | The key is not a secp256k1 key. A key's algorithm cannot be changed, so create a new key as in step 1.                                                                                       |
+| `the key derives to 0x…, but the configured address is 0x…`                                                       | The configuration names another key or version, or the pin is wrong. Check `keyVersionName`, then update `address`.                                                                          |
+| `could not reach Google Cloud KMS (ECONNREFUSED), after 4 attempts`                                               | The request never reached Cloud KMS. The code says why: `ENOTFOUND` or `EAI_AGAIN` for DNS, `ECONNREFUSED` or `ECONNRESET` for the connection. Check the network, DNS and any `HTTPS_PROXY`. |
+| `Google Cloud KMS is unavailable (UNAVAILABLE), after 4 attempts`                                                 | Cloud KMS answered that it is unavailable. Try again later.                                                                                                                                  |
+| `no Google Cloud credentials found`                                                                               | Run `gcloud auth application-default login`, or set `GOOGLE_APPLICATION_CREDENTIALS` to a credentials file.                                                                                  |
+| `the Google Cloud credentials were refused (UNAUTHENTICATED)`                                                     | The credentials expired or were revoked. Run `gcloud auth application-default login` again.                                                                                                  |
+| `permission denied (PERMISSION_DENIED)`                                                                           | The identity lacks `viewPublicKey` or `useToSign` on this key; grant the roles in step 2.                                                                                                    |
+| `the key version was not found (NOT_FOUND)`                                                                       | The project, location, key ring, key or version does not exist. Check `keyVersionName` or its parts.                                                                                         |
+| `the key version cannot be used (FAILED_PRECONDITION)`                                                            | The version is disabled, scheduled for destruction or destroyed. Enable it with `gcloud kms keys versions enable`, or restore it first with `gcloud kms keys versions restore`.              |
+| `Google Cloud KMS is throttling requests (RESOURCE_EXHAUSTED)`                                                    | The project hit its Cloud KMS quota. Try again later, or ask for a higher quota.                                                                                                             |
+| `no answer within … ms`                                                                                           | Cloud KMS did not answer in time. Check the network, or raise `timeoutMs`. `did not answer in time (DEADLINE_EXCEEDED)` means the same, reported by the SDK.                                 |
+| `cannot read the audit log: the credentials lack logging.privateLogEntries.list (roles/logging.privateLogViewer)` | From `kms history`. Grant the role on the key's project, as in [Allow reading the logs](#allow-reading-the-logs).                                                                            |
+| `the Cloud Logging API is disabled in the project the request is billed to (SERVICE_DISABLED)`                    | From `kms history`. Run `gcloud services enable logging.googleapis.com` in the credentials' quota project, or set another one with `gcloud auth application-default set-quota-project`.      |
 
 Other Cloud KMS errors show as `the Google Cloud KMS call failed (<STATUS>)`, with the gRPC status name. The plugin never shows the server's message, since it names the project and the key. Run with `DEBUG=hardhat:kms:*` to see each call; see [Debug output](debug-output.md). The table lists the most common errors; the [errors reference](../reference/errors.md#hardhat-kms-gcp) lists every one, with its id, cause and fix, and the [core plugin's errors](../reference/errors.md#hardhat-kms) too.

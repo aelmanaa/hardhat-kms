@@ -39,6 +39,7 @@ updates:
           - "@aws-sdk/*"
           - "@google-cloud/*"
           - "google-gax"
+          - "google-auth-library"
           - "@azure/*"
       clients:
         patterns:

@@ -203,6 +203,63 @@ export const ERRORS = {
     cause: "google-auth-library found no Application Default Credentials.",
     fix: "Run `gcloud auth application-default login`, or set `GOOGLE_APPLICATION_CREDENTIALS` to a credentials file.",
   },
+  historyKeyName: {
+    id: "gcp.history.key-name",
+    kind: "error",
+    group: "History",
+    template:
+      "the key version name does not split into a project, location, key ring, key and version of letters, digits, _ . : and -, so no Cloud Logging query is built from it",
+    cause:
+      "`kms history` builds its Cloud Logging filter only from the checked parts of a key version name, so that no part can change the query. The config check refuses such names first, so this means a key reached the reader without it.",
+    fix: "Check `keyVersionName` or its parts.",
+  },
+  historyApiDisabled: {
+    id: "gcp.history.api-disabled",
+    kind: "error",
+    group: "History",
+    template:
+      "the Cloud Logging API is disabled in the project the request is billed to (SERVICE_DISABLED). Enable logging.googleapis.com there, or use another quota project",
+    cause:
+      "Cloud Logging refused the read because its API is not enabled in the quota project of the credentials.",
+    fix: "Run `gcloud services enable logging.googleapis.com` in that project, or pick another one with `gcloud auth application-default set-quota-project`.",
+  },
+  historyReadFailed: {
+    id: "gcp.history.read-failed",
+    kind: "error",
+    group: "History",
+    template: "reading the Cloud Logging entries failed ({status})",
+    cause:
+      "Cloud Logging answered `entries.list` with an error. Only the HTTP status and its status name are shown, since the server's message can name the project.",
+    fix: "For `404 NOT_FOUND`, check the project in the key's name. For a 5xx status, try again later. Run with `DEBUG=hardhat:kms:*` to see the call.",
+  },
+  historyUnreachable: {
+    id: "gcp.history.unreachable",
+    kind: "error",
+    group: "History",
+    template:
+      "could not reach Cloud Logging ({code}), after {attempts} attempts. Check the network connection, DNS and any proxy",
+    cause:
+      "The request never reached Cloud Logging. The code says why: `ENOTFOUND` or `EAI_AGAIN` for DNS, `ECONNREFUSED` or `ECONNRESET` for the connection.",
+    fix: "Check the network, DNS and any `HTTPS_PROXY`.",
+  },
+  historyCallTimedOut: {
+    id: "gcp.history.call-timed-out",
+    kind: "error",
+    group: "History",
+    template: "Cloud Logging did not answer within {seconds} seconds, after {attempts} attempts",
+    cause:
+      "Each `entries.list` call has 30 seconds, and one that gets no answer in time is retried once. A long range over many entries, or a slow network, can take longer.",
+    fix: "Narrow the range with `--since` and `--until`, or check the network.",
+  },
+  historyBadResponse: {
+    id: "gcp.history.bad-response",
+    kind: "error",
+    group: "History",
+    template: "Cloud Logging answered in a form this plugin does not read: {problem}",
+    cause:
+      "The `entries.list` answer, or an `AsymmetricSign` entry in it, lacks a field such an answer always has. The reader fails rather than show part of the history as if it were all of it.",
+    fix: "Run again; if it repeats, report it with the problem the message names.",
+  },
   noPackageVersion: {
     id: "gcp.internal.no-package-version",
     kind: "internal",

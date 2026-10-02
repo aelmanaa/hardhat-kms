@@ -5,6 +5,7 @@ import type { KmsHooks } from "hardhat-kms/types";
 
 import type { GcpKmsSdk } from "../adapter.ts";
 import { ERRORS } from "../error-catalog.ts";
+import type { ListEntries } from "../history.ts";
 
 const PACKAGE_NAME = "hardhat-kms-gcp";
 
@@ -41,19 +42,54 @@ async function loadSdk(): Promise<GcpKmsSdk> {
 }
 
 /**
- * The `kms` hook handlers: build adapters for `gcp` keys and pass every other key on. The adapter
- * module, and with it the Google Cloud SDK, loads only when a Google Cloud key is first used.
- * Before that, the handler checks that hardhat-kms is the same version as this package.
+ * Builds the Cloud Logging `entries.list` call of `kms history`, with google-auth-library's
+ * Application Default Credentials, found as the Cloud KMS client finds them.
+ *
+ * @param userAgent - The plugin's user-agent tag.
+ * @returns The call.
+ */
+async function loadLogging(userAgent: string): Promise<ListEntries> {
+  const [{ GoogleAuth }, { LOGGING_READ_SCOPE, loggingTransport }] = await Promise.all([
+    import("google-auth-library"),
+    import("../logging-client.ts"),
+  ]);
+  return loggingTransport(new GoogleAuth({ scopes: [LOGGING_READ_SCOPE] }), userAgent);
+}
+
+/**
+ * The `kms` hook handlers: build adapters for `gcp` keys and read their history from Cloud
+ * Logging, and pass every other key on. The adapter module, and with it the Google Cloud SDK, loads
+ * only when a Google Cloud key is first used; the history reader and google-auth-library only
+ * when `kms history` reads a Google Cloud key. Before either, the handler checks that hardhat-kms
+ * is the same version as this package.
  *
  * @param version - This package's version; tests pass another one to cause a mismatch.
  * @param sdk - Loads the SDK; tests pass one whose clients talk to a local server.
+ * @param logging - Builds the `entries.list` call; tests pass one that talks to a local server.
  * @returns The handlers.
  */
 export function kmsHandlers(
   version: string = ownVersion(),
   sdk: () => Promise<GcpKmsSdk> = loadSdk,
+  logging: (userAgent: string) => Promise<ListEntries> = loadLogging,
 ): Partial<KmsHooks> {
   return {
+    readSignHistory: async (context, request, next) => {
+      const { key } = request;
+      if (key.provider !== "gcp") {
+        return await next(context, request);
+      }
+      checkProviderVersion(PACKAGE_NAME, version, {
+        provider: "gcp",
+        operation: "history",
+        key: key.displayId,
+      });
+      const [{ readGcpSignHistory }, listEntries] = await Promise.all([
+        import("../history.ts"),
+        logging(pluginUserAgent(version)),
+      ]);
+      return await readGcpSignHistory(key, request, listEntries);
+    },
     createKeyAdapter: async (context, key, next) => {
       if (key.provider !== "gcp") {
         return await next(context, key);
