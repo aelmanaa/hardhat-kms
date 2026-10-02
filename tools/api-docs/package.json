@@ -1,0 +1,11 @@
+{
+  "name": "hardhat-kms-api-docs",
+  "private": true,
+  "description": "Generates the API reference in docs/user/reference/api/ with TypeDoc, on TypeScript 6 (decision 0012). Not published.",
+  "type": "module",
+  "devDependencies": {
+    "typedoc": "catalog:",
+    "typedoc-plugin-markdown": "catalog:",
+    "typescript": "catalog:typescript6"
+  }
+}

@@ -17,6 +17,8 @@ updates:
           - "oxlint*"
           - "oxfmt"
           - "typescript"
+          - "@typescript/typescript6"
+          - "typedoc*"
           - "c8"
           - "tsx"
           - "knip"

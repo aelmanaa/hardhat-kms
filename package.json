@@ -30,6 +30,7 @@
     "pkg:check": "pnpm run build && node scripts/check-packages.ts && knip",
     "docs:check": "pnpm run build && node scripts/check-docs.ts",
     "docs:errors": "node scripts/generate-errors-doc.ts",
+    "docs:api": "node scripts/generate-api-docs.ts",
     "docs:live-proof": "node test/live/render-proof.ts",
     "prepare": "lefthook install && node scripts/install-git-hooks.ts",
     "changeset": "changeset",

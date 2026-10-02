@@ -85,36 +85,32 @@ type IsName<S extends string> = S extends `${infer First}${infer Rest}`
     : false
   : false;
 
-/** One `{ name: value }` object per placeholder of a template, as an intersection. */
-type PlaceholderValues<Template extends string> =
-  Template extends `${string}{${infer Tag}}${infer Rest}`
-    ? (IsName<Tag> extends true ? { readonly [Name in Tag]: TemplateValue } : object) &
-        PlaceholderValues<Rest>
-    : object;
-
-/** Turns `A | B` into `A & B`. */
-type UnionToIntersection<Union> = (Union extends unknown ? (value: Union) => void : never) extends (
-  value: infer Intersection,
-) => void
-  ? Intersection
-  : never;
-
-/** The values object of a template without placeholders: it may not hold any key. */
-type NoPlaceholders = Readonly<Record<string, never>>;
-
-type Complete<Params> = [keyof Params] extends [never] ? NoPlaceholders : Params & object;
+/**
+ * The placeholder names of a template, as a union: the text between each `{` and the next `}`,
+ * where that text is a name. A template union gives the names of every member. `Found` collects
+ * the names so far, which keeps the recursion in tail position for long templates.
+ */
+type PlaceholderName<
+  Template extends string,
+  Found extends string = never,
+> = Template extends `${string}{${infer Tag}}${infer Rest}`
+  ? PlaceholderName<Rest, Found | (IsName<Tag> extends true ? Tag : never)>
+  : Found;
 
 /**
  * The values a message template needs: one per `{name}` placeholder, and no other key. Braces
- * around anything other than a name, such as `{name, type}`, are literal text.
- * {@link fillTemplate} reads a template the same way: from each `{` to the next `}`.
+ * around anything other than a name, such as `{name, type}`, are literal text, and a template is
+ * read from each `{` to the next `}`, as the catalogue helpers fill it.
  *
  * - For a union of templates, such as an entry picked from a map, the values must fill every one.
+ * - A template without placeholders takes an empty object.
  * - A template typed only as `string` has unknown placeholders, so no value can be given for it.
  */
 export type TemplateParams<Template extends string> = string extends Template
   ? never
-  : Complete<UnionToIntersection<PlaceholderValues<Template>>>;
+  : [PlaceholderName<Template>] extends [never]
+    ? Readonly<Record<string, never>>
+    : { readonly [Name in PlaceholderName<Template>]: TemplateValue };
 
 /**
  * One entry of an error catalogue: a stable id, a message template, and what causes the error and

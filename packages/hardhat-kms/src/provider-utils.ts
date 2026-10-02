@@ -3,6 +3,7 @@
  * providers may too.
  *
  * @experimental This module may change before 1.0.
+ * @module hardhat-kms/provider-utils
  */
 
 export {

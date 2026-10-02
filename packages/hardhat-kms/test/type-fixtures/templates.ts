@@ -22,6 +22,17 @@ const wide: {
   fix: string;
 } = two;
 const either = Math.random() > 0.5 ? two : other;
+const empty = { ...two, id: "core.test.empty", template: "" } as const;
+const repeated = { ...two, id: "core.test.repeated", template: "{a} and {a}" } as const;
+const orNone = Math.random() > 0.5 ? none : other;
+const open: {
+  id: string;
+  kind: "error";
+  group: string;
+  template: `pre ${string} {a}`;
+  cause: string;
+  fix: string;
+} = { ...two, template: "pre x {a}" };
 
 export const errors: unknown[] = [
   catalogError(two, { address: "a", other: 1n }),
@@ -37,4 +48,12 @@ export const errors: unknown[] = [
   catalogError(either, { chainId: 1 }), // compile error
   catalogError(wide, {}), // compile error
   catalogError(two, { address: true, other: 1 }), // compile error
+  catalogError(empty, {}),
+  catalogError(empty, { a: 1 }), // compile error
+  catalogError(repeated, { a: 1 }),
+  catalogError(repeated, {}), // compile error
+  catalogError(orNone, { chainId: 1 }),
+  catalogError(orNone, {}), // compile error
+  catalogError(open, { a: 1 }),
+  catalogError(open, {}), // compile error
 ];

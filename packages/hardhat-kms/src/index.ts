@@ -1,3 +1,10 @@
+/**
+ * The hardhat-kms plugin, as the default export. Importing it also adds the `kms` config section
+ * and each network's `kmsAccounts` to Hardhat's config types.
+ *
+ * @module hardhat-kms
+ */
+
 import { emptyTask, globalOption, task } from "hardhat/config";
 import { definePlugin } from "hardhat/plugins";
 import { ArgumentType } from "hardhat/types/arguments";
