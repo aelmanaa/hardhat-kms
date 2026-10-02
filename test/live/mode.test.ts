@@ -29,12 +29,14 @@ describe("live test mode", () => {
       const home = path.join(directory, "home");
       const bin = path.join(directory, "bin");
       const foundry = path.join(home, ".foundry", "bin");
+      // The name findAnvil looks for on this platform.
+      const name = process.platform === "win32" ? "anvil.exe" : "anvil";
       for (const folder of [bin, foundry]) {
         mkdirSync(folder, { recursive: true });
-        writeFileSync(path.join(folder, "anvil"), "");
+        writeFileSync(path.join(folder, name), "");
       }
-      assert.equal(findAnvil({ PATH: bin, HOME: home }), path.join(bin, "anvil"));
-      assert.equal(findAnvil({ PATH: directory, HOME: home }), path.join(foundry, "anvil"));
+      assert.equal(findAnvil({ PATH: bin, HOME: home }), path.join(bin, name));
+      assert.equal(findAnvil({ PATH: directory, HOME: home }), path.join(foundry, name));
       assert.equal(findAnvil({ PATH: directory, HOME: directory }), undefined);
     } finally {
       rmSync(directory, { recursive: true, force: true });
