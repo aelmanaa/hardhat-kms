@@ -87,9 +87,14 @@ function packageNames(): string[] {
 export async function loadCatalogues(): Promise<Catalogue[]> {
   const catalogues: Catalogue[] = [];
   for (const packageName of packageNames()) {
-    const file = path.join(root, "packages", packageName, "dist/src/internal/error-catalog.js");
-    if (!existsSync(file)) {
+    const directory = path.join(root, "packages", packageName);
+    // A package without the source file has no catalogue, even if an old build left one in dist.
+    if (!existsSync(path.join(directory, "src/internal/error-catalog.ts"))) {
       continue;
+    }
+    const file = path.join(directory, "dist/src/internal/error-catalog.js");
+    if (!existsSync(file)) {
+      throw new Error(`${packageName}: build the package first (pnpm run build)`);
     }
     const module: unknown = await import(pathToFileURL(file).href);
     const errors: unknown =
