@@ -115,6 +115,9 @@ export class SignerCache {
     this.#cancelIdleClose?.();
     this.#cancelIdleClose = this.#timers.setTimeout(() => {
       this.#cancelIdleClose = undefined;
+      // connectionOpened cancels this timer, so it never fires while a connection is open. The
+      // check is the backstop if a Timers implementation fails to cancel.
+      // Stryker disable next-line ConditionalExpression,BlockStatement: unreachable, see above
       if (this.#connections > 0) {
         return;
       }
@@ -157,6 +160,7 @@ export class SignerCache {
     } catch (error) {
       // The signer refused the adapter, so nothing else will close it and its clients.
       try {
+        // Stryker disable next-line OptionalChaining: the catch below swallows a missing close too
         await adapter.close?.();
       } catch {
         // The error that refused the adapter is the one to report.

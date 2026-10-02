@@ -6,9 +6,17 @@ import { describe, it } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { HardhatPluginError } from "hardhat/plugins";
+import { addr as microAddr } from "micro-eth-signer";
 
 import type { TypedData } from "../../../src/internal/crypto/digests.ts";
 import { recoverAddress, type SignatureOutput } from "../../../src/internal/crypto/signature.ts";
+import { ERRORS } from "../../../src/internal/error-catalog.ts";
+import {
+  catalogError,
+  catalogMessage,
+  type ErrorEntry,
+  type TemplateParams,
+} from "../../../src/internal/errors.ts";
 import { KmsSigner, type KmsSignerOptions } from "../../../src/internal/signer/kms-signer.ts";
 import type { KmsKeyAdapter, SignContext } from "../../../src/internal/signer/types.ts";
 import {
@@ -54,6 +62,40 @@ async function assertPluginError(
     for (const text of excludes) {
       assert.ok(!error.message.includes(text), `"${error.message}" must not include "${text}"`);
     }
+    return true;
+  });
+}
+
+/** The message of the catalogue error that the fake key's signer throws during `operation`. */
+function fakeKeyMessage<Template extends string>(
+  operation: string | undefined,
+  entry: ErrorEntry<Template, "error">,
+  params: TemplateParams<Template>,
+  key = "fake-key-1",
+): string {
+  return catalogError(entry, params, { provider: "fake", operation, key }).message;
+}
+
+/** Asserts that `promise` rejects with a `HardhatPluginError` whose message is exactly `message`. */
+async function rejectsWith(promise: Promise<unknown>, message: string) {
+  await assert.rejects(promise, (error: unknown) => {
+    assert.ok(
+      error instanceof HardhatPluginError,
+      `expected HardhatPluginError, got ${String(error)}`,
+    );
+    assert.equal(error.message, message);
+    return true;
+  });
+}
+
+/** Asserts that `create` throws a `HardhatPluginError` whose message is exactly `message`. */
+function throwsWith(create: () => unknown, message: string) {
+  assert.throws(create, (error: unknown) => {
+    assert.ok(
+      error instanceof HardhatPluginError,
+      `expected HardhatPluginError, got ${String(error)}`,
+    );
+    assert.equal(error.message, message);
     return true;
   });
 }
@@ -253,11 +295,13 @@ describe("KmsSigner", () => {
         { expectedAddress: other },
       );
 
-      await assertPluginError(kms.signDigest(new Uint8Array(32)), [
-        HARDHAT_ACCOUNT_0.address,
-        other,
-        "rotated",
-      ]);
+      await rejectsWith(
+        kms.signDigest(new Uint8Array(32)),
+        fakeKeyMessage("check address", ERRORS.addressMismatch, {
+          address: HARDHAT_ACCOUNT_0.address,
+          expected: other,
+        }),
+      );
       assert.equal(adapter.calls.signDigest, 0);
     });
 
@@ -315,13 +359,41 @@ describe("KmsSigner", () => {
         "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
         wrongChecksum,
       ]) {
-        assert.throws(
+        throwsWith(
           () => new KmsSigner(fakeAdapter({ secretKey }), { ...baseOptions, expectedAddress }),
-          (error: unknown) =>
-            error instanceof HardhatPluginError &&
-            error.message.includes("configured address is invalid"),
+          fakeKeyMessage(undefined, ERRORS.signerAddressInvalid, {
+            reason: catalogMessage(ERRORS.invalidAddress, { address: expectedAddress }),
+          }),
         );
       }
+    });
+
+    it("names the key by the configured display id in errors from the constructor", () => {
+      throwsWith(
+        () =>
+          new KmsSigner(fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) }), {
+            ...baseOptions,
+            expectedAddress: "0x1234",
+            displayId: "configured-key",
+          }),
+        fakeKeyMessage(
+          undefined,
+          ERRORS.signerAddressInvalid,
+          { reason: catalogMessage(ERRORS.invalidAddress, { address: "0x1234" }) },
+          "configured-key",
+        ),
+      );
+    });
+
+    it("lets an error that is not about the address leave the pin check unchanged", () => {
+      const options: KmsSignerOptions = { ...baseOptions };
+      // A JavaScript caller can break the option's type; the regex test cannot read a symbol.
+      Reflect.set(options, "expectedAddress", Symbol("pin"));
+
+      assert.throws(
+        () => new KmsSigner(fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) }), options),
+        TypeError,
+      );
     });
 
     it("checksums the address returned by address-only providers and rejects garbage", async () => {
@@ -364,23 +436,60 @@ describe("KmsSigner", () => {
     it("rejects timeouts Node cannot schedule", () => {
       const secretKey = hex(HARDHAT_ACCOUNT_0.secretKey);
       for (const timeoutMs of [0, -1, 1.5, Number.NaN, 2 ** 31]) {
-        assert.throws(
+        throwsWith(
           () => new KmsSigner(fakeAdapter({ secretKey }), { ...baseOptions, timeoutMs }),
-          (error: unknown) =>
-            error instanceof HardhatPluginError && error.message.includes("timeout"),
+          fakeKeyMessage(undefined, ERRORS.signerTimeoutRange, { timeout: timeoutMs }),
         );
       }
     });
 
+    it("accepts the shortest and the longest timeout Node can schedule", async () => {
+      const secretKey = hex(HARDHAT_ACCOUNT_0.secretKey);
+      for (const timeoutMs of [1, 2 ** 31 - 1]) {
+        const timers = fakeTimers();
+        const kms = new KmsSigner(fakeAdapter({ secretKey }), {
+          ...baseOptions,
+          timeoutMs,
+          timers,
+        });
+
+        assert.equal(await kms.getAddress(), HARDHAT_ACCOUNT_0.address);
+      }
+    });
+
     it("requires a way to identify the key", () => {
-      assert.throws(
+      throwsWith(
         () =>
           new KmsSigner(
             fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey), identity: "none" }),
             baseOptions,
           ),
-        HardhatPluginError,
+        fakeKeyMessage(undefined, ERRORS.signerNoIdentity, {}),
       );
+    });
+
+    it("fails clearly when the adapter drops its only identity call after the check", async () => {
+      // A third-party adapter is a mutable object: the constructor saw getAddress, the first
+      // lookup does not.
+      const adapter = fakeAdapter({
+        secretKey: hex(HARDHAT_ACCOUNT_0.secretKey),
+        identity: "address",
+      });
+      const kms = new KmsSigner(adapter, baseOptions);
+      Reflect.deleteProperty(adapter, "getAddress");
+
+      await rejectsWith(
+        kms.getAddress(),
+        fakeKeyMessage("get address", ERRORS.signerCannotIdentify, {}),
+      );
+    });
+
+    it("describes the key as the adapter did when the signer was created", () => {
+      const adapter = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
+      const kms = new KmsSigner(adapter, baseOptions);
+
+      assert.deepEqual(kms.describe(), adapter.describe());
+      assert.ok(Object.isFrozen(kms.describe()));
     });
 
     it("shares one key lookup between concurrent first calls", async () => {
@@ -456,10 +565,14 @@ describe("KmsSigner", () => {
         signWithSecretKey: secp256k1.utils.randomSecretKey(),
       });
 
-      await assertPluginError(kms.signDigest(new Uint8Array(32).fill(6)), [
-        "invalid signature",
-        "fake-key-1",
-      ]);
+      // The reason is the public key check's: a key known from the provider is compared as a
+      // key, not through its address.
+      await rejectsWith(
+        kms.signDigest(new Uint8Array(32).fill(6)),
+        fakeKeyMessage("sign", ERRORS.signerInvalidSignature, {
+          reason: catalogMessage(ERRORS.signatureNoRecovery, {}),
+        }),
+      );
       assert.equal(adapter.calls.signDigest, 2);
     });
 
@@ -503,9 +616,11 @@ describe("KmsSigner", () => {
         },
       };
 
-      await assertPluginError(
+      await rejectsWith(
         new KmsSigner(adapter, baseOptions).signDigest(new Uint8Array(32).fill(8)),
-        ["invalid signature", "does not recover to the configured address"],
+        fakeKeyMessage("sign", ERRORS.signerInvalidSignature, {
+          reason: catalogMessage(ERRORS.signatureNotConfiguredAddress, {}),
+        }),
       );
       assert.equal(signCalls, 2);
     });
@@ -518,10 +633,43 @@ describe("KmsSigner", () => {
           await (inner.getPublicKey?.(ctx) ?? Promise.reject(new Error("missing"))),
       };
 
-      await assertPluginError(new KmsSigner(adapter, baseOptions).signDigest(new Uint8Array(32)), [
-        "fake, sign",
-        "the provider cannot sign a digest",
-      ]);
+      const kms = new KmsSigner(adapter, baseOptions);
+
+      await rejectsWith(
+        kms.signDigest(new Uint8Array(32)),
+        fakeKeyMessage("sign", ERRORS.signerCannotSign, { kind: "digest" }),
+      );
+      await rejectsWith(
+        kms.signPersonalMessage(Uint8Array.of(1)),
+        fakeKeyMessage("sign", ERRORS.signerCannotSign, { kind: "personal message" }),
+      );
+      await rejectsWith(
+        kms.signTypedData(EIP712_MAIL),
+        fakeKeyMessage("sign", ERRORS.signerCannotSign, { kind: "typed-data payload" }),
+      );
+    });
+
+    it("skips a recovery bit that gives no key, for an address-only key", async () => {
+      // With nonce k = 1, R = G, and s = e makes s * R - e * G the point at infinity: recovery
+      // bit 0 (G's y is even) yields no key. Recovery bit 1 yields the key the signature is
+      // valid for, which is the key the provider's address belongs to.
+      const digest = new Uint8Array(32).fill(7);
+      const r = secp256k1.Point.BASE.x;
+      const s = BigInt(`0x${Buffer.from(digest).toString("hex")}`);
+      assert.throws(() => new secp256k1.Signature(r, s).addRecoveryBit(0).recoverPublicKey(digest));
+      const publicKey = new secp256k1.Signature(r, s)
+        .addRecoveryBit(1)
+        .recoverPublicKey(digest)
+        .toBytes(false);
+      const adapter: KmsKeyAdapter = {
+        describe: () => fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) }).describe(),
+        getAddress: async () => await Promise.resolve(microAddr.fromPublicKey(publicKey)),
+        signDigest: async () => await Promise.resolve({ r, s }),
+      };
+      const kms = new KmsSigner(adapter, baseOptions);
+
+      assert.deepEqual(await kms.signDigest(digest), { r, s, yParity: 1 });
+      assert.deepEqual(await kms.getPublicKey(), publicKey);
     });
   });
 
@@ -529,7 +677,10 @@ describe("KmsSigner", () => {
     it("rejects a digest that is not 32 bytes before calling the provider", async () => {
       const { adapter, signer: kms } = signer({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
 
-      await assertPluginError(kms.signDigest(new Uint8Array(31)), ["32-byte digest", "31 bytes"]);
+      await rejectsWith(
+        kms.signDigest(new Uint8Array(31)),
+        fakeKeyMessage("sign", ERRORS.signerDigestLength, { expected: 32, length: 31 }),
+      );
       assert.equal(adapter.calls.signDigest, 0);
     });
   });
@@ -694,12 +845,60 @@ describe("KmsSigner", () => {
         },
       };
 
-      await assertPluginError(
+      await rejectsWith(
         new KmsSigner(adapter, baseOptions).signDigest(new Uint8Array(32).fill(7)),
-        ["fake, sign, key fake-key-1", "RangeError"],
-        ["throttled"],
+        fakeKeyMessage("sign", ERRORS.signerCallFailed, { errorName: "RangeError" }),
       );
       assert.equal(calls, 2);
+    });
+
+    it("does not retry a provider error on the first attempt", async () => {
+      const inner = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
+      let calls = 0;
+      const adapter: KmsKeyAdapter = {
+        describe: () => inner.describe(),
+        getPublicKey: async (ctx) =>
+          await (inner.getPublicKey?.(ctx) ?? Promise.reject(new Error("missing"))),
+        signDigest: async (request, ctx) => {
+          calls++;
+          if (calls === 1) {
+            throw new RangeError("throttled");
+          }
+          return await (inner.signDigest?.(request, ctx) ?? Promise.reject(new Error("missing")));
+        },
+      };
+
+      await rejectsWith(
+        new KmsSigner(adapter, baseOptions).signDigest(new Uint8Array(32).fill(7)),
+        fakeKeyMessage("sign", ERRORS.signerCallFailed, { errorName: "RangeError" }),
+      );
+      assert.equal(calls, 1);
+    });
+
+    it("does not retry a signing call that timed out", async () => {
+      const timers = fakeTimers();
+      const inner = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
+      let calls = 0;
+      const adapter: KmsKeyAdapter = {
+        describe: () => inner.describe(),
+        getPublicKey: async (ctx) =>
+          await (inner.getPublicKey?.(ctx) ?? Promise.reject(new Error("missing"))),
+        signDigest: async () => {
+          calls++;
+          return await new Promise<never>(() => {
+            // Never answers.
+          });
+        },
+      };
+      const kms = new KmsSigner(adapter, { ...baseOptions, timers, timeoutMs: 1234 });
+      await kms.getAddress();
+
+      const pending = kms.signDigest(new Uint8Array(32).fill(7));
+      await new Promise((resolve) => setImmediate(resolve));
+      timers.fire();
+      await rejectsWith(pending, fakeKeyMessage("sign", ERRORS.signerNoAnswer, { timeout: 1234 }));
+      assert.equal(calls, 1);
+      assert.equal(timers.pending(), 0);
     });
 
     it("times out and aborts the call", async () => {
@@ -761,6 +960,13 @@ describe("KmsSigner", () => {
       await assertPluginError(kms.getAddress(), ["(Error)"], ["abc123"]);
     });
 
+    it("closes an adapter that has nothing to close", async () => {
+      const adapter = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
+      assert.ok(!("close" in adapter));
+
+      await new KmsSigner(adapter, baseOptions).close();
+    });
+
     it("closes the adapter", async () => {
       let closed = false;
       const adapter: KmsKeyAdapter = {
@@ -772,6 +978,124 @@ describe("KmsSigner", () => {
 
       await new KmsSigner(adapter, baseOptions).close();
       assert.ok(closed);
+    });
+  });
+
+  describe("final checks of messages and typed data", () => {
+    it("refuses a personal-message signature when the caller changed the message while signing", async () => {
+      const message = Uint8Array.of(1, 2, 3);
+      const { signer: kms } = signer({
+        secretKey: hex(HARDHAT_ACCOUNT_0.secretKey),
+        beforeSign: async () => {
+          message[0] = 9;
+          await Promise.resolve();
+        },
+      });
+
+      await rejectsWith(
+        kms.signPersonalMessage(message),
+        fakeKeyMessage("sign message", ERRORS.signerEip191Failed, {}),
+      );
+    });
+
+    it("refuses a typed-data signature when the caller changed the data while signing", async () => {
+      const typedData = structuredClone(EIP712_MAIL);
+      const { signer: kms } = signer({
+        secretKey: hex(COW_ACCOUNT.secretKey),
+        beforeSign: async () => {
+          typedData.message["contents"] = "Changed by the caller";
+          await Promise.resolve();
+        },
+      });
+
+      await rejectsWith(
+        kms.signTypedData(typedData),
+        fakeKeyMessage("sign typed data", ERRORS.signerEip712Failed, {}),
+      );
+    });
+  });
+
+  describe("confirmedAddress", () => {
+    const secretKey = hex(HARDHAT_ACCOUNT_0.secretKey);
+
+    it("confirms the address derived from the public key, pinned or not", async () => {
+      for (const expectedAddress of [undefined, HARDHAT_ACCOUNT_0.address]) {
+        const { adapter, signer: kms } = signer({ secretKey }, { expectedAddress });
+
+        assert.deepEqual(await kms.confirmedAddress(), {
+          address: HARDHAT_ACCOUNT_0.address,
+          confirmed: true,
+        });
+        assert.equal(adapter.calls.getPublicKey, 1);
+      }
+    });
+
+    it("asks an address-only provider without a pin once, and keeps the answer", async () => {
+      const { adapter, signer: kms } = signer({ secretKey, identity: "address" });
+
+      assert.deepEqual(await kms.confirmedAddress(), {
+        address: HARDHAT_ACCOUNT_0.address,
+        confirmed: true,
+      });
+      assert.equal(await kms.getAddress(), HARDHAT_ACCOUNT_0.address);
+      assert.equal(adapter.calls.getAddress, 1);
+    });
+
+    it("asks an address-only provider with a pin each time, and checks the answer", async () => {
+      const { adapter, signer: kms } = signer(
+        { secretKey, identity: "address" },
+        { expectedAddress: HARDHAT_ACCOUNT_0.address.toLowerCase() },
+      );
+
+      assert.deepEqual(await kms.confirmedAddress(), {
+        address: HARDHAT_ACCOUNT_0.address,
+        confirmed: true,
+      });
+      assert.deepEqual(await kms.confirmedAddress(), {
+        address: HARDHAT_ACCOUNT_0.address,
+        confirmed: true,
+      });
+      assert.equal(adapter.calls.getAddress, 2);
+    });
+
+    it("refuses an address-only provider's address that differs from the pin", async () => {
+      const { signer: kms } = signer(
+        { secretKey, identity: "address" },
+        { expectedAddress: COW_ACCOUNT.address },
+      );
+
+      await rejectsWith(
+        kms.confirmedAddress(),
+        fakeKeyMessage("check address", ERRORS.addressMismatch, {
+          address: HARDHAT_ACCOUNT_0.address,
+          expected: COW_ACCOUNT.address,
+        }),
+      );
+    });
+
+    it("names the operation when an address-only provider fails", async () => {
+      const { signer: kms } = signer(
+        { secretKey, identity: "address", throwError: new RangeError("throttled") },
+        { expectedAddress: HARDHAT_ACCOUNT_0.address },
+      );
+
+      await rejectsWith(
+        kms.confirmedAddress(),
+        fakeKeyMessage("get address", ERRORS.signerCallFailed, { errorName: "RangeError" }),
+      );
+    });
+
+    it("returns the pin, unconfirmed, when the provider can report neither key nor address", async () => {
+      const { adapter, signer: kms } = signer(
+        { secretKey, identity: "none" },
+        { expectedAddress: HARDHAT_ACCOUNT_0.address.toLowerCase() },
+      );
+
+      assert.deepEqual(await kms.confirmedAddress(), {
+        address: HARDHAT_ACCOUNT_0.address,
+        confirmed: false,
+      });
+      assert.equal(adapter.calls.signDigest, 0);
     });
   });
 });

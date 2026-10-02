@@ -199,6 +199,69 @@ describe("SignerCache", () => {
   });
 });
 
+describe("SignerCache after closeAll", () => {
+  it("keeps the signer created after closeAll when an older creation fails", async () => {
+    const { context, key, state } = await setUp();
+    let failFirst: (() => void) | undefined;
+    const firstFails = new Promise<void>((resolve) => {
+      failFirst = resolve;
+    });
+    context.hooks.registerHandlers("kms", {
+      createKeyAdapter: async () => {
+        state.created++;
+        if (state.created === 1) {
+          await firstFails;
+          throw new TypeError("first attempt fails");
+        }
+        return fakeAdapter({ secretKey });
+      },
+    });
+    const cache = new SignerCache(fakeTimers());
+
+    const first = cache.signerFor(context, key);
+    const closing = cache.closeAll();
+    const second = await cache.signerFor(context, key);
+    failFirst?.();
+    await assert.rejects(first, /creating the adapter failed \(TypeError\)/);
+    await closing;
+
+    // The failed creation was no longer cached, so it must not drop the signer that replaced it.
+    assert.equal(await cache.signerFor(context, key), second);
+    assert.equal(state.created, 2);
+  });
+
+  it("starts the idle close for a request still running after closeAll", async () => {
+    const { context, key, state } = await setUp();
+    const timers = fakeTimers();
+    const cache = new SignerCache(timers);
+    let finish: (() => void) | undefined;
+    const signing = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+
+    cache.connectionOpened();
+    const inFlight = cache.withSigner(context, key, async () => {
+      await signing;
+      // The request opens a signer again after the cache was emptied.
+      await cache.signerFor(context, key);
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    await cache.closeAll();
+    assert.equal(state.closed, 1);
+    cache.connectionClosed();
+    assert.equal(timers.pending(), 1, "the running request may still open a signer");
+
+    finish?.();
+    await inFlight;
+    while (timers.pending() > 0) {
+      timers.fire();
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(state.created, 2);
+    assert.equal(state.closed, 2);
+  });
+});
+
 describe("SignerCache adapters", () => {
   it("passes an adapter's status messages to Hardhat, and survives a failing close", async () => {
     const keyConfig: unknown = { provider: "myvault" };
