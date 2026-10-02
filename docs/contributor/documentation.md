@@ -42,7 +42,6 @@ docker run --rm -v "$PWD:/repo" -w /repo lycheeverse/lychee:0.24.2 --offline --c
 
 The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/issues/38). Pages that do not exist yet:
 
-- Tutorials: first deploy on Sepolia with Azure Key Vault ([#67](https://github.com/aelmanaa/hardhat-kms/issues/67)).
 - Guides: GitHub Actions with OIDC ([#68](https://github.com/aelmanaa/hardhat-kms/issues/68)).
 - Reference: errors ([#72](https://github.com/aelmanaa/hardhat-kms/issues/72)), public API ([#73](https://github.com/aelmanaa/hardhat-kms/issues/73)).
 - A docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).

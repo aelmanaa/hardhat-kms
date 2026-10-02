@@ -10,6 +10,7 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 
 - A first deploy, start to finish (create an AWS KMS key, deploy and verify a contract on Sepolia, clean up): [docs/user/tutorials/first-deploy-aws.md](docs/user/tutorials/first-deploy-aws.md)
 - The same first deploy with Google Cloud KMS (create an HSM key, deploy and verify a contract on Sepolia, schedule the key version for destruction): [docs/user/tutorials/first-deploy-gcp.md](docs/user/tutorials/first-deploy-gcp.md)
+- The same first deploy with Azure Key Vault (create a vault and an `EC` key on `P-256K`, deploy and verify a contract on Sepolia, delete and purge the key): [docs/user/tutorials/first-deploy-azure.md](docs/user/tutorials/first-deploy-azure.md)
 - Configure keys and networks: [docs/user/reference/configuration.md](docs/user/reference/configuration.md)
 - Which JSON-RPC methods are handled, and which transaction types: [docs/user/reference/rpc-methods.md](docs/user/reference/rpc-methods.md)
 - The `kms` tasks (list accounts, sign, verify): [docs/user/reference/tasks.md](docs/user/reference/tasks.md)
