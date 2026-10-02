@@ -760,15 +760,11 @@ May gain fields before 1.0.
 
 > **displayId**: `string`
 
-**`Experimental`**
-
 How to show the key to users; identifiers that came from configuration variables are masked.
 
 ##### pinnedId
 
 > **pinnedId**: `string`
-
-**`Experimental`**
 
 The key the adapter signs with, as configured and safe to print. A provider that resolves a
 more exact id on first use, such as the AWS key ARN, signs with that id.
@@ -776,8 +772,6 @@ more exact id on first use, such as the AWS key ARN, signs with that id.
 ##### provider
 
 > **provider**: `string`
-
-**`Experimental`**
 
 Provider id, for example `aws`.
 
@@ -836,8 +830,6 @@ The hook may change before 1.0.
 ##### createKeyAdapter()
 
 > **createKeyAdapter**(`context`: `HookContext`, `key`: [`KmsKeyConfig`](#kmskeyconfig), `next`: (`nextContext`: `HookContext`, `nextKey`: [`KmsKeyConfig`](#kmskeyconfig)) => `Promise`\<[`KmsKeyAdapter`](#kmskeyadapter)\>): `Promise`\<[`KmsKeyAdapter`](#kmskeyadapter)\>
-
-**`Experimental`**
 
 Builds the adapter for one key. A handler builds adapters for its own provider ids and calls
 `next` for any other key. The first-party provider packages, such as hardhat-kms-aws, use
@@ -908,8 +900,6 @@ at 1.0.
 
 > `optional` **close**(): `Promise`\<`void`\>
 
-**`Experimental`**
-
 Releases SDK clients and connections.
 
 ###### Returns
@@ -920,8 +910,6 @@ Releases SDK clients and connections.
 
 > **describe**(): [`KeyDescription`](#keydescription)
 
-**`Experimental`**
-
 Describes the key for messages and logs.
 
 ###### Returns
@@ -931,8 +919,6 @@ Describes the key for messages and logs.
 ##### getAddress()?
 
 > `optional` **getAddress**(`ctx`: [`SignContext`](#signcontext)): `Promise`\<`string`\>
-
-**`Experimental`**
 
 Returns the key's address, for signers that cannot export a public key.
 
@@ -950,8 +936,6 @@ Returns the key's address, for signers that cannot export a public key.
 
 > `optional` **getPublicKey**(`ctx`: [`SignContext`](#signcontext)): `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
 
-**`Experimental`**
-
 Returns the 65-byte uncompressed public key. Called once per key and cached.
 
 ###### Parameters
@@ -967,8 +951,6 @@ Returns the 65-byte uncompressed public key. Called once per key and cached.
 ##### signDigest()?
 
 > `optional` **signDigest**(`request`: \{ `digest`: `Uint8Array`; \}, `ctx`: [`SignContext`](#signcontext)): `Promise`\<[`SignatureOutput`](#signatureoutput)\>
-
-**`Experimental`**
 
 Signs a 32-byte digest.
 
@@ -988,8 +970,6 @@ Signs a 32-byte digest.
 
 > `optional` **signMessage**(`request`: \{ `digest`: `Uint8Array`; `message`: `Uint8Array`; \}, `ctx`: [`SignContext`](#signcontext)): `Promise`\<[`SignatureOutput`](#signatureoutput)\>
 
-**`Experimental`**
-
 Signs an EIP-191 message; `digest` is what the core expects to be signed.
 
 ###### Parameters
@@ -1008,8 +988,6 @@ Signs an EIP-191 message; `digest` is what the core expects to be signed.
 ##### signTypedData()?
 
 > `optional` **signTypedData**(`request`: \{ `digest`: `Uint8Array`; `typedData`: [`TypedData`](#typeddata); \}, `ctx`: [`SignContext`](#signcontext)): `Promise`\<[`SignatureOutput`](#signatureoutput)\>
-
-**`Experimental`**
 
 Signs EIP-712 typed data; `digest` is what the core expects to be signed.
 
@@ -1222,15 +1200,11 @@ May gain fields before 1.0.
 
 > `optional` **chainId?**: `bigint`
 
-**`Experimental`**
-
 The chain the signature is for, when known.
 
 ##### idempotencyKey?
 
 > `optional` **idempotencyKey?**: `string`
-
-**`Experimental`**
 
 Present for transaction sends; lets remote broadcasters deduplicate retries.
 
@@ -1238,15 +1212,11 @@ Present for transaction sends; lets remote broadcasters deduplicate retries.
 
 > **requestId**: `string`
 
-**`Experimental`**
-
 Identifies this call in logs and in provider requests.
 
 ##### signal
 
 > **signal**: `AbortSignal`
-
-**`Experimental`**
 
 Aborted when the call times out or the caller gives up; adapters should pass it to their SDK.
 
@@ -1255,8 +1225,6 @@ Aborted when the call times out or the caller gives up; adapters should pass it 
 ##### displayMessage()
 
 > **displayMessage**(`message`: `string`): `Promise`\<`void`\>
-
-**`Experimental`**
 
 Shows a status line to the user (for example while waiting for an approval).
 

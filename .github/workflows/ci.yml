@@ -44,7 +44,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Snippets typecheck and every page is indexed
+      - name: Snippets typecheck, every page is indexed, generated pages are current
         run: pnpm run docs:check
       - name: Internal links and anchors
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0

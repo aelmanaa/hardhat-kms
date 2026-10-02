@@ -11,8 +11,6 @@ This module may change before 1.0.
 
 ### InvalidPublicKeyError
 
-**`Experimental`**
-
 Error thrown when a provider returns a public key that is not a usable secp256k1 key.
 
 #### Extends
@@ -24,8 +22,6 @@ Error thrown when a provider returns a public key that is not a usable secp256k1
 ##### Constructor
 
 > **new InvalidPublicKeyError**(`message?`: `string`): [`InvalidPublicKeyError`](#invalidpublickeyerror)
-
-**`Experimental`**
 
 ###### Parameters
 
@@ -44,8 +40,6 @@ Error thrown when a provider returns a public key that is not a usable secp256k1
 ##### Constructor
 
 > **new InvalidPublicKeyError**(`message?`: `string`, `options?`: `ErrorOptions`): [`InvalidPublicKeyError`](#invalidpublickeyerror)
-
-**`Experimental`**
 
 ###### Parameters
 
@@ -68,8 +62,6 @@ Error thrown when a provider returns a public key that is not a usable secp256k1
 
 > `readonly` **name**: `"InvalidPublicKeyError"` = `"InvalidPublicKeyError"`
 
-**`Experimental`**
-
 ###### Overrides
 
 `Error.name`
@@ -77,8 +69,6 @@ Error thrown when a provider returns a public key that is not a usable secp256k1
 ## Interfaces
 
 ### EcJsonWebKey
-
-**`Experimental`**
 
 The JSON Web Key fields that describe an elliptic-curve public key.
 
@@ -88,15 +78,11 @@ The JSON Web Key fields that describe an elliptic-curve public key.
 
 > `optional` **crv?**: `string`
 
-**`Experimental`**
-
 Curve name. Azure uses `P-256K` for secp256k1.
 
 ##### kty?
 
 > `optional` **kty?**: `string`
-
-**`Experimental`**
 
 Key type. Azure Key Vault uses `EC`, Managed HSM and HSM-backed vault keys use `EC-HSM`.
 
@@ -104,23 +90,17 @@ Key type. Azure Key Vault uses `EC`, Managed HSM and HSM-backed vault keys use `
 
 > `optional` **x?**: `string` \| `Uint8Array`\<`ArrayBufferLike`\>
 
-**`Experimental`**
-
 X coordinate, big-endian. Azure may omit leading zero bytes.
 
 ##### y?
 
 > `optional` **y?**: `string` \| `Uint8Array`\<`ArrayBufferLike`\>
 
-**`Experimental`**
-
 Y coordinate, big-endian. Azure may omit leading zero bytes.
 
 ---
 
 ### ErrorDetails
-
-**`Experimental`**
 
 The only details an error may carry. Everything here is safe to print: no credentials, no
 tokens, no raw SDK error objects (they can hold request metadata and headers).
@@ -131,15 +111,11 @@ tokens, no raw SDK error objects (they can hold request metadata and headers).
 
 > `optional` **key?**: `string`
 
-**`Experimental`**
-
 The key's display id (masked when it came from a configuration variable).
 
 ##### operation?
 
 > `optional` **operation?**: `string`
-
-**`Experimental`**
 
 What was being done, for example `sign` or `get public key`.
 
@@ -147,15 +123,11 @@ What was being done, for example `sign` or `get public key`.
 
 > `optional` **provider?**: `string`
 
-**`Experimental`**
-
 Provider id, for example `aws`.
 
 ---
 
 ### ErrorEntry
-
-**`Experimental`**
 
 One entry of an error catalogue: a stable id, a message template, and what causes the error and
 how to fix it. `docs/user/reference/errors.md` is generated from the catalogues.
@@ -173,15 +145,11 @@ how to fix it. `docs/user/reference/errors.md` is generated from the catalogues.
 
 > `readonly` **cause**: `string`
 
-**`Experimental`**
-
 What causes it, in a sentence or two.
 
 ##### fix
 
 > `readonly` **fix**: `string`
-
-**`Experimental`**
 
 What to do about it.
 
@@ -189,15 +157,11 @@ What to do about it.
 
 > `readonly` **group**: `string`
 
-**`Experimental`**
-
 The heading the reference lists the entry under, such as `Signing`.
 
 ##### id
 
 > `readonly` **id**: `string`
-
-**`Experimental`**
 
 Stable id, `<package>.<area>.<name>`, such as `aws.sign.response-key-mismatch`.
 
@@ -205,23 +169,17 @@ Stable id, `<package>.<area>.<name>`, such as `aws.sign.response-key-mismatch`.
 
 > `readonly` **kind**: `Kind`
 
-**`Experimental`**
-
 What the entry describes.
 
 ##### template
 
 > `readonly` **template**: `Template`
 
-**`Experimental`**
-
 The message, with `{name}` placeholders.
 
 ---
 
 ### ParsedAwsKeyId
-
-**`Experimental`**
 
 A parsed AWS KMS key reference.
 
@@ -231,21 +189,15 @@ A parsed AWS KMS key reference.
 
 > **kind**: `"keyId"` \| `"keyArn"` \| `"aliasName"` \| `"aliasArn"`
 
-**`Experimental`**
-
 ##### region?
 
 > `optional` **region?**: `string`
-
-**`Experimental`**
 
 The region, for ARNs.
 
 ---
 
 ### ParsedAzureKeyId
-
-**`Experimental`**
 
 A parsed Azure key identifier.
 
@@ -255,19 +207,13 @@ A parsed Azure key identifier.
 
 > **keyName**: `string`
 
-**`Experimental`**
-
 ##### keyVersion?
 
 > `optional` **keyVersion?**: `string`
 
-**`Experimental`**
-
 ##### vaultUrl
 
 > **vaultUrl**: `string`
-
-**`Experimental`**
 
 `https://<host>`, without a trailing slash.
 
@@ -276,8 +222,6 @@ A parsed Azure key identifier.
 ### ErrorKind
 
 > **ErrorKind** = `"error"` \| `"reason"` \| `"validation"` \| `"internal"`
-
-**`Experimental`**
 
 What an error catalogue entry describes:
 
@@ -295,8 +239,6 @@ What an error catalogue entry describes:
 ### TemplateParams
 
 > **TemplateParams**\<`Template` _extends_ `string`\> = `string` _extends_ `Template` ? `never` : \[`PlaceholderName`\<`Template`\>\] _extends_ \[`never`\] ? `Readonly`\<`Record`\<`string`, `never`\>\> : `{ readonly [Name in PlaceholderName<Template>]: TemplateValue }`
-
-**`Experimental`**
 
 The values a message template needs: one per `{name}` placeholder, and no other key. Braces
 around anything other than a name, such as `{name, type}`, are literal text, and a template is
@@ -318,8 +260,6 @@ read from each `{` to the next `}`, as the catalogue helpers fill it.
 
 > **TemplateValue** = `string` \| `number` \| `bigint`
 
-**`Experimental`**
-
 A value a message template placeholder takes.
 
 ## Functions
@@ -327,8 +267,6 @@ A value a message template placeholder takes.
 ### catalogError()
 
 > **catalogError**\<`Template` _extends_ `string`\>(`entry`: [`ErrorEntry`](#errorentry)\<`Template`, `"error"`\>, `params`: [`TemplateParams`](#templateparams)\<`Template`\>, `details?`: [`ErrorDetails`](#errordetails)): `HardhatPluginError`
-
-**`Experimental`**
 
 Builds the `HardhatPluginError` a catalogue entry describes, with [kmsError](#kmserror)'s prefix.
 
@@ -361,8 +299,6 @@ The error to throw.
 
 > **catalogMessage**\<`Template` _extends_ `string`\>(`entry`: [`ErrorEntry`](#errorentry)\<`Template`, `"error"` \| `"reason"` \| `"validation"`\>, `params`: [`TemplateParams`](#templateparams)\<`Template`\>): `string`
 
-**`Experimental`**
-
 Builds the text of a `reason` or `validation` entry, or of an `error` entry for an error class
 of its own, such as one that carries a transaction hash.
 
@@ -394,8 +330,6 @@ The text.
 
 > **checkProviderVersion**(`packageName`: `string`, `version`: `string`, `details?`: [`ErrorDetails`](#errordetails)): `void`
 
-**`Experimental`**
-
 Checks that a first-party provider package, such as hardhat-kms-aws, is the same version as the
 installed hardhat-kms. They are released together, and the `kms` hook may change between
 versions before 1.0. npm refuses such an install, but pnpm and Yarn only warn. Third-party
@@ -423,8 +357,6 @@ A `HardhatPluginError` that names both versions and the install command.
 
 > **crc32c**(`bytes`: `Uint8Array`): `number`
 
-**`Experimental`**
-
 Computes the CRC-32C checksum of `bytes`.
 
 #### Parameters
@@ -444,8 +376,6 @@ The checksum as an unsigned 32-bit integer.
 ### internalError()
 
 > **internalError**\<`Template` _extends_ `string`\>(`entry`: [`ErrorEntry`](#errorentry)\<`Template`, `"internal"`\>, `params`: [`TemplateParams`](#templateparams)\<`Template`\>): `Error`
-
-**`Experimental`**
 
 Builds the plain `Error` an `internal` entry describes: a state that only a bug or a broken
 install can reach.
@@ -478,8 +408,6 @@ The error to throw.
 
 > **kmsError**(`message`: `string`, `details?`: [`ErrorDetails`](#errordetails)): `HardhatPluginError`
 
-**`Experimental`**
-
 Builds a `HardhatPluginError` from a message and allow-listed details.
 
 #### Parameters
@@ -501,8 +429,6 @@ The error to throw.
 
 > **parseAwsKeyId**(`value`: `string`): [`ParsedAwsKeyId`](#parsedawskeyid) \| `undefined`
 
-**`Experimental`**
-
 Parses an AWS KMS key reference: a key id, key ARN, alias name or alias ARN.
 
 #### Parameters
@@ -523,8 +449,6 @@ Its kind, and the region for ARNs, or `undefined` if the value is not a valid re
 
 > **parseAzureKeyId**(`value`: `string`): [`ParsedAzureKeyId`](#parsedazurekeyid) \| `undefined`
 
-**`Experimental`**
-
 Parses a key identifier such as `https://my-vault.vault.azure.net/keys/deployer/0123abcd`.
 
 #### Parameters
@@ -544,8 +468,6 @@ Its parts, or `undefined` if it is not an Azure key identifier.
 ### publicKeyFromJwk()
 
 > **publicKeyFromJwk**(`jwk`: [`EcJsonWebKey`](#ecjsonwebkey)): `Uint8Array`
-
-**`Experimental`**
 
 Builds the uncompressed public key from a JSON Web Key (as returned by Azure Key Vault).
 
@@ -574,8 +496,6 @@ If the key type or curve is wrong, or the point is not on the curve.
 
 > **publicKeyFromSpkiDer**(`der`: `Uint8Array`): `Uint8Array`
 
-**`Experimental`**
-
 Parses a DER-encoded SubjectPublicKeyInfo (as returned by AWS KMS `GetPublicKey`).
 
 #### Parameters
@@ -599,8 +519,6 @@ If the key is not a valid secp256k1 key.
 ### publicKeyFromSpkiPem()
 
 > **publicKeyFromSpkiPem**(`pem`: `string`): `Uint8Array`
-
-**`Experimental`**
 
 Parses a PEM-encoded SubjectPublicKeyInfo (as returned by GCP Cloud KMS `getPublicKey`).
 

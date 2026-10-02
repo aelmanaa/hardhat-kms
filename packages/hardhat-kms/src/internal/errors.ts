@@ -87,12 +87,15 @@ type IsName<S extends string> = S extends `${infer First}${infer Rest}`
 
 /**
  * The placeholder names of a template, as a union: the text between each `{` and the next `}`,
- * where that text is a name. A template union gives the names of every member.
+ * where that text is a name. A template union gives the names of every member. `Found` collects
+ * the names so far, which keeps the recursion in tail position for long templates.
  */
-type PlaceholderName<Template extends string> =
-  Template extends `${string}{${infer Tag}}${infer Rest}`
-    ? (IsName<Tag> extends true ? Tag : never) | PlaceholderName<Rest>
-    : never;
+type PlaceholderName<
+  Template extends string,
+  Found extends string = never,
+> = Template extends `${string}{${infer Tag}}${infer Rest}`
+  ? PlaceholderName<Rest, Found | (IsName<Tag> extends true ? Tag : never)>
+  : Found;
 
 /**
  * The values a message template needs: one per `{name}` placeholder, and no other key. Braces

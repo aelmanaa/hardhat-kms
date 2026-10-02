@@ -19,6 +19,9 @@
   "expandParameters": true,
   "parametersFormat": "table",
   "sanitizeComments": true,
+  // Show `Experimental` where a comment has it, not on every member of an experimental module: the
+  // module's own badge and the index page already say it.
+  "cascadedModifierTags": [],
   // TemplateParams reads a template's placeholder names through this recursive helper, which
   // cannot be inlined. It stays internal; TypeDoc warns when an entry here is no longer used.
   "intentionallyNotExported": ["hardhat-kms/src/internal/errors.ts:PlaceholderName"],

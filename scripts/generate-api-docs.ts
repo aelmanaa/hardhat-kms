@@ -1,7 +1,8 @@
 // Writes the API reference, docs/user/reference/api/, with TypeDoc from the built `.d.ts` file of
 // each export of hardhat-kms (decision 0012). TypeDoc runs from tools/api-docs, which has
-// TypeScript 6; its options are in tools/api-docs/typedoc.jsonc. Run it with `pnpm run docs:api`,
-// which builds first. scripts/check-docs.ts calls renderApiDocs() and fails when a page differs.
+// TypeScript 6; its options are in tools/api-docs/typedoc.jsonc. Run it with `pnpm run docs:api`.
+// renderApiDocs() brings the packages' dist/ up to date with `tsc -b` first, so the pages never
+// come from a stale build. scripts/check-docs.ts calls it and fails when a page differs.
 //
 // The provider packages are not documented here: each exports only its plugin, a `HardhatPlugin`,
 // and checkProviderExports() fails if one starts to export anything else.
@@ -26,8 +27,8 @@ import { parseSync } from "oxc-parser";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const shell = process.platform === "win32";
-const bin = (directory: string, name: string): string =>
-  path.join(directory, "node_modules", ".bin", shell ? `${name}.cmd` : name);
+const bin = (name: string): string =>
+  path.join(root, "node_modules", ".bin", shell ? `${name}.cmd` : name);
 
 /** Where the pages live, relative to the repository root. */
 export const API_DOCS_DIR = "docs/user/reference/api";
@@ -56,16 +57,26 @@ function exportKeys(packageDirectory: string): string[] {
   return Object.keys(exports).filter((key) => key !== "./package.json");
 }
 
+/** The built `.d.ts` file of one export of a package, relative to the repository root. */
+function typesFile(packageDirectory: string, key: string): string {
+  const exports = field(readJson(`${packageDirectory}/package.json`), "exports");
+  const types = field(field(exports, key), "types");
+  if (typeof types !== "string") {
+    throw new Error(`${packageDirectory}/package.json: export ${key} has no types condition`);
+  }
+  return path.posix.join(packageDirectory, types);
+}
+
 /** The built `.d.ts` file of each export of hardhat-kms, from its package.json. */
 function entryPoints(): string[] {
-  const exports = field(readJson(`${CORE}/package.json`), "exports");
-  return exportKeys(CORE).map((key) => {
-    const types = field(field(exports, key), "types");
-    if (typeof types !== "string") {
-      throw new Error(`${CORE}/package.json: export ${key} has no types condition`);
-    }
-    return path.join(root, CORE, types);
-  });
+  return exportKeys(CORE).map((key) => path.join(root, typesFile(CORE, key)));
+}
+
+/** The workspace packages under packages/, relative to the repository root. */
+function workspacePackages(): string[] {
+  return readdirSync(path.join(root, "packages"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `packages/${entry.name}`);
 }
 
 /**
@@ -73,16 +84,15 @@ function entryPoints(): string[] {
  * a named export from its entry point. Such an export would need a page here.
  */
 export function checkProviderExports(): void {
-  const providers = readdirSync(path.join(root, "packages"), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && `packages/${entry.name}` !== CORE)
-    .map((entry) => `packages/${entry.name}`);
+  const providers = workspacePackages().filter((directory) => directory !== CORE);
   const problems: string[] = [];
   for (const directory of providers) {
     const keys = exportKeys(directory);
     if (keys.length !== 1 || keys[0] !== ".") {
       problems.push(`${directory}/package.json exports ${keys.join(", ")}`);
+      continue;
     }
-    const file = `${directory}/dist/src/index.d.ts`;
+    const file = typesFile(directory, ".");
     const parsed = parseSync(file, readFileSync(path.join(root, file), "utf8"));
     for (const statement of parsed.program.body) {
       if (
@@ -113,7 +123,7 @@ const INTRO = [
 ].join("\n");
 
 function formatMarkdown(file: string, markdown: string): string {
-  const formatted = spawnSync(bin(root, "oxfmt"), [`--stdin-filepath=${file}`], {
+  const formatted = spawnSync(bin("oxfmt"), [`--stdin-filepath=${file}`], {
     cwd: root,
     input: markdown,
     encoding: "utf8",
@@ -132,19 +142,36 @@ function markdownFiles(directory: string, relative = ""): string[] {
   });
 }
 
+/** Builds every package with `tsc -b`, which only rebuilds what changed. */
+function buildPackages(): void {
+  const projects = workspacePackages().map((directory) => `${directory}/tsconfig.build.json`);
+  const built = spawnSync(
+    process.execPath,
+    [path.join(root, "node_modules/typescript/bin/tsc"), "-b", ...projects],
+    { cwd: root, encoding: "utf8" },
+  );
+  if (built.status !== 0) {
+    throw new Error(
+      `tsc -b failed (exit ${String(built.status)})${built.error === undefined ? "" : `: ${built.error.message}`}\n${built.stdout}${built.stderr}`.trim(),
+    );
+  }
+}
+
 /**
- * Runs TypeDoc into a temporary directory and formats each page as `pnpm run format` would. Run
- * `pnpm run build` first.
+ * Builds the packages, runs TypeDoc into a temporary directory and formats each page as
+ * `pnpm run format` would.
  *
  * @returns Each page's content, by its path relative to {@link API_DOCS_DIR}.
  */
 export function renderApiDocs(): Map<string, string> {
+  buildPackages();
   checkProviderExports();
   const out = mkdtempSync(path.join(tmpdir(), "hardhat-kms-api-docs-"));
   try {
     const typedoc = spawnSync(
-      bin(TOOLS, "typedoc"),
+      process.execPath,
       [
+        path.join(TOOLS, "node_modules/typedoc/bin/typedoc"),
         "--options",
         "typedoc.jsonc",
         "--out",
@@ -153,11 +180,19 @@ export function renderApiDocs(): Map<string, string> {
         "Warn",
         ...entryPoints().flatMap((entry) => ["--entryPoints", entry]),
       ],
-      { cwd: TOOLS, encoding: "utf8", shell },
+      {
+        cwd: TOOLS,
+        encoding: "utf8",
+        // TypeDoc builds anchors with toLocaleLowerCase, so under a Turkish or Azerbaijani locale
+        // `I` becomes a dotless `ı` and every page would differ. The C locale keeps them stable.
+        // oxlint-disable-next-line node/no-process-env -- passes the environment on, with a fixed locale
+        env: { ...process.env, LC_ALL: "C", LANG: "C" },
+      },
     );
     if (typedoc.status !== 0) {
+      const output = stripVTControlCharacters(`${typedoc.stdout}${typedoc.stderr}`).trim();
       throw new Error(
-        `TypeDoc failed (exit ${String(typedoc.status)}):\n${stripVTControlCharacters(`${typedoc.stdout}${typedoc.stderr}`).trim()}`,
+        `TypeDoc failed (exit ${String(typedoc.status)})${typedoc.error === undefined ? "" : `: ${typedoc.error.message}`}\n${output}`,
       );
     }
     const pages = new Map<string, string>();
