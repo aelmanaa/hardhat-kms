@@ -118,6 +118,7 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 - After a checksum mismatch, or when Cloud KMS is unavailable or cannot be reached, it repeats the call, at most three more times, then fails. Before repeating an unavailable call it waits 100 ms, then 200 ms, then 400 ms. The SDK's own retries are off, so this is the only retry loop, and it starts no new attempt once the call has timed out.
 - It uses the SDK's REST transport, so no gRPC connection keeps `hardhat run` from exiting. Each request's deadline is the key's `timeoutMs`; google-gax enforces it over REST from 6.5.0, the version `hardhat-kms-gcp` requires and hands to the client. The SDK cannot cancel a request already sent, so after a timeout the request in flight runs until that deadline, and nothing more is sent.
 - It parses every DER signature, normalizes it to low-S and verifies it against the public key before using it; see the [signing pipeline](../../contributor/signing-pipeline.md).
+- It puts `hardhat-kms/<version>` at the start of the user agent of every request, so `protoPayload.requestMetadata.callerSuppliedUserAgent` in the Cloud KMS audit log starts with `hardhat-kms/1.0.0` (with your installed version) when Data Access logs are on for Cloud KMS. The client reports this tag and anyone can send the same string, so it marks the plugin's calls but proves nothing.
 
 ## Errors
 

@@ -35,12 +35,14 @@ export type GcpClientOptions = NonNullable<
 >;
 
 /**
- * The per-call options the adapter passes: gax's deadline for the request, and no SDK retries.
- * google-gax 6.5.0 is the first 6.x release that enforces the deadline over REST.
+ * The per-call options the adapter passes: gax's deadline for the request, no SDK retries, and the
+ * plugin's `User-Agent` header. google-gax 6.5.0 is the first 6.x release that enforces the
+ * deadline over REST.
  */
 export interface GcpCallOptions {
   timeout: number;
   retry: null;
+  otherArgs: { headers: { "User-Agent": string } };
 }
 
 /** The parts of a `KeyManagementServiceClient` the adapter uses. */
@@ -138,12 +140,14 @@ class GcpKeyAdapter implements KmsKeyAdapter {
   readonly #key: GcpKmsKeyConfig;
   readonly #name: string;
   readonly #client: GcpKmsClient;
+  readonly #userAgent: string;
   #checked = false;
 
-  public constructor(key: GcpKmsKeyConfig, name: string, client: GcpKmsClient) {
+  public constructor(key: GcpKmsKeyConfig, name: string, client: GcpKmsClient, userAgent: string) {
     this.#key = key;
     this.#name = name;
     this.#client = client;
+    this.#userAgent = userAgent;
   }
 
   public describe(): { provider: string; pinnedId: string; displayId: string } {
@@ -235,7 +239,14 @@ class GcpKeyAdapter implements KmsKeyAdapter {
   }
 
   #options(): GcpCallOptions {
-    return { timeout: this.#key.timeoutMs, retry: null };
+    return {
+      timeout: this.#key.timeoutMs,
+      retry: null,
+      // google-auth-library puts its own user agent after this one, and Cloud Audit Logs records
+      // the header as `callerSuppliedUserAgent`. The `libName` client option would only reach
+      // `x-goog-api-client`, which the audit log does not show.
+      otherArgs: { headers: { "User-Agent": this.#userAgent } },
+    };
   }
 
   /**
@@ -330,16 +341,16 @@ class GcpKeyAdapter implements KmsKeyAdapter {
  *
  * @param key - The resolved key.
  * @param sdk - The @google-cloud/kms module.
+ * @param userAgent - The plugin's user-agent tag, such as `hardhat-kms/1.0.0`.
  * @returns The adapter.
  */
 export async function createGcpKeyAdapter(
   key: GcpKmsKeyConfig,
   sdk: GcpKmsSdk,
+  userAgent: string,
 ): Promise<KmsKeyAdapter> {
   const name = await key.keyVersionName.get();
   // REST rather than gRPC: a gRPC channel would keep `hardhat run` alive after the script ends.
-  // No `hardhat-kms/<version>` user-agent tag yet, unlike AWS and Azure: which header Cloud Audit
-  // Logs shows as `callerSuppliedUserAgent` is unverified, so the tag waits for a live check (#126).
   const client = new sdk.KeyManagementServiceClient({ fallback: true }, sdk.gax);
-  return new GcpKeyAdapter(key, name, client);
+  return new GcpKeyAdapter(key, name, client, userAgent);
 }

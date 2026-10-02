@@ -23,6 +23,7 @@ const context = (signal: AbortSignal = new AbortController().signal) => ({
   requestId: "r1",
 });
 const digest = new Uint8Array(32).fill(9);
+const USER_AGENT = "hardhat-kms/1.2.3";
 const ATTEMPTS = MAX_RETRIES + 1;
 
 /** UNAVAILABLE with a refused connection under it, as the SDK reports one over REST. */
@@ -50,7 +51,7 @@ function gcpKey(name = KEY_VERSION_NAME, display = name): GcpKmsKeyConfig {
 
 async function adapterFor(options: Partial<FakeKmsOptions> = {}, key = gcpKey()) {
   const fake = fakeGcpKmsSdk({ secretKey, ...options });
-  const adapter = await createGcpKeyAdapter(key, fake.sdk);
+  const adapter = await createGcpKeyAdapter(key, fake.sdk, USER_AGENT);
   const methods = (method: string) => fake.calls.filter((call) => call.method === method).length;
   return { adapter, methods, ...fake };
 }
@@ -113,8 +114,15 @@ describe("Google Cloud KMS adapter", () => {
     );
     assert.deepEqual(calls[1]?.request.digest, { sha256: digest });
     assert.deepEqual(calls[1]?.request.digestCrc32c, { value: crc32c(digest) });
-    // The key's timeout as gax's deadline, and no SDK retries: the adapter's loop is the only one.
-    assert.ok(calls.every((call) => call.options.timeout === 1234 && call.options.retry === null));
+    // The key's timeout as gax's deadline, no SDK retries (the adapter's loop is the only one), and
+    // the plugin's user agent.
+    for (const call of calls) {
+      assert.deepEqual(call.options, {
+        timeout: 1234,
+        retry: null,
+        otherArgs: { headers: { "User-Agent": USER_AGENT } },
+      });
+    }
   });
 
   it("looks the key up, and checks its algorithm, if asked to sign first", async () => {
