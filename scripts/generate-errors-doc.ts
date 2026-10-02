@@ -73,24 +73,19 @@ function parseEntry(value: unknown, where: string): CatalogueEntry {
 }
 
 /** The packages with an error catalogue, in the order of the page. */
-export const CATALOGUED_PACKAGES: readonly string[] = ["hardhat-kms"];
-
-/**
- * Packages whose errors are not in a catalogue yet. The provider packages get theirs in the
- * second pull request of #72.
- */
-const UNCATALOGUED_PACKAGES: readonly string[] = [
+export const CATALOGUED_PACKAGES: readonly string[] = [
+  "hardhat-kms",
   "hardhat-kms-aws",
   "hardhat-kms-azure",
   "hardhat-kms-gcp",
 ];
 
 /**
- * Fails when a package under packages/ is in neither list, so a new package cannot be left out of
- * the page, or of the source check, without anyone noticing.
+ * Fails when a package under packages/ is not listed, so a new package cannot be left out of the
+ * page, or of the source check, without anyone noticing.
  */
 export function checkPackageLists(): void {
-  const listed = new Set([...CATALOGUED_PACKAGES, ...UNCATALOGUED_PACKAGES]);
+  const listed = new Set(CATALOGUED_PACKAGES);
   const unlisted = readdirSync(path.join(root, "packages"), { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !listed.has(entry.name))
     .map((entry) => entry.name);

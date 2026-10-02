@@ -89,7 +89,7 @@ class TimeoutCredential implements TokenCredential {
         () => {
           reject(
             new this.#unavailable(
-              `ManagedIdentityCredential: no token within ${this.#timeoutMs / 1000} s`,
+              catalogMessage(ERRORS.managedIdentityTimeout, { seconds: this.#timeoutMs / 1000 }),
             ),
           );
         },

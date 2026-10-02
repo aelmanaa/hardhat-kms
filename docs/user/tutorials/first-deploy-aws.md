@@ -434,4 +434,5 @@ To keep the key instead, run only the `disable-key` command: a disabled key cann
 
 - [Deploy with Hardhat Ignition](../guides/deploy-with-ignition.md): choose the deployer and rehearse on a simulated network.
 - [Set up an AWS KMS key](../guides/aws-kms-setup.md): every option of an AWS key, and the errors you can meet.
+- [Errors](../reference/errors.md#hardhat-kms-aws): every error message, with its cause and fix.
 - [Prevent and recover from losing a key](../guides/key-loss.md) before the key holds anything of value.

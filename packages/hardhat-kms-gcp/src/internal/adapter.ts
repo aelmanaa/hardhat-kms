@@ -107,8 +107,17 @@ async function pause(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+/** The entries of the statuses the adapter explains; none has a placeholder. */
+type StatusEntry = (typeof ERRORS)[
+  | "notFound"
+  | "permissionDenied"
+  | "failedPrecondition"
+  | "unauthenticated"
+  | "resourceExhausted"
+  | "deadlineExceeded"];
+
 /** What to tell the user for each status the SDK reports. Nothing from the server's message. */
-const STATUS_ERRORS: Partial<Record<StatusName, ErrorEntry<string, "error">>> = {
+const STATUS_ERRORS: Partial<Record<StatusName, StatusEntry>> = {
   NOT_FOUND: ERRORS.notFound,
   PERMISSION_DENIED: ERRORS.permissionDenied,
   FAILED_PRECONDITION: ERRORS.failedPrecondition,

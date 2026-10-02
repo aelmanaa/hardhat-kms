@@ -38,6 +38,15 @@ export const ERRORS = {
       "A token request was abandoned when the call's time ran out. The error is named `AbortError`, as the Azure SDK names its own; the plugin reports the call as `no answer within … ms`.",
     fix: "See `core.signer.no-answer`.",
   },
+  managedIdentityTimeout: {
+    id: "azure.credential.managed-identity-timeout",
+    kind: "reason",
+    group: "Credentials",
+    template: "ManagedIdentityCredential: no token within {seconds} s",
+    cause:
+      "The managed identity endpoint gave no token in time, which happens outside Azure when the endpoint accepts a connection and never answers. The managed identity is the last source of the credential chain, so the chain then fails, and the plugin reports `azure.credential.none` with the chain's class name. This text is the message of that source's `CredentialUnavailableError`.",
+    fix: "Outside Azure, sign in with `az login` or a service principal. On Azure, check that the managed identity is assigned to the resource.",
+  },
   unreachable: {
     id: "azure.service.unreachable",
     kind: "error",
@@ -209,7 +218,7 @@ export const ERRORS = {
     template: "the key id is not an Azure Key Vault key URL",
     cause:
       "The key id is not a Key Vault key URL. The config checks refuse such values first, so this is a guard.",
-    fix: "Copy the key identifier from `az keyvault key show`.",
+    fix: "Open an issue at https://github.com/aelmanaa/hardhat-kms/issues with the message and the stack trace.",
   },
   noPackageVersion: {
     id: "azure.internal.no-package-version",
