@@ -42,9 +42,9 @@ export function loaderFor<Key extends KeyVaultKeyLike>(
   credential: TokenCredential,
   options: AzureClientOptions = {},
 ): AzureAdapterFactoryLoader {
-  return async () =>
+  return async (userAgent) =>
     await Promise.resolve(
-      async (key) => await createAzureKeyAdapter(key, sdk, credential, options),
+      async (key) => await createAzureKeyAdapter(key, sdk, credential, userAgent, options),
     );
 }
 

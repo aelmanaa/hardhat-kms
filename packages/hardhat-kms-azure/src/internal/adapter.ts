@@ -79,6 +79,9 @@ export interface AzureKeyVaultSdk<Key extends KeyVaultKeyLike = KeyVaultKey> {
 /** Client settings shared by both Key Vault clients; tests pass an `httpClient`. */
 export type AzureClientOptions = Pick<KeyClientOptions, "httpClient">;
 
+/** What the adapter passes to both Key Vault clients. */
+type ClientOptions = Pick<KeyClientOptions, "httpClient" | "userAgentOptions">;
+
 type CryptographyClient<Key extends KeyVaultKeyLike> = InstanceType<
   AzureKeyVaultSdk<Key>["CryptographyClient"]
 >;
@@ -110,7 +113,7 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
   readonly #id: ParsedAzureKeyId;
   readonly #sdk: AzureKeyVaultSdk<Key>;
   readonly #credential: TokenCredential;
-  readonly #options: AzureClientOptions;
+  readonly #options: ClientOptions;
   readonly #keys: InstanceType<AzureKeyVaultSdk<Key>["KeyClient"]>;
   #pinned: { version: string; key: Key; client: CryptographyClient<Key> } | undefined;
 
@@ -119,7 +122,7 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     id: ParsedAzureKeyId,
     sdk: AzureKeyVaultSdk<Key>,
     credential: TokenCredential,
-    options: AzureClientOptions,
+    options: ClientOptions,
   ) {
     this.#key = key;
     this.#id = id;
@@ -313,6 +316,7 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
  * @param key - The resolved key.
  * @param sdk - The @azure/keyvault-keys module.
  * @param credential - The credential for Key Vault requests.
+ * @param userAgent - The plugin's user-agent tag, such as `hardhat-kms/1.0.0`.
  * @param options - Client settings for both Key Vault clients.
  * @returns The adapter.
  */
@@ -320,6 +324,7 @@ export async function createAzureKeyAdapter<Key extends KeyVaultKeyLike>(
   key: AzureKmsKeyConfig,
   sdk: AzureKeyVaultSdk<Key>,
   credential: TokenCredential,
+  userAgent: string,
   options: AzureClientOptions = {},
 ): Promise<KmsKeyAdapter> {
   const keyId = await key.keyId.get();
@@ -332,5 +337,10 @@ export async function createAzureKeyAdapter<Key extends KeyVaultKeyLike>(
       { provider: "azure", operation: "create adapter", key: key.displayId },
     );
   }
-  return new AzureKeyAdapter(key, id, sdk, credential, options);
+  // Put before the SDK's own user agent, so the Key Vault audit log's `ClientInfo` shows which
+  // calls came through the plugin.
+  return new AzureKeyAdapter(key, id, sdk, credential, {
+    ...options,
+    userAgentOptions: { userAgentPrefix: userAgent },
+  });
 }

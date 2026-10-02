@@ -26,6 +26,9 @@ let restoreEnvironment: () => void;
 const coreVersion = String(
   Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms/package.json")), "version"),
 );
+const ownVersion = String(
+  Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms-aws/package.json")), "version"),
+);
 
 async function runtime(plugins: HardhatPlugin[] = [hardhatKmsAws]) {
   return await createHardhatRuntimeEnvironment({
@@ -132,6 +135,13 @@ describe("hardhat-kms-aws plugin", () => {
     assert.equal(sign?.MessageType, "DIGEST");
     assert.equal(sign?.SigningAlgorithm, "ECDSA_SHA_256");
     assert.equal(sign?.Message, Buffer.from(digest).toString("base64"));
+    // Both requests carry the plugin's tag at the end of the SDK's user agent, which CloudTrail
+    // records as `userAgent`.
+    for (const { headers } of server.requests) {
+      assert.ok(String(headers["user-agent"]).endsWith(` hardhat-kms/${ownVersion}`));
+      assert.match(String(headers["user-agent"]), /^aws-sdk-js\/3\./);
+      assert.ok(String(headers["x-amz-user-agent"]).endsWith(` hardhat-kms/${ownVersion}`));
+    }
     // The request is signed for the configured region.
     assert.match(
       String(server.requests[0]?.headers.authorization),

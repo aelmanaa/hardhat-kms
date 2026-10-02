@@ -118,6 +118,7 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 - It signs with that ARN, never with the alias you configured. Repointing the alias cannot change which key signs during a run, and an `address` pin catches the change on the next run.
 - It sends `Sign` with `MessageType: DIGEST` and `ECDSA_SHA_256`, and checks that the response names the same key and algorithm.
 - It parses every signature, normalizes it to low-S and verifies it against the public key before using it; see the [signing pipeline](../../contributor/signing-pipeline.md).
+- It adds `hardhat-kms/<version>` to the end of the user agent of every request, so the `userAgent` field of a CloudTrail event ends in `hardhat-kms/1.0.0` (with your installed version). The client reports this tag and anyone can send the same string, so it marks the plugin's calls but proves nothing.
 
 ## Errors
 

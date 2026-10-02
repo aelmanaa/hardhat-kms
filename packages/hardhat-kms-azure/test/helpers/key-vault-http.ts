@@ -23,6 +23,8 @@ export interface VaultRequest {
   path: string;
   apiVersion: string | null;
   authorization: string | undefined;
+  /** The `User-Agent` header, as the SDK's pipeline set it. */
+  userAgent: string | undefined;
   body: Record<string, unknown> | undefined;
 }
 
@@ -95,6 +97,7 @@ export function keyVaultHttp(options: KeyVaultHttpOptions): KeyVaultHttp {
         path: url.pathname,
         apiVersion: url.searchParams.get("api-version"),
         authorization,
+        userAgent: request.headers.get("user-agent"),
         body,
       });
       if (url.origin !== options.vaultUrl) {
