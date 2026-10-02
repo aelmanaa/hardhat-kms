@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,8 +20,9 @@ describe("a project without viem", { timeout: 120_000 }, () => {
       const result = spawnSync(
         process.execPath,
         [
+          // --import takes a module specifier: on Windows an absolute path is not one, a file URL is.
           "--import",
-          path.join(here, "../fixtures/no-viem/register.mjs"),
+          pathToFileURL(path.join(here, "../fixtures/no-viem/register.mjs")).href,
           path.join(here, "../fixtures/no-viem-run.ts"),
         ],
         {
