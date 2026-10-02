@@ -19,3 +19,4 @@ To add a record, copy [template.md](template.md) to the next number and open a p
 | [0011](0011-typed-data-chain-check.md)      | Check typed data's chain only when it names one                     | Accepted           |
 | [0012](0012-api-reference-generator.md)     | Generate the API reference with TypeDoc on TypeScript 6             | Accepted           |
 | [0013](0013-history-from-cloud-logs.md)     | Signing history comes only from the cloud audit logs                | Accepted           |
+| [0014](0014-library-account-raw-sign.md)    | The library account signs bare digests only when asked              | Accepted           |

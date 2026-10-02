@@ -171,7 +171,7 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
 
 ##### approvalTimeoutMs?
 
@@ -255,7 +255,7 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
 ##### approvalTimeoutMs?
 
@@ -327,7 +327,7 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
 ##### approvalTimeoutMs?
 
@@ -388,7 +388,7 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
 
 ##### approvalTimeoutMs?
 
@@ -458,7 +458,7 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
 ##### approvalTimeoutMs?
 
@@ -520,7 +520,7 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
 
 ##### approvalTimeoutMs?
 
@@ -588,7 +588,7 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
 ##### approvalTimeoutMs?
 
@@ -657,7 +657,7 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
 
 ##### approvalTimeoutMs?
 
@@ -727,7 +727,7 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
 ##### approvalTimeoutMs?
 
@@ -793,6 +793,164 @@ Provider id, for example `aws`.
 
 ---
 
+### KmsAccessListEntry
+
+An entry of an access list.
+
+#### Properties
+
+##### address
+
+> **address**: `` `0x${string}` ``
+
+##### storageKeys
+
+> **storageKeys**: readonly `` `0x${string}` ``[]
+
+---
+
+### KmsAccount
+
+A viem local account whose key is a KMS key, from `connection.kms.getAccount`. Pass it to
+viem as `account`, or as the owner of a smart account.
+
+Sends through it bypass the plugin's send lock, nonce tracking and retry cache: viem fills the
+transaction and sends it with `eth_sendRawTransaction` itself, and the first transaction an
+account signs in a process prints a warning. To send from a KMS account, use
+`connection.viem.getWalletClient(address)` instead.
+
+After `connection.close()`, every method refuses before any KMS call.
+
+#### Extended by
+
+- [`KmsRawSignAccount`](#kmsrawsignaccount)
+
+#### Properties
+
+##### address
+
+> `readonly` **address**: `` `0x${string}` ``
+
+The checksummed address.
+
+##### publicKey
+
+> `readonly` **publicKey**: `` `0x${string}` ``
+
+The uncompressed public key, 65 bytes starting with `0x04`.
+
+##### signAuthorization
+
+> `readonly` **signAuthorization**: (`parameters`: [`KmsAuthorizationRequest`](#kmsauthorizationrequest)) => `Promise`\<[`KmsSignedAuthorization`](#kmssignedauthorization)\>
+
+Signs an EIP-7702 authorization for the connection's chain. Chain 0 needs the
+`allowChainZeroAuthorization` option of `getAccount`.
+
+###### Parameters
+
+| Parameter    | Type                                                  | Description                    |
+| ------------ | ----------------------------------------------------- | ------------------------------ |
+| `parameters` | [`KmsAuthorizationRequest`](#kmsauthorizationrequest) | The delegate, chain and nonce. |
+
+###### Returns
+
+`Promise`\<[`KmsSignedAuthorization`](#kmssignedauthorization)\>
+
+The signed authorization.
+
+##### signMessage
+
+> `readonly` **signMessage**: (`parameters`: \{ `message`: [`KmsSignableMessage`](#kmssignablemessage); \}) => `Promise`\<`` `0x${string}` ``\>
+
+Signs an EIP-191 personal message.
+
+###### Parameters
+
+| Parameter            | Type                                                          | Description  |
+| -------------------- | ------------------------------------------------------------- | ------------ |
+| `parameters`         | \{ `message`: [`KmsSignableMessage`](#kmssignablemessage); \} | The message. |
+| `parameters.message` | [`KmsSignableMessage`](#kmssignablemessage)                   | -            |
+
+###### Returns
+
+`Promise`\<`` `0x${string}` ``\>
+
+The 65-byte `r || s || v` signature.
+
+##### signTransaction
+
+> `readonly` **signTransaction**: (`transaction`: [`KmsTransactionRequest`](#kmstransactionrequest), `options?`: [`KmsSignTransactionOptions`](#kmssigntransactionoptions)) => `Promise`\<`` `0x${string}` ``\>
+
+Signs a transaction of type `legacy`, `eip2930`, `eip1559` or `eip7702`, whose `chainId`
+must be the connection's.
+
+###### Parameters
+
+| Parameter     | Type                                                      | Description                               |
+| ------------- | --------------------------------------------------------- | ----------------------------------------- |
+| `transaction` | [`KmsTransactionRequest`](#kmstransactionrequest)         | The transaction.                          |
+| `options?`    | [`KmsSignTransactionOptions`](#kmssigntransactionoptions) | The chain serializer viem passes, if any. |
+
+###### Returns
+
+`Promise`\<`` `0x${string}` ``\>
+
+The signed transaction, serialized.
+
+##### signTypedData
+
+> `readonly` **signTypedData**: (`parameters`: [`KmsTypedDataDefinition`](#kmstypeddatadefinition)) => `Promise`\<`` `0x${string}` ``\>
+
+Signs EIP-712 typed data. Typed data whose `domain.chainId` is another chain than the
+connection's is refused, unless `kms.allowCrossChainTypedData` is set.
+
+###### Parameters
+
+| Parameter    | Type                                                | Description     |
+| ------------ | --------------------------------------------------- | --------------- |
+| `parameters` | [`KmsTypedDataDefinition`](#kmstypeddatadefinition) | The typed data. |
+
+###### Returns
+
+`Promise`\<`` `0x${string}` ``\>
+
+The 65-byte `r || s || v` signature.
+
+##### source
+
+> `readonly` **source**: `"hardhat-kms"`
+
+Where the account comes from.
+
+##### type
+
+> `readonly` **type**: `"local"`
+
+Always `local`: viem signs with it rather than asking the node.
+
+---
+
+### KmsAccountOptions
+
+Options of `connection.kms.getAccount`.
+
+#### Properties
+
+##### allowChainZeroAuthorization?
+
+> `optional` **allowChainZeroAuthorization?**: `boolean`
+
+Let `signAuthorization` sign for chain 0, which makes the authorization valid on every chain.
+
+##### rawSign?
+
+> `optional` **rawSign?**: `boolean`
+
+Add `sign({ hash })`, which signs a bare digest. Off by default (decision 0014); some smart
+account owners need it. A warning is printed when it is on.
+
+---
+
 ### KmsAuditConfig
 
 The resolved `kms.audit` section.
@@ -831,6 +989,78 @@ Azure Key Vault's audit log.
 
 The Log Analytics workspace that the vault's diagnostic setting sends `AuditEvent` logs to,
 as its workspace id (a GUID). Literal or a configuration variable.
+
+---
+
+### KmsAuthorizationListEntry
+
+A signed EIP-7702 authorization in a transaction's `authorizationList`, as viem takes it.
+
+#### Properties
+
+##### address
+
+> **address**: `` `0x${string}` ``
+
+##### chainId
+
+> **chainId**: `number`
+
+##### nonce
+
+> **nonce**: `number`
+
+##### r
+
+> **r**: `` `0x${string}` ``
+
+##### s
+
+> **s**: `` `0x${string}` ``
+
+##### v?
+
+> `optional` **v?**: `bigint`
+
+27 or 28; used when `yParity` is absent.
+
+##### yParity?
+
+> `optional` **yParity?**: `number`
+
+0 or 1.
+
+---
+
+### KmsAuthorizationRequest
+
+An EIP-7702 authorization to sign, as viem's `AuthorizationRequest`.
+
+#### Properties
+
+##### address?
+
+> `optional` **address?**: `` `0x${string}` ``
+
+The address of the code to delegate to.
+
+##### chainId
+
+> **chainId**: `number`
+
+The chain the authorization is valid on; 0 is every chain.
+
+##### contractAddress?
+
+> `optional` **contractAddress?**: `` `0x${string}` ``
+
+Another name for `address`, as in viem.
+
+##### nonce
+
+> **nonce**: `number`
+
+The authority's nonce.
 
 ---
 
@@ -1664,6 +1894,67 @@ Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defa
 
 ---
 
+### KmsNetworkConnection
+
+What hardhat-kms adds to a network connection, as `connection.kms`.
+
+#### Properties
+
+##### getAccount
+
+> `readonly` **getAccount**: \{(`address`: `string`, `options`: [`KmsAccountOptions`](#kmsaccountoptions) & \{ `rawSign`: `true`; \}): `Promise`\<[`KmsRawSignAccount`](#kmsrawsignaccount)\>; (`address`: `string`, `options?`: [`KmsAccountOptions`](#kmsaccountoptions)): `Promise`\<[`KmsAccount`](#kmsaccount)\>; \}
+
+Returns a viem local account for a KMS account of this connection. It needs the `viem`
+package, and asks the KMS for the key's public key once.
+
+###### Call Signature
+
+> (`address`: `string`, `options`: [`KmsAccountOptions`](#kmsaccountoptions) & \{ `rawSign`: `true`; \}): `Promise`\<[`KmsRawSignAccount`](#kmsrawsignaccount)\>
+
+###### Parameters
+
+| Parameter | Type                                                                 |
+| --------- | -------------------------------------------------------------------- |
+| `address` | `string`                                                             |
+| `options` | [`KmsAccountOptions`](#kmsaccountoptions) & \{ `rawSign`: `true`; \} |
+
+###### Returns
+
+`Promise`\<[`KmsRawSignAccount`](#kmsrawsignaccount)\>
+
+###### Call Signature
+
+> (`address`: `string`, `options?`: [`KmsAccountOptions`](#kmsaccountoptions)): `Promise`\<[`KmsAccount`](#kmsaccount)\>
+
+###### Parameters
+
+| Parameter  | Type                                      |
+| ---------- | ----------------------------------------- |
+| `address`  | `string`                                  |
+| `options?` | [`KmsAccountOptions`](#kmsaccountoptions) |
+
+###### Returns
+
+`Promise`\<[`KmsAccount`](#kmsaccount)\>
+
+###### Param
+
+**address**
+
+The address of one of the connection's KMS accounts.
+
+###### Param
+
+**options**
+
+Options; `rawSign: true` adds `sign({ hash })`.
+
+###### Returns
+
+The account.
+
+---
+
 ### KmsProviderConfigs
 
 Resolved key config types by provider id. A third-party provider that augments
@@ -1711,6 +2002,335 @@ declare module "hardhat-kms/types" {
 ##### gcp
 
 > **gcp**: [`GcpKmsKeyUserConfig`](#gcpkmskeyuserconfig)
+
+---
+
+### KmsRawSignAccount
+
+A [KmsAccount](#kmsaccount) that also signs bare digests, from `getAccount(address, { rawSign: true })`.
+
+#### Extends
+
+- [`KmsAccount`](#kmsaccount)
+
+#### Properties
+
+##### address
+
+> `readonly` **address**: `` `0x${string}` ``
+
+The checksummed address.
+
+###### Inherited from
+
+[`KmsAccount`](#kmsaccount).[`address`](#address-11)
+
+##### publicKey
+
+> `readonly` **publicKey**: `` `0x${string}` ``
+
+The uncompressed public key, 65 bytes starting with `0x04`.
+
+###### Inherited from
+
+[`KmsAccount`](#kmsaccount).[`publicKey`](#publickey)
+
+##### sign
+
+> `readonly` **sign**: (`parameters`: \{ `hash`: `` `0x${string}` ``; \}) => `Promise`\<`` `0x${string}` ``\>
+
+Signs a 32-byte digest as it is, with no prefix. Whatever the digest stands for is signed,
+a transaction for any chain included.
+
+###### Parameters
+
+| Parameter         | Type                               | Description |
+| ----------------- | ---------------------------------- | ----------- |
+| `parameters`      | \{ `hash`: `` `0x${string}` ``; \} | The digest. |
+| `parameters.hash` | `` `0x${string}` ``                | -           |
+
+###### Returns
+
+`Promise`\<`` `0x${string}` ``\>
+
+The 65-byte `r || s || v` signature.
+
+##### signAuthorization
+
+> `readonly` **signAuthorization**: (`parameters`: [`KmsAuthorizationRequest`](#kmsauthorizationrequest)) => `Promise`\<[`KmsSignedAuthorization`](#kmssignedauthorization)\>
+
+Signs an EIP-7702 authorization for the connection's chain. Chain 0 needs the
+`allowChainZeroAuthorization` option of `getAccount`.
+
+###### Parameters
+
+| Parameter    | Type                                                  | Description                    |
+| ------------ | ----------------------------------------------------- | ------------------------------ |
+| `parameters` | [`KmsAuthorizationRequest`](#kmsauthorizationrequest) | The delegate, chain and nonce. |
+
+###### Returns
+
+`Promise`\<[`KmsSignedAuthorization`](#kmssignedauthorization)\>
+
+The signed authorization.
+
+###### Inherited from
+
+[`KmsAccount`](#kmsaccount).[`signAuthorization`](#signauthorization)
+
+##### signMessage
+
+> `readonly` **signMessage**: (`parameters`: \{ `message`: [`KmsSignableMessage`](#kmssignablemessage); \}) => `Promise`\<`` `0x${string}` ``\>
+
+Signs an EIP-191 personal message.
+
+###### Parameters
+
+| Parameter            | Type                                                          | Description  |
+| -------------------- | ------------------------------------------------------------- | ------------ |
+| `parameters`         | \{ `message`: [`KmsSignableMessage`](#kmssignablemessage); \} | The message. |
+| `parameters.message` | [`KmsSignableMessage`](#kmssignablemessage)                   | -            |
+
+###### Returns
+
+`Promise`\<`` `0x${string}` ``\>
+
+The 65-byte `r || s || v` signature.
+
+###### Inherited from
+
+[`KmsAccount`](#kmsaccount).[`signMessage`](#signmessage)
+
+##### signTransaction
+
+> `readonly` **signTransaction**: (`transaction`: [`KmsTransactionRequest`](#kmstransactionrequest), `options?`: [`KmsSignTransactionOptions`](#kmssigntransactionoptions)) => `Promise`\<`` `0x${string}` ``\>
+
+Signs a transaction of type `legacy`, `eip2930`, `eip1559` or `eip7702`, whose `chainId`
+must be the connection's.
+
+###### Parameters
+
+| Parameter     | Type                                                      | Description                               |
+| ------------- | --------------------------------------------------------- | ----------------------------------------- |
+| `transaction` | [`KmsTransactionRequest`](#kmstransactionrequest)         | The transaction.                          |
+| `options?`    | [`KmsSignTransactionOptions`](#kmssigntransactionoptions) | The chain serializer viem passes, if any. |
+
+###### Returns
+
+`Promise`\<`` `0x${string}` ``\>
+
+The signed transaction, serialized.
+
+###### Inherited from
+
+[`KmsAccount`](#kmsaccount).[`signTransaction`](#signtransaction)
+
+##### signTypedData
+
+> `readonly` **signTypedData**: (`parameters`: [`KmsTypedDataDefinition`](#kmstypeddatadefinition)) => `Promise`\<`` `0x${string}` ``\>
+
+Signs EIP-712 typed data. Typed data whose `domain.chainId` is another chain than the
+connection's is refused, unless `kms.allowCrossChainTypedData` is set.
+
+###### Parameters
+
+| Parameter    | Type                                                | Description     |
+| ------------ | --------------------------------------------------- | --------------- |
+| `parameters` | [`KmsTypedDataDefinition`](#kmstypeddatadefinition) | The typed data. |
+
+###### Returns
+
+`Promise`\<`` `0x${string}` ``\>
+
+The 65-byte `r || s || v` signature.
+
+###### Inherited from
+
+[`KmsAccount`](#kmsaccount).[`signTypedData`](#signtypeddata)
+
+##### source
+
+> `readonly` **source**: `"hardhat-kms"`
+
+Where the account comes from.
+
+###### Inherited from
+
+[`KmsAccount`](#kmsaccount).[`source`](#source-2)
+
+##### type
+
+> `readonly` **type**: `"local"`
+
+Always `local`: viem signs with it rather than asking the node.
+
+###### Inherited from
+
+[`KmsAccount`](#kmsaccount).[`type`](#type)
+
+---
+
+### KmsSignedAuthorization
+
+A signed EIP-7702 authorization, as `signAuthorization` returns it, in viem's form.
+
+#### Properties
+
+##### address
+
+> **address**: `` `0x${string}` ``
+
+The address of the code to delegate to, as it was requested.
+
+##### chainId
+
+> **chainId**: `number`
+
+##### nonce
+
+> **nonce**: `number`
+
+##### r
+
+> **r**: `` `0x${string}` ``
+
+32 bytes.
+
+##### s
+
+> **s**: `` `0x${string}` ``
+
+32 bytes, in the lower half of the curve order.
+
+##### v
+
+> **v**: `bigint`
+
+27 or 28.
+
+##### yParity
+
+> **yParity**: `number`
+
+0 or 1.
+
+---
+
+### KmsSignTransactionOptions
+
+The options viem passes to `signTransaction`.
+
+#### Properties
+
+##### serializer?
+
+> `optional` **serializer?**: (`transaction`: [`KmsTransactionRequest`](#kmstransactionrequest)) => `unknown`
+
+A chain's transaction serializer. The account serializes with its own code; when a
+serializer is given, its unsigned bytes must be the same, or nothing is signed.
+
+###### Parameters
+
+| Parameter     | Type                                              | Description      |
+| ------------- | ------------------------------------------------- | ---------------- |
+| `transaction` | [`KmsTransactionRequest`](#kmstransactionrequest) | The transaction. |
+
+###### Returns
+
+`unknown`
+
+The serialized transaction, as hex.
+
+---
+
+### KmsTransactionRequest
+
+A transaction for `signTransaction`, in viem's `TransactionSerializable` fields. Only types
+`legacy`, `eip2930`, `eip1559` and `eip7702` are signed.
+
+#### Properties
+
+##### accessList?
+
+> `optional` **accessList?**: readonly [`KmsAccessListEntry`](#kmsaccesslistentry)[]
+
+##### authorizationList?
+
+> `optional` **authorizationList?**: readonly [`KmsAuthorizationListEntry`](#kmsauthorizationlistentry)[]
+
+##### chainId?
+
+> `optional` **chainId?**: `number`
+
+##### data?
+
+> `optional` **data?**: `` `0x${string}` ``
+
+##### gas?
+
+> `optional` **gas?**: `bigint`
+
+##### gasPrice?
+
+> `optional` **gasPrice?**: `bigint`
+
+##### maxFeePerGas?
+
+> `optional` **maxFeePerGas?**: `bigint`
+
+##### maxPriorityFeePerGas?
+
+> `optional` **maxPriorityFeePerGas?**: `bigint`
+
+##### nonce?
+
+> `optional` **nonce?**: `number`
+
+##### to?
+
+> `optional` **to?**: `` `0x${string}` `` \| `null`
+
+##### type?
+
+> `optional` **type?**: `string`
+
+##### value?
+
+> `optional` **value?**: `bigint`
+
+---
+
+### KmsTypedDataDefinition
+
+EIP-712 typed data, as viem's `signTypedData` takes it. The fields are typed loosely so that
+viem's generic `TypedDataDefinition` is assignable to it; the account checks them at run time.
+
+#### Properties
+
+##### domain?
+
+> `optional` **domain?**: `unknown`
+
+The domain, an object; typed data without one has an empty domain.
+
+##### message?
+
+> `optional` **message?**: `unknown`
+
+The values to sign, an object. Absent when `primaryType` is `EIP712Domain`.
+
+##### primaryType
+
+> **primaryType**: `unknown`
+
+The name of the type of `message`.
+
+##### types?
+
+> `optional` **types?**: `unknown`
+
+The struct types, each a list of `{ name, type }` fields. `EIP712Domain` may be left out: it
+follows from `domain`. Absent when `primaryType` is `EIP712Domain`.
 
 ---
 
@@ -1885,6 +2505,14 @@ An entry of a network's `kmsAccounts`: the name of a key in `kms.keys`, or an in
 
 ---
 
+### KmsHex
+
+> **KmsHex** = `` `0x${string}` ``
+
+A `0x`-prefixed hex string, as viem's `Hex`.
+
+---
+
 ### KmsHistoryExtraValue
 
 > **KmsHistoryExtraValue** = `string` \| `number` \| `boolean` \| `null`
@@ -1928,6 +2556,23 @@ A resolved key of any registered provider. Narrow it with `key.provider === "aws
 > **KmsKeyUserConfig** = [`KmsProviderUserConfigs`](#kmsprovideruserconfigs)\[keyof [`KmsProviderUserConfigs`](#kmsprovideruserconfigs)\]
 
 A key of any registered provider.
+
+---
+
+### KmsSignableMessage
+
+> **KmsSignableMessage** = `string` \| \{ `raw`: [`KmsHex`](#kmshex) \| `Uint8Array`; \}
+
+A message for `signMessage`: UTF-8 text, or bytes given as hex or as a `Uint8Array`.
+
+---
+
+### KmsTransactionSerializer
+
+> **KmsTransactionSerializer** = \{ `serialize`: `unknown`; \}\[`"serialize"`\]
+
+A chain's transaction serializer, as viem passes it. Written as a method type, so that viem's
+serializers, whose parameter is viem's own transaction type, are assignable to it.
 
 ---
 

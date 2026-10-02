@@ -92,6 +92,12 @@
     "viem": "catalog:"
   },
   "peerDependencies": {
-    "hardhat": "^3.18.0"
+    "hardhat": "^3.18.0",
+    "viem": "^2.47.6"
+  },
+  "peerDependenciesMeta": {
+    "viem": {
+      "optional": true
+    }
   }
 }

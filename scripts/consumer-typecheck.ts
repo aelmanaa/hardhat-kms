@@ -3,7 +3,7 @@
 //
 // Usage: node scripts/consumer-typecheck.ts <typescript-version>
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -224,6 +224,7 @@ try {
       'import hardhatKms from "hardhat-kms";',
       'import type { HardhatPlugin } from "hardhat/types/plugins";',
       'import type { ExternalKmsKeyConfig, KmsHooks, KmsKeyAdapter, KmsKeyCommonUserConfig, KmsKeyConfig } from "hardhat-kms/types";',
+      'import type { NetworkConnection } from "hardhat/types/network";',
       "",
       "// A third-party provider adds its key type.",
       'declare module "hardhat-kms/types" {',
@@ -267,6 +268,17 @@ try {
       "  },",
       "};",
       "",
+      "// The library account is typed without viem, which this project does not install.",
+      "export async function libraryAccount(connection: NetworkConnection): Promise<string> {",
+      '  const account = await connection.kms.getAccount("0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826");',
+      "  // @ts-expect-error -- without rawSign the account has no `sign`.",
+      "  void account.sign;",
+      "  const raw = await connection.kms.getAccount(account.address, { rawSign: true });",
+      '  await raw.sign({ hash: `0x${"00".repeat(32)}` });',
+      "  await account.signAuthorization({ contractAddress: account.address, chainId: 1, nonce: 0 });",
+      '  return await account.signMessage({ message: "hello" });',
+      "}",
+      "",
       "// Resolved configs are typed too.",
       "export function names(accounts: KmsKeyConfig[]): string[] {",
       "  return accounts.map((account) => account.displayId);",
@@ -297,6 +309,12 @@ try {
     ],
     consumer,
   );
+  // viem is an optional peer dependency: npm does not install it, and nothing above may need it.
+  if (existsSync(path.join(consumer, "node_modules", "viem"))) {
+    throw new Error(
+      "viem is installed in the consumer project; this check needs a project without it",
+    );
+  }
   const tsc = path.join(
     consumer,
     "node_modules",
@@ -311,6 +329,47 @@ try {
     "tsconfig.gcp.json",
   ]) {
     execFileSync(tsc, ["-p", project], { cwd: consumer, stdio: "inherit", shell });
+  }
+  // At run time, in the same project without viem: Hardhat loads the plugin, and getAccount fails
+  // with a message that names the package.
+  writeFileSync(
+    path.join(consumer, "runtime.config.ts"),
+    [
+      'import hardhatKms from "hardhat-kms";',
+      "",
+      "export default {",
+      "  plugins: [hardhatKms],",
+      "  networks: {",
+      '    local: { type: "edr-simulated", kmsAccounts: [{ provider: "aws", keyId: "alias/none", region: "us-east-1", address: "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826" }] },',
+      "  },",
+      "};",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(
+    path.join(consumer, "get-account.ts"),
+    [
+      'import { network } from "hardhat";',
+      "",
+      'const connection = await network.create("local");',
+      "try {",
+      '  await connection.kms.getAccount("0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826");',
+      '  console.log("getAccount returned an account");',
+      "} catch (error) {",
+      "  console.log(`getAccount: ${error instanceof Error ? error.message : String(error)}`);",
+      "}",
+      "await connection.close();",
+      "",
+    ].join("\n"),
+  );
+  const hardhatCli = path.join(consumer, "node_modules", "hardhat", "dist", "src", "cli.js");
+  const runtime = execFileSync(
+    process.execPath,
+    [hardhatCli, "--config", "runtime.config.ts", "run", "--no-compile", "get-account.ts"],
+    { cwd: consumer, encoding: "utf8" },
+  );
+  if (!runtime.includes("connection.kms.getAccount needs the viem package")) {
+    throw new Error(`getAccount without viem did not name the package:\n${runtime}`);
   }
   process.stdout.write(`consumer typecheck passed with TypeScript ${typescriptVersion}\n`);
 } finally {

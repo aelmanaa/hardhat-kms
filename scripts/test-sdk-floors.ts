@@ -1,6 +1,10 @@
-// Tests each provider package against the lowest version of its cloud SDK that its range allows.
-// CI tests the lockfile version everywhere else; once Dependabot moves the lockfile forward, this
-// is the only check that the declared floor still works.
+// Tests each provider package against the lowest version of its cloud SDK that its range allows,
+// and hardhat-kms against the lowest viem its optional peer range allows. CI tests the lockfile
+// version everywhere else; once Dependabot moves the lockfile forward, this is the only check that
+// the declared floor still works.
+//
+// viem is an optional peer dependency that only connection.kms.getAccount loads, so its floor runs
+// the tests of getAccount, not the whole package.
 //
 // For each package in packages/ whose dependencies include a cloud SDK, it installs the floor of
 // each SDK range (`^3.1143.0` gives 3.1143.0), also as a workspace override so other SDKs that
@@ -32,14 +36,37 @@ import {
  */
 const CLOUD_SDK = /^(@(aws-sdk|google-cloud|azure)\/|google-gax$|google-auth-library$)/;
 
+/** Optional peer dependencies whose floor is tested, with the test files that cover them. */
+const PEER_FLOOR_TESTS: Readonly<Record<string, readonly string[]>> = {
+  viem: [
+    "test/unit/viem/account.test.ts",
+    "test/unit/viem/refusals.test.ts",
+    "test/unit/viem/types.test.ts",
+    "test/integration/get-account.test.ts",
+  ],
+};
+
 interface Floor {
   packageName: string;
   directory: string;
   sdk: string;
   version: string;
+  /** A cloud SDK the package depends on, or an optional peer dependency. */
+  kind: "dependency" | "peer";
 }
 
-/** Finds the cloud SDK floors of every package. Only caret ranges are allowed for them. */
+/** The floor of a caret range, which is the only form allowed for a tested dependency. */
+function floorOf(packageName: string, sdk: string, range: string): string {
+  const match = /^\^(\d+\.\d+\.\d+)$/.exec(range);
+  if (match?.[1] === undefined) {
+    throw new Error(
+      `${packageName}: ${sdk} must use a caret range on a tested version, such as ^1.2.3 (got ${range})`,
+    );
+  }
+  return match[1];
+}
+
+/** Finds the cloud SDK and optional peer floors of every package. */
 function floors(): Floor[] {
   const packagesDirectory = path.join(root, "packages");
   return readdirSync(packagesDirectory, { withFileTypes: true })
@@ -48,23 +75,31 @@ function floors(): Floor[] {
       const directory = path.join(packagesDirectory, entry.name);
       const manifest = readJson(path.join(directory, "package.json"));
       const packageName = String(manifest.name);
-      return Object.entries(stringRecord(manifest.dependencies))
+      const dependencies = Object.entries(stringRecord(manifest.dependencies))
         .filter(([sdk]) => CLOUD_SDK.test(sdk))
-        .map(([sdk, range]) => {
-          const match = /^\^(\d+\.\d+\.\d+)$/.exec(range);
-          if (match?.[1] === undefined) {
-            throw new Error(
-              `${packageName}: ${sdk} must use a caret range on a tested version, such as ^1.2.3 (got ${range})`,
-            );
-          }
-          return { packageName, directory, sdk, version: match[1] };
-        });
+        .map(([sdk, range]) => ({
+          packageName,
+          directory,
+          sdk,
+          version: floorOf(packageName, sdk, range),
+          kind: "dependency" as const,
+        }));
+      const peers = Object.entries(stringRecord(manifest.peerDependencies))
+        .filter(([sdk]) => Object.hasOwn(PEER_FLOOR_TESTS, sdk))
+        .map(([sdk, range]) => ({
+          packageName,
+          directory,
+          sdk,
+          version: floorOf(packageName, sdk, range),
+          kind: "peer" as const,
+        }));
+      return [...dependencies, ...peers];
     });
 }
 
 const found = floors();
 if (found.length === 0) {
-  process.stdout.write("No package depends on a cloud SDK.\n");
+  process.stdout.write("No package depends on a cloud SDK or a tested peer.\n");
   process.exit(0);
 }
 
@@ -89,7 +124,7 @@ const passed = await withRestoredFiles(restorable, async () => {
     workspace,
     `\noverrides:\n${found.map((floor) => `  "${floor.sdk}": "${floor.version}"\n`).join("")}`,
   );
-  for (const floor of found) {
+  for (const floor of found.filter((candidate) => candidate.kind === "dependency")) {
     process.stdout.write(`\n== ${floor.packageName}: ${floor.sdk}@${floor.version}\n`);
     run([
       "--filter",
@@ -99,6 +134,10 @@ const passed = await withRestoredFiles(restorable, async () => {
       "--save-exact",
       "--ignore-scripts",
     ]);
+  }
+  // A peer floor reaches the package through the override, which an install applies.
+  run(["install", "--no-frozen-lockfile", "--ignore-scripts"]);
+  for (const floor of found) {
     const installed = resolvedVersion(floor.directory, floor.sdk);
     if (installed !== floor.version) {
       throw new Error(
@@ -112,9 +151,29 @@ const passed = await withRestoredFiles(restorable, async () => {
     // Typecheck the tests too: they use the SDK's types as well.
     run(["exec", "tsc", "-b", floor.directory]);
   }
-  for (const packageName of new Set(found.map((floor) => floor.packageName))) {
+  const testRuns = [
+    ...new Set(
+      found.filter((floor) => floor.kind === "dependency").map((floor) => floor.packageName),
+    ),
+  ].map((packageName) => ({ packageName, args: ["--filter", packageName, "run", "test"] }));
+  for (const floor of found.filter((candidate) => candidate.kind === "peer")) {
+    const files = PEER_FLOOR_TESTS[floor.sdk] ?? [];
+    testRuns.push({
+      packageName: `${floor.packageName} (${floor.sdk} ${floor.version})`,
+      args: [
+        "--filter",
+        floor.packageName,
+        "exec",
+        "node",
+        "--test",
+        "--test-concurrency=1",
+        ...files,
+      ],
+    });
+  }
+  for (const { packageName, args } of testRuns) {
     try {
-      run(["--filter", packageName, "run", "test"]);
+      run(args);
     } catch (error) {
       await deliverSignals();
       if (wasInterrupted()) {
@@ -122,7 +181,7 @@ const passed = await withRestoredFiles(restorable, async () => {
       }
       failed = true;
       process.stderr.write(
-        `\n${packageName} fails with its SDK floors. Raise the floor to a version that passes, and say why in the changeset.\n`,
+        `\n${packageName} fails with its floors. Raise the floor to a version that passes, and say why in the changeset.\n`,
       );
     }
   }

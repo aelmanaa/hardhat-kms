@@ -1,7 +1,8 @@
 name: SDK floors
 
-# Tests each provider package against the lowest cloud SDK version its range allows. The CI
-# workflow tests the lockfile versions; once Dependabot moves the lockfile forward, only this
+# Tests each provider package against the lowest cloud SDK version its range allows, and the
+# library account (connection.kms.getAccount) against the lowest viem its peer range allows. The
+# CI workflow tests the lockfile versions; once Dependabot moves the lockfile forward, only this
 # workflow tests the floor. It runs when a provider package, a manifest, the lockfile, the pnpm
 # settings or the script changes. It is not a required check: path-filtered checks would block
 # merges that do not trigger them.
@@ -9,6 +10,9 @@ on:
   pull_request:
     paths:
       - "packages/hardhat-kms-*/**"
+      - "packages/hardhat-kms/src/internal/viem/**"
+      - "packages/hardhat-kms/test/unit/viem/**"
+      - "packages/hardhat-kms/test/integration/get-account.test.ts"
       - "packages/*/package.json"
       - "package.json"
       - "pnpm-lock.yaml"
@@ -20,6 +24,9 @@ on:
     branches: [main]
     paths:
       - "packages/hardhat-kms-*/**"
+      - "packages/hardhat-kms/src/internal/viem/**"
+      - "packages/hardhat-kms/test/unit/viem/**"
+      - "packages/hardhat-kms/test/integration/get-account.test.ts"
       - "packages/*/package.json"
       - "package.json"
       - "pnpm-lock.yaml"
