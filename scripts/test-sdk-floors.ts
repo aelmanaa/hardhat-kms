@@ -28,8 +28,9 @@ import {
  * Package names of cloud SDKs: the dependencies whose floor matters. google-gax is the transport
  * under @google-cloud/kms. hardhat-kms-gcp depends on it directly and hands it to the client, so
  * its floor is what runs: releases before 6.5.0 never enforce the per-call deadline over REST.
+ * google-auth-library signs the Cloud Logging reads of `kms history` in hardhat-kms-gcp.
  */
-const CLOUD_SDK = /^(@(aws-sdk|google-cloud|azure)\/|google-gax$)/;
+const CLOUD_SDK = /^(@(aws-sdk|google-cloud|azure)\/|google-gax$|google-auth-library$)/;
 
 interface Floor {
   packageName: string;

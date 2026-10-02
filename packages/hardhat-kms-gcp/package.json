@@ -56,13 +56,13 @@
   },
   "dependencies": {
     "@google-cloud/kms": "^6.2.1",
+    "google-auth-library": "^11.0.0",
     "google-gax": "^6.5.0"
   },
   "devDependencies": {
     "@noble/curves": "^2.4.0",
     "@types/node": "catalog:",
     "c8": "catalog:",
-    "google-auth-library": "^11.1.0",
     "hardhat": "catalog:",
     "hardhat-kms": "workspace:*",
     "tsx": "catalog:",

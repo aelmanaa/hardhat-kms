@@ -76,6 +76,16 @@ const STATUS_NAMES = [
 export type StatusName = (typeof STATUS_NAMES)[number];
 
 /**
+ * The name of a gRPC status code, as Cloud Audit Logs records it in `status.code`.
+ *
+ * @param code - The status code.
+ * @returns Its name, or `undefined` for a code that is not a known status.
+ */
+export function statusName(code: number): StatusName | undefined {
+  return Number.isInteger(code) ? STATUS_NAMES[code] : undefined;
+}
+
+/**
  * Reads the gRPC status of an error thrown by the Google Cloud SDK.
  *
  * @param error - Anything thrown.
@@ -86,7 +96,7 @@ export function statusOf(error: unknown): StatusName | undefined {
     return undefined;
   }
   const code: unknown = Reflect.get(error, "code");
-  return typeof code === "number" && Number.isInteger(code) ? STATUS_NAMES[code] : undefined;
+  return typeof code === "number" ? statusName(code) : undefined;
 }
 
 /**

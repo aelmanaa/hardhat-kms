@@ -19,8 +19,15 @@ const sdkPackages = [
   "protobufjs/",
 ];
 
+// The history reader's modules, which only `kms history` on a Google Cloud key loads.
+const historyModules = ["/src/internal/history.ts", "/src/internal/logging-client.ts"];
+
 function sdkModules(urls: string[]): string[] {
-  return urls.filter((url) => sdkPackages.some((name) => url.includes(`/node_modules/${name}`)));
+  return urls.filter(
+    (url) =>
+      sdkPackages.some((name) => url.includes(`/node_modules/${name}`)) ||
+      historyModules.some((name) => url.includes(`/hardhat-kms-gcp${name}`)),
+  );
 }
 
 let scratch: string;
@@ -84,7 +91,7 @@ describe("SDK loading", () => {
       assert.deepEqual(sdkModules(urls), []);
     });
 
-    for (const task of ["address", "public-key", "sign-auth", "sign-tx", "verify"]) {
+    for (const task of ["address", "public-key", "sign-auth", "sign-tx", "verify", "history"]) {
       it(`runs kms ${task} on a key of another provider without loading the Google Cloud SDK (${hooks} hooks)`, () => {
         const { urls, stdout } = run({
           ...recorderEnv,
