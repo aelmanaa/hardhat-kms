@@ -367,6 +367,19 @@ describe("buildHistoryReport", () => {
     assert.equal(entry?.principal, "sa@my-prj.iam.gserviceaccount.com");
   });
 
+  it("masks a short extraIds value inside a principal, as a longer one is", () => {
+    const event = historyEvent({
+      principal: "arn:aws:sts::111122223333:assumed-role/deployer/alice1",
+      extraIds: { sourceIdentity: "alice1" },
+    });
+    const report = buildHistoryReport(input({ result: historyResult({ events: [event] }) }));
+
+    assert.equal(
+      report.events[0]?.principal,
+      "arn:aws:sts::111122223333:assumed-role/deployer/<hidden>",
+    );
+  });
+
   it("prints the scope with its ids hidden, and in full with --show-ids", () => {
     const result = historyResult({
       scope: { description: `us-east-1 ${PLACEHOLDERS.keyArn}`, ids: { account: "999988887777" } },

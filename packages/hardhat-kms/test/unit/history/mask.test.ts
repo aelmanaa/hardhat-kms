@@ -148,6 +148,26 @@ describe("short ids", () => {
     // A %XX escape before a short id is a word boundary.
     assert.equal(mask("projects%2Fmy-prj%2FkeyRings"), "projects%2F<hidden>%2FkeyRings");
     assert.equal(mask("projects%2fMY-PRJ"), "projects%2f<hidden>");
+    assert.equal(mask("projects%252Fmy-prj"), "projects%252F<hidden>");
+    assert.equal(mask("projects%252525252Fmy-prj"), "projects%252525252F<hidden>");
+    // Encoded more than five times is not a boundary, which keeps the lookbehind a fixed size.
+    assert.equal(mask("projects%25252525252Fmy-prj"), "projects%25252525252Fmy-prj");
+  });
+
+  it("masks a short id after a literal backslash escape, never after a bare letter", () => {
+    const mask = maskKeys([], [PROJECT]);
+    assert.equal(mask("projects\\u002Fmy-prj"), "projects\\u002F<hidden>");
+    assert.equal(mask("projects\\x2Fmy-prj"), "projects\\x2F<hidden>");
+    assert.equal(mask("line\\nmy-prj"), "line\\n<hidden>");
+    assert.equal(mask("tab\\tmy-prj"), "tab\\t<hidden>");
+    assert.equal(
+      mask("cr\\rmy-prj ff\\fmy-prj bs\\bmy-prj"),
+      "cr\\r<hidden> ff\\f<hidden> bs\\b<hidden>",
+    );
+    assert.equal(
+      mask("xmy-prj Fmy-prj nmy-prj u002Fmy-prj"),
+      "xmy-prj Fmy-prj nmy-prj u002Fmy-prj",
+    );
   });
 
   it("still masks a long id inside a longer word", () => {

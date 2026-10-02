@@ -13,9 +13,12 @@ const MIN_HIDDEN_LENGTH = 6;
 
 /**
  * Values at least this long are replaced wherever they appear, even inside a longer word. Shorter
- * ones are replaced only as a whole word: not next to a letter, digit, `_` or `-`, in any case. A
- * `%XX` escape before the value counts as a word boundary, so a short id still masks in a
- * URL-encoded path such as `projects%2Fmy-prj`.
+ * ones are replaced only as a whole word: not next to a letter, digit, `_` or `-`, in any case. An
+ * escape before the value counts as a word boundary, so a short id still masks after a `%XX`
+ * escape, encoded up to five times (`projects%2Fmy-prj`, `projects%252Fmy-prj`), and after a
+ * literal backslash escape such as `\u002F`, `\x2F`, `\n` or `\t`. The bound on `%25` keeps the
+ * lookbehind a fixed size: an unbounded `(?:25)*` makes a long run of `%2525…` take quadratic time
+ * when a hidden value starts with `2` or `5`.
  *
  * A short id that is also an ordinary word, such as a project named `signer`, is therefore masked
  * where that word stands alone in a note or user agent, but never inside a longer word such as
@@ -25,7 +28,7 @@ const MIN_HIDDEN_LENGTH = 6;
 const MIN_ANYWHERE_LENGTH = 8;
 
 /** The characters a short value must not touch, on either side. */
-const WORD_BEFORE = "(?<=^|[^A-Za-z0-9_-]|%[0-9A-Fa-f]{2})";
+const WORD_BEFORE = String.raw`(?<=^|[^A-Za-z0-9_-]|%(?:25){0,4}[0-9A-Fa-f]{2}|\\(?:u[0-9A-Fa-f]{4}|x[0-9A-Fa-f]{2}|[nrtbf]))`;
 const WORD_AFTER = "(?![A-Za-z0-9_-])";
 
 /** What a value that names something other than the key prints as. */
@@ -169,9 +172,9 @@ function outside(text: string, keep: string, replace: (part: string) => string):
 
 /**
  * Builds a function that replaces each hidden value in a text, in any case: a key value with the
- * key's display id, any other value with `<hidden>`. A value shorter than 8 characters is
- * replaced only as a whole word. The display id itself is never rewritten, so a literal key's
- * display id stays as it is.
+ * key's display id, any other value with `<hidden>`. A value shorter than
+ * {@link MIN_ANYWHERE_LENGTH} is replaced only as a whole word. The display id itself is never
+ * rewritten, so a literal key's display id stays as it is.
  *
  * @param hidden - The values to hide, from {@link hiddenSet}.
  * @param displayId - What a key value prints as.
