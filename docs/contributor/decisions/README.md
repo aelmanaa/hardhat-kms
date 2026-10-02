@@ -17,3 +17,4 @@ To add a record, copy [template.md](template.md) to the next number and open a p
 | [0009](0009-one-package-per-provider.md)    | Ship each cloud provider as its own package                         | Accepted           |
 | [0010](0010-pnpm-workspaces.md)             | Use pnpm workspaces                                                 | Accepted           |
 | [0011](0011-typed-data-chain-check.md)      | Check typed data's chain only when it names one                     | Accepted           |
+| [0012](0012-api-reference-generator.md)     | Generate the API reference with TypeDoc on TypeScript 6             | Accepted           |
