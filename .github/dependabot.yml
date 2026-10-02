@@ -26,6 +26,7 @@ updates:
           - "@changesets/*"
           - "eslint-plugin-jsdoc"
           - "fast-check"
+          - "@stryker-mutator/*"
           - "@types/*"
       hardhat:
         patterns:

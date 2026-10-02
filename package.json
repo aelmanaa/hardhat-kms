@@ -23,6 +23,7 @@
     "test:live:aws": "pnpm run build && pnpm --filter hardhat-kms-aws run test:live:aws",
     "test:live:azure": "pnpm run build && pnpm --filter hardhat-kms-azure run test:live:azure",
     "test:live:gcp": "pnpm run build && pnpm --filter hardhat-kms-gcp run test:live:gcp",
+    "test:mutation": "pnpm --filter hardhat-kms run test:mutation",
     "test:sdk-floors": "node scripts/test-sdk-floors.ts",
     "test:hardhat-versions": "node scripts/test-hardhat-versions.ts",
     "coverage": "pnpm run build && pnpm -r run coverage",
