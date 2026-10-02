@@ -11,6 +11,7 @@ import hardhatKms from "../../../src/index.ts";
 import { resolveIdentifier } from "../../../src/internal/config/identifiers.ts";
 import { resolveKey } from "../../../src/internal/config/resolve.ts";
 import { SignerCache } from "../../../src/internal/signer/key-cache.ts";
+import type { Timers } from "../../../src/internal/signer/timeout.ts";
 import type {
   AwsKmsKeyConfig,
   AzureKmsKeyConfig,
@@ -302,6 +303,32 @@ describe("SignerCache adapters", () => {
 });
 
 describe("SignerCache idle close", () => {
+  it("does not close while a connection is open, even if the timer was not cancelled", async () => {
+    const { context, key, state } = await setUp();
+    const callbacks: (() => void)[] = [];
+    // Timers whose cancel does nothing: the idle callback runs after a connection reopened.
+    const timers: Timers = {
+      setTimeout(callback) {
+        callbacks.push(callback);
+        return () => {
+          // Does not cancel.
+        };
+      },
+    };
+    const cache = new SignerCache(timers);
+
+    cache.connectionOpened();
+    await cache.signerFor(context, key);
+    cache.connectionClosed();
+    cache.connectionOpened();
+    assert.equal(callbacks.length, 1);
+    for (const callback of callbacks.splice(0)) {
+      callback();
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(state.closed, 0);
+  });
+
   it("waits for a request that is still signing", async () => {
     const { context, key, state } = await setUp();
     const timers = fakeTimers();

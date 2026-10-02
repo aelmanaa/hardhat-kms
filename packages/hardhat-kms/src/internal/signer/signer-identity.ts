@@ -45,7 +45,8 @@ export function signerIdentity(key: KmsKeyConfig): string | undefined {
   let identifier: KmsIdentifier;
   // The identity is only compared for equality. An AWS identity has 10 parts, a Google Cloud or
   // Azure one 7, so the provider tags only have to tell Google Cloud from Azure: changing any one
-  // of them, or dropping it, still leaves every provider's identities apart.
+  // of them, or dropping it, still leaves every provider's identities apart. This rests on the
+  // lengths: a new provider whose identity also has 7 parts needs a test that tells its tag apart.
   if ("keyVersionName" in key) {
     // Stryker disable next-line ArrayDeclaration,StringLiteral: one tag alone is redundant
     parts = ["gcp"];

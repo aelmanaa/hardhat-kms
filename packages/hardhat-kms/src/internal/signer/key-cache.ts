@@ -115,9 +115,8 @@ export class SignerCache {
     this.#cancelIdleClose?.();
     this.#cancelIdleClose = this.#timers.setTimeout(() => {
       this.#cancelIdleClose = undefined;
-      // connectionOpened cancels this timer, so it never fires while a connection is open. The
-      // check is the backstop if a Timers implementation fails to cancel.
-      // Stryker disable next-line ConditionalExpression,BlockStatement: unreachable, see above
+      // connectionOpened cancels this timer. This check is the backstop for a Timers whose cancel
+      // does nothing, and is tested with one.
       if (this.#connections > 0) {
         return;
       }

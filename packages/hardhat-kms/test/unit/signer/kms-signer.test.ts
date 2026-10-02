@@ -385,7 +385,7 @@ describe("KmsSigner", () => {
       );
     });
 
-    it("lets an error that is not about the address leave the pin check unchanged", () => {
+    it("passes through an error that is not an invalid address", () => {
       const options: KmsSignerOptions = { ...baseOptions };
       // A JavaScript caller can break the option's type; the regex test cannot read a symbol.
       Reflect.set(options, "expectedAddress", Symbol("pin"));
@@ -650,9 +650,9 @@ describe("KmsSigner", () => {
     });
 
     it("skips a recovery bit that gives no key, for an address-only key", async () => {
-      // With nonce k = 1, R = G, and s = e makes s * R - e * G the point at infinity: recovery
-      // bit 0 (G's y is even) yields no key. Recovery bit 1 yields the key the signature is
-      // valid for, which is the key the provider's address belongs to.
+      // r = Gx, s = e: candidate R = G (bit 0, G's y is even) gives the point at infinity;
+      // R = -G (bit 1, nonce n - 1) gives the key the signature is valid for, which is the key
+      // the provider's address belongs to.
       const digest = new Uint8Array(32).fill(7);
       const r = secp256k1.Point.BASE.x;
       const s = BigInt(`0x${Buffer.from(digest).toString("hex")}`);
