@@ -148,6 +148,12 @@ describe("hardhat-kms-gcp plugin", () => {
       assert.deepEqual(sign?.digest, { sha256: Buffer.from(digest).toString("base64") });
       assert.equal(sign?.digestCrc32c, String(crc32c(digest)));
       assert.match(String(server.requests[0]?.headers.authorization), /^Bearer /);
+      // Both requests start their user agent with the plugin's tag, before google-auth-library's
+      // own, and Cloud Audit Logs records it as `callerSuppliedUserAgent`.
+      for (const { headers } of server.requests) {
+        assert.ok(String(headers["user-agent"]).startsWith(`hardhat-kms/${ownVersion} `));
+        assert.match(String(headers["user-agent"]), / google-api-nodejs-client\//);
+      }
     }
   });
 

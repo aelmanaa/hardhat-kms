@@ -21,6 +21,19 @@ function ownVersion(): string {
   return version;
 }
 
+/**
+ * The user-agent tag on every Cloud KMS request, which Cloud Audit Logs records as
+ * `callerSuppliedUserAgent`. The version check below makes this package's version the core's too,
+ * so one `hardhat-kms/<version>` tag serves all providers. The tag is reported by the client:
+ * anyone can send the same string.
+ *
+ * @param version - This package's version.
+ * @returns The tag, such as `hardhat-kms/1.0.0`.
+ */
+export function pluginUserAgent(version: string): string {
+  return `hardhat-kms/${version}`;
+}
+
 /** Loads @google-cloud/kms, and the google-gax this package depends on for it to run on. */
 async function loadSdk(): Promise<GcpKmsSdk> {
   const [kms, gax] = await Promise.all([import("@google-cloud/kms"), import("google-gax")]);
@@ -51,7 +64,7 @@ export function kmsHandlers(
         key: key.displayId,
       });
       const { createGcpKeyAdapter } = await import("../adapter.ts");
-      return await createGcpKeyAdapter(key, await sdk());
+      return await createGcpKeyAdapter(key, await sdk(), pluginUserAgent(version));
     },
   };
 }
