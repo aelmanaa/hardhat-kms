@@ -203,6 +203,16 @@ export const ERRORS = {
     cause: "google-auth-library found no Application Default Credentials.",
     fix: "Run `gcloud auth application-default login`, or set `GOOGLE_APPLICATION_CREDENTIALS` to a credentials file.",
   },
+  credentialsFile: {
+    id: "gcp.connect.credentials-file",
+    kind: "error",
+    group: "Connecting",
+    template:
+      "the credentials file GOOGLE_APPLICATION_CREDENTIALS names could not be read. Check that it exists and holds Google Cloud credentials, or unset GOOGLE_APPLICATION_CREDENTIALS and run `gcloud auth application-default login`",
+    cause:
+      "google-auth-library could not load the file `GOOGLE_APPLICATION_CREDENTIALS` points at: it does not exist, is not a file, or does not hold credentials it can parse. The message leaves out the path.",
+    fix: "Point `GOOGLE_APPLICATION_CREDENTIALS` at a credentials file, or unset it and run `gcloud auth application-default login`.",
+  },
   historyKeyName: {
     id: "gcp.history.key-name",
     kind: "error",

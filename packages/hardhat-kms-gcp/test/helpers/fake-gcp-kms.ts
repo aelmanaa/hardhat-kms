@@ -91,6 +91,8 @@ export interface FakeKmsOptions {
   int64Form?: "number" | "string";
   /** Fail every call with this error. */
   callError?: Error;
+  /** Reject `initialize()` with this error, as the SDK does when credentials cannot be loaded. */
+  initializeError?: Error;
   /** Fail this many calls of one method, counted from the first, with this error. */
   failFirst?: { method: "getPublicKey" | "asymmetricSign"; error: Error; times: number };
   /** Answer getPublicKey only after the call's signal aborts, like a late network response. */
@@ -109,10 +111,11 @@ export interface RecordedCall {
   options: GcpCallOptions;
 }
 
-/** A recorded client: what it was created with, and whether it was closed. */
+/** A recorded client: what it was created with, how often it was initialized, and whether it was closed. */
 export interface RecordedClient {
   options: GcpClientOptions;
   gax: GaxModule;
+  initialized: number;
   closed: boolean;
 }
 
@@ -151,8 +154,16 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
   class KeyManagementServiceClient implements GcpKmsClient {
     readonly #record: RecordedClient;
     public constructor(clientOptions: GcpClientOptions, gaxModule?: GaxModule) {
-      this.#record = { options: clientOptions, gax: gaxModule, closed: false };
+      this.#record = { options: clientOptions, gax: gaxModule, initialized: 0, closed: false };
       clients.push(this.#record);
+    }
+
+    public async initialize(): Promise<void> {
+      this.#record.initialized++;
+      if (options.initializeError !== undefined) {
+        throw options.initializeError;
+      }
+      await Promise.resolve();
     }
 
     public async getPublicKey(request: { name: string }, callOptions: GcpCallOptions) {

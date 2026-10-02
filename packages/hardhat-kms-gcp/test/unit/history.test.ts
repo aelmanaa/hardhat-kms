@@ -649,7 +649,7 @@ describe("the Google Cloud history reader", () => {
       assert.match(message, /Cloud Logging API is disabled .*\(SERVICE_DISABLED\)/);
     });
 
-    it("explains refused and missing credentials", async () => {
+    it("explains refused, missing and unreadable credentials", async () => {
       assert.match(
         (await failure([httpError(401, "UNAUTHENTICATED")])).message,
         /credentials were refused \(UNAUTHENTICATED\)/,
@@ -658,6 +658,21 @@ describe("the Google Cloud history reader", () => {
         (await failure([new Error("Could not load the default credentials. Browse to …")])).message,
         /no Google Cloud credentials found/,
       );
+      // google-auth-library keeps the file system error's code, which is not a network code.
+      const { message, requests } = await failure([
+        Object.assign(
+          new Error(
+            "Unable to read the credential file specified by the GOOGLE_APPLICATION_CREDENTIALS environment variable: The file at /secret/adc.json does not exist",
+          ),
+          { code: "ENOENT" },
+        ),
+      ]);
+      assert.equal(requests.length, 1);
+      assert.match(
+        message,
+        /credentials file GOOGLE_APPLICATION_CREDENTIALS names could not be read/,
+      );
+      assert.doesNotMatch(message, /secret/);
     });
 
     it("gives the HTTP status and its name for other answers, without the server's message", async () => {

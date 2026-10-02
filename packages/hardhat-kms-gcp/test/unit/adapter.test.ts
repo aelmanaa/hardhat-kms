@@ -385,6 +385,38 @@ describe("Google Cloud KMS adapter", () => {
       ]);
     });
 
+    const UNREADABLE_FILE =
+      "Unable to read the credential file specified by the GOOGLE_APPLICATION_CREDENTIALS environment variable: The file at /secret/path/adc.json does not exist, or it is not a file. ENOENT: no such file or directory";
+
+    it("explains a credentials file that cannot be read, without its path", async () => {
+      const { adapter } = await adapterFor({ callError: new Error(UNREADABLE_FILE) });
+      await assert.rejects(lookUp(adapter), (error: unknown) => {
+        assert.ok(error instanceof HardhatPluginError);
+        assert.ok(error.message.includes("gcp, connect,"), error.message);
+        assert.ok(
+          error.message.includes("the credentials file GOOGLE_APPLICATION_CREDENTIALS names"),
+          error.message,
+        );
+        assert.ok(!error.message.includes("/secret/path"), error.message);
+        return true;
+      });
+    });
+
+    it("initializes the client before each call, and makes no call when that fails", async () => {
+      const { adapter, calls, clients } = await adapterFor({
+        initializeError: new Error(UNREADABLE_FILE),
+      });
+      for (const attempt of [lookUp(adapter), sign(adapter)]) {
+        await assertGcpError(attempt, ["gcp, connect,", "GOOGLE_APPLICATION_CREDENTIALS names"]);
+      }
+      assert.deepEqual(calls, []);
+      assert.equal(clients[0]?.initialized, 2);
+
+      const healthy = await adapterFor();
+      await sign(healthy.adapter);
+      assert.equal(healthy.clients[0]?.initialized, healthy.calls.length);
+    });
+
     it("passes other errors on unchanged", async () => {
       for (const error of [new Error("socket hang up"), googleError(99, "?")]) {
         const { adapter } = await adapterFor({ callError: error });

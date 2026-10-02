@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { crc32cMatches, int64Value, networkErrorCode, statusOf } from "../../src/internal/wire.ts";
+import {
+  crc32cMatches,
+  credentialFailure,
+  int64Value,
+  networkErrorCode,
+  statusOf,
+} from "../../src/internal/wire.ts";
 
 const withCode = (code: unknown) => Object.assign(new Error("x"), { code });
 const withCause = (cause: unknown) => Object.assign(new Error("x"), { cause });
@@ -62,6 +68,29 @@ describe("Google Cloud KMS wire formats", () => {
       { cause: { code: "ECONNREFUSED" } },
     ]) {
       assert.equal(networkErrorCode(bad), undefined);
+    }
+  });
+
+  it("recognises google-auth-library's credentials failures, and nothing else", () => {
+    assert.equal(
+      credentialFailure(new Error("Could not load the default credentials. Browse to …")),
+      "noCredentials",
+    );
+    assert.equal(
+      credentialFailure(
+        new Error(
+          "Unable to read the credential file specified by the GOOGLE_APPLICATION_CREDENTIALS environment variable: Unexpected token",
+        ),
+      ),
+      "credentialsFile",
+    );
+    for (const other of [
+      new Error("socket hang up"),
+      "Could not load the default credentials",
+      { message: "Could not load the default credentials" },
+      undefined,
+    ]) {
+      assert.equal(credentialFailure(other), undefined);
     }
   });
 });
