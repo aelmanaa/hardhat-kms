@@ -208,7 +208,7 @@ packages/hardhat-kms-aws/src/
                             lazy `kms` hook handler import; references "hardhat-kms/types" for the config types
   internal/
     hook-handlers/kms.ts    claims `aws` keys, passes other keys to next; imports the adapter and the SDK on first use
-    adapter.ts              createAwsKeyAdapter(key, sdk): GetPublicKey, Sign, key spec checks, ARN pinning
+    adapter.ts              createAwsKeyAdapter(key, sdk, userAgent): GetPublicKey, Sign, key spec checks, ARN pinning
 ```
 
 `packages/hardhat-kms-azure` follows it, with one more module, `internal/credential.ts`, which builds the credential chain that all Azure keys of a runtime share. Its handler loads `@azure/keyvault-keys`, `@azure/identity`, the credential module and the adapter together, once per runtime. Key Vault's formats need no module of their own: the public key is a JWK, which `publicKeyFromJwk` in `hardhat-kms/provider-utils` reads, and signatures are 64 bytes `r || s`, which the core parses. `packages/hardhat-kms-gcp` follows it too, with a pure `wire.ts` that reads the CRC32C checksums and the gRPC status codes of Google Cloud's responses.

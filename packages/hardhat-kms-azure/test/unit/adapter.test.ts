@@ -20,6 +20,7 @@ import {
 } from "../helpers/fake-key-vault.ts";
 
 const secretKey = secp256k1.utils.randomSecretKey();
+const USER_AGENT = "hardhat-kms/1.2.3";
 const context = () => ({
   signal: new AbortController().signal,
   displayMessage: async () => {},
@@ -43,7 +44,7 @@ function azureKey(keyId: string, display = keyId): AzureKmsKeyConfig {
 
 async function adapterFor(keyId: string, options: Partial<FakeKeyVaultOptions> = {}) {
   const fake = fakeKeyVaultSdk({ secretKey, ...options });
-  const adapter = await createAzureKeyAdapter(azureKey(keyId), fake.sdk, credential);
+  const adapter = await createAzureKeyAdapter(azureKey(keyId), fake.sdk, credential, USER_AGENT);
   return { adapter, ...fake };
 }
 
@@ -139,7 +140,12 @@ describe("Azure Key Vault adapter", () => {
       key = secp256k1.utils.randomSecretKey();
     }
     const fake = fakeKeyVaultSdk({ secretKey: key, kty: "EC-HSM", trimCoordinates: true });
-    const adapter = await createAzureKeyAdapter(azureKey(VERSIONED_KEY_URL), fake.sdk, credential);
+    const adapter = await createAzureKeyAdapter(
+      azureKey(VERSIONED_KEY_URL),
+      fake.sdk,
+      credential,
+      USER_AGENT,
+    );
 
     assert.deepEqual(await adapter.getPublicKey?.(context()), secp256k1.getPublicKey(key, false));
   });
@@ -150,6 +156,7 @@ describe("Azure Key Vault adapter", () => {
       azureKey(VERSIONED_KEY_URL, "<AZURE_KEY_VAULT_KEY_ID>"),
       fake.sdk,
       credential,
+      USER_AGENT,
     );
 
     assert.deepEqual(adapter.describe(), {
@@ -165,6 +172,7 @@ describe("Azure Key Vault adapter", () => {
         azureKey("https://example.com/keys/a"),
         fakeKeyVaultSdk({ secretKey }).sdk,
         credential,
+        USER_AGENT,
       ),
       [
         "azure, create adapter, key azure:https://example.com/keys/a:",
@@ -258,6 +266,7 @@ describe("Azure Key Vault adapter", () => {
           },
         },
         credential,
+        USER_AGENT,
       );
       await assert.rejects(
         adapter.getPublicKey?.(context()) ?? Promise.resolve(),

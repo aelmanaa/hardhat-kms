@@ -130,6 +130,12 @@ describe("hardhat-kms-azure plugin", () => {
     );
     assert.equal(vault.requests.length - authorized.length, 2);
     assert.ok(vault.requests.every((request) => request.apiVersion !== null));
+    // Both clients put the plugin's tag before the SDK's own user agent, which the Key Vault audit
+    // log records as `ClientInfo`.
+    for (const { userAgent } of vault.requests) {
+      assert.ok(userAgent !== undefined && userAgent.startsWith(`hardhat-kms/${ownVersion} `));
+      assert.match(userAgent, /azsdk-js-keyvault-keys\//);
+    }
     const sign = authorized[1]?.body;
     assert.equal(sign?.alg, "ES256K");
     assert.equal(sign?.value, Buffer.from(digest).toString("base64url"));
@@ -194,12 +200,12 @@ describe("hardhat-kms-azure plugin", () => {
     const fail = new Error("load failed");
     hre.hooks.registerHandlers(
       "kms",
-      kmsHandlers(ownVersion, async () => {
+      kmsHandlers(ownVersion, async (userAgent) => {
         loads += 1;
         if (loads === 1) {
           throw fail;
         }
-        return await loaderFor(keyVault, staticCredential())();
+        return await loaderFor(keyVault, staticCredential())(userAgent);
       }),
     );
 

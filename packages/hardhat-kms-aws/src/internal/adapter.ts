@@ -163,17 +163,22 @@ class AwsKeyAdapter implements KmsKeyAdapter {
  *
  * @param key - The resolved key.
  * @param sdk - The @aws-sdk/client-kms module.
+ * @param userAgent - The plugin's user-agent tag, such as `hardhat-kms/1.0.0`.
  * @returns The adapter.
  */
 export async function createAwsKeyAdapter(
   key: AwsKmsKeyConfig,
   sdk: AwsKmsSdk,
+  userAgent: string,
 ): Promise<KmsKeyAdapter> {
   const keyId = await key.keyId.get();
   // A key ARN names its region; it wins over the configured one, which the config checks already
   // compared with it.
   const region = parseAwsKeyId(keyId)?.region ?? key.region;
   const client = new sdk.KMSClient({
+    // Appended to the SDK's own user agent, so CloudTrail's `userAgent` shows which calls came
+    // through the plugin. `userAgentAppId` stays free for the user's AWS_SDK_UA_APP_ID.
+    customUserAgent: userAgent,
     ...(region === undefined ? {} : { region }),
     ...(key.profile === undefined ? {} : { profile: key.profile }),
     ...(key.endpoint === undefined ? {} : { endpoint: key.endpoint }),

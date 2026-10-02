@@ -24,13 +24,26 @@ function ownVersion(): string {
 export type AzureAdapterFactory = (key: AzureKmsKeyConfig) => Promise<KmsKeyAdapter>;
 
 /**
- * Loads the SDK, builds the credential and returns the adapter factory that uses them. Tests pass
- * a loader that builds adapters on fakes, or on the real SDK with a fake HTTP client.
+ * Loads the SDK, builds the credential and returns the adapter factory that uses them, with the
+ * user-agent tag for every Key Vault request. Tests pass a loader that builds adapters on fakes,
+ * or on the real SDK with a fake HTTP client.
  */
-export type AzureAdapterFactoryLoader = () => Promise<AzureAdapterFactory>;
+export type AzureAdapterFactoryLoader = (userAgent: string) => Promise<AzureAdapterFactory>;
+
+/**
+ * The user-agent tag on every Key Vault request, which the Key Vault audit log records. The version
+ * check makes this package's version the core's too, so one `hardhat-kms/<version>` tag serves all
+ * providers. The tag is reported by the client: anyone can send the same string.
+ *
+ * @param version - This package's version.
+ * @returns The tag, such as `hardhat-kms/1.0.0`.
+ */
+export function pluginUserAgent(version: string): string {
+  return `hardhat-kms/${version}`;
+}
 
 /** Loads @azure/keyvault-keys and @azure/identity, and builds the credential chain. */
-const loadAdapterFactory: AzureAdapterFactoryLoader = async () => {
+const loadAdapterFactory: AzureAdapterFactoryLoader = async (userAgent) => {
   const [keyVault, identity, { createAzureCredential }, { createAzureKeyAdapter }] =
     await Promise.all([
       import("@azure/keyvault-keys"),
@@ -40,7 +53,7 @@ const loadAdapterFactory: AzureAdapterFactoryLoader = async () => {
     ]);
   // oxlint-disable-next-line node/no-process-env -- ManagedIdentityCredential does not read AZURE_CLIENT_ID itself, and DefaultAzureCredential has another order than Foundry's
   const credential = createAzureCredential(identity, process.env.AZURE_CLIENT_ID);
-  return async (key) => await createAzureKeyAdapter(key, keyVault, credential);
+  return async (key) => await createAzureKeyAdapter(key, keyVault, credential, userAgent);
 };
 
 /**
@@ -68,7 +81,7 @@ export function kmsHandlers(
         operation: "create adapter",
         key: key.displayId,
       });
-      factory ??= load();
+      factory ??= load(pluginUserAgent(version));
       let create: AzureAdapterFactory;
       try {
         create = await factory;

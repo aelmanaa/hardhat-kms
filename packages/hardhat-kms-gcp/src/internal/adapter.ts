@@ -338,6 +338,8 @@ export async function createGcpKeyAdapter(
 ): Promise<KmsKeyAdapter> {
   const name = await key.keyVersionName.get();
   // REST rather than gRPC: a gRPC channel would keep `hardhat run` alive after the script ends.
+  // No `hardhat-kms/<version>` user-agent tag yet, unlike AWS and Azure: which header Cloud Audit
+  // Logs shows as `callerSuppliedUserAgent` is unverified, so the tag waits for a live check (#126).
   const client = new sdk.KeyManagementServiceClient({ fallback: true }, sdk.gax);
   return new GcpKeyAdapter(key, name, client);
 }

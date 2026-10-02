@@ -163,6 +163,7 @@ Run it with `npx hardhat run scripts/check-kms.ts`. Each run reads the key once,
 - It signs the 32-byte digest with `ES256K` against the versioned key id. Key Vault signs the digest as given and returns 64 bytes, `r || s`.
 - It checks that the `kid` of each sign response names the pinned version, and refuses the signature otherwise.
 - It normalizes each signature to low-S, recovers the parity and verifies it against the public key before using it; see the [signing pipeline](../../contributor/signing-pipeline.md).
+- It puts `hardhat-kms/<version>` at the start of the user agent of every request, so the `ClientInfo` column of the `AZKVAuditLogs` table starts with `hardhat-kms/1.0.0` (with your installed version) when a diagnostic setting sends audit events to a workspace. The client reports this tag and anyone can send the same string, so it marks the plugin's calls but proves nothing.
 
 ## Errors
 

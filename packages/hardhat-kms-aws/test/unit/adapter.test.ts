@@ -9,6 +9,7 @@ import { createAwsKeyAdapter } from "../../src/internal/adapter.ts";
 import { fakeAwsKmsSdk, type FakeKmsOptions, KEY_ARN } from "../helpers/fake-aws-kms.ts";
 
 const secretKey = secp256k1.utils.randomSecretKey();
+const USER_AGENT = "hardhat-kms/1.2.3";
 const context = () => ({
   signal: new AbortController().signal,
   displayMessage: async () => {},
@@ -33,7 +34,7 @@ function awsKey(
 
 async function adapterFor(key: AwsKmsKeyConfig, options: Partial<FakeKmsOptions> = {}) {
   const fake = fakeAwsKmsSdk({ secretKey, ...options });
-  const adapter = await createAwsKeyAdapter(key, fake.sdk);
+  const adapter = await createAwsKeyAdapter(key, fake.sdk, USER_AGENT);
   return { adapter, ...fake };
 }
 
@@ -108,14 +109,20 @@ describe("AWS KMS adapter", () => {
       endpoint: "http://localhost:4566",
     });
 
-    assert.deepEqual((await adapterFor(arn)).clients[0]?.config, { region: "eu-west-1" });
+    assert.deepEqual((await adapterFor(arn)).clients[0]?.config, {
+      customUserAgent: USER_AGENT,
+      region: "eu-west-1",
+    });
     assert.deepEqual((await adapterFor(plain)).clients[0]?.config, {
+      customUserAgent: USER_AGENT,
       region: "us-east-1",
       profile: "ci",
       endpoint: "http://localhost:4566",
     });
     // No region anywhere: the SDK's own chain (AWS_REGION, profiles) decides.
-    assert.deepEqual((await adapterFor(awsKey("alias/a"))).clients[0]?.config, {});
+    assert.deepEqual((await adapterFor(awsKey("alias/a"))).clients[0]?.config, {
+      customUserAgent: USER_AGENT,
+    });
   });
 
   it("describes the key by its display values, and closes the client", async () => {
