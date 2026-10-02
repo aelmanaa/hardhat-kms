@@ -91,6 +91,7 @@ Decision records:
 - [0009: Ship each cloud provider as its own package](docs/contributor/decisions/0009-one-package-per-provider.md)
 - [0010: Use pnpm workspaces](docs/contributor/decisions/0010-pnpm-workspaces.md)
 - [0011: Check typed data's chain only when it names one](docs/contributor/decisions/0011-typed-data-chain-check.md)
+- [0012: Generate the API reference with TypeDoc on TypeScript 6](docs/contributor/decisions/0012-api-reference-generator.md)
 
 Rules for every change:
 

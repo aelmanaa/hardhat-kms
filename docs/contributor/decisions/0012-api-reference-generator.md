@@ -6,7 +6,7 @@ Issue: [#73](https://github.com/aelmanaa/hardhat-kms/issues/73)
 
 ## Context
 
-The public API of `hardhat-kms` (`.`, `./types` and `./provider-utils`) is documented in TSDoc, and the reference pages should be generated from it. The repository compiles with TypeScript 7.0.2 (decision 0007). That package exposes the compiler API only under `typescript/unstable/*`, so a tool that imports `typescript` cannot use it.
+The public API of `hardhat-kms` (`.`, `./types` and `./provider-utils`) is documented in TSDoc, and the reference pages should be generated from it. In `./types`, the `kms` hook and the adapter contract are marked `@experimental`; the whole of `./provider-utils` is, including the error catalogue helpers (`catalogError`, `catalogMessage`, `internalError` and their types), which only the first-party provider packages use. Two reference pages already exist: the [errors reference](../../user/reference/errors.md), generated from the error catalogues ([#72](https://github.com/aelmanaa/hardhat-kms/issues/72)), and the [provider contract](../providers.md), whose interface block `docs:check` typechecks against `hardhat-kms/types` ([#174](https://github.com/aelmanaa/hardhat-kms/issues/174)). The repository compiles with TypeScript 7.0.2 (decision 0007). That package exposes the compiler API only under `typescript/unstable/*`, so a tool that imports `typescript` cannot use it.
 
 The two candidates, at their latest versions on 2026-10-01:
 
@@ -26,7 +26,12 @@ Checked by execution on 2026-10-01, Node 24.16.0, against `main` at `eaa38d7`:
 3. TypeDoc ran on `packages/hardhat-kms/dist/src/index.d.ts`, `types.d.ts` and `provider-utils.d.ts`, with `--outputFileStrategy modules`, `--disableSources` and `--treatWarningsAsErrors`. It exited without warnings and wrote one Markdown page per entry point plus an index (five files).
 4. The pages contained no "Defined in" lines and no file-system or `node_modules` paths. The `@experimental` tags showed on `types` and `provider-utils`.
 
-An earlier spike on the same day ran API Extractor 7.59.3 on the same three entry points. All three passed, with TSDoc syntax warnings on two comments in `internal/crypto/public-key.d.ts` (an unescaped `}`). It analyses one entry point per run. TypeDoc without `--disableSources` printed "Defined in" lines with build paths and a `node_modules` path.
+Rechecked on 2026-10-02 against `main` at `cbec96a`, with the same versions and options:
+
+5. With `--treatWarningsAsErrors`, TypeDoc stopped on four warnings, all from the catalogue helpers that `./provider-utils` gained after `eaa38d7`. `TemplateParams` refers to three types that are not exported (`Complete`, `UnionToIntersection` and `PlaceholderValues`), and its comment links to `fillTemplate`, which is not exported either.
+6. Without that option, it wrote the same five files. They still had no "Defined in" lines and no file-system or `node_modules` paths, and the `@experimental` tags showed on `types` and `provider-utils`.
+
+An earlier spike on 2026-10-01 ran API Extractor 7.59.3 on the same three entry points. All three passed, with TSDoc syntax warnings on two comments in `internal/crypto/public-key.d.ts` (an unescaped `}`). It analyses one entry point per run. TypeDoc without `--disableSources` printed "Defined in" lines with build paths and a `node_modules` path.
 
 ## Decision
 
@@ -45,4 +50,8 @@ API Extractor is not chosen now. It analyses with its bundled TypeScript 5.9, so
 - The `.d.ts` files TypeDoc reads are the ones CI already typechecks on TypeScript 5.9, 6.0 and 7.0, so TypeScript 6 reading them is a supported case.
 - The alias pins the wrapper, not the TypeScript inside it: `@typescript/typescript6` depends on `typescript@^6`, and the lockfile holds the exact version. A TypeScript 6 patch arrives through a lockfile update.
 - The generated pages must be rebuilt after `pnpm run build`, since they depend on `dist/`.
+- The four warnings in Evidence item 5 must be cleared before the run can treat warnings as errors, for example by exporting the helper types or by removing the `fillTemplate` link from the `TemplateParams` comment.
+- The errors reference shows how a generated page is kept current: a script writes it, and `docs:check` renders it again and fails when the committed file differs. The API pages can follow the same pattern.
+- `docs:check` requires every page under `docs/` to be linked from `AGENTS.md` and `docs/README.md`. The generated pages need those links, or an exception in `checkIndexes`.
+- The provider contract page stays hand-written. Its typechecked block cannot drift from `hardhat-kms/types`, and it explains what the generated `types` page does not: which adapter method the core calls for each request, and the rules an adapter follows.
 - Revisit when TypeDoc supports TypeScript 7 (TypeStrong/typedoc#3098). Then drop the alias and let the tools package use the workspace TypeScript.
