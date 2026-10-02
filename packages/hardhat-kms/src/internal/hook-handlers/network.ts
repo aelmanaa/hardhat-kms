@@ -83,11 +83,14 @@ const hasKeys = (keys: NetworkKeys): boolean =>
  *
  * @param timers - Timer functions for the idle close and the retry entries, for tests.
  * @param load - Loads viem for `connection.kms.getAccount`, for tests.
+ * @param highWaterOnSimulated - Keeps the nonce high-water mark on `edr-simulated` networks too,
+ * for tests that need it there.
  * @returns The handlers.
  */
 export function createNetworkHandlers(
   timers: Timers = systemTimers,
   load: LoadViem = loadViem,
+  highWaterOnSimulated = false,
 ): Partial<NetworkHooks> {
   const cache = new SignerCache(timers);
   const accountsByConnection = new WeakMap<object, ConnectionAccounts>();
@@ -138,7 +141,7 @@ export function createNetworkHandlers(
     let sends = sendsByConnection.get(connection);
     if (sends === undefined) {
       sends = new ConnectionSends({
-        highWater: connection.networkConfig.type !== "edr-simulated",
+        highWater: highWaterOnSimulated || connection.networkConfig.type !== "edr-simulated",
         timers,
       });
       sendsByConnection.set(connection, sends);
@@ -151,10 +154,22 @@ export function createNetworkHandlers(
       const connection = await next(context);
       // Set on every connection, as hardhat-viem sets `connection.viem`; viem loads only when
       // getAccount is called.
+      const accounts = accountsOf(context, connection);
       connection.kms = createKmsNetworkConnection(
         {
           network: connection.networkName,
-          accounts: accountsOf(context, connection),
+          accounts: {
+            // A key found here is a library account's: the dispatcher leases its nonce reads.
+            keyFor: async (address) => {
+              const key = await accounts.keyFor(address);
+              if (key !== undefined) {
+                sendsOf(connection).addLibraryAccount(address);
+              }
+              return key;
+            },
+            addresses: async () => await accounts.addresses(),
+            signWith: async (key, sign) => await accounts.signWith(key, sign),
+          },
           chainId: async () => await chainOf(connection).chainId(),
           allowCrossChainTypedData: context.config.kms.allowCrossChainTypedData,
           closed: () => closed.has(connection),

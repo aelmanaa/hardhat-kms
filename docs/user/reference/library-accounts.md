@@ -5,7 +5,7 @@ Audience: Users and library authors who need a viem account object for a KMS key
 Status: `connection.kms.getAccount` is implemented ([#51](https://github.com/aelmanaa/hardhat-kms/issues/51)). The rule for bare digests is [decision 0014](../../contributor/decisions/0014-library-account-raw-sign.md).
 
 > [!WARNING]
-> Do not send transactions through this account; use `connection.viem.getWalletClient(address)` for sends. viem fills the nonce of a local account's transaction and sends it with `eth_sendRawTransaction` itself, so the plugin's send lock and nonce tracking never see it ([Sending](#sending), [#186](https://github.com/aelmanaa/hardhat-kms/issues/186)). Two failures follow when the same key also sends through the plugin, or through a second client:
+> Send the account's transactions through the connection, with a viem client whose transport is `custom(connection.provider)`. viem fills a local account's nonce and sends its transactions with `eth_sendRawTransaction` itself. Through the connection, the plugin orders those requests with the account's sends through the plugin ([Sending](#sending)). A viem client with its own transport, such as `http(url)`, never goes through Hardhat, so the plugin's send lock and nonce tracking never see its sends. Two failures follow when the same key also sends through the plugin, or through a second client:
 >
 > - nonce too low: the two paths pick the same nonce, and the node refuses the second transaction;
 > - on a real network, a same-nonce higher-fee replacement whose receipt viem returns as yours: the node keeps whichever transaction pays more, and viem's `waitForTransactionReceipt` follows the replacement and returns its receipt, so the code reads another transaction's receipt as the one it sent.
@@ -97,13 +97,27 @@ Each error is listed with its cause and fix in the [errors reference](errors.md#
 
 ## Sending
 
-viem sends a local account's transactions itself. It fills the nonce and fees, calls `signTransaction`, then sends `eth_sendRawTransaction`, so the plugin's send lock, nonce high-water mark and retry cache never see those sends ([RPC methods](rpc-methods.md#parallel-sends-and-failed-broadcasts)). Two clients sending from one account at once can pick the same nonce, with the two failures the warning at the top of this page names. The first transaction an account signs in a process prints:
+viem sends a local account's transactions itself. It reads the nonce with `eth_getTransactionCount [address, "pending"]`, or takes it from `eth_fillTransaction` on a node that has that method. It then fills the fees, calls `signTransaction`, and sends `eth_sendRawTransaction`. When these requests go through the connection, the plugin orders them with the account's sends through the plugin in the same process, such as `connection.viem.getWalletClient(address)`, scripts and Ignition:
+
+- The nonce read waits until a send of the account through the plugin that is in progress has been broadcast, so the node counts it. When the connection's nonce high-water mark is at or above the node's pending count, `eth_getTransactionCount` answers the mark plus one. An `eth_fillTransaction` answer is passed on unchanged.
+- After that read, the account's next send through the plugin without a nonce of its own waits until the raw transaction that uses the nonce has been sent, for 10 seconds at most.
+- The raw transaction goes to the node under the account's send lock, unchanged, and the node's answer comes back unchanged. When the node takes it, or answers that it already has it, its nonce raises the high-water mark, so the plugin's next send takes a higher nonce even from a node whose pending count lags. When the node does not answer, the plugin's next send first asks the node whether it has the transaction.
+
+Some cases stay outside this:
+
+- A viem client with its own transport, such as `http(url)` or `webSocket(url)`: its requests never reach Hardhat. Another process is not ordered either.
+- Two clients that send through library accounts of one key at the same time can read the same nonce, as two viem clients with one private key can. Send one after the other.
+- A script that reads the account's pending count without sending, after `getAccount` gave out the account, holds back the account's next send through the plugin for up to 10 seconds.
+- A raw transaction from a KMS address goes on untouched until the connection has looked up its KMS addresses. `getAccount`, a send and `eth_accounts` do that.
+- A raw transaction from the account, sent by code that runs inside a send from the same account, such as a network hook during the fill, fails at once and is not sent: it would wait for itself. Its error is `core.tx.raw-send-reentrant` ([Errors](errors.md#transactions)).
+
+The first transaction an account signs in a process prints:
 
 ```text
-hardhat-kms: a transaction signed by a connection.kms.getAccount account is sent by viem with eth_sendRawTransaction, which bypasses the plugin's nonce tracking and send lock. Send from a KMS account with connection.viem.getWalletClient(address); see https://github.com/aelmanaa/hardhat-kms/issues/186.
+hardhat-kms: a transaction signed by a connection.kms.getAccount account is ordered with the plugin's own sends only when viem sends it through the connection, as with custom(connection.provider). A client with its own transport, such as http(url), bypasses the plugin's nonce tracking and send lock; see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.
 ```
 
-To send transactions from a KMS account, use `connection.viem.getWalletClient(address)` from hardhat-viem, which sends through the plugin. Use the account for what a JSON-RPC account cannot do: viem's `signAuthorization`, a smart-account owner, and signatures in code that has no wallet client. [#186](https://github.com/aelmanaa/hardhat-kms/issues/186) tracks sending raw transactions from KMS accounts through the plugin's nonce tracking.
+`connection.viem.getWalletClient(address)` from hardhat-viem is still the simpler way to send from a KMS account. The plugin fills, signs and broadcasts under one lock, and a retry after a broadcast that got no answer sends the same bytes again; raw transactions have no retry cache. Use the account for what a JSON-RPC account cannot do: viem's `signAuthorization`, a smart-account owner, and signatures in code that has no wallet client.
 
 ## Examples
 

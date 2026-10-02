@@ -1,3 +1,6 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import {
@@ -8,6 +11,7 @@ import {
 } from "@nomicfoundation/hardhat-zod-utils/rpc";
 import type { HookContext } from "hardhat/types/hooks";
 import type { JsonRpcRequest, JsonRpcResponse } from "hardhat/types/providers";
+import { Transaction } from "micro-eth-signer";
 
 import type { KmsKeyConfig } from "../../types.ts";
 import { keyIdentity } from "../config/key-identity.ts";
@@ -24,6 +28,8 @@ import {
   RETRY_TTL_MS,
   SendOutcomeUnknownError,
   type SentTransaction,
+  describeSendKey,
+  holdsSendLock,
   withSendLock,
 } from "./send-guard.ts";
 import { notPlainData, type TransactionFiller } from "./transaction-filler.ts";
@@ -31,6 +37,12 @@ import { signTransaction } from "./transactions.ts";
 import { checkTypedDataChain, readTypedData } from "./typed-data.ts";
 
 const log = kmsDebug("rpc");
+
+/**
+ * Set while `eth_signTransaction` fills a KMS account's transaction, so the filler's pending-count
+ * read passes on unchanged: that method never reads the high-water mark (rule 5).
+ */
+const signingWithoutSend = new AsyncLocalStorage<boolean>();
 
 /** The KMS keys of one network connection. */
 export interface NetworkKeys {
@@ -54,6 +66,12 @@ const SENDER_METHODS = new Set([
   "personal_sign",
   "eth_signTypedData_v4",
 ]);
+
+/**
+ * The reads from which a client that signs for itself, such as viem for a local account, takes a
+ * KMS account's next nonce.
+ */
+const NONCE_READ_METHODS = new Set(["eth_getTransactionCount", "eth_fillTransaction"]);
 
 /** How many KMS addresses an "unknown account" error lists before it says "and N more". */
 const LISTED_KMS_ADDRESSES = 10;
@@ -89,6 +107,7 @@ export class ConnectionAccounts {
   readonly #network: NetworkKeys;
   readonly #keys: readonly KmsKeyConfig[];
   #addresses: Promise<Map<string, KmsKeyConfig>> | undefined;
+  #known: ReadonlyMap<string, KmsKeyConfig> | undefined;
 
   /**
    * @param context - The Hardhat runtime.
@@ -100,6 +119,11 @@ export class ConnectionAccounts {
     this.#cache = cache;
     this.#network = network;
     this.#keys = [...network.config, ...network.commandLine];
+  }
+
+  /** Whether the KMS addresses have been looked up, so {@link isKnownKmsAccount} can answer. */
+  public get hasKnownAddresses(): boolean {
+    return this.#known !== undefined;
   }
 
   /** Whether the connection has KMS keys at all. */
@@ -153,6 +177,17 @@ export class ConnectionAccounts {
   }
 
   /**
+   * Tells whether an address is a KMS account, from addresses already looked up. It never looks
+   * them up, so it makes no KMS call and cannot fail.
+   *
+   * @param address - A lowercase address.
+   * @returns Whether it is; `false` too while the addresses have not been looked up.
+   */
+  public isKnownKmsAccount(address: string): boolean {
+    return this.#known?.has(address) ?? false;
+  }
+
+  /**
    * Signs with a key's signer. The idle close waits until `sign` has finished.
    *
    * @param key - A key from {@link ConnectionAccounts.keyFor}.
@@ -199,6 +234,7 @@ export class ConnectionAccounts {
       byAddress.set(normalized, key);
     }
     log("accounts: %s", [...byAddress.values()].map((key) => key.displayId).join(", "));
+    this.#known = byAddress;
     return byAddress;
   }
 
@@ -321,20 +357,34 @@ export async function dispatch(
     if ("kms" in outcome) {
       // eth_signTransaction takes no lock and leaves the high-water mark alone (rule 5).
       const { key, address, params: signParams } = outcome.kms;
-      const signed = await accounts.signWith(
-        key,
-        async (signer) =>
-          await signTransaction(signer, {
-            filler: transactions.filler(),
-            method: request.method,
-            params: signParams,
-            from: address,
-          }),
+      const signed = await signingWithoutSend.run(
+        true,
+        async () =>
+          await accounts.signWith(
+            key,
+            async (signer) =>
+              await signTransaction(signer, {
+                filler: transactions.filler(),
+                method: request.method,
+                params: signParams,
+                from: address,
+              }),
+          ),
       );
       return response(request, signed.raw);
     }
     if (outcome.params !== undefined) {
       return await passThrough(accounts, { ...request, params: outcome.params }, next);
+    }
+  } else if (request.method === "eth_sendRawTransaction") {
+    const raw = rawKmsTransaction(accounts, params);
+    if (raw !== undefined) {
+      return await sendRawTransaction(request, raw, transactions, next);
+    }
+  } else if (NONCE_READ_METHODS.has(request.method) && signingWithoutSend.getStore() !== true) {
+    const address = nonceReadAddress(request.method, params);
+    if (address !== undefined && accounts.isKnownKmsAccount(address)) {
+      return await readNonceAfterSends(request, address, transactions, next);
     }
   }
   return await passThrough(accounts, request, next);
@@ -595,7 +645,22 @@ async function sendTransaction(
     callerParams === undefined ? undefined : `${chainId}\0${address}\0${callerParams}`;
   const nodeHas = async (hash: string): Promise<boolean> =>
     await nodeHasTransaction(transactions, hash);
-  return await withSendLock(`${chainId}:${address}`, async () => {
+  const leased = (): boolean => !kms.callerNonce && sends.hasLease(address);
+  for (;;) {
+    if (leased()) {
+      // A library account's client was given the next nonce and has not sent it yet.
+      log("%s: waiting for a library account's raw transaction", address);
+      await sends.leasesEnded(address);
+    }
+    const answer = await withSendLock(`${chainId}:${address}`, async () =>
+      leased() ? undefined : await sendUnderLock(),
+    );
+    if (answer !== undefined) {
+      return answer;
+    }
+  }
+
+  async function sendUnderLock(): Promise<JsonRpcResponse> {
     const retry = retryKey === undefined ? undefined : sends.takeRetry(retryKey);
     const mark = sends.highWaterOf(address);
     if (retry !== undefined && mark !== undefined && retry.nonce <= mark) {
@@ -639,7 +704,7 @@ async function sendTransaction(
       nodeHas,
       resend: false,
     });
-  });
+  }
 }
 
 /**
@@ -869,6 +934,255 @@ async function broadcast(
   }
   sends.settleUncertain(address, transaction.hash);
   return passOn();
+}
+
+/** A raw transaction whose sender is one of the connection's KMS accounts. */
+interface RawKmsTransaction {
+  /** The sender's lowercase address. */
+  address: string;
+  /** The raw transaction, its hash and its nonce. */
+  transaction: SentTransaction;
+}
+
+/**
+ * Finds the KMS account that signed the raw transaction of an `eth_sendRawTransaction` request.
+ * The sender is recovered only when the connection's KMS addresses have already been looked up,
+ * as `connection.kms.getAccount`, a send or `eth_accounts` does; so a raw transaction never
+ * causes a KMS call. Params that do not decode as a signed transaction give `undefined`, and the
+ * request passes on unchanged.
+ *
+ * @param accounts - The connection's KMS accounts.
+ * @param params - The request's params.
+ * @returns The transaction, or `undefined` when it is not a KMS account's.
+ */
+function rawKmsTransaction(
+  accounts: ConnectionAccounts,
+  params: readonly unknown[],
+): RawKmsTransaction | undefined {
+  const [raw] = params;
+  if (typeof raw !== "string" || !accounts.hasKnownAddresses) {
+    return undefined;
+  }
+  let address: string;
+  let nonce: bigint;
+  try {
+    // Strict mode off, as the plugin decodes its own transactions: a node is the judge of the rest.
+    const transaction = Transaction.fromHex(raw, false);
+    address = transaction.sender.toLowerCase();
+    nonce = transaction.raw.nonce;
+  } catch (error) {
+    log("eth_sendRawTransaction: the plugin cannot decode it (%s); passed on", errorName(error));
+    return undefined;
+  }
+  if (!accounts.isKnownKmsAccount(address)) {
+    return undefined;
+  }
+  const bytes = Buffer.from(raw.replace(/^0x/i, ""), "hex");
+  const hash = `0x${Buffer.from(keccak_256(bytes)).toString("hex")}`;
+  return { address, transaction: { raw, hash, nonce } };
+}
+
+/**
+ * The KMS-relevant address of a nonce read: the account of `eth_getTransactionCount [address,
+ * "pending"]`, or the `from` of `eth_fillTransaction`.
+ *
+ * @returns The lowercase address, or `undefined` for any other read.
+ */
+function nonceReadAddress(method: string, params: readonly unknown[]): string | undefined {
+  if (method === "eth_getTransactionCount") {
+    return params[1] === "pending" ? addressParam(params[0]) : undefined;
+  }
+  const [transaction] = params;
+  return isObject(transaction) ? addressParam(transaction.from) : undefined;
+}
+
+/**
+ * Reads a KMS account's next nonce for a client that fills its own, such as viem for a
+ * `connection.kms.getAccount` account, after the account's sends through the plugin. The read
+ * waits for the account's send lock, so a send that is filling, signing or broadcasting finishes
+ * first and the node counts it. For `eth_getTransactionCount`, when the connection's high-water
+ * mark is at or above the node's count, the answer is the mark plus one, the nonce the plugin's
+ * next send would take. An `eth_fillTransaction` answer is passed on unchanged, since its `tx` and
+ * its `raw` bytes must agree. The plugin's own reads during a send hold the lock already and pass
+ * on at once, as does any read when the chain id cannot be read.
+ */
+async function readNonceAfterSends(
+  request: JsonRpcRequest,
+  address: string,
+  transactions: ConnectionTransactions,
+  next: Next,
+): Promise<JsonRpcResponse> {
+  let chainId: bigint;
+  try {
+    chainId = await transactions.chainId();
+  } catch (error) {
+    log("%s: the chain id is unknown (%s); passed on", request.method, errorName(error));
+    return await next(request);
+  }
+  const key = `${chainId}:${address}`;
+  if (holdsSendLock(key)) {
+    return await next(request);
+  }
+  const sends = transactions.sends();
+  return await underSendLock(key, request, next, async () => {
+    const answer = await next(request);
+    const answered = "result" in answer ? answeredNonce(request.method, answer.result) : undefined;
+    if (answered === undefined) {
+      return answer;
+    }
+    const mark = sends.highWaterOf(address);
+    if (request.method === "eth_fillTransaction" || mark === undefined || answered > mark) {
+      sends.lease(address, answered);
+      return answer;
+    }
+    log("pending count of %s raised from %d to %d", address, answered, mark + 1n);
+    sends.lease(address, mark + 1n);
+    return { ...answer, result: `0x${(mark + 1n).toString(16)}` };
+  });
+}
+
+/**
+ * The nonce a nonce read answered: the count of `eth_getTransactionCount`, or the `tx.nonce` of
+ * `eth_fillTransaction`.
+ *
+ * @returns The nonce, or `undefined` when the answer does not hold one as hex.
+ */
+function answeredNonce(method: string, result: unknown): bigint | undefined {
+  const value: unknown =
+    method === "eth_getTransactionCount"
+      ? result
+      : isObject(result) && isObject(result.tx)
+        ? result.tx.nonce
+        : undefined;
+  return typeof value === "string" && /^0x[0-9a-fA-F]{1,64}$/.test(value)
+    ? BigInt(value)
+    : undefined;
+}
+
+/**
+ * Broadcasts a KMS account's raw transaction, signed outside the plugin (by a
+ * `connection.kms.getAccount` account, for example), under the same send lock as the account's
+ * `eth_sendTransaction` requests. The request goes on unchanged, with exactly one `next`, and its
+ * answer or error comes back unchanged. Only the connection's send state learns from it: when the
+ * node has the transaction, its nonce raises the high-water mark, so the account's next send
+ * through the plugin takes a higher nonce; when the outcome is unknown, the transaction becomes
+ * the account's uncertain transaction, which that next send looks up first.
+ *
+ * A raw transaction made from inside a send from the same account, which would wait for itself,
+ * fails at once and is not sent. When the chain id cannot be read, the request passes on
+ * unchanged. Whatever happens, the account's leases up to its nonce end: the client has used it.
+ */
+async function sendRawTransaction(
+  request: JsonRpcRequest,
+  raw: RawKmsTransaction,
+  transactions: ConnectionTransactions,
+  next: Next,
+): Promise<JsonRpcResponse> {
+  const sends = transactions.sends();
+  try {
+    return await sendRawUnderLock(request, raw, transactions, next);
+  } finally {
+    sends.endLeases(raw.address, raw.transaction.nonce);
+  }
+}
+
+/** {@link sendRawTransaction} without the end of the leases. */
+async function sendRawUnderLock(
+  request: JsonRpcRequest,
+  raw: RawKmsTransaction,
+  transactions: ConnectionTransactions,
+  next: Next,
+): Promise<JsonRpcResponse> {
+  let chainId: bigint;
+  try {
+    chainId = await transactions.chainId();
+  } catch (error) {
+    log("eth_sendRawTransaction: the chain id is unknown (%s); passed on", errorName(error));
+    return await next(request);
+  }
+  const key = `${chainId}:${raw.address}`;
+  if (holdsSendLock(key)) {
+    throw catalogError(ERRORS.rawSendReentrant, { account: describeSendKey(key) });
+  }
+  const sends = transactions.sends();
+  return await underSendLock(
+    key,
+    request,
+    next,
+    async () => await broadcastRaw(request, raw, sends, next),
+  );
+}
+
+/**
+ * Runs a raw transaction or a nonce read under the send lock. When the lock cannot be had (too
+ * many waiters, or 120 s without progress), the request passes on unchanged
+ * instead: these requests were made outside the plugin, and waiting for its sends must not make
+ * one fail. An error from `run` itself comes back as it is.
+ */
+async function underSendLock(
+  key: string,
+  request: JsonRpcRequest,
+  next: Next,
+  run: () => Promise<JsonRpcResponse>,
+): Promise<JsonRpcResponse> {
+  let started = false;
+  try {
+    return await withSendLock(key, async () => {
+      started = true;
+      return await run();
+    });
+  } catch (error) {
+    if (started) {
+      throw error;
+    }
+    log("%s: the send lock could not be had (%s); passed on", request.method, errorName(error));
+    return await next(request);
+  }
+}
+
+/**
+ * Sends a raw transaction on with one `next`, and records what the answer says about its nonce:
+ * accepted, mined with an error, or "already known" means the node has it; an uncertain answer
+ * or no answer means it may have it. A refusal records nothing. Unlike {@link broadcast}, nothing
+ * is wrapped or kept for a retry: the caller holds the bytes and can send them again.
+ */
+async function broadcastRaw(
+  request: JsonRpcRequest,
+  raw: RawKmsTransaction,
+  sends: ConnectionSends,
+  next: Next,
+): Promise<JsonRpcResponse> {
+  const { address, transaction } = raw;
+  const learn = (error: Record<string, unknown>): void => {
+    const message = typeof error.message === "string" ? error.message : "";
+    const code = typeof error.code === "number" ? error.code : 0;
+    if (minedHashOf(error) !== undefined || isAlreadyKnown(message)) {
+      sends.settleUncertain(address, transaction.hash);
+      sends.recordSent(address, transaction.nonce);
+    } else if (isUncertainAnswer(code, message)) {
+      sends.rememberUncertain(address, transaction);
+    }
+  };
+  let answer: JsonRpcResponse;
+  try {
+    answer = await next(request);
+  } catch (thrown) {
+    const error = nodeAnswer(thrown);
+    if (error !== undefined) {
+      learn(error);
+    } else if (!isConnectionRefused(thrown)) {
+      log("raw transaction %s got no answer (%s)", transaction.hash, errorName(thrown));
+      sends.rememberUncertain(address, transaction);
+    }
+    throw thrown;
+  }
+  if ("error" in answer) {
+    learn(answer.error);
+  } else {
+    sends.settleUncertain(address, transaction.hash);
+    sends.recordSent(address, transaction.nonce);
+  }
+  return answer;
 }
 
 /**

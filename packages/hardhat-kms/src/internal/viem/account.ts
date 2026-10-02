@@ -129,14 +129,14 @@ function loadFailure(error: unknown): string {
 // Printed once per process, on the first transaction a library account signs.
 let warnedAboutSends = false;
 
-/** Warns, once per process, that viem sends the account's transactions past the plugin. */
+/** Warns, once per process, that only sends through the connection are ordered with the plugin's. */
 function warnAboutSends(): void {
   if (warnedAboutSends) {
     return;
   }
   warnedAboutSends = true;
   warn(
-    "a transaction signed by a connection.kms.getAccount account is sent by viem with eth_sendRawTransaction, which bypasses the plugin's nonce tracking and send lock. Send from a KMS account with connection.viem.getWalletClient(address); see https://github.com/aelmanaa/hardhat-kms/issues/186.",
+    "a transaction signed by a connection.kms.getAccount account is ordered with the plugin's own sends only when viem sends it through the connection, as with custom(connection.provider). A client with its own transport, such as http(url), bypasses the plugin's nonce tracking and send lock; see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.",
   );
 }
 

@@ -3,225 +3,31 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
-import { createHardhatRuntimeEnvironment } from "hardhat/hre";
-import type { NetworkConnection } from "hardhat/types/network";
-import type { JsonRpcRequest, JsonRpcResponse } from "hardhat/types/providers";
 import { Transaction } from "micro-eth-signer";
 
-import hardhatKms from "../../../src/index.ts";
-import { createNetworkHandlers } from "../../../src/internal/hook-handlers/network.ts";
 import { isAlreadyKnown, isUncertainAnswer } from "../../../src/internal/rpc/dispatcher.ts";
 import {
   MAX_RETRY_ENTRIES,
   RETRY_TTL_MS,
-  SendOutcomeUnknownError,
   sendLocksInUse,
 } from "../../../src/internal/rpc/send-guard.ts";
-import { fakeAdapter } from "../../helpers/fake-adapter.ts";
-import { fakeTimers } from "../../helpers/fake-timers.ts";
-import { vaultKey } from "../../helpers/vault-key.ts";
-import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
-
-const COW = COW_ACCOUNT.address;
-const ZERO = HARDHAT_ACCOUNT_0.address;
-const TO = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
-const SECRETS: Record<string, string> = {
-  cow: COW_ACCOUNT.secretKey,
-  zero: HARDHAT_ACCOUNT_0.secretKey,
-};
-
-/** A promise and the function that resolves it. */
-function gate(): { promise: Promise<void>; open: () => void } {
-  const control: { open: () => void } = { open: () => {} };
-  const promise = new Promise<void>((resolve) => {
-    control.open = resolve;
-  });
-  return { promise, open: () => control.open() };
-}
-
-/** Lets pending promise callbacks and I/O callbacks run. */
-async function settle(): Promise<void> {
-  for (let i = 0; i < 5; i++) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-}
-
-const nonceOf = (raw: string): bigint => Transaction.fromHex(raw, false).raw.nonce;
-const hashOf = (raw: string): string =>
-  `0x${Buffer.from(keccak_256(Buffer.from(raw.slice(2), "hex"))).toString("hex")}`;
-
-/** What the fake node does with a raw transaction, after recording it. */
-type RawHandler = (raw: string, request: JsonRpcRequest) => Promise<JsonRpcResponse>;
-
-/**
- * The network hook's handlers with fake timers, a runtime with two third-party keys (cow, zero),
- * and a fake node. The network sets a fixed gas and gas price, so a fill only reads the chain id
- * and the pending count.
- */
-async function setUp(type: "http" | "edr-simulated" = "http") {
-  const keys = Object.fromEntries(Object.keys(SECRETS).map((name) => [name, vaultKey(name)]));
-  const hre = await createHardhatRuntimeEnvironment({
-    plugins: [hardhatKms],
-    kms: { keys },
-    networks: {
-      remote: {
-        type: "http",
-        url: "http://127.0.0.1:1",
-        chainId: 31337,
-        gas: 21_000,
-        gasPrice: 1,
-        kmsAccounts: ["cow", "zero"],
-      },
-    },
-  });
-  const state = {
-    /** Awaited before each signature, by key name. */
-    beforeSign: undefined as ((name: string) => Promise<void>) | undefined,
-    signatures: 0,
-    closed: 0,
-  };
-  hre.hooks.registerHandlers("kms", {
-    createKeyAdapter: async (_context, key) => {
-      const secret = SECRETS[key.name];
-      assert.ok(secret !== undefined);
-      const adapter = fakeAdapter({
-        secretKey: new Uint8Array(Buffer.from(secret, "hex")),
-        beforeSign: async () => {
-          state.signatures++;
-          await state.beforeSign?.(key.name);
-        },
-      });
-      return {
-        ...adapter,
-        close: async () => {
-          state.closed++;
-          await Promise.resolve();
-        },
-      };
-    },
-  });
-
-  const node = {
-    /** The pending count the node reports for every address. */
-    pending: 0n,
-    raw: [] as string[],
-    onRaw: undefined as RawHandler | undefined,
-    methods: [] as string[],
-    /** The node's answer to eth_getTransactionByHash; it throws when this throws. */
-    lookUp: (_hash: unknown): unknown => null,
-  };
-  const answer = async (request: JsonRpcRequest): Promise<JsonRpcResponse> => {
-    node.methods.push(request.method);
-    const ok = (result: unknown): JsonRpcResponse => ({ jsonrpc: "2.0", id: request.id, result });
-    switch (request.method) {
-      case "eth_chainId":
-        return ok("0x7a69");
-      case "eth_getTransactionCount":
-        return ok(`0x${node.pending.toString(16)}`);
-      case "eth_getTransactionByHash":
-        return ok(node.lookUp(Array.isArray(request.params) ? request.params[0] : undefined));
-      case "eth_sendRawTransaction": {
-        const [raw]: unknown[] = Array.isArray(request.params) ? request.params : [];
-        assert.ok(typeof raw === "string");
-        node.raw.push(raw);
-        return node.onRaw === undefined ? ok(hashOf(raw)) : await node.onRaw(raw, request);
-      }
-      default:
-        throw new Error(`the fake node does not answer ${request.method}`);
-    }
-  };
-
-  const timers = fakeTimers();
-  const handlers = createNetworkHandlers(timers);
-  const { remote } = hre.config.networks;
-  assert.ok(remote);
-  const networkConfig = type === "http" ? remote : { ...remote, type };
-
-  const open = async (): Promise<NetworkConnection<string>> => {
-    const provider = {
-      request: async ({ method, params }: { method: string; params?: unknown[] }) => {
-        const response = await answer({ jsonrpc: "2.0", id: 0, method, params: params ?? [] });
-        if ("error" in response) {
-          throw new Error(response.error.message);
-        }
-        return response.result;
-      },
-    };
-    const connection = {
-      networkName: "remote",
-      networkConfig,
-      provider,
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- only the fields the hook reads
-    } as NetworkConnection<string>;
-    assert.ok(handlers.newConnection);
-    return await handlers.newConnection(hre, async () => await Promise.resolve(connection));
-  };
-  const close = async (connection: NetworkConnection<string>): Promise<void> => {
-    assert.ok(handlers.closeConnection);
-    await handlers.closeConnection(hre, connection, async () => {});
-  };
-  let id = 1;
-  const request = async (
-    connection: NetworkConnection<string>,
-    method: string,
-    tx: Record<string, unknown>,
-  ): Promise<JsonRpcResponse> => {
-    assert.ok(handlers.onRequest);
-    return await handlers.onRequest(
-      hre,
-      connection,
-      { jsonrpc: "2.0", id: id++, method, params: [tx] },
-      async (_context, _connection, next) => await answer(next),
-    );
-  };
-  const send = async (connection: NetworkConnection<string>, tx: Record<string, unknown>) =>
-    await request(connection, "eth_sendTransaction", tx);
-  return { node, state, timers, open, close, send, request };
-}
-
-/** The result of a successful response. */
-function resultOf(response: JsonRpcResponse): unknown {
-  assert.ok("result" in response, JSON.stringify(response));
-  return response.result;
-}
-
-/** The error of a failed response. */
-function errorOf(response: JsonRpcResponse) {
-  assert.ok("error" in response, JSON.stringify(response));
-  return response.error;
-}
-
-/** Waits for a send whose outcome is unknown, and returns its error. */
-async function unknownOutcome(sending: Promise<unknown>): Promise<SendOutcomeUnknownError> {
-  const outcome = await sending.then(
-    () => undefined,
-    (error: unknown) => error,
-  );
-  assert.ok(outcome instanceof SendOutcomeUnknownError, String(outcome));
-  return outcome;
-}
-
-/** A transfer from cow with the caller's nonce. */
-function withNonce(nonce: number): Record<string, unknown> {
-  return { from: COW, to: TO, nonce: `0x${nonce.toString(16)}` };
-}
-
-/** Makes the next broadcast get no answer after the node got the bytes, like a timeout. */
-function failOnce(node: { onRaw: RawHandler | undefined }): void {
-  node.onRaw = async () => {
-    node.onRaw = undefined;
-    await Promise.resolve();
-    throw new Error("socket hang up");
-  };
-}
-
-/** Makes every broadcast get this error answer from the node. */
-function refuse(node: { onRaw: RawHandler | undefined }, message: string, code = -32000): void {
-  node.onRaw = async () =>
-    await Promise.resolve({ jsonrpc: "2.0" as const, id: 1, error: { code, message } });
-}
+import {
+  COW,
+  errorOf,
+  failOnce,
+  gate,
+  hashOf,
+  nonceOf,
+  refuse,
+  resultOf,
+  settle,
+  setUp,
+  TO,
+  unknownOutcome,
+  withNonce,
+  ZERO,
+} from "../../helpers/send-harness.ts";
 
 describe("the send lock", () => {
   it("gives N parallel sends from one account consecutive nonces", async () => {

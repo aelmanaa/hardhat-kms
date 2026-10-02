@@ -1,4 +1,4 @@
-// The warning that a library account's transactions bypass the plugin's send path. It is printed
+// The warning about where a library account's transactions are sent. It is printed
 // once per process, so this file holds the process's first signed transaction: node --test runs
 // each test file in its own process.
 import assert from "node:assert/strict";
@@ -19,7 +19,7 @@ const TRANSACTION = {
   value: 1n,
 } as const;
 const WARNING =
-  "hardhat-kms: a transaction signed by a connection.kms.getAccount account is sent by viem with eth_sendRawTransaction, which bypasses the plugin's nonce tracking and send lock. Send from a KMS account with connection.viem.getWalletClient(address); see https://github.com/aelmanaa/hardhat-kms/issues/186.";
+  "hardhat-kms: a transaction signed by a connection.kms.getAccount account is ordered with the plugin's own sends only when viem sends it through the connection, as with custom(connection.provider). A client with its own transport, such as http(url), bypasses the plugin's nonce tracking and send lock; see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.";
 
 describe("the send warning of library accounts", () => {
   it("is printed once per process, after the first transaction the KMS signs", async () => {

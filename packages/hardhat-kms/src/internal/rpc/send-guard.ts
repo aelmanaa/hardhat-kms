@@ -12,6 +12,12 @@ import { systemTimers, type Timers } from "../signer/timeout.ts";
 /** How long a retry entry lives after a failed broadcast. */
 export const RETRY_TTL_MS = 120_000;
 
+/**
+ * How long a nonce read for a library account holds back the account's next send through the
+ * plugin, waiting for the raw transaction that uses the nonce. Not configurable in 1.0.
+ */
+export const NONCE_LEASE_MS = 10_000;
+
 /** The most retry entries a connection keeps; a new entry beyond it drops the oldest. */
 export const MAX_RETRY_ENTRIES = 256;
 
@@ -85,7 +91,7 @@ const holds = new AsyncLocalStorage<readonly Hold[]>();
  * @param key - The lock key.
  * @returns A description such as `0xabc… on chain 1`.
  */
-function describeKey(key: string): string {
+export function describeSendKey(key: string): string {
   const colon = key.indexOf(":");
   return colon === -1 ? key : `${key.slice(colon + 1)} on chain ${key.slice(0, colon)}`;
 }
@@ -101,7 +107,7 @@ function describeKey(key: string): string {
 async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise<void> {
   if (lock.waiters.length >= MAX_SEND_LOCK_WAITERS) {
     throw catalogError(ERRORS.sendWaitersFull, {
-      account: describeKey(key),
+      account: describeSendKey(key),
       limit: MAX_SEND_LOCK_WAITERS,
     });
   }
@@ -122,7 +128,7 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
           lock.waiters.splice(index, 1);
           reject(
             catalogError(ERRORS.sendStalled, {
-              account: describeKey(key),
+              account: describeSendKey(key),
               seconds: SEND_LOCK_STALL_MS / 1000,
             }),
           );
@@ -132,6 +138,17 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
     lock.waiters.push(waiter);
     waiter.restart();
   });
+}
+
+/**
+ * Tells whether the current async context holds the send lock for a key, so that a send for that
+ * key would wait for itself.
+ *
+ * @param key - The lock key.
+ * @returns Whether it does.
+ */
+export function holdsSendLock(key: string): boolean {
+  return (holds.getStore() ?? []).some((hold) => hold.key === key && !hold.released);
 }
 
 /**
@@ -154,9 +171,8 @@ export async function withSendLock<T>(
   run: () => Promise<T>,
   timers: Timers = systemTimers,
 ): Promise<T> {
-  const held = holds.getStore() ?? [];
-  if (held.some((hold) => hold.key === key && !hold.released)) {
-    throw catalogError(ERRORS.sendReentrant, { account: describeKey(key) });
+  if (holdsSendLock(key)) {
+    throw catalogError(ERRORS.sendReentrant, { account: describeSendKey(key) });
   }
   let lock = locks.get(key);
   if (lock === undefined) {
@@ -167,7 +183,7 @@ export async function withSendLock<T>(
   }
   const hold: Hold = { key, released: false };
   try {
-    return await holds.run([...held, hold], run);
+    return await holds.run([...(holds.getStore() ?? []), hold], run);
   } finally {
     hold.released = true;
     const next = lock.waiters.shift();
@@ -261,6 +277,12 @@ export interface SentTransaction {
   nonce: bigint;
 }
 
+/** A nonce a client that signs for itself was given, and has not sent yet. */
+interface Lease {
+  nonce: bigint;
+  cancel: () => void;
+}
+
 interface RetryEntry {
   transaction: SentTransaction;
   cancel: () => void;
@@ -285,6 +307,12 @@ export class ConnectionSends {
   readonly #retries = new Map<string, RetryEntry>();
   /** By sender: the last transaction whose broadcast had no answer, still to be looked up. */
   readonly #uncertain = new Map<string, SentTransaction>();
+  /** The senders that have a library account on this connection. */
+  readonly #library = new Set<string>();
+  /** By sender: the nonces given to a library account's client and not yet sent. */
+  readonly #leases = new Map<string, Lease[]>();
+  /** By sender: the sends waiting for its leases to end. */
+  readonly #leaseWaiters = new Map<string, (() => void)[]>();
   #closed = false;
 
   /**
@@ -443,6 +471,100 @@ export class ConnectionSends {
   }
 
   /**
+   * Notes that `connection.kms.getAccount` gave out a library account for the sender, whose client
+   * fills its own nonces. Only such senders get leases.
+   *
+   * @param from - The sender's lowercase address.
+   */
+  public addLibraryAccount(from: string): void {
+    if (!this.#closed) {
+      this.#library.add(from);
+    }
+  }
+
+  /**
+   * Leases a nonce that a nonce read gave a library account's client, which will sign and send it
+   * itself. Until a raw transaction with that nonce or a higher one is sent, or
+   * {@link NONCE_LEASE_MS} pass, the sender's sends through the plugin without the caller's nonce
+   * wait (see {@link leasesEnded}). Nothing is leased for a sender without a library account.
+   *
+   * @param from - The sender's lowercase address.
+   * @param nonce - The nonce the read answered.
+   */
+  public lease(from: string, nonce: bigint): void {
+    if (this.#closed || !this.#library.has(from)) {
+      return;
+    }
+    const lease: Lease = { nonce, cancel: () => undefined };
+    lease.cancel = this.#timers.setTimeout(() => {
+      this.#endLeases(from, (other) => other === lease);
+    }, NONCE_LEASE_MS);
+    const leases = this.#leases.get(from) ?? [];
+    leases.push(lease);
+    this.#leases.set(from, leases);
+  }
+
+  /**
+   * Ends the sender's leases of nonces up to `nonce`: a raw transaction with that nonce was sent.
+   *
+   * @param from - The sender's lowercase address.
+   * @param nonce - The raw transaction's nonce.
+   */
+  public endLeases(from: string, nonce: bigint): void {
+    this.#endLeases(from, (lease) => lease.nonce <= nonce);
+  }
+
+  /**
+   * Tells whether the sender has a lease.
+   *
+   * @param from - The sender's lowercase address.
+   * @returns Whether it has.
+   */
+  public hasLease(from: string): boolean {
+    return this.#leases.has(from);
+  }
+
+  /**
+   * Waits until the sender has no lease.
+   *
+   * @param from - The sender's lowercase address.
+   */
+  public async leasesEnded(from: string): Promise<void> {
+    if (!this.#leases.has(from)) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      const waiters = this.#leaseWaiters.get(from) ?? [];
+      waiters.push(resolve);
+      this.#leaseWaiters.set(from, waiters);
+    });
+  }
+
+  #endLeases(from: string, ends: (lease: Lease) => boolean): void {
+    const leases = this.#leases.get(from);
+    if (leases === undefined) {
+      return;
+    }
+    const kept = leases.filter((lease) => {
+      if (ends(lease)) {
+        lease.cancel();
+        return false;
+      }
+      return true;
+    });
+    if (kept.length > 0) {
+      this.#leases.set(from, kept);
+      return;
+    }
+    this.#leases.delete(from);
+    const waiters = this.#leaseWaiters.get(from) ?? [];
+    this.#leaseWaiters.delete(from);
+    for (const wake of waiters) {
+      wake();
+    }
+  }
+
+  /**
    * Drops every retry entry and cancels its timer; called when the connection closes. Later
    * failures are not remembered.
    */
@@ -454,5 +576,9 @@ export class ConnectionSends {
     this.#retries.clear();
     this.#highWater.clear();
     this.#uncertain.clear();
+    this.#library.clear();
+    for (const from of this.#leases.keys()) {
+      this.#endLeases(from, () => true);
+    }
   }
 }

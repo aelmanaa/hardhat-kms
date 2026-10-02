@@ -9,6 +9,7 @@ import {
   ConnectionSends,
   MAX_RETRY_ENTRIES,
   MAX_SEND_LOCK_WAITERS,
+  NONCE_LEASE_MS,
   RETRY_TTL_MS,
   SEND_LOCK_STALL_MS,
   sendLocksInUse,
@@ -619,5 +620,67 @@ describe("ConnectionSends", () => {
     const off = new ConnectionSends({ highWater: false, timers });
     off.recordSent("0xa", 2n);
     assert.equal(off.highWaterOf("0xa"), undefined);
+  });
+});
+
+describe("ConnectionSends leases", () => {
+  const COW = "0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
+  const ZERO = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+
+  it("leases only for a sender with a library account", () => {
+    const sends = new ConnectionSends({ highWater: false, timers: fakeTimers() });
+    sends.lease(COW, 0n);
+    assert.equal(sends.hasLease(COW), false);
+    sends.addLibraryAccount(COW);
+    sends.lease(COW, 0n);
+    assert.equal(sends.hasLease(COW), true);
+    assert.equal(sends.hasLease(ZERO), false);
+  });
+
+  it("ends the leases up to a sent nonce, and wakes the waiters when none is left", async () => {
+    const timers = fakeTimers();
+    const sends = new ConnectionSends({ highWater: true, timers });
+    sends.addLibraryAccount(COW);
+    sends.lease(COW, 3n);
+    sends.lease(COW, 5n);
+    let woken = false;
+    const waiting = sends.leasesEnded(COW).finally(() => {
+      woken = true;
+    });
+    sends.endLeases(COW, 4n);
+    await Promise.resolve();
+    assert.equal(woken, false, "the lease of nonce 5 is still there");
+    assert.equal(timers.pending(), 1, "the ended lease's timer is cancelled");
+    sends.endLeases(ZERO, 9n);
+    sends.endLeases(COW, 5n);
+    await waiting;
+    assert.equal(sends.hasLease(COW), false);
+    await sends.leasesEnded(COW);
+  });
+
+  it(`ends a lease after ${NONCE_LEASE_MS} ms`, async () => {
+    const timers = fakeTimers();
+    const sends = new ConnectionSends({ highWater: true, timers });
+    sends.addLibraryAccount(COW);
+    sends.lease(COW, 0n);
+    assert.deepEqual(timers.delays(), [NONCE_LEASE_MS]);
+    const waiting = sends.leasesEnded(COW);
+    timers.fire();
+    await waiting;
+    assert.equal(sends.hasLease(COW), false);
+  });
+
+  it("ends every lease and forgets the library accounts when the connection closes", async () => {
+    const timers = fakeTimers();
+    const sends = new ConnectionSends({ highWater: true, timers });
+    sends.addLibraryAccount(COW);
+    sends.lease(COW, 0n);
+    const waiting = sends.leasesEnded(COW);
+    sends.close();
+    await waiting;
+    assert.equal(timers.pending(), 0);
+    sends.addLibraryAccount(COW);
+    sends.lease(COW, 1n);
+    assert.equal(sends.hasLease(COW), false, "a closed connection leases nothing");
   });
 });

@@ -1,0 +1,5 @@
+---
+"hardhat-kms": minor
+---
+
+Order a library account's sends with the plugin's own. When viem sends a `connection.kms.getAccount` account's transaction through the connection, as with `custom(connection.provider)`, its `eth_getTransactionCount [address, "pending"]` or `eth_fillTransaction` read waits for the account's send through the plugin in progress. The plugin's next send without a caller nonce waits, for 10 seconds at most, until the raw transaction with that nonce has been sent. That `eth_sendRawTransaction` goes to the node under the account's send lock and raises the nonce high-water mark. A pending count below the mark is answered as the mark plus one. The requests and answers are otherwise unchanged, and raw transactions from other senders, or that do not decode, pass on untouched. A raw transaction sent from inside a send from the same account fails at once with `core.tx.raw-send-reentrant`. A viem client with its own transport, such as `http(url)`, is still not ordered, and the account's warning now says so.

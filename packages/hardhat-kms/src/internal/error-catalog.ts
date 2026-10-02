@@ -1102,6 +1102,16 @@ export const ERRORS = {
       "Code that runs during a send, such as a network hook, sent from the same account again.",
     fix: "Send the second transaction after the first one returns.",
   },
+  rawSendReentrant: {
+    id: "core.tx.raw-send-reentrant",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "A raw transaction from {account} was sent from inside an earlier send from the same account on that chain, for example by a hook during its fill or broadcast. It would wait for itself, so it was not sent.",
+    cause:
+      "Code that runs during a send, such as a network hook, sent a transaction that the same account signed outside the plugin, for example with a connection.kms.getAccount account.",
+    fix: "Send the second transaction after the first one returns.",
+  },
   sendOutcomeUnknown: {
     id: "core.tx.outcome-unknown",
     kind: "error",
