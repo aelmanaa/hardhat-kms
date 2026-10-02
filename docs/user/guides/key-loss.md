@@ -65,7 +65,7 @@ gcloud kms keys versions restore <version> --key deployer --keyring deployer-rin
 gcloud kms keys versions enable <version> --key deployer --keyring deployer-ring --location europe-west1
 ```
 
-In both the `DESTROY_SCHEDULED` and the `DISABLED` state, Hardhat shows `the key version cannot be used (FAILED_PRECONDITION)`.
+In both the `DESTROY_SCHEDULED` and the `DISABLED` state, Hardhat shows `the key version cannot be used (FAILED_PRECONDITION)`. The state change is not instant: a disabled or destroyed version can keep signing for up to about a minute, and rarely for several hours ([Cloud KMS resource consistency](https://docs.cloud.google.com/kms/docs/consistency)). If you disable a version because its key may be compromised, expect it to sign for that long.
 
 Checked on 2026-10-01 on a throwaway HSM `EC_SIGN_SECP256K1_SHA256` key created with `--destroy-scheduled-duration 24h`: signing failed with `FAILED_PRECONDITION` and `current state is: DESTROY_SCHEDULED`, the restored version was `DISABLED` and still refused to sign, and after `enable` it signed again.
 

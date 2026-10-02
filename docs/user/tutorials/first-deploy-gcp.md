@@ -2,7 +2,7 @@
 
 Audience: developers who have a Google Cloud project and the gcloud CLI signed in, and have not used Cloud KMS with Hardhat.
 
-Status: followed from an empty directory on 2026-10-02, at commit [`ab3ee2a`](https://github.com/aelmanaa/hardhat-kms/commit/ab3ee2a), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 6 minutes, without the wait for Sepolia ETH ([#66](https://github.com/aelmanaa/hardhat-kms/issues/66)). The plugin is not on npm yet; step 4 says how to install it until then.
+Status: followed from an empty directory on 2026-10-02, at commit [`ab3ee2a`](https://github.com/aelmanaa/hardhat-kms/commit/ab3ee2a), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 6 minutes, without the wait for Sepolia ETH ([#66](https://github.com/aelmanaa/hardhat-kms/issues/66)). The run kept the 30-day default destroy schedule; the 24-hour schedule in step 2 ran on an HSM secp256k1 key in the [key-loss check](../guides/key-loss.md#google-cloud-kms) of 2026-10-01. The plugin is not on npm yet; step 4 says how to install it until then.
 
 In this tutorial you create a Hardhat project, create a signing key in Google Cloud KMS, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Cloud KMS: Hardhat asks Cloud KMS for a signature each time it sends a transaction.
 
@@ -30,7 +30,7 @@ The template has a `Counter` contract, the Ignition module `ignition/modules/Cou
 
 ## 2. Create a key in Cloud KMS
 
-Cloud KMS offers the secp256k1 curve only at protection level HSM, and an HSM key version costs about $2.50 a month ($0.003424658 an hour). Google bills it while the version is enabled, disabled or scheduled for destruction; only a destroyed version is free. Signing and reading the public key cost at most $0.15 per 10,000 calls. The free tier covers only keys made by Cloud KMS Autokey, so not this one. See [Cloud KMS pricing](https://cloud.google.com/kms/pricing). Step 8 schedules the version for destruction, and the 30 days it waits are billed too, so the key costs about $2.50 in all.
+Cloud KMS offers the secp256k1 curve only at protection level HSM, and an HSM key version costs about $2.50 a month ($0.003424658 an hour). Google bills it while the version is enabled, disabled or scheduled for destruction; only a destroyed version is free. Signing and reading the public key cost at most $0.15 per 10,000 calls. The free tier covers only keys made by Cloud KMS Autokey, so not this one. See [Cloud KMS pricing](https://cloud.google.com/kms/pricing). Step 8 schedules the version for destruction, and the 24 hours it waits are billed too, so the key costs about $0.10 in all.
 
 Set the project and a location for the key. The examples use `us-east1`; any Cloud KMS region works. The project's config reads both variables in step 4:
 
@@ -49,18 +49,19 @@ gcloud kms keys create deployer \
   --location "$GCP_LOCATION" \
   --purpose asymmetric-signing \
   --default-algorithm ec-sign-secp256k1-sha256 \
-  --protection-level hsm
+  --protection-level hsm \
+  --destroy-scheduled-duration 24h
 ```
 
 The key gets version `1`, which the project signs with. At protection level `software`, the same command fails with `ALGORITHM_NOT_SUPPORTED_FOR_PROTECTION_LEVEL`.
 
 A key ring and a key cannot be deleted, so their names stay in the project; they cost nothing. If you ran this tutorial before, the key ring exists already: skip its `create`, and give the key another name, here and in the rest of the page.
 
-The key keeps the default scheduled-destruction duration of 30 days. It is fixed when the key is created: in step 8, it is how long you have to change your mind.
+`--destroy-scheduled-duration 24h` sets the shortest wait Cloud KMS allows between scheduling a version's destruction and destroying it. The duration is fixed when the key is created. A short wait keeps the cost of this tutorial down, but it leaves you one day to undo the destruction in step 8. Give a key that will hold value a long duration, up to 120 days; [Prevent and recover from losing a key](../guides/key-loss.md#google-cloud-kms) explains why. If an organization policy, `constraints/cloudkms.minimumDestroyScheduledDuration`, refuses `24h`, use the smallest value it allows.
 
 ## 3. Allow the key to sign, and nothing else
 
-Hardhat signs with your Application Default Credentials. For this tutorial, that identity can be the one that created the key. A real deployer should have only two permissions, on this key alone: `cloudkms.cryptoKeyVersions.viewPublicKey`, to derive the address, and `cloudkms.cryptoKeyVersions.useToSign`, to sign.
+Hardhat signs with your Application Default Credentials. For this tutorial, that identity can be the one that created the key; the recorded run signed as the project's owner, and the two-role grant below is not yet checked against real Cloud KMS ([Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else)). A real deployer should have only two permissions, on this key alone: `cloudkms.cryptoKeyVersions.viewPublicKey`, to derive the address, and `cloudkms.cryptoKeyVersions.useToSign`, to sign.
 
 The predefined roles `roles/cloudkms.publicKeyViewer` and `roles/cloudkms.signer` hold one each. List what they hold:
 
@@ -93,6 +94,8 @@ done
 ```
 
 For a person, use `DEPLOYER="user:<email>"` instead.
+
+If the deployer then gets `PERMISSION_DENIED` about `serviceusage.services.use`, look at its quota project. `gcloud auth application-default login` writes the gcloud CLI's project into the credentials as the quota project, and the client then names that project in each request (the `x-goog-user-project` header), which needs `serviceusage.services.use` on it. Either set a project the deployer may use with `gcloud auth application-default set-quota-project <project>`, sign in again with `gcloud auth application-default login --disable-quota-project`, or grant the deployer `roles/serviceusage.serviceUsageConsumer` on the project ([Set the quota project](https://docs.cloud.google.com/docs/quotas/set-quota-project)).
 
 To check who has access to the key, without changing anything:
 
@@ -175,7 +178,7 @@ export default defineConfig({
 
 Etherscan needs an API key, and without one its verification fails. To verify on Etherscan too, get a key from [Etherscan](https://etherscan.io/apis), store it with `npx hardhat keystore set ETHERSCAN_API_KEY` or `export ETHERSCAN_API_KEY=…`, and replace `enabled: false` with `apiKey: configVariable("ETHERSCAN_API_KEY")`.
 
-Every Hardhat command from here on needs `GCP_PROJECT_ID` and `GCP_LOCATION`. Run them in the same shell as step 2, or export the two variables again first.
+Every command that uses the key needs `GCP_PROJECT_ID` and `GCP_LOCATION`. Run them in the same shell as step 2, or export the two variables again first.
 
 Set the RPC URL, then ask Cloud KMS for the key's address:
 
@@ -411,14 +414,16 @@ gcloud kms keys versions describe 1 --key deployer --keyring hardhat-kms-tutoria
   --format='value(state,destroyTime)'
 ```
 
-It prints `DESTROY_SCHEDULED` and a time 30 days from now. The change takes a moment to reach every Cloud KMS server: a disabled version usually keeps working for up to a minute, and in exceptional cases for several hours ([Cloud KMS resource consistency](https://docs.cloud.google.com/kms/docs/consistency)). In the recorded run, the version still signed 30 seconds after the `destroy`, and refused with `the key version cannot be used (FAILED_PRECONDITION)` a minute later. Until then, you can undo it: restore the version, then enable it. [Prevent and recover from losing a key](../guides/key-loss.md#google-cloud-kms) covers it:
+It prints `DESTROY_SCHEDULED` and a time 24 hours from now. Until the destroy time, you can undo it: restore the version, then enable it. [Prevent and recover from losing a key](../guides/key-loss.md#google-cloud-kms) covers it:
 
 ```sh
 gcloud kms keys versions restore 1 --key deployer --keyring hardhat-kms-tutorial --location "$GCP_LOCATION"
 gcloud kms keys versions enable 1 --key deployer --keyring hardhat-kms-tutorial --location "$GCP_LOCATION"
 ```
 
-After the 30 days, the version is destroyed for good, and nothing can sign for the address again. The key ring and the key stay, with no cost.
+The change takes a moment to reach every Cloud KMS server. A disabled version usually keeps working for up to a minute, and in exceptional cases for several hours ([Cloud KMS resource consistency](https://docs.cloud.google.com/kms/docs/consistency)). In the recorded run, the version still signed 30 seconds after the `destroy`, and refused with `the key version cannot be used (FAILED_PRECONDITION)` a minute later.
+
+After the 24 hours, the version is destroyed for good, and nothing can sign for the address again. The key ring and the key stay, with no cost.
 
 If you granted the roles in step 3, remove them:
 
@@ -432,7 +437,7 @@ for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
 done
 ```
 
-To keep the key instead, leave the version disabled: a disabled version cannot sign, `gcloud kms keys versions enable` brings it back, and it still costs about $2.50 a month.
+To keep the key instead, run only the `disable` command: a disabled version cannot sign, `gcloud kms keys versions enable` brings it back, and it still costs about $2.50 a month.
 
 ## Next steps
 
