@@ -2,7 +2,7 @@
 
 Audience: Contributors and reviewers who want to understand how the code fits together.
 
-Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry and the `kms` hook (`providers/`). M3 adds the AWS adapter, which lives in its own package, `packages/hardhat-kms-aws` ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)). M4 adds the network hook, the RPC dispatcher for accounts, messages and typed data, and the per-runtime signer cache ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). M5 adds the transaction filler ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)), signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)), and the send guard ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)). M6 adds the Google Cloud adapter in `packages/hardhat-kms-gcp` ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29)) and the Azure adapter in `packages/hardhat-kms-azure` ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). M7 adds the `kms` task namespace. Its tasks are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms address` and `kms public-key` ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-auth` ([#35](https://github.com/aelmanaa/hardhat-kms/issues/35)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). The code map gives each module's milestone.
+Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-712 encoder). M2 adds `config/`, the built-in providers' descriptors and key formats, the registry and the `kms` hook (`providers/`). M3 adds the AWS adapter, which lives in its own package, `packages/hardhat-kms-aws` ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)). M4 adds the network hook, the RPC dispatcher for accounts, messages and typed data, and the per-runtime signer cache ([#19](https://github.com/aelmanaa/hardhat-kms/issues/19)). M5 adds the transaction filler ([#23](https://github.com/aelmanaa/hardhat-kms/issues/23)), signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)), and the send guard ([#25](https://github.com/aelmanaa/hardhat-kms/issues/25)). M6 adds the Google Cloud adapter in `packages/hardhat-kms-gcp` ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29)) and the Azure adapter in `packages/hardhat-kms-azure` ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). M7 adds the `kms` task namespace. Its tasks are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms address` and `kms public-key` ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-auth` ([#35](https://github.com/aelmanaa/hardhat-kms/issues/35)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). The 1.0 milestone adds the library account, `connection.kms.getAccount` ([#51](https://github.com/aelmanaa/hardhat-kms/issues/51)). The code map gives each module's milestone.
 
 ## Module map
 
@@ -16,6 +16,9 @@ flowchart TD
   hooks --> registry["providers/registry.ts<br/>providers/create-adapter.ts"]
   hooks --> rpc["rpc/<br/>dispatcher: accounts, messages,<br/>transactions"]
   hooks --> signer
+  hooks --> viem["viem/<br/>library account (getAccount)"]
+  viem --> rpc
+  viem --> signer
   rpc --> signer["signer/<br/>KmsSigner, signer cache, timeouts"]
   signer --> registry
   tasks --> signer
@@ -27,7 +30,7 @@ flowchart TD
   utils --> descriptors
   crypto --> vendor["vendor/micro-eth-signer<br/>EIP-712 encoder"]
   classDef done fill:#0847F7,color:#fff,stroke:#0847F7
-  class index,hooks,rpc,crypto,signer,vendor,config,registry,descriptors,packages,utils,tasks done
+  class index,hooks,rpc,crypto,signer,vendor,config,registry,descriptors,packages,utils,tasks,viem done
 ```
 
 The rules behind the arrows:
@@ -73,6 +76,7 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 | Transaction filler (port of Hardhat 3.18.0)                                   | `packages/hardhat-kms/src/internal/rpc/transaction-filler.ts`                                                                                                     | M5        |
 | Transaction signing, EIP-7702 lint                                            | `packages/hardhat-kms/src/internal/rpc/transactions.ts`                                                                                                           | M5        |
 | Send lock, nonce high-water mark, retries                                     | `packages/hardhat-kms/src/internal/rpc/send-guard.ts`, `sendTransaction` in `packages/hardhat-kms/src/internal/rpc/dispatcher.ts`                                 | M5        |
+| Library account (`connection.kms.getAccount`)                                 | `packages/hardhat-kms/src/internal/viem/{account,inputs,types}.ts`, `connection.kms` set in `packages/hardhat-kms/src/internal/hook-handlers/network.ts`          | 1.0       |
 | User warnings                                                                 | `packages/hardhat-kms/src/internal/warnings.ts`                                                                                                                   | M5        |
 | `kms` namespace and task definitions                                          | `packages/hardhat-kms/src/index.ts`                                                                                                                               | M7        |
 | Key lookup and signers for tasks                                              | `packages/hardhat-kms/src/internal/tasks/keys.ts`                                                                                                                 | M7        |
@@ -139,6 +143,35 @@ sequenceDiagram
 ```
 
 The rules that keep this safe are in [Request flow and re-entrancy rules](#request-flow-and-re-entrancy-rules) and in [Transactions](transactions.md).
+
+## Library accounts
+
+`connection.kms.getAccount(address)` returns a viem `LocalAccount` for one of the connection's KMS accounts ([Library accounts](../user/reference/library-accounts.md)). The network hook sets `connection.kms` on every connection, as hardhat-viem sets `connection.viem`. `packages/hardhat-kms/src/internal/viem/account.ts` builds the account; `inputs.ts` reads what viem passes and refuses what the account does not sign; `types.ts` holds the public types, which are written without viem's so that a project without viem typechecks.
+
+The account is a second path into the same signers. It finds the key through the connection's `ConnectionAccounts` and signs through the signer cache's `signWith`, so the idle close and the signature checks are the RPC path's. It reuses the RPC path's pieces: `checkTypedDataChain` for typed data, `assembleSignedTransaction` for the recovery check of a signed transaction, and `authorizationDigest` for EIP-7702. It does not reuse the filler, the send lock or the retry cache: viem fills and sends a local account's transactions itself.
+
+```mermaid
+sequenceDiagram
+  participant V as viem
+  participant A as Library account
+  participant N as Node, through connection.provider
+  participant S as KmsSigner
+  V->>A: signTransaction(tx, { serializer })
+  A->>A: read the fields, refuse type 3, other types, no chainId
+  A->>N: eth_chainId
+  A->>A: refuse another chain
+  A->>A: serialize with micro-eth-signer, and with viem's or the chain's serializer
+  A->>A: refuse when the unsigned bytes differ
+  A->>S: sign keccak256(unsigned bytes)
+  S-->>A: verified signature
+  A->>A: rebuild signed tx, check sender == account
+  A-->>V: signed transaction
+  V->>N: eth_sendRawTransaction (passes through the hook)
+```
+
+Every refusal comes before the KMS call. The unit tests in `packages/hardhat-kms/test/unit/viem/account.test.ts` count the fake adapter's calls around each refusal, and compare every method's output with viem's `privateKeyToAccount` on the same key.
+
+viem is an optional peer dependency (`peerDependenciesMeta`). `account.ts` loads it with a dynamic `import("viem")` in `getAccount`, and no other module imports it, so the hook and task modules that Hardhat loads never need it. `packages/hardhat-kms/test/integration/no-viem.test.ts` runs every task, a send and a signature in a process where viem cannot be resolved, and checks that only `getAccount` asks for it. The account keeps no signer, key config or key material: it is a frozen object of strings and closures. `sign({ hash })` exists only with `rawSign: true` ([decision 0014](decisions/0014-library-account-raw-sign.md)).
 
 ## Goals
 
@@ -296,7 +329,7 @@ Each provider package lists its cloud SDK in `dependencies`: `hardhat-kms-aws` d
 
 A provider package imports its SDK only when it creates an adapter: its plugin definition registers the `kms` hook handler as a lazy import, and the handler loads the SDK on first use. The handler, `packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts`, passes keys of other providers to `next`. For an `aws` key it imports `adapter.ts` and `@aws-sdk/client-kms` with dynamic `import()`, then calls `createAwsKeyAdapter(key, sdk)`. The adapter receives the SDK as an argument typed `AwsKmsSdk`, so unit tests pass a fake.
 
-The core's only peer dependency is `hardhat`. A provider package has two: `hardhat` and `hardhat-kms`, so a project has a single copy of the core. The core and the provider packages are released together at the same version, as a changesets `fixed` group, and a provider package's `hardhat-kms` peer is that exact version. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so a provider package cannot be an optional peer of the core. Users install the provider packages they need, as the [configuration reference](../user/reference/configuration.md#provider-packages) documents.
+The core has two peer dependencies: `hardhat`, and `viem`, which is optional and loaded only by `connection.kms.getAccount` ([Library accounts](#library-accounts)). A provider package has two: `hardhat` and `hardhat-kms`, so a project has a single copy of the core. The core and the provider packages are released together at the same version, as a changesets `fixed` group, and a provider package's `hardhat-kms` peer is that exact version. Hardhat's peer-dependency checker ignores `peerDependenciesMeta`, so a provider package cannot be an optional peer of the core. Users install the provider packages they need, as the [configuration reference](../user/reference/configuration.md#provider-packages) documents.
 
 The SDK range is a caret range that starts at a version the tests run. CI tests the version in `pnpm-lock.yaml`, and the SDK floors workflow tests the lowest version the range allows (see [Testing](testing.md)).
 
