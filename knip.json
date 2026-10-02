@@ -13,7 +13,8 @@
         "hardhat-kms-gcp",
         "@nomicfoundation/hardhat-ignition",
         "@nomicfoundation/hardhat-ignition-viem",
-        "@nomicfoundation/hardhat-ledger"
+        "@nomicfoundation/hardhat-ledger",
+        "@nomicfoundation/hardhat-toolbox-viem"
       ]
     },
     "packages/hardhat-kms": {

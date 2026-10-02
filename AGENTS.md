@@ -8,6 +8,7 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 
 ## If you are helping someone use the plugin
 
+- A first deploy, start to finish (create an AWS KMS key, deploy and verify a contract on Sepolia, clean up): [docs/user/tutorials/first-deploy-aws.md](docs/user/tutorials/first-deploy-aws.md)
 - Configure keys and networks: [docs/user/reference/configuration.md](docs/user/reference/configuration.md)
 - Which JSON-RPC methods are handled, and which transaction types: [docs/user/reference/rpc-methods.md](docs/user/reference/rpc-methods.md)
 - The `kms` tasks (list accounts, sign, verify): [docs/user/reference/tasks.md](docs/user/reference/tasks.md)
@@ -23,7 +24,7 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - How a request goes from viem or ethers through the plugin to the KMS and the node: [docs/user/explanation/how-it-works.md](docs/user/explanation/how-it-works.md)
 - What the plugin protects against and what it does not, what to configure, and what happens when a KMS call times out: [docs/user/explanation/security-model.md](docs/user/explanation/security-model.md)
-- Pages not written yet (tutorials, the remaining guides, errors): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
+- Pages not written yet (the remaining tutorials and guides, errors): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
 
 Never ask a user to paste credentials, private keys or API-keyed RPC URLs. Credentials come from each provider SDK's default chain, never from the Hardhat config. API-keyed RPC URLs belong in `configVariable()`, which also accepts key identifiers.
 

@@ -21,6 +21,7 @@ User docs follow the Diátaxis split: each page is a tutorial, a how-to guide, r
 - Every page states its audience. A page about planned behaviour states which milestone delivers it.
 - Every page is linked from [docs/README.md](../README.md) and from [AGENTS.md](../../AGENTS.md). Decision records are linked from the [decision index](decisions/README.md) instead of docs/README.md.
 - Every exported symbol has TSDoc, enforced by lint.
+- The provider tutorials share one shape. [First deploy on Sepolia with AWS KMS](../user/tutorials/first-deploy-aws.md) is the template: an HTML comment at its top lists the parts the other providers copy as they are and the parts they rewrite.
 - Examples use the real API and must run. The live tests (M9) run each tutorial's steps on Sepolia.
 - Never put credentials, real key ids or API-keyed RPC URLs in docs. Use placeholders such as `alias/deployer` and `configVariable("SEPOLIA_RPC_URL")`.
 
@@ -28,7 +29,7 @@ User docs follow the Diátaxis split: each page is a tutorial, a how-to guide, r
 
 `pnpm run docs:check` runs `scripts/check-docs.ts`, locally and in the CI Docs job. It checks two things:
 
-- Every TypeScript snippet (` ```ts `, ` ```typescript ` or a `~~~` fence) in `README.md`, each `packages/*/README.md` and `docs/` typechecks as its own program, with strict settings, against the built packages: `hardhat-kms`, `hardhat-kms-aws` and `hardhat-kms-azure` resolve from the root's dependencies through each package's `exports`, as they do in a user's project, so a missing export fails the check. The root also lists `@nomicfoundation/hardhat-ignition` and `@nomicfoundation/hardhat-ignition-viem` as development dependencies, only for the snippets of the [Ignition guide](../user/guides/deploy-with-ignition.md); knip ignores them. Errors point at the Markdown file and line; a compiler failure without errors fails the check too. To exclude a snippet that is not meant to compile, such as a sketch of a planned API, put `<!-- docs-check: skip -->` on its own line before it.
+- Every TypeScript snippet (` ```ts `, ` ```typescript ` or a `~~~` fence) in `README.md`, each `packages/*/README.md` and `docs/` typechecks as its own program, with strict settings, against the built packages: `hardhat-kms`, `hardhat-kms-aws` and `hardhat-kms-azure` resolve from the root's dependencies through each package's `exports`, as they do in a user's project, so a missing export fails the check. The root also lists `@nomicfoundation/hardhat-ignition` and `@nomicfoundation/hardhat-ignition-viem` as development dependencies, only for the snippets of the [Ignition guide](../user/guides/deploy-with-ignition.md), and `@nomicfoundation/hardhat-toolbox-viem`, only for the tutorials' configs, which start from Hardhat's viem template; knip ignores them. Errors point at the Markdown file and line; a compiler failure without errors fails the check too. To exclude a snippet that is not meant to compile, such as a sketch of a planned API, put `<!-- docs-check: skip -->` on its own line before it.
 - Every page under `docs/` is linked as the [rules](#rules) require. Decision records need the `AGENTS.md` link and a line in the decision index instead of `docs/README.md`; `docs/DESIGN.md` only needs the `AGENTS.md` link; the decision template is exempt. Only real links count, not paths in code or HTML comments.
 
 [lychee](https://lychee.cli.rs) checks links, configured by `lychee.toml`. On every pull request the CI Docs job checks internal links and `#anchors` offline. A weekly workflow, `.github/workflows/docs-links.yml`, also checks external links, so a website that is briefly down cannot block a merge. To run the pull request check locally from the repository root:
@@ -41,7 +42,7 @@ docker run --rm -v "$PWD:/repo" -w /repo lycheeverse/lychee:0.24.2 --offline --c
 
 The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/issues/38). Pages that do not exist yet:
 
-- Tutorials: first deploy on Sepolia with AWS KMS ([#65](https://github.com/aelmanaa/hardhat-kms/issues/65)), Google Cloud KMS ([#66](https://github.com/aelmanaa/hardhat-kms/issues/66)) and Azure Key Vault ([#67](https://github.com/aelmanaa/hardhat-kms/issues/67)).
+- Tutorials: first deploy on Sepolia with Google Cloud KMS ([#66](https://github.com/aelmanaa/hardhat-kms/issues/66)) and Azure Key Vault ([#67](https://github.com/aelmanaa/hardhat-kms/issues/67)).
 - Guides: GitHub Actions with OIDC ([#68](https://github.com/aelmanaa/hardhat-kms/issues/68)).
 - Reference: errors ([#72](https://github.com/aelmanaa/hardhat-kms/issues/72)), public API ([#73](https://github.com/aelmanaa/hardhat-kms/issues/73)).
 - A docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).
