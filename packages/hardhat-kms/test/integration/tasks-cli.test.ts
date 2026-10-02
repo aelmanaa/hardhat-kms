@@ -273,6 +273,29 @@ describe("kms tasks from the Hardhat CLI", () => {
     });
   });
 
+  it("shows balances and sign checks on --network, prints no signature, and exits", () => {
+    const run = hardhat(["--network", "local", "kms", "accounts", "--balances", "--check-sign"]);
+
+    assert.equal(run.status, 0, `the task failed or did not exit:\n${run.output}`);
+    // The simulated network's first default account holds 10000 ETH.
+    assert.match(
+      run.stdout,
+      new RegExp(
+        `^deployer +myvault +kms\\.keys +${HARDHAT_ACCOUNT_0.address} +none +10000 +ok +`,
+        "m",
+      ),
+    );
+    assert.doesNotMatch(run.output, /[0-9a-fA-F]{130}/);
+  });
+
+  it("refuses --balances without --network and exits 1", () => {
+    const run = hardhat(["kms", "accounts", "--balances"]);
+
+    assert.equal(run.status, 1, `the task did not fail and exit:\n${run.output}`);
+    assert.match(run.stderr, /--balances reads balances on one network: pass --network <name>/);
+    assert.equal(run.stdout, "");
+  });
+
   it("signs a transaction on --network, prints only it, the hash on stderr, and exits", () => {
     const tx = path.join(project, "tx.json");
     writeFileSync(tx, JSON.stringify({ to: COW_ACCOUNT.address, value: "0x1" }));

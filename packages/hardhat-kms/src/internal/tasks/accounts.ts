@@ -1,14 +1,18 @@
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { HardhatPluginError } from "hardhat/plugins";
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
+import type { NetworkConnection } from "hardhat/types/network";
 import type { NewTaskActionFunction } from "hardhat/types/tasks";
+import type { Result } from "hardhat/types/utils";
 import { errorResult, successfulResult } from "hardhat/utils/result";
 
 import type { KmsKeyConfig } from "../../types.ts";
 import { keyIdentity } from "../config/key-identity.ts";
 import { ERRORS } from "../error-catalog.ts";
-import { catalogError, errorName } from "../errors.ts";
+import { catalogError, catalogMessage, errorName } from "../errors.ts";
 import { commandLineKeys } from "../hook-handlers/hre.ts";
+import type { KmsSigner } from "../signer/kms-signer.ts";
+import { checkSignMessage, formatEther, parseBalance } from "./account-checks.ts";
 import { printLine, printNote, type TaskKey, taskKeys, withTaskSigners } from "./keys.ts";
 
 /** How many keys `kms accounts` asks the KMS about at once. */
@@ -18,6 +22,8 @@ const ACCOUNTS_CONCURRENCY = 8;
 interface AccountsArguments {
   json: boolean;
   showIds: boolean;
+  balances: boolean;
+  checkSign: boolean;
 }
 
 /** Where a key listed by `kms accounts` is defined. */
@@ -53,11 +59,25 @@ export interface AccountEntry extends AccountName {
   /** The configured `address` pin, or `null`. */
   pin: string | null;
   /**
-   * `match`: the KMS confirmed the pin. `none`: no pin. `unchecked`: the provider cannot report the
-   * address, so `address` is the pin. `null` if the key failed.
+   * `match`: the KMS confirmed the pin or, with `--check-sign`, the key signed and its signature
+   * recovered to the pin. `none`: no pin. `unchecked`: the provider cannot report the address, so
+   * `address` is the pin. `null` if the key failed.
    */
   pinStatus: "match" | "none" | "unchecked" | null;
-  /** Why the key failed, or `null`. A pin mismatch names both addresses. */
+  /**
+   * Only with `--balances`: the address's balance on the `--network` network, in wei, as a decimal
+   * string, or `null` if the key or the read failed.
+   */
+  balance?: string | null;
+  /**
+   * Only with `--check-sign`: `ok` when the key signed a random EIP-191 message and the signature
+   * recovered to its address, or `null` if the key or the signature failed.
+   */
+  signCheck?: "ok" | null;
+  /**
+   * Why the key failed, or `null`. A pin mismatch names both addresses. A failed balance read and a
+   * failed sign check are each described, separated by `; `.
+   */
   error: string | null;
 }
 
@@ -77,10 +97,18 @@ interface ListedKey {
   others: TaskKey[];
 }
 
+/** How `--balances` reads a balance: a connection to the network, or why there is none. */
+type BalanceSource =
+  | { kind: "off" }
+  | { kind: "connected"; connection: NetworkConnection }
+  | { kind: "failed"; reason: string };
+
 /**
  * `kms accounts`: lists every configured key with its provider, source, key id and address, and
  * checks that each one is reachable and matches its `address` pin. With `--network`, it lists
- * that network's keys; without it, every key, each KMS key once.
+ * that network's keys; without it, every key, each KMS key once. `--balances` adds each address's
+ * balance on the `--network` network, and `--check-sign` has each key sign a random EIP-191
+ * message, which proves the credentials may sign and not only read the public key.
  *
  * Every key is tried, and a failure is shown next to its key. The task returns a failed result
  * if any key failed, which makes the Hardhat CLI exit with code 1.
@@ -89,15 +117,55 @@ interface ListedKey {
  * @param hre - The Hardhat runtime.
  * @returns The entries, in a successful result, or in a failed one if any key failed.
  */
-const kmsAccounts: NewTaskActionFunction<AccountsArguments> = async ({ json, showIds }, hre) => {
+const kmsAccounts: NewTaskActionFunction<AccountsArguments> = async (
+  { json, showIds, balances, checkSign },
+  hre,
+) => {
+  const network = hre.globalOptions.network;
+  if (balances && network === undefined) {
+    throw catalogError(ERRORS.balancesNeedNetwork, {}, { operation: "kms accounts" });
+  }
   if (showIds) {
     printNote(
       "--show-ids prints key ids in full, including values read from configuration variables. Check the output before you share it.",
     );
   }
-  const network = hre.globalOptions.network;
   const listed =
     network === undefined ? await distinctKeys(taskKeys(hre)) : await networkKeys(hre, network);
+  const source: BalanceSource =
+    balances && network !== undefined ? await connect(hre, network) : { kind: "off" };
+  try {
+    return await listAccounts(hre, listed, { json, showIds, checkSign, source });
+  } finally {
+    if (source.kind === "connected") {
+      // The report is already built: a failed close must not replace it, as in the network hook.
+      await source.connection.close().catch(() => undefined);
+    }
+  }
+};
+
+export default kmsAccounts;
+
+/**
+ * Opens the connection `--balances` reads from. Opening it runs the network hook, which may call
+ * the KMS, for example to fund a simulated network's accounts; if that fails, every row's balance
+ * read fails with the reason, and the other checks still run.
+ */
+async function connect(hre: HardhatRuntimeEnvironment, network: string): Promise<BalanceSource> {
+  try {
+    return { kind: "connected", connection: await hre.network.create(network) };
+  } catch (error) {
+    return { kind: "failed", reason: describeError(error) };
+  }
+}
+
+/** Checks and prints the listed keys. */
+async function listAccounts(
+  hre: HardhatRuntimeEnvironment,
+  listed: ListedKey[],
+  options: { json: boolean; showIds: boolean; checkSign: boolean; source: BalanceSource },
+): Promise<Result<AccountsReport, AccountsReport>> {
+  const { json, showIds, checkSign, source } = options;
   const rows = await withTaskSigners(
     hre,
     async (signerFor) =>
@@ -105,22 +173,54 @@ const kmsAccounts: NewTaskActionFunction<AccountsArguments> = async ({ json, sho
         const entry: AccountEntry = {
           name: task.name,
           source: task.source,
-          otherNames: others.map(({ name, source }) => ({ name, source })),
+          otherNames: others.map((other) => ({ name: other.name, source: other.source })),
           provider: task.key.provider,
           keyId: showIds ? await revealedId(task.key) : task.key.displayId,
           ...awsLocation(task.key, showIds),
           address: null,
           pin: task.key.address ?? null,
           pinStatus: null,
+          ...(source.kind === "off" ? {} : { balance: null }),
+          ...(checkSign ? { signCheck: null } : {}),
           error: null,
         };
+        let signer: KmsSigner;
         try {
-          const { address, confirmed } = await (await signerFor(task.key)).confirmedAddress();
+          signer = await signerFor(task.key);
+          const { address, confirmed } = await signer.confirmedAddress();
           entry.address = address;
           entry.pinStatus = confirmed ? (entry.pin === null ? "none" : "match") : "unchecked";
         } catch (error) {
           entry.error = describeError(error);
+          return { entry, key: task.key };
         }
+        const failures: string[] = [];
+        if (source.kind === "failed") {
+          failures.push(catalogMessage(ERRORS.balanceReadFailed, { reason: source.reason }));
+        } else if (source.kind === "connected") {
+          try {
+            entry.balance = (await readBalance(source.connection, entry.address)).toString();
+          } catch (error) {
+            failures.push(
+              catalogMessage(ERRORS.balanceReadFailed, { reason: describeError(error) }),
+            );
+          }
+        }
+        if (checkSign) {
+          try {
+            // The signer checks that the signature recovers to the key's address before it
+            // returns it. The signature itself is dropped: it is never printed or returned.
+            await signer.signPersonalMessage(checkSignMessage());
+            entry.signCheck = "ok";
+            // A pin the provider could not report is the address the signature recovered to.
+            if (entry.pinStatus === "unchecked") {
+              entry.pinStatus = "match";
+            }
+          } catch (error) {
+            failures.push(catalogMessage(ERRORS.checkSignFailed, { reason: describeError(error) }));
+          }
+        }
+        entry.error = failures.length === 0 ? null : failures.join("; ");
         return { entry, key: task.key };
       }),
   );
@@ -130,14 +230,25 @@ const kmsAccounts: NewTaskActionFunction<AccountsArguments> = async ({ json, sho
   if (json) {
     printLine(JSON.stringify(report, null, 2));
   } else {
-    printTable(accounts, keyIdCells(rows, showIds));
+    printTable(accounts, keyIdCells(rows, showIds), {
+      balances: source.kind !== "off",
+      checkSign,
+    });
   }
   return accounts.some((entry) => entry.error !== null)
     ? errorResult(report)
     : successfulResult(report);
-};
+}
 
-export default kmsAccounts;
+/** Reads an address's balance in wei on the `--balances` connection. */
+async function readBalance(connection: NetworkConnection, address: string): Promise<bigint> {
+  return parseBalance(
+    await connection.provider.request({
+      method: "eth_getBalance",
+      params: [address, "latest"],
+    }),
+  );
+}
 
 /**
  * The keys of one network: its `kmsAccounts`, then the `--kms` keys, which belong to the selected
@@ -327,20 +438,45 @@ const PIN_LABELS: Record<NonNullable<AccountEntry["pinStatus"]>, string> = {
  * the lines under it, then an `address` line to paste into each config entry of a key that has no
  * pin.
  */
-function printTable(accounts: AccountEntry[], keyIds: string[]): void {
+function printTable(
+  accounts: AccountEntry[],
+  keyIds: string[],
+  columns: { balances: boolean; checkSign: boolean },
+): void {
   if (accounts.length === 0) {
     printNote(
       "no KMS keys are configured: add them to kms.keys or a network's kmsAccounts, or pass --kms.",
     );
     return;
   }
-  const header = ["NAME", "PROVIDER", "SOURCE", "ADDRESS", "PIN", "KEY ID"];
+  const header = [
+    "NAME",
+    "PROVIDER",
+    "SOURCE",
+    "ADDRESS",
+    "PIN",
+    ...(columns.balances ? ["BALANCE (ETH)"] : []),
+    ...(columns.checkSign ? ["SIGN"] : []),
+    "KEY ID",
+  ];
+  // A check that did not run, because the key failed first, shows `-`.
+  const checkCell = (entry: AccountEntry, value: string | undefined): string =>
+    value ?? (entry.address === null ? "-" : "FAILED");
   const rows = accounts.map((entry, index) => [
     entry.name,
     entry.provider,
     entry.source,
     entry.address ?? "FAILED",
     entry.pinStatus === null ? "-" : PIN_LABELS[entry.pinStatus],
+    ...(columns.balances
+      ? [
+          checkCell(
+            entry,
+            typeof entry.balance === "string" ? formatEther(BigInt(entry.balance)) : undefined,
+          ),
+        ]
+      : []),
+    ...(columns.checkSign ? [checkCell(entry, entry.signCheck ?? undefined)] : []),
     keyIds[index] ?? entry.keyId,
   ]);
   const widths = header.map((title, column) =>
@@ -358,7 +494,8 @@ function printTable(accounts: AccountEntry[], keyIds: string[]): void {
       printLine(`  also: ${entry.otherNames.map(({ name }) => name).join(", ")}`);
     }
     if (entry.error !== null) {
-      printLine(`  error: ${entry.error}`);
+      // One line under the row; the JSON keeps the message as it is.
+      printLine(`  error: ${entry.error.replace(/\s*\n\s*/g, " ")}`);
     }
   });
 

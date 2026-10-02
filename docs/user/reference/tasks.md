@@ -52,7 +52,7 @@ Each run creates its own KMS clients and closes them before it returns, so the c
 ## `kms accounts`
 
 ```text
-npx hardhat [--network <name>] kms accounts [--json] [--show-ids]
+npx hardhat [--network <name>] kms accounts [--json] [--show-ids] [--balances] [--check-sign]
 ```
 
 Lists the KMS keys, asks the KMS for each key's address and checks it against the key's `address` pin. Each row shows the key's name, its provider, where it is defined, its address, the state of its pin and its key id:
@@ -75,13 +75,24 @@ Address pins to add to each key's config:
 - **Pins.** The `PIN` column shows `matches` when the KMS confirmed the pin, `none` when the key has no pin, and `not checked` when the provider can report neither a public key nor an address, so the address shown is the pin. When a key works and has no pin, the task prints an `address` line for each of its entries in `kms.keys` or a network's `kmsAccounts`, including the entries on its `also:` line. A `--kms` key has no config to paste into.
 - **Key ids.** An identifier read from a configuration variable or a `--kms` variable shows as `<VARIABLE_NAME>`, as in errors and debug output. `--show-ids` shows the values instead and first prints a warning on standard error. A literal identifier in the config is shown either way. A merged row shows the id of its first entry, so when a variable's key merges with a literal key listed before it, the row shows that literal id, and with it the value the variable holds. A third-party provider's key shows its display id.
 - **AWS keys looked up in different places.** When rows read the same key id but their AWS keys differ in region, profile or endpoint, each of those rows shows the settings that differ after the id, for example `aws:alias/deployer (region eu-west-1, profile default, default endpoint)`. An endpoint shows only as `custom endpoint` or `default endpoint`, since it can be an internal URL; `--show-ids` shows the URL.
-- **`--json`.** Prints `{ "version": 1, "accounts": [...] }` instead of the table. Each entry has `name`, `source` (`kms.keys`, `kmsAccounts` or `--kms`), `otherNames` (a list of `{ name, source }`), `provider`, `keyId`, `address`, `pin`, `pinStatus` (`match`, `none` or `unchecked`) and `error`. An AWS key also has `region` and `profile`, `null` when not set, and with `--show-ids` its `endpoint`. A failed key has `address` and `pinStatus` set to `null`, and `error` set to the message. The types are `AccountsReport` and `AccountEntry` in `hardhat-kms/types`.
+- **`--balances`.** Adds a `BALANCE (ETH)` column with each address's balance on the `--network` network, read with `eth_getBalance` at the latest block and written in ether units (the network's native token, 18 decimals). It needs `--network`; without it the task fails before it opens any key, with `--balances reads balances on one network: pass --network <name>`. On an `edr-simulated` network with `kms.simulatedBalance`, opening the connection gives each KMS account that balance first, as for any connection. Funding needs every key, so there one broken key fails every row's balance. A balance that cannot be read fails its row with `could not read the balance:` and the reason, and the table shows `FAILED` in the column.
+- **`--check-sign`.** Each key signs the EIP-191 message `hardhat-kms check-sign <64 hex digits>`, made of 32 random bytes drawn for each key, through the same signer as every other signature: the signature must recover to the key's address. Reading a public key and signing need different permissions (for example `kms:GetPublicKey` and `kms:Sign` on AWS), so this proves the credentials may sign, which the plain listing does not. `--check-sign` adds one sign call per key; the public key read for the address also checks the signature. As for every signature, the signer asks once more if the KMS returns a signature that does not verify, and fails the row if the second one does not verify either. The signature is never printed or returned. A `SIGN` column shows `ok`, or `FAILED` with `the sign check failed:` and the reason on the line under the row. A pin that showed `not checked` shows `matches` once its key signs, since the signature recovered to it.
+- **Checks on a failed key.** `--balances` and `--check-sign` run only for a key whose address was found. A key that fails first shows `-` in their columns. Each check fails only its own row: the other keys are still checked, and if any row fails, the command exits with code 1 after printing the whole list. When both checks fail on one key, its error holds both messages, separated by `; `.
+- **`--json`.** Prints `{ "version": 1, "accounts": [...] }` instead of the table. Each entry has `name`, `source` (`kms.keys`, `kmsAccounts` or `--kms`), `otherNames` (a list of `{ name, source }`), `provider`, `keyId`, `address`, `pin`, `pinStatus` (`match`, `none` or `unchecked`) and `error`. An AWS key also has `region` and `profile`, `null` when not set, and with `--show-ids` its `endpoint`. With `--balances`, each entry has `balance`, the balance in wei as a decimal string, and with `--check-sign` it has `signCheck`, `"ok"`; both are `null` when the key or the check failed, and absent without their option. A failed key has `address` and `pinStatus` set to `null`, and `error` set to the message. The types are `AccountsReport` and `AccountEntry` in `hardhat-kms/types`.
 
 The failure messages are the plugin's own, or Hardhat's for a configuration variable that is not set. Any other error is reduced to its class name, because its text can carry request details.
 
-`hre.tasks.getTask(["kms", "accounts"]).run({ json: false, showIds: false })` returns a Hardhat `Result` holding the same `{ version, accounts }` report: a successful one when every key works, a failed one otherwise.
+`hre.tasks.getTask(["kms", "accounts"]).run({ json: false, showIds: false, balances: false, checkSign: false })` returns a Hardhat `Result` holding the same `{ version, accounts }` report: a successful one when every key works, a failed one otherwise.
 
-`kms accounts --balances` and `--check-sign` are planned for 1.0 ([#52](https://github.com/aelmanaa/hardhat-kms/issues/52)).
+A check before a deploy that each key can sign and that its account holds funds. Here the second key's credentials may read its public key but not sign:
+
+```text
+npx hardhat --network sepolia kms accounts --balances --check-sign
+NAME                    PROVIDER  SOURCE       ADDRESS                                     PIN      BALANCE (ETH)  SIGN    KEY ID
+sepolia.kmsAccounts[0]  aws       kmsAccounts  0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266  matches  0.25           ok      aws:alias/deployer
+sepolia.kmsAccounts[1]  aws       kmsAccounts  0x70997970C51812dc3A010C7d01b50e0d17dc79C8  matches  0              FAILED  aws:alias/ops
+  error: the sign check failed: aws, sign, key aws:alias/ops: the provider call failed (AccessDeniedException)
+```
 
 ## `kms address`
 

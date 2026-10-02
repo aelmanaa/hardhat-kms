@@ -81,7 +81,7 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 | `kms verify`                                | `packages/hardhat-kms/src/internal/tasks/verify.ts`                                                                                                               | M7        |
 | Message and typed-data arguments of tasks   | `packages/hardhat-kms/src/internal/tasks/inputs.ts`, shared by `kms sign` and `kms verify`                                                                        | M7        |
 | Typed-data parsing and chain check          | `packages/hardhat-kms/src/internal/rpc/typed-data.ts`, shared by `eth_signTypedData_v4`, `kms sign --data` and `kms verify --data`                                | M4, M7    |
-| `kms accounts`                              | `packages/hardhat-kms/src/internal/tasks/accounts.ts`                                                                                                             | M7        |
+| `kms accounts`                              | `packages/hardhat-kms/src/internal/tasks/accounts.ts`, `--balances` and `--check-sign` helpers in `account-checks.ts`                                             | M7, 1.0   |
 | `kms sign-tx`                               | `packages/hardhat-kms/src/internal/tasks/sign-tx.ts`                                                                                                              | M7        |
 | `kms sign-auth`                             | `packages/hardhat-kms/src/internal/tasks/sign-auth.ts`                                                                                                            | M7        |
 
