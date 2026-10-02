@@ -264,6 +264,51 @@ A value a message template placeholder takes.
 
 ## Functions
 
+### auditLogAccessDenied()
+
+> **auditLogAccessDenied**(`permission`: `string`, `details?`: [`ErrorDetails`](#errordetails)): `HardhatPluginError`
+
+The error a history reader throws when the provider refuses to return log entries: it names the
+permission to grant. Throwing it, rather than returning no events, keeps `kms history` from
+reporting an empty history for a log it could not read.
+
+#### Parameters
+
+| Parameter    | Type                            | Description                                                                           |
+| ------------ | ------------------------------- | ------------------------------------------------------------------------------------- |
+| `permission` | `string`                        | What to grant, such as `cloudtrail:LookupEvents` or `roles/logging.privateLogViewer`. |
+| `details?`   | [`ErrorDetails`](#errordetails) | The provider, the operation and the key's display id.                                 |
+
+#### Returns
+
+`HardhatPluginError`
+
+The error to throw.
+
+---
+
+### auditLogThrottled()
+
+> **auditLogThrottled**(`limit`: `string`, `details?`: [`ErrorDetails`](#errordetails)): `HardhatPluginError`
+
+The error a history reader throws when the provider keeps throttling its reads after the
+reader's own retries.
+
+#### Parameters
+
+| Parameter  | Type                            | Description                                                      |
+| ---------- | ------------------------------- | ---------------------------------------------------------------- |
+| `limit`    | `string`                        | The provider's documented limit, such as `2 lookups per second`. |
+| `details?` | [`ErrorDetails`](#errordetails) | The provider, the operation and the key's display id.            |
+
+#### Returns
+
+`HardhatPluginError`
+
+The error to throw.
+
+---
+
 ### catalogError()
 
 > **catalogError**\<`Template` _extends_ `string`\>(`entry`: [`ErrorEntry`](#errorentry)\<`Template`, `"error"`\>, `params`: [`TemplateParams`](#templateparams)\<`Template`\>, `details?`: [`ErrorDetails`](#errordetails)): `HardhatPluginError`
