@@ -914,7 +914,7 @@ key ARN, resource name or key URL names the account, project or vault.
 
 > **keyVersion**: `string` \| `null`
 
-The key version that signed, as logged.
+The version id of the key version that signed, as logged.
 
 ##### operation
 
@@ -1016,7 +1016,8 @@ The key as the log names it: a key ARN, a resource name or a key URL.
 
 > **keyVersion**: `string` \| `null`
 
-The key version that signed, as the log names it.
+The key version that signed: the version id alone, such as `1` or an Azure version segment,
+never a resource name or URL. Letters, digits, `.`, `_` and `-`, at most 64 characters.
 
 ##### operation
 
@@ -1052,7 +1053,8 @@ The caller's IP address, or the provider's placeholder for it.
 
 > **time**: `string`
 
-When the provider logged the request, as an ISO 8601 time with a time zone.
+When the provider logged the request: an ISO 8601 date and time that exists, with `Z` or an
+offset. The plugin shows it in UTC, to the millisecond.
 
 ##### userAgent
 
@@ -1082,7 +1084,7 @@ A stable code in lowercase letters, digits and `-`, such as `other-account`.
 
 > **message**: `string`
 
-The note for the user, in one or two sentences.
+The note for the user, in one or two sentences. No key ids or account ids.
 
 ---
 
@@ -1132,7 +1134,7 @@ The fields this provider never records. They are `null` in every event.
 
 > **range**: \{ `since`: `string`; `until`: `string`; \}
 
-The range read, in UTC.
+The range read, in UTC, on whole seconds.
 
 ###### since
 
@@ -1141,6 +1143,13 @@ The range read, in UTC.
 ###### until
 
 > **until**: `string`
+
+##### scope
+
+> **scope**: `string` \| `null`
+
+Which part of the log the read covered, such as `account <hidden>, us-east-1`, or `null` when
+the reader does not say. Ids in it show only with `--show-ids`.
 
 ##### source
 
@@ -1152,7 +1161,14 @@ Where the events come from, such as `cloudtrail-event-history`.
 
 > **truncated**: `boolean`
 
-Whether the log holds more events in the range than `--limit`.
+Whether the log may hold events in the range that the report leaves out.
+
+##### truncatedReason
+
+> **truncatedReason**: `"limit"` \| `"scan-limit"` \| `null`
+
+Why: `limit` when the log holds more events than `--limit`, `scan-limit` when the reader
+stopped before reading the whole range. `null` when not truncated.
 
 ##### version
 
@@ -1168,7 +1184,10 @@ The version of this shape.
 
 What `kms history` asks a reader for: the sign events of one key in a time range, newest first.
 
-May gain optional fields before 1.0.
+The history covers the whole key: every version, even when the config pins one. Each event
+names its version in `keyVersion` where the provider logs it.
+
+May gain optional fields before 1.0, such as an abort signal.
 
 #### Properties
 
@@ -1182,20 +1201,22 @@ The resolved key, as `kms.createKeyAdapter` receives it.
 
 > **limit**: `number`
 
-Return at most this many events, the newest ones. When the log holds more in the range, set
-`truncated` in the result. An integer from 1 to 1000.
+How many events `kms history` shows, the newest ones. Return at most `limit + 1` events: the
+extra one tells the plugin there are more, and it then marks the result truncated. An
+integer from 1 to 1000.
 
 ##### since
 
 > **since**: `Date`
 
-The start of the range, inclusive.
+The start of the range, inclusive, on a whole second. Filter the provider's answer to the
+range too: provider queries may round their bounds.
 
 ##### until
 
 > **until**: `Date`
 
-The end of the range, inclusive. Never before `since`.
+The end of the range, inclusive, on a whole second. Always after `since`.
 
 ---
 
@@ -1207,9 +1228,24 @@ What a reader returns: the events it read, newest first, and what the provider's
 cannot show. A reader that cannot read the log throws instead; it never returns an empty
 result for a log it could not read.
 
+Never put key ids, account ids or other identifiers in `source`, `scope.description`,
+`setupHint`, note messages or the errors a reader throws: they are printed without
+`--show-ids`.
+
 May gain optional fields before 1.0.
 
 #### Properties
+
+##### completeForKey
+
+> **completeForKey**: `boolean`
+
+Whether every sign request on this key is visible to this read: the provider logs every
+sign request with no setting that turns it off, and the credentials and location of the
+read see all of them. On AWS this holds only when the caller's account is the key ARN's
+account and the read is in the key's Region, since CloudTrail event history is kept per
+account and Region. When it is `false`, an empty result gets the `logging-not-confirmed`
+note.
 
 ##### deliveryDelayMinutes?
 
@@ -1221,15 +1257,14 @@ How many minutes the provider documents an event can take to appear, if it docum
 
 > **events**: readonly [`KmsHistoryEvent`](#kmshistoryevent)[]
 
-The events in the range, newest first, at most `limit` of them.
+The events in the range, newest first, at most `limit + 1` of them.
 
-##### loggingAlwaysOn
+##### hiddenValues?
 
-> **loggingAlwaysOn**: `boolean`
+> `optional` **hiddenValues?**: readonly `string`[]
 
-Whether the provider logs every sign request on the key with no setting that turns it off,
-as AWS CloudTrail event history does. When it is `false`, an empty result gets the
-`logging-not-confirmed` note.
+Other values that identify the key, such as the key ARN an alias resolved to. Without
+`--show-ids`, the plugin replaces them, in any case, wherever they appear.
 
 ##### notes?
 
@@ -1249,6 +1284,12 @@ The fields this provider never records for a sign request.
 
 How many days the log keeps events, when that does not depend on the user's settings.
 
+##### scope?
+
+> `optional` **scope?**: [`KmsHistoryScope`](#kmshistoryscope)
+
+Which part of the log the read covered, such as one account and Region.
+
 ##### setupHint?
 
 > `optional` **setupHint?**: `string`
@@ -1260,13 +1301,49 @@ Added to the `logging-not-confirmed` note.
 
 > **source**: `string`
 
-Where the events come from, as a stable id such as `cloudtrail-event-history`.
+Where the events come from, as a stable id in lowercase letters, digits and `-`, such as
+`cloudtrail-event-history`.
 
 ##### truncated
 
 > **truncated**: `boolean`
 
-Whether the log holds more events in the range than `limit`.
+Whether the log may hold events in the range that the result leaves out. Also set when the
+reader stopped early; see `truncatedReason`.
+
+##### truncatedReason?
+
+> `optional` **truncatedReason?**: `"limit"` \| `"scan-limit"`
+
+Why the result is truncated: `limit` when the log holds more events than `limit`, and
+`scan-limit` when the reader stopped before reading the whole range, for example after
+scanning as many log entries as it allows itself. Only set with `truncated`; the plugin
+assumes `limit` when it is absent.
+
+---
+
+### KmsHistoryScope
+
+**`Experimental`**
+
+Which part of the log a read covered, printed in the header of `kms history`.
+
+May gain optional fields before 1.0.
+
+#### Properties
+
+##### description
+
+> **description**: `string`
+
+What the read covered, free of ids, such as `us-east-1`.
+
+##### ids?
+
+> `optional` **ids?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+Ids that bound the read, by name, such as `{ account: "111122223333" }`. Shown only with
+`--show-ids`; otherwise each prints as `<name> <hidden>`.
 
 ---
 

@@ -7,6 +7,7 @@ import { kmsDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, type ErrorDetails, errorName } from "../errors.ts";
 import { builtinProvider } from "../providers/registry.ts";
+import { parseLoggedTime } from "./time.ts";
 import type {
   KmsHistoryEvent,
   KmsHistoryExtraValue,
@@ -14,6 +15,7 @@ import type {
   KmsHistoryNote,
   KmsHistoryRequest,
   KmsHistoryResult,
+  KmsHistoryScope,
 } from "./types.ts";
 
 const log = kmsDebug("history");
@@ -37,8 +39,7 @@ const CORE_NOTE_CODES: readonly string[] = [
 
 const NOTE_CODE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const DIGEST = /^0x[0-9a-f]{64}$/;
-// An ISO 8601 date and time with a time zone, as every provider logs it.
-const LOGGED_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+const KEY_VERSION = /^[A-Za-z0-9._-]{1,64}$/;
 
 /** Explains why no reader claimed a key: its provider package is missing, or no plugin reads it. */
 function noReaderError(key: KmsKeyConfig, details: ErrorDetails): Error {
@@ -59,11 +60,13 @@ function noReaderError(key: KmsKeyConfig, details: ErrorDetails): Error {
  *
  * @param context - The Hardhat runtime.
  * @param request - The key, the range and the limit.
+ * @param mask - Hides key ids in the message of an error the reader throws.
  * @returns The checked result.
  */
 export async function readSignHistory(
   context: HookContext,
   request: KmsHistoryRequest,
+  mask: (text: string) => string,
 ): Promise<KmsHistoryResult> {
   const { key } = request;
   const details = { provider: key.provider, operation: "history", key: key.displayId };
@@ -83,6 +86,8 @@ export async function readSignHistory(
     // As for adapters: the plugin's and Hardhat's errors are written to be shown; anything else
     // may carry request details, so only its class name is kept.
     if (HardhatPluginError.isHardhatPluginError(error) || HardhatError.isHardhatError(error)) {
+      // A reader's error message should hold no ids; mask any it holds anyway.
+      error.message = mask(error.message);
       throw error;
     }
     log("%s: reading the audit log failed (%s)", key.displayId, errorName(error));
@@ -218,9 +223,9 @@ function parseEvent(
     return undefined;
   }
   const time = nonEmptyString(value, "time", path, problems);
-  const parsed = LOGGED_TIME.test(time) ? Date.parse(time) : Number.NaN;
-  if (!Number.isFinite(parsed)) {
-    problems.push(`${path}.time must be an ISO 8601 time with a time zone`);
+  const parsed = parseLoggedTime(time);
+  if (parsed === undefined) {
+    problems.push(`${path}.time must be an existing ISO 8601 date and time with a time zone`);
   } else if (parsed < request.since.getTime() || parsed > request.until.getTime()) {
     problems.push(`${path}.time is outside the requested range`);
   }
@@ -249,8 +254,11 @@ function parseEvent(
   if (fields.digest !== null && !DIGEST.test(fields.digest)) {
     problems.push(`${path}.digest must be 0x-prefixed lowercase hex of 32 bytes`);
   }
+  if (fields.keyVersion !== null && !KEY_VERSION.test(fields.keyVersion)) {
+    problems.push(`${path}.keyVersion must be a version id alone, not a resource name`);
+  }
   const event: KmsHistoryEvent = {
-    time: Number.isFinite(parsed) ? new Date(parsed).toISOString() : time,
+    time: parsed === undefined ? time : new Date(parsed).toISOString(),
     operation: nonEmptyString(value, "operation", path, problems),
     outcome: outcome === "failed" ? "failed" : "success",
     errorCode,
@@ -281,9 +289,61 @@ function parseNote(input: unknown, path: string, problems: string[]): KmsHistory
   return { code, message };
 }
 
+function parseScope(source: object, problems: string[]): KmsHistoryScope | undefined {
+  const input = property(source, "scope");
+  if (input === undefined) {
+    return undefined;
+  }
+  const value = asObject(input);
+  if (value === undefined) {
+    problems.push("scope must be an object when set");
+    return undefined;
+  }
+  const description = nonEmptyString(value, "description", "scope", problems);
+  const rawIds = property(value, "ids");
+  if (rawIds === undefined) {
+    return { description };
+  }
+  const idFields = asObject(rawIds);
+  const ids: Array<[string, string]> = [];
+  for (const field of idFields === undefined ? [] : Object.keys(idFields)) {
+    const item = idFields === undefined ? undefined : property(idFields, field);
+    if (typeof item === "string" && item !== "") {
+      ids.push([field, item]);
+    } else {
+      problems.push(`scope.ids.${field} must be a non-empty string`);
+    }
+  }
+  if (idFields === undefined) {
+    problems.push("scope.ids must be an object when set");
+  }
+  return { description, ids: Object.fromEntries(ids) };
+}
+
+function parseHiddenValues(source: object, problems: string[]): string[] {
+  const input = property(source, "hiddenValues");
+  if (input === undefined) {
+    return [];
+  }
+  if (!Array.isArray(input)) {
+    problems.push("hiddenValues must be an array when set");
+    return [];
+  }
+  const values: string[] = [];
+  for (const item of input) {
+    if (typeof item === "string") {
+      values.push(item);
+    } else {
+      problems.push("hiddenValues must hold strings only");
+    }
+  }
+  return values;
+}
+
 /**
  * Checks a reader's result against the contract and copies it, sorted newest first and cut to the
- * limit. Problems are added to `problems`; the result is `undefined` when it is not an object.
+ * limit. A result with more than `limit` events, or `truncated` without a reason, is truncated by
+ * `limit`. Problems are added to `problems`; the result is `undefined` when it is not an object.
  *
  * @param value - What the reader returned.
  * @param request - The request it answered.
@@ -301,6 +361,9 @@ export function parseHistoryResult(
     return undefined;
   }
   const source = nonEmptyString(value, "source", "result", problems);
+  if (source !== "" && !NOTE_CODE.test(source)) {
+    problems.push("result.source must be lowercase words joined by -");
+  }
   const listed = property(value, "notLogged");
   const notLogged: KmsHistoryField[] = [];
   if (Array.isArray(listed)) {
@@ -326,6 +389,9 @@ export function parseHistoryResult(
         events.push(parsed);
       }
     });
+    if (rawEvents.length > request.limit + 1) {
+      problems.push(`events must hold at most limit + 1 (${request.limit + 1}) entries`);
+    }
   } else {
     problems.push("events must be an array");
   }
@@ -333,10 +399,22 @@ export function parseHistoryResult(
   if (typeof truncated !== "boolean") {
     problems.push("truncated must be a boolean");
   }
-  const loggingAlwaysOn = property(value, "loggingAlwaysOn");
-  if (typeof loggingAlwaysOn !== "boolean") {
-    problems.push("loggingAlwaysOn must be a boolean");
+  const truncatedReason = property(value, "truncatedReason");
+  if (
+    truncatedReason !== undefined &&
+    truncatedReason !== "limit" &&
+    truncatedReason !== "scan-limit"
+  ) {
+    problems.push('truncatedReason must be "limit" or "scan-limit" when set');
+  } else if (truncatedReason !== undefined && truncated !== true) {
+    problems.push("truncatedReason is set, but truncated is not true");
   }
+  const completeForKey = property(value, "completeForKey");
+  if (typeof completeForKey !== "boolean") {
+    problems.push("completeForKey must be a boolean");
+  }
+  const scope = parseScope(value, problems);
+  const hiddenValues = parseHiddenValues(value, problems);
   const setupHint = property(value, "setupHint");
   if (setupHint !== undefined && typeof setupHint !== "string") {
     problems.push("setupHint must be a string when set");
@@ -358,12 +436,18 @@ export function parseHistoryResult(
 
   // Newest first; the sort is stable, so events logged at the same time keep the reader's order.
   const sorted = events.toSorted((a, b) => Date.parse(b.time) - Date.parse(a.time));
+  const isTruncated = truncated === true || sorted.length > request.limit;
   return {
     source,
     notLogged,
     events: sorted.slice(0, request.limit),
-    truncated: truncated === true || sorted.length > request.limit,
-    loggingAlwaysOn: loggingAlwaysOn === true,
+    truncated: isTruncated,
+    ...(isTruncated
+      ? { truncatedReason: truncatedReason === "scan-limit" ? "scan-limit" : "limit" }
+      : {}),
+    completeForKey: completeForKey === true,
+    ...(scope === undefined ? {} : { scope }),
+    ...(hiddenValues.length === 0 ? {} : { hiddenValues }),
     ...(typeof setupHint === "string" && setupHint !== "" ? { setupHint } : {}),
     ...(deliveryDelayMinutes === undefined ? {} : { deliveryDelayMinutes }),
     ...(retentionDays === undefined ? {} : { retentionDays }),

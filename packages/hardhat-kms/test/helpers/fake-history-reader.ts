@@ -51,7 +51,7 @@ export function historyResult(overrides: Partial<KmsHistoryResult> = {}): KmsHis
     notLogged: ["keyVersion", "digest"],
     events: [historyEvent()],
     truncated: false,
-    loggingAlwaysOn: true,
+    completeForKey: true,
     deliveryDelayMinutes: 5,
     retentionDays: 90,
     ...overrides,

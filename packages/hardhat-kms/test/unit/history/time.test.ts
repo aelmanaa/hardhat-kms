@@ -53,6 +53,15 @@ describe("parseHistoryTime", () => {
     );
   });
 
+  it("knows leap years before 0100, which Date.UTC maps to the 1900s", () => {
+    assert.equal(
+      parseHistoryTime("0000-02-29", "since", NOW).toISOString(),
+      "0000-02-29T00:00:00.000Z",
+    );
+    rejects(() => parseHistoryTime("0001-02-29", "since", NOW), /is not a time/);
+    rejects(() => parseHistoryTime("0100-02-29", "since", NOW), /is not a time/);
+  });
+
   it("refuses a time without a time zone, which could mean any zone", () => {
     rejects(
       () => parseHistoryTime("2026-10-01T10:00:00", "since", NOW),
@@ -116,6 +125,35 @@ describe("historyRange", () => {
     rejects(
       () => historyRange({ since: "2026-10-03", until: undefined, limit: 100 }, NOW),
       /must be before --until/,
+    );
+  });
+
+  it("rounds the start down and the end up to whole seconds", () => {
+    const range = historyRange(
+      { since: "2026-10-01T10:00:00.250Z", until: "2026-10-01T11:00:00.001Z", limit: 1 },
+      NOW,
+    );
+
+    assert.equal(range.since.toISOString(), "2026-10-01T10:00:00.000Z");
+    assert.equal(range.until.toISOString(), "2026-10-01T11:00:01.000Z");
+    const whole = historyRange(
+      { since: "2026-10-01T10:00:00Z", until: "2026-10-01T11:00:00Z", limit: 1 },
+      NOW,
+    );
+    assert.equal(whole.until.toISOString(), "2026-10-01T11:00:00.000Z");
+  });
+
+  it("refuses an --until more than 5 minutes after now", () => {
+    rejects(
+      () => historyRange({ since: undefined, until: "2026-10-02T12:05:01Z", limit: 1 }, NOW),
+      /--until \(2026-10-02T12:05:01\.000Z\) is more than 5 minutes after now \(2026-10-02T12:00:00\.000Z\)/,
+    );
+    assert.equal(
+      historyRange(
+        { since: undefined, until: "2026-10-02T12:05:00Z", limit: 1 },
+        NOW,
+      ).until.toISOString(),
+      "2026-10-02T12:05:00.000Z",
     );
   });
 

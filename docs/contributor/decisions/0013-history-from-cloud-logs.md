@@ -25,8 +25,9 @@ So matching a log entry to a plugin request needs a server id kept from the mome
 The owner decided on 2026-10-02: signing history comes only from the cloud providers' audit logs. The plugin stores nothing about the signatures it makes, and `kms history` shows nothing the log does not hold.
 
 - One row per log entry, copied as logged. A field the provider never records is listed in `notLogged` and never filled in. A field the provider left empty in an entry shows as empty.
+- The history covers the whole key: every version, even when the config pins one, with the version that signed in a `keyVersion` column where the provider logs it.
 - Each provider package reads its own log through an optional `readSignHistory` method of the `kms` hook. Third-party providers can add a reader the same way. The log SDKs are regular dependencies of the provider packages, loaded only when `kms history` runs (decisions [0005](0005-lazy-sdk-loading.md) and [0009](0009-one-package-per-provider.md) rule out optional peer dependencies).
-- The task never reports "no signatures". An empty result from a log that can be turned off gets the `logging-not-confirmed` note, and a reader that cannot read the log fails, naming the permission when the read was refused.
+- The task never reports "no signatures". An empty result gets the `logging-not-confirmed` note unless the reader confirms that it sees every sign request on the key (on AWS, only when the caller's account is the key's account and the read is in the key's Region), and a reader that cannot read the log fails, naming the permission when the read was refused.
 - The default output shows principals, IP addresses and user agents, masks key ARNs, resource names and key URLs as the key's display id, and keeps only the provider's error code. `--show-ids` shows the rest.
 - No adapter contract change: `SignContext` gains no request-id field. #125 is closed as not planned.
 

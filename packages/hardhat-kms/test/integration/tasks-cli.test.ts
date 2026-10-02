@@ -137,7 +137,7 @@ const vault = {
         // kms history: an empty log for deployer, a refused read for pinned, no reader otherwise.
         readSignHistory: async (context, request, next) => {
           if (request.key.name === "deployer") {
-            return { source: "fake-log", notLogged: [], events: [], truncated: false, loggingAlwaysOn: false };
+            return { source: "fake-log", notLogged: [], events: [], truncated: false, completeForKey: false };
           }
           if (request.key.name === "pinned") {
             throw auditLogAccessDenied("logs:Read");

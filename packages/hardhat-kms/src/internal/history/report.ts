@@ -1,3 +1,4 @@
+import { hiddenSet, masker } from "./mask.ts";
 import type {
   KmsHistoryEvent,
   KmsHistoryExtraValue,
@@ -26,7 +27,7 @@ export interface KmsHistoryEntry {
   userAgent: string | null;
   /** The provider's id for the request or the log entry. */
   requestId: string | null;
-  /** The key version that signed, as logged. */
+  /** The version id of the key version that signed, as logged. */
   keyVersion: string | null;
   /** The signed digest as `0x` hex, where the provider logs it. */
   digest: string | null;
@@ -47,14 +48,24 @@ export interface KmsHistoryReport {
   key: { name: string; provider: string; displayId: string };
   /** Where the events come from, such as `cloudtrail-event-history`. */
   source: string;
-  /** The range read, in UTC. */
+  /** The range read, in UTC, on whole seconds. */
   range: { since: string; until: string };
+  /**
+   * Which part of the log the read covered, such as `account <hidden>, us-east-1`, or `null` when
+   * the reader does not say. Ids in it show only with `--show-ids`.
+   */
+  scope: string | null;
   /** The fields this provider never records. They are `null` in every event. */
   notLogged: KmsHistoryField[];
   /** The events, newest first. */
   events: KmsHistoryEntry[];
-  /** Whether the log holds more events in the range than `--limit`. */
+  /** Whether the log may hold events in the range that the report leaves out. */
   truncated: boolean;
+  /**
+   * Why: `limit` when the log holds more events than `--limit`, `scan-limit` when the reader
+   * stopped before reading the whole range. `null` when not truncated.
+   */
+  truncatedReason: "limit" | "scan-limit" | null;
   /** Warnings about what the events may not show, also printed on standard error. */
   notes: KmsHistoryNote[];
 }
@@ -73,21 +84,19 @@ const DAY_MS = 24 * 60 * MINUTE_MS;
  * @param result - The checked result.
  * @param range - The range read.
  * @param now - The current time.
- * @param providerName - The provider's name for messages, such as `AWS KMS`.
  * @returns The notes.
  */
 export function historyNotes(
   result: KmsHistoryResult,
   range: { since: Date; until: Date },
   now: Date,
-  providerName: string,
 ): KmsHistoryNote[] {
   const notes: KmsHistoryNote[] = [];
-  if (result.events.length === 0 && !result.loggingAlwaysOn) {
+  if (result.events.length === 0 && !result.completeForKey) {
     notes.push({
       code: "logging-not-confirmed",
       message: [
-        "The log returned no sign events in this range. That does not show that the key signed nothing: logging may be off or sent elsewhere, or the credentials may not see every entry.",
+        "The log returned no sign events in this range. That does not show that the key signed nothing: logging may be off or sent elsewhere, or this read may not see every sign request on the key, such as those from another account or Region.",
         ...(result.setupHint === undefined ? [] : [result.setupHint]),
       ].join(" "),
     });
@@ -99,8 +108,8 @@ export function historyNotes(
       code: "recent-events-may-be-missing",
       message: `Events from the last ${window} minutes may not be in the log yet: ${
         delay === undefined
-          ? `${providerName} does not document how long delivery takes`
-          : `${providerName} documents a delivery delay of about ${delay} minutes`
+          ? `the provider does not document how long ${result.source} takes to deliver events`
+          : `the provider documents a delivery delay of about ${delay} minutes for ${result.source}`
       }.`,
     });
   }
@@ -115,20 +124,6 @@ export function historyNotes(
     }
   }
   return [...notes, ...(result.notes ?? [])];
-}
-
-/** Values shorter than this are never replaced, so that masking cannot garble ordinary text. */
-const MIN_HIDDEN_LENGTH = 8;
-
-/**
- * Replaces each hidden value in a text with the key's display id.
- *
- * @param hidden - The values to hide, longest first.
- * @param displayId - What to show instead.
- * @returns The masking function.
- */
-function masker(hidden: readonly string[], displayId: string): (text: string) => string {
-  return (text) => hidden.reduce((masked, value) => masked.split(value).join(displayId), text);
 }
 
 /** What {@link buildHistoryReport} needs. */
@@ -157,15 +152,14 @@ export interface HistoryReportInput {
  */
 export function buildHistoryReport(input: HistoryReportInput): KmsHistoryReport {
   const { key, result, showIds } = input;
-  const hidden = [
+  const hidden = hiddenSet([
     ...input.hiddenValues,
+    ...(result.hiddenValues ?? []),
     ...result.events.flatMap((event) => [
       event.keyResource,
       ...Object.values(event.extraIds ?? {}),
     ]),
-  ]
-    .flatMap((value) => (value !== null && value.length >= MIN_HIDDEN_LENGTH ? [value] : []))
-    .toSorted((a, b) => b.length - a.length);
+  ]);
   const mask = showIds ? (text: string): string => text : masker(hidden, key.displayId);
   const maskOrNull = (text: string | null): string | null => (text === null ? null : mask(text));
 
@@ -196,14 +190,25 @@ export function buildHistoryReport(input: HistoryReportInput): KmsHistoryReport 
     ]),
   });
 
+  const scope = result.scope;
   return {
     version: 1,
     key: { name: input.name, provider: key.provider, displayId: key.displayId },
     source: result.source,
     range: { since: input.range.since.toISOString(), until: input.range.until.toISOString() },
+    scope:
+      scope === undefined
+        ? null
+        : [
+            ...Object.entries(scope.ids ?? {}).map(
+              ([name, value]) => `${name} ${showIds ? value : "<hidden>"}`,
+            ),
+            mask(scope.description),
+          ].join(", "),
     notLogged: [...result.notLogged],
     events: result.events.map(entry),
     truncated: result.truncated,
+    truncatedReason: result.truncated ? (result.truncatedReason ?? "limit") : null,
     notes: input.notes.map((note) => ({ code: note.code, message: mask(note.message) })),
   };
 }
@@ -233,6 +238,9 @@ export function renderHistoryTable(report: KmsHistoryReport): string[] {
     `Sign events of ${report.key.name} (${report.key.displayId}), from ${report.source}`,
     `${report.range.since} to ${report.range.until}, newest first`,
   ];
+  if (report.scope !== null) {
+    lines.push(`Scope: ${report.scope}`);
+  }
   if (report.notLogged.length > 0) {
     lines.push(
       `Not logged by this provider: ${report.notLogged.map((field) => FIELD_LABELS[field]).join(", ")}`,
@@ -240,7 +248,7 @@ export function renderHistoryTable(report: KmsHistoryReport): string[] {
   }
   lines.push("");
   if (report.events.length === 0) {
-    lines.push("No sign events in the log for this range.");
+    lines.push(`No sign events in ${report.source} for this range.`);
     return lines;
   }
 

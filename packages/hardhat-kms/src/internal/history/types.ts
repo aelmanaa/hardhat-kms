@@ -21,18 +21,25 @@ export type KmsHistoryExtraValue = string | number | boolean | null;
 /**
  * What `kms history` asks a reader for: the sign events of one key in a time range, newest first.
  *
- * @experimental May gain optional fields before 1.0.
+ * The history covers the whole key: every version, even when the config pins one. Each event
+ * names its version in `keyVersion` where the provider logs it.
+ *
+ * @experimental May gain optional fields before 1.0, such as an abort signal.
  */
 export interface KmsHistoryRequest {
   /** The resolved key, as `kms.createKeyAdapter` receives it. */
   key: KmsKeyConfig;
-  /** The start of the range, inclusive. */
+  /**
+   * The start of the range, inclusive, on a whole second. Filter the provider's answer to the
+   * range too: provider queries may round their bounds.
+   */
   since: Date;
-  /** The end of the range, inclusive. Never before `since`. */
+  /** The end of the range, inclusive, on a whole second. Always after `since`. */
   until: Date;
   /**
-   * Return at most this many events, the newest ones. When the log holds more in the range, set
-   * `truncated` in the result. An integer from 1 to 1000.
+   * How many events `kms history` shows, the newest ones. Return at most `limit + 1` events: the
+   * extra one tells the plugin there are more, and it then marks the result truncated. An
+   * integer from 1 to 1000.
    */
   limit: number;
 }
@@ -50,7 +57,10 @@ export interface KmsHistoryRequest {
  * @experimental May gain optional fields before 1.0.
  */
 export interface KmsHistoryEvent {
-  /** When the provider logged the request, as an ISO 8601 time with a time zone. */
+  /**
+   * When the provider logged the request: an ISO 8601 date and time that exists, with `Z` or an
+   * offset. The plugin shows it in UTC, to the millisecond.
+   */
   time: string;
   /** The provider's name for the operation, such as `Sign`, `AsymmetricSign` or `KeySign`. */
   operation: string;
@@ -68,7 +78,10 @@ export interface KmsHistoryEvent {
   userAgent: string | null;
   /** The provider's id for the request or the log entry. */
   requestId: string | null;
-  /** The key version that signed, as the log names it. */
+  /**
+   * The key version that signed: the version id alone, such as `1` or an Azure version segment,
+   * never a resource name or URL. Letters, digits, `.`, `_` and `-`, at most 64 characters.
+   */
   keyVersion: string | null;
   /** The signed digest as `0x`-prefixed lowercase hex. */
   digest: string | null;
@@ -91,8 +104,23 @@ export interface KmsHistoryEvent {
 export interface KmsHistoryNote {
   /** A stable code in lowercase letters, digits and `-`, such as `other-account`. */
   code: string;
-  /** The note for the user, in one or two sentences. */
+  /** The note for the user, in one or two sentences. No key ids or account ids. */
   message: string;
+}
+
+/**
+ * Which part of the log a read covered, printed in the header of `kms history`.
+ *
+ * @experimental May gain optional fields before 1.0.
+ */
+export interface KmsHistoryScope {
+  /** What the read covered, free of ids, such as `us-east-1`. */
+  description: string;
+  /**
+   * Ids that bound the read, by name, such as `{ account: "111122223333" }`. Shown only with
+   * `--show-ids`; otherwise each prints as `<name> <hidden>`.
+   */
+  ids?: Readonly<Record<string, string>> | undefined;
 }
 
 /**
@@ -100,23 +128,50 @@ export interface KmsHistoryNote {
  * cannot show. A reader that cannot read the log throws instead; it never returns an empty
  * result for a log it could not read.
  *
+ * Never put key ids, account ids or other identifiers in `source`, `scope.description`,
+ * `setupHint`, note messages or the errors a reader throws: they are printed without
+ * `--show-ids`.
+ *
  * @experimental May gain optional fields before 1.0.
  */
 export interface KmsHistoryResult {
-  /** Where the events come from, as a stable id such as `cloudtrail-event-history`. */
+  /**
+   * Where the events come from, as a stable id in lowercase letters, digits and `-`, such as
+   * `cloudtrail-event-history`.
+   */
   source: string;
   /** The fields this provider never records for a sign request. */
   notLogged: readonly KmsHistoryField[];
-  /** The events in the range, newest first, at most `limit` of them. */
+  /** The events in the range, newest first, at most `limit + 1` of them. */
   events: readonly KmsHistoryEvent[];
-  /** Whether the log holds more events in the range than `limit`. */
+  /**
+   * Whether the log may hold events in the range that the result leaves out. Also set when the
+   * reader stopped early; see `truncatedReason`.
+   */
   truncated: boolean;
   /**
-   * Whether the provider logs every sign request on the key with no setting that turns it off,
-   * as AWS CloudTrail event history does. When it is `false`, an empty result gets the
-   * `logging-not-confirmed` note.
+   * Why the result is truncated: `limit` when the log holds more events than `limit`, and
+   * `scan-limit` when the reader stopped before reading the whole range, for example after
+   * scanning as many log entries as it allows itself. Only set with `truncated`; the plugin
+   * assumes `limit` when it is absent.
    */
-  loggingAlwaysOn: boolean;
+  truncatedReason?: "limit" | "scan-limit" | undefined;
+  /**
+   * Whether every sign request on this key is visible to this read: the provider logs every
+   * sign request with no setting that turns it off, and the credentials and location of the
+   * read see all of them. On AWS this holds only when the caller's account is the key ARN's
+   * account and the read is in the key's Region, since CloudTrail event history is kept per
+   * account and Region. When it is `false`, an empty result gets the `logging-not-confirmed`
+   * note.
+   */
+  completeForKey: boolean;
+  /** Which part of the log the read covered, such as one account and Region. */
+  scope?: KmsHistoryScope | undefined;
+  /**
+   * Other values that identify the key, such as the key ARN an alias resolved to. Without
+   * `--show-ids`, the plugin replaces them, in any case, wherever they appear.
+   */
+  hiddenValues?: readonly string[] | undefined;
   /**
    * What to check when the log returns no events, such as the setting that turns logging on.
    * Added to the `logging-not-confirmed` note.

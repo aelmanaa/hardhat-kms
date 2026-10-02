@@ -1,6 +1,7 @@
 import type { NewTaskActionFunction } from "hardhat/types/tasks";
 
-import type { KmsKeyConfig } from "../../types.ts";
+import type { KmsAuditConfig, KmsIdentifier, KmsKeyConfig } from "../../types.ts";
+import { hiddenSet, masker } from "../history/mask.ts";
 import { readSignHistory } from "../history/read.ts";
 import {
   buildHistoryReport,
@@ -9,7 +10,6 @@ import {
   renderHistoryTable,
 } from "../history/report.ts";
 import { historyRange } from "../history/time.ts";
-import { builtinProvider } from "../providers/registry.ts";
 import { findTaskKey, printLine, printNote } from "./keys.ts";
 
 /** The arguments of `kms history`. */
@@ -23,17 +23,11 @@ interface HistoryArguments {
 }
 
 /**
- * The value of a built-in key's identifier when it differs from what the display id shows, that
- * is, when it comes from a configuration variable. The report hides it like a key resource.
- * Empty for a literal identifier, a third-party key, or a variable that cannot be read.
+ * An identifier's value when it differs from what its display shows, that is, when it comes from
+ * a configuration variable. Empty for a literal, or for a variable that cannot be read: the reader
+ * fails on it first.
  */
-async function hiddenIdentifierValues(key: KmsKeyConfig): Promise<string[]> {
-  const identifier =
-    "keyVersionName" in key
-      ? key.keyVersionName
-      : key.provider === "aws" || key.provider === "azure"
-        ? key.keyId
-        : undefined;
+async function variableValue(identifier: KmsIdentifier | undefined): Promise<string[]> {
   if (identifier === undefined) {
     return [];
   }
@@ -41,10 +35,23 @@ async function hiddenIdentifierValues(key: KmsKeyConfig): Promise<string[]> {
     const value = await identifier.get();
     return value === identifier.display ? [] : [value];
   } catch {
-    // The reader read the same identifier, so this cannot fail after a successful read; if it
-    // does, there is no value to hide.
     return [];
   }
+}
+
+/**
+ * The values `kms history` hides before it reads anything: a built-in key's identifier and the
+ * Azure workspace id, when they come from configuration variables. The report adds what the
+ * reader returns, and each value's parts that identify the key on their own.
+ */
+async function configuredHiddenValues(key: KmsKeyConfig, audit: KmsAuditConfig): Promise<string[]> {
+  const identifier =
+    "keyVersionName" in key
+      ? key.keyVersionName
+      : key.provider === "aws" || key.provider === "azure"
+        ? key.keyId
+        : undefined;
+  return [...(await variableValue(identifier)), ...(await variableValue(audit.azure?.workspaceId))];
 }
 
 /**
@@ -63,30 +70,34 @@ const kmsHistory: NewTaskActionFunction<HistoryArguments> = async (args, hre) =>
   const key = findTaskKey(hre, args.key);
   if (args.showIds) {
     printNote(
-      "--show-ids prints key ids, account ids and provider error messages in full. Check the output before you share it.",
+      "--show-ids prints key ids, provider id fields and error messages in full. Check the output before you share it.",
     );
   }
-  const result = await readSignHistory(hre, {
-    key,
-    since: range.since,
-    until: range.until,
-    limit: range.limit,
-  });
+  const configured = await configuredHiddenValues(key, hre.config.kms.audit);
+  const result = await readSignHistory(
+    hre,
+    { key, since: range.since, until: range.until, limit: range.limit },
+    args.showIds ? (text) => text : masker(hiddenSet(configured), key.displayId),
+  );
   const report: KmsHistoryReport = buildHistoryReport({
     name: args.key,
     key,
     range,
     result,
-    notes: historyNotes(result, range, now, builtinProvider(key.provider)?.name ?? key.provider),
+    notes: historyNotes(result, range, now),
     showIds: args.showIds,
-    hiddenValues: await hiddenIdentifierValues(key),
+    hiddenValues: configured,
   });
   for (const note of report.notes) {
     printNote(note.message);
   }
-  if (report.truncated) {
+  if (report.truncatedReason === "limit") {
     printNote(
       `the log holds more events in this range than --limit ${range.limit}; these are the newest ${report.events.length}. Narrow the range with --since and --until, or raise --limit.`,
+    );
+  } else if (report.truncatedReason === "scan-limit") {
+    printNote(
+      `the reader stopped before reading the whole range; these are the newest ${report.events.length} events it found, and older ones in the range may be missing. Narrow the range with --since and --until.`,
     );
   }
   if (args.json) {

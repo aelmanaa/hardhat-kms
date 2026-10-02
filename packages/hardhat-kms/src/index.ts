@@ -214,7 +214,7 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
       .addFlag({ name: "json", description: "Print the events as JSON" })
       .addFlag({
         name: "showIds",
-        description: "Show key ids, account ids and provider error messages in full",
+        description: "Show key ids, provider id fields and error messages in full",
       })
       .setAction(() => import("./internal/tasks/history.ts"))
       .build(),

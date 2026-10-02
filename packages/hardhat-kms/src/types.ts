@@ -248,6 +248,7 @@ export type {
   KmsHistoryNote,
   KmsHistoryRequest,
   KmsHistoryResult,
+  KmsHistoryScope,
 } from "./internal/history/types.ts";
 export type { SignatureOutput } from "./internal/crypto/signature.ts";
 export type { TypedData } from "./internal/crypto/digests.ts";

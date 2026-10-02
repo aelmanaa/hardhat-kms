@@ -120,10 +120,10 @@ What each provider records for a sign request, from the providers' documentation
 
 What this means for you:
 
-- **An empty history proves little.** On Google Cloud and Azure, logging can be off, a caller can be exempted, logs can be routed elsewhere, and a protected table returns no rows. `kms history` says so instead of reporting "no signatures".
+- **An empty history proves little.** On Google Cloud and Azure, logging can be off, a caller can be exempted, logs can be routed elsewhere, and a protected table returns no rows. On AWS, CloudTrail event history is kept per account and Region, and the read uses your credentials: a key used from another account, or read from another account or Region, can show nothing. `kms history` says so instead of reporting "no signatures", unless the reader confirms that it sees every sign request on the key.
 - **The user agent is a claim.** The plugin's requests can carry a `hardhat-kms/<version>` user agent, but any client can send the same string.
 - **Retries show up.** One signature can appear as several log entries for the same digest; see [How many sign requests one call can send](#how-many-sign-requests-one-call-can-send).
-- **The output is sensitive.** It holds principals, IP addresses and user agents. Key ids and provider error messages are masked unless you pass `--show-ids`.
+- **The output is sensitive.** It holds principals, IP addresses and user agents. Key ids, provider id fields and error messages are masked unless you pass `--show-ids`. Principals are not masked, so an AWS principal ARN shows its account id.
 - **Reading signs nothing.** The task holds no key material and makes no signing call. On AWS, finding the key ARN of an alias may need one `GetPublicKey` call, which CloudTrail logs.
 
 ## Read next

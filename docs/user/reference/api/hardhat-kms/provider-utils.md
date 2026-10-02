@@ -274,10 +274,10 @@ reporting an empty history for a log it could not read.
 
 #### Parameters
 
-| Parameter    | Type                            | Description                                                                           |
-| ------------ | ------------------------------- | ------------------------------------------------------------------------------------- |
-| `permission` | `string`                        | What to grant, such as `cloudtrail:LookupEvents` or `roles/logging.privateLogViewer`. |
-| `details?`   | [`ErrorDetails`](#errordetails) | The provider, the operation and the key's display id.                                 |
+| Parameter    | Type                            | Description                                                                                                                                                 |
+| ------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `permission` | `string`                        | What to grant, such as `cloudtrail:LookupEvents` or `roles/logging.privateLogViewer`. Never an id: at most 128 letters, digits, spaces and `. , : _ / * -`. |
+| `details?`   | [`ErrorDetails`](#errordetails) | The provider, the operation and the key's display id.                                                                                                       |
 
 #### Returns
 
@@ -296,10 +296,10 @@ reader's own retries.
 
 #### Parameters
 
-| Parameter  | Type                            | Description                                                      |
-| ---------- | ------------------------------- | ---------------------------------------------------------------- |
-| `limit`    | `string`                        | The provider's documented limit, such as `2 lookups per second`. |
-| `details?` | [`ErrorDetails`](#errordetails) | The provider, the operation and the key's display id.            |
+| Parameter  | Type                            | Description                                                                                                             |
+| ---------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `limit`    | `string`                        | The provider's documented limit, such as `2 lookups per second`. Never an id, with the same characters as a permission. |
+| `details?` | [`ErrorDetails`](#errordetails) | The provider, the operation and the key's display id.                                                                   |
 
 #### Returns
 

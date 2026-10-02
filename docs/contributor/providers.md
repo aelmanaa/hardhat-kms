@@ -165,13 +165,13 @@ type KmsHistoryField =
   "principal" | "sourceIp" | "userAgent" | "requestId" | "keyVersion" | "digest";
 
 interface KmsHistoryRequest {
-  key: KmsKeyConfig;
-  since: Date; // inclusive
-  until: Date; // inclusive
-  limit: number; // 1 to 1000
+  key: KmsKeyConfig; // the whole key: every version, even when the config pins one
+  since: Date; // inclusive, on a whole second
+  until: Date; // inclusive, on a whole second
+  limit: number; // 1 to 1000; return at most limit + 1 events
 }
 interface KmsHistoryEvent {
-  time: string; // ISO 8601 with a time zone
+  time: string; // an existing ISO 8601 date and time with a time zone
   operation: string; // Sign, AsymmetricSign, KeySign
   outcome: "success" | "failed";
   errorCode: string | null;
@@ -180,18 +180,25 @@ interface KmsHistoryEvent {
   sourceIp: string | null;
   userAgent: string | null;
   requestId: string | null;
-  keyVersion: string | null;
+  keyVersion: string | null; // the version id alone, such as "1"
   digest: string | null; // 0x-prefixed lowercase hex
   keyResource: string | null; // shown only with --show-ids
   extra?: Readonly<Record<string, string | number | boolean | null>> | undefined;
   extraIds?: Readonly<Record<string, string | null>> | undefined; // shown only with --show-ids
 }
+interface KmsHistoryScope {
+  description: string; // no ids, such as "us-east-1"
+  ids?: Readonly<Record<string, string>> | undefined; // shown only with --show-ids
+}
 interface KmsHistoryResult {
-  source: string;
+  source: string; // lowercase words joined by -
   notLogged: readonly KmsHistoryField[];
-  events: readonly KmsHistoryEvent[]; // newest first, at most `limit`
+  events: readonly KmsHistoryEvent[]; // newest first, at most limit + 1
   truncated: boolean;
-  loggingAlwaysOn: boolean;
+  truncatedReason?: "limit" | "scan-limit" | undefined;
+  completeForKey: boolean;
+  scope?: KmsHistoryScope | undefined;
+  hiddenValues?: readonly string[] | undefined;
   setupHint?: string | undefined;
   deliveryDelayMinutes?: number | undefined;
   retentionDays?: number | undefined;
@@ -242,7 +249,7 @@ const plugin: HardhatPlugin = {
             notLogged: ["digest"],
             events,
             truncated: more,
-            loggingAlwaysOn: false,
+            completeForKey: false,
             setupHint: "Check that audit logging is on in the vault's settings.",
             deliveryDelayMinutes: 5,
           };
@@ -259,15 +266,17 @@ The rules:
 
 - The handler reads only its own provider ids and passes every other request to `next`, as `createKeyAdapter` does. Handlers registered with `hre.hooks.registerHandlers("kms", …)` run first; tests use this to register a fake reader.
 - Copy each field from the log entry and invent nothing. A field the provider never records goes in `notLogged` and is `null` in every event; a field it records but left empty in this entry is `null` too. Put the rest of the entry in `extra`, and any field that names a key, an account or a credential, such as an AWS access key id, in `extraIds`.
-- `kms history` shows `keyResource`, `errorMessage` and `extraIds` only with `--show-ids`. Without it, the core shows the key's display id instead, keeps only the error code, and replaces any of those values found in another field. Never put key ids or account ids in `extra`.
-- Return the events of the range, `since` and `until` included, newest first. Read at most `limit` of them, and set `truncated` when the log holds more. Respect the provider's rate limits and let its SDK retry; when it still throttles, throw `auditLogThrottled` from `hardhat-kms/provider-utils`.
-- When the log cannot be read, throw. Never return an empty result instead. For a refused read, throw `auditLogAccessDenied` with the permission to grant. The core passes the plugin's and Hardhat's errors through, and reduces any other error to its class name, as it does for adapters.
-- Set `loggingAlwaysOn` only when the provider logs every sign request with no setting that turns it off, as AWS CloudTrail event history does. Otherwise an empty result gets the `logging-not-confirmed` note, followed by `setupHint`.
+- Read the whole key: every version, even when the config pins one. Put the version that signed in `keyVersion` as the version id alone (`1`, or the Azure version segment), never as a resource name or URL.
+- Never put key ids, account ids or other identifiers in `source`, `scope.description`, `setupHint`, note messages, `extra` or the errors you throw: they are printed without `--show-ids`. `source` must be lowercase words joined by `-`. `auditLogAccessDenied` and `auditLogThrottled` refuse a permission or limit that looks like an id.
+- `kms history` shows `keyResource`, `errorMessage`, `extraIds` and `scope.ids` only with `--show-ids`. Without it, the core shows the key's display id instead of the key resource, keeps only the error code, and replaces, in any case, each of those values found in another field, together with the parts that name the key on their own: an AWS key id or alias, an Azure vault host and versionless key URL, and a Google Cloud key name without its version. Put any other value that names the key, such as the key ARN an alias resolved to, in `hiddenValues`. The core also hides a key id or `kms.audit.azure.workspaceId` read from a configuration variable, and masks the message of any plugin error a reader throws.
+- Return the events of the range, `since` and `until` included, newest first. The bounds are whole seconds; filter the provider's answer to them yourself, since provider queries may round their bounds, and the core refuses an event outside the range. Return at most `limit + 1` events: one more than `limit` tells the core there are more, and it marks the result truncated by `limit`. Set `truncated` with `truncatedReason: "scan-limit"` when you stopped before reading the whole range, for example after a page budget. Respect the provider's rate limits and let its SDK retry; when it still throttles, throw `auditLogThrottled` from `hardhat-kms/provider-utils`.
+- When the log cannot be read, throw. Never return an empty result instead. For a refused read, throw `auditLogAccessDenied` with the permission to grant. The core passes the plugin's and Hardhat's errors through, masked, and reduces any other error to its class name, as it does for adapters.
+- Set `completeForKey` only when every sign request on this key is visible to this read: the provider logs every sign request with no setting that turns it off, and this read's credentials and location see all of them. AWS CloudTrail event history is kept per account and Region, so the AWS reader sets it only when the caller's account equals the key ARN's account and it reads the key's Region. Otherwise an empty result gets the `logging-not-confirmed` note, followed by `setupHint`. Describe what the read covered in `scope`, with ids such as the account in `scope.ids`.
 - Set `deliveryDelayMinutes` and `retentionDays` to the provider's documented figures, or leave them out. The core uses them for the `recent-events-may-be-missing` and `before-retention` notes. Add notes of your own in `notes`, with codes in lowercase words joined by `-`; the core's three codes are reserved.
 - Build a log query only from identifiers checked against the provider's character set, so a configuration variable cannot inject query text. Settings a reader needs live in `context.config.kms.audit`, such as `kms.audit.azure.workspaceId`.
 - Load the log SDK inside `readSignHistory`, with a dynamic `import()`, so that loading the config and running other tasks never loads it.
 
-The core checks every result in `packages/hardhat-kms/src/internal/history/read.ts`: an event outside the range, a value for a field in `notLogged`, a digest that is not 32 bytes of lowercase hex, or an error on a successful event fails with `core.history.reader-invalid`. It sorts the events newest first and cuts them to `limit`.
+The core checks every result in `packages/hardhat-kms/src/internal/history/read.ts`: a `source` that is not a stable id, more than `limit + 1` events, an event outside the range, a time that does not exist, a value for a field in `notLogged`, a `keyVersion` that is not a version id, a digest that is not 32 bytes of lowercase hex, an error on a successful event, or a `truncatedReason` without `truncated` fails with `core.history.reader-invalid`. It sorts the events newest first and cuts them to `limit`. Times are shown in UTC, to the millisecond. The request may gain optional fields before 1.0, such as an abort signal.
 
 ## First-party provider packages
 

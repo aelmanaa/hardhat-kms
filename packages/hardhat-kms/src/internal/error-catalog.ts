@@ -1647,6 +1647,15 @@ export const ERRORS = {
       "The start of the range is not before its end. Without `--until`, the end is now, so a `--since` in the future fails too.",
     fix: "Swap the two values, or move `--since` back.",
   },
+  historyUntilFuture: {
+    id: "core.history.until-future",
+    kind: "error",
+    group: "History",
+    template: "--until ({until}) is more than 5 minutes after now ({now})",
+    cause:
+      "`kms history --until` names a time in the future. The log cannot hold events from then, and a range that ends later would look complete when it is not.",
+    fix: "Leave `--until` out to read up to now, or check the date and its time zone.",
+  },
   historyLimitRange: {
     id: "core.history.limit-range",
     kind: "error",
@@ -1670,7 +1679,7 @@ export const ERRORS = {
     kind: "error",
     group: "History",
     template:
-      "{name} audit logs are read by the {package} plugin. Install it with `npm install --save-dev {package}`, at the same version as hardhat-kms, and add it to `plugins` in your Hardhat config",
+      "no installed plugin reads {name} audit logs. The reader ships in {package}; install or update it to the same version as hardhat-kms, and add it to `plugins` in your Hardhat config",
     cause:
       "The key's provider is built in, but its provider package is not in `plugins`, or it is a version without a history reader.",
     fix: "Install the package the message names, at the same version as hardhat-kms, and add its plugin to `plugins`.",
@@ -1714,6 +1723,16 @@ export const ERRORS = {
   },
 
   // Internal: only a bug or a broken install reaches these. They are plain `Error`s.
+  historyErrorArgument: {
+    id: "core.internal.history-error-argument",
+    kind: "internal",
+    group: "Internal",
+    template:
+      "auditLogAccessDenied and auditLogThrottled take a short permission or limit with no ids: letters, digits, spaces and . , : _ / * -",
+    cause:
+      "A history reader passed a value with other characters, a URL, or a run of digits or hex that looks like an account or key id, which would be printed without `--show-ids`.",
+    fix: "Report it to the provider plugin. Pass the permission or limit as documented, without ids.",
+  },
   identifierPartMissing: {
     id: "core.internal.identifier-part",
     kind: "internal",

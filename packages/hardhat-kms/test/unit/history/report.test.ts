@@ -21,39 +21,36 @@ const codes = (notes: Array<{ code: string }>) => notes.map((note) => note.code)
 
 describe("historyNotes", () => {
   it("adds no note to a result with events in a settled range inside the retention", () => {
-    assert.deepEqual(historyNotes(historyResult(), OLD_RANGE, NOW, "AWS KMS"), []);
+    assert.deepEqual(historyNotes(historyResult(), OLD_RANGE, NOW), []);
   });
 
   it("says that an empty result does not confirm logging, with the reader's hint, unless logging is always on", () => {
     const notes = historyNotes(
-      historyResult({ events: [], loggingAlwaysOn: false, setupHint: "Turn on Data Access logs." }),
+      historyResult({ events: [], completeForKey: false, setupHint: "Turn on Data Access logs." }),
       OLD_RANGE,
       NOW,
-      "Google Cloud KMS",
     );
 
     assert.deepEqual(notes, [
       {
         code: "logging-not-confirmed",
         message:
-          "The log returned no sign events in this range. That does not show that the key signed nothing: logging may be off or sent elsewhere, or the credentials may not see every entry. Turn on Data Access logs.",
+          "The log returned no sign events in this range. That does not show that the key signed nothing: logging may be off or sent elsewhere, or this read may not see every sign request on the key, such as those from another account or Region. Turn on Data Access logs.",
       },
     ]);
     assert.doesNotMatch(notes[0]?.message ?? "", /no signatures/i);
     assert.deepEqual(
-      codes(
-        historyNotes(historyResult({ events: [], loggingAlwaysOn: true }), OLD_RANGE, NOW, "x"),
-      ),
+      codes(historyNotes(historyResult({ events: [], completeForKey: true }), OLD_RANGE, NOW)),
       [],
     );
     assert.deepEqual(
-      codes(historyNotes(historyResult({ loggingAlwaysOn: false }), OLD_RANGE, NOW, "x")),
+      codes(historyNotes(historyResult({ completeForKey: false }), OLD_RANGE, NOW)),
       [],
     );
     assert.equal(
-      historyNotes(historyResult({ events: [], loggingAlwaysOn: false }), OLD_RANGE, NOW, "x")[0]
+      historyNotes(historyResult({ events: [], completeForKey: false }), OLD_RANGE, NOW)[0]
         ?.message,
-      "The log returned no sign events in this range. That does not show that the key signed nothing: logging may be off or sent elsewhere, or the credentials may not see every entry.",
+      "The log returned no sign events in this range. That does not show that the key signed nothing: logging may be off or sent elsewhere, or this read may not see every sign request on the key, such as those from another account or Region.",
     );
   });
 
@@ -63,18 +60,17 @@ describe("historyNotes", () => {
       until: new Date(NOW.getTime() - minutesAgo * MINUTE),
     });
 
-    assert.deepEqual(historyNotes(historyResult(), until(14), NOW, "AWS KMS"), [
+    assert.deepEqual(historyNotes(historyResult(), until(14), NOW), [
       {
         code: "recent-events-may-be-missing",
         message:
-          "Events from the last 15 minutes may not be in the log yet: AWS KMS documents a delivery delay of about 5 minutes.",
+          "Events from the last 15 minutes may not be in the log yet: the provider documents a delivery delay of about 5 minutes for fake-audit-log.",
       },
     ]);
-    assert.deepEqual(codes(historyNotes(historyResult(), until(15), NOW, "AWS KMS")), []);
+    assert.deepEqual(codes(historyNotes(historyResult(), until(15), NOW)), []);
     assert.equal(
-      historyNotes(historyResult({ deliveryDelayMinutes: undefined }), until(0), NOW, "Vault")[0]
-        ?.message,
-      "Events from the last 15 minutes may not be in the log yet: Vault does not document how long delivery takes.",
+      historyNotes(historyResult({ deliveryDelayMinutes: undefined }), until(0), NOW)[0]?.message,
+      "Events from the last 15 minutes may not be in the log yet: the provider does not document how long fake-audit-log takes to deliver events.",
     );
   });
 
@@ -85,11 +81,9 @@ describe("historyNotes", () => {
       until: new Date(NOW.getTime() - minutesAgo * MINUTE),
     });
 
-    assert.deepEqual(codes(historyNotes(result, until(29), NOW, "x")), [
-      "recent-events-may-be-missing",
-    ]);
-    assert.match(historyNotes(result, until(29), NOW, "x")[0]?.message ?? "", /last 30 minutes/);
-    assert.deepEqual(codes(historyNotes(result, until(30), NOW, "x")), []);
+    assert.deepEqual(codes(historyNotes(result, until(29), NOW)), ["recent-events-may-be-missing"]);
+    assert.match(historyNotes(result, until(29), NOW)[0]?.message ?? "", /last 30 minutes/);
+    assert.deepEqual(codes(historyNotes(result, until(30), NOW)), []);
   });
 
   it("warns when the range starts before the log's retention, and not when it does not say", () => {
@@ -98,16 +92,16 @@ describe("historyNotes", () => {
       until: OLD_RANGE.until,
     });
 
-    assert.deepEqual(historyNotes(historyResult(), since(91), NOW, "AWS KMS"), [
+    assert.deepEqual(historyNotes(historyResult(), since(91), NOW), [
       {
         code: "before-retention",
         message:
           "The log keeps 90 days of events, so it holds none from before 2026-07-04T12:00:00.000Z.",
       },
     ]);
-    assert.deepEqual(codes(historyNotes(historyResult(), since(90), NOW, "AWS KMS")), []);
+    assert.deepEqual(codes(historyNotes(historyResult(), since(90), NOW)), []);
     assert.deepEqual(
-      codes(historyNotes(historyResult({ retentionDays: undefined }), since(400), NOW, "x")),
+      codes(historyNotes(historyResult({ retentionDays: undefined }), since(400), NOW)),
       [],
     );
   });
@@ -116,12 +110,11 @@ describe("historyNotes", () => {
     const notes = historyNotes(
       historyResult({
         events: [],
-        loggingAlwaysOn: false,
+        completeForKey: false,
         notes: [{ code: "other-account", message: "Another account." }],
       }),
       { since: new Date(NOW.getTime() - 100 * DAY), until: NOW },
       NOW,
-      "x",
     );
 
     assert.deepEqual(codes(notes), [
@@ -155,6 +148,7 @@ describe("buildHistoryReport", () => {
       key: { name: "deployer", provider: "aws", displayId: "aws:<AWS_KMS_KEY_ID>" },
       source: "fake-audit-log",
       range: { since: "2026-10-01T00:00:00.000Z", until: "2026-10-02T00:00:00.000Z" },
+      scope: null,
       notLogged: ["keyVersion", "digest"],
       events: [
         {
@@ -173,6 +167,7 @@ describe("buildHistoryReport", () => {
         },
       ],
       truncated: false,
+      truncatedReason: null,
       notes: [],
     });
   });
@@ -250,6 +245,56 @@ describe("buildHistoryReport", () => {
       none: null,
     });
     assert.equal(report.notes[0]?.message, "key aws:<AWS_KMS_KEY_ID> is in another account");
+  });
+
+  it("hides the reader's hidden values and the parts of a key resource, in any case", () => {
+    const keyId = "1234abcd-12ab-34cd-56ef-1234567890ab";
+    const event = historyEvent({
+      keyResource: `arn:aws:kms:eu-west-1:111122223333:key/${keyId}`,
+      principal: "assumed alias/READER-HIDDEN-ALIAS",
+      userAgent: `cli --key-id ${keyId.toUpperCase()}`,
+    });
+    const report = buildHistoryReport(
+      input({
+        result: historyResult({ events: [event], hiddenValues: ["alias/reader-hidden-alias"] }),
+      }),
+    );
+
+    assert.equal(report.events[0]?.principal, "assumed aws:<AWS_KMS_KEY_ID>");
+    assert.equal(report.events[0]?.userAgent, "cli --key-id aws:<AWS_KMS_KEY_ID>");
+  });
+
+  it("prints the scope with its ids hidden, and in full with --show-ids", () => {
+    const result = historyResult({
+      scope: { description: `us-east-1 ${PLACEHOLDERS.keyArn}`, ids: { account: "999988887777" } },
+    });
+
+    assert.equal(
+      buildHistoryReport(input({ result })).scope,
+      "account <hidden>, us-east-1 aws:<AWS_KMS_KEY_ID>",
+    );
+    assert.equal(
+      buildHistoryReport(input({ result, showIds: true })).scope,
+      `account 999988887777, us-east-1 ${PLACEHOLDERS.keyArn}`,
+    );
+    assert.equal(
+      buildHistoryReport(input({ result: historyResult({ scope: { description: "eu-west-1" } }) }))
+        .scope,
+      "eu-west-1",
+    );
+  });
+
+  it("gives the truncation reason only for a truncated result", () => {
+    assert.equal(
+      buildHistoryReport(input({ result: historyResult({ truncated: true }) })).truncatedReason,
+      "limit",
+    );
+    assert.equal(
+      buildHistoryReport(
+        input({ result: historyResult({ truncated: true, truncatedReason: "scan-limit" }) }),
+      ).truncatedReason,
+      "scan-limit",
+    );
   });
 
   it("hides nothing with --show-ids", () => {
@@ -364,6 +409,24 @@ describe("renderHistoryTable", () => {
     ]);
   });
 
+  it("prints the scope in the header", () => {
+    const report = buildHistoryReport(
+      input({
+        result: historyResult({
+          events: [],
+          scope: { description: "us-east-1", ids: { account: "999988887777" } },
+        }),
+      }),
+    );
+
+    assert.deepEqual(renderHistoryTable(report).slice(0, 4), [
+      "Sign events of deployer (aws:<AWS_KMS_KEY_ID>), from fake-audit-log",
+      "2026-10-01T00:00:00.000Z to 2026-10-02T00:00:00.000Z, newest first",
+      "Scope: account <hidden>, us-east-1",
+      "Not logged by this provider: key version, digest",
+    ]);
+  });
+
   it("says the log has no sign events in the range, never that the key made no signatures", () => {
     const lines = renderHistoryTable(
       buildHistoryReport(input({ result: historyResult({ events: [], notLogged: [] }) })),
@@ -373,7 +436,7 @@ describe("renderHistoryTable", () => {
       "Sign events of deployer (aws:<AWS_KMS_KEY_ID>), from fake-audit-log",
       "2026-10-01T00:00:00.000Z to 2026-10-02T00:00:00.000Z, newest first",
       "",
-      "No sign events in the log for this range.",
+      "No sign events in fake-audit-log for this range.",
     ]);
   });
 });

@@ -378,15 +378,16 @@ npx hardhat kms history <key> [--since <time>] [--until <time>] [--limit <n>] [-
 
 Lists the key's sign events from its provider's audit log, newest first. The events come only from the log: the plugin stores nothing about the signatures it makes and adds nothing the log does not hold. Anyone with read access to the log gets the same list from any machine. The list includes sign requests made outside the plugin, for example from the provider's CLI or console, so it answers "who else signed with this key?". [Decision 0013](../../contributor/decisions/0013-history-from-cloud-logs.md) explains why.
 
-Each provider package reads its own provider's log. Until a package has a reader, the task fails with an error that names the package. A third-party provider adds one through the `kms` hook ([History readers](../../contributor/providers.md#history-readers)). [Audit logs](../explanation/security-model.md#audit-logs) lists what each provider records.
+The history covers the whole key: every version, even when the config pins one, with the version that signed in its own column where the provider logs it. Each provider package reads its own provider's log. Until a package has a reader, the task fails with an error that names the package. A third-party provider adds one through the `kms` hook ([History readers](../../contributor/providers.md#history-readers)). [Audit logs](../explanation/security-model.md#audit-logs) lists what each provider records.
 
-- **`<key>`.** Named as in [Naming a key](#naming-a-key), including `--kms` variables. The task makes no KMS call; it does not need `--network`.
-- **`--since` and `--until`.** An ISO 8601 time with a time zone, such as `2026-10-02T09:00:00Z` or `2026-10-02T11:00:00+02:00`; a date, which means midnight UTC; or a duration before now: `45s`, `30m`, `6h`, `7d`. A time without a time zone is refused. `--until` defaults to now, and `--since` to 24 hours before `--until`.
-- **`--limit`.** At most this many events, the newest ones. From 1 to 1000; default 100. When the log holds more events in the range, the task says so on standard error. Narrow the range to see older ones.
+- **`<key>`.** Named as in [Naming a key](#naming-a-key), including `--kms` variables. The task makes no sign call. On AWS it may read the key's public key to find the key ARN of an alias, which CloudTrail logs as a `GetPublicKey` event. It does not need `--network`.
+- **`--since` and `--until`.** An ISO 8601 time with a time zone, such as `2026-10-02T09:00:00Z` or `2026-10-02T11:00:00+02:00`; a date, which means midnight UTC; or a duration before now: `45s`, `30m`, `6h`, `7d`. A time without a time zone, or an `--until` more than 5 minutes after now, is refused. `--until` defaults to now, and `--since` to 24 hours before `--until`. The task reads whole seconds: it rounds `--since` down and `--until` up, and prints the range it read.
+- **`--limit`.** At most this many events, the newest ones. From 1 to 1000; default 100. When the log holds more events in the range, or the reader stopped before reading the whole range, the task says so on standard error. Narrow the range to see older ones.
 
 ```text
 Sign events of deployer (aws:alias/deployer), from cloudtrail-event-history
 2026-10-01T10:00:00.000Z to 2026-10-02T10:00:00.000Z, newest first
+Scope: account <hidden>, us-east-1
 Not logged by this provider: key version, digest
 
 TIME                      OPERATION  OUTCOME                         PRINCIPAL                                SOURCE IP
@@ -402,16 +403,17 @@ Each row is one log entry, copied as it was logged. One signature can show as se
 
 - **Not logged and empty.** A field the provider never records has no column or line, and the header names it. A field the provider records but left empty in this entry shows as `-`.
 - **User agent.** The client chooses it, so any tool can claim to be the plugin. Treat it as a hint, never as proof.
-- **Ids.** Key ARNs, resource names and key URLs from the log show as the key's display id, and a failed request shows only its error code, since provider error messages can name accounts and keys. `--show-ids` shows them in full, with the provider's other id fields such as the AWS access key id, after a warning on standard error.
+- **Scope.** The header says which part of the log the read covered, when the reader says, such as one AWS account and Region. Ids in it show as `<hidden>`.
+- **Ids.** Key ARNs, resource names and key URLs from the log show as the key's display id, wherever they appear and in any case, with the parts that name the key on their own, such as an AWS key id or an Azure vault host. A failed request shows only its error code, since provider error messages can name accounts and keys. `--show-ids` shows key ids, provider id fields such as the AWS access key id, and error messages in full, after a warning on standard error. Principals are shown either way, so an AWS principal ARN shows its account id by design.
 - **Sensitive output.** Principals, IP addresses and user agents are shown by default, because an incident review needs them. Treat the output as sensitive, and do not paste it into public issues.
 
 The task adds these notes to standard error, and to `notes` in the JSON, each with a stable code:
 
-| Code                           | When                                                                                                                                                                                                                                                |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `logging-not-confirmed`        | The log returned no events, and the provider's logging can be off. Zero rows does not show that the key signed nothing: logging may be off or routed elsewhere, or the credentials may not see every entry. The task never reports "no signatures". |
-| `recent-events-may-be-missing` | The range ends within 15 minutes of now, or within the provider's documented delay if that is longer. Events take minutes to reach the log.                                                                                                         |
-| `before-retention`             | The range starts before the oldest event the log keeps, for providers whose retention does not depend on your settings.                                                                                                                             |
+| Code                           | When                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `logging-not-confirmed`        | The log returned no events, and the reader cannot confirm that it sees every sign request on the key. Zero rows does not show that the key signed nothing: logging may be off or routed elsewhere, or the read may not see every request, such as AWS calls recorded in another account or Region. The task never reports "no signatures". |
+| `recent-events-may-be-missing` | The range ends within 15 minutes of now, or within the provider's documented delay if that is longer. Events take minutes to reach the log.                                                                                                                                                                                                |
+| `before-retention`             | The range starts before the oldest event the log keeps, for providers whose retention does not depend on your settings.                                                                                                                                                                                                                    |
 
 A reader can add notes of its own, with other codes.
 
@@ -425,6 +427,7 @@ When the task cannot read the log, it fails with exit code 1 and prints nothing 
   "key": { "name": "deployer", "provider": "aws", "displayId": "aws:alias/deployer" },
   "source": "cloudtrail-event-history",
   "range": { "since": "2026-10-01T10:00:00.000Z", "until": "2026-10-02T10:00:00.000Z" },
+  "scope": "account <hidden>, us-east-1",
   "notLogged": ["keyVersion", "digest"],
   "events": [
     {
@@ -443,8 +446,9 @@ When the task cannot read the log, it fails with exit code 1 and prints nothing 
     }
   ],
   "truncated": false,
+  "truncatedReason": null,
   "notes": []
 }
 ```
 
-Times are UTC. `error` is `null` for a request that succeeded, and `{ "code": ..., "message": null }` for one that failed; `--show-ids` fills in `message`. `keyResource` is the key as the log names it, shown as the display id without `--show-ids`. `extra` holds the provider's other fields. A field in `notLogged` is `null` in every event. The types are `KmsHistoryReport` and `KmsHistoryEntry` in `hardhat-kms/types`, and `hre.tasks.getTask(["kms", "history"]).run({ key, limit: 100, json: false, showIds: false })` returns the same report.
+Times are UTC, to the millisecond. `scope` is `null` when the reader does not say what it covered. `truncatedReason` is `limit` when the log holds more events than `--limit`, `scan-limit` when the reader stopped before reading the whole range, and `null` otherwise. `error` is `null` for a request that succeeded, and `{ "code": ..., "message": null }` for one that failed; `--show-ids` fills in `message`. `keyResource` is the key as the log names it, shown as the display id without `--show-ids`. `extra` holds the provider's other fields. A field in `notLogged` is `null` in every event. The types are `KmsHistoryReport` and `KmsHistoryEntry` in `hardhat-kms/types`, and `hre.tasks.getTask(["kms", "history"]).run({ key, limit: 100, json: false, showIds: false })` returns the same report.
