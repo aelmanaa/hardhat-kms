@@ -5,10 +5,12 @@ import type {
   KeyVaultKey,
 } from "@azure/keyvault-keys";
 import {
-  kmsError,
+  catalogError,
+  type ErrorEntry,
   type ParsedAzureKeyId,
   parseAzureKeyId,
   publicKeyFromJwk,
+  type TemplateParams,
 } from "hardhat-kms/provider-utils";
 import type {
   AzureKmsKeyConfig,
@@ -16,6 +18,8 @@ import type {
   SignatureOutput,
   SignContext,
 } from "hardhat-kms/types";
+
+import { ERRORS } from "./error-catalog.ts";
 
 /** Key Vault's name for ECDSA over secp256k1 on a pre-hashed 32-byte digest. */
 const ALGORITHM = "ES256K";
@@ -143,24 +147,18 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     // The checks below do not trust the SDK's types: every field of a response is optional.
     const version = this.#versionOf(response.id, "get public key");
     if (wanted !== undefined && !sameId(version, wanted)) {
-      throw this.#error("get public key", "the response is for another key version");
+      throw this.#error("get public key", ERRORS.responseVersion, {});
     }
     this.#checkUsable(response, "get public key");
     const jwk = response.key;
     if (jwk === undefined) {
-      throw this.#error("get public key", "the response has no public key");
+      throw this.#error("get public key", ERRORS.noPublicKey, {});
     }
     if (jwk.kty === undefined || !KEY_TYPES.has(jwk.kty)) {
-      throw this.#error(
-        "get public key",
-        `the key type is ${shown(jwk.kty)}, not EC or EC-HSM. Create an EC key on the ${CURVE} curve`,
-      );
+      throw this.#error("get public key", ERRORS.keyType, { keyType: shown(jwk.kty) });
     }
     if (jwk.crv !== CURVE) {
-      throw this.#error(
-        "get public key",
-        `the key curve is ${shown(jwk.crv)}, not ${CURVE} (secp256k1). Create the key with --kty EC --curve ${CURVE}`,
-      );
+      throw this.#error("get public key", ERRORS.keyCurve, { curve: shown(jwk.crv) });
     }
     const publicKey = publicKeyFromJwk({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y });
     // Pin only a validated key from a call that was not abandoned, so a late answer to a
@@ -186,10 +184,7 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     const pinned = this.#pinned;
     if (pinned === undefined) {
       // The lookup above was abandoned (its signal aborted): never sign without a pinned version.
-      throw this.#error(
-        "sign",
-        "the key lookup did not finish, so there is no key version to sign with",
-      );
+      throw this.#error("sign", ERRORS.lookupUnfinished, {});
     }
     // The SDK checks the dates of the key it was given too, but fails with a message that names
     // the key URL, which the signer can only show as "Error". A key that expired since it was
@@ -213,11 +208,11 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     // version signed.
     const version = this.#versionOf(kid, "sign");
     if (!sameId(version, pinned.version)) {
-      throw this.#error("sign", "the signature is from another key version than the pinned one");
+      throw this.#error("sign", ERRORS.signatureVersion, {});
     }
     const signature: unknown = response.result;
     if (!(signature instanceof Uint8Array)) {
-      throw this.#error("sign", "the response has no signature");
+      throw this.#error("sign", ERRORS.noSignature, {});
     }
     // 64 bytes `r || s`; the core rejects any other length.
     return { format: "compact", bytes: signature };
@@ -227,10 +222,10 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
   #versionOf(id: unknown, operation: string): string {
     const parsed = typeof id === "string" ? parseAzureKeyId(id) : undefined;
     if (parsed?.keyVersion === undefined) {
-      throw this.#error(operation, "the response has no versioned key id");
+      throw this.#error(operation, ERRORS.noVersionedId, {});
     }
     if (!sameId(parsed.keyName, this.#id.keyName)) {
-      throw this.#error(operation, "the response is for another key than the one requested");
+      throw this.#error(operation, ERRORS.responseKey, {});
     }
     return parsed.keyVersion;
   }
@@ -240,26 +235,17 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     const { enabled, notBefore, expiresOn } = response.properties;
     const now = Date.now();
     if (enabled === false) {
-      throw this.#error(
-        operation,
-        "the key version is disabled. Enable it with `az keyvault key set-attributes --enabled true`",
-      );
+      throw this.#error(operation, ERRORS.disabled, {});
     }
     if (notBefore instanceof Date && notBefore.getTime() > now) {
-      throw this.#error(
-        operation,
-        `the key version is not valid before ${notBefore.toISOString()}`,
-      );
+      throw this.#error(operation, ERRORS.notYetValid, { date: notBefore.toISOString() });
     }
     if (expiresOn instanceof Date && expiresOn.getTime() <= now) {
-      throw this.#error(operation, `the key version expired at ${expiresOn.toISOString()}`);
+      throw this.#error(operation, ERRORS.expired, { date: expiresOn.toISOString() });
     }
     const operations: unknown = response.keyOperations;
     if (Array.isArray(operations) && !operations.includes(SIGN_OPERATION)) {
-      throw this.#error(
-        operation,
-        "the key's permitted operations do not include sign. Set them with `az keyvault key set-attributes --ops sign verify`",
-      );
+      throw this.#error(operation, ERRORS.noSignOperation, {});
     }
   }
 
@@ -280,16 +266,10 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
       return undefined;
     }
     if (NO_CREDENTIAL.has(error.name)) {
-      return this.#error(
-        operation,
-        `no Azure credential returned a token (${error.name}). Run \`az login\`, or set AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET for a service principal`,
-      );
+      return this.#error(operation, ERRORS.noCredential, { errorName: error.name });
     }
     if (FAILED_CREDENTIAL.has(error.name)) {
-      return this.#error(
-        operation,
-        `a configured Azure credential could not sign in (${error.name}). Check the service principal (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET), the workload identity or the managed identity; unset the variables of a source you do not mean to use`,
-      );
+      return this.#error(operation, ERRORS.credentialFailed, { errorName: error.name });
     }
     if (error.name !== "RestError") {
       return undefined;
@@ -299,32 +279,30 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     const shownCode = typeof code === "string" && SAFE_CODE.test(code) ? code : undefined;
     if (typeof status !== "number" || !Number.isInteger(status)) {
       // No HTTP answer: the request did not reach Key Vault.
-      return this.#error(
-        operation,
-        `Key Vault could not be reached${shownCode === undefined ? "" : ` (${shownCode})`}. Check the vault URL, the network and any proxy`,
-      );
+      return shownCode === undefined
+        ? this.#error(operation, ERRORS.unreachable, {})
+        : this.#error(operation, ERRORS.unreachableCode, { code: shownCode });
     }
-    const answer = `Key Vault answered ${status}${shownCode === undefined ? "" : ` ${shownCode}`}`;
+    // The status, then Key Vault's error code when it has a safe one, such as "403 Forbidden".
+    const answer = { status: `${status}${shownCode === undefined ? "" : ` ${shownCode}`}` };
     if (status === 401) {
-      return this.#error(operation, `${answer}: the credential was not accepted`);
+      return this.#error(operation, ERRORS.unauthorized, answer);
     }
     if (status === 403) {
-      return this.#error(
-        operation,
-        `${answer}: the identity may not use this key. It needs the keys/get and keys/sign permissions: the Key Vault Crypto User role on an RBAC vault, or the Get and Sign key permissions in an access policy. A disabled key or a firewall rule also gives 403`,
-      );
+      return this.#error(operation, ERRORS.forbidden, answer);
     }
     if (status === 404) {
-      return this.#error(
-        operation,
-        `${answer}: the key or key version does not exist in this vault. Check the key id`,
-      );
+      return this.#error(operation, ERRORS.notFound, answer);
     }
-    return this.#error(operation, answer);
+    return this.#error(operation, ERRORS.answered, answer);
   }
 
-  #error(operation: string, message: string) {
-    return kmsError(message, { provider: "azure", operation, key: this.#key.displayId });
+  #error<Template extends string>(
+    operation: string,
+    entry: ErrorEntry<Template, "error">,
+    params: TemplateParams<Template>,
+  ): Error {
+    return catalogError(entry, params, { provider: "azure", operation, key: this.#key.displayId });
   }
 }
 
@@ -348,11 +326,11 @@ export async function createAzureKeyAdapter<Key extends KeyVaultKeyLike>(
   const id = parseAzureKeyId(keyId);
   if (id === undefined) {
     // resolveIdentifier already checked the format; this only keeps the types honest.
-    throw kmsError("the key id is not an Azure Key Vault key URL", {
-      provider: "azure",
-      operation: "create adapter",
-      key: key.displayId,
-    });
+    throw catalogError(
+      ERRORS.notKeyUrl,
+      {},
+      { provider: "azure", operation: "create adapter", key: key.displayId },
+    );
   }
   return new AzureKeyAdapter(key, id, sdk, credential, options);
 }

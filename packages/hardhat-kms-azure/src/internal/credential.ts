@@ -1,5 +1,8 @@
 import { createDefaultHttpClient, type HttpClient } from "@azure/core-rest-pipeline";
 import type { AccessToken, GetTokenOptions, TokenCredential } from "@azure/identity";
+import { catalogMessage } from "hardhat-kms/provider-utils";
+
+import { ERRORS } from "./error-catalog.ts";
 
 /**
  * How long the managed identity may take to return a token. Outside Azure, the managed identity
@@ -86,7 +89,7 @@ class TimeoutCredential implements TokenCredential {
         () => {
           reject(
             new this.#unavailable(
-              `ManagedIdentityCredential: no token within ${this.#timeoutMs / 1000} s`,
+              catalogMessage(ERRORS.managedIdentityTimeout, { seconds: this.#timeoutMs / 1000 }),
             ),
           );
         },
@@ -163,7 +166,7 @@ class SharedTokenCredential implements TokenCredential {
 
 /** The error a caller gets when it stops waiting, named as the Azure SDK names its own. */
 function aborted(): Error {
-  const error = new Error("The operation was aborted.");
+  const error = new Error(catalogMessage(ERRORS.aborted, {}));
   error.name = "AbortError";
   return error;
 }

@@ -443,4 +443,5 @@ To keep the key instead, run only the `disable` command: a disabled version cann
 
 - [Deploy with Hardhat Ignition](../guides/deploy-with-ignition.md): choose the deployer and rehearse on a simulated network.
 - [Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md): every option of a Cloud KMS key, and the errors you can meet.
+- [Errors](../reference/errors.md#hardhat-kms-gcp): every error message, with its cause and fix.
 - [Prevent and recover from losing a key](../guides/key-loss.md) before the key holds anything of value.

@@ -459,4 +459,5 @@ A deleted vault, like a deleted key, stays recoverable until you purge it or its
 
 - [Deploy with Hardhat Ignition](../guides/deploy-with-ignition.md): choose the deployer and rehearse on a simulated network.
 - [Set up an Azure Key Vault key](../guides/azure-key-vault-setup.md): access policies, Managed HSM, the credential order, and the errors you can meet.
+- [Errors](../reference/errors.md#hardhat-kms-azure): every error message, with its cause and fix.
 - [Prevent and recover from losing a key](../guides/key-loss.md) before the key holds anything of value.
