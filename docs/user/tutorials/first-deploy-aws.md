@@ -298,14 +298,20 @@ Explorer: https://sourcify.dev/server/repo-ui/11155111/0xc93b1fa3aB9Db68E2889752
 Both explorers may answer "already verified" for this contract. The template's `Counter` is a common contract, so the explorers have seen its code before:
 
 - Sourcify matches a new contract on its own when it already holds the source. In the recorded run it matched this one a minute after the deployment, before the verify step ran.
-- Blockscout can show the source of another contract with the same code. If Blockscout shows "verified twin" or "similar match" on the contract's page, verify your own contract there with `--force`:
+- Blockscout matches a new contract against a database of code it has verified before, and marks it verified with no request from you.
+
+Check the result on Blockscout: open the `Explorer:` link it printed. If the page shows the contract as verified, which it may say it did through its bytecode database, you are done.
+
+If the page instead shows a "verified twin" or a "similar match", Blockscout is showing the source of another contract with similar code, and yours is not verified yet. Only then, verify it with `--force`:
 
 ```sh
 npx hardhat build --build-profile production
 npx hardhat verify blockscout --network sepolia --force <contract address>
 ```
 
-The build comes first because `verify` compares the deployed bytecode with the local build, and Ignition deployed the `production` build. Other commands, such as `npx hardhat run` or `npx hardhat test`, rebuild with the default profile, and `verify` then fails with `HHE80009`. A successful run ends like this:
+The build comes first because `verify` compares the deployed bytecode with the local build, and Ignition deployed the `production` build. Other commands, such as `npx hardhat run` or `npx hardhat test`, rebuild with the default profile, and `verify` then fails with `HHE80009`.
+
+When this verifies the contract, Blockscout's part of the output ends like this:
 
 ```text
 📤 Submitted source code for verification on Blockscout:
@@ -319,7 +325,7 @@ The build comes first because `verify` compares the deployed bytecode with the l
 ✅ Contract verified successfully on Blockscout!
 ```
 
-Blockscout limits how often it answers requests without an API key. If the command fails with `Response status code 429: Too Many Requests`, wait a few minutes and run it again.
+If it fails with `HHE80022` and says the contract `is already verified`, the contract is verified, and there is nothing left to do. Blockscout limits how often it answers requests without an API key. If the command fails with `Response status code 429: Too Many Requests`, wait a few minutes and run it again.
 
 ## 7. Open the contract on the explorer
 
