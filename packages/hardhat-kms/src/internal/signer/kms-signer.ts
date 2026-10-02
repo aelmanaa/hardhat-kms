@@ -335,14 +335,24 @@ export class KmsSigner {
     ctx: SignContext,
   ): Promise<SignatureOutput> {
     const adapter = this.#adapter;
+    // Each call gets its own copies, never the signer's or the caller's objects: the signer checks
+    // the signature against `digest`, also on the retry, and the final EIP-191 and EIP-712 checks
+    // read the caller's message and typed data again. An adapter that changes what it received
+    // must not change what the signature is checked against.
     if (request.kind === "typedData" && adapter.signTypedData !== undefined) {
-      return await adapter.signTypedData({ typedData: request.typedData, digest }, ctx);
+      return await adapter.signTypedData(
+        { typedData: structuredClone(request.typedData), digest: new Uint8Array(digest) },
+        ctx,
+      );
     }
     if (request.kind === "message" && adapter.signMessage !== undefined) {
-      return await adapter.signMessage({ message: request.message, digest }, ctx);
+      return await adapter.signMessage(
+        { message: new Uint8Array(request.message), digest: new Uint8Array(digest) },
+        ctx,
+      );
     }
     if (adapter.signDigest !== undefined) {
-      return await adapter.signDigest({ digest }, ctx);
+      return await adapter.signDigest({ digest: new Uint8Array(digest) }, ctx);
     }
     throw this.#error("sign", ERRORS.signerCannotSign, { kind: REQUEST_KIND_NAMES[request.kind] });
   }

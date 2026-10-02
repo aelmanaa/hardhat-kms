@@ -7,9 +7,10 @@ import { describe, it } from "node:test";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { HardhatPluginError } from "hardhat/plugins";
 
-import { recoverAddress } from "../../../src/internal/crypto/signature.ts";
+import type { TypedData } from "../../../src/internal/crypto/digests.ts";
+import { recoverAddress, type SignatureOutput } from "../../../src/internal/crypto/signature.ts";
 import { KmsSigner, type KmsSignerOptions } from "../../../src/internal/signer/kms-signer.ts";
-import type { KmsKeyAdapter } from "../../../src/internal/signer/types.ts";
+import type { KmsKeyAdapter, SignContext } from "../../../src/internal/signer/types.ts";
 import {
   addressOfSecretKey,
   fakeAdapter,
@@ -472,7 +473,8 @@ describe("KmsSigner", () => {
       };
 
       await assertPluginError(new KmsSigner(adapter, baseOptions).signDigest(new Uint8Array(32)), [
-        "cannot sign",
+        "fake, sign",
+        "the provider cannot sign a digest",
       ]);
     });
   });
@@ -483,6 +485,82 @@ describe("KmsSigner", () => {
 
       await assertPluginError(kms.signDigest(new Uint8Array(31)), ["32-byte digest", "31 bytes"]);
       assert.equal(adapter.calls.signDigest, 0);
+    });
+  });
+
+  describe("hands the provider copies of what it signs", () => {
+    const secretKey = hex(COW_ACCOUNT.secretKey);
+
+    /** An adapter that signs digests with `sign`, through each of the three adapter methods. */
+    function copyingAdapter(
+      sign: (digest: Uint8Array, ctx: SignContext, method: string) => Promise<SignatureOutput>,
+      hooks: { message?: (message: Uint8Array) => void; typedData?: (data: TypedData) => void },
+    ) {
+      const inner = fakeAdapter({ secretKey });
+      const adapter: KmsKeyAdapter = {
+        describe: () => inner.describe(),
+        getPublicKey: async (ctx) =>
+          await (inner.getPublicKey?.(ctx) ?? Promise.reject(new Error("missing"))),
+        signDigest: async ({ digest }, ctx) => await sign(digest, ctx, "signDigest"),
+        signMessage: async ({ message, digest }, ctx) => {
+          hooks.message?.(message);
+          return await sign(digest, ctx, "signMessage");
+        },
+        signTypedData: async ({ typedData, digest }, ctx) => {
+          hooks.typedData?.(typedData);
+          return await sign(digest, ctx, "signTypedData");
+        },
+      };
+      return { inner, kms: new KmsSigner(adapter, baseOptions) };
+    }
+
+    it("refuses a signature over a digest the provider overwrote, on every signing path", async () => {
+      const methods: string[] = [];
+      const { inner, kms } = copyingAdapter(async (digest, ctx, method) => {
+        methods.push(method);
+        // The adapter overwrites the digest it received, then signs the overwritten one.
+        digest.fill(9);
+        return await (inner.signDigest?.({ digest }, ctx) ?? Promise.reject(new Error("missing")));
+      }, {});
+      const expected = ["fake, sign", "the provider returned an invalid signature"];
+
+      const digest = new Uint8Array(32).fill(1);
+      await assertPluginError(kms.signDigest(digest), expected);
+      assert.deepEqual(digest, new Uint8Array(32).fill(1));
+      await assertPluginError(kms.signPersonalMessage(Uint8Array.of(1, 2, 3)), expected);
+      await assertPluginError(kms.signTypedData(structuredClone(EIP712_MAIL)), expected);
+      // Each request goes to its own adapter method, once and then for the one retry.
+      assert.deepEqual(methods, [
+        "signDigest",
+        "signDigest",
+        "signMessage",
+        "signMessage",
+        "signTypedData",
+        "signTypedData",
+      ]);
+    });
+
+    it("keeps the caller's message and typed data when the provider changes its copies", async () => {
+      const { inner, kms } = copyingAdapter(
+        async (digest, ctx) =>
+          await (inner.signDigest?.({ digest }, ctx) ?? Promise.reject(new Error("missing"))),
+        {
+          message: (message) => {
+            message.fill(0);
+          },
+          typedData: (typedData) => {
+            typedData.message["contents"] = "Changed by the provider";
+          },
+        },
+      );
+
+      const message = Uint8Array.of(1, 2, 3);
+      await kms.signPersonalMessage(message);
+      assert.deepEqual(message, Uint8Array.of(1, 2, 3));
+
+      const typedData = structuredClone(EIP712_MAIL);
+      assert.equal(await kms.signTypedData(typedData), EIP712_MAIL_SIGNATURE);
+      assert.deepEqual(typedData, EIP712_MAIL);
     });
   });
 
