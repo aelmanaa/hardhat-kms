@@ -144,3 +144,25 @@ export function serviceError(name: string): Error {
   error.name = name;
   return error;
 }
+
+/**
+ * Top-level fields that give a recorded record another caller, shaped like the `userIdentity`
+ * examples of the CloudTrail reference, with placeholders: a call from another account as the key
+ * owner's account logs it (`AWSAccount`), an IAM Identity Center user, and an assumed role.
+ *
+ * @param type - Which identity.
+ * @returns The fields to pass to {@link recorded}.
+ */
+export function identity(
+  type: "AWSAccount" | "IdentityCenterUser" | "AssumedRole",
+): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(
+    readFileSync(new URL("../fixtures/cloudtrail-identities.json", import.meta.url), "utf8"),
+  );
+  const fields: unknown =
+    typeof parsed === "object" && parsed !== null ? Reflect.get(parsed, type) : undefined;
+  if (typeof fields !== "object" || fields === null) {
+    throw new TypeError(`no identity fixture ${type}`);
+  }
+  return { ...fields };
+}

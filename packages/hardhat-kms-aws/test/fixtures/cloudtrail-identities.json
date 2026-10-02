@@ -1,0 +1,44 @@
+{
+  "AWSAccount": {
+    "userIdentity": {
+      "type": "AWSAccount",
+      "principalId": "AIDAEXAMPLEPRINCIPAL2",
+      "accountId": "444455556666"
+    },
+    "recipientAccountId": "111122223333",
+    "sharedEventID": "11111111-2222-4333-8444-555555555555"
+  },
+  "IdentityCenterUser": {
+    "userIdentity": {
+      "type": "IdentityCenterUser",
+      "accountId": "111122223333",
+      "onBehalfOf": {
+        "userId": "a1b2c3d4-0000-4000-8000-example00001",
+        "identityStoreArn": "arn:aws:identitystore::111122223333:identitystore/d-1234567890"
+      },
+      "credentialId": "EXAMPLEcredentialIdPLACEHOLDER"
+    },
+    "recipientAccountId": "111122223333"
+  },
+  "AssumedRole": {
+    "userIdentity": {
+      "type": "AssumedRole",
+      "principalId": "AROAEXAMPLEROLEID1:deployer-session",
+      "arn": "arn:aws:sts::111122223333:assumed-role/deployer/deployer-session",
+      "accountId": "111122223333",
+      "accessKeyId": "ASIAEXAMPLEACCESS01",
+      "sessionContext": {
+        "sessionIssuer": {
+          "type": "Role",
+          "principalId": "AROAEXAMPLEROLEID1",
+          "arn": "arn:aws:iam::111122223333:role/deployer",
+          "accountId": "111122223333",
+          "userName": "deployer"
+        },
+        "sourceIdentity": "ci-pipeline-identity",
+        "attributes": { "creationDate": "2026-10-02T09:00:00Z", "mfaAuthenticated": "false" }
+      }
+    },
+    "recipientAccountId": "111122223333"
+  }
+}

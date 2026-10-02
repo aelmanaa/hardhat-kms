@@ -9,6 +9,7 @@ import {
   MAX_PAGES,
   PAGE_INTERVAL_MS,
   readAwsSignHistory,
+  SCAN_BUDGET_MS,
   type Sleep,
 } from "../../src/internal/history.ts";
 import {
@@ -16,6 +17,7 @@ import {
   FIXTURE,
   fakeHistoryApi,
   type FakeApiOptions,
+  identity,
   RECORDED,
   recorded,
   serviceError,
@@ -70,6 +72,7 @@ async function read(
   options: FakeApiOptions = {},
   keyId: string = FIXTURE.keyArn,
   request: Partial<KmsHistoryRequest> = {},
+  now?: () => number,
 ): Promise<Run> {
   const { api, calls } = fakeHistoryApi(options);
   const sleeps: number[] = [];
@@ -82,7 +85,7 @@ async function read(
     key,
     { key, since: SINCE, until: UNTIL, limit: 100, ...request },
     api,
-    sleep,
+    { sleep, ...(now === undefined ? {} : { now }) },
   );
   return { result, calls, sleeps };
 }
@@ -96,7 +99,9 @@ async function readFails(
   const { api } = fakeHistoryApi(options);
   const key = awsKey(keyId);
   await assert.rejects(
-    readAwsSignHistory(key, { key, since: SINCE, until: UNTIL, limit: 100 }, api, async () => {}),
+    readAwsSignHistory(key, { key, since: SINCE, until: UNTIL, limit: 100 }, api, {
+      sleep: async () => {},
+    }),
     (error: unknown) => {
       assert.ok(error instanceof HardhatPluginError, String(error));
       for (const part of includes) {
@@ -106,6 +111,11 @@ async function readFails(
       return true;
     },
   );
+}
+
+/** The plugin record without `resources`, as if the caller had passed `keyId`. */
+function noResources(keyId: unknown): string {
+  return recorded(PLUGIN, { resources: undefined, requestParameters: { keyId } });
 }
 
 /** A page of the given records. */
@@ -138,6 +148,7 @@ describe("AWS history reader", () => {
         eventId: record.eventID,
         userIdentityType: "IAMUser",
         userName: "deployer",
+        crossAccount: false,
         messageType: "DIGEST",
         signingAlgorithm: "ECDSA_SHA_256",
         tlsVersion: "TLSv1.3",
@@ -185,7 +196,10 @@ describe("AWS history reader", () => {
       pages: [
         page([
           recorded(PLUGIN, { resources: [{ ARN: OTHER_KEY_ARN, type: "AWS::KMS::Key" }] }),
-          recorded(PLUGIN, { resources: "not a list" }),
+          recorded(PLUGIN, {
+            resources: "not a list",
+            requestParameters: { keyId: OTHER_KEY_ARN },
+          }),
           recorded(PLUGIN, { eventName: "GetPublicKey" }),
           recorded(PLUGIN, { eventSource: "signer.amazonaws.com" }),
           recorded(PLUGIN, { eventTime: "2026-10-02T10:00:01Z" }),
@@ -243,7 +257,7 @@ describe("AWS history reader", () => {
     });
     assert.deepEqual(
       calls.map((call) => call.method),
-      ["callerAccount", "region", "lookupSignEvents"],
+      ["region", "callerAccount", "lookupSignEvents"],
     );
   });
 
@@ -380,8 +394,44 @@ describe("AWS history reader", () => {
     );
   });
 
-  it("names sts:GetCallerIdentity when STS refuses", async () => {
-    await readFails({ accountError: serviceError("AccessDenied") }, ["sts:GetCallerIdentity"]);
+  it("goes on without the account when STS fails, and says the history may be incomplete", async () => {
+    for (const error of [serviceError("AccessDenied"), new Error("connect ECONNREFUSED")]) {
+      const { result } = await read({ accountError: error });
+
+      assert.equal(result.completeForKey, false);
+      assert.equal(result.scope?.ids, undefined);
+      assert.deepEqual(
+        result.notes?.map((note) => note.code),
+        ["caller-account-unknown"],
+      );
+      assert.equal(result.events.length, RECORDED.length);
+    }
+  });
+
+  it("still stops when the signal aborts during the STS call, and explains a missing Region", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("deadline"));
+    const { api } = fakeHistoryApi({ accountError: new Error("aborted") });
+    const key = awsKey(FIXTURE.keyArn);
+    await assert.rejects(
+      readAwsSignHistory(
+        key,
+        { key, since: SINCE, until: UNTIL, limit: 100, signal: controller.signal },
+        api,
+      ),
+      /deadline/,
+    );
+    await readFails({ accountError: new Error("Region is missing") }, ["no AWS region"]);
+  });
+
+  it("passes an error of the Region lookup on, without naming a CloudTrail permission", async () => {
+    const error = serviceError("AccessDeniedException");
+    const { api } = fakeHistoryApi({ regionError: error });
+    const key = awsKey(FIXTURE.keyArn);
+    await assert.rejects(
+      readAwsSignHistory(key, { key, since: SINCE, until: UNTIL, limit: 100 }, api),
+      (thrown: unknown) => thrown === error,
+    );
   });
 
   it("fails as throttled, naming the limit, when CloudTrail keeps throttling", async () => {
@@ -431,6 +481,153 @@ describe("AWS history reader", () => {
     }
   });
 
+  it("keeps the caller of a cross-account call, which has no principal ARN", async () => {
+    const { result } = await read({ pages: [page([recorded(PLUGIN, identity("AWSAccount"))])] });
+
+    const event = result.events[0];
+    assert.equal(event?.principal, null);
+    assert.equal(event.extra?.userIdentityType, "AWSAccount");
+    assert.equal(event.extra?.crossAccount, true);
+    assert.equal(event.extra?.sharedEventId, "11111111-2222-4333-8444-555555555555");
+    assert.equal(event.extraIds?.callerAccountId, "444455556666");
+    assert.equal(event.extraIds?.principalId, "AIDAEXAMPLEPRINCIPAL2");
+  });
+
+  it("keeps the user of an IAM Identity Center call, which has no principal ARN", async () => {
+    const { result } = await read({
+      pages: [page([recorded(PLUGIN, identity("IdentityCenterUser"))])],
+    });
+
+    const event = result.events[0];
+    assert.equal(event?.principal, null);
+    assert.equal(event.extra?.crossAccount, false);
+    assert.equal(event.extraIds?.onBehalfOfUserId, "a1b2c3d4-0000-4000-8000-example00001");
+    // The key's own account is not an id to hide: it would mask every principal ARN.
+    assert.equal(event.extraIds?.callerAccountId, undefined);
+  });
+
+  it("keeps an assumed role's issuer and source identity, and an invoking delegate", async () => {
+    const { result } = await read({
+      pages: [
+        page([
+          recorded(PLUGIN, identity("AssumedRole")),
+          recorded(PLUGIN, {
+            userIdentity: {
+              type: "AWSService",
+              invokedBy: "kms.amazonaws.com",
+              invokedByDelegate: { accountId: "444455556666" },
+            },
+          }),
+        ]),
+      ],
+    });
+
+    const [role, delegated] = result.events;
+    assert.equal(
+      role?.principal,
+      "arn:aws:sts::111122223333:assumed-role/deployer/deployer-session",
+    );
+    assert.equal(role.extraIds?.sessionIssuerArn, "arn:aws:iam::111122223333:role/deployer");
+    assert.equal(role.extraIds?.sourceIdentity, "ci-pipeline-identity");
+    assert.equal(role.extra?.crossAccount, false);
+    assert.equal(delegated?.extraIds?.invokedByDelegateAccountId, "444455556666");
+    assert.equal(delegated.extra?.crossAccount, undefined);
+  });
+
+  it("is not complete for a multi-Region key, and says to read each replica", async () => {
+    const mrkArn = "arn:aws:kms:us-east-1:111122223333:key/mrk-1234abcd12ab34cd56ef1234567890ab";
+    const { result } = await read(
+      {
+        pages: [
+          page([
+            recorded(PLUGIN, {
+              resources: [{ ARN: mrkArn }],
+              requestParameters: { keyId: mrkArn },
+            }),
+          ]),
+        ],
+      },
+      mrkArn,
+    );
+
+    assert.equal(result.events.length, 1);
+    assert.equal(result.completeForKey, false);
+    const note = result.notes?.find((each) => each.code === "multi-region-key");
+    assert.match(note?.message ?? "", /each replica's key ARN/);
+  });
+
+  it("stops with scan-limit once the time budget is spent", async () => {
+    let clock = 0;
+    const { result, calls } = await read(
+      { pages: () => page([], "more") },
+      FIXTURE.keyArn,
+      {},
+      () => {
+        clock += 20_000;
+        return clock;
+      },
+    );
+
+    // Started at 20 s; each page check adds 20 s, so the 90 s budget is spent after 5 pages.
+    assert.equal(SCAN_BUDGET_MS, 90_000);
+    assert.equal(calls.filter((call) => call.method === "lookupSignEvents").length, 5);
+    assert.equal(result.truncatedReason, "scan-limit");
+  });
+
+  it("compares key ARNs without case", async () => {
+    const { result } = await read({
+      pages: [page([recorded(PLUGIN, { resources: [{ ARN: FIXTURE.keyArn.toUpperCase() }] })])],
+    });
+
+    assert.equal(result.events.length, 1);
+  });
+
+  it("attributes an event without resources by the key id the caller passed", async () => {
+    const { result } = await read(
+      {
+        pages: [
+          page([
+            noResources(FIXTURE.keyArn.toUpperCase()),
+            noResources(FIXTURE.keyId),
+            noResources(FIXTURE.alias),
+            noResources(OTHER_KEY_ARN),
+            noResources("0000abcd-12ab-34cd-56ef-1234567890ab"),
+          ]),
+        ],
+      },
+      FIXTURE.alias,
+    );
+
+    assert.equal(result.events.length, 3);
+    assert.equal(result.completeForKey, true);
+  });
+
+  it("counts events it cannot attribute, and never calls the history complete then", async () => {
+    const { result } = await read({
+      pages: [
+        page([
+          recorded(PLUGIN),
+          recorded(PLUGIN, { resources: [], requestParameters: { keyId: "alias/unknown" } }),
+          recorded(PLUGIN, { resources: undefined, requestParameters: null }),
+          recorded(PLUGIN, {
+            resources: undefined,
+            requestParameters: { keyId: "alias/old" },
+            eventTime: "2026-10-02T08:00:00Z",
+          }),
+        ]),
+      ],
+    });
+
+    assert.equal(result.events.length, 1);
+    assert.equal(result.completeForKey, false);
+    const note = result.notes?.find((each) => each.code === "unattributed-events");
+    assert.match(note?.message ?? "", /^2 Sign events in the range/);
+    const one = await read({
+      pages: [page([recorded(PLUGIN, { resources: [], requestParameters: {} })])],
+    });
+    assert.match(one.result.notes?.[0]?.message ?? "", /^1 Sign event in the range .* it is not/);
+  });
+
   it("passes the signal to each call, and stops when it aborts", async () => {
     const controller = new AbortController();
     const { api, calls } = fakeHistoryApi({
@@ -447,7 +644,7 @@ describe("AWS history reader", () => {
         key,
         { key, since: SINCE, until: UNTIL, limit: 100, signal: controller.signal },
         api,
-        async () => {},
+        { sleep: async () => {} },
       ),
       /deadline/,
     );

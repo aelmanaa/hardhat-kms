@@ -29,6 +29,11 @@ const OFFLINE: Record<string, string> = {
   AWS_CONFIG_FILE: "/nonexistent/hardhat-kms-aws/config",
   AWS_SHARED_CREDENTIALS_FILE: "/nonexistent/hardhat-kms-aws/credentials",
   AWS_ENDPOINT_URL: "http://127.0.0.1:1",
+  // Service settings would win over AWS_ENDPOINT_URL, and this one would turn it off.
+  AWS_ENDPOINT_URL_CLOUDTRAIL: "http://127.0.0.1:1",
+  AWS_ENDPOINT_URL_STS: "http://127.0.0.1:1",
+  AWS_ENDPOINT_URL_KMS: "http://127.0.0.1:1",
+  AWS_IGNORE_CONFIGURED_ENDPOINT_URLS: "false",
   AWS_MAX_ATTEMPTS: "1",
 };
 

@@ -122,7 +122,7 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 
 ## Audit logs
 
-AWS CloudTrail records every `Sign` call on the key, whoever makes it. [`kms history`](../reference/tasks.md#kms-history) lists them for one key from CloudTrail event history:
+AWS CloudTrail records every successful `Sign` call on the key, whoever makes it, and some failed ones. [`kms history`](../reference/tasks.md#kms-history) lists them for one key from CloudTrail event history:
 
 ```sh
 npx hardhat kms history deployer --since 7d
@@ -145,31 +145,33 @@ It lets the identity read every management event of the account in that Region, 
 
 ### How it reads
 
-CloudTrail files each `Sign` event under the key id the caller passed: the key ARN, the bare key id or an alias. A lookup by the key ARN alone would miss the calls made with the other two. So the task looks up the account's `Sign` events in the key's Region and keeps those whose `resources` list holds the key ARN. It pages through them newest first, 50 events a page, at most two requests a second. It stops after 60 pages, 3,000 `Sign` events of all the account's keys. If the range holds more, the task says that it stopped before reading the whole range; narrow it with `--since` and `--until`.
+CloudTrail files each `Sign` event under the key id the caller passed: the key ARN, the bare key id or an alias. A lookup by the key ARN alone would miss the calls made with the other two. So the task looks up the account's `Sign` events in the key's Region and keeps those whose `resources` list holds the key ARN. It pages through them newest first, 50 events a page, at most two requests a second. An event with no `resources` list is matched by the `keyId` the caller passed; one that names only an alias the task cannot tie to the key is counted, not listed, and the `unattributed-events` note gives the count. The task stops after 60 pages, which is 3,000 `Sign` events of all the account's keys, or after 90 seconds. If the range holds more, the task says that it stopped before reading the whole range; narrow it with `--since` and `--until`.
 
 ### What CloudTrail logs, and what it does not
 
 Each row comes from one CloudTrail event:
 
-| Column or field            | CloudTrail field                                                                                                                                              |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `time`                     | `eventTime`, in whole seconds                                                                                                                                 |
-| `principal`                | `userIdentity.arn`; empty for a call made by an AWS service                                                                                                   |
-| `sourceIp`                 | `sourceIPAddress`                                                                                                                                             |
-| `userAgent`                | `userAgent`; the plugin's calls end in `hardhat-kms/<version>`                                                                                                |
-| `requestId`                | `requestID`, set by AWS KMS: the `$metadata.requestId` the AWS SDK returns                                                                                    |
-| `error`                    | `errorCode`, and `errorMessage` with `--show-ids`                                                                                                             |
-| `keyResource`              | the key ARN in `resources`, shown with `--show-ids`                                                                                                           |
-| `extra`                    | `eventID`, the identity's `type`, `userName` and `invokedBy`, `messageType`, `signingAlgorithm`, `sharedEventID`, the TLS version and `readOnly`, when logged |
-| `extra`, with `--show-ids` | the identity's `accessKeyId` and `principalId`, the `keyId` the caller passed as `requestKeyId`, and `vpcEndpointId`                                          |
+| Column or field            | CloudTrail field                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `time`                     | `eventTime`, in whole seconds                                                                                                                                                                                                                                                                                                                                                |
+| `principal`                | `userIdentity.arn`. Empty for calls by AWS services, callers from other accounts and IAM Identity Center users: see `invokedBy`, `callerAccountId` and `onBehalfOfUserId` below                                                                                                                                                                                              |
+| `sourceIp`                 | `sourceIPAddress`                                                                                                                                                                                                                                                                                                                                                            |
+| `userAgent`                | `userAgent`; the plugin's calls end in `hardhat-kms/<version>`                                                                                                                                                                                                                                                                                                               |
+| `requestId`                | `requestID`, set by AWS KMS: the `$metadata.requestId` the AWS SDK returns                                                                                                                                                                                                                                                                                                   |
+| `error`                    | `errorCode`, and `errorMessage` with `--show-ids`                                                                                                                                                                                                                                                                                                                            |
+| `keyResource`              | the key ARN in `resources`, shown with `--show-ids`                                                                                                                                                                                                                                                                                                                          |
+| `extra`                    | `eventID`, the identity's `type`, `userName` and `invokedBy`, `crossAccount` (whether the caller's account differs from the key's), `messageType`, `signingAlgorithm`, `sharedEventID`, the TLS version and `readOnly`, when logged                                                                                                                                          |
+| `extra`, with `--show-ids` | the identity's `accessKeyId` and `principalId`; `callerAccountId`, the caller's account when there is no principal ARN and it is another account; `onBehalfOfUserId` for an Identity Center user; `sourceIdentity` and `sessionIssuerArn` (the role) for an assumed role; `invokedByDelegateAccountId`; the `keyId` the caller passed as `requestKeyId`; and `vpcEndpointId` |
 
 CloudTrail never logs the digest, so the task cannot tell which signature an event made. An AWS KMS asymmetric key has no versions, so there is no key version either. Neither the message, the transaction nor the signature is logged.
 
 ### Calls from other accounts and Regions
 
-Event history is kept for each account and each Region. A call from another account that uses the key is recorded twice: in the caller's account and in the key's account, with the same `sharedEventID`. Reading with credentials of the key's account, in the key's Region, shows every `Sign` call on the key. The task reads the key's Region: the Region of the key ARN, or the one the key is configured with.
+Event history is kept for each account and each Region. A call from another account that uses the key is recorded twice: in the caller's account and in the key's account, with the same `sharedEventID`. Reading with credentials of the key's account, in the key's Region, shows every successful `Sign` call on the key. Failed calls are logged only in some cases, and a call from another account that was refused for access is recorded only in the caller's account. The task reads the key's Region: the Region of the key ARN, or the one the key is configured with.
 
-When the credentials belong to another account, the task can show only the calls recorded in that account, and it adds the `other-account` note. An empty history then gets the `logging-not-confirmed` note too, since the key may have signed for others. Run the task with credentials of the key's account to see every call.
+When the credentials belong to another account, the task can show only the calls recorded in that account, and it adds the `other-account` note. An empty history then gets the `logging-not-confirmed` note too, since the key may have signed for others. Run the task with credentials of the key's account to see every successful call. If STS cannot tell the account of the credentials, the task goes on and adds the `caller-account-unknown` note instead.
+
+A multi-Region key (its id starts with `mrk-`) has replicas in other Regions that sign with the same key material. CloudTrail records a replica's calls in the replica's Region, under the replica's own ARN, so the task adds the `multi-region-key` note and never calls the history complete. Run `kms history` on each replica's key ARN to see them.
 
 ## Errors
 
