@@ -4,9 +4,15 @@ name: Mutation testing
 # (docs/contributor/testing.md, layer 8). Not a required check and no pull_request trigger: a full
 # run takes far longer than the rest of CI.
 #
-# - Nightly: skipped before install when the last run on the same inputs passed; otherwise an
-#   incremental run that re-tests only the mutants in changed mutated files and the mutants covered
-#   by changed tests.
+# - Weekly, Mondays: skipped before install when the last run on the same inputs passed; otherwise
+#   an incremental run that re-tests only the mutants in changed mutated files and the mutants
+#   covered by changed tests. GitHub evicts cache entries unused for 7 days, so most weekly runs find
+#   no incremental file and test every mutant.
+# - When the 1st is a Monday, both schedules fire and queue in either order. The weekly run checks
+#   the UTC date and skips itself on the 1st, so only the monthly full run tests. The no-change skip
+#   is not enough: a weekly run that goes first would test just before the full run. Cron cannot
+#   express "Mondays except the 1st": when both the day of the month and the day of the week are
+#   set, a cron line fires on either.
 # - Monthly, and on dispatch with `force`: a full run. Incremental mode does not see changes outside
 #   the mutated and test files, such as dependency updates or unmutated source the mutated code
 #   imports (errors.ts, error-catalog.ts, rpc/), so their effect shows only in a full run.
@@ -17,16 +23,14 @@ name: Mutation testing
 # The inputs are the core's src/ and test/, the Stryker config, the lockfile and this file.
 # - Skip: a lookup with the prefix stryker-<os>-<hash>- returns the newest entry for these inputs.
 #   The run is skipped only when that entry ends in -pass. After a failed run (a score below
-#   `break`, including a full run), the next night runs again and fails again until fixed.
+#   `break`, including a full run), the next weekly run runs again and fails again until fixed.
 # - Restore: the newest entry for these inputs, else the newest entry of any inputs. Incremental
 #   results are valid whether that run passed or failed.
 # - Save: whenever Stryker ran, full runs included, so a full run replaces stale incremental results.
 #   Stryker writes the incremental file also when the score is below `break`.
 on:
   schedule:
-    # To run weekly instead, change the nightly line to "17 3 * * 1". Caches unused for 7 days are
-    # evicted, so a weekly run may find no incremental file and do a full run.
-    - cron: "17 3 2-31 * *" # nightly at 03:17 UTC, except on the 1st
+    - cron: "17 3 * * 1" # weekly at 03:17 UTC on Mondays; skips itself on the 1st
     - cron: "17 3 1 * *" # monthly full run, 03:17 UTC on the 1st
   workflow_dispatch:
     inputs:
@@ -71,8 +75,11 @@ jobs:
         id: run
         env:
           MATCHED: ${{ steps.seen.outputs.cache-matched-key }}
+          SCHEDULE: ${{ github.event.schedule }}
         run: |
-          if [ "$FULL_RUN" != "true" ] && [ -n "$MATCHED" ] && [ "${MATCHED%-pass}" != "$MATCHED" ]; then
+          if [ "$SCHEDULE" = "17 3 * * 1" ] && [ "$(date -u +%d)" = "01" ]; then
+            echo "The 1st is a Monday: the monthly full run covers today; skipped." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$FULL_RUN" != "true" ] && [ -n "$MATCHED" ] && [ "${MATCHED%-pass}" != "$MATCHED" ]; then
             echo "The last run on the same code, tests, Stryker config, lockfile and workflow passed; skipped." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "go=true" >> "$GITHUB_OUTPUT"
