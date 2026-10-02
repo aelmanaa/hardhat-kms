@@ -114,15 +114,20 @@ function isReport(value: unknown): value is AccountsReport {
 
 /**
  * Runs `kms accounts --json` with the given checks, and returns its report and what it printed on
- * standard output. Standard output is captured, so the test runner's own output is left alone.
+ * standard output and standard error. Both are captured while the task runs.
  */
 async function accounts(
   hre: HardhatRuntimeEnvironment,
   checks: { balances: boolean; checkSign: boolean },
-): Promise<{ success: boolean; report: AccountsReport; printed: string }> {
+): Promise<{ success: boolean; report: AccountsReport; printed: string; stderr: string }> {
   let printed = "";
+  let stderr = "";
   const write = mock.method(process.stdout, "write", (chunk: unknown) => {
     printed += String(chunk);
+    return true;
+  });
+  const writeError = mock.method(process.stderr, "write", (chunk: unknown) => {
+    stderr += String(chunk);
     return true;
   });
   let result: unknown;
@@ -132,9 +137,15 @@ async function accounts(
       .run({ json: true, showIds: false, ...checks });
   } finally {
     write.mock.restore();
+    writeError.mock.restore();
   }
   assert.ok(isResult(result, isReport, isReport), "kms accounts returns a Result of a report");
-  return { success: result.success, report: result.success ? result.value : result.error, printed };
+  return {
+    success: result.success,
+    report: result.success ? result.value : result.error,
+    printed,
+    stderr,
+  };
 }
 
 describe(onFork ? "kms accounts live on a Sepolia fork" : "kms accounts live on Sepolia", () => {
@@ -220,6 +231,7 @@ describe(onFork ? "kms accounts live on a Sepolia fork" : "kms accounts live on 
           }
           // The check signs a message, but its signature is never printed or returned.
           assert.doesNotMatch(run.printed, SIGNATURE_HEX, "standard output holds a signature");
+          assert.doesNotMatch(run.stderr, SIGNATURE_HEX, "standard error holds a signature");
           assert.doesNotMatch(JSON.stringify(run.report), SIGNATURE_HEX);
           t.diagnostic(
             `${provider.name}: ${account} holds ${entry?.balance ?? "?"} wei${onFork ? " on the fork" : ""}, sign check ok`,

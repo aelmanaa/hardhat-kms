@@ -59,8 +59,9 @@ export interface AccountEntry extends AccountName {
   /** The configured `address` pin, or `null`. */
   pin: string | null;
   /**
-   * `match`: the KMS confirmed the pin. `none`: no pin. `unchecked`: the provider cannot report the
-   * address, so `address` is the pin. `null` if the key failed.
+   * `match`: the KMS confirmed the pin or, with `--check-sign`, the key signed and its signature
+   * recovered to the pin. `none`: no pin. `unchecked`: the provider cannot report the address, so
+   * `address` is the pin. `null` if the key failed.
    */
   pinStatus: "match" | "none" | "unchecked" | null;
   /**
@@ -137,7 +138,8 @@ const kmsAccounts: NewTaskActionFunction<AccountsArguments> = async (
     return await listAccounts(hre, listed, { json, showIds, checkSign, source });
   } finally {
     if (source.kind === "connected") {
-      await source.connection.close();
+      // The report is already built: a failed close must not replace it, as in the network hook.
+      await source.connection.close().catch(() => undefined);
     }
   }
 };
@@ -492,7 +494,8 @@ function printTable(
       printLine(`  also: ${entry.otherNames.map(({ name }) => name).join(", ")}`);
     }
     if (entry.error !== null) {
-      printLine(`  error: ${entry.error}`);
+      // One line under the row; the JSON keeps the message as it is.
+      printLine(`  error: ${entry.error.replace(/\s*\n\s*/g, " ")}`);
     }
   });
 

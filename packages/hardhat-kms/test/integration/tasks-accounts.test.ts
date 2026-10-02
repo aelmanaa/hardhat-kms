@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 
+import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import { HardhatPluginError } from "hardhat/plugins";
@@ -107,6 +108,46 @@ function messageAdapter(signed: string[], options: Partial<FakeAdapterOptions> =
     };
     return adapter;
   };
+}
+
+/**
+ * A fake adapter that records the `r` and `s` of each signature it returns, as 64 hex digits each,
+ * so a test can look for them in the output.
+ */
+function signatureRecorder(seen: string[]) {
+  return (): ClosableAdapter => {
+    const adapter = closableAdapter();
+    const signDigest = adapter.signDigest?.bind(adapter);
+    assert.ok(signDigest !== undefined);
+    adapter.signDigest = async (request, ctx) => {
+      const output = await signDigest(request, ctx);
+      assert.ok("format" in output && output.format === "der", "the fake adapter returns DER");
+      const { r, s } = secp256k1.Signature.fromBytes(output.bytes, "der");
+      seen.push(r.toString(16).padStart(64, "0"), s.toString(16).padStart(64, "0"));
+      return output;
+    };
+    return adapter;
+  };
+}
+
+/**
+ * Counts the connections a runtime opens and closes, through a network hook that runs for every
+ * connection.
+ */
+function countConnections(hre: Awaited<ReturnType<typeof runtime>>["hre"]) {
+  const counts = { opened: 0, closed: 0 };
+  hre.hooks.registerHandlers("network", {
+    newConnection: async (context, next) => {
+      const connection = await next(context);
+      counts.opened++;
+      return connection;
+    },
+    closeConnection: async (context, connection, next) => {
+      counts.closed++;
+      await next(context, connection);
+    },
+  });
+  return counts;
 }
 
 /** A fake adapter whose KMS refuses to sign. */
@@ -319,6 +360,24 @@ describe("kms accounts", () => {
     assert.ok(run.accounts[0]?.error?.includes(message), run.accounts[0]?.error ?? "");
     assert.equal(run.accounts[0]?.pin, COW_ACCOUNT.address);
     assert.ok(run.printed.includes(message), run.printed);
+  });
+
+  it("shows a failure on one line under its row, and keeps the message as it is in the JSON", async () => {
+    const message = "the vault is sealed.\n  Unseal it, then run again";
+    const { hre } = await runtime({
+      keys: { deployer: vaultKey("deployer") },
+      adapters: {
+        deployer: () => closableAdapter({ throwError: new HardhatPluginError("myvault", message) }),
+      },
+    });
+
+    const run = await accounts(hre);
+
+    assert.equal(run.accounts[0]?.error, message);
+    assert.deepEqual(lines(run.printed).slice(1), [
+      "deployer  myvault   kms.keys  FAILED   -    myvault:deployer",
+      "  error: the vault is sealed. Unseal it, then run again",
+    ]);
   });
 
   it("marks a pin the provider cannot check, and suggests no pin for it", async () => {
@@ -685,9 +744,13 @@ describe("kms accounts", () => {
         },
       });
 
+      const connections = countConnections(hre);
+
       const run = await accounts(hre, { balances: true });
 
       assert.equal(run.success, true, run.printed);
+      // The task closes the connection it opened for the balances.
+      assert.deepEqual(connections, { opened: 1, closed: 1 });
       assert.deepEqual(
         run.accounts.map((entry) => [entry.address, entry.balance]),
         [
@@ -738,9 +801,12 @@ describe("kms accounts", () => {
         },
       });
 
+      const connections = countConnections(hre);
+
       const run = await accounts(hre, { balances: true, checkSign: true });
 
       assert.equal(run.success, false);
+      assert.deepEqual(connections, { opened: 1, closed: 1 });
       const [deployer, ops] = run.accounts;
       assert.equal(deployer?.error, null);
       assert.equal(typeof deployer?.balance, "string");
@@ -757,6 +823,29 @@ describe("kms accounts", () => {
       const row = printed.findIndex((line) => line.startsWith("local.kmsAccounts[1] "));
       assert.match(printed[row] ?? "", / none {2}FAILED {9,}ok /);
       assert.match(printed[row + 1] ?? "", /^ {2}error: could not read the balance: /);
+    });
+
+    it("keeps its result when closing the balance connection fails", async () => {
+      const { hre } = await runtime({
+        kmsAccounts: [vaultKey("deployer")],
+        network: "local",
+        adapters: { "local.kmsAccounts[0]": () => closableAdapter() },
+      });
+      let closes = 0;
+      hre.hooks.registerHandlers("network", {
+        closeConnection: async (context, connection, next) => {
+          closes++;
+          await next(context, connection);
+          throw new Error("close failed");
+        },
+      });
+
+      const run = await accounts(hre, { balances: true });
+
+      assert.equal(closes, 1);
+      assert.equal(run.success, true, run.printed);
+      assert.equal(run.accounts[0]?.error, null);
+      assert.equal(typeof run.accounts[0]?.balance, "string");
     });
 
     it("fails every row's balance, and still checks the keys, when the network cannot be reached", async () => {
@@ -858,15 +947,26 @@ describe("kms accounts", () => {
     });
 
     it("prints no signature on standard output, in the table or in JSON", async () => {
+      const seen: string[] = [];
       const { hre } = await runtime({
         kmsAccounts: [vaultKey("deployer")],
         network: "local",
         simulatedBalance: 10n ** 18n,
-        adapters: { "local.kmsAccounts[0]": () => closableAdapter() },
+        adapters: { "local.kmsAccounts[0]": signatureRecorder(seen) },
       });
 
       for (const json of [false, true]) {
+        seen.length = 0;
         const run = await accounts(hre, { json, balances: true, checkSign: true });
+
+        // The task's adapter signed once: its r and s appear nowhere, in any case.
+        assert.equal(seen.length, 2);
+        const report = JSON.stringify({ version: 1, accounts: run.accounts }).toLowerCase();
+        for (const value of seen) {
+          assert.equal(run.printed.toLowerCase().includes(value), false, "r or s on stdout");
+          assert.equal(run.stderr.toLowerCase().includes(value), false, "r or s on stderr");
+          assert.equal(report.includes(value), false, "r or s in the report");
+        }
 
         assert.equal(run.success, true, run.printed);
         assert.equal(run.accounts[0]?.signCheck, "ok");
