@@ -254,12 +254,12 @@ function rpc(r: bigint, s: bigint, v: number): string {
   return `0x${word(r)}${word(s)}${v.toString(16).padStart(2, "0")}`;
 }
 
-function rejects(signature: string, message: RegExp): void {
-  assert.throws(
-    () => parseRpcSignature(signature),
-    (error: unknown) => error instanceof InvalidSignatureError && message.test(error.message),
-  );
+function rejects(signature: string, message: string): void {
+  assert.throws(() => parseRpcSignature(signature), invalidSignature(message), signature);
 }
+
+const NOT_HEX = catalogMessage(ERRORS.signatureHex, {});
+const OUT_OF_RANGE = catalogMessage(ERRORS.signatureRange, {});
 
 /** The recovery bit `parseRpcSignature` reads from a signature. */
 function bit(signature: string): 0 | 1 {
@@ -331,31 +331,31 @@ describe("parseRpcSignature and recoverAddress", () => {
 
   it("refuses the v values alloy refuses: 2 to 26 and 29 to 34", () => {
     for (const v of [2, 26, 29, 34]) {
-      rejects(
-        rpc(1n, 2n, v),
-        new RegExp(`v must be 0 or 1, 27 or 28, or 35 or more \\(EIP-155\\), got ${v}$`),
-      );
+      rejects(rpc(1n, 2n, v), catalogMessage(ERRORS.signatureV, { v }));
     }
   });
 
   it("refuses input that is not 0x-prefixed hex", () => {
-    rejects(rpc(1n, 2n, 27).slice(2), /must be 0x-prefixed hex/);
-    rejects(`${rpc(1n, 2n, 27).slice(0, -1)}g`, /must be 0x-prefixed hex/);
+    rejects(rpc(1n, 2n, 27).slice(2), NOT_HEX);
+    rejects(`${rpc(1n, 2n, 27).slice(0, -1)}g`, NOT_HEX);
     // 130 hex digits after the 0x, but the 0x is not at the start.
-    rejects(`a${rpc(1n, 2n, 27).slice(0, -1)}`, /must be 0x-prefixed hex/);
+    rejects(`a${rpc(1n, 2n, 27).slice(0, -1)}`, NOT_HEX);
   });
 
   it("refuses signatures that are not 65 bytes", () => {
-    rejects("0x", /got 0 hex digits/);
-    rejects(rpc(1n, 2n, 27).slice(0, -2), /expected a 65-byte signature .*got 128 hex digits/);
-    rejects(`${rpc(1n, 2n, 27)}0`, /got 131 hex digits/);
+    rejects("0x", catalogMessage(ERRORS.signatureRpcLength, { digits: 0 }));
+    rejects(
+      rpc(1n, 2n, 27).slice(0, -2),
+      catalogMessage(ERRORS.signatureRpcLength, { digits: 128 }),
+    );
+    rejects(`${rpc(1n, 2n, 27)}0`, catalogMessage(ERRORS.signatureRpcLength, { digits: 131 }));
   });
 
   it("refuses r or s outside [1, n - 1]", () => {
-    rejects(rpc(0n, 2n, 27), /outside the range/);
-    rejects(rpc(1n, 0n, 27), /outside the range/);
-    rejects(rpc(N, 2n, 27), /outside the range/);
-    rejects(rpc(1n, N, 27), /outside the range/);
+    rejects(rpc(0n, 2n, 27), OUT_OF_RANGE);
+    rejects(rpc(1n, 0n, 27), OUT_OF_RANGE);
+    rejects(rpc(N, 2n, 27), OUT_OF_RANGE);
+    rejects(rpc(1n, N, 27), OUT_OF_RANGE);
   });
 
   it("fails when no public key recovers", () => {

@@ -158,11 +158,12 @@ export function normalizeSignature(
   const s = toLowS(rawS);
   const yParity = recoverYParity(digest, r, s, publicKey);
   const compact = new secp256k1.Signature(r, s).toBytes("compact");
-  // Defence in depth against a bug in the curve library: recoverYParity has already shown that
-  // (r, s) recovers to publicKey over digest, so this check cannot fail without one.
+  // recoverYParity has already shown that (r, s) recovers to publicKey over digest. Given an exact
+  // equalBytes and a correct curve library, this check is unreachable; it is the backstop if
+  // either is wrong.
   // Stryker disable BlockStatement: the block below is unreachable, see above
   if (
-    // Stryker disable next-line ConditionalExpression: verify cannot fail after recovery
+    // Stryker disable next-line ConditionalExpression: verify cannot fail after recovery, see above
     !secp256k1.verify(compact, digest, publicKey, {
       prehash: false,
       // Stryker disable next-line BooleanLiteral: s is already low, so lowS: false gives the same
@@ -275,6 +276,9 @@ function assertDigest(digest: Uint8Array): void {
 
 function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   // A recovered key is always 65 bytes, and the signer's key passed assertOnCurve when it was read.
-  // Stryker disable next-line ConditionalExpression: both keys are always 65 bytes long
-  return a.length === b.length && a.every((byte, index) => byte === b[index]);
+  return (
+    a.every((byte, index) => byte === b[index]) &&
+    // Stryker disable next-line ConditionalExpression: both keys are always 65 bytes long
+    a.length === b.length
+  );
 }
