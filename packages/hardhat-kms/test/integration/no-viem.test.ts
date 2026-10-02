@@ -48,7 +48,7 @@ describe("a project without viem", { timeout: 120_000 }, () => {
         hash: "string",
         signed: true,
         getAccountError:
-          "getAccount: connection.kms.getAccount needs the viem package, which could not be loaded (Error). Install it with `npm install --save-dev viem`",
+          "getAccount: connection.kms.getAccount needs the viem package, which could not be loaded (Error, ERR_MODULE_NOT_FOUND). Install it with `npm install --save-dev viem`",
       });
       // viem was asked for only by getAccount.
       const lines = readFileSync(log, "utf8").trim().split("\n");

@@ -49,6 +49,8 @@ export interface AccountConnection {
   chainId(): Promise<bigint>;
   /** `kms.allowCrossChainTypedData`. */
   allowCrossChainTypedData: boolean;
+  /** Whether the connection is closed; its accounts then refuse to sign. */
+  closed(): boolean;
 }
 
 /** The parts of viem an account uses. */
@@ -94,8 +96,10 @@ function readOptions(options: unknown, operation: string): AccountOptions {
       throw catalogError(ERRORS.accountOption, { name: name.slice(0, 64) }, { operation });
     }
   }
+  // Own properties only: an inherited `rawSign`, such as one on a polluted Object.prototype,
+  // must not turn an option on.
   const flag = (name: string): boolean => {
-    const value = options[name];
+    const value = Object.hasOwn(options, name) ? options[name] : undefined;
     if (value === undefined || typeof value === "boolean") {
       return value === true;
     }
@@ -111,9 +115,50 @@ function readOptions(options: unknown, operation: string): AccountOptions {
   };
 }
 
-/** `0x`-prefixed hex of a string that is hex, with or without the prefix. */
+/**
+ * Why viem could not be loaded: the error's name, and its Node.js code when it has one, such as
+ * `ERR_MODULE_NOT_FOUND`.
+ */
+function loadFailure(error: unknown): string {
+  const code: unknown = isObject(error) ? error.code : undefined;
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(code)
+    ? `${errorName(error)}, ${code}`
+    : errorName(error);
+}
+
+// Printed once per process, on the first transaction a library account signs.
+let warnedAboutSends = false;
+
+/** Warns, once per process, that viem sends the account's transactions past the plugin. */
+function warnAboutSends(): void {
+  if (warnedAboutSends) {
+    return;
+  }
+  warnedAboutSends = true;
+  warn(
+    "a transaction signed by a connection.kms.getAccount account is sent by viem with eth_sendRawTransaction, which bypasses the plugin's nonce tracking and send lock. Send from a KMS account with connection.viem.getWalletClient(address); see https://github.com/aelmanaa/hardhat-kms/issues/186.",
+  );
+}
+
+/**
+ * Refuses, before any KMS call, when the account's connection is closed.
+ *
+ * @param connection - The account's connection.
+ * @param operation - The account method, for the error message.
+ */
+function checkOpen(connection: AccountConnection, operation: string): void {
+  if (connection.closed()) {
+    throw catalogError(
+      ERRORS.accountConnectionClosed,
+      { network: connection.network },
+      { operation },
+    );
+  }
+}
+
+/** A `0x`-prefixed hex string, typed as such. */
 function hex(value: string): KmsHex {
-  return `0x${value.startsWith("0x") ? value.slice(2) : value}`;
+  return `0x${value.slice(2)}`;
 }
 
 function bytesHex(bytes: Uint8Array): KmsHex {
@@ -149,6 +194,7 @@ async function signTransaction(
 ): Promise<KmsHex> {
   const operation = "signTransaction";
   const { connection, address } = context;
+  checkOpen(connection, operation);
   const input = readTransaction(transaction, operation);
   const chainId = await connection.chainId();
   if (input.chainId !== chainId) {
@@ -179,7 +225,8 @@ async function signTransaction(
       { operation },
     );
   }
-  log("%s: signing a %s transaction for chain %s", address, input.type, chainId);
+  warnAboutSends();
+  log("%s: signing a %s transaction for chain %s", address, input.type, chainId.toString());
   const signed = await context.withSigner(async (signer) => {
     const signature = await signer.signDigest(keccak_256(unsignedBytes));
     return assembleSignedTransaction(input.unsigned, signature, address, operation);
@@ -194,6 +241,7 @@ async function signAuthorization(
 ): Promise<KmsSignedAuthorization> {
   const operation = "signAuthorization";
   const { connection, address } = context;
+  checkOpen(connection, operation);
   const request = readAuthorization(parameters, operation);
   if (request.chainId === 0 && !context.options.allowChainZeroAuthorization) {
     throw catalogError(ERRORS.accountAuthChainZero, {}, { operation });
@@ -232,7 +280,10 @@ async function signAuthorization(
     BigInt(signed.s),
     signed.yParity === 1 ? 1 : 0,
   );
-  if (recovered === undefined || !sameAddress(addressFromPublicKey(recovered), address)) {
+  const recoveredAddress =
+    // Stryker disable next-line ConditionalExpression,StringLiteral: a KmsSigner verifies each signature, so it always recovers
+    recovered === undefined ? "" : addressFromPublicKey(recovered);
+  if (!sameAddress(recoveredAddress, address)) {
     throw catalogError(ERRORS.accountAuthNoRecovery, {}, { operation });
   }
   return signed;
@@ -247,11 +298,13 @@ function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | 
     source: "hardhat-kms",
     type: "local",
     signMessage: async (parameters: { message: unknown }) => {
+      checkOpen(connection, "signMessage");
       const message = readMessage(parameters, "signMessage");
       return hex(await withSigner(async (signer) => await signer.signPersonalMessage(message)));
     },
     signTypedData: async (parameters: KmsTypedDataDefinition) => {
       const operation = "signTypedData";
+      checkOpen(connection, operation);
       const typedData = readViemTypedData(parameters, operation);
       await checkTypedDataChain(typedData, {
         operation,
@@ -274,6 +327,7 @@ function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | 
   const raw: KmsRawSignAccount = {
     ...account,
     sign: async (parameters: { hash: unknown }) => {
+      checkOpen(connection, "sign");
       const digest = readHash(parameters, "sign");
       const signature = await withSigner(async (signer) => await signer.signDigest(digest));
       return hex(toRpcSignature(signature));
@@ -303,11 +357,12 @@ export function createKmsNetworkConnection(
     options?: KmsAccountOptions,
   ): Promise<KmsAccount | KmsRawSignAccount> {
     const operation = "getAccount";
+    checkOpen(connection, operation);
     let viem: ViemParts;
     try {
       viem = await load();
     } catch (error) {
-      throw catalogError(ERRORS.accountViemMissing, { errorName: errorName(error) }, { operation });
+      throw catalogError(ERRORS.accountViemMissing, { reason: loadFailure(error) }, { operation });
     }
     const checked = readOptions(options, operation);
     const checksummed = readAddress(address, "address", operation);

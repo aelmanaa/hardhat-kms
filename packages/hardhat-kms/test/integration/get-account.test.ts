@@ -92,6 +92,11 @@ async function runtime() {
 
 const signatures = (adapters: FakeAdapter[]): number =>
   adapters.reduce((total, adapter) => total + adapter.calls.signDigest, 0);
+const kmsCalls = (adapters: FakeAdapter[]): number =>
+  adapters.reduce(
+    (total, { calls }) => total + calls.signDigest + calls.getPublicKey + calls.getAddress,
+    0,
+  );
 
 describe("connection.kms.getAccount", { timeout: 300_000 }, () => {
   let bytecode: Hex;
@@ -203,5 +208,44 @@ describe("connection.kms.getAccount", { timeout: 300_000 }, () => {
     }
     assert.equal(signatures(adapters), 0);
     await connection.close();
+  });
+
+  it("refuses to sign once its connection is closed, while another connection's account signs", async () => {
+    const { hre, adapters } = await runtime();
+    const connection = await hre.network.create({ network: "local" });
+    const other = await hre.network.create({ network: "local" });
+    const account = await connection.kms.getAccount(COW);
+    const otherAccount = await other.kms.getAccount(COW);
+    await connection.close();
+    const callsBefore = kmsCalls(adapters);
+    const closed =
+      "the connection to network local is closed, so its KMS accounts no longer sign. Get the account from an open connection";
+    for (const [operation, run] of [
+      ["signMessage", async () => await account.signMessage({ message: "after close" })],
+      [
+        "signTransaction",
+        async () =>
+          await account.signTransaction({
+            type: "eip1559",
+            chainId: hardhat.id,
+            maxFeePerGas: 1n,
+            to: SPONSOR.address,
+          }),
+      ],
+      ["getAccount", async () => await connection.kms.getAccount(COW)],
+    ] as const) {
+      await assert.rejects(
+        run,
+        (error: unknown) =>
+          error instanceof HardhatPluginError && error.message === `${operation}: ${closed}`,
+      );
+    }
+    assert.equal(
+      kmsCalls(adapters),
+      callsBefore,
+      "a closed connection's account must not call the KMS",
+    );
+    assert.ok(isHex(await otherAccount.signMessage({ message: "still open" })));
+    await other.close();
   });
 });

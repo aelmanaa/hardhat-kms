@@ -1767,10 +1767,20 @@ export const ERRORS = {
     kind: "error",
     group: "Library accounts",
     template:
-      "connection.kms.getAccount needs the viem package, which could not be loaded ({errorName}). Install it with `npm install --save-dev viem`",
+      "connection.kms.getAccount needs the viem package, which could not be loaded ({reason}). Install it with `npm install --save-dev viem`",
     cause:
       "`getAccount` returns a viem account, and viem, an optional peer dependency of hardhat-kms, is not installed in the project, or failed to load.",
     fix: "Install viem in the project. Nothing else in the plugin needs it.",
+  },
+  accountConnectionClosed: {
+    id: "core.account.connection-closed",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "the connection to network {network} is closed, so its KMS accounts no longer sign. Get the account from an open connection",
+    cause:
+      "`getAccount` or a method of the account it returned was called after `connection.close()`. A closed connection's library accounts refuse to sign, before any KMS call.",
+    fix: "Call `getAccount` on an open connection, from `network.create()`, and use that account.",
   },
   accountOption: {
     id: "core.account.option",

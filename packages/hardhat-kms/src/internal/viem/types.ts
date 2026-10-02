@@ -118,8 +118,11 @@ export interface KmsSignTransactionOptions {
  * viem as `account`, or as the owner of a smart account.
  *
  * Sends through it bypass the plugin's send lock, nonce tracking and retry cache: viem fills the
- * transaction and sends it with `eth_sendRawTransaction` itself. To send from a KMS account, use
+ * transaction and sends it with `eth_sendRawTransaction` itself, and the first transaction an
+ * account signs in a process prints a warning. To send from a KMS account, use
  * `connection.viem.getWalletClient(address)` instead.
+ *
+ * After `connection.close()`, every method refuses before any KMS call.
  */
 export interface KmsAccount {
   /** The checksummed address. */

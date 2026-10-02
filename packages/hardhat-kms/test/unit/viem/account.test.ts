@@ -8,96 +8,42 @@ import { HardhatPluginError } from "hardhat/plugins";
 import { serializeTransaction, type SignedAuthorization, type TransactionSerializable } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-import { KmsSigner } from "../../../src/internal/signer/kms-signer.ts";
 import {
   type AccountConnection,
   createKmsNetworkConnection,
   type LoadViem,
   loadViem,
 } from "../../../src/internal/viem/account.ts";
-import type { KmsKeyConfig } from "../../../src/types.ts";
+import type { KmsAccountOptions } from "../../../src/types.ts";
+import type { FakeAdapter } from "../../helpers/fake-adapter.ts";
 import {
-  type FakeAdapter,
-  type FakeAdapterOptions,
-  fakeAdapter,
-} from "../../helpers/fake-adapter.ts";
+  ADDRESS,
+  assertRefused,
+  CHAIN_ID,
+  kmsCalls,
+  setup,
+  VIEM_ACCOUNT,
+} from "../../helpers/library-account.ts";
 import { COW_ACCOUNT, EIP712_MAIL, HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
 
 const hex = (value: string) => new Uint8Array(Buffer.from(value, "hex"));
-const VIEM_ACCOUNT = privateKeyToAccount(`0x${HARDHAT_ACCOUNT_0.secretKey}`);
-const ADDRESS = VIEM_ACCOUNT.address;
-const CHAIN_ID = 31337;
 const TO = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const DELEGATE = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const DELEGATE_LOWERCASE = "0x5fbdb2315678afecb367f032d93f642f64180aa3";
 
-const KEY: KmsKeyConfig = {
-  provider: "aws",
-  name: "deployer",
-  timeoutMs: 10_000,
-  displayId: "aws:deployer",
-  keyId: { get: async () => await Promise.resolve("alias/deployer"), display: "alias/deployer" },
-};
-
-interface Setup {
-  adapter: FakeAdapter;
-  connection: AccountConnection;
-  /** Calls to the connection's chain id. */
-  chainCalls: { count: number };
-}
-
-function setup(
-  options: {
-    adapter?: Partial<FakeAdapterOptions>;
-    chainId?: bigint;
-    allowCrossChainTypedData?: boolean;
-  } = {},
-): Setup {
-  const adapter = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey), ...options.adapter });
-  const signer = new KmsSigner(adapter, {
-    timeoutMs: 10_000,
-    displayMessage: async () => {
-      await Promise.resolve();
-    },
-  });
-  const chainCalls = { count: 0 };
-  const connection: AccountConnection = {
-    network: "local",
-    accounts: {
-      keyFor: async (address) =>
-        await Promise.resolve(address === ADDRESS.toLowerCase() ? KEY : undefined),
-      addresses: async () => await Promise.resolve([ADDRESS]),
-      signWith: async (_key, use) => await use(signer),
-    },
-    chainId: async () => {
-      chainCalls.count++;
-      return await Promise.resolve(options.chainId ?? BigInt(CHAIN_ID));
-    },
-    allowCrossChainTypedData: options.allowCrossChainTypedData ?? false,
-  };
-  return { adapter, connection, chainCalls };
-}
-
-/** Every adapter call, to assert that a refusal made none. */
-const kmsCalls = (adapter: FakeAdapter): number =>
-  adapter.calls.getPublicKey + adapter.calls.getAddress + adapter.calls.signDigest;
-
-/**
- * Asserts that `run` is refused with a `HardhatPluginError` whose message matches, and that the
- * adapter was not called meanwhile.
- */
-async function assertRefused(
+/** Asserts that `run` is refused because the connection is closed, with no KMS call. */
+async function assertClosed(
   adapter: FakeAdapter,
+  operation: string,
   run: () => Promise<unknown>,
-  message: RegExp,
 ): Promise<void> {
   const before = kmsCalls(adapter);
   await assert.rejects(run, (error: unknown) => {
     assert.ok(error instanceof HardhatPluginError);
-    assert.match(error.message, message);
+    assert.equal(error.message, closedMessage(operation));
     return true;
   });
-  assert.equal(kmsCalls(adapter), before, "a refusal must not call the KMS");
+  assert.equal(kmsCalls(adapter), before, "a closed connection must not call the KMS");
 }
 
 const LEGACY: TransactionSerializable = {
@@ -200,6 +146,21 @@ const missingViem: LoadViem = async () => {
   });
   throw await Promise.resolve(error);
 };
+
+/** A loader that fails with an error whose `code` is the given value. */
+const failingViem =
+  (code: unknown): LoadViem =>
+  async () => {
+    throw await Promise.resolve(Object.assign(new TypeError("no"), { code }));
+  };
+
+/** The full message of the viem-missing error, for the reason given. */
+const viemMissingMessage = (reason: string): string =>
+  `getAccount: connection.kms.getAccount needs the viem package, which could not be loaded (${reason}). Install it with \`npm install --save-dev viem\``;
+
+/** The full message of the closed-connection error, for the method given. */
+const closedMessage = (operation: string): string =>
+  `${operation}: the connection to network local is closed, so its KMS accounts no longer sign. Get the account from an open connection`;
 
 /**
  * Calls a method with values its type does not allow, as plain JavaScript can.
@@ -567,6 +528,20 @@ describe("connection.kms.getAccount", () => {
     });
   });
 
+  it("keeps a string domain.chainId in the digest, which viem drops", async () => {
+    // viem's hashTypedData leaves a string chainId out of the domain; the plugin encodes it as the
+    // uint256 a contract's domain separator holds, as for a number.
+    const { account: kms } = await setupAccount();
+    const asString = { ...TYPED_DATA, domain: { ...TYPED_DATA.domain, chainId: String(CHAIN_ID) } };
+    const signed = await untyped(kms.signTypedData, asString);
+    assert.equal(signed, await VIEM_ACCOUNT.signTypedData(TYPED_DATA));
+    const { chainId: _chainId, ...noChain } = TYPED_DATA.domain;
+    assert.equal(
+      await untyped(VIEM_ACCOUNT.signTypedData, asString),
+      await VIEM_ACCOUNT.signTypedData({ ...TYPED_DATA, domain: noChain }),
+    );
+  });
+
   it("reads authorization yParity from v, as viem does", async () => {
     const { connection } = setup();
     const kms = await createKmsNetworkConnection(connection).getAccount(ADDRESS);
@@ -613,8 +588,36 @@ describe("connection.kms.getAccount", () => {
       await assertRefused(
         adapter,
         async () => await createKmsNetworkConnection(connection, missingViem).getAccount(ADDRESS),
-        /getAccount: connection\.kms\.getAccount needs the viem package, which could not be loaded \(Error\)\. Install it with `npm install --save-dev viem`/,
+        /getAccount: connection\.kms\.getAccount needs the viem package, which could not be loaded \(Error, ERR_MODULE_NOT_FOUND\)\. Install it with `npm install --save-dev viem`/,
       );
+    });
+
+    it("names the load error's code only when it is a Node.js error code", async () => {
+      const { adapter, connection } = setup();
+      for (const [code, reason] of [
+        [undefined, "TypeError"],
+        ["ERR_UNSUPPORTED_DIR_IMPORT", "TypeError, ERR_UNSUPPORTED_DIR_IMPORT"],
+        ["err_lower", "TypeError"],
+        ["X".repeat(64), `TypeError, ${"X".repeat(64)}`],
+        ["X".repeat(65), "TypeError"],
+        ["E1", "TypeError, E1"],
+        ["1E", "TypeError"],
+        [" ERR_SPACE", "TypeError"],
+        ["ERR_SPACE ", "TypeError"],
+        [7, "TypeError"],
+      ] as const) {
+        const before = kmsCalls(adapter);
+        await assert.rejects(
+          async () =>
+            await createKmsNetworkConnection(connection, failingViem(code)).getAccount(ADDRESS),
+          (error: unknown) => {
+            assert.ok(error instanceof HardhatPluginError);
+            assert.equal(error.message, viemMissingMessage(reason));
+            return true;
+          },
+        );
+        assert.equal(kmsCalls(adapter), before);
+      }
     });
 
     it("an address that is not a KMS account, listing the KMS addresses", async () => {
@@ -653,6 +656,98 @@ describe("connection.kms.getAccount", () => {
       for (const [run, message] of refusals) {
         await assertRefused(adapter, run, message);
       }
+    });
+  });
+
+  describe("reads only the options object's own properties", () => {
+    it("ignores options inherited from a prototype", async () => {
+      const { adapter, connection } = setup();
+      const kms = createKmsNetworkConnection(connection);
+      const warn = mock.method(console, "warn", () => undefined);
+      // The options only inherit their flags, as Object.create({ rawSign: true }) would.
+      const inheritsRawSign: KmsAccountOptions = {};
+      Object.setPrototypeOf(inheritsRawSign, { rawSign: true });
+      const inherited = await kms.getAccount(ADDRESS, inheritsRawSign);
+      assert.equal("sign" in inherited, false);
+      const inheritsChainZero: KmsAccountOptions = {};
+      Object.setPrototypeOf(inheritsChainZero, { allowChainZeroAuthorization: true });
+      const chainZero = await kms.getAccount(ADDRESS, inheritsChainZero);
+      await assertRefused(
+        adapter,
+        async () =>
+          await chainZero.signAuthorization({ contractAddress: DELEGATE, chainId: 0, nonce: 0 }),
+        /an authorization for chain 0 is valid on every chain/,
+      );
+      assert.equal(warn.mock.callCount(), 0, "no rawSign warning");
+    });
+
+    it("ignores a polluted Object.prototype", async () => {
+      const { adapter, connection } = setup();
+      const kms = createKmsNetworkConnection(connection);
+      const warn = mock.method(console, "warn", () => undefined);
+      // As a prototype-pollution bug sets them: plain, enumerable assignments.
+      Reflect.set(Object.prototype, "rawSign", true);
+      Reflect.set(Object.prototype, "allowChainZeroAuthorization", true);
+      try {
+        for (const options of [{}, undefined]) {
+          const account = await kms.getAccount(ADDRESS, options);
+          assert.equal(Object.hasOwn(account, "sign"), false);
+          await assertRefused(
+            adapter,
+            async () =>
+              await account.signAuthorization({ contractAddress: DELEGATE, chainId: 0, nonce: 0 }),
+            /an authorization for chain 0 is valid on every chain/,
+          );
+        }
+      } finally {
+        Reflect.deleteProperty(Object.prototype, "rawSign");
+        Reflect.deleteProperty(Object.prototype, "allowChainZeroAuthorization");
+      }
+      assert.equal(warn.mock.callCount(), 0, "no rawSign warning");
+    });
+  });
+
+  describe("refuses once the connection is closed, before any KMS call", () => {
+    it("every method of the account, and getAccount", async () => {
+      const { adapter, connection, chainCalls, state } = setup();
+      const kms = createKmsNetworkConnection(connection);
+      const warn = mock.method(console, "warn", () => undefined);
+      const account = await kms.getAccount(ADDRESS, { rawSign: true });
+      state.closed = true;
+      const chainBefore = chainCalls.count;
+      await assertClosed(adapter, "getAccount", async () => await kms.getAccount(ADDRESS));
+      await assertClosed(
+        adapter,
+        "signMessage",
+        async () => await account.signMessage({ message: "hello" }),
+      );
+      await assertClosed(
+        adapter,
+        "signTypedData",
+        async () => await account.signTypedData(TYPED_DATA),
+      );
+      await assertClosed(
+        adapter,
+        "signTransaction",
+        async () => await account.signTransaction(EIP1559),
+      );
+      await assertClosed(
+        adapter,
+        "signAuthorization",
+        async () =>
+          await account.signAuthorization({
+            contractAddress: DELEGATE,
+            chainId: CHAIN_ID,
+            nonce: 0,
+          }),
+      );
+      await assertClosed(
+        adapter,
+        "sign",
+        async () => await account.sign({ hash: `0x${"ab".repeat(32)}` }),
+      );
+      assert.equal(chainCalls.count, chainBefore, "nor ask the node for its chain");
+      assert.equal(warn.mock.callCount(), 1, "only getAccount's rawSign warning");
     });
   });
 

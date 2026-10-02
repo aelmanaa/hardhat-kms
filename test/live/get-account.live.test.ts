@@ -6,9 +6,12 @@
 // funds the account with `anvil_setBalance`, then: signs a message and typed data and recovers
 // them; sends an EIP-1559 transfer from the account; and signs an EIP-7702 authorization that
 // a throwaway local account sends in a type 4 transaction (the sponsored case), after which the
-// account's code is the delegation. Both accounts are funded with `anvil_setBalance`. With HARDHAT_KMS_LIVE_NETWORK=sepolia, it sends one EIP-1559
-// transaction of 0 wei from each account to itself, and signs nothing else. The key variables are
-// those of `sepolia.live.test.ts`. Key ids, URLs and signed data are redacted from every failure.
+// account's code is the delegation. Both accounts are funded with `anvil_setBalance`. With
+// HARDHAT_KMS_LIVE_NETWORK=sepolia, it checks that the account has no code (a delegation would
+// run on the transfer to itself), then sends one EIP-1559 transaction of 0 wei from each account
+// to itself, and signs nothing else. A receipt that does not arrive in time fails with the
+// transaction's hash and nonce. The key variables are those of `sepolia.live.test.ts`. Key ids,
+// URLs and signed data are redacted from every failure.
 import assert from "node:assert/strict";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -25,10 +28,13 @@ import {
   custom,
   defineChain,
   getAddress,
+  type Hash,
   parseEther,
+  type PublicClient,
   recoverMessageAddress,
   recoverTypedDataAddress,
   toHex,
+  WaitForTransactionReceiptTimeoutError,
 } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
@@ -53,6 +59,8 @@ const DEFAULT_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
 const RPC_VARIABLE = "HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL";
 /** What `anvil_setBalance` gives each account on the fork. */
 const FORK_BALANCE = parseEther("1");
+/** How long to wait for a receipt: a fork mines at once, Sepolia every 12 seconds. */
+const RECEIPT_TIMEOUT_MS = onFork ? 30_000 : 300_000;
 /**
  * A throwaway local account that sponsors the EIP-7702 transaction on the fork, funded by the test.
  * Not one of anvil's dev accounts: on a Sepolia fork they carry their Sepolia state, which can
@@ -105,6 +113,23 @@ async function redacted<T>(step: () => Promise<T>): Promise<T> {
     const name = error instanceof Error ? error.name : typeof error;
     const message = error instanceof Error ? error.message : String(error);
     return assert.fail(redact(`${name}: ${message}`, process.env));
+  }
+}
+
+/**
+ * Waits for a receipt, and on timeout fails with the hash and nonce, so the transaction can be
+ * found or replaced by hand.
+ */
+async function receiptOf(client: PublicClient, hash: Hash, nonce: number | undefined) {
+  try {
+    return await client.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS });
+  } catch (error) {
+    if (error instanceof WaitForTransactionReceiptTimeoutError) {
+      return assert.fail(
+        `no receipt after ${RECEIPT_TIMEOUT_MS / 1000} s for transaction ${hash}, nonce ${nonce ?? "unknown"}`,
+      );
+    }
+    throw error;
   }
 }
 
@@ -218,13 +243,28 @@ describe(
                 );
               }
 
+              if (!onFork) {
+                // On Sepolia the transfer goes to the account itself, which would run a
+                // delegation's code; a delegation left by an earlier run must be cleared first.
+                const code = await publicClient.getCode({ address });
+                assert.ok(
+                  code === undefined || code === "0x",
+                  `${address} has code (${code}), such as an EIP-7702 delegation: clear the delegation first, with an authorization to the zero address`,
+                );
+              }
+
               // An EIP-1559 transaction: on the fork a transfer of 1 wei to the sponsor, on
-              // Sepolia 0 wei to the account itself.
+              // Sepolia 0 wei to the account itself. The nonce is set, so that a timeout can name it.
+              const nonce = await publicClient.getTransactionCount({
+                address,
+                blockTag: "pending",
+              });
               const hash = await wallet.sendTransaction({
                 to: onFork ? SPONSOR.address : address,
                 value: onFork ? 1n : 0n,
+                nonce,
               });
-              const receipt = await publicClient.waitForTransactionReceipt({ hash });
+              const receipt = await receiptOf(publicClient, hash, nonce);
               assert.equal(receipt.status, "success");
               assert.equal(getAddress(receipt.from), address);
               assert.equal(receipt.type, "eip1559");
@@ -239,9 +279,7 @@ describe(
                   to: address,
                   data: "0x",
                 });
-                const sponsoredReceipt = await publicClient.waitForTransactionReceipt({
-                  hash: sponsored,
-                });
+                const sponsoredReceipt = await receiptOf(publicClient, sponsored, undefined);
                 assert.equal(sponsoredReceipt.status, "success");
                 assert.equal(sponsoredReceipt.type, "eip7702");
                 assert.equal(getAddress(sponsoredReceipt.from), SPONSOR.address);

@@ -20,6 +20,10 @@ const BLOB_FIELDS = ["blobs", "blobVersionedHashes", "maxFeePerBlobGas", "sideca
 
 const HEX_BYTES = /^0x(?:[0-9a-fA-F]{2})*$/;
 
+/** The data of a transaction that has none. */
+// Stryker disable next-line StringLiteral: micro-eth-signer reads "" as no data, as "0x"
+const NO_DATA = "0x";
+
 /** The signed types by name, to look a requested `type` up. */
 const SIGNED_TYPE_NAMES = new Map<unknown, SignedType>(SIGNED_TYPES.map((type) => [type, type]));
 
@@ -44,11 +48,11 @@ function readQuantity(value: unknown, field: string, operation: string): bigint 
   if (value === undefined) {
     return undefined;
   }
-  if (typeof value === "bigint" && value >= 0n) {
-    return value;
-  }
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
-    return BigInt(value);
+  // -1n stands for a value that is not an integer, so that one comparison refuses both.
+  const integer =
+    typeof value === "bigint" ? value : Number.isSafeInteger(value) ? BigInt(Number(value)) : -1n;
+  if (integer >= 0n) {
+    return integer;
   }
   throw invalidField(operation, field, "a non-negative integer, as a number or a bigint");
 }
@@ -56,7 +60,7 @@ function readQuantity(value: unknown, field: string, operation: string): bigint 
 /** Reads `0x`-prefixed hex bytes. */
 function readHex(value: unknown, field: string, operation: string): string {
   if (typeof value === "string" && HEX_BYTES.test(value)) {
-    return value.toLowerCase();
+    return value;
   }
   throw invalidField(operation, field, "0x-prefixed hex bytes");
 }
@@ -70,6 +74,7 @@ function readHex(value: unknown, field: string, operation: string): string {
  * @returns The checksummed address.
  */
 export function readAddress(value: unknown, field: string, operation: string): KmsHex {
+  // Stryker disable next-line ConditionalExpression: toChecksumAddress refuses a non-string too, and the catch below gives the same error
   if (typeof value === "string") {
     try {
       return `0x${toChecksumAddress(value).slice(2)}`;
@@ -95,7 +100,7 @@ export function readAddress(value: unknown, field: string, operation: string): K
 export function readMessage(parameters: unknown, operation: string): Uint8Array {
   const message: unknown = isObject(parameters) ? parameters.message : undefined;
   if (typeof message === "string") {
-    return new Uint8Array(Buffer.from(message, "utf8"));
+    return new TextEncoder().encode(message);
   }
   const raw: unknown = isObject(message) ? message.raw : undefined;
   if (raw instanceof Uint8Array) {
@@ -167,8 +172,8 @@ export interface AuthorizationInput {
 
 /** Reads a non-negative safe integer, as viem types an authorization's chain id and nonce. */
 function readSafeInteger(value: unknown, field: string, operation: string): number {
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
-    return value;
+  if (Number.isSafeInteger(value) && Number(value) >= 0) {
+    return Number(value);
   }
   throw invalidField(operation, field, "a non-negative integer, as a number");
 }
@@ -188,6 +193,7 @@ export function readAuthorization(parameters: unknown, operation: string): Autho
   const delegate: unknown = parameters.contractAddress ?? parameters.address;
   const checksummed = readAddress(delegate, "address", operation);
   return {
+    // Stryker disable next-line ConditionalExpression: readAddress above refuses a non-string
     delegate: typeof delegate === "string" ? `0x${delegate.slice(2)}` : checksummed,
     delegateBytes: new Uint8Array(Buffer.from(checksummed.slice(2), "hex")),
     chainId: readSafeInteger(parameters.chainId, "chainId", operation),
@@ -383,7 +389,7 @@ export function readTransaction(transaction: unknown, operation: string): Transa
     nonce: quantity("nonce"),
     chainId,
     value: quantity("value"),
-    data: data === undefined ? "0x" : readHex(data, "transaction.data", operation),
+    data: data === undefined ? NO_DATA : readHex(data, "transaction.data", operation),
     gasLimit: quantity("gas"),
   };
   const accessList =
@@ -398,13 +404,16 @@ export function readTransaction(transaction: unknown, operation: string): Transa
       gasPrice: quantity("gasPrice"),
       maxFeePerGas: quantity("maxFeePerGas"),
       maxPriorityFeePerGas: quantity("maxPriorityFeePerGas"),
+      // Stryker disable next-line ArrayDeclaration: only legacy has no list, and prepare drops it
       accessList: accessList ?? [],
+      // Stryker disable next-line ArrayDeclaration: only eip7702 uses the list, which it reads
       authorizationList: authorizationList ?? [],
     });
   } catch (error) {
     // micro-eth-signer's own message about the caller's values: safe to show.
     throw catalogError(
       ERRORS.accountTxInvalid,
+      // Stryker disable next-line MethodExpression: micro-eth-signer's messages are short fixed texts
       { reason: error instanceof Error ? error.message.slice(0, 200) : String(error) },
       { operation },
     );

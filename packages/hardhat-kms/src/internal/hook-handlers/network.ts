@@ -93,6 +93,8 @@ export function createNetworkHandlers(
   const accountsByConnection = new WeakMap<object, ConnectionAccounts>();
   // Connections counted as open. Hardhat lets a connection be closed twice; it is counted once.
   const counted = new WeakSet<object>();
+  // Closed connections: their library accounts refuse to sign.
+  const closed = new WeakSet<object>();
   let warnedAboutDefault = false;
 
   const accountsOf = (
@@ -155,6 +157,7 @@ export function createNetworkHandlers(
           accounts: accountsOf(context, connection),
           chainId: async () => await chainOf(connection).chainId(),
           allowCrossChainTypedData: context.config.kms.allowCrossChainTypedData,
+          closed: () => closed.has(connection),
         },
         load,
       );
@@ -190,6 +193,7 @@ export function createNetworkHandlers(
       return connection;
     },
     closeConnection: async (context, connection, next) => {
+      closed.add(connection);
       if (counted.delete(connection)) {
         cache.connectionClosed();
       }

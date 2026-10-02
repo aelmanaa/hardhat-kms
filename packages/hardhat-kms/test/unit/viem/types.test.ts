@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 
 import type { Account, LocalAccount, PrivateKeyAccount } from "viem";
 import { createWalletClient, http } from "viem";
-import { toCoinbaseSmartAccount } from "viem/account-abstraction";
+import { toCoinbaseSmartAccount, toSimple7702SmartAccount } from "viem/account-abstraction";
 import type { CustomSource } from "viem/accounts";
 
 import type { KmsAccount, KmsRawSignAccount } from "../../../src/types.ts";
@@ -30,7 +30,16 @@ function assignments(account: KmsAccount, rawAccount: KmsRawSignAccount): unknow
     owners: [rawAccount],
     version: "1.1",
   });
-  return [local, source, any, rawLocal, privateKey, wallet, owner];
+  // A known non-goal: viem types the owner of toSimple7702SmartAccount as a PrivateKeyAccount,
+  // whose `source` is "privateKey", even with rawSign. Its code calls only `address`,
+  // `signMessage`, `signTypedData` and `signAuthorization`, so a project passes the account with a
+  // cast at the call site (docs/user/reference/library-accounts.md).
+  const simple7702 = toSimple7702SmartAccount({
+    client: createWalletClient({ transport: http() }),
+    // @ts-expect-error -- the owner must be a PrivateKeyAccount, which no KMS account is.
+    owner: rawAccount,
+  });
+  return [local, source, any, rawLocal, privateKey, wallet, owner, simple7702];
 }
 
 describe("KmsAccount types", () => {

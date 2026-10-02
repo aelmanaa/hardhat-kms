@@ -40,6 +40,7 @@ const CLOUD_SDK = /^(@(aws-sdk|google-cloud|azure)\/|google-gax$|google-auth-lib
 const PEER_FLOOR_TESTS: Readonly<Record<string, readonly string[]>> = {
   viem: [
     "test/unit/viem/account.test.ts",
+    "test/unit/viem/refusals.test.ts",
     "test/unit/viem/types.test.ts",
     "test/integration/get-account.test.ts",
   ],
