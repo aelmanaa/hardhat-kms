@@ -15,7 +15,13 @@ import type {
 } from "hardhat-kms/types";
 
 import { ERRORS } from "./error-catalog.ts";
-import { crc32cMatches, networkErrorCode, type StatusName, statusOf } from "./wire.ts";
+import {
+  crc32cMatches,
+  credentialFailure,
+  networkErrorCode,
+  type StatusName,
+  statusOf,
+} from "./wire.ts";
 
 const ALGORITHM = "EC_SIGN_SECP256K1_SHA256";
 
@@ -47,6 +53,11 @@ export interface GcpCallOptions {
 
 /** The parts of a `KeyManagementServiceClient` the adapter uses. */
 export interface GcpKmsClient {
+  /**
+   * Finds the credentials and builds the client's service stub, once; later calls return the
+   * same promise. The adapter awaits it before every call, so a credentials failure rejects here.
+   */
+  initialize(): Promise<unknown>;
   getPublicKey(
     request: { name: string },
     options: GcpCallOptions,
@@ -282,9 +293,18 @@ class GcpKeyAdapter implements KmsKeyAdapter {
     }
   }
 
-  /** Runs one SDK call, replacing the SDK's errors with ones that say what to do. */
+  /**
+   * Runs one SDK call, replacing the SDK's errors with ones that say what to do.
+   *
+   * The client is initialized first, and the call is made only once that succeeded. Each method
+   * of the client starts `initialize()` itself and rethrows its failure into a promise that
+   * nothing awaits, so calling a method with credentials that cannot be loaded ends the process
+   * with an unhandled rejection. Awaiting `initialize()` here handles that failure instead, and
+   * the method never runs.
+   */
   async #call<T>(operation: string, call: () => Promise<T>): Promise<T> {
     try {
+      await this.#client.initialize();
       return await call();
     } catch (error) {
       const status = statusOf(error);
@@ -315,13 +335,9 @@ class GcpKeyAdapter implements KmsKeyAdapter {
           ? this.#error(operation, ERRORS.callFailed, { status })
           : this.#error(operation, known, {});
       }
-      // google-auth-library's message for missing Application Default Credentials. It holds no
-      // request details, so it is safe to recognise.
-      if (
-        error instanceof Error &&
-        error.message.includes("Could not load the default credentials")
-      ) {
-        throw this.#error("connect", ERRORS.noCredentials, {});
+      const credentials = credentialFailure(error);
+      if (credentials !== undefined) {
+        throw this.#error("connect", ERRORS[credentials], {});
       }
       throw error;
     }

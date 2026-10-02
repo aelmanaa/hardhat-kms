@@ -114,3 +114,30 @@ export function networkErrorCode(error: unknown): string | undefined {
   // Only the shape of a Node errno code, so nothing else from the error can be shown.
   return typeof code === "string" && /^E[A-Z0-9_]{2,31}$/.test(code) ? code : undefined;
 }
+
+/**
+ * Recognises the credentials failures google-auth-library reports, by fixed text in its
+ * messages. The part matched holds no request details; the rest of a message, which can name a
+ * file path, is never shown.
+ *
+ * @param error - The error a call or the client's initialization rejected with.
+ * @returns The catalogue entry to report: `noCredentials` when no Application Default Credentials
+ * were found, `credentialsFile` when the file `GOOGLE_APPLICATION_CREDENTIALS` names could not be
+ * read, or `undefined` for any other error.
+ */
+export function credentialFailure(error: unknown): "noCredentials" | "credentialsFile" | undefined {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  if (error.message.includes("Could not load the default credentials")) {
+    return "noCredentials";
+  }
+  if (
+    error.message.includes(
+      "Unable to read the credential file specified by the GOOGLE_APPLICATION_CREDENTIALS environment variable",
+    )
+  ) {
+    return "credentialsFile";
+  }
+  return undefined;
+}

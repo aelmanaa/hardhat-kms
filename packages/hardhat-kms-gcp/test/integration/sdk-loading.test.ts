@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -142,27 +142,12 @@ describe("SDK loading", () => {
     });
 
     it(`runs kms address on a Google Cloud key without loading the history reader (${hooks} hooks)`, () => {
-      // Placeholder user credentials, whose token refresh goes to a proxy that refuses it, so
-      // the task fails without a request leaving the machine.
-      const credentials = path.join(scratch, "placeholder-adc.json");
-      writeFileSync(
-        credentials,
-        JSON.stringify({
-          type: "authorized_user",
-          client_id: "placeholder",
-          client_secret: "placeholder",
-          refresh_token: "placeholder",
-        }),
-      );
+      // A credentials file that does not exist: the task fails before any request is sent.
       const { urls, stdout } = run({
         ...recorderEnv,
         HHKMS_FIXTURE_KEY: "gcp",
         HHKMS_FIXTURE_TASK: "address",
-        GOOGLE_APPLICATION_CREDENTIALS: credentials,
-        HTTPS_PROXY: "http://127.0.0.1:1",
-        https_proxy: "http://127.0.0.1:1",
-        NO_PROXY: "",
-        no_proxy: "",
+        GOOGLE_APPLICATION_CREDENTIALS: path.join(scratch, "missing-credentials.json"),
       });
 
       assert.match(stdout, /^task failed$/m);
