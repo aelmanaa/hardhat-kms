@@ -19,7 +19,7 @@ aws kms create-alias --alias-name alias/deployer --target-key-id <KeyId from the
 
 The plugin refuses keys with another spec or usage.
 
-Deleting the key loses its address for good, along with any funds it holds, once a waiting period of 7 to 30 days ends; [Prevent and recover from losing a key](key-loss.md) covers cancelling a deletion, guarding against it and retiring a key.
+Deleting the key loses its address for good, along with any funds it holds, once a waiting period of 7 to 30 days ends. Unlike Google Cloud and Azure, AWS KMS asks for the period when the deletion is scheduled, 30 days by default, not when the key is created, so the command above sets nothing for it ([ScheduleKeyDeletion](https://docs.aws.amazon.com/kms/latest/APIReference/API_ScheduleKeyDeletion.html)). [Prevent and recover from losing a key](key-loss.md) covers cancelling a deletion, guarding against it and retiring a key.
 
 ## 2. Allow signing, and nothing else
 
@@ -110,7 +110,7 @@ const signature = await provider.request({
 console.log(address, signature);
 ```
 
-Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. The first run calls `GetPublicKey` unless the key has an `address` pin, then `Sign` once.
+Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. Each run calls `GetPublicKey` once, before the first signature, then `Sign` once. An `address` pin does not save that call: the plugin checks the public key against the pin before it releases a signature, and it signs with the key ARN that `GetPublicKey` returns. A pin saves the call only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the public key ([`address`](../reference/configuration.md#configuration)).
 
 ## How the plugin uses the key
 

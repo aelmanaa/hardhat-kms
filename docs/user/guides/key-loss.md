@@ -129,7 +129,7 @@ To hear about a deletion while it can still be cancelled, alert on the `Schedule
 
 ### Google Cloud KMS
 
-Choose the scheduled-destruction duration when you create the key, since it cannot change later. The setup guide's command keeps the 30-day default; add `--destroy-scheduled-duration 120d` for the longest period.
+Choose the scheduled-destruction duration when you create the key, since it cannot change later. The [setup guide](gcp-kms-setup.md#1-create-a-secp256k1-signing-key)'s command sets `--destroy-scheduled-duration 120d`, the longest period; without the flag, the key gets 30 days.
 
 Grant `cloudkms.cryptoKeyVersions.destroy` only to the identities that need it. It is in the Cloud KMS Admin role (`roles/cloudkms.admin`), together with `cloudkms.cryptoKeyVersions.restore` ([Destroy and restore key versions](https://docs.cloud.google.com/kms/docs/destroy-restore)). The basic Owner role (`roles/owner`) holds both as well, so check the project's Owners too; `gcloud iam roles describe roles/owner` lists its permissions.
 
