@@ -52,9 +52,9 @@ jobs:
           args: --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'packages/*/README.md' 'examples/README.md' 'examples/*/README.md' 'docs/**/*.md'
 
   test:
-    # Linux only. macOS and Windows run in ci-all-os.yml: on pushes to main, on manual dispatch and on
-    # pull requests labelled ci:all-os. Job names give the OS family, not the image, so an image change
-    # leaves the required check names alone.
+    # Linux only. macOS and Windows run in ci-all-os.yml: nightly when main has a commit they have not
+    # passed yet, on manual dispatch and on pull requests labelled ci:all-os. Job names give the OS
+    # family, not the image, so an image change leaves the required check names alone.
     name: Test (Linux, Node ${{ matrix.node }})
     runs-on: ubuntu-26.04
     timeout-minutes: 15

@@ -2,8 +2,8 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.ts", "test/live/*.test.ts"],
-      "project": ["scripts/*.ts", "test/live/**/*.ts"],
+      "entry": ["scripts/*.ts", "test/live/*.test.ts", "test/scripts/*.test.ts"],
+      "project": ["scripts/*.ts", "test/live/**/*.ts", "test/scripts/**/*.ts"],
       "ignoreDependencies": [
         "tsx",
         "publint",
