@@ -98,7 +98,7 @@ Disable the version your config uses. Cloud KMS and Key Vault enable and disable
 | Google Cloud KMS | `gcloud kms keys versions disable <version> --key deployer --keyring deployer-ring --location europe-west1` | [Enable and disable key versions](https://docs.cloud.google.com/kms/docs/enable-disable)                                    |
 | Azure Key Vault  | `az keyvault key set-attributes --vault-name my-vault --name deployer --version <version> --enabled false`  | [`az keyvault key set-attributes`](https://learn.microsoft.com/en-us/cli/azure/keyvault/key#az-keyvault-key-set-attributes) |
 
-The identity that signs never needs to delete. The policies in each setup guide grant it only reading the public key and signing; the guardrails below are for the people and pipelines that administer keys.
+The identity that signs never needs to delete. The AWS and Google Cloud setup guides grant it only reading the public key and signing, and so do the custom roles that the Azure guide recommends first. Azure's built-in alternatives grant more: Key Vault Crypto User can also back up the key and update its attributes, and Managed HSM Crypto User can also create, delete, back up and restore keys ([Allow get and sign, and nothing else](azure-key-vault-setup.md#2-allow-get-and-sign-and-nothing-else)). The guardrails below are for the people and pipelines that administer keys, and for any signing identity that holds one of those built-in roles.
 
 ### AWS KMS
 
@@ -199,7 +199,7 @@ AWS KMS also accepts key material that you generate and import, and you then "re
 
 ## Retire a key
 
-Before you disable or delete a key that has signed for real, empty its address and move its roles, in this order:
+Before you disable or delete a key that has signed for real, move what its address controls and holds. The order is the one in [Move to a new key](key-rotation.md#move-to-a-new-key): first transfer control, signed by the old key, then move the funds. Each transfer costs the old address gas, so its funds go last.
 
 1. Check that every key the project uses still works. `kms accounts` asks the KMS for each key's address and checks it against the key's pin; a key you cannot reach shows `FAILED`, and the command exits with code 1 ([`kms accounts`](../reference/tasks.md#kms-accounts)):
 
@@ -207,8 +207,9 @@ Before you disable or delete a key that has signed for real, empty its address a
    npx hardhat --network <name> kms accounts
    ```
 
-2. Move the funds from the old address to the new one, on every chain the address has used.
-3. Transfer contract ownership and every role the old address holds, such as admin roles, minter roles or upgrade rights. A role left on the old address cannot be used or given away once the key is gone.
-4. Point the config at the new key and update its `address` pin ([Configuration](../reference/configuration.md)). [Rotate a key and pin its address](key-rotation.md#move-to-a-new-key) covers the move in full. Run `kms accounts` again: the new key should show `matches`.
-5. Disable the old key, or on Cloud KMS and Key Vault the version your config used, as in [Guard against deletion](#guard-against-deletion), and leave it disabled while you confirm nothing still needs it.
-6. Delete the old key only once its address holds nothing on any chain and no contract gives it a role.
+2. Prepare the new key before anything moves to it. Create it, add it to the config under a new name with its `address` pin, and send it enough to pay gas on every chain where it must accept a transfer. [Move to a new key](key-rotation.md#move-to-a-new-key), steps 3 to 5, covers this. Run `kms accounts`: both keys should show `matches`.
+3. Transfer contract ownership and every role the old address holds, such as admin roles, minter roles or upgrade rights, signing each transfer with the old key. Keep enough on the old address to pay the gas. A two-step transfer finishes only when the new key accepts it. A role left on the old address cannot be used or given away once the key is gone.
+4. Move the remaining funds from the old address to the new one, on every chain the address has used.
+5. Point the networks' `kmsAccounts` and scripts at the new key's entry ([Configuration](../reference/configuration.md)). [Rotate a key and pin its address](key-rotation.md#move-to-a-new-key) covers the move in full.
+6. Disable the old key, or on Cloud KMS and Key Vault the version your config used, as in [Guard against deletion](#guard-against-deletion), and leave it disabled while you confirm nothing still needs it.
+7. Delete the old key only once its address holds nothing on any chain and no contract gives it a role. On Azure, deleting a key deletes all its versions: the delete operation "cannot be used to remove individual versions of a key" ([`az keyvault key delete`](https://learn.microsoft.com/cli/azure/keyvault/key#az-keyvault-key-delete)), and `az keyvault key delete --id` with a versioned id ignores the version and deletes the whole key. If the new key is a new version of the old one, disable the old version and keep the key. Never delete an Azure key while any of its versions holds funds or roles.
