@@ -1,7 +1,7 @@
 // Raw transactions and nonce reads of KMS accounts, through the network hook's handlers with a
 // fake node: the send lock, the high-water mark and the pass-through of everything else.
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import type { NetworkConnection } from "hardhat/types/network";
@@ -9,7 +9,11 @@ import type { JsonRpcResponse } from "hardhat/types/providers";
 import { Transaction } from "micro-eth-signer";
 import { serializeTransaction, toHex } from "viem";
 
-import { MAX_SEND_LOCK_WAITERS, sendLocksInUse } from "../../../src/internal/rpc/send-guard.ts";
+import {
+  MAX_SEND_LOCK_WAITERS,
+  SEND_LOCK_STALL_MS,
+  sendLocksInUse,
+} from "../../../src/internal/rpc/send-guard.ts";
 import {
   COW,
   errorOf,
@@ -76,6 +80,16 @@ async function sendRaw(
   return { response, params, forwardedParams: request.params };
 }
 
+// The send locks are process-global: a lock that one test leaves held or waited for would hold up
+// the sends of the tests after it. The check fails the test that leaves one, and only that test.
+let locksBefore = 0;
+beforeEach(() => {
+  locksBefore = sendLocksInUse();
+});
+afterEach(() => {
+  assert.ok(sendLocksInUse() <= locksBefore, "the test left a send lock held or waited for");
+});
+
 describe("a KMS account's raw transaction", () => {
   it("raises the mark, so the next send through the plugin takes a higher nonce", async () => {
     const harness = await setUp();
@@ -88,7 +102,6 @@ describe("a KMS account's raw transaction", () => {
     // The fake node's pending count stays at 0, so only the mark moves the next nonce.
     resultOf(await send(connection, { from: COW, to: TO }));
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("waits for a send that holds the account's lock, then goes out after it", async () => {
@@ -111,7 +124,6 @@ describe("a KMS account's raw transaction", () => {
     resultOf(await sending);
     resultOf((await rawSending).response);
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("raises the mark when a re-broadcast gets 'already known', and passes the answer on unchanged", async () => {
@@ -126,7 +138,6 @@ describe("a KMS account's raw transaction", () => {
     node.onRaw = undefined;
     resultOf(await send(connection, { from: COW, to: TO }));
     assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n]);
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("raises the mark when an error answer says it was mined", async () => {
@@ -253,34 +264,53 @@ describe("a KMS account's raw transaction", () => {
     );
     assert.match(inner.message, /so it was not sent/);
     assert.deepEqual(node.raw.map(nonceOf), [0n], "only the outer send reached the node");
-    assert.equal(sendLocksInUse(), 0);
   });
 
-  it(`passes on unchanged when ${MAX_SEND_LOCK_WAITERS} requests already wait for the lock`, async () => {
-    const harness = await setUp();
-    const { node, send, call } = harness;
+  it(`passes on unchanged when ${MAX_SEND_LOCK_WAITERS} requests already wait for the lock`, async (t) => {
+    // The send lock's no-progress limit runs on the global setTimeout, which this mock drives.
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    // A chain id of its own: if this test fails or times out, the sends it queued cannot fill the
+    // queue of a later test.
+    const harness = await setUp("http", 31338);
+    const { node, send } = harness;
     const connection = await openKnown(harness);
     const held = gate();
+    /** Lets the holder end, and fails every waiter at once, unsigned, at the no-progress limit. */
+    const drain = (): void => {
+      held.open();
+      t.mock.timers.tick(SEND_LOCK_STALL_MS);
+    };
+    // Runs even when the test fails or times out, so no waiter outlives it.
+    t.after(drain);
     node.onRaw = async (raw) => {
       await held.promise;
       return { jsonrpc: "2.0", id: 1, result: hashOf(raw) };
     };
     const sending = send(connection, { from: COW, to: TO });
     await settle();
+    // Sends fill the queue: a send waits before it fills or signs. A raw transaction is signed by
+    // the test and decoded by the plugin before it waits, about 5 ms of CPU each when idle, so 1024
+    // of them ran past the test timeout on a loaded machine.
     const waiting = Array.from(
       { length: MAX_SEND_LOCK_WAITERS },
-      async (_, i) => await call(connection, "eth_sendRawTransaction", [cowRaw(BigInt(i + 2))]),
+      async () => await send(connection, { from: COW, to: TO }),
     );
     await settle();
-    assert.equal(node.raw.length, 1, "the raw transactions wait for the lock");
+    assert.equal(node.raw.length, 1, "the sends wait for the lock");
     node.onRaw = undefined;
     // The queue is full: the raw transaction goes on at once, without the lock.
     resultOf((await sendRaw(harness, connection, cowRaw(1n))).response);
     assert.equal(node.raw.length, 2);
-    held.open();
+    drain();
+    const waited = await Promise.allSettled(waiting);
+    assert.ok(
+      waited.every(
+        (outcome) => outcome.status === "rejected" && /none finished/.test(String(outcome.reason)),
+      ),
+      "every waiter reached the no-progress limit",
+    );
     resultOf(await sending);
-    await Promise.all(waiting);
-    assert.equal(sendLocksInUse(), 0);
+    assert.equal(node.raw.length, 2, "no waiter was sent");
   });
 });
 
@@ -400,7 +430,6 @@ describe("a library account's send through the connection", () => {
     resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
     resultOf(await sending);
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("makes a second library send wait for the first one's broadcast", async () => {
@@ -413,7 +442,6 @@ describe("a library account's send through the connection", () => {
     resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
     assert.equal(await second, 1);
     resultOf((await sendRaw(harness, connection, cowRaw(1n))).response);
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("ends the hold at viem's reset, and frees the nonce", async () => {
@@ -494,7 +522,6 @@ describe("a library account's send through the connection", () => {
     resultOf(await sending);
     assert.equal(await consuming, 1);
     await manager.reset();
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("fails at once when called from inside a send from the same account, and its reset ends no hold", async () => {
@@ -524,7 +551,6 @@ describe("a library account's send through the connection", () => {
     resultOf((await sendRaw(harness, connection, cowRaw(1n))).response);
     resultOf(await sending);
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 2n]);
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("gives get's nonce without holding anything", async () => {
@@ -580,7 +606,6 @@ describe("a library account's send with its own transport", () => {
     assert.equal(await settled(sending), true, "no wait");
     resultOf(await sending);
     assert.deepEqual(node.raw.map(nonceOf), [2n]);
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("ends the reservation at reset", async () => {
@@ -691,7 +716,6 @@ describe("eth_sendRawTransactionSync (EIP-7966) from a KMS account", () => {
     assert.deepEqual(resultOf(response), { transactionHash: hashOf(raw), status: "0x1" });
     resultOf(await send(connection, { from: COW, to: TO }));
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("ends a library send's hold at its receipt", async () => {
@@ -706,7 +730,6 @@ describe("eth_sendRawTransactionSync (EIP-7966) from a KMS account", () => {
     assert.equal(await settled(sending), true, "the hold ended at the receipt");
     resultOf(await sending);
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("counts a timeout answer (code 4) as in the pool, ends the hold, and owes its reset", async () => {
@@ -748,7 +771,6 @@ describe("eth_sendRawTransactionSync (EIP-7966) from a KMS account", () => {
     await manager.reset();
     resultOf(await send(connection, { from: COW, to: TO }));
     assert.deepEqual(node.raw.map(nonceOf), [0n, 0n]);
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("passes another sender's transaction on unchanged", async () => {
@@ -780,7 +802,6 @@ describe("a reset when a held send and own-transport reservations are both open"
     const nonces = node.raw.map(nonceOf);
     assert.equal(new Set(nonces).size, nonces.length, "distinct nonces");
     assert.deepEqual(nonces, [1n, 2n], "the plugin's send goes after Y's");
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("first ends the reservations the node already has, then ends the hold", async () => {
@@ -798,7 +819,6 @@ describe("a reset when a held send and own-transport reservations are both open"
     assert.equal(await settled(sending), true, "Y's hold ended at its reset");
     resultOf(await sending);
     assert.deepEqual(node.raw.map(nonceOf), [1n]);
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("keeps the reservations when the pending count cannot be read", async () => {
@@ -850,7 +870,6 @@ describe("a library account's consume after a broadcast with no answer", () => {
     assert.equal(await manager.consume(), 1, "past the transaction the node has");
     assert.ok(node.methods.includes("eth_getTransactionByHash"));
     await manager.reset();
-    assert.equal(sendLocksInUse(), 0);
   });
 });
 
@@ -876,7 +895,6 @@ describe("a library send's raw transaction on a connection that has not looked u
     resultOf(await sending);
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
     assert.equal(state.signatures, signatures + 1, "only the plugin's send signed");
-    assert.equal(sendLocksInUse(), 0);
   });
 
   it("passes on a transaction from an address that holds nothing", async () => {
@@ -891,6 +909,5 @@ describe("a library send's raw transaction on a connection that has not looked u
     resultOf((await sendRaw(harness, other, raw)).response);
     assert.ok(!node.methods.includes("eth_getTransactionByHash"));
     await manager.reset();
-    assert.equal(sendLocksInUse(), 0);
   });
 });
