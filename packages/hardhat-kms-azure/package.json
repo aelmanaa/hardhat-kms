@@ -66,6 +66,7 @@
     "@azure/keyvault-keys": "^4.10.2"
   },
   "devDependencies": {
+    "@azure/logger": "^1.4.0",
     "@noble/curves": "^2.4.0",
     "@types/node": "catalog:",
     "c8": "catalog:",

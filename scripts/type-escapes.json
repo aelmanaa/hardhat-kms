@@ -65,7 +65,7 @@
       "file": "packages/hardhat-kms-azure/src/internal/hook-handlers/kms.ts",
       "rule": "node/no-process-env",
       "count": 1,
-      "reason": "AZURE_CLIENT_ID selects a user-assigned managed identity. ManagedIdentityCredential does not read it itself; only DefaultAzureCredential does, and DefaultAzureCredential tries its sources in another order than Foundry's. The explicit chain therefore reads it and passes it on."
+      "reason": "The explicit credential chain reads the environment once, here, and passes it on. The plugin selects the service principal from AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET or AZURE_CLIENT_CERTIFICATE_PATH itself, in place of EnvironmentCredential, so that it never signs in with AZURE_USERNAME and AZURE_PASSWORD. AZURE_CLIENT_ID also selects a user-assigned managed identity, which ManagedIdentityCredential does not read itself; only DefaultAzureCredential does, and it tries its sources in another order than Foundry's."
     }
   ]
 }

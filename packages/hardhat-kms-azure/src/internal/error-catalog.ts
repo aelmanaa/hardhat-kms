@@ -24,10 +24,39 @@ export const ERRORS = {
     kind: "error",
     group: "Credentials",
     template:
-      "a configured Azure credential could not sign in ({errorName}). Check the service principal (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET), the workload identity or the managed identity; unset the variables of a source you do not mean to use",
+      "a configured Azure credential could not sign in ({errorName}). Check the service principal (AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET or AZURE_CLIENT_CERTIFICATE_PATH), the workload identity or the managed identity; unset the variables of a source you do not mean to use",
     cause:
       "A credential source is configured but its sign-in failed, for example a wrong or expired `AZURE_CLIENT_SECRET` or a wrong `AZURE_TENANT_ID`. The chain does not fall through to `az login` after this.",
     fix: "Fix that source's settings, or unset the variables of a source you do not mean to use.",
+  },
+  usernamePassword: {
+    id: "azure.credential.username-password",
+    kind: "error",
+    group: "Credentials",
+    template:
+      "AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_USERNAME and AZURE_PASSWORD are set, with no client secret or certificate, which selects username and password sign-in. hardhat-kms refuses it, because that sign-in cannot do multifactor authentication. Set AZURE_CLIENT_SECRET or AZURE_CLIENT_CERTIFICATE_PATH for a service principal, or unset AZURE_USERNAME and AZURE_PASSWORD to sign in with `az login`, workload identity or a managed identity",
+    cause:
+      "With these four variables set and no secret or certificate, @azure/identity's environment credential would sign in as the user with the password alone (OAuth resource owner password credentials). That sign-in cannot do multifactor authentication, and Microsoft has deprecated it. The plugin refuses before it asks any source for a token, even when `az login`, workload identity or a managed identity would have worked. The message names the variables, never their values.",
+    fix: "Unset `AZURE_USERNAME` and `AZURE_PASSWORD`, or set `AZURE_CLIENT_SECRET` or `AZURE_CLIENT_CERTIFICATE_PATH` for a service principal.",
+  },
+  tenantId: {
+    id: "azure.credential.tenant-id",
+    kind: "error",
+    group: "Credentials",
+    template:
+      "AZURE_TENANT_ID is not a tenant id: it may hold only letters, digits, hyphens (-) and dots (.)",
+    cause:
+      "The variable holds another character, such as a space or a slash. @azure/identity refuses such a tenant, so the plugin checks it when it builds the credential chain, before any request. The message never shows the value.",
+    fix: "Set `AZURE_TENANT_ID` to the directory (tenant) id that `az account show --query tenantId -o tsv` prints, or unset it.",
+  },
+  environmentFailed: {
+    id: "azure.credential.environment-failed",
+    kind: "reason",
+    group: "Credentials",
+    template: "the service principal from the environment could not sign in",
+    cause:
+      "The service principal that `AZURE_CLIENT_SECRET` or `AZURE_CLIENT_CERTIFICATE_PATH` selects did not get a token, for any reason, such as a wrong secret, an unreadable certificate or a vault in a tenant that `AZURE_ADDITIONALLY_ALLOWED_TENANTS` does not allow. The error is named `AuthenticationError`, so the chain stops there and does not fall through to `az login`, and the plugin reports `azure.credential.failed`.",
+    fix: "See `azure.credential.failed`.",
   },
   aborted: {
     id: "azure.credential.aborted",

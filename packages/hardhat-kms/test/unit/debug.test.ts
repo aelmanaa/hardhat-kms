@@ -42,6 +42,22 @@ describe("kmsDebug", () => {
     assert.match(written.join(""), /hardhat:kms:test key aws:<AWS_KMS_KEY_ID> took 12 ms/);
   });
 
+  it("accepts only lowercase names of letters, digits and -", () => {
+    for (const name of ["signer", "azure", "my-provider", "p2"]) {
+      assert.doesNotThrow(() => kmsDebug(name), name);
+    }
+    for (const name of ["", "Signer", "2fa", "-x", "a:b", "a,b", "*", "a b", "a\nb", "a_b"]) {
+      assert.throws(
+        () => kmsDebug(name),
+        {
+          message:
+            "a debug namespace may hold only lowercase letters, digits and -, and must start with a letter",
+        },
+        JSON.stringify(name),
+      );
+    }
+  });
+
   it("replaces objects and errors, which would print whole", () => {
     process.env.DEBUG = "hardhat:kms:*";
     const log = kmsDebug("test");

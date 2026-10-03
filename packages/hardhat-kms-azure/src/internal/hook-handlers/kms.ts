@@ -44,10 +44,13 @@ export function pluginUserAgent(version: string): string {
   return `hardhat-kms/${version}`;
 }
 
-/** `AZURE_CLIENT_ID`, which selects a user-assigned managed identity for signing and reading. */
-function managedIdentityClientId(): string | undefined {
-  // oxlint-disable-next-line node/no-process-env -- ManagedIdentityCredential does not read AZURE_CLIENT_ID itself, and DefaultAzureCredential has another order than Foundry's
-  return process.env.AZURE_CLIENT_ID;
+/**
+ * The environment the credential chain reads its variables from, for signing and reading: the
+ * service principal's, and `AZURE_CLIENT_ID` for a user-assigned managed identity.
+ */
+function azureEnvironment(): NodeJS.ProcessEnv {
+  // oxlint-disable-next-line node/no-process-env -- the plugin selects the service principal itself, to refuse username and password sign-in, and ManagedIdentityCredential does not read AZURE_CLIENT_ID itself
+  return process.env;
 }
 
 /** Loads @azure/keyvault-keys and @azure/identity, and builds the credential chain. */
@@ -59,7 +62,7 @@ const loadAdapterFactory: AzureAdapterFactoryLoader = async (userAgent) => {
       import("../credential.ts"),
       import("../adapter.ts"),
     ]);
-  const credential = createAzureCredential(identity, managedIdentityClientId());
+  const credential = createAzureCredential(identity, azureEnvironment());
   return async (key) => await createAzureKeyAdapter(key, keyVault, credential, userAgent);
 };
 
@@ -77,7 +80,7 @@ const loadHistoryQuery: AzureHistoryQueryLoader = async (userAgent) => {
     import("../credential.ts"),
     import("../log-analytics.ts"),
   ]);
-  const credential = createAzureCredential(identity, managedIdentityClientId());
+  const credential = createAzureCredential(identity, azureEnvironment());
   return logAnalyticsQuery(credential, userAgent);
 };
 
