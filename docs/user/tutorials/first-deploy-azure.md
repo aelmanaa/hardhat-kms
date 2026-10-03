@@ -2,7 +2,7 @@
 
 Audience: developers who have an Azure subscription and the Azure CLI signed in, and have not used Azure Key Vault with Hardhat.
 
-Status: followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH ([#67](https://github.com/aelmanaa/hardhat-kms/issues/67)). The run used an existing Standard vault with RBAC: it ran the key commands of steps 2 and 8, and listed the role assignments at the vault scope. It did not create the resource group or the vault, create or delete role assignments, or delete the vault. Signing with only the Key Vault Crypto User role of step 3 is not checked live yet. The plugin is not on npm yet; step 4 says how to install it until then.
+Status: followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH ([#67](https://github.com/aelmanaa/hardhat-kms/issues/67)). The run used an existing Standard vault with RBAC: it ran the key commands of steps 2 and 8, and listed the role assignments at the vault scope. It did not create the resource group or the vault, create or delete role assignments, or delete the vault. The plugin is not on npm yet; step 4 says how to install it until then.
 
 In this tutorial you create a Hardhat project, create a signing key in Azure Key Vault, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Key Vault: Hardhat asks Key Vault for a signature each time it sends a transaction.
 
@@ -88,7 +88,7 @@ echo "$KEY_ID"
 
 ## 3. Allow the key to sign, and nothing else
 
-Hardhat signs with the identity you signed in with. For this tutorial, that identity is you, and the Key Vault Crypto Officer role from step 2 covers it. A real deployer should not be able to create or delete keys. Give it the **Key Vault Crypto User** role on this one key instead, not on the vault, so it can use no other key.
+Hardhat signs with the identity you signed in with. For this tutorial, that identity is you, and the Key Vault Crypto Officer role from step 2 covers it. A real deployer should not be able to create or delete keys. This step gives it the built-in **Key Vault Crypto User** role on this one key, not on the vault, so it can use no other key. For a deployer that holds real funds, use the two-action custom role in [Allow get and sign, and nothing else](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) instead.
 
 Print what the role allows:
 
@@ -96,7 +96,7 @@ Print what the role allows:
 az role definition list --name "Key Vault Crypto User" --query '[0].permissions[0].dataActions' --output tsv
 ```
 
-It prints nine data actions on keys: `read`, which the plugin needs to get the public key, `sign`, which it needs to sign, and `update`, `backup`, `encrypt`, `decrypt`, `wrap`, `unwrap` and `verify`, which it does not use. It allows no delete or purge. For a role with only `read` and `sign`, create the custom role in [Allow get and sign, and nothing else](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) and assign it the same way.
+It prints nine data actions on keys: `read`, which the plugin needs to get the public key, `sign`, which it needs to sign, and `update`, `backup`, `encrypt`, `decrypt`, `wrap`, `unwrap` and `verify`, which it does not use. It allows no delete or purge.
 
 To give a deployer identity the role on the key, assign it with the key's scope, or give each deployer its own vault and assign the role on that vault. The assignee is the object id of a user, group, service principal or managed identity; its principal type is `User`, `Group` or `ServicePrincipal`, which covers managed identities:
 
@@ -108,6 +108,8 @@ az role assignment create --role "Key Vault Crypto User" \
   --assignee-principal-type <principal type> \
   --scope "$KEY_SCOPE"
 ```
+
+Two caveats for this role. Signing with only Key Vault Crypto User is not checked live yet. And it can do more than sign: `update` can disable the key or change its permitted operations, and `backup` writes a copy of the key. Whoever can restore that copy into a vault can sign as the key's address ([Back up a key](../guides/key-loss.md#back-up-a-key)). To grant only `read` and `sign`, create the [custom role](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) and pass its name to `--role` instead.
 
 To check the assignments without changing anything, list them. The list includes the roles inherited from the vault, the resource group and the subscription:
 
