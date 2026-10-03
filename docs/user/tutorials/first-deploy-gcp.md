@@ -11,8 +11,8 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 You need:
 
 - Node.js 22.13 or later, and npm.
-- The gcloud CLI, signed in with an identity that can create Cloud KMS key rings and keys, such as one with the Cloud KMS Admin role, and a project set: `gcloud config get-value project` prints it. The project needs billing and the Cloud KMS API turned on; `gcloud services enable cloudkms.googleapis.com` turns the API on.
-- Application Default Credentials: run `gcloud auth application-default login` once. The plugin signs in with these, not with the gcloud CLI's own sign-in.
+- The gcloud CLI, signed in with an identity that can create Cloud KMS keys and grant roles on them, and a project set: `gcloud config get-value project` prints it. The project Owner role is enough, and so is Cloud KMS Admin; Cloud KMS Admin cannot read a public key or sign, so step 3 grants the two roles that can. The project needs billing and the Cloud KMS API turned on; `gcloud services enable cloudkms.googleapis.com` turns the API on.
+- Application Default Credentials: run `gcloud auth application-default login` once. The plugin signs in with these, not with the gcloud CLI's own sign-in, and the two can be different accounts; step 3 shows how to see which one the plugin uses.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
 - About 0.01 Sepolia ETH, from a faucet or another account.
 
@@ -61,7 +61,9 @@ A key ring and a key cannot be deleted, so their names stay in the project; they
 
 ## 3. Allow the key to sign, and nothing else
 
-Hardhat signs with your Application Default Credentials. For this tutorial, that identity can be the one that created the key; the recorded run signed as the project's owner, and the two-role grant below is not yet checked against real Cloud KMS ([Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else)). A real deployer should have only two permissions, on this key alone: `cloudkms.cryptoKeyVersions.viewPublicKey`, to derive the address, and `cloudkms.cryptoKeyVersions.useToSign`, to sign.
+Hardhat signs as the identity of your Application Default Credentials (ADC), not as the account the gcloud CLI uses. `gcloud auth login` signs in the gcloud CLI, which runs the `gcloud` commands on this page. `gcloud auth application-default login` writes separate credentials, which Google's client libraries use, and so does the plugin ([How Application Default Credentials works](https://docs.cloud.google.com/docs/authentication/application-default-credentials)). Both can be the same account, but they do not have to be.
+
+The ADC identity needs two permissions on this key: `cloudkms.cryptoKeyVersions.viewPublicKey`, to derive the address, and `cloudkms.cryptoKeyVersions.useToSign`, to sign. Creating the key does not give them. Cloud KMS Admin has neither: it "provides access to Cloud KMS resources, except for access to restricted resource types and cryptographic operations" ([Cloud KMS permissions and roles](https://docs.cloud.google.com/kms/docs/reference/permissions-and-roles)). The project Owner role has both, which is how the recorded run signed. The two-role grant below is not yet checked against real Cloud KMS ([Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else)).
 
 The predefined roles `roles/cloudkms.publicKeyViewer` and `roles/cloudkms.signer` hold one each. List what they hold:
 
@@ -79,11 +81,37 @@ cloudkms.cryptoKeyVersions.useToSign;cloudkms.locations.get;cloudkms.locations.l
 
 Next to the one key permission, each role can only read the project and list the Cloud KMS locations. Neither can disable, destroy or restore a key version, nor change who has access.
 
-To give a deployer both roles, grant them on the key, not on the project, so the deployer can use no other key. For example, for a service account named `hardhat-deployer`:
+Find the ADC identity. First check that the gcloud CLI does not impersonate a service account:
 
 ```sh
-DEPLOYER="serviceAccount:hardhat-deployer@$GCP_PROJECT_ID.iam.gserviceaccount.com"
+gcloud config get auth/impersonate_service_account
+```
 
+If it prints an account, run `gcloud config unset auth/impersonate_service_account`. That setting changes which token the next command gets, but the plugin does not read gcloud settings, so the check would name the wrong identity.
+
+Then get an access token from your ADC and ask Google's token information endpoint whose it is. The token goes in the request body and is not printed:
+
+```sh
+curl -s -d "access_token=$(gcloud auth application-default print-access-token \
+  --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/userinfo.email)" \
+  https://www.googleapis.com/oauth2/v1/tokeninfo
+```
+
+The `email` field of the response is the identity. The command asks for the `userinfo.email` scope because the response has `email` only when the token has that scope ([Token types](https://docs.cloud.google.com/docs/authentication/token-types)). With credentials from `gcloud auth application-default login`, the email is the account you chose in the browser. If it ends in `.gserviceaccount.com`, ADC holds a service account: the one you named with `gcloud auth application-default login --impersonate-service-account`, or the one whose key file `GOOGLE_APPLICATION_CREDENTIALS` names.
+
+If the response still has no `email`, ADC holds a service account, and the `azp` field is its unique ID. Print its email with `gcloud iam service-accounts describe <azp> --format='value(email)'`.
+
+Set `DEPLOYER` to that identity, with `user:` before a person's email and `serviceAccount:` before a service account's:
+
+```sh
+DEPLOYER="user:<email>"
+```
+
+For a service account named `hardhat-deployer`, it is `DEPLOYER="serviceAccount:hardhat-deployer@$GCP_PROJECT_ID.iam.gserviceaccount.com"`.
+
+Grant both roles on the key, not on the project, so the identity can use no other key. The gcloud CLI account runs the grant, which needs `cloudkms.cryptoKeys.setIamPolicy`; Owner and Cloud KMS Admin hold it:
+
+```sh
 for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
   gcloud kms keys add-iam-policy-binding deployer \
     --keyring hardhat-kms-tutorial \
@@ -93,9 +121,9 @@ for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
 done
 ```
 
-For a person, use `DEPLOYER="user:<email>"` instead.
+A new grant typically takes 2 minutes to apply, and can take 7 minutes or longer ([Access change propagation](https://docs.cloud.google.com/iam/docs/access-change-propagation)). If step 4 fails with `permission denied (PERMISSION_DENIED)` soon after the grant, wait and run it again.
 
-If the deployer then gets `PERMISSION_DENIED` about `serviceusage.services.use`, look at its quota project. `gcloud auth application-default login` writes the gcloud CLI's project into the credentials as the quota project, and the client then names that project in each request (the `x-goog-user-project` header), which needs `serviceusage.services.use` on it. Either set a project the deployer may use with `gcloud auth application-default set-quota-project <project>`, sign in again with `gcloud auth application-default login --disable-quota-project`, or grant the deployer `roles/serviceusage.serviceUsageConsumer` on the project ([Set the quota project](https://docs.cloud.google.com/docs/quotas/set-quota-project)).
+If the deployer then gets `PERMISSION_DENIED` about `serviceusage.services.use`, look at its quota project. If the ADC account has `serviceusage.services.use` on the gcloud CLI's project, `gcloud auth application-default login` writes that project into the credentials as the quota project; without the permission, it writes none and says so ([`gcloud auth application-default login`](https://cloud.google.com/sdk/gcloud/reference/auth/application-default/login)). The client then names the quota project in each request (the `x-goog-user-project` header), which needs `serviceusage.services.use` on it. Either set a project the deployer may use with `gcloud auth application-default set-quota-project <project>`, sign in again with `gcloud auth application-default login --disable-quota-project`, or grant the deployer `roles/serviceusage.serviceUsageConsumer` on the project ([Set the quota project](https://docs.cloud.google.com/docs/quotas/set-quota-project)).
 
 To check who has access to the key, without changing anything:
 
@@ -468,7 +496,7 @@ The change takes a moment to reach every Cloud KMS server. A disabled version us
 
 After the 24 hours, the version is destroyed for good, and nothing can sign for the address again. The key ring and the key stay, with no cost.
 
-If you granted the roles in step 3, remove them:
+Remove the two roles you granted in step 3. In a new shell, set `GCP_PROJECT_ID`, `GCP_LOCATION` and `DEPLOYER` again first, as in steps 2 and 3:
 
 ```sh
 for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
