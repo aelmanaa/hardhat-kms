@@ -36,14 +36,15 @@ The identity that runs Hardhat needs two permissions on this key:
 
 Creating the key does not give them, and Cloud KMS Admin (`roles/cloudkms.admin`) holds neither: it leaves out cryptographic operations. Grant the roles below even to the identity that created the key, unless it is a project Owner.
 
-The plugin signs as the identity of Application Default Credentials (ADC): the account of `gcloud auth application-default login` on a workstation, the `GOOGLE_APPLICATION_CREDENTIALS` file, or the service account of the machine or CI job ([How Application Default Credentials works](https://docs.cloud.google.com/docs/authentication/application-default-credentials)). That is not always the account `gcloud auth login` signed the gcloud CLI in with, so grant the roles to the ADC identity. To see it, ask Google's token information endpoint whose ADC access token it is:
+The plugin signs as the identity of Application Default Credentials (ADC): the account of `gcloud auth application-default login` on a workstation, the `GOOGLE_APPLICATION_CREDENTIALS` file, or the service account of the machine or CI job ([How Application Default Credentials works](https://docs.cloud.google.com/docs/authentication/application-default-credentials)). That is not always the account `gcloud auth login` signed the gcloud CLI in with, so grant the roles to the ADC identity. To see it, first check that `gcloud config get auth/impersonate_service_account` prints no account, and unset it with `gcloud config unset auth/impersonate_service_account` if it does: that setting changes the token gcloud returns, but the plugin does not read gcloud settings. Then ask Google's token information endpoint whose ADC access token it is:
 
 ```sh
-curl -s -d "access_token=$(gcloud auth application-default print-access-token)" \
+curl -s -d "access_token=$(gcloud auth application-default print-access-token \
+  --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/userinfo.email)" \
   https://www.googleapis.com/oauth2/v1/tokeninfo
 ```
 
-The `email` field of the response is the identity; use it with `user:`, or with `serviceAccount:` when it ends in `.gserviceaccount.com`. If the response has no `email`, ADC holds a service account: the one named with `gcloud auth application-default login --impersonate-service-account`, or the `client_email` of the key file `GOOGLE_APPLICATION_CREDENTIALS` names.
+The `email` field of the response is the identity; the command asks for the `userinfo.email` scope because the response has `email` only when the token has that scope ([Token types](https://docs.cloud.google.com/docs/authentication/token-types)). Use the email with `user:`, or with `serviceAccount:` when it ends in `.gserviceaccount.com`. If the response still has no `email`, ADC holds a service account: the machine's or CI job's, the one named with `gcloud auth application-default login --impersonate-service-account`, or the one whose key file `GOOGLE_APPLICATION_CREDENTIALS` names. The `azp` field is then its unique ID, and `gcloud iam service-accounts describe <azp> --format='value(email)'` prints its email.
 
 The predefined roles `roles/cloudkms.publicKeyViewer` and `roles/cloudkms.signer` each hold one of the two permissions. Grant both on the key, not on the project, so the identity can use no other key:
 
