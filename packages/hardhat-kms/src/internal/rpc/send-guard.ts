@@ -5,6 +5,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import { PLUGIN_ID } from "../constants.ts";
+import { toChecksumAddress } from "../crypto/address.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
 import { systemTimers, type Timers } from "../signer/timeout.ts";
@@ -88,6 +89,8 @@ interface LibraryHold {
   readonly owner: object;
   /** Ends the hold and releases the lock. */
   readonly end: () => void;
+  /** Whether a send waiting behind this hold has printed the wait warning. */
+  waitWarned: boolean;
 }
 
 /** The library sends that hold a send lock, by lock key. Process-global, as the locks are. */
@@ -166,19 +169,36 @@ export const LIBRARY_HOLD_MS = 60_000;
  */
 export const LIBRARY_WAIT_WARNING_MS = 5000;
 
+/** Where the warnings about library sends are explained. */
+const LIBRARY_WARNINGS_DOCS =
+  "https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#warnings";
+
+/**
+ * Names the account and chain of a lock key in a warning, with the address checksummed.
+ *
+ * @param key - The lock key, `chainId:address`.
+ * @returns A description such as `0xAbC… on chain 1`.
+ */
+function describeSendKeyForWarning(key: string): string {
+  const colon = key.indexOf(":");
+  return `${toChecksumAddress(key.slice(colon + 1))} on chain ${key.slice(0, colon)}`;
+}
+
 /**
  * Warns that a send has waited {@link LIBRARY_WAIT_WARNING_MS} for its account's send lock, when a
- * library account's send holds that lock now. Printed at most once per wait.
+ * library account's send holds that lock now. Printed at most once per hold, however many sends
+ * wait behind it.
  *
  * @param key - The lock key.
  */
 function warnAboutLibraryWait(key: string): void {
   const hold = libraryHolds.get(key);
-  if (hold === undefined) {
+  if (hold === undefined || hold.waitWarned) {
     return;
   }
+  hold.waitWarned = true;
   warn(
-    `a send from ${describeSendKey(key)} has waited ${LIBRARY_WAIT_WARNING_MS / 1000} s for a connection.kms.getAccount send that chose nonce ${hold.nonce} and has not broadcast it through the connection. It waits until that raw transaction goes out, viem resets that send, or ${LIBRARY_HOLD_MS / 1000} s after the nonce was chosen; see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.`,
+    `a send from ${describeSendKeyForWarning(key)} has waited ${LIBRARY_WAIT_WARNING_MS / 1000} s for a connection.kms.getAccount send that chose nonce ${hold.nonce} and has not broadcast it through the connection. It waits until that raw transaction goes out, viem resets that send, or ${LIBRARY_HOLD_MS / 1000} s after the nonce was chosen. If the library send's client does not send through custom(connection.provider), send it through that transport; see ${LIBRARY_WARNINGS_DOCS}.`,
   );
 }
 
@@ -297,25 +317,24 @@ export async function holdForLibrary(
   });
   const holding = withSendLock(key, async () => {
     const nonce = await choose();
-    let ended = false;
     const cancel = timers.setTimeout(() => {
       warn(
-        `a connection.kms.getAccount send from ${describeSendKey(key)} chose nonce ${nonce} ${LIBRARY_HOLD_MS / 1000} s ago and has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. If that transaction is broadcast later, it can take the nonce of the account's next send.`,
+        `a connection.kms.getAccount send from ${describeSendKeyForWarning(key)} chose nonce ${nonce}, and after ${LIBRARY_HOLD_MS / 1000} s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast later, it and the account's next send share a nonce, and the node refuses one of them. Send the library account through custom(connection.provider); see ${LIBRARY_WARNINGS_DOCS}.`,
       );
       hold.end();
     }, LIBRARY_HOLD_MS);
     const hold: LibraryHold = {
       nonce,
       owner,
+      waitWarned: false,
+      // A hold stays in libraryHolds from here until it ends, so this check also makes a second
+      // call a no-op, and an old hold's end cannot remove a newer one.
       end: () => {
-        if (ended) {
+        if (libraryHolds.get(key) !== hold) {
           return;
         }
-        ended = true;
+        libraryHolds.delete(key);
         cancel();
-        if (libraryHolds.get(key) === hold) {
-          libraryHolds.delete(key);
-        }
         control.release?.();
       },
     };
@@ -631,9 +650,8 @@ export class ConnectionSends {
    * @param pending - The node's pending transaction count for the sender.
    */
   public releaseReservationsBelow(from: string, pending: bigint): void {
-    if (pending > 0n) {
-      this.releaseReservationsUpTo(from, pending - 1n);
-    }
+    // With a pending count of 0, the bound is -1 and nothing is released.
+    this.releaseReservationsUpTo(from, pending - 1n);
   }
 
   /**
@@ -643,10 +661,10 @@ export class ConnectionSends {
    * @param nonce - The send's nonce.
    */
   public releaseReservationsUpTo(from: string, nonce: bigint): void {
-    const reservations = this.#reservations.get(from);
-    for (const reserved of reservations?.keys() ?? []) {
+    const reservations = this.#reservations.get(from) ?? new Map<bigint, Reservation>();
+    for (const reserved of reservations.keys()) {
       if (reserved <= nonce) {
-        reservations?.delete(reserved);
+        reservations.delete(reserved);
       }
     }
   }

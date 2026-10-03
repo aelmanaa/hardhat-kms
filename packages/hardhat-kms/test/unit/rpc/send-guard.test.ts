@@ -732,6 +732,20 @@ describe("ConnectionSends nonce reservations", () => {
     sends.resetReservation(ZERO);
   });
 
+  it("resets a failed reservation before a newer signed one", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 5n);
+    sends.reserve(COW, 6n);
+    sends.signedReservation(COW, 5n);
+    sends.signedReservation(COW, 6n);
+    sends.failReservation(COW, 5n);
+    sends.resetReservation(COW);
+    // 5's raw transaction was refused, so the reset is its; 6 is still in flight.
+    assert.equal(sends.nonceFor(COW, 6n), 7n, "6 is still reserved");
+    sends.resetReservation(COW);
+    assert.equal(sends.hasReservations(COW), false, "one reset each: 5 went first");
+  });
+
   it("treats a nonce handed out again as the newest", () => {
     const { sends } = withClock();
     sends.reserve(COW, 1n);
@@ -754,6 +768,10 @@ describe("ConnectionSends nonce reservations", () => {
 describe("library holds", () => {
   const HOLDER = "0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
   const KEY = `31337:${HOLDER}`;
+  /** The holder's address as the warnings print it. */
+  const CHECKSUMMED = "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826";
+  const DOCS =
+    "https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#warnings";
 
   it("keeps the lock after the nonce is chosen, until the broadcast ends the hold", async () => {
     const timers = fakeTimers();
@@ -797,7 +815,7 @@ describe("library holds", () => {
         warn.mock.calls.map((call) => call.arguments),
         [
           [
-            `hardhat-kms: a connection.kms.getAccount send from ${HOLDER} on chain 31337 chose nonce 1 60 s ago and has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. If that transaction is broadcast later, it can take the nonce of the account's next send.`,
+            `hardhat-kms: a connection.kms.getAccount send from ${CHECKSUMMED} on chain 31337 chose nonce 1, and after 60 s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast later, it and the account's next send share a nonce, and the node refuses one of them. Send the library account through custom(connection.provider); see ${DOCS}.`,
           ],
         ],
       );
@@ -836,10 +854,10 @@ describe("library holds", () => {
         warn.mock.calls.map((call) => call.arguments),
         [
           [
-            `hardhat-kms: a send from ${HOLDER} on chain 31337 has waited 5 s for a connection.kms.getAccount send that chose nonce 6 and has not broadcast it through the connection. It waits until that raw transaction goes out, viem resets that send, or 60 s after the nonce was chosen; see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.`,
+            `hardhat-kms: a send from ${CHECKSUMMED} on chain 31337 has waited 5 s for a connection.kms.getAccount send that chose nonce 6 and has not broadcast it through the connection. It waits until that raw transaction goes out, viem resets that send, or 60 s after the nonce was chosen. If the library send's client does not send through custom(connection.provider), send it through that transport; see ${DOCS}.`,
           ],
         ],
-        "once per wait",
+        "once per hold",
       );
       endLibraryHold(KEY, false);
       await settle();
@@ -884,6 +902,44 @@ describe("library holds", () => {
     } finally {
       warn.mock.restore();
     }
+  });
+
+  it("warns once per hold, however many sends wait behind it", async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const clock = clockTimers();
+      await holdForLibrary(KEY, {}, async () => await Promise.resolve(8n), fakeTimers());
+      const waiters = [0, 1, 2].map((index) =>
+        watch(withSendLock(KEY, async () => await Promise.resolve(index), clock)),
+      );
+      await clock.advance(LIBRARY_WAIT_WARNING_MS);
+      assert.equal(warn.mock.callCount(), 1);
+      endLibraryHold(KEY, false);
+      await settle();
+      assert.ok(waiters.every((waiter) => waiter.done && waiter.error === undefined));
+      assert.equal(sendLocksInUse(), 0);
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it("ignores a second end of a hold, even after a newer hold started", async () => {
+    const first = await holdForLibrary(
+      KEY,
+      {},
+      async () => await Promise.resolve(1n),
+      fakeTimers(),
+    );
+    assert.equal(first, 1n);
+    const old = libraryHoldOf(KEY);
+    assert.ok(old !== undefined);
+    old.end();
+    await holdForLibrary(KEY, {}, async () => await Promise.resolve(2n), fakeTimers());
+    old.end();
+    assert.equal(libraryHoldOf(KEY)?.nonce, 2n, "the newer hold stays");
+    endLibraryHold(KEY, false);
+    await settle();
+    assert.equal(sendLocksInUse(), 0);
   });
 
   it("warns and ends a hold before a send waiting behind it could stall", () => {

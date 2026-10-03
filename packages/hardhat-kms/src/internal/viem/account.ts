@@ -230,7 +230,7 @@ function warnAboutTransport(type: string): void {
   }
   warnedAboutTransport = true;
   warn(
-    `a connection.kms.getAccount account sends with a viem "${type}" transport, which does not go through Hardhat. The plugin chose the transaction's nonce and keeps it from its own sends for 60 s, but it does not order or see the broadcast, so a node that mines each transaction on arrival, such as Hardhat's simulated network, can refuse the plugin's next send with "Nonce too high". Send through custom(connection.provider); see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.`,
+    `a connection.kms.getAccount account sends with a viem "${type}" transport, which does not go through Hardhat. The plugin chose the transaction's nonce and keeps it from its own sends for 60 s, but it does not order or see the broadcast, so a node that mines each transaction on arrival, such as Hardhat's simulated network, can refuse the plugin's next send with "Nonce too high". Send through custom(connection.provider); see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#clients-with-their-own-transport-on-an-automining-node.`,
   );
 }
 

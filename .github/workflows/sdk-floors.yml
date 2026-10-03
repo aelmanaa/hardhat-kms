@@ -3,8 +3,9 @@ name: SDK floors
 # Tests each provider package against the lowest cloud SDK version its range allows, and the
 # library account (connection.kms.getAccount) against the lowest viem its peer range allows. The
 # CI workflow tests the lockfile versions; once Dependabot moves the lockfile forward, only this
-# workflow tests the floor. It runs when a provider package, a manifest, the lockfile, the pnpm
-# settings or the script changes. It is not a required check: path-filtered checks would block
+# workflow tests the floor. It also checks that getAccount refuses viem 2.55.11, below the floor.
+# It runs when a provider package, the library-account code or tests, a manifest, the lockfile, the
+# pnpm settings or the script changes. It is not a required check: path-filtered checks would block
 # merges that do not trigger them.
 on:
   pull_request:
@@ -12,7 +13,13 @@ on:
       - "packages/hardhat-kms-*/**"
       - "packages/hardhat-kms/src/internal/viem/**"
       - "packages/hardhat-kms/test/unit/viem/**"
+      - "packages/hardhat-kms/src/internal/rpc/**"
+      - "packages/hardhat-kms/test/floors/**"
+      - "packages/hardhat-kms/test/helpers/**"
       - "packages/hardhat-kms/test/integration/get-account.test.ts"
+      - "packages/hardhat-kms/test/integration/raw-send.test.ts"
+      - "packages/hardhat-kms/test/integration/library-send-cli.test.ts"
+      - "packages/hardhat-kms/test/unit/rpc/raw-send.test.ts"
       - "packages/*/package.json"
       - "package.json"
       - "pnpm-lock.yaml"
@@ -26,7 +33,13 @@ on:
       - "packages/hardhat-kms-*/**"
       - "packages/hardhat-kms/src/internal/viem/**"
       - "packages/hardhat-kms/test/unit/viem/**"
+      - "packages/hardhat-kms/src/internal/rpc/**"
+      - "packages/hardhat-kms/test/floors/**"
+      - "packages/hardhat-kms/test/helpers/**"
       - "packages/hardhat-kms/test/integration/get-account.test.ts"
+      - "packages/hardhat-kms/test/integration/raw-send.test.ts"
+      - "packages/hardhat-kms/test/integration/library-send-cli.test.ts"
+      - "packages/hardhat-kms/test/unit/rpc/raw-send.test.ts"
       - "packages/*/package.json"
       - "package.json"
       - "pnpm-lock.yaml"

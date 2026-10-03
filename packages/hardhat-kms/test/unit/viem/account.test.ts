@@ -172,7 +172,7 @@ const viemTooOldMessage = (installed: string): string =>
 
 /** The full message of the viem-missing error, for the reason given. */
 const viemMissingMessage = (reason: string): string =>
-  `getAccount: connection.kms.getAccount needs the viem package, which could not be loaded (${reason}). Install it with \`npm install --save-dev viem\``;
+  `getAccount: connection.kms.getAccount needs the viem package, which could not be loaded (${reason}). Install viem in the project`;
 
 /** The full message of the closed-connection error, for the method given. */
 const closedMessage = (operation: string): string =>
@@ -615,7 +615,7 @@ describe("connection.kms.getAccount", () => {
       await assertRefused(
         adapter,
         async () => await createKmsNetworkConnection(connection, missingViem).getAccount(ADDRESS),
-        /getAccount: connection\.kms\.getAccount needs the viem package, which could not be loaded \(Error, ERR_MODULE_NOT_FOUND\)\. Install it with `npm install --save-dev viem`/,
+        /getAccount: connection\.kms\.getAccount needs the viem package, which could not be loaded \(Error, ERR_MODULE_NOT_FOUND\)\. Install viem in the project/,
       );
     });
 

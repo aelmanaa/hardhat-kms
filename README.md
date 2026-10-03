@@ -39,7 +39,7 @@ export default defineConfig({
 
 To see the key's address, run `npx hardhat kms accounts`, then pin it in the key's config with `address`. `hardhat-kms-aws` loads `hardhat-kms` itself. For complete projects that deploy and call a contract from a KMS account with viem, ethers or Ignition, see [examples/](examples/README.md). Azure Key Vault and Managed HSM keys need `hardhat-kms-azure` instead ([setup guide](docs/user/guides/azure-key-vault-setup.md)). Google Cloud KMS keys need `hardhat-kms-gcp` ([setup guide](docs/user/guides/gcp-kms-setup.md)). See the [configuration reference](docs/user/reference/configuration.md) for every option.
 
-`connection.kms.getAccount`, which returns a viem account for a KMS key, needs viem 2.55.13 or later, a higher floor than hardhat-viem's `^2.47.6`. Before 2.50, viem never calls the account's nonce manager `reset` after a failed send, so the plugin's next send waits up to 60 s. From 2.50 to 2.55.11, viem can call `reset` for a send that never called `consume`, which ends another send's hold and lets a plugin send take the nonce that send still needs. See [library accounts](docs/user/reference/library-accounts.md).
+`connection.kms.getAccount`, which returns a viem account for a KMS key, needs viem 2.55.13 or later, a higher floor than hardhat-viem's `^2.47.6`, and refuses an older viem before any KMS call. With viem 2.49.3 and earlier, viem never tells the plugin that a library send failed, so the next send through the plugin waits up to 60 s. With viem 2.50.3 to 2.55.11, viem can report a failure for a send that never got a nonce from the plugin, and a send through the plugin can then take a nonce that another library send still needs. See [library accounts](docs/user/reference/library-accounts.md).
 
 ## Docs
 

@@ -5,8 +5,9 @@
 //
 // viem is an optional peer dependency that only connection.kms.getAccount loads, so its floor runs
 // the tests of getAccount, not the whole package. pnpm and Yarn install a viem below the peer range
-// with only a warning, so getAccount checks the version itself; after the floor passes, the script
-// installs the release just below the floor and checks that getAccount refuses it.
+// with only a warning, so getAccount checks the version itself; after the floor tests, whether
+// they passed or not, the script installs the release just below the floor and checks that
+// getAccount refuses it.
 //
 // For each package in packages/ whose dependencies include a cloud SDK, it installs the floor of
 // each SDK range (`^3.1143.0` gives 3.1143.0), also as a workspace override so other SDKs that
