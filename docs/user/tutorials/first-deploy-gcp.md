@@ -286,7 +286,17 @@ Then run step 6's command with `--network sepoliaFork`, and without `--verify`:
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender "$DEPLOYER_ADDRESS"
 ```
 
-The plugin signs with the real key, so the rehearsal also checks the key and its permissions, and each transaction costs one Cloud KMS signing call. The contract exists only in the fork, which ends with the command, so no explorer can verify it. [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network) has more.
+The plugin signs with the real key, so the rehearsal also checks the key and its permissions. Each transaction costs one Cloud KMS signing call, plus one public key read per run. The rehearsal took about a minute in a test run, most of it spent fetching Sepolia's state, and ends like this, with a `Counter` address that exists only in the fork:
+
+```text
+[ CounterModule ] successfully deployed 🚀
+
+Deployed Addresses
+
+CounterModule#Counter - <contract address>
+```
+
+The fork ends with the command, so no explorer can verify the contract. [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network) has more.
 
 ## 6. Deploy and verify
 
@@ -372,7 +382,7 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 ## 8. Clean up
 
-When you are done, send the remaining Sepolia ETH back, then disable the key version and schedule its destruction.
+When you are done, send the remaining Sepolia ETH back, then disable the key version and schedule its destruction. In a new shell, set `SEPOLIA_RPC_URL`, `GCP_PROJECT_ID` and `GCP_LOCATION` again first, as in steps 2 and 4: the script loads the config, which reads them.
 
 Save this script as `scripts/return-funds.ts`. It reads the deployer address from the pin, and sends the whole balance, less the fee, to the address in `RETURN_TO`. It refuses the zero address, the deployer address and any address with code. It also checks that the transfer succeeded:
 

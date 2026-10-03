@@ -51,7 +51,7 @@ The project refers to the key by its alias. Keep this shell open: step 3 and ste
 
 Hardhat signs with the identity you signed in with. For this tutorial, that identity can be the one that created the key. A real deployer should have only the policy below: `kms:GetPublicKey`, to derive the address, and `kms:Sign`, limited to what the plugin sends.
 
-Write the policy with your key's ARN to a file in the project:
+Write the policy with your key's ARN to a file in the project. The ARN holds your AWS account ID, so do not commit the file; step 8 deletes it:
 
 ```sh
 KEY_ARN=$(aws kms describe-key --key-id "$KEY_ID" --query KeyMetadata.Arn --output text)
@@ -244,7 +244,17 @@ Then run step 6's command with `--network sepoliaFork`, and without `--verify`:
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender "$DEPLOYER_ADDRESS"
 ```
 
-The plugin signs with the real key, so the rehearsal also checks the key and its permissions, and each transaction costs one KMS signing call. The contract exists only in the fork, which ends with the command, so no explorer can verify it. [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network) has more.
+The plugin signs with the real key, so the rehearsal also checks the key and its permissions. Each transaction costs one KMS signing call, plus one public key read per run. The rehearsal took about a minute in a test run, most of it spent fetching Sepolia's state, and ends like this, with a `Counter` address that exists only in the fork:
+
+```text
+[ CounterModule ] successfully deployed 🚀
+
+Deployed Addresses
+
+CounterModule#Counter - <contract address>
+```
+
+The fork ends with the command, so no explorer can verify the contract. [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network) has more.
 
 ## 6. Deploy and verify
 
@@ -330,7 +340,7 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 ## 8. Clean up
 
-When you are done, send the remaining Sepolia ETH back, then disable the key and schedule its deletion.
+When you are done, send the remaining Sepolia ETH back, then disable the key and schedule its deletion. In a new shell, set `SEPOLIA_RPC_URL` again first, as in step 4.
 
 Save this script as `scripts/return-funds.ts`. It reads the deployer address from the pin, and sends the whole balance, less the fee, to the address in `RETURN_TO`. It refuses the zero address, the deployer address and any address with code. It also checks that the transfer succeeded:
 

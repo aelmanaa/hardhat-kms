@@ -202,7 +202,15 @@ Every command that uses the key needs `AZURE_KEY_ID`. Set it from step 2's `KEY_
 export AZURE_KEY_ID="$KEY_ID"
 ```
 
-In a new shell, set `VAULT` and `KEY_ID` again with step 2's commands, then export `AZURE_KEY_ID` again. `az keyvault key show` returns the latest version of the key, which is the one you created unless someone rotated the key; once the address is pinned below, the plugin refuses any other version.
+In a new shell, set `VAULT`, `KEY_ID` and `AZURE_KEY_ID` again first, with the vault name that step 2 printed:
+
+```sh
+VAULT=<vault name>
+KEY_ID=$(az keyvault key show --vault-name "$VAULT" --name hardhat-kms-tutorial --query key.kid --output tsv)
+export AZURE_KEY_ID="$KEY_ID"
+```
+
+`az keyvault key show` returns the latest version of the key, which is the one you created unless someone rotated the key; once the address is pinned below, the plugin refuses any other version.
 
 Set the RPC URL, then ask Key Vault for the key's address:
 
@@ -266,7 +274,17 @@ Then run step 6's command with `--network sepoliaFork`, and without `--verify`:
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender "$DEPLOYER_ADDRESS"
 ```
 
-The plugin signs with the real key, so the rehearsal also checks the key and its permissions, and each transaction costs one Key Vault signing call. The contract exists only in the fork, which ends with the command, so no explorer can verify it. [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network) has more.
+The plugin signs with the real key, so the rehearsal also checks the key and its permissions. Each transaction costs one Key Vault signing call, plus one public key read per run. The rehearsal took about a minute in a test run, most of it spent fetching Sepolia's state, and ends like this, with a `Counter` address that exists only in the fork:
+
+```text
+[ CounterModule ] successfully deployed 🚀
+
+Deployed Addresses
+
+CounterModule#Counter - <contract address>
+```
+
+The fork ends with the command, so no explorer can verify the contract. [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network) has more.
 
 ## 6. Deploy and verify
 
@@ -352,7 +370,7 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 ## 8. Clean up
 
-When you are done, send the remaining Sepolia ETH back, then disable the key, delete it, and delete the vault.
+When you are done, send the remaining Sepolia ETH back, then disable the key, delete it, and delete the vault. In a new shell, set `SEPOLIA_RPC_URL` and `AZURE_KEY_ID` again first, as in step 4: the script loads the config, which reads them.
 
 Save this script as `scripts/return-funds.ts`. It reads the deployer address from the pin, and sends the whole balance, less the fee, to the address in `RETURN_TO`. It refuses the zero address, the deployer address and any address with code. It also checks that the transfer succeeded:
 
@@ -459,11 +477,13 @@ When the script stops early, it prints one line and exits with code 1. If the tr
 
 Before you remove the key, open the deployer address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com) and check that its balance is close to zero. Once the key is gone, nothing can move what is left.
 
-Then remove the key. If you closed the shell since step 4, set `VAULT`, `VAULT_ID` and `AZURE_KEY_ID` again first, with the vault name that step 2 printed and the commands of steps 2 and 4:
+Then remove the key. If you closed the shell since step 4, set `VAULT`, `VAULT_ID`, `KEY_ID` and `AZURE_KEY_ID` again first, with the vault name that step 2 printed:
 
 ```sh
 VAULT=<vault name>
 VAULT_ID=$(az keyvault show --name "$VAULT" --query id --output tsv)
+KEY_ID=$(az keyvault key show --vault-name "$VAULT" --name hardhat-kms-tutorial --query key.kid --output tsv)
+export AZURE_KEY_ID="$KEY_ID"
 ```
 
 Disable the key version your config uses, the one in `AZURE_KEY_ID`. A disabled version cannot sign, and `--enabled true` brings it back:
