@@ -491,9 +491,13 @@ The error to throw.
 
 > **kmsDebug**(`namespace`: `string`): [`KmsDebugLogger`](#kmsdebuglogger)
 
-Creates a logger under the plugin's `hardhat:kms:*` debug namespace. It writes to standard error
-when `DEBUG` matches, for example `DEBUG=hardhat:kms:*`, and `DEBUG` is read when the logger is
-created.
+Creates a logger under the plugin's `hardhat:kms:*` debug namespace, for a provider package. It
+writes to standard error when `DEBUG` matches, for example `DEBUG=hardhat:kms:*`, and `DEBUG` is
+read when the logger is created.
+
+A provider package logs under its provider id, such as `azure` or `myvault`. The namespaces of
+hardhat-kms itself (`account`, `config`, `history`, `providers`, `rpc` and `signer`) are refused,
+so a provider's lines cannot pass for the core's.
 
 Log only what is safe to print: display ids, addresses, digests, provider ids, operation names,
 the plugin's own request ids, timings, error class names and SDK package details. Never log
@@ -505,9 +509,9 @@ placeholder: text built into the format is neither type-checked nor escaped.
 
 #### Parameters
 
-| Parameter   | Type     | Description                                                                                     |
-| ----------- | -------- | ----------------------------------------------------------------------------------------------- |
-| `namespace` | `string` | The sub-namespace: lowercase letters, digits and `-`, starting with a letter, such as `signer`. |
+| Parameter   | Type     | Description                                                                                            |
+| ----------- | -------- | ------------------------------------------------------------------------------------------------------ |
+| `namespace` | `string` | The sub-namespace: the provider id, made of lowercase letters, digits and `-`, starting with a letter. |
 
 #### Returns
 
@@ -517,7 +521,8 @@ The logger.
 
 #### Throws
 
-An `Error` (`core.internal.debug-namespace`) for any other namespace.
+A `HardhatPluginError`: `core.provider.debug-namespace-reserved` for one of the core's
+namespaces, and `core.provider.debug-namespace-invalid` for a name in any other form.
 
 ---
 

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { kmsDebug } from "../../src/internal/debug.ts";
+import { HardhatPluginError } from "hardhat/plugins";
+
+import { CORE_NAMESPACES, coreDebug, kmsDebug } from "../../src/internal/debug.ts";
 
 let written: string[] = [];
 let restore: (() => void) | undefined;
@@ -42,19 +44,50 @@ describe("kmsDebug", () => {
     assert.match(written.join(""), /hardhat:kms:test key aws:<AWS_KMS_KEY_ID> took 12 ms/);
   });
 
-  it("accepts only lowercase names of letters, digits and -", () => {
-    for (const name of ["signer", "azure", "my-provider", "p2"]) {
+  it("accepts provider ids and other lowercase names of letters, digits and -", () => {
+    for (const name of ["aws", "gcp", "azure", "myvault", "my-provider", "p2", "test"]) {
       assert.doesNotThrow(() => kmsDebug(name), name);
     }
+  });
+
+  it("refuses a name in another form with an error that names it and the rule", () => {
     for (const name of ["", "Signer", "2fa", "-x", "a:b", "a,b", "*", "a b", "a\nb", "a_b"]) {
       assert.throws(
         () => kmsDebug(name),
-        {
-          message:
-            "a debug namespace may hold only lowercase letters, digits and -, and must start with a letter",
+        (error: unknown) => {
+          assert.ok(error instanceof HardhatPluginError, JSON.stringify(name));
+          assert.equal(
+            error.message,
+            `kmsDebug namespace ${JSON.stringify(name)} is not valid: use lowercase letters, digits and -, starting with a letter`,
+          );
+          assert.ok(!error.message.includes("\n"), "the message stays on one line");
+          return true;
         },
         JSON.stringify(name),
       );
+    }
+  });
+
+  it("refuses each of the core's namespaces, including those of the core's own loggers", () => {
+    assert.deepEqual(
+      [...CORE_NAMESPACES],
+      ["account", "config", "history", "providers", "rpc", "signer"],
+    );
+    process.env.DEBUG = "hardhat:kms:*";
+    for (const name of CORE_NAMESPACES) {
+      assert.throws(
+        () => kmsDebug(name),
+        (error: unknown) => {
+          assert.ok(error instanceof HardhatPluginError, name);
+          assert.equal(
+            error.message,
+            `kmsDebug namespace "${name}" belongs to hardhat-kms (account, config, history, providers, rpc, signer); log under the provider id instead`,
+          );
+          return true;
+        },
+        name,
+      );
+      assert.ok(coreDebug(name).enabled, name);
     }
   });
 

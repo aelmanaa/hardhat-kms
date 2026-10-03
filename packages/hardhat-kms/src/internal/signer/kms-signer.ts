@@ -26,7 +26,7 @@ import {
   toLowS,
   toRpcSignature,
 } from "../crypto/signature.ts";
-import { kmsDebug } from "../debug.ts";
+import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import {
   catalogError,
@@ -38,7 +38,7 @@ import {
 import { systemTimers, TimeoutError, type Timers, withTimeout } from "./timeout.ts";
 import type { KeyDescription, KmsKeyAdapter, SignContext } from "./types.ts";
 
-const log = kmsDebug("signer");
+const log = coreDebug("signer");
 
 /** Options for a {@link KmsSigner}. */
 export interface KmsSignerOptions {

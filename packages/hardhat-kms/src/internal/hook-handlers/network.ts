@@ -1,7 +1,7 @@
 import type { HookContext, NetworkHooks } from "hardhat/types/hooks";
 import type { NetworkConnection } from "hardhat/types/network";
 
-import { kmsDebug } from "../debug.ts";
+import { coreDebug } from "../debug.ts";
 import { type ConnectionChain, createConnectionChain } from "../rpc/chain-id.ts";
 import {
   ConnectionAccounts,
@@ -19,7 +19,7 @@ import { createKmsNetworkConnection, type LoadViem, loadViem } from "../viem/acc
 import { warn } from "../warnings.ts";
 import { commandLineKeys } from "./hre.ts";
 
-const log = kmsDebug("rpc");
+const log = coreDebug("rpc");
 
 /**
  * The KMS keys of a connection: the network's `kmsAccounts`, then, on the selected network, the

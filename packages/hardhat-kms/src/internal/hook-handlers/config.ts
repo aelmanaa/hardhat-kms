@@ -2,9 +2,9 @@ import type { ConfigHooks } from "hardhat/types/hooks";
 
 import { resolveKmsUserConfig } from "../config/resolve.ts";
 import { validateKmsUserConfig } from "../config/validate.ts";
-import { kmsDebug } from "../debug.ts";
+import { coreDebug } from "../debug.ts";
 
-const log = kmsDebug("config");
+const log = coreDebug("config");
 
 /**
  * Config hook handlers: validate the `kms` section and `kmsAccounts`, then resolve them.

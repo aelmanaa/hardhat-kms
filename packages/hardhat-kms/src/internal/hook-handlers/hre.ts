@@ -3,9 +3,9 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 
 import type { KmsKeyConfig } from "../../types.ts";
 import { keysFromKmsOption } from "../config/env-keys.ts";
-import { kmsDebug } from "../debug.ts";
+import { coreDebug } from "../debug.ts";
 
-const log = kmsDebug("config");
+const log = coreDebug("config");
 const keysByRuntime = new WeakMap<object, readonly KmsKeyConfig[]>();
 
 /**

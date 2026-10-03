@@ -1,11 +1,11 @@
 import type { ConfigurationVariable, ConfigurationVariableResolver } from "hardhat/types/config";
 
 import type { KmsIdentifier, KmsIdentifierUserConfig } from "../../types.ts";
-import { kmsDebug } from "../debug.ts";
+import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, errorName, internalError } from "../errors.ts";
 
-const log = kmsDebug("config");
+const log = coreDebug("config");
 
 /**
  * Checks an identifier's value. A check may read another identifier, such as the AWS key `region`

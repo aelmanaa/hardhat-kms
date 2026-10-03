@@ -1,10 +1,10 @@
 import { InvalidTypedDataError, parseTypedData, type TypedData } from "../crypto/digests.ts";
-import { kmsDebug } from "../debug.ts";
+import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, catalogMessage, errorName } from "../errors.ts";
 import { parseChainId } from "./chain-id.ts";
 
-const log = kmsDebug("rpc");
+const log = coreDebug("rpc");
 
 /**
  * Reads typed data from a request: a JSON string or an already parsed value. `eth_signTypedData_v4`

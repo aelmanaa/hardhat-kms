@@ -1,13 +1,13 @@
 import type { HookContext } from "hardhat/types/hooks";
 
 import type { KmsKeyConfig } from "../../types.ts";
-import { kmsDebug } from "../debug.ts";
+import { coreDebug } from "../debug.ts";
 import { createKeyAdapter } from "../providers/create-adapter.ts";
 import { KmsSigner } from "./kms-signer.ts";
 import { signerIdentity } from "./signer-identity.ts";
 import { systemTimers, type Timers } from "./timeout.ts";
 
-const log = kmsDebug("signer");
+const log = coreDebug("signer");
 
 /** How long the cache waits after its last connection closes before it closes the signers. */
 const IDLE_CLOSE_MS = 5000;

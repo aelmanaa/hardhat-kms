@@ -556,6 +556,26 @@ export const ERRORS = {
       "As above, with a version that is not a plain `major.minor.patch`, such as a tag, so no install command is suggested.",
     fix: "Install the same version of hardhat-kms and the provider package.",
   },
+  debugNamespaceInvalid: {
+    id: "core.provider.debug-namespace-invalid",
+    kind: "error",
+    group: "Provider plugins",
+    template:
+      "kmsDebug namespace {namespace} is not valid: use lowercase letters, digits and -, starting with a letter",
+    cause:
+      "A provider package called `kmsDebug` from `hardhat-kms/provider-utils` with a namespace that is empty or holds another character, such as `*`, `,` or `:`, which would change which `DEBUG` patterns match it.",
+    fix: 'If you wrote the provider package, log under its provider id, such as `kmsDebug("myvault")`. Otherwise report it to the provider package.',
+  },
+  debugNamespaceReserved: {
+    id: "core.provider.debug-namespace-reserved",
+    kind: "error",
+    group: "Provider plugins",
+    template:
+      "kmsDebug namespace {namespace} belongs to hardhat-kms ({reserved}); log under the provider id instead",
+    cause:
+      "A provider package called `kmsDebug` from `hardhat-kms/provider-utils` with one of the namespaces hardhat-kms logs under, so its lines would pass for the core's.",
+    fix: 'If you wrote the provider package, log under its provider id, such as `kmsDebug("myvault")`. Otherwise report it to the provider package.',
+  },
 
   // Signing.
   signerNoIdentity: {
@@ -1947,16 +1967,6 @@ export const ERRORS = {
   },
 
   // Internal: only a bug or a broken install reaches these. They are plain `Error`s.
-  debugNamespace: {
-    id: "core.internal.debug-namespace",
-    kind: "internal",
-    group: "Internal",
-    template:
-      "a debug namespace may hold only lowercase letters, digits and -, and must start with a letter",
-    cause:
-      "`kmsDebug` was called with a namespace that is empty or holds another character, such as `*`, `,` or `:`, which would change which `DEBUG` patterns match it. Its callers pass fixed names, so this is a bug in the plugin or the provider that called it.",
-    fix: "Open an issue at https://github.com/aelmanaa/hardhat-kms/issues with the message and the stack trace, or, in your own provider plugin, pass a name such as `my-provider`.",
-  },
   identifierPartMissing: {
     id: "core.internal.identifier-part",
     kind: "internal",
