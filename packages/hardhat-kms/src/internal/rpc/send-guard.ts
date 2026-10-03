@@ -186,8 +186,9 @@ function describeSendKeyForWarning(key: string): string {
 
 /**
  * Warns that a send has waited {@link LIBRARY_WAIT_WARNING_MS} for its account's send lock, when a
- * library account's send holds that lock now. Printed at most once per hold, however many sends
- * wait behind it.
+ * library account's send holds that lock now. Each waiting send arms one timer, so it prints at
+ * most once per waiting send, and `waitWarned` limits it to once per hold: a send that waits behind
+ * two holds in a row prints one warning, for the hold current when its timer fires.
  *
  * @param key - The lock key.
  */
