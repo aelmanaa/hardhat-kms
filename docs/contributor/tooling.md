@@ -48,7 +48,8 @@ publishes passed on macOS and Windows.
 The nightly run skips its test jobs only when a run of `ci-all-os.yml` on `main` already passed both
 the macOS and the Windows job on the same commit (`scripts/ci-all-os-decide.ts`). A run that failed,
 was cancelled, skipped its test jobs or was a dry run does not count, so a red `main` is tested again
-every night until a fix lands. If the decide job cannot read the runs, it fails rather than skip.
+every night until a fix lands. If the decide job cannot read the runs, it fails rather than skip, and
+the report job records that on the tracking issue below, saying no tests ran.
 
 When a nightly run fails on `main`, the report job opens the issue "Nightly macOS and Windows CI fails
 on main" (`type:bug`, `area:ci`, `status:needs-triage`, `priority:P1`) with the commit and the run

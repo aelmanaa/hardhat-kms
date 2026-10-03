@@ -147,6 +147,24 @@ describe("bothPassed", () => {
     );
     assert.equal(bothPassed([]), false);
   });
+
+  it("needs every macOS and Windows job to pass when the matrix has more than one per OS", () => {
+    const macOS22 = { name: "Test (macOS, Node 22.13.0)", conclusion: "success" };
+    const windows22 = { name: "Test (Windows, Node 22.13.0)", conclusion: "success" };
+    assert.equal(
+      bothPassed([macOS22, { name: "Test (macOS, Node 24)", conclusion: "failure" }, windows22]),
+      false,
+    );
+    assert.equal(
+      bothPassed([
+        macOS22,
+        { name: "Test (macOS, Node 24)", conclusion: "success" },
+        windows22,
+        { name: "Test (Windows, Node 24)", conclusion: "success" },
+      ]),
+      true,
+    );
+  });
 });
 
 describe("decide on a schedule", () => {
@@ -313,6 +331,21 @@ describe("the tracking issue", () => {
       kind: "close",
       issue: 42,
       body: `Passed on ${SHA}: ${RUN_URL}. Closing.`,
+    });
+  });
+
+  it("a failed decide job opens it saying no tests ran, or comments that way", () => {
+    const action = planReport([other], "decide-failure", SHA, RUN_URL);
+    assert.equal(action.kind, "open");
+    if (action.kind === "open") {
+      assert.match(action.body, /^The decide job .* failed on `main`, so no tests ran\./);
+      assert.doesNotMatch(action.body, /tests \(`ci-all-os\.yml`\) failed/);
+      assert.match(action.body, new RegExp(RUN_URL));
+    }
+    assert.deepEqual(planReport([tracking], "decide-failure", SHA, RUN_URL), {
+      kind: "comment",
+      issue: 42,
+      body: `The decide job failed on ${SHA}, so no tests ran: ${RUN_URL}`,
     });
   });
 

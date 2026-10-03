@@ -151,7 +151,9 @@ jobs:
       - name: Open, comment on or close the tracking issue
         env:
           GH_TOKEN: ${{ github.token }}
-          RESULT: ${{ needs.decide.result == 'success' && needs.test.result == 'success' && 'success' || 'failure' }}
+          RESULT: >-
+            ${{ needs.decide.result != 'success' && 'decide-failure'
+            || needs.test.result == 'success' && 'success' || 'failure' }}
         run: >-
           node scripts/ci-all-os-decide.ts report --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA"
           --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --result "$RESULT"

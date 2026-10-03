@@ -12,7 +12,7 @@
 //   node scripts/ci-all-os-decide.ts decide --repo OWNER/NAME --sha SHA --event schedule|workflow_dispatch
 //     [--run-id ID] [--dry-run true|false] [--output FILE] [--summary FILE]
 //   node scripts/ci-all-os-decide.ts report --repo OWNER/NAME --sha SHA --run-url URL
-//     --result success|failure
+//     --result success|failure|decide-failure
 // `--output` appends `run=true|false` (GITHUB_OUTPUT) and `--summary` appends the decision line
 // (GITHUB_STEP_SUMMARY). Both commands print what they decided.
 import { execFile } from "node:child_process";
@@ -84,6 +84,12 @@ export interface DecideInput {
   /** The current run, which is never its own match. */
   runId?: number;
 }
+
+/**
+ * The result of a run that reports: the test jobs passed, the test jobs failed, or the decide job
+ * failed, so no test ran.
+ */
+export type RunResult = "success" | "failure" | "decide-failure";
 
 /** What `report` does with the tracking issue. */
 export type ReportAction =
@@ -197,15 +203,17 @@ export function candidateRuns(
 }
 
 /**
- * Whether a run passed on both OSes: a macOS job and a Windows job both concluded `success`. A
- * skipped job has the conclusion `skipped`, so a skipped run never passes.
+ * Whether a run passed on both OSes: it has at least one macOS and one Windows test job, and every
+ * one of them concluded `success`. A skipped job has the conclusion `skipped`, so a skipped run
+ * never passes.
  * @param jobs The jobs of the run's latest attempt.
- * @returns True when both test jobs passed.
+ * @returns True when every macOS and Windows test job passed.
  */
 export function bothPassed(jobs: readonly Job[]): boolean {
-  return TEST_JOBS.every((prefix) =>
-    jobs.some((job) => job.name.startsWith(prefix) && job.conclusion === "success"),
-  );
+  return TEST_JOBS.every((prefix) => {
+    const matching = jobs.filter((job) => job.name.startsWith(prefix));
+    return matching.length > 0 && matching.every((job) => job.conclusion === "success");
+  });
 }
 
 /**
@@ -278,7 +286,7 @@ export async function decide(input: DecideInput, github: GitHub): Promise<Decisi
  */
 export function planReport(
   openIssues: readonly Issue[],
-  result: "success" | "failure",
+  result: RunResult,
   sha: string,
   runUrl: string,
 ): ReportAction {
@@ -294,15 +302,24 @@ export function planReport(
           body: `Passed on ${sha}: ${runUrl}. Closing.`,
         };
   }
+  const decideFailed = result === "decide-failure";
   if (tracking !== undefined) {
-    return { kind: "comment", issue: tracking.number, body: `Failed again on ${sha}: ${runUrl}` };
+    return {
+      kind: "comment",
+      issue: tracking.number,
+      body: decideFailed
+        ? `The decide job failed on ${sha}, so no tests ran: ${runUrl}`
+        : `Failed again on ${sha}: ${runUrl}`,
+    };
   }
   return {
     kind: "open",
     title: ISSUE_TITLE,
     labels: ISSUE_LABELS,
     body: [
-      `The nightly macOS and Windows tests (\`ci-all-os.yml\`) failed on \`${BRANCH}\`.`,
+      decideFailed
+        ? `The decide job of the nightly macOS and Windows run (\`ci-all-os.yml\`) failed on \`${BRANCH}\`, so no tests ran.`
+        : `The nightly macOS and Windows tests (\`ci-all-os.yml\`) failed on \`${BRANCH}\`.`,
       "",
       `- Commit: ${sha}`,
       `- Run: ${runUrl}`,
@@ -361,7 +378,7 @@ export async function applyReport(
 export async function report(
   github: GitHub,
   repo: string,
-  result: "success" | "failure",
+  result: RunResult,
   sha: string,
   runUrl: string,
 ): Promise<string> {
@@ -487,8 +504,8 @@ async function main(argv: readonly string[]): Promise<void> {
   }
   if (command === "report") {
     const result = required(values.result, "result");
-    if (result !== "success" && result !== "failure") {
-      throw new Error(`--result must be success or failure, not ${result}`);
+    if (result !== "success" && result !== "failure" && result !== "decide-failure") {
+      throw new Error(`--result must be success, failure or decide-failure, not ${result}`);
     }
     const done = await report(github, repo, result, sha, required(values["run-url"], "run-url"));
     process.stdout.write(`${done}\n`);
