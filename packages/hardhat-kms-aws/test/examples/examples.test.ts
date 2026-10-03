@@ -7,7 +7,8 @@
 // computed here from its public key, and that the count read back from the contract is 7 + 5.
 import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -271,5 +272,43 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
     const output = await pnpmIn("ignition", ["exec", "hardhat", ...commandArguments]);
     assert.match(output, /successfully deployed/);
     assert.match(output, /#Counter - 0x[0-9a-fA-F]{40}/);
+  });
+
+  // Runs after the viem example's own test, which builds it with AWS_KMS_PROFILE and
+  // AWS_KMS_REGION unset. Here the environment holds no keys and no AWS_REGION, so the deploy
+  // works only if the config reads the profile and the region from its variables.
+  it("viem: deploys with the profile and region from the config's variables", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "hhkms-example-profile-"));
+    const configFile = path.join(directory, "config");
+    writeFileSync(
+      configFile,
+      [
+        "[profile hhkms-example]",
+        "aws_access_key_id = test",
+        "aws_secret_access_key = test",
+        "",
+      ].join("\n"),
+    );
+    const {
+      AWS_ACCESS_KEY_ID: _keyId,
+      AWS_SECRET_ACCESS_KEY: _secret,
+      AWS_REGION: _region,
+      ...rest
+    } = environment;
+    const saved = environment;
+    environment = {
+      ...rest,
+      AWS_CONFIG_FILE: configFile,
+      AWS_KMS_PROFILE: "hhkms-example",
+      AWS_KMS_REGION: REGION,
+    };
+    try {
+      const output = await pnpmIn("viem", ["run", "deploy", "--network", "rehearsal"]);
+      assert.equal(printed(output, "Deployer").toLowerCase(), kmsAddress);
+      assert.equal(printed(output, "Owner").toLowerCase(), kmsAddress);
+    } finally {
+      environment = saved;
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

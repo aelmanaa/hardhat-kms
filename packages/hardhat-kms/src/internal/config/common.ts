@@ -1,4 +1,8 @@
-import { sensitiveStringSchema } from "@nomicfoundation/hardhat-zod-utils";
+import {
+  conditionalUnionType,
+  configurationVariableSchema,
+  sensitiveStringSchema,
+} from "@nomicfoundation/hardhat-zod-utils";
 import { z } from "zod";
 
 import { InvalidAddressError, toChecksumAddress } from "../crypto/address.ts";
@@ -50,3 +54,19 @@ export const nonEmptyString: z.ZodEffects<z.ZodString> = z
   .string()
   .min(1, catalogMessage(ERRORS.nonEmptyString, {}))
   .refine((value) => value.trim() === value, catalogMessage(ERRORS.surroundingWhitespace, {}));
+
+/**
+ * A setting that can be a literal string or a configuration variable, such as an AWS key's
+ * `region` or `profile`. A literal must be a {@link nonEmptyString}; a variable's value is read when
+ * the key is first used, and an empty value means the setting is unset.
+ */
+export const settingSchema: z.ZodTypeAny = conditionalUnionType(
+  [
+    [(data) => typeof data === "string", nonEmptyString],
+    [
+      (data) => typeof data === "object" && data !== null && !Array.isArray(data),
+      configurationVariableSchema,
+    ],
+  ],
+  catalogMessage(ERRORS.settingType, {}),
+);

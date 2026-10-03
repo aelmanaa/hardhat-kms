@@ -1,11 +1,15 @@
 // Runs `kms history` on AWS keys through the real task, the real hook handler and the real AWS
 // SDKs, against a local CloudTrail, STS and KMS endpoint that serve the recorded, masked events.
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import hardhatKms from "hardhat-kms";
 import type { KmsHistoryReport } from "hardhat-kms/types";
+import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatPlugin } from "hardhat/types/plugins";
 
@@ -188,6 +192,62 @@ describe("kms history on AWS keys", () => {
     const event = report.events[0];
     assert.equal(event?.keyResource, KEY_ARN);
     assert.equal(event.extra.accessKeyId, FIXTURE.accessKeyId);
+  });
+
+  it("builds the CloudTrail, STS and KMS clients with the profile and region from variables", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "hhkms-history-"));
+    const configFile = path.join(directory, "config");
+    writeFileSync(
+      configFile,
+      [
+        "[profile hhkms-history]",
+        "aws_access_key_id = AKIAHHKMSHISTORYPROF",
+        "aws_secret_access_key = profile-secret",
+        "",
+      ].join("\n"),
+    );
+    process.env.AWS_CONFIG_FILE = configFile;
+    process.env.HHKMS_AWS_PROFILE = "hhkms-history";
+    process.env.HHKMS_AWS_REGION = "eu-west-1";
+    try {
+      const hre = await createHardhatRuntimeEnvironment({
+        plugins: [hardhatKmsAws],
+        kms: {
+          keys: {
+            alias: {
+              provider: "aws",
+              keyId: "alias/deployer",
+              profile: configVariable("HHKMS_AWS_PROFILE"),
+              region: configVariable("HHKMS_AWS_REGION"),
+              endpoint: kms.url,
+            },
+            arn: { provider: "aws", keyId: KEY_ARN, profile: configVariable("HHKMS_AWS_PROFILE") },
+          },
+        },
+      });
+
+      for (const key of ["alias", "arn"]) {
+        const { error } = await history(key, { hre });
+        assert.equal(error, undefined);
+      }
+
+      const signed = [
+        ...kms.requests.map((request) => request.headers.authorization),
+        ...audit.requests.map((request) => request.headers.authorization),
+      ];
+      assert.deepEqual(
+        [...kms.requests.map(() => "KMS"), ...audit.requests.map((request) => request.operation)],
+        ["KMS", "LookupEvents", "GetCallerIdentity", "LookupEvents"],
+      );
+      for (const authorization of signed) {
+        assert.match(String(authorization), /Credential=AKIAHHKMSHISTORYPROF\/\d{8}\/eu-west-1\//);
+      }
+    } finally {
+      process.env.AWS_CONFIG_FILE = "/nonexistent/hardhat-kms-aws/config";
+      Reflect.deleteProperty(process.env, "HHKMS_AWS_PROFILE");
+      Reflect.deleteProperty(process.env, "HHKMS_AWS_REGION");
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("reads every page, and prints the table", async () => {

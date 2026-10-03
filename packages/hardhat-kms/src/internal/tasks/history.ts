@@ -1,6 +1,6 @@
 import type { NewTaskActionFunction } from "hardhat/types/tasks";
 
-import type { KmsAuditConfig, KmsIdentifier, KmsKeyConfig } from "../../types.ts";
+import type { AwsKmsKeyConfig, KmsAuditConfig, KmsIdentifier, KmsKeyConfig } from "../../types.ts";
 import { identifierParts } from "../config/identifiers.ts";
 import { errorMasker, type HiddenSources, hiddenSet } from "../history/mask.ts";
 import { readSignHistory } from "../history/read.ts";
@@ -11,6 +11,7 @@ import {
   renderHistoryTable,
 } from "../history/report.ts";
 import { historyRange } from "../history/time.ts";
+import { parseAwsKeyId } from "../providers/aws/key-id.ts";
 import { findTaskKey, printLine, printNote } from "./keys.ts";
 
 /** The arguments of `kms history`. */
@@ -47,12 +48,53 @@ async function anyValue(identifier: KmsIdentifier): Promise<string[]> {
 }
 
 /**
+ * The values of an AWS key's region and profile that come from configuration variables. They are
+ * read as the AWS reader reads them: the region not at all when the key id is a key ARN with a
+ * region, and `kms.defaults.aws.region` only when the key's own region is empty, so a variable the
+ * run does not need never prompts for a keystore password.
+ *
+ * @param key - The AWS key.
+ * @param keyId - The key id's value, or `undefined` when it cannot be read.
+ */
+async function awsSettingValues(
+  key: AwsKmsKeyConfig,
+  keyId: string | undefined,
+): Promise<string[]> {
+  const values = key.profile === undefined ? [] : await variableValue(key.profile);
+  if (
+    key.region === undefined ||
+    keyId === undefined ||
+    parseAwsKeyId(keyId)?.region !== undefined
+  ) {
+    return values;
+  }
+  const parts = identifierParts(key.region);
+  for (const candidate of parts.length === 0 ? [key.region] : parts) {
+    let value: string;
+    try {
+      value = await candidate.get();
+    } catch {
+      // The reader fails on it first.
+      break;
+    }
+    if (value !== candidate.display) {
+      values.push(value);
+    }
+    if (value !== "") {
+      break;
+    }
+  }
+  return values;
+}
+
+/**
  * The values `kms history` hides before it reads anything:
  *
  * - as the key: a built-in key's identifier, literal or from configuration variables, so that the
  *   message of an error a reader throws is masked even for a literal key;
  * - as `<hidden>`: the value of each configuration variable part of a joined identifier, such as a
- *   Google Cloud project id, and, for an Azure key only, the workspace id when it comes from a
+ *   Google Cloud project id; for an AWS key, the values of its region and profile that come from
+ *   configuration variables; and, for an Azure key only, the workspace id when it comes from a
  *   configuration variable. Other keys never read the workspace variable, so they never prompt
  *   for it.
  *
@@ -76,7 +118,12 @@ async function configuredHiddenValues(
     key.provider === "azure" && audit.azure !== undefined
       ? await variableValue(audit.azure.workspaceId)
       : [];
-  return { keys: await anyValue(identifier), others: [...parts.flat(), ...workspace] };
+  const keys = await anyValue(identifier);
+  const settings = key.provider === "aws" ? await awsSettingValues(key, keys[0]) : [];
+  return {
+    keys,
+    others: [...parts.flat(), ...workspace, ...settings],
+  };
 }
 
 /** `n event` or `n events`. */

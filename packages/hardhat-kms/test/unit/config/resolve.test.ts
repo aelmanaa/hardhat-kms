@@ -89,7 +89,7 @@ describe("resolveKmsConfig", () => {
     assert.equal("address" in plain, false);
   });
 
-  it("keeps the AWS profile and endpoint", () => {
+  it("keeps the AWS profile and endpoint", async () => {
     const aws = awsKey(
       {
         kms: {
@@ -106,7 +106,8 @@ describe("resolveKmsConfig", () => {
       "a",
     );
 
-    assert.equal(aws.profile, "ci");
+    assert.equal(aws.profile?.display, "ci");
+    assert.equal(await aws.profile.get(), "ci");
     assert.equal(aws.endpoint, "http://localhost:4566");
   });
 
@@ -137,7 +138,7 @@ describe("resolveKmsConfig", () => {
     );
   });
 
-  it("resolves the AWS region: ARN, then key, then defaults", () => {
+  it("resolves the AWS region: ARN, then key, then defaults", async () => {
     const config: HardhatUserConfig = {
       kms: {
         defaults: { aws: { region: "us-east-1" } },
@@ -153,9 +154,10 @@ describe("resolveKmsConfig", () => {
       },
     };
 
-    assert.equal(awsKey(config, "arn").region, "eu-west-1");
-    assert.equal(awsKey(config, "key").region, "eu-central-1");
-    assert.equal(awsKey(config, "fallback").region, "us-east-1");
+    assert.equal(await awsKey(config, "arn").region?.get(), "eu-west-1");
+    assert.equal(await awsKey(config, "key").region?.get(), "eu-central-1");
+    assert.equal(await awsKey(config, "fallback").region?.get(), "us-east-1");
+    assert.equal(awsKey(config, "fallback").region?.display, "us-east-1");
   });
 
   it("never displays a configuration variable's value, but reads it on demand", async () => {

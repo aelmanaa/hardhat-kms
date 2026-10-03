@@ -42,7 +42,8 @@ describe("config in a Hardhat runtime environment", () => {
     const deployer = hre.config.kms.keys.deployer as AwsKmsKeyConfig;
 
     assert.equal(deployer.displayId, "aws:<HHKMS_TEST_KEY_ID>");
-    assert.equal(deployer.region, "eu-west-1");
+    assert.equal(deployer.region?.display, "eu-west-1");
+    assert.equal(await deployer.region.get(), "eu-west-1");
     assert.equal(hre.config.networks.sepolia?.kmsAccounts[0], deployer);
     assert.equal(
       hre.config.networks.fork?.kmsAccounts[0]?.displayId,

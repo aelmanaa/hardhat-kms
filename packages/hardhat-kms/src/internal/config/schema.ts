@@ -5,7 +5,7 @@ import { ERRORS } from "../error-catalog.ts";
 import { catalogMessage } from "../errors.ts";
 import { BUILTIN_PROVIDERS } from "../providers/registry.ts";
 import { auditSchema } from "./audit.ts";
-import { commonKeyFields, nonEmptyString, timeoutSchema } from "./common.ts";
+import { commonKeyFields, nonEmptyString, settingSchema, timeoutSchema } from "./common.ts";
 
 /** Key names are kept simple because tasks will take them as command-line arguments. */
 const KEY_NAME_PATTERN: RegExp = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
@@ -103,7 +103,7 @@ const kmsSchema = z
       .optional(),
     defaults: z
       .object({
-        aws: z.object({ region: nonEmptyString.optional() }).strict().optional(),
+        aws: z.object({ region: settingSchema.optional() }).strict().optional(),
         timeoutMs: timeoutSchema.optional(),
       })
       .strict()

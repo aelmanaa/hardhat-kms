@@ -83,7 +83,9 @@ recovered to the pin. `none`: no pin. `unchecked`: the provider cannot report th
 
 > `optional` **profile?**: `string` \| `null`
 
-AWS keys only: the configured profile, or `null` for the SDK's default.
+AWS keys only: the configured profile, or `null` for the SDK's default. A profile from a
+configuration variable shows as `<VARIABLE_NAME>` unless `--show-ids` is given. With
+`--show-ids`, an empty value shows as `null`.
 
 ##### provider
 
@@ -93,7 +95,10 @@ AWS keys only: the configured profile, or `null` for the SDK's default.
 
 > `optional` **region?**: `string` \| `null`
 
-AWS keys only: the configured region, or `null` for the SDK's default.
+AWS keys only: the configured region, or `null` for the SDK's default. A region from a
+configuration variable shows as `<VARIABLE_NAME>` unless `--show-ids` is given, and one that
+falls back to `kms.defaults.aws.region` shows both forms, such as
+`<AWS_KMS_REGION> or us-east-1`. An empty value is `null` with `--show-ids`.
 
 ##### signCheck?
 
@@ -204,7 +209,9 @@ The key's name in `kms.keys`, or `<network>.kmsAccounts[<index>]` for an inline 
 
 ##### profile?
 
-> `optional` **profile?**: `string`
+> `optional` **profile?**: [`KmsIdentifier`](#kmsidentifier)
+
+The profile. Its value is read on demand; an empty value means no profile.
 
 ##### provider
 
@@ -212,9 +219,11 @@ The key's name in `kms.keys`, or `<network>.kmsAccounts[<index>]` for an inline 
 
 ##### region?
 
-> `optional` **region?**: `string`
+> `optional` **region?**: [`KmsIdentifier`](#kmsidentifier)
 
 The first region set among a literal key ARN, the key's `region` and `kms.defaults.aws.region`.
+Its value is read on demand; an empty value means no region, so the AWS SDK decides. A `region`
+from a configuration variable whose value is empty falls back to `kms.defaults.aws.region`.
 When `keyId` comes from a configuration variable and holds an ARN, the ARN's region is used
 instead, and a conflicting `region` is an error when the key is first used.
 
@@ -263,9 +272,12 @@ A key id, key ARN, alias name (`alias/...`) or alias ARN.
 
 ##### profile?
 
-> `optional` **profile?**: `string`
+> `optional` **profile?**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
 
-Named profile from the AWS shared config files.
+Named profile from the AWS shared config files, literal or a configuration variable. A
+variable is read when the key is first used; an empty value means no profile, so the AWS SDK's
+default credential chain decides. `configVariable("AWS_KMS_PROFILE", { default: "" })` makes
+the profile optional.
 
 ##### provider
 
@@ -273,9 +285,11 @@ Named profile from the AWS shared config files.
 
 ##### region?
 
-> `optional` **region?**: `string`
+> `optional` **region?**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
 
-AWS region. A region inside an ARN takes precedence and must not conflict with this one.
+AWS region, literal or a configuration variable. A region inside an ARN takes precedence and
+must not conflict with this one. A variable is read when the key is first used; an empty value
+means no region, so `kms.defaults.aws.region` or the AWS SDK decides.
 
 ##### timeoutMs?
 
@@ -1000,15 +1014,17 @@ The resolved `kms` section.
 
 ##### defaults
 
-> **defaults**: \{ `aws`: \{ `region?`: `string`; \}; `timeoutMs`: `number`; \}
+> **defaults**: \{ `aws`: \{ `region?`: [`KmsIdentifier`](#kmsidentifier); \}; `timeoutMs`: `number`; \}
 
 ###### aws
 
-> **aws**: \{ `region?`: `string`; \}
+> **aws**: \{ `region?`: [`KmsIdentifier`](#kmsidentifier); \}
+
+`region` is read on demand; an empty value means no region.
 
 ###### aws.region?
 
-> `optional` **region?**: `string`
+> `optional` **region?**: [`KmsIdentifier`](#kmsidentifier)
 
 ###### timeoutMs
 
@@ -2362,17 +2378,18 @@ Where `kms history` reads the providers' audit logs.
 
 ##### defaults?
 
-> `optional` **defaults?**: \{ `aws?`: \{ `region?`: `string`; \}; `timeoutMs?`: `number`; \}
+> `optional` **defaults?**: \{ `aws?`: \{ `region?`: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig); \}; `timeoutMs?`: `number`; \}
 
 ###### aws?
 
-> `optional` **aws?**: \{ `region?`: `string`; \}
+> `optional` **aws?**: \{ `region?`: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig); \}
 
-Defaults for AWS keys.
+Defaults for AWS keys. The `region` here, a literal or a configuration variable, applies to
+every key without a region of its own, including the keys that `--kms aws` adds.
 
 ###### aws.region?
 
-> `optional` **region?**: `string`
+> `optional` **region?**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
 
 ###### timeoutMs?
 

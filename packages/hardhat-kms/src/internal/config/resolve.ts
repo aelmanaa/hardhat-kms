@@ -12,7 +12,7 @@ import { internalError } from "../errors.ts";
 import { builtinProvider } from "../providers/registry.ts";
 import { resolveAuditConfig } from "./audit.ts";
 import { DEFAULT_TIMEOUT_MS } from "./common.ts";
-import { isConfigurationVariable } from "./identifiers.ts";
+import { isConfigurationVariable, resolveIdentifier } from "./identifiers.ts";
 import { type KeyResolveContext, resolveCommonKeyConfig } from "./key-common.ts";
 
 /** Replaces configuration variables with resolved ones, recursively, and freezes the result. */
@@ -90,7 +90,12 @@ export function resolveKmsConfig(
   resolveVariable: ConfigurationVariableResolver,
 ): KmsConfig {
   const user = userConfig.kms ?? {};
-  const region = user.defaults?.aws?.region;
+  const regionSetting = user.defaults?.aws?.region;
+  // Read when a key that falls back to it is first used, never here.
+  const region =
+    regionSetting === undefined
+      ? undefined
+      : resolveIdentifier(regionSetting, resolveVariable, "kms.defaults.aws.region");
   const defaults: KmsConfig["defaults"] = {
     aws: region === undefined ? {} : { region },
     timeoutMs: user.defaults?.timeoutMs ?? DEFAULT_TIMEOUT_MS,

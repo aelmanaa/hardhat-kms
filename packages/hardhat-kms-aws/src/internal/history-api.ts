@@ -5,8 +5,9 @@ import type {
 } from "@aws-sdk/client-cloudtrail";
 import type { GetPublicKeyCommand, KMSClient, KMSClientConfig } from "@aws-sdk/client-kms";
 import type { GetCallerIdentityCommand, STSClient, STSClientConfig } from "@aws-sdk/client-sts";
-import { parseAwsKeyId } from "hardhat-kms/provider-utils";
 import type { AwsKmsKeyConfig } from "hardhat-kms/types";
+
+import { awsClientSettings } from "./client-settings.ts";
 
 /** The parts of @aws-sdk/client-cloudtrail the history reader uses. */
 interface CloudTrailSdk {
@@ -73,9 +74,10 @@ function sendOptions(signal: AbortSignal | undefined): { abortSignal?: AbortSign
 
 /**
  * Builds the AWS calls for one key's history. CloudTrail, STS and KMS clients use the key's
- * Region (a key ARN's own Region first) and profile, and tag their requests with the plugin's
- * user agent. Only the KMS client uses the key's `endpoint`, which points at a KMS service; the
- * SDK's own `AWS_ENDPOINT_URL_CLOUDTRAIL` and `AWS_ENDPOINT_URL_STS` settings still apply.
+ * Region (a key ARN's own Region first) and profile, and tag their requests with the plugin's user
+ * agent. A Region or profile from a configuration variable is read before any client is built.
+ * Only the KMS client uses the key's `endpoint`, which points at a KMS service; the SDK's own
+ * `AWS_ENDPOINT_URL_CLOUDTRAIL` and `AWS_ENDPOINT_URL_STS` settings still apply.
  *
  * @param key - The resolved key.
  * @param keyId - The key's identifier, read from the config.
@@ -89,12 +91,7 @@ export async function createAwsHistoryApi(
   sdks: AwsHistorySdks,
   userAgent: string,
 ): Promise<AwsHistoryApi> {
-  const region = parseAwsKeyId(keyId)?.region ?? key.region;
-  const shared = {
-    customUserAgent: userAgent,
-    ...(region === undefined ? {} : { region }),
-    ...(key.profile === undefined ? {} : { profile: key.profile }),
-  };
+  const shared = { customUserAgent: userAgent, ...(await awsClientSettings(key, keyId)) };
   const cloudTrailSdk = await sdks.cloudTrail();
   const cloudTrail = new cloudTrailSdk.CloudTrailClient(shared);
   const others: Array<{ destroy(): void }> = [];

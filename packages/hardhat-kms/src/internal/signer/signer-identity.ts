@@ -10,17 +10,26 @@ function commonSettings(key: KmsKeyCommonConfig): unknown[] {
 }
 
 /**
+ * An optional setting's comparison form: `null` when it is not set, `undefined` when config
+ * resolution did not build it.
+ */
+function settingForm(setting: KmsIdentifier | undefined): string | null | undefined {
+  return setting === undefined ? null : identifierComparisonForm(setting);
+}
+
+/**
  * What decides the signer a key of a first-party provider gets: the provider, the identifier as
  * written in the config, every setting the adapter connects with, and the settings the signer
  * takes. Two key objects with the same identity share one signer, such as the copies Hardhat makes
  * of a key for each connection with config overrides.
  *
- * The identifier counts by its comparison form (`identifierComparisonForm`): a literal's value, or
- * a configuration variable's name, `format` and `default`. It is built without reading any
- * configuration variable, so computing the identity cannot fail or prompt for a keystore password,
- * and the adapter stays the first to read the value, after the provider plugin's checks. Within a
- * runtime, the signer reads a variable once, when it is created, as it does for the connections
- * without overrides. Two variables that hold the same value get two signers.
+ * The identifier, and an AWS key's region and profile, count by their comparison forms
+ * (`identifierComparisonForm`): a literal's value, or a configuration variable's name, `format`
+ * and `default`. The identity is built without reading any configuration variable, so computing
+ * it cannot fail or prompt for a keystore password, and the adapter stays the first to read the
+ * value, after the provider plugin's checks. Within a runtime, the signer reads a variable once,
+ * when it is created, as it does for the connections without overrides. Two variables that hold
+ * the same value get two signers.
  *
  * Unlike `keyIdentity`, an AWS key always includes its region, profile and endpoint, even for an
  * ARN: the profile selects the credentials, and the endpoint where requests go. The key's name is
@@ -31,8 +40,8 @@ function commonSettings(key: KmsKeyCommonConfig): unknown[] {
  * Never print or log the identity: a variable's `default` can be a secret.
  *
  * @param key - The resolved key.
- * @returns The identity, or `undefined` for a key of a third-party provider or an identifier that
- * config resolution did not build.
+ * @returns The identity, or `undefined` for a key of a third-party provider or an identifier,
+ * region or profile that config resolution did not build.
  */
 export function signerIdentity(key: KmsKeyConfig): string | undefined {
   let parts: unknown[];
@@ -55,8 +64,13 @@ export function signerIdentity(key: KmsKeyConfig): string | undefined {
     // Stryker disable next-line ConditionalExpression: a third-party key gets undefined either way
     key.provider === "aws"
   ) {
+    const region = settingForm(key.region);
+    const profile = settingForm(key.profile);
+    if (region === undefined || profile === undefined) {
+      return undefined;
+    }
     // Stryker disable next-line StringLiteral: one tag alone is redundant
-    parts = ["aws", key.region ?? null, key.profile ?? null, key.endpoint ?? null];
+    parts = ["aws", region, profile, key.endpoint ?? null];
     identifier = key.keyId;
   } else /* Stryker disable next-line BlockStatement: undefined either way, see above */ {
     return undefined;

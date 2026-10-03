@@ -20,7 +20,14 @@ function aws(
   keyId: string,
   where: { region?: string; profile?: string; endpoint?: string } = {},
 ): AwsKmsKeyConfig {
-  return { ...common, provider: "aws", keyId: identifier(keyId), ...where };
+  return {
+    ...common,
+    provider: "aws",
+    keyId: identifier(keyId),
+    ...(where.region === undefined ? {} : { region: identifier(where.region) }),
+    ...(where.profile === undefined ? {} : { profile: identifier(where.profile) }),
+    ...(where.endpoint === undefined ? {} : { endpoint: where.endpoint }),
+  };
 }
 
 function gcp(keyVersionName: string): GcpKmsKeyConfig {

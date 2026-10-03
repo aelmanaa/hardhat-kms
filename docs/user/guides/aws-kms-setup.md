@@ -66,7 +66,7 @@ aws iam attach-user-policy --user-name <user name> --policy-arn <Policy.Arn from
 
 The policy's two KMS permissions, `kms:GetPublicKey` and `kms:Sign`, have not yet been checked alone against real AWS KMS: the plugin's live tests ran with an administrator identity.
 
-Credentials come from the AWS SDK's default chain: access keys in the environment, then a `~/.aws` profile or SSO session, then a web identity token, then the role of the container or machine. A key's `profile` option picks a named profile. A profile, from `profile` or `AWS_PROFILE`, makes the SDK ignore access keys in the environment. A CI job that exports keys therefore needs a config without `profile`; on a laptop, set `AWS_PROFILE` instead. An alias names a key in the credentials' own account and region, so pin the key's `address`. [Credentials](../reference/configuration.md#aws) gives the full order and both rules.
+Credentials come from the AWS SDK's default chain: access keys in the environment, then a `~/.aws` profile or SSO session, then a web identity token, then the role of the container or machine. A key's `profile` option picks a named profile. A profile, from `profile` or `AWS_PROFILE`, makes the SDK ignore access keys in the environment. A CI job that exports keys therefore needs a config without a literal `profile`; on a laptop, set `AWS_PROFILE` instead, or see [One config for a laptop and CI](#one-config-for-a-laptop-and-ci). An alias names a key in the credentials' own account and region, so pin the key's `address`. [Credentials](../reference/configuration.md#aws) gives the full order and both rules.
 
 ## 3. Install the plugin and configure the key
 
@@ -128,6 +128,40 @@ console.log(address, signature);
 ```
 
 Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. Each run calls `GetPublicKey` once, before the first signature, then `Sign` once. An `address` pin does not save that call: the plugin checks the public key against the pin before it releases a signature, and it signs with the key ARN that `GetPublicKey` returns. A pin saves the call only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the public key ([`address`](../reference/configuration.md#configuration)).
+
+## One config for a laptop and CI
+
+On a laptop, a key often signs through an SSO profile. In CI, the job exports access keys to the environment, and a profile in the config would make the AWS SDK skip them ([A profile skips the environment keys](../reference/configuration.md#aws)). Take `profile` from a configuration variable with an empty default, so each environment sets only what it needs. Take `region` the same way when the key lives in a region other than the profile's:
+
+```ts
+import { configVariable, defineConfig } from "hardhat/config";
+import hardhatKmsAws from "@hardhat-kms/aws";
+
+export default defineConfig({
+  plugins: [hardhatKmsAws],
+  kms: {
+    keys: {
+      deployer: {
+        provider: "aws",
+        keyId: configVariable("AWS_KMS_KEY_ID"),
+        profile: configVariable("AWS_KMS_PROFILE", { default: "" }),
+        region: configVariable("AWS_KMS_REGION", { default: "" }),
+      },
+    },
+  },
+});
+```
+
+On the laptop, sign in to the profile, then name it:
+
+```sh
+aws sso login --profile dev-sso
+export AWS_KMS_PROFILE=dev-sso
+```
+
+If access keys are also set in the laptop's environment, the AWS SDK uses the profile and prints a `Multiple credential sources detected` warning once. The warning names `AWS_PROFILE` even when the profile comes from the config, and it holds no values. Unset the access keys on the laptop to avoid it.
+
+In CI, leave `AWS_KMS_PROFILE` unset. Its value is then empty, the key has no profile, and the SDK uses the job's environment keys. An empty `AWS_KMS_REGION` works the same way: the region then comes from `kms.defaults.aws.region`, then from the SDK's chain (`AWS_REGION`, then the profile's region). The empty default has a cost: a misspelled variable name also reads as empty, and the key then uses whatever credentials the environment holds. Pin the key's `address` so a different key behind the same alias fails ([`address`](../reference/configuration.md#configuration)). A variable without `default` fails at first use when it is unset. The [configuration reference](../reference/configuration.md#key-forms-per-provider) lists the rules for these variables.
 
 ## How the plugin uses the key
 

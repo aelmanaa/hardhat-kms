@@ -32,6 +32,12 @@ const keysValue: unknown = {
     token: configVariable("HHKMS_DEBUG_VAULT_TOKEN"),
     literal: "hhkms-secret-literal-field",
   },
+  // Its profile variable is unset, so reading it fails with Hardhat's error.
+  unsetProfile: {
+    provider: "aws",
+    keyId: "alias/deployer",
+    profile: configVariable("HHKMS_DEBUG_UNSET_PROFILE"),
+  },
   // No plugin claims this key, so it stops at the end of the hook chain without a network call.
   builtin: {
     provider: "gcp",
@@ -110,6 +116,13 @@ for (const name of ["aws", "gcp", "azure", "vault", "builtin"]) {
 }
 
 clearInterval(keepAlive);
+
+// A variable that cannot be read: the debug line names the config path.
+const unsetProfile = hre.config.kms.keys.unsetProfile;
+if (unsetProfile?.provider !== "aws") {
+  throw new Error("missing key unsetProfile");
+}
+await unsetProfile.profile?.get().catch(() => undefined);
 
 // --kms, with the planted AWS key id in Foundry's variable.
 process.env.AWS_KMS_KEY_ID = process.env.HHKMS_DEBUG_AWS_KEY_ID;

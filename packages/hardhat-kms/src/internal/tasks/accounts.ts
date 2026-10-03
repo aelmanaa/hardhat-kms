@@ -6,7 +6,7 @@ import type { NewTaskActionFunction } from "hardhat/types/tasks";
 import type { Result } from "hardhat/types/utils";
 import { errorResult, successfulResult } from "hardhat/utils/result";
 
-import type { KmsKeyConfig } from "../../types.ts";
+import type { KmsIdentifier, KmsKeyConfig } from "../../types.ts";
 import { keyIdentity } from "../config/key-identity.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, catalogMessage, errorName } from "../errors.ts";
@@ -48,9 +48,18 @@ export interface AccountEntry extends AccountName {
    * `--show-ids` is given. A merged row shows the id of its first entry.
    */
   keyId: string;
-  /** AWS keys only: the configured region, or `null` for the SDK's default. */
+  /**
+   * AWS keys only: the configured region, or `null` for the SDK's default. A region from a
+   * configuration variable shows as `<VARIABLE_NAME>` unless `--show-ids` is given, and one that
+   * falls back to `kms.defaults.aws.region` shows both forms, such as
+   * `<AWS_KMS_REGION> or us-east-1`. An empty value is `null` with `--show-ids`.
+   */
   region?: string | null;
-  /** AWS keys only: the configured profile, or `null` for the SDK's default. */
+  /**
+   * AWS keys only: the configured profile, or `null` for the SDK's default. A profile from a
+   * configuration variable shows as `<VARIABLE_NAME>` unless `--show-ids` is given. With
+   * `--show-ids`, an empty value shows as `null`.
+   */
   profile?: string | null;
   /** AWS keys only, and only with `--show-ids`: the configured endpoint, or `null`. */
   endpoint?: string | null;
@@ -176,7 +185,7 @@ async function listAccounts(
           otherNames: others.map((other) => ({ name: other.name, source: other.source })),
           provider: task.key.provider,
           keyId: showIds ? await revealedId(task.key) : task.key.displayId,
-          ...awsLocation(task.key, showIds),
+          ...(await awsLocation(task.key, showIds)),
           address: null,
           pin: task.key.address ?? null,
           pinStatus: null,
@@ -324,38 +333,67 @@ async function distinctKeys(keys: TaskKey[]): Promise<ListedKey[]> {
 }
 
 /**
+ * A region or profile as `kms accounts` shows it: its display form, or with `--show-ids` its
+ * value, `null` for an empty one. A value that cannot be read shows its display form; the key's
+ * own error says why.
+ */
+async function shownSetting(
+  setting: KmsIdentifier | undefined,
+  showIds: boolean,
+): Promise<string | null> {
+  if (setting === undefined) {
+    return null;
+  }
+  if (!showIds) {
+    return setting.display;
+  }
+  try {
+    const value = await setting.get();
+    return value === "" ? null : value;
+  } catch {
+    return setting.display;
+  }
+}
+
+/**
  * Where an AWS key is looked up: its region and profile, and with `--show-ids` its endpoint, which
  * can be an internal URL. Empty for other providers.
  */
-function awsLocation(
+async function awsLocation(
   key: KmsKeyConfig,
   showIds: boolean,
-): Pick<AccountEntry, "region" | "profile" | "endpoint"> {
+): Promise<Pick<AccountEntry, "region" | "profile" | "endpoint">> {
   if (key.provider !== "aws") {
     return {};
   }
   return {
-    region: key.region ?? null,
-    profile: key.profile ?? null,
+    region: await shownSetting(key.region, showIds),
+    profile: await shownSetting(key.profile, showIds),
     ...(showIds ? { endpoint: key.endpoint ?? null } : {}),
   };
 }
 
 /**
  * The KEY ID column. Rows whose ids read the same but whose AWS keys are looked up in different
- * places get the differing settings after the id. Without `--show-ids`, an endpoint shows only as
- * custom or default.
+ * places get the differing settings after the id, as the row shows them. Without `--show-ids`, an
+ * endpoint shows only as custom or default.
  */
 function keyIdCells(
   rows: Array<{ entry: AccountEntry; key: KmsKeyConfig }>,
   showIds: boolean,
 ): string[] {
-  const location = (key: KmsKeyConfig): Map<string, string> =>
+  const location = ({
+    entry,
+    key,
+  }: {
+    entry: AccountEntry;
+    key: KmsKeyConfig;
+  }): Map<string, string> =>
     new Map(
       key.provider === "aws"
         ? [
-            ["region", `region ${key.region ?? "default"}`],
-            ["profile", `profile ${key.profile ?? "default"}`],
+            ["region", `region ${entry.region ?? "default"}`],
+            ["profile", `profile ${entry.profile ?? "default"}`],
             [
               "endpoint",
               showIds
@@ -367,11 +405,12 @@ function keyIdCells(
           ]
         : [],
     );
-  return rows.map(({ entry, key }) => {
-    const mine = location(key);
+  return rows.map((row) => {
+    const { entry } = row;
+    const mine = location(row);
     const twins = rows
       .filter((other) => other.entry !== entry && other.entry.keyId === entry.keyId)
-      .map((other) => location(other.key));
+      .map(location);
     const differing = [...mine].filter(([field, text]) =>
       twins.some((twin) => twin.has(field) && twin.get(field) !== text),
     );

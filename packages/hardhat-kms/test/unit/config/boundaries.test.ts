@@ -207,7 +207,7 @@ describe("AWS key ids", () => {
     assert.equal(parseAwsKeyId(`alias/${"a".repeat(251)}`), undefined);
   });
 
-  it("uses the ARN's region over the key's and the default region", () => {
+  it("uses the ARN's region over the key's and the default region", async () => {
     const config = {
       kms: {
         defaults: { aws: { region: "us-east-1" } },
@@ -218,7 +218,8 @@ describe("AWS key ids", () => {
     const key = resolvedKey(config, "arn");
 
     assert.ok(key.provider === "aws");
-    assert.equal(key.region, "eu-west-1");
+    assert.equal(key.region?.display, "eu-west-1");
+    assert.equal(await key.region.get(), "eu-west-1");
   });
 
   it("keeps the configured region for a key id from a variable, and checks a variable ARN against it", async () => {
@@ -233,7 +234,7 @@ describe("AWS key ids", () => {
     });
 
     assert.ok(inRegion.provider === "aws" && elsewhere.provider === "aws");
-    assert.equal(inRegion.region, "eu-west-1");
+    assert.equal(await inRegion.region?.get(), "eu-west-1");
     assert.match(await inRegion.keyId.get(), /eu-west-1/);
     await assert.rejects(elsewhere.keyId.get(), /conflicts with `region` \(eu-west-1\)/);
   });

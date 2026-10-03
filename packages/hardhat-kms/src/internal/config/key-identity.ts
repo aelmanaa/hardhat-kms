@@ -21,9 +21,14 @@ export async function keyIdentity(key: KmsKeyConfig): Promise<string | undefined
     const id = await key.keyId.get();
     // An ARN names its account and region. A key id or alias names a key only together with the
     // region, profile and endpoint it is looked up in.
-    return parseAwsKeyId(id)?.kind === "keyArn" || parseAwsKeyId(id)?.kind === "aliasArn"
-      ? `aws\0${id}`
-      : `aws\0${id}\0${key.region ?? ""}\0${key.profile ?? ""}\0${key.endpoint ?? ""}`;
+    // The region and profile count by value, so a variable and a literal that hold the same
+    // profile name one key.
+    if (parseAwsKeyId(id)?.kind === "keyArn" || parseAwsKeyId(id)?.kind === "aliasArn") {
+      return `aws\0${id}`;
+    }
+    const region = (await key.region?.get()) ?? "";
+    const profile = (await key.profile?.get()) ?? "";
+    return `aws\0${id}\0${region}\0${profile}\0${key.endpoint ?? ""}`;
   }
   return undefined;
 }

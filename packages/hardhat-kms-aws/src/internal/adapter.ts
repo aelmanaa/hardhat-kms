@@ -18,6 +18,7 @@ import type {
   SignContext,
 } from "hardhat-kms/types";
 
+import { awsClientSettings } from "./client-settings.ts";
 import { ERRORS } from "./error-catalog.ts";
 
 const KEY_SPEC = "ECC_SECG_P256K1";
@@ -172,15 +173,12 @@ export async function createAwsKeyAdapter(
   userAgent: string,
 ): Promise<KmsKeyAdapter> {
   const keyId = await key.keyId.get();
-  // A key ARN names its region; it wins over the configured one, which the config checks already
-  // compared with it.
-  const region = parseAwsKeyId(keyId)?.region ?? key.region;
+  const settings = await awsClientSettings(key, keyId);
   const client = new sdk.KMSClient({
     // Appended to the SDK's own user agent, so CloudTrail's `userAgent` shows which calls came
     // through the plugin. `userAgentAppId` stays free for the user's AWS_SDK_UA_APP_ID.
     customUserAgent: userAgent,
-    ...(region === undefined ? {} : { region }),
-    ...(key.profile === undefined ? {} : { profile: key.profile }),
+    ...settings,
     ...(key.endpoint === undefined ? {} : { endpoint: key.endpoint }),
   });
   return new AwsKeyAdapter(key, keyId, sdk, client);

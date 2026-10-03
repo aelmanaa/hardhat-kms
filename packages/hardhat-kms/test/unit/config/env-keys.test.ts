@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { configVariable } from "hardhat/config";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import { keysFromKmsOption, parseKmsOption } from "../../../src/internal/config/env-keys.ts";
-import type { KmsKeyConfig } from "../../../src/types.ts";
+import { resolveIdentifier } from "../../../src/internal/config/identifiers.ts";
+import type { KmsConfig, KmsKeyConfig } from "../../../src/types.ts";
+import { fakeResolver } from "../../helpers/config-variables.ts";
 
-const DEFAULTS = { aws: { region: "eu-west-1" }, timeoutMs: 1234 };
+const DEFAULTS: KmsConfig["defaults"] = {
+  aws: { region: resolveIdentifier("eu-west-1", fakeResolver({}), "kms.defaults.aws.region") },
+  timeoutMs: 1234,
+};
 const GCP_ENV = {
   GCP_PROJECT_ID: "my-project",
   GCP_LOCATION: "europe-west1",
@@ -97,8 +103,40 @@ describe("keysFromKmsOption", () => {
     const [key] = await keysFromKmsOption("aws", { AWS_KMS_KEY_ID: "alias/a" }, DEFAULTS);
 
     assert.ok(key?.provider === "aws");
-    assert.equal(key.region, "eu-west-1");
+    assert.equal(await key.region?.get(), "eu-west-1");
     assert.equal(key.timeoutMs, 1234);
+  });
+
+  it("inherits a kms.defaults.aws.region from a variable, read only when the key uses it", async () => {
+    let reads = 0;
+    const resolver = fakeResolver({ AWS_KMS_REGION: "ap-south-1" });
+    const defaults: KmsConfig["defaults"] = {
+      aws: {
+        region: resolveIdentifier(
+          configVariable("AWS_KMS_REGION"),
+          (variable) => {
+            const resolved = resolver(variable);
+            return {
+              ...resolved,
+              get: async () => {
+                reads++;
+                return await resolved.get();
+              },
+            };
+          },
+          "kms.defaults.aws.region",
+        ),
+      },
+      timeoutMs: 1234,
+    };
+    const [key] = await keysFromKmsOption("aws", { AWS_KMS_KEY_ID: "alias/a" }, defaults);
+
+    assert.ok(key?.provider === "aws");
+    assert.equal(key.region?.display, "<AWS_KMS_REGION>");
+    assert.equal(reads, 0);
+    assert.equal(await key.region.get(), "ap-south-1");
+    assert.equal(reads, 1);
+    assert.ok(!JSON.stringify(key).includes("ap-south-1"));
   });
 
   it("says which variable to set", async () => {
