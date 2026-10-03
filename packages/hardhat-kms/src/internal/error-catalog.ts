@@ -533,7 +533,7 @@ export const ERRORS = {
     template:
       "{package} {version} needs hardhat-kms {version}, but hardhat-kms {core} is installed. Install the same version of both, for example `npm install --save-dev hardhat-kms@{target} {package}@{target}`",
     cause:
-      "A first-party provider package and hardhat-kms have different versions. They are released together, and npm refuses such an install, but pnpm and Yarn only warn.",
+      "A first-party provider package and hardhat-kms have different versions. They are released together, and the provider package asks for its own version of hardhat-kms as a peer dependency. npm 11.15.0 stops such an install with `ERESOLVE` unless it runs with `--legacy-peer-deps`; pnpm 12.8.1, Yarn 1.22.22 and Yarn 4.18.1 warn and install both. The check runs the first time a key of that provider is used.",
     fix: "Run the install command the message prints.",
   },
   versionMismatchNoTarget: {
@@ -1799,7 +1799,7 @@ export const ERRORS = {
     template:
       "connection.kms.getAccount needs viem {floor} or later, and the project has viem {installed}. Upgrade viem to {floor} or later",
     cause:
-      "The account's nonce manager relies on viem calling its `reset` after every failed send, and only after a `consume`. With viem 2.49.3 and earlier, a failed library send never resets, so the account's next send through the plugin waits up to 60 s. With viem 2.50.3 to 2.55.11, a `reset` can follow a send that never asked for a nonce and end another send's hold, so a send through the plugin can take a nonce that send still needs. npm, by default, upgrades viem into the peer range or stops the install (`--legacy-peer-deps` installs it anyway); pnpm and Yarn only warn and keep the older release.",
+      "The account's nonce manager relies on viem calling its `reset` after every failed send, and only after a `consume`. With viem 2.49.3 and earlier, a failed library send never resets, so the account's next send through the plugin waits up to 60 s. With viem 2.50.3 to 2.55.11, a `reset` can follow a send that never asked for a nonce and end another send's hold, so a send through the plugin can take a nonce that send still needs. npm 11.15.0 stops an install that asks for a viem below the range with `ERESOLVE`, unless it runs with `--legacy-peer-deps`; pnpm 12.8.1 and Yarn 4.18.1 warn and install the older release, and Yarn 1.22.22 installs it without a warning.",
     fix: "Upgrade viem in the project to 2.55.13 or later, the floor of its peer range, with your package manager (for example `npm install --save-dev viem@^2.55.13`, `pnpm add -D viem@^2.55.13` or `yarn add -D viem@^2.55.13`).",
   },
   accountConnectionClosed: {

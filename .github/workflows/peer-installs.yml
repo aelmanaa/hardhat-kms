@@ -1,0 +1,78 @@
+name: Peer installs
+
+# Packs hardhat-kms and @hardhat-kms/aws, installs them with npm, pnpm, Yarn classic and Yarn Berry
+# with viem below the peer floor and with a provider package at another version than the core, and
+# checks what each package manager and the plugin's run-time checks do (scripts/test-peer-installs.ts).
+# The docs state that behaviour, so a package manager that changes it fails here.
+# It runs when the code of the two checks, a published manifest, the pnpm settings or the script
+# change, which includes the version bumps of a release, and monthly, for new npm and pnpm
+# releases. Linux only, on Node 24, the last line that ships corepack, which runs Yarn.
+# It is not a required check: path-filtered checks would block merges that do not trigger them.
+on:
+  pull_request:
+    paths:
+      - "packages/hardhat-kms/package.json"
+      - "packages/hardhat-kms-aws/package.json"
+      - "packages/hardhat-kms-gcp/package.json"
+      - "packages/hardhat-kms/src/internal/providers/version.ts"
+      - "packages/hardhat-kms/src/internal/viem/account.ts"
+      - "packages/hardhat-kms/src/internal/error-catalog.ts"
+      - "packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts"
+      - "pnpm-workspace.yaml"
+      - "scripts/test-peer-installs.ts"
+      - "scripts/temporary-install.ts"
+      - ".github/workflows/peer-installs.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/hardhat-kms/package.json"
+      - "packages/hardhat-kms-aws/package.json"
+      - "packages/hardhat-kms-gcp/package.json"
+      - "packages/hardhat-kms/src/internal/providers/version.ts"
+      - "packages/hardhat-kms/src/internal/viem/account.ts"
+      - "packages/hardhat-kms/src/internal/error-catalog.ts"
+      - "packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts"
+      - "pnpm-workspace.yaml"
+      - "scripts/test-peer-installs.ts"
+      - "scripts/temporary-install.ts"
+      - ".github/workflows/peer-installs.yml"
+  schedule:
+    # The first day of each month at 06:30 UTC.
+    - cron: "30 6 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: peer-installs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  installs:
+    name: Peer installs (npm, pnpm, Yarn)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      # The scratch projects' downloads: npm's cache, both Yarn caches and the Yarn releases that
+      # corepack fetches. pnpm's store is cached by setup-node.
+      - name: Cache package manager downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/yarn
+            ~/.yarn/berry/cache
+            ~/.cache/node/corepack
+          key: peer-installs-${{ runner.os }}-${{ hashFiles('scripts/test-peer-installs.ts', 'pnpm-lock.yaml') }}
+          restore-keys: peer-installs-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run test:peer-installs --summary "$GITHUB_STEP_SUMMARY"

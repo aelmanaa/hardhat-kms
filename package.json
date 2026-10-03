@@ -26,6 +26,7 @@
     "test:mutation": "pnpm --fail-if-no-match --filter hardhat-kms run test:mutation",
     "test:sdk-floors": "node scripts/test-sdk-floors.ts",
     "test:hardhat-versions": "node scripts/test-hardhat-versions.ts",
+    "test:peer-installs": "node scripts/test-peer-installs.ts",
     "coverage": "pnpm run build && pnpm -r run coverage",
     "pkg:check": "pnpm run build && node scripts/check-packages.ts && knip",
     "docs:check": "pnpm run build && node scripts/check-docs.ts",
