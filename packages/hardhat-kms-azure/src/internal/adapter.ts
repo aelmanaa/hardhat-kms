@@ -99,17 +99,27 @@ function shown(value: unknown): string {
 
 const sameId = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
-const KEYS_PATH = "/keys/";
-
-/** Whether a part of a key id's display form was printed as written, not as `<VARIABLE_NAME>`. */
-const shownAsWritten = (part: string | undefined): boolean =>
-  part !== undefined && !part.startsWith("<");
+/** Whether `text` holds `segment` as a whole path segment: followed by `/` or by its end. */
+function hasSegment(text: string, segment: string): boolean {
+  for (let at = text.indexOf(segment); at !== -1; at = text.indexOf(segment, at + 1)) {
+    const next = text.charAt(at + segment.length);
+    if (next === "" || next === "/") {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * The `az keyvault key set-attributes` arguments that name one key version, for the hints of the
  * key checks. Without `--version` the command changes the latest version, which may not be the
- * one the config signs with. A part read from a configuration variable is shown as a placeholder:
- * its display form is `<VARIABLE_NAME>`, and a key id read whole from one has no `/keys/` in it.
+ * one the config signs with.
+ *
+ * A configured value is printed only when the key id's display form, which every message of the
+ * key already shows, holds it as written; anything else, such as a part read from a configuration
+ * variable, is a placeholder. The display form is not parsed, so no variable name can make a
+ * hidden value count as written. The version of an unversioned key id comes from Key Vault, not
+ * from the config, and is always printed: it is the version the adapter pinned.
  */
 function setAttributesTarget(
   id: ParsedAzureKeyId,
@@ -117,27 +127,17 @@ function setAttributesTarget(
   version: string,
 ): { vaultOption: string; vaultName: string; keyName: string; keyVersion: string } {
   const host = new URL(id.vaultUrl).hostname;
-  const hsm = host.toLowerCase().includes(".managedhsm.");
-  const at = display.indexOf(KEYS_PATH);
-  if (at === -1) {
-    return {
-      vaultOption: hsm ? "--hsm-name" : "--vault-name",
-      vaultName: hsm ? "<hsm-name>" : "<vault-name>",
-      keyName: "<key-name>",
-      keyVersion: "<version>",
-    };
-  }
-  const [nameShown, versionShown] = display.slice(at + KEYS_PATH.length).split("/");
+  const hsm = host.includes(".managedhsm.");
+  const shownVault = display.toLowerCase().startsWith(`${id.vaultUrl}/keys/`);
+  const shownName = hasSegment(display, `/keys/${id.keyName}`);
+  // The version is the last segment of a versioned key id.
+  const shownVersion =
+    id.keyVersion === undefined || display.replace(/\/$/, "").endsWith(`/${id.keyVersion}`);
   return {
     vaultOption: hsm ? "--hsm-name" : "--vault-name",
-    vaultName: shownAsWritten(display.slice(0, at))
-      ? host.slice(0, host.indexOf("."))
-      : hsm
-        ? "<hsm-name>"
-        : "<vault-name>",
-    keyName: shownAsWritten(nameShown) ? id.keyName : "<key-name>",
-    // An unversioned key id shows the version Key Vault returned, which the adapter pins.
-    keyVersion: versionShown === undefined || shownAsWritten(versionShown) ? version : "<version>",
+    vaultName: shownVault ? host.slice(0, host.indexOf(".")) : hsm ? "<hsm-name>" : "<vault-name>",
+    keyName: shownName ? id.keyName : "<key-name>",
+    keyVersion: shownVersion ? version : "<version>",
   };
 }
 

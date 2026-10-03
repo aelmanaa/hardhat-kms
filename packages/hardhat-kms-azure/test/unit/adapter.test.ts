@@ -408,11 +408,33 @@ describe("Azure Key Vault adapter", () => {
         ["test-vault", KEY_NAME, KEY_VERSION],
       ],
       [
+        // The version comes from Key Vault, not from the variable: it is the one the adapter pins.
         "an unversioned key id from a configuration variable",
         KEY_URL,
         "<AZURE_KEY_ID>",
+        `--vault-name <vault-name> --name <key-name> --version ${KEY_VERSION}`,
+        ["test-vault", `--name ${KEY_NAME}`],
+      ],
+      [
+        "a key id from a variable whose name holds /keys/",
+        VERSIONED_KEY_URL,
+        "<X/keys/Y>",
         "--vault-name <vault-name> --name <key-name> --version <version>",
-        ["test-vault", KEY_NAME, KEY_VERSION],
+        ["test-vault", `--name ${KEY_NAME}`, KEY_VERSION],
+      ],
+      [
+        "a key id from a variable whose name ends like the key id",
+        VERSIONED_KEY_URL,
+        `<X/keys/${KEY_NAME}x/${KEY_VERSION}0>`,
+        "--vault-name <vault-name> --name <key-name> --version <version>",
+        ["test-vault", `--name ${KEY_NAME}`, `--version ${KEY_VERSION}`],
+      ],
+      [
+        "a key name from a variable whose name holds /keys/",
+        VERSIONED_KEY_URL,
+        `${VAULT_URL}/keys/<A/keys/B>/${KEY_VERSION}`,
+        `--vault-name test-vault --name <key-name> --version ${KEY_VERSION}`,
+        [`--name ${KEY_NAME}`],
       ],
       [
         "a Managed HSM key id from a configuration variable",
