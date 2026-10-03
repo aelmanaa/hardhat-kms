@@ -74,11 +74,23 @@ Assign it on the key alone, not on the vault, so the identity can use no other k
 ```sh
 az role assignment create \
   --role "Key Vault Ethereum Signer" \
-  --assignee <user, group, service principal or managed identity id> \
+  --assignee-object-id <principal object id> \
+  --assignee-principal-type <User or ServicePrincipal> \
   --scope "$(az keyvault show --name my-vault --query id --output tsv)/keys/deployer"
 ```
 
-This role has not yet been checked against real Key Vault: the plugin's live tests ran with the developer's own identity.
+`<principal object id>` is the Microsoft Entra object id of the identity that runs Hardhat. Its principal type is `User` for a person, and `ServicePrincipal` for a service principal or a managed identity. `--assignee-object-id` with `--assignee-principal-type` assigns the role without a Microsoft Graph lookup, which an identity without Graph read access, such as a CI service principal, cannot make. Find the object id with:
+
+```sh
+# Your own account, signed in with az login:
+az ad signed-in-user show --query id --output tsv
+# A service principal, by its application (client) id:
+az ad sp show --id <application id> --query id --output tsv
+# A user-assigned managed identity:
+az identity show --resource-group my-rg --name <identity name> --query principalId --output tsv
+```
+
+The Key Vault Ethereum Signer role alone has not yet been checked against real Key Vault: the plugin's live tests ran with the developer's own identity.
 
 If you cannot create a custom role, the built-in role with the fewest permissions that still covers both is **Key Vault Crypto User** (`12338af0-0e69-4776-bea7-57ae8d297424`). Assign it the same way, with `--role "Key Vault Crypto User"`. It also holds seven data actions the plugin does not use: `encrypt`, `decrypt`, `wrap`, `unwrap`, `verify`, `update` and `backup` ([Azure built-in roles](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/security#key-vault-crypto-user)):
 
@@ -89,7 +101,7 @@ Creating the key in step 1 needs a broader role, such as Key Vault Crypto Office
 
 ### Vaults that use access policies
 
-Older vaults grant access with access policies, which apply to every key in the vault. Grant only the two key permissions:
+Older vaults grant access with access policies, which apply to every key in the vault. Grant only the two key permissions to the identity's object id, found as in [Vaults that use Azure RBAC](#vaults-that-use-azure-rbac):
 
 ```sh
 az keyvault set-policy --name my-vault --object-id <principal object id> --key-permissions get sign
@@ -121,7 +133,8 @@ Assign it on the key:
 az keyvault role assignment create \
   --hsm-name my-hsm \
   --role "Managed HSM Ethereum Signer" \
-  --assignee <principal id> \
+  --assignee-object-id <principal object id> \
+  --assignee-principal-type <User or ServicePrincipal> \
   --scope /keys/deployer
 ```
 
@@ -177,7 +190,9 @@ export default defineConfig({
 
 `keyId` can also leave out the version, or the key can be given as `vaultUrl`, `keyName` and an optional `keyVersion`; the [configuration reference](../reference/configuration.md#key-forms-per-provider) lists the forms and the accepted hosts. Prefer the versioned id: without a version, the plugin uses the version that is current when it first reads the key, so rotating the key changes the address on the next run.
 
-To use a key without a config entry, set `AZURE_KEY_VAULT_KEY_ID` (or `AZURE_KEY_VAULT_KEY_IDS` for several) and pass `--kms azure`; see [Migrate from Foundry](migrate-from-foundry.md).
+To use a key without a config entry, set `AZURE_KEY_VAULT_KEY_ID` (or `AZURE_KEY_VAULT_KEY_IDS` for several) and pass `--kms azure`; see [Migrate from Foundry](migrate-from-foundry.md). Such keys are added to the network selected with `--network`, or to `default` without one.
+
+`configVariable("SEPOLIA_RPC_URL")` reads the RPC URL when a network needs it: from an environment variable of that name (`export SEPOLIA_RPC_URL=https://…`), or from the Hardhat keystore (`npx hardhat keystore set SEPOLIA_RPC_URL`) when the config loads the keystore plugin. The config above does not: add `import hardhatKeystore from "@nomicfoundation/hardhat-keystore";` and put `hardhatKeystore` in `plugins`, or load a Hardhat toolbox, which includes it. The script in step 5 uses it.
 
 ## 5. Check that the key signs
 
@@ -218,6 +233,8 @@ Key Vault records each sign request in its audit log, whoever makes it, as a `Ke
 npx hardhat kms history deployer --since 7d
 ```
 
+Without `--since`, the task reads the last 24 hours, and it lists at most 100 events, the newest; `--limit` takes up to 1000 ([`kms history`](../reference/tasks.md#kms-history)).
+
 Key Vault keeps no audit log you can query by itself. A diagnostic setting on the vault sends the `AuditEvent` category to a Log Analytics workspace, and the task reads the `AZKVAuditLogs` table there. Nothing is logged before the setting exists.
 
 ### Send the audit log to a workspace
@@ -225,9 +242,17 @@ Key Vault keeps no audit log you can query by itself. A diagnostic setting on th
 Create a workspace, or reuse one, then add a diagnostic setting on the vault with the resource-specific destination:
 
 ```sh
-az monitor log-analytics workspace create   --resource-group my-rg --workspace-name kms-audit --location eastus
+az monitor log-analytics workspace create \
+  --resource-group my-rg \
+  --workspace-name kms-audit \
+  --location eastus
 
-az monitor diagnostic-settings create   --name hardhat-kms-audit   --resource "$(az keyvault show --name my-vault --query id -o tsv)"   --workspace "$(az monitor log-analytics workspace show --resource-group my-rg --workspace-name kms-audit --query id -o tsv)"   --export-to-resource-specific true   --logs '[{"category":"AuditEvent","enabled":true}]'
+az monitor diagnostic-settings create \
+  --name hardhat-kms-audit \
+  --resource "$(az keyvault show --name my-vault --query id -o tsv)" \
+  --workspace "$(az monitor log-analytics workspace show --resource-group my-rg --workspace-name kms-audit --query id -o tsv)" \
+  --export-to-resource-specific true \
+  --logs '[{"category":"AuditEvent","enabled":true}]'
 ```
 
 `--export-to-resource-specific true` matters: without it, the events go to the older `AzureDiagnostics` table, which the task does not read, and the task fails with `azure.history.no-table`. The table appears in the workspace with the first event.
@@ -256,7 +281,11 @@ A literal GUID works too. Without `kms.audit.azure.workspaceId`, `kms history` f
 The identity that runs `kms history` uses the same credential chain as signing ([step 3](#3-sign-in)) and needs to query the workspace and read the `AZKVAuditLogs` table: `Microsoft.OperationalInsights/workspaces/query/read` and table read access. The **Log Analytics Data Reader** role on the workspace grants both:
 
 ```sh
-az role assignment create   --role "Log Analytics Data Reader"   --assignee <principal id>   --scope "$(az monitor log-analytics workspace show --resource-group my-rg --workspace-name kms-audit --query id -o tsv)"
+az role assignment create \
+  --role "Log Analytics Data Reader" \
+  --assignee-object-id <principal object id> \
+  --assignee-principal-type <User or ServicePrincipal> \
+  --scope "$(az monitor log-analytics workspace show --resource-group my-rg --workspace-name kms-audit --query id -o tsv)"
 ```
 
 It lets the identity read every table of the workspace, so a workspace that holds only Key Vault audit events keeps that access narrow. A refused read fails with the permissions to grant. An identity whose access is limited to other tables of the workspace may get no rows from this one, or the `azure.history.no-table` error; we have not checked which. Neither is proof that the key signed nothing.

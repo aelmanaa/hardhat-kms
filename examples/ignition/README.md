@@ -6,12 +6,12 @@ Status: runs in CI against LocalStack's KMS emulator. The packages are not on np
 
 This project's Ignition module deploys `contracts/Counter.sol` and calls `add(5)`. Ignition sends both transactions from the KMS account, and the key in AWS KMS signs them. The module is unchanged from one you would write for a local account. [Deploy with Hardhat Ignition](../../docs/user/guides/deploy-with-ignition.md) explains how to choose the deployer and how to resume a deployment.
 
-| File                          | What it holds                                                                                                              |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `hardhat.config.ts`           | The `@hardhat-kms/aws` and `hardhat-ignition-viem` plugins, the `deployer` key, and the `rehearsal` and `sepolia` networks |
-| `contracts/Counter.sol`       | A counter that only its deployer can change                                                                                |
-| `ignition/modules/Counter.ts` | The Ignition module                                                                                                        |
-| `scripts/deploy.ts`           | Deploys the module with `ignition.deploy` from the KMS account, then reads the counter's state back                        |
+| File                          | What it holds                                                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hardhat.config.ts`           | The `@hardhat-kms/aws` and `hardhat-ignition-viem` plugins, the `deployer` key, and the `rehearsal`, `sepolia` and `rehearsalCli` networks |
+| `contracts/Counter.sol`       | A counter that only its deployer can change                                                                                                |
+| `ignition/modules/Counter.ts` | The Ignition module                                                                                                                        |
+| `scripts/deploy.ts`           | Deploys the module with `ignition.deploy` from the KMS account, then reads the counter's state back                                        |
 
 ## Run it
 
@@ -27,6 +27,12 @@ Deploy the module with the `ignition deploy` task on the simulated `rehearsal` n
 
 ```sh
 npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --default-sender 0x…
+```
+
+To deploy with a key passed by `--kms aws` instead of a config entry, use `rehearsalCli`, a simulated network that lists no KMS keys of its own, as [Rehearse on a simulated network](../../docs/user/guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network) explains. CI runs this command as the guide writes it:
+
+```sh
+npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsalCli --kms aws --default-sender 0x…
 ```
 
 Or run the script, which deploys the same module from the network's first account, the KMS account, and reads the result back:
