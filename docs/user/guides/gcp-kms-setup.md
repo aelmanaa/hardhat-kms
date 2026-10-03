@@ -34,7 +34,18 @@ The identity that runs Hardhat needs two permissions on this key:
 - `cloudkms.cryptoKeyVersions.viewPublicKey`, to read the public key and the version's algorithm.
 - `cloudkms.cryptoKeyVersions.useToSign`, to sign.
 
-The predefined roles `roles/cloudkms.publicKeyViewer` and `roles/cloudkms.signer` each hold one of them. Grant both on the key, not on the project, so the identity can use no other key:
+Creating the key does not give them, and Cloud KMS Admin (`roles/cloudkms.admin`) holds neither: it leaves out cryptographic operations. Grant the roles below even to the identity that created the key, unless it is a project Owner.
+
+The plugin signs as the identity of Application Default Credentials (ADC): the account of `gcloud auth application-default login` on a workstation, the `GOOGLE_APPLICATION_CREDENTIALS` file, or the service account of the machine or CI job ([How Application Default Credentials works](https://docs.cloud.google.com/docs/authentication/application-default-credentials)). That is not always the account `gcloud auth login` signed the gcloud CLI in with, so grant the roles to the ADC identity. To see it, ask Google's token information endpoint whose ADC access token it is:
+
+```sh
+curl -s -d "access_token=$(gcloud auth application-default print-access-token)" \
+  https://www.googleapis.com/oauth2/v1/tokeninfo
+```
+
+The `email` field of the response is the identity; use it with `user:`, or with `serviceAccount:` when it ends in `.gserviceaccount.com`. If the response has no `email`, ADC holds a service account: the one named with `gcloud auth application-default login --impersonate-service-account`, or the `client_email` of the key file `GOOGLE_APPLICATION_CREDENTIALS` names.
+
+The predefined roles `roles/cloudkms.publicKeyViewer` and `roles/cloudkms.signer` each hold one of the two permissions. Grant both on the key, not on the project, so the identity can use no other key:
 
 ```sh
 for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
@@ -49,8 +60,6 @@ done
 Use `serviceAccount:<email>` as the member for a service account. `roles/cloudkms.signerVerifier` also holds both permissions in one role, plus `useToVerify`, which the plugin does not use. The permissions in each role are listed in [Cloud KMS permissions and roles](https://cloud.google.com/kms/docs/reference/permissions-and-roles).
 
 This setup has not yet been checked against real Cloud KMS with a least-privilege identity; the live test ([Testing](../../contributor/testing.md)) runs with the developer's own identity.
-
-Credentials come from Application Default Credentials: `gcloud auth application-default login` on a workstation, the `GOOGLE_APPLICATION_CREDENTIALS` file, or the service account of the machine or CI job.
 
 ## 3. Install the plugin and configure the key
 
