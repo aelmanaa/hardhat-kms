@@ -244,7 +244,7 @@ describe("kms history on AWS keys", () => {
     const { error } = await history("google");
 
     assert.ok(error instanceof Error);
-    assert.match(error.message, /hardhat-kms-gcp/);
+    assert.match(error.message, /@hardhat-kms\/gcp/);
     assert.equal(audit.requests.length, 0);
   });
 
@@ -254,7 +254,7 @@ describe("kms history on AWS keys", () => {
     const { error } = await history("byArn", { hre });
 
     assert.ok(error instanceof Error);
-    assert.match(error.message, /hardhat-kms-aws 9\.9\.9 needs hardhat-kms 9\.9\.9/);
+    assert.match(error.message, /@hardhat-kms\/aws 9\.9\.9 needs hardhat-kms 9\.9\.9/);
     assert.equal(audit.requests.length, 0);
   });
 });

@@ -273,7 +273,7 @@ describe("kms history on an Azure key", () => {
   it("passes another provider's key on", async () => {
     const { error } = await history({ key: "amazon" });
     assert.ok(error instanceof Error);
-    assert.match(error.message, /hardhat-kms-aws/);
+    assert.match(error.message, /@hardhat-kms\/aws/);
     assert.equal(endpoint.requests.length, 0);
   });
 
