@@ -57,7 +57,7 @@ The key gets version `1`, which the project signs with. At protection level `sof
 
 A key ring and a key cannot be deleted, so their names stay in the project; they cost nothing. If you ran this tutorial before, the key ring exists already: skip its `create`, and give the key another name, here and in the rest of the page.
 
-`--destroy-scheduled-duration 24h` sets the shortest wait Cloud KMS allows between scheduling a version's destruction and destroying it. The duration is fixed when the key is created. A short wait keeps the cost of this tutorial down, but it leaves you one day to undo the destruction in step 8. Give a key that will hold value a long duration, up to 120 days; [Prevent and recover from losing a key](../guides/key-loss.md#google-cloud-kms) explains why. If an organization policy, `constraints/cloudkms.minimumDestroyScheduledDuration`, refuses `24h`, use the smallest value it allows.
+`--destroy-scheduled-duration 24h` sets the shortest wait Cloud KMS allows between scheduling a version's destruction and destroying it. The duration is fixed when the key is created. A short wait keeps the cost of this tutorial down, but it leaves you one day to undo the destruction in step 8. Give a key that will hold value a long duration, up to 120 days; [Prevent and recover from losing a key](../guides/key-loss.md#guard-a-google-cloud-kms-key) explains why. If an organization policy, `constraints/cloudkms.minimumDestroyScheduledDuration`, refuses `24h`, use the smallest value it allows.
 
 ## 3. Allow the key to sign, and nothing else
 

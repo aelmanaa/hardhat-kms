@@ -6,7 +6,9 @@ Status: the Google Cloud adapter is implemented (M6, [#29](https://github.com/ae
 
 ## 1. Create a secp256k1 signing key
 
-Ethereum uses the secp256k1 curve, which Cloud KMS calls `EC_SIGN_SECP256K1_SHA256`. Create a key ring, then an asymmetric signing key in it, at protection level HSM:
+Ethereum uses the secp256k1 curve, which Cloud KMS calls `EC_SIGN_SECP256K1_SHA256`. Create a key ring, then an asymmetric signing key in it, at protection level HSM.
+
+Choose the key's scheduled-destruction duration first: it is how long a version scheduled for destruction can still be restored, from 24 hours to 120 days, 30 days by default, and "after the duration for the key has been specified, it can't be changed" ([Create a key](https://docs.cloud.google.com/kms/docs/create-key)). The command below sets the longest, `120d`. Google recommends the 30-day default unless you have specific requirements ([Variable duration](https://docs.cloud.google.com/kms/docs/key-states#variable_duration_of_the_scheduled_for_destruction_state)), but losing this key loses its address and any funds at it for good, so the longest window to notice and undo a destruction is worth more. The cost is billing: a version scheduled for destruction is still an active, billed key version until it is destroyed ([Cloud KMS pricing](https://cloud.google.com/kms/pricing)). For a throwaway key, the 30-day default is fine. [Prevent and recover from losing a key](key-loss.md#guard-a-google-cloud-kms-key) covers guarding against destruction.
 
 ```sh
 gcloud kms keyrings create deployer-ring --location europe-west1
@@ -16,7 +18,8 @@ gcloud kms keys create deployer \
   --location europe-west1 \
   --purpose asymmetric-signing \
   --default-algorithm ec-sign-secp256k1-sha256 \
-  --protection-level hsm
+  --protection-level hsm \
+  --destroy-scheduled-duration 120d
 ```
 
 The key gets version `1`. The plugin always signs with the version you configure; it never picks a version for you. An asymmetric key has no primary version: Cloud KMS gives `primary` only to `ENCRYPT_DECRYPT` keys ([`CryptoKey.primary`](https://docs.cloud.google.com/kms/docs/reference/rest/v1/projects.locations.keyRings.cryptoKeys#CryptoKey.FIELDS.primary)).
@@ -25,7 +28,7 @@ Use `--protection-level hsm`. Creating this key at protection level `software` f
 
 The plugin refuses key versions with any other algorithm.
 
-Destroying the key version loses its address for good, along with any funds it holds, once the key's scheduled-destruction duration ends (30 days by default, fixed when the key is created); [Prevent and recover from losing a key](key-loss.md) covers restoring a version, guarding against destruction and retiring a key.
+Destroying the key version loses its address for good, along with any funds it holds, once the key's scheduled-destruction duration ends (120 days with the command above); [Prevent and recover from losing a key](key-loss.md) covers restoring a version, guarding against destruction and retiring a key.
 
 ## 2. Allow signing, and nothing else
 
@@ -118,7 +121,7 @@ const signature = await provider.request({
 console.log(address, signature);
 ```
 
-Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. The first run calls `GetPublicKey` unless the key has an `address` pin, then `AsymmetricSign` once.
+Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. Each run calls `GetPublicKey` once, before the first signature, then `AsymmetricSign` once. An `address` pin does not save that call: the plugin checks the public key against the pin before it releases a signature. A pin saves the call only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the public key ([`address`](../reference/configuration.md#configuration)).
 
 ## How the plugin uses the key
 
