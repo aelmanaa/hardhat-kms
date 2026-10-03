@@ -5,10 +5,14 @@
 //
 // The script prints READY once its connection exists. Starting Hardhat, viem and the simulated node
 // takes 3 s on an idle machine and can take over 40 s on a busy one, so the run gets
-// STARTUP_LIMIT_MS for that. After READY the sends take well under a second, and none of them should
-// wait. The test stops the script as soon as the plugin prints a warning (a send has waited 5 s
-// behind a library send's hold, or a hold reached its 60 s limit), or SENDS_LIMIT_MS after READY,
-// which is below the 60 s hold limit and the 120 s stall limit. Each failure shows the output.
+// STARTUP_LIMIT_MS for that. Startup is not timed beyond that limit.
+//
+// After READY, no send should wait on a timer, so the script times its reads and sends from READY
+// to the third send, and they must take under SENDS_BOUND_MS. They take well under a second, even
+// with 32 runs in parallel, so the bound fails a wait of a few seconds but not a loaded machine.
+// The test also stops the script at the plugin's first warning (a send has waited 5 s behind a
+// library send's hold), and SENDS_LIMIT_MS after READY, below the 60 s hold limit and the 120 s
+// stall limit, so a stuck send fails before either limit. Each failure shows the output.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -24,8 +28,10 @@ let project: string;
 
 /** How long the script may take to start Hardhat, viem and its connection. */
 const STARTUP_LIMIT_MS = 100_000;
-/** How long the sends may take after the connection exists. */
+/** How long the sends may take after the connection exists before the test stops the script. */
 const SENDS_LIMIT_MS = 30_000;
+/** How long the reads and sends from READY to the third send may take in a passing run. */
+const SENDS_BOUND_MS = 5000;
 /** The start of a plugin warning on stderr. */
 const WARNING = /^hardhat-kms: /m;
 
@@ -65,6 +71,7 @@ const COW = ${JSON.stringify(COW_ACCOUNT.address)};
 const TO = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
 const connection = await network.create("local");
+const ready = Date.now();
 console.log("READY");
 const account = await connection.kms.getAccount(COW);
 const pending = await connection.provider.request({
@@ -77,12 +84,13 @@ const first = await plugin.sendTransaction({ to: TO, value: 1n });
 const library = createWalletClient({ account, chain: hardhat, transport: custom(connection.provider) });
 const second = await library.sendTransaction({ to: TO, value: 2n });
 const third = await plugin.sendTransaction({ to: TO, value: 3n });
+const sendsMs = Date.now() - ready;
 const nonces = [];
 for (const hash of [first, second, third]) {
   await publicClient.waitForTransactionReceipt({ hash });
   nonces.push((await publicClient.getTransaction({ hash })).nonce);
 }
-console.log(JSON.stringify({ pending, nonces }));
+console.log(JSON.stringify({ pending, nonces, sendsMs }));
 await connection.close();
 `;
 
@@ -194,17 +202,19 @@ describe("a library account in a hardhat run script", () => {
         undefined,
         `the test stopped the script: ${run.stopped}\n${output}`,
       );
-      assert.equal(
-        run.status,
-        0,
-        `the script exited with ${run.status} (13: a top-level await never settled)\n${output}`,
-      );
+      const unsettled = run.status === 13 ? " (a top-level await never settled)" : "";
+      assert.equal(run.status, 0, `the script exited with ${run.status}${unsettled}\n${output}`);
       assert.doesNotMatch(run.stderr, WARNING, `no send should wait\n${output}`);
       const line = run.stdout.trim().split("\n").at(-1) ?? "";
       const result: unknown = JSON.parse(line);
       assert.ok(typeof result === "object" && result !== null);
       assert.equal(Reflect.get(result, "pending"), "0x0", "the node's count, unchanged");
       assert.deepEqual(Reflect.get(result, "nonces"), [0, 1, 2]);
+      const sendsMs = Reflect.get(result, "sendsMs");
+      assert.ok(
+        typeof sendsMs === "number" && sendsMs < SENDS_BOUND_MS,
+        `the reads and sends after READY took ${sendsMs} ms; no send should wait on a timer\n${output}`,
+      );
     },
   );
 });
