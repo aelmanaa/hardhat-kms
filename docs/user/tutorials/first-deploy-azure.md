@@ -88,7 +88,7 @@ echo "$KEY_ID"
 
 ## 3. Allow the key to sign, and nothing else
 
-Hardhat signs with the identity you signed in with. For this tutorial, that identity is you, and the Key Vault Crypto Officer role from step 2 covers it. A real deployer should not be able to create or delete keys. This step gives it the built-in **Key Vault Crypto User** role on this one key, not on the vault, so it can use no other key. For a deployer that holds real funds, use the two-action custom role in [Allow get and sign, and nothing else](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) instead.
+Hardhat signs with the identity you signed in with. For this tutorial, that identity is you, and the Key Vault Crypto Officer role from step 2 covers it. A real deployer should not be able to create or delete keys. This step gives it the built-in **Key Vault Crypto User** role on this one key, not on the vault, so it can use no other key. For a deployer that holds real funds, use the custom role described below the command instead.
 
 Print what the role allows:
 
@@ -432,7 +432,7 @@ az keyvault key set-attributes --id "$KEY_ID" --enabled false
 
 To keep the key instead, run only the disable step, and stop here. A disabled key costs nothing, because nothing can use it.
 
-If you gave a deployer the Key Vault Crypto User role in step 3, remove that assignment:
+If you gave a deployer the Key Vault Crypto User role in step 3, remove that assignment. If you assigned the custom role instead, pass its name to `--role`:
 
 ```sh
 az role assignment delete --role "Key Vault Crypto User" --assignee-object-id <deployer object id> \

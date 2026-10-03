@@ -58,7 +58,7 @@ Create the role once in the subscription. This needs permission to create custom
 az role definition create --role-definition key-vault-ethereum-signer.json
 ```
 
-Assign it on the key alone, not on the vault, so the identity can use no other key:
+Assign it on the key alone, not on the vault, so the identity can use no other key. If the assignment says the role does not exist right after you created it, wait a few minutes and run it again. A new assignment can take up to 10 minutes to take effect ([Troubleshoot Azure RBAC](https://learn.microsoft.com/azure/role-based-access-control/troubleshooting#symptom---role-assignment-changes-are-not-being-detected)):
 
 ```sh
 az role assignment create \
@@ -67,7 +67,7 @@ az role assignment create \
   --scope "$(az keyvault show --name my-vault --query id --output tsv)/keys/deployer"
 ```
 
-If you cannot create a custom role, the built-in role with the fewest permissions that still covers both is **Key Vault Crypto User** (`12338af0-0e69-4776-bea7-57ae8d297424`). Assign it the same way, with `--role "Key Vault Crypto User"`. It also holds seven data actions the plugin does not use: encrypt, decrypt, wrap, unwrap, verify, `update` and `backup` ([Azure built-in roles](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/security#key-vault-crypto-user)):
+If you cannot create a custom role, the built-in role with the fewest permissions that still covers both is **Key Vault Crypto User** (`12338af0-0e69-4776-bea7-57ae8d297424`). Assign it the same way, with `--role "Key Vault Crypto User"`. It also holds seven data actions the plugin does not use: `encrypt`, `decrypt`, `wrap`, `unwrap`, `verify`, `update` and `backup` ([Azure built-in roles](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/security#key-vault-crypto-user)):
 
 - `update` changes the key's attributes, so it can disable the key or change its permitted operations ([`az keyvault key set-attributes`](https://learn.microsoft.com/cli/azure/keyvault/key#az-keyvault-key-set-attributes)).
 - `backup` writes a copy of the key that can be restored into another vault in the same subscription and geography. Whoever can restore that copy can sign as the key's address, and disabling or deleting the original does not stop it ([Back up a key](key-loss.md#back-up-a-key)).
