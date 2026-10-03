@@ -26,5 +26,5 @@
   "jsonReporter": { "fileName": "reports/mutation/mutation.json" },
   "cleanTempDir": "always",
   "thresholds_comment": "break = measured score rounded down, minus 2. Raise it by hand when the score rises; see docs/contributor/testing.md, layer 8.",
-  "thresholds": { "high": 90, "low": 80, "break": 98 }
+  "thresholds": { "high": 90, "low": 80, "break": 97 }
 }

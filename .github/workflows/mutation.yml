@@ -10,7 +10,8 @@ name: Mutation testing
 # all of them, and a shard that runs long does not cancel the others. The `score` job adds up the
 # shards' reports and checks the total against `break`. Each shard also checks its own score against
 # `break`, so one weak shard fails even when the total passes. An entry of `mutate` outside
-# src/internal/<directory>/ fails the plan, so no file is left out of every shard.
+# src/internal/<directory>/, or in a directory whose name has other characters than lowercase letters
+# and digits, fails the plan, so no file is left out of every shard.
 #
 # - Weekly, Mondays: a shard is skipped before install when its last run on the same inputs passed;
 #   otherwise an incremental run that re-tests only the mutants in changed mutated files and the
@@ -77,9 +78,11 @@ jobs:
           import json, re, sys
           shards = []
           for entry in json.load(open("stryker.config.json"))["mutate"]:
-              match = re.match(r"!?src/internal/([a-z0-9-]+)/", entry)
+              # No "-" in a shard name: the cache key prefix stryker-<os>-<shard>- must not be a
+              # prefix of another shard's keys.
+              match = re.match(r"!?src/internal/([a-z0-9]+)/", entry)
               if match is None:
-                  sys.exit(f"mutate entry {entry!r} is not under src/internal/<directory>/, so no shard runs it")
+                  sys.exit(f"mutate entry {entry!r} is not under src/internal/<directory>/ with a name of lowercase letters and digits, so no shard runs it")
               if not entry.startswith("!") and match.group(1) not in shards:
                   shards.append(match.group(1))
           print(f"shards={json.dumps(shards)}")
@@ -89,9 +92,10 @@ jobs:
     name: Mutation testing, ${{ matrix.shard }} (Linux)
     needs: plan
     runs-on: ubuntu-26.04
-    # The slowest shard, rpc, took 32 to 43 minutes locally at 2 workers on a loaded laptop. The
-    # limit leaves room for a runner up to 2.5 times slower plus the install, since a cancelled shard
-    # saves no incremental file and would start from scratch the next week.
+    # In the first full CI run (run 37131684354), the Stryker step took 14 min 10 s for crypto, the
+    # slowest shard, 12 min 35 s for rpc, 11 min 28 s for signer and 9 min 37 s for viem. The limit is
+    # far above that, since a cancelled shard saves no incremental file and would start from scratch
+    # the next week.
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -243,7 +247,9 @@ jobs:
               shard_valid = sum(n for status, n in counts.items() if status not in ("Ignored", "RuntimeError", "CompileError"))
               detected += shard_detected
               valid += shard_valid
-              rows.append(f"| {shard} | {100 * shard_detected / shard_valid:.2f}% | {shard_detected} | {shard_valid} |")
+              # A shard whose mutants are all ignored or errors adds nothing to the total.
+              shard_score = f"{100 * shard_detected / shard_valid:.2f}%" if shard_valid > 0 else "no valid mutants"
+              rows.append(f"| {shard} | {shard_score} | {shard_detected} | {shard_valid} |")
           lines = ["### Mutation score, all shards that ran", "", "| Shard | Score | Caught | Valid mutants |", "|---|---|---|---|", *rows]
           failed = result not in ("success", "skipped")
           if valid > 0:

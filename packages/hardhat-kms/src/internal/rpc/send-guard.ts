@@ -157,7 +157,10 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
       },
     };
     // Armed before the waiter joins the queue: when the timers throw, the send fails and leaves no
-    // waiter behind that would be granted the lock.
+    // waiter behind that would be granted the lock. This relies on the Timers contract that a
+    // callback never runs inside setTimeout itself, as real timers guarantee: a limit that fired
+    // here would find no waiter to fail, and the send would wait with no limit until the next
+    // hand-off.
     waiter.restart();
     lock.waiters.push(waiter);
   });
