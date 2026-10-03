@@ -530,7 +530,6 @@ describe("SignerCache identity", () => {
     "the endpoint": [awsKey(), awsKey({ endpoint: "http://127.0.0.1:4566" })],
     "the address pin": [awsKey(), awsKey({ address: COW_ACCOUNT.address })],
     "the time budget": [awsKey(), awsKey({ timeoutMs: 2000 })],
-    "the approval time budget": [awsKey(), awsKey({ approvalTimeoutMs: 60_000 })],
     "the display form": [awsKey(), awsKey({ displayId: "aws:<AWS_KMS_KEY_ID>" })],
     "the name": [awsKey(), awsKey({ name: "treasury" })],
     "the provider": [gcpKey(), azureKey({ name: "gcp", displayId: "gcp:k/1" })],

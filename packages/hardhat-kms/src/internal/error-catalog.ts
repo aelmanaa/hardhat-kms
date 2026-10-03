@@ -18,7 +18,7 @@ export const ERRORS = {
     kind: "validation",
     group: "Configuration",
     template: "Expected a number of milliseconds",
-    cause: "A `timeoutMs` or `approvalTimeoutMs`, on a key or in `kms.defaults`, is not a number.",
+    cause: "`timeoutMs`, on a key or in `kms.defaults`, is not a number.",
     fix: "Set it to a number of milliseconds, such as `30_000`.",
   },
   timeoutInteger: {
@@ -26,7 +26,7 @@ export const ERRORS = {
     kind: "validation",
     group: "Configuration",
     template: "Expected an integer number of milliseconds",
-    cause: "A `timeoutMs` or `approvalTimeoutMs` has a fraction.",
+    cause: "`timeoutMs`, on a key or in `kms.defaults`, has a fraction.",
     fix: "Use a whole number of milliseconds.",
   },
   timeoutMin: {
@@ -34,7 +34,7 @@ export const ERRORS = {
     kind: "validation",
     group: "Configuration",
     template: "Expected at least 1 ms",
-    cause: "A `timeoutMs` or `approvalTimeoutMs` is 0 or negative.",
+    cause: "`timeoutMs`, on a key or in `kms.defaults`, is 0 or negative.",
     fix: "Use a positive number of milliseconds. The default `timeoutMs` is 30000.",
   },
   timeoutMax: {
@@ -43,7 +43,7 @@ export const ERRORS = {
     group: "Configuration",
     template: "Expected at most 2147483647 ms",
     cause:
-      "A `timeoutMs` or `approvalTimeoutMs` is larger than Node.js timers accept (2^31 - 1 ms, about 24.8 days).",
+      "`timeoutMs`, on a key or in `kms.defaults`, is larger than Node.js timers accept (2^31 - 1 ms, about 24.8 days).",
     fix: "Use a smaller value.",
   },
   addressPin: {

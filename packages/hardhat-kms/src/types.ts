@@ -24,11 +24,6 @@ export interface KmsKeyCommonUserConfig {
   address?: string;
   /** Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defaults.timeoutMs`. */
   timeoutMs?: number;
-  /**
-   * Time budget for providers with an asynchronous approval step, in milliseconds. Overrides
-   * `kms.defaults.approvalTimeoutMs`.
-   */
-  approvalTimeoutMs?: number;
 }
 
 /** An AWS KMS key. */
@@ -131,8 +126,6 @@ export interface KmsUserConfig {
     aws?: { region?: string };
     /** Default time budget for each KMS call, in milliseconds. Default: 30000. */
     timeoutMs?: number;
-    /** Default time budget for providers with an asynchronous approval step, in milliseconds. */
-    approvalTimeoutMs?: number;
   };
   /** Allow typed data whose `domain.chainId` differs from the connected chain. Default: `false`. */
   allowCrossChainTypedData?: boolean;
@@ -158,7 +151,6 @@ export interface KmsKeyCommonConfig {
   /** The checksummed address pin, if one was configured. */
   address?: string;
   timeoutMs: number;
-  approvalTimeoutMs?: number;
   /**
    * A description of the key that is safe to print, such as `aws:alias/deployer`. It never contains
    * a configuration variable's value.
@@ -233,7 +225,6 @@ export interface KmsConfig {
   defaults: {
     aws: { region?: string };
     timeoutMs: number;
-    approvalTimeoutMs?: number;
   };
   allowCrossChainTypedData: boolean;
   simulatedBalance?: bigint;

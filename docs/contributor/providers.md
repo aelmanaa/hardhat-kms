@@ -14,9 +14,7 @@ import type { TypedData } from "hardhat-kms/types";
 interface SignContext {
   signal: AbortSignal;
   displayMessage(message: string): Promise<void>;
-  requestId: string;
-  idempotencyKey?: string | undefined; // declared for transaction sends; the core does not set it yet
-  chainId?: bigint | undefined; // declared; the core does not set it yet
+  requestId: string; // identifies the call in the plugin's debug output; not sent to the provider
 }
 interface KeyDescription {
   provider: string;
@@ -78,7 +76,7 @@ The core enforces these rules on adapters:
 - Adapters receive copies of the digest, message and typed data, which they may change. The core copies the public key an adapter returns, so an adapter may also reuse or change that array later.
 - Each call gets `requestId` and a `signal` that aborts when the key's `timeoutMs` runs out. An invalid signature gets one retry with a fresh call before the core fails.
 
-Planned with `sendTransaction` ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)): an adapter with `sendTransaction` broadcasts on its own. For those adapters the core will skip the nonce high-water mark, reject `eth_signTransaction` and EDR or fork networks with clear errors, pass the idempotency key (Fireblocks' `externalTxId`), and check `from` against the receipt.
+Planned with `sendTransaction` ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)): an adapter with `sendTransaction` broadcasts on its own. For those adapters the core will skip the nonce high-water mark, reject `eth_signTransaction` and EDR or fork networks with clear errors, add an idempotency key to `SignContext` (Fireblocks' `externalTxId`), and check `from` against the receipt.
 
 Built-in providers' keys are validated inside the root zod schema with `conditionalUnionType` on `provider`. For any other `provider` id, the root schema checks only the fields every key shares. Provider packages, third-party providers and tests plug in through the plugin-owned `kms` hook category with `createKeyAdapter(context, key, next)` (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). Tests register fakes with `hre.hooks.registerHandlers("kms", …)`; the package ships no public fake provider.
 
@@ -144,7 +142,7 @@ The rules:
 - Declare `hardhat-kms` in the plugin's `dependencies`, as above, and as a `peerDependency` in its `package.json`, so the project has a single copy of it.
 - The provider id must not look like a misspelled built-in id. The config schema rejects an id that matches `aws`, `gcp` or `azure` in another case or is one edit away from one (a changed, added or removed letter, or two adjacent letters swapped), such as `AWS`, `gpc` or `azurre`. Ids such as `kms` or `hsm` are fine.
 - Augment `KmsProviderConfigs` as above. Without it, `key.provider === "myvault"` does not compile, because resolved keys are typed as the registered providers only.
-- The plugin validates only `provider`, `address`, `timeoutMs` and `approvalTimeoutMs`. The handler validates the rest of `userConfig`, which holds every field of the user's key. Configuration variables in it arrive as `ResolvedConfigurationVariable` objects; call `get()` to read one.
+- The plugin validates only `provider`, `address` and `timeoutMs`. The handler validates the rest of `userConfig`, which holds every field of the user's key. Configuration variables in it arrive as `ResolvedConfigurationVariable` objects; call `get()` to read one.
 - The core builds no adapter itself, so a key that no handler claims fails. For an `aws`, `gcp` or `azure` key the error names the provider package and the command that installs it. For any other id it says that no plugin provides the provider. With `DEBUG=hardhat:kms:providers`, the core logs `<displayId>: no plugin claimed the key` first.
 - The plugin checks every returned adapter: it must have `describe()` returning non-empty `provider`, `pinnedId` and `displayId`, a signing method (`signDigest`, `signMessage` or `signTypedData`), and either `getPublicKey`, `getAddress` or an `address` pin on the key. Any of these methods that is set must be a function. The core calls `describe()` only while it sets up the adapter, twice: once in this check and once when it builds the signer. It keeps the result and never calls `describe()` while signing or reporting an error. Its signatures then go through the same [signing pipeline](signing-pipeline.md) as those of the first-party providers.
 - Handlers registered at run time with `hre.hooks.registerHandlers("kms", …)` run before plugin handlers, the most recently registered first. Tests use this to replace a provider with a fake.

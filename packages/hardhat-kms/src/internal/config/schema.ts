@@ -105,7 +105,6 @@ const kmsSchema = z
       .object({
         aws: z.object({ region: nonEmptyString.optional() }).strict().optional(),
         timeoutMs: timeoutSchema.optional(),
-        approvalTimeoutMs: timeoutSchema.optional(),
       })
       .strict()
       .optional(),

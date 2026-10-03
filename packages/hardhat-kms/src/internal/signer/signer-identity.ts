@@ -3,16 +3,10 @@ import { identifierComparisonForm } from "../config/identifiers.ts";
 
 /**
  * The settings of every key that the signer and its adapter use: the key's name and display form
- * for errors, the address pin and both time budgets.
+ * for errors, the address pin and the time budget.
  */
 function commonSettings(key: KmsKeyCommonConfig): unknown[] {
-  return [
-    key.name,
-    key.displayId,
-    key.address ?? null,
-    key.timeoutMs,
-    key.approvalTimeoutMs ?? null,
-  ];
+  return [key.name, key.displayId, key.address ?? null, key.timeoutMs];
 }
 
 /**
@@ -43,10 +37,10 @@ function commonSettings(key: KmsKeyCommonConfig): unknown[] {
 export function signerIdentity(key: KmsKeyConfig): string | undefined {
   let parts: unknown[];
   let identifier: KmsIdentifier;
-  // The identity is only compared for equality. An AWS identity has 10 parts, a Google Cloud or
-  // Azure one 7, so the provider tags only have to tell Google Cloud from Azure: changing any one
+  // The identity is only compared for equality. An AWS identity has 9 parts, a Google Cloud or
+  // Azure one 6, so the provider tags only have to tell Google Cloud from Azure: changing any one
   // of them, or dropping it, still leaves every provider's identities apart. This rests on the
-  // lengths: a new provider whose identity also has 7 parts needs a test that tells its tag apart.
+  // lengths: a new provider whose identity also has 6 parts needs a test that tells its tag apart.
   if ("keyVersionName" in key) {
     // Stryker disable next-line ArrayDeclaration,StringLiteral: one tag alone is redundant
     parts = ["gcp"];

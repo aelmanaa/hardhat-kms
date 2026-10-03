@@ -173,14 +173,6 @@ The checksummed address pin, if one was configured.
 
 [`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
 
-##### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
-###### Inherited from
-
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`approvalTimeoutMs`](#approvaltimeoutms-9)
-
 ##### displayId
 
 > **displayId**: `string`
@@ -257,17 +249,6 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
-##### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
-Time budget for providers with an asynchronous approval step, in milliseconds. Overrides
-`kms.defaults.approvalTimeoutMs`.
-
-###### Inherited from
-
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`approvalTimeoutMs`](#approvaltimeoutms-10)
-
 ##### endpoint?
 
 > `optional` **endpoint?**: `string`
@@ -329,17 +310,6 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
-##### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
-Time budget for providers with an asynchronous approval step, in milliseconds. Overrides
-`kms.defaults.approvalTimeoutMs`.
-
-###### Inherited from
-
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`approvalTimeoutMs`](#approvaltimeoutms-10)
-
 ##### keyName
 
 > **keyName**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
@@ -389,14 +359,6 @@ The checksummed address pin, if one was configured.
 ###### Inherited from
 
 [`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
-
-##### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
-###### Inherited from
-
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`approvalTimeoutMs`](#approvaltimeoutms-9)
 
 ##### displayId
 
@@ -460,17 +422,6 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
-##### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
-Time budget for providers with an asynchronous approval step, in milliseconds. Overrides
-`kms.defaults.approvalTimeoutMs`.
-
-###### Inherited from
-
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`approvalTimeoutMs`](#approvaltimeoutms-10)
-
 ##### keyId
 
 > **keyId**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
@@ -521,14 +472,6 @@ The checksummed address pin, if one was configured.
 ###### Inherited from
 
 [`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
-
-##### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
-###### Inherited from
-
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`approvalTimeoutMs`](#approvaltimeoutms-9)
 
 ##### displayId
 
@@ -590,17 +533,6 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
-##### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
-Time budget for providers with an asynchronous approval step, in milliseconds. Overrides
-`kms.defaults.approvalTimeoutMs`.
-
-###### Inherited from
-
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`approvalTimeoutMs`](#approvaltimeoutms-10)
-
 ##### keyName
 
 > **keyName**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
@@ -658,14 +590,6 @@ The checksummed address pin, if one was configured.
 ###### Inherited from
 
 [`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
-
-##### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
-###### Inherited from
-
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`approvalTimeoutMs`](#approvaltimeoutms-9)
 
 ##### displayId
 
@@ -728,17 +652,6 @@ learn the address, and refuses to sign if the key turns out to be different.
 ###### Inherited from
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
-
-##### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
-Time budget for providers with an asynchronous approval step, in milliseconds. Overrides
-`kms.defaults.approvalTimeoutMs`.
-
-###### Inherited from
-
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`approvalTimeoutMs`](#approvaltimeoutms-10)
 
 ##### keyVersionName
 
@@ -1087,11 +1000,7 @@ The resolved `kms` section.
 
 ##### defaults
 
-> **defaults**: \{ `approvalTimeoutMs?`: `number`; `aws`: \{ `region?`: `string`; \}; `timeoutMs`: `number`; \}
-
-###### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
+> **defaults**: \{ `aws`: \{ `region?`: `string`; \}; `timeoutMs`: `number`; \}
 
 ###### aws
 
@@ -1842,10 +1751,6 @@ Resolved settings shared by every key.
 
 The checksummed address pin, if one was configured.
 
-##### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
 ##### displayId
 
 > **displayId**: `string`
@@ -1885,13 +1790,6 @@ Settings shared by every key, whatever its provider.
 
 The address the key must derive to. Optional, recommended: the plugin then skips a KMS call to
 learn the address, and refuses to sign if the key turns out to be different.
-
-##### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
-Time budget for providers with an asynchronous approval step, in milliseconds. Overrides
-`kms.defaults.approvalTimeoutMs`.
 
 ##### timeoutMs?
 
@@ -2470,13 +2368,7 @@ Where `kms history` reads the providers' audit logs.
 
 ##### defaults?
 
-> `optional` **defaults?**: \{ `approvalTimeoutMs?`: `number`; `aws?`: \{ `region?`: `string`; \}; `timeoutMs?`: `number`; \}
-
-###### approvalTimeoutMs?
-
-> `optional` **approvalTimeoutMs?**: `number`
-
-Default time budget for providers with an asynchronous approval step, in milliseconds.
+> `optional` **defaults?**: \{ `aws?`: \{ `region?`: `string`; \}; `timeoutMs?`: `number`; \}
 
 ###### aws?
 
@@ -2518,23 +2410,11 @@ May gain fields before 1.0.
 
 #### Properties
 
-##### chainId?
-
-> `optional` **chainId?**: `bigint`
-
-The chain the signature is for, when known.
-
-##### idempotencyKey?
-
-> `optional` **idempotencyKey?**: `string`
-
-Present for transaction sends; lets remote broadcasters deduplicate retries.
-
 ##### requestId
 
 > **requestId**: `string`
 
-Identifies this call in logs and in provider requests.
+Identifies this call in the plugin's debug output.
 
 ##### signal
 

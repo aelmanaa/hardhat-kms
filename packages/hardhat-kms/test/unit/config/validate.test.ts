@@ -17,7 +17,7 @@ describe("validateKmsUserConfig", () => {
   it("accepts every key form of every provider, literal or from configuration variables", () => {
     const config = {
       kms: {
-        defaults: { aws: { region: "eu-west-1" }, timeoutMs: 10_000, approvalTimeoutMs: 600_000 },
+        defaults: { aws: { region: "eu-west-1" }, timeoutMs: 10_000 },
         allowCrossChainTypedData: true,
         simulatedBalance: 10n ** 18n,
         keys: {

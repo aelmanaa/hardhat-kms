@@ -5,7 +5,7 @@ import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 
 import hardhatKmsPlugin from "../../src/index.ts";
-import type { AwsKmsKeyConfig } from "../../src/types.ts";
+import type { AwsKmsKeyConfig, AwsKmsKeyUserConfig } from "../../src/types.ts";
 
 describe("config in a Hardhat runtime environment", () => {
   it("resolves the kms section and each network's kmsAccounts", async () => {
@@ -68,6 +68,27 @@ describe("config in a Hardhat runtime environment", () => {
         assert.ok(error instanceof Error);
         assert.match(error.message, /networks\.sepolia\.kmsAccounts\.1/);
         assert.match(error.message, /Unknown key "deployr"/);
+        return true;
+      },
+    );
+  });
+
+  it("fails at load on an approvalTimeoutMs, naming it and the key's path", async () => {
+    const base: AwsKmsKeyUserConfig = { provider: "aws", keyId: "alias/deployer" };
+    // A spread, not a typed object literal: a JavaScript config has no excess-property check.
+    const deployer = { ...base, approvalTimeoutMs: 600_000 };
+    await assert.rejects(
+      createHardhatRuntimeEnvironment({
+        plugins: [hardhatKmsPlugin],
+        kms: { keys: { deployer } },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /HHE15/);
+        assert.match(
+          error.message,
+          /config\.kms\.keys\.deployer: Unrecognized key\(s\) in object: 'approvalTimeoutMs'/,
+        );
         return true;
       },
     );

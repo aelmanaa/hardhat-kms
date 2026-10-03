@@ -110,6 +110,54 @@ describe("unknown fields", () => {
     );
   });
 
+  it("include approvalTimeoutMs on AWS, Google Cloud and Azure keys and in kms.defaults", () => {
+    const message = "Unrecognized key(s) in object: 'approvalTimeoutMs'";
+    const field = { approvalTimeoutMs: 600_000 };
+    assertError(withKey(aws(field)), "kms.keys.a", message, 1);
+    assertError(withKey(gcpParts(field)), "kms.keys.a", message, 1);
+    assertError(
+      withKey({ provider: "gcp", keyVersionName: GCP_NAME, ...field }),
+      "kms.keys.a",
+      message,
+      1,
+    );
+    assertError(
+      withKey({ provider: "azure", keyId: "https://v.vault.azure.net/keys/k", ...field }),
+      "kms.keys.a",
+      message,
+      1,
+    );
+    assertError(
+      withKey({ provider: "azure", vaultUrl: "https://v.vault.azure.net", keyName: "k", ...field }),
+      "kms.keys.a",
+      message,
+      1,
+    );
+    assertError({ kms: { defaults: field } }, "kms.defaults", message, 1);
+    assertError(
+      {
+        networks: {
+          n: { type: "http", url: "http://x", kmsAccounts: [aws(field)] },
+        },
+      },
+      "networks.n.kmsAccounts.0",
+      message,
+      1,
+    );
+  });
+
+  it("are left to the provider on a third-party key, which gets them in userConfig", () => {
+    const userKey = { provider: "myvault", approvalTimeoutMs: 600_000 };
+    assert.deepEqual(validate(withKey(userKey)), []);
+
+    const key: unknown = resolvedKey(withKey(userKey));
+    assert.ok(typeof key === "object" && key !== null && "userConfig" in key);
+    assert.ok(!("approvalTimeoutMs" in key));
+    const { userConfig } = key;
+    assert.ok(typeof userConfig === "object" && userConfig !== null);
+    assert.deepEqual({ ...userConfig }, userKey);
+  });
+
   it("report the misspelled field itself, next to the missing one", () => {
     const errors = validate(withKey({ provider: "aws", keyID: "alias/a" }));
 
@@ -279,11 +327,11 @@ describe("Azure URLs", () => {
 });
 
 describe("resolution", () => {
-  it("lets a key override approvalTimeoutMs, and gives inline keys the defaults", () => {
+  it("lets a key override timeoutMs, and gives inline keys the defaults", () => {
     const userConfig: HardhatUserConfig = {
       kms: {
-        defaults: { timeoutMs: 1234, approvalTimeoutMs: 600_000 },
-        keys: { a: { provider: "aws", keyId: "alias/a", approvalTimeoutMs: 5000 } },
+        defaults: { timeoutMs: 1234 },
+        keys: { a: { provider: "aws", keyId: "alias/a", timeoutMs: 5000 } },
         simulatedBalance: 10n ** 18n,
       },
       networks: {
@@ -298,8 +346,7 @@ describe("resolution", () => {
     );
     const inline = resolved.networks.n?.kmsAccounts[0];
 
-    assert.equal(resolved.kms.keys.a?.approvalTimeoutMs, 5000);
-    assert.equal(inline?.approvalTimeoutMs, 600_000);
+    assert.equal(resolved.kms.keys.a?.timeoutMs, 5000);
     assert.equal(inline?.timeoutMs, 1234);
     assert.equal(resolved.kms.simulatedBalance, 10n ** 18n);
   });

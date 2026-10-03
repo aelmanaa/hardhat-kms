@@ -68,7 +68,7 @@ describe("resolveKmsConfig", () => {
   it("checksums the address pin and lets key timeouts override the defaults", () => {
     const config: HardhatUserConfig = {
       kms: {
-        defaults: { timeoutMs: 10_000, approvalTimeoutMs: 600_000 },
+        defaults: { timeoutMs: 10_000 },
         keys: {
           pinned: {
             provider: "aws",
@@ -86,7 +86,6 @@ describe("resolveKmsConfig", () => {
     assert.equal(pinned.address, "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
     assert.equal(pinned.timeoutMs, 5000);
     assert.equal(plain.timeoutMs, 10_000);
-    assert.equal(plain.approvalTimeoutMs, 600_000);
     assert.equal("address" in plain, false);
   });
 
