@@ -74,11 +74,12 @@ Assign it on the key alone, not on the vault, so the identity can use no other k
 ```sh
 az role assignment create \
   --role "Key Vault Ethereum Signer" \
-  --assignee <principal object id> \
+  --assignee-object-id <principal object id> \
+  --assignee-principal-type <User or ServicePrincipal> \
   --scope "$(az keyvault show --name my-vault --query id --output tsv)/keys/deployer"
 ```
 
-`<principal object id>` is the Microsoft Entra object id of the identity that runs Hardhat:
+`<principal object id>` is the Microsoft Entra object id of the identity that runs Hardhat. Its principal type is `User` for a person, and `ServicePrincipal` for a service principal or a managed identity. `--assignee-object-id` with `--assignee-principal-type` assigns the role without a Microsoft Graph lookup, which an identity without Graph read access, such as a CI service principal, cannot make. Find the object id with:
 
 ```sh
 # Your own account, signed in with az login:
@@ -89,7 +90,7 @@ az ad sp show --id <application id> --query id --output tsv
 az identity show --resource-group my-rg --name <identity name> --query principalId --output tsv
 ```
 
-This role alone has not yet been checked against real Key Vault: the plugin's live tests ran with the developer's own identity.
+The Key Vault Ethereum Signer role alone has not yet been checked against real Key Vault: the plugin's live tests ran with the developer's own identity.
 
 If you cannot create a custom role, the built-in role with the fewest permissions that still covers both is **Key Vault Crypto User** (`12338af0-0e69-4776-bea7-57ae8d297424`). Assign it the same way, with `--role "Key Vault Crypto User"`. It also holds seven data actions the plugin does not use: `encrypt`, `decrypt`, `wrap`, `unwrap`, `verify`, `update` and `backup` ([Azure built-in roles](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/security#key-vault-crypto-user)):
 
@@ -132,7 +133,8 @@ Assign it on the key:
 az keyvault role assignment create \
   --hsm-name my-hsm \
   --role "Managed HSM Ethereum Signer" \
-  --assignee <principal object id> \
+  --assignee-object-id <principal object id> \
+  --assignee-principal-type <User or ServicePrincipal> \
   --scope /keys/deployer
 ```
 
@@ -190,7 +192,7 @@ export default defineConfig({
 
 To use a key without a config entry, set `AZURE_KEY_VAULT_KEY_ID` (or `AZURE_KEY_VAULT_KEY_IDS` for several) and pass `--kms azure`; see [Migrate from Foundry](migrate-from-foundry.md). Such keys are added to the network selected with `--network`, or to `default` without one.
 
-`configVariable("SEPOLIA_RPC_URL")` reads the RPC URL when a network needs it: from an environment variable of that name (`export SEPOLIA_RPC_URL=https://…`), or from the Hardhat keystore if the project has `@nomicfoundation/hardhat-keystore`, which the Hardhat toolboxes include (`npx hardhat keystore set SEPOLIA_RPC_URL`). The script in step 5 uses it.
+`configVariable("SEPOLIA_RPC_URL")` reads the RPC URL when a network needs it: from an environment variable of that name (`export SEPOLIA_RPC_URL=https://…`), or from the Hardhat keystore (`npx hardhat keystore set SEPOLIA_RPC_URL`) when the config loads the keystore plugin. The config above does not: add `import hardhatKeystore from "@nomicfoundation/hardhat-keystore";` and put `hardhatKeystore` in `plugins`, or load a Hardhat toolbox, which includes it. The script in step 5 uses it.
 
 ## 5. Check that the key signs
 
@@ -281,7 +283,8 @@ The identity that runs `kms history` uses the same credential chain as signing (
 ```sh
 az role assignment create \
   --role "Log Analytics Data Reader" \
-  --assignee <principal object id> \
+  --assignee-object-id <principal object id> \
+  --assignee-principal-type <User or ServicePrincipal> \
   --scope "$(az monitor log-analytics workspace show --resource-group my-rg --workspace-name kms-audit --query id -o tsv)"
 ```
 

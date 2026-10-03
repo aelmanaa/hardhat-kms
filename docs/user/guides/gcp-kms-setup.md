@@ -103,7 +103,7 @@ Instead of `keyVersionName`, a key can list its parts: `projectId`, `location`, 
 
 To use a key without a config entry, set `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME` and `GCP_KEY_VERSION` and pass `--kms gcp`; see [Migrate from Foundry](migrate-from-foundry.md). Such a key is added to the network selected with `--network`, or to `default` without one.
 
-`configVariable("SEPOLIA_RPC_URL")` reads the RPC URL when a network needs it: from an environment variable of that name (`export SEPOLIA_RPC_URL=https://…`), or from the Hardhat keystore if the project has `@nomicfoundation/hardhat-keystore`, which the Hardhat toolboxes include (`npx hardhat keystore set SEPOLIA_RPC_URL`). The script in step 4 uses it.
+`configVariable("SEPOLIA_RPC_URL")` reads the RPC URL when a network needs it: from an environment variable of that name (`export SEPOLIA_RPC_URL=https://…`), or from the Hardhat keystore (`npx hardhat keystore set SEPOLIA_RPC_URL`) when the config loads the keystore plugin. The config above does not: add `import hardhatKeystore from "@nomicfoundation/hardhat-keystore";` and put `hardhatKeystore` in `plugins`, or load a Hardhat toolbox, which includes it. The script in step 4 uses it.
 
 ## 4. Check that the key signs
 
@@ -187,7 +187,7 @@ Each row comes from one log entry:
 | Column or field            | Log entry field                                                                                                                                                            |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `time`                     | `timestamp`                                                                                                                                                                |
-| `principal`                | `protoPayload.authenticationInfo.principalEmail`, or `principalSubject` when there is no email                                                                             |
+| `principal`                | `protoPayload.authenticationInfo.principalEmail`, or `protoPayload.authenticationInfo.principalSubject` when there is no email                                             |
 | `sourceIp`                 | `protoPayload.requestMetadata.callerIp`, which reads `private` or `gce-internal-ip` for calls from inside Google Cloud                                                     |
 | `userAgent`                | `protoPayload.requestMetadata.callerSuppliedUserAgent`, reported by the client                                                                                             |
 | `keyVersion`               | the last segment of `protoPayload.resourceName`                                                                                                                            |
@@ -195,7 +195,7 @@ Each row comes from one log entry:
 | `error`                    | for a refused request, the status name of `protoPayload.status.code`, and `protoPayload.status.message` with `--show-ids`. A served request is logged with an empty status |
 | `keyResource`              | `protoPayload.resourceName`, the key version's full name, shown with `--show-ids`                                                                                          |
 | `extra`                    | `insertId`, `principalSubject` when it is more than the type and the email, `receiveTimestamp` and the status code                                                         |
-| `extra`, with `--show-ids` | the OAuth client id, `authenticationInfo.oauthInfo.oauthClientId`                                                                                                          |
+| `extra`, with `--show-ids` | the OAuth client id, `protoPayload.authenticationInfo.oauthInfo.oauthClientId`                                                                                             |
 
 Cloud Audit Logs records no request id, so the history lists it as not logged. An entry's own id, `insertId`, is shown instead. No entry holds the message, the transaction or the signature, so the history cannot show what was signed; the digest identifies it if you have the transaction.
 
