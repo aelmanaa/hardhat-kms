@@ -305,6 +305,21 @@ describe("KmsSigner", () => {
       assert.equal(adapter.calls.signDigest, 0);
     });
 
+    it("explains a pin mismatch without telling the user to change the pin", async () => {
+      const other = "0x0000000000000000000000000000000000000001";
+      const { signer: kms } = signer(
+        { secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) },
+        { expectedAddress: other },
+      );
+
+      // The literal text, so a reword back to "update the configuration" fails here.
+      await rejectsWith(
+        kms.signDigest(new Uint8Array(32)),
+        `fake, check address, key fake-key-1: the key derives to ${HARDHAT_ACCOUNT_0.address}, but the configured address is ${other}, so nothing was signed. The key id may now name the wrong key or a substituted one, or the pin may be wrong. Do not change the pin to match until you know why the key changed; see "When the pin fails" in the key rotation guide, which also covers a deliberate move to a new key.`,
+      );
+      assert.equal(ERRORS.addressMismatch.id, "core.signer.address-mismatch");
+    });
+
     it("checks address-only keys against the pin on the first signature", async () => {
       const secretKey = hex(HARDHAT_ACCOUNT_0.secretKey);
       const pinned = new KmsSigner(fakeAdapter({ secretKey, identity: "none" }), {

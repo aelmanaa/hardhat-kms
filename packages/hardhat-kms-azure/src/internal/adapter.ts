@@ -99,6 +99,48 @@ function shown(value: unknown): string {
 
 const sameId = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
+/** Whether `text` holds `segment` as a whole path segment: followed by `/` or by its end. */
+function hasSegment(text: string, segment: string): boolean {
+  for (let at = text.indexOf(segment); at !== -1; at = text.indexOf(segment, at + 1)) {
+    const next = text.charAt(at + segment.length);
+    if (next === "" || next === "/") {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The `az keyvault key set-attributes` arguments that name one key version, for the hints of the
+ * key checks. Without `--version` the command changes the latest version, which may not be the
+ * one the config signs with.
+ *
+ * A configured value is printed only when the key id's display form, which every message of the
+ * key already shows, holds it as written; anything else, such as a part read from a configuration
+ * variable, is a placeholder. The display form is not parsed, so no variable name can make a
+ * hidden value count as written. The version of an unversioned key id comes from Key Vault, not
+ * from the config, and is always printed: it is the version the adapter pinned.
+ */
+function setAttributesTarget(
+  id: ParsedAzureKeyId,
+  display: string,
+  version: string,
+): { vaultOption: string; vaultName: string; keyName: string; keyVersion: string } {
+  const host = new URL(id.vaultUrl).hostname;
+  const hsm = host.includes(".managedhsm.");
+  const shownVault = display.toLowerCase().startsWith(`${id.vaultUrl}/keys/`);
+  const shownName = hasSegment(display, `/keys/${id.keyName}`);
+  // The version is the last segment of a versioned key id.
+  const shownVersion =
+    id.keyVersion === undefined || display.replace(/\/$/, "").endsWith(`/${id.keyVersion}`);
+  return {
+    vaultOption: hsm ? "--hsm-name" : "--vault-name",
+    vaultName: shownVault ? host.slice(0, host.indexOf(".")) : hsm ? "<hsm-name>" : "<vault-name>",
+    keyName: shownName ? id.keyName : "<key-name>",
+    keyVersion: shownVersion ? version : "<version>",
+  };
+}
+
 /**
  * The Azure Key Vault (and Managed HSM) adapter for one key.
  *
@@ -152,7 +194,7 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     if (wanted !== undefined && !sameId(version, wanted)) {
       throw this.#error("get public key", ERRORS.responseVersion, {});
     }
-    this.#checkUsable(response, "get public key");
+    this.#checkUsable(response, "get public key", version);
     const jwk = response.key;
     if (jwk === undefined) {
       throw this.#error("get public key", ERRORS.noPublicKey, {});
@@ -192,7 +234,7 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     // The SDK checks the dates of the key it was given too, but fails with a message that names
     // the key URL, which the signer can only show as "Error". A key that expired since it was
     // pinned gets the same clear error as at the lookup.
-    this.#checkUsable(pinned.key, "sign");
+    this.#checkUsable(pinned.key, "sign", pinned.version);
     let kid: unknown;
     const response = await this.#send(
       "sign",
@@ -234,11 +276,11 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
   }
 
   /** Checks the key's attributes, as Key Vault would before signing, to fail with a clear error. */
-  #checkUsable(response: KeyVaultKeyLike, operation: string): void {
+  #checkUsable(response: KeyVaultKeyLike, operation: string, version: string): void {
     const { enabled, notBefore, expiresOn } = response.properties;
     const now = Date.now();
     if (enabled === false) {
-      throw this.#error(operation, ERRORS.disabled, {});
+      throw this.#error(operation, ERRORS.disabled, this.#target(version));
     }
     if (notBefore instanceof Date && notBefore.getTime() > now) {
       throw this.#error(operation, ERRORS.notYetValid, { date: notBefore.toISOString() });
@@ -248,8 +290,12 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     }
     const operations: unknown = response.keyOperations;
     if (Array.isArray(operations) && !operations.includes(SIGN_OPERATION)) {
-      throw this.#error(operation, ERRORS.noSignOperation, {});
+      throw this.#error(operation, ERRORS.noSignOperation, this.#target(version));
     }
+  }
+
+  #target(version: string): ReturnType<typeof setAttributesTarget> {
+    return setAttributesTarget(this.#id, this.#key.keyId.display, version);
   }
 
   /**
