@@ -3,6 +3,10 @@
 // whose fake adapter signs with a local key, so nothing reaches a cloud or a live network. The node
 // runs with `throwOnTransactionFailures: false`, so a reverted transfer is mined and returns its
 // hash, as it does on Sepolia.
+//
+// The script imports `hardhat-kms`, which resolves to the built package: run `pnpm run build` first
+// (`pnpm test` does). The tests share the node's state and run in order: the refusals, then the
+// reverted transfer, then the transfer that empties the deployer, then the second run.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -24,6 +28,10 @@ const EOA = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const CONTRACT = "0x00000000000000000000000000000000000c0de1";
 /** Given an EIP-7702 delegation indicator, `0xef0100` followed by the delegate's address. */
 const DELEGATED = "0x00000000000000000000000000000000000c0de2";
+/** An ordinary account's address with one letter's case flipped, which breaks its checksum. */
+const BAD_CHECKSUM = "0x70997970c51812dc3A010C7d01b50e0d17dc79C8";
+const ZERO = "0x0000000000000000000000000000000000000000";
+const CODE_REFUSAL = /has code, so it is a contract or a smart account \(EIP-7702\)/;
 /** The comment and the check that refuse an address with code, as the tutorials print them. */
 const CODE_CHECK =
   /\n {2}\/\/ A plain transfer with 21,000 gas runs out of gas at an address with code[^\n]*\n {2}if \(\(await publicClient\.getCode\(\{ address: to \}\)\) !== undefined\) \{\n[^\n]*\n {2}\}\n/;
@@ -82,9 +90,11 @@ function returnFundsScript(tutorial: string): string {
 }
 
 /**
- * Posts a JSON-RPC request to the node. The node closes idle keep-alive connections while a script
- * runs, and a request that races the close fails with ECONNRESET, so a failed request is sent
- * again. Every request this test sends is safe to repeat.
+ * Posts a JSON-RPC request to the node, and sends it again, up to three times in all, when fetch
+ * rejects. The node closes idle keep-alive connections while a script runs, and a request that races
+ * the close fails with ECONNRESET. Any other rejection is retried too, the 10-second timeout
+ * included; a JSON-RPC error is an answer and is not retried. Every request this test sends is safe
+ * to repeat.
  */
 async function post(body: string): Promise<Response> {
   for (let attempt = 1; ; attempt++) {
@@ -243,22 +253,33 @@ describe("the tutorials' return-funds script", { timeout: 300_000 }, () => {
     }
   });
 
-  it("stops without RETURN_TO", () => {
-    assertStopped(
-      runScript("scripts/return-funds.ts", undefined),
-      /^set RETURN_TO to the address that gets the funds$/,
-    );
-  });
-
-  for (const [name, address] of [
-    ["a contract", CONTRACT],
-    ["an EIP-7702 delegated account", DELEGATED],
-  ] as const) {
+  const refusals: [name: string, returnTo: string | undefined, message: RegExp][] = [
+    ["a missing RETURN_TO", undefined, /^set RETURN_TO to the address that gets the funds$/],
+    [
+      "a malformed RETURN_TO",
+      "0x123",
+      /^RETURN_TO is not a valid address, or its checksum is wrong: 0x123$/,
+    ],
+    [
+      "a RETURN_TO with a wrong checksum",
+      BAD_CHECKSUM,
+      /^RETURN_TO is not a valid address, or its checksum is wrong: 0x70997970c5/,
+    ],
+    ["the zero address", ZERO, /^RETURN_TO is the zero address, and funds sent there are lost$/],
+    [
+      "the deployer address",
+      COW_ACCOUNT.address,
+      /^RETURN_TO is the deployer address 0x[0-9a-fA-F]{40}; set it to the address that gets/,
+    ],
+    ["a contract", CONTRACT, CODE_REFUSAL],
+    ["an EIP-7702 delegated account", DELEGATED, CODE_REFUSAL],
+  ];
+  for (const [name, returnTo, message] of refusals) {
     it(`refuses ${name} and sends nothing`, async () => {
       const balance = await balanceOf(COW_ACCOUNT.address);
       const nonce = await nonceOf(COW_ACCOUNT.address);
-      const run = runScript("scripts/return-funds.ts", address);
-      assertStopped(run, /has code, so it is a contract or a smart account \(EIP-7702\)/);
+      const run = runScript("scripts/return-funds.ts", returnTo);
+      assertStopped(run, message);
       assert.doesNotMatch(run.stdout, /sending/);
       assert.equal(await balanceOf(COW_ACCOUNT.address), balance);
       assert.equal(await nonceOf(COW_ACCOUNT.address), nonce);
@@ -268,7 +289,10 @@ describe("the tutorials' return-funds script", { timeout: 300_000 }, () => {
   it("reports a reverted transfer with its hash, and exits 1", async () => {
     const balance = await balanceOf(COW_ACCOUNT.address);
     const run = runScript("scripts/return-funds-unchecked.ts", CONTRACT);
-    assertStopped(run, /^the transfer reverted in 0x[0-9a-f]{64}; the funds are still at 0x/);
+    assertStopped(
+      run,
+      /^the transfer reverted in 0x[0-9a-f]{64}; only the fee was spent, and the rest is still at 0x/,
+    );
     const hash = /0x[0-9a-f]{64}/.exec(run.stderr)?.[0];
     assert.ok(hash !== undefined);
     assert.equal(await receiptStatus(hash), "0x0", "the transfer was mined and reverted");

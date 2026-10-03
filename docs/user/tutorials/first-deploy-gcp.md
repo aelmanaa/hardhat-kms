@@ -353,14 +353,14 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 When you are done, send the remaining Sepolia ETH back, then disable the key version and schedule its destruction.
 
-Save this script as `scripts/return-funds.ts`. It reads the deployer address from the pin, and sends the whole balance, less the fee, to the address in `RETURN_TO`. It refuses an address with code, and checks that the transfer succeeded:
+Save this script as `scripts/return-funds.ts`. It reads the deployer address from the pin, and sends the whole balance, less the fee, to the address in `RETURN_TO`. It refuses the zero address, the deployer address and any address with code. It also checks that the transfer succeeded:
 
 ```ts
 // The project's hardhat.config.ts loads these plugins' types; the imports make the file stand alone.
 import "@nomicfoundation/hardhat-viem";
 import "hardhat-kms";
 import hre from "hardhat";
-import { formatEther, isAddress, isAddressEqual } from "viem";
+import { formatEther, isAddress, isAddressEqual, zeroAddress } from "viem";
 
 /**
  * Sends the deployer's balance, less the fee, to RETURN_TO.
@@ -369,14 +369,23 @@ import { formatEther, isAddress, isAddressEqual } from "viem";
  */
 async function returnFunds(): Promise<string | undefined> {
   const to = process.env.RETURN_TO;
-  if (to === undefined || !isAddress(to)) {
+  if (to === undefined || to === "") {
     return "set RETURN_TO to the address that gets the funds";
+  }
+  if (!isAddress(to)) {
+    return `RETURN_TO is not a valid address, or its checksum is wrong: ${to}`;
+  }
+  if (isAddressEqual(to, zeroAddress)) {
+    return "RETURN_TO is the zero address, and funds sent there are lost";
   }
 
   // The address pinned on the deployer key in step 4.
   const from = hre.config.kms.keys["deployer"]?.address;
   if (from === undefined || !isAddress(from)) {
     return "pin the deployer key's address in hardhat.config.ts first";
+  }
+  if (isAddressEqual(to, from)) {
+    return `RETURN_TO is the deployer address ${from}; set it to the address that gets the funds`;
   }
 
   const { viem } = await hre.network.create("sepolia");
@@ -409,7 +418,7 @@ async function returnFunds(): Promise<string | undefined> {
   });
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status !== "success") {
-    return `the transfer reverted in ${hash}; the funds are still at ${from}`;
+    return `the transfer reverted in ${hash}; only the fee was spent, and the rest is still at ${from}`;
   }
   console.log(`sent in ${hash}`);
   return undefined;
@@ -422,15 +431,15 @@ if (stopped !== undefined) {
 }
 ```
 
-Set `RETURN_TO` to an address with no code, such as your own wallet's, and run the script. It sends a plain transfer with 21,000 gas, which runs out of gas at an address with code, so the script refuses a contract. It also refuses a wallet address whose smart account setting is on, because that setting gives the address code ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)):
+Set `RETURN_TO` to an address with no code, such as your own wallet's. The script sends a plain transfer with 21,000 gas, which runs out of gas at an address with code, so the script refuses a contract. It also refuses a wallet address whose smart account setting is on, because that setting gives the address code ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)). If the script refuses your wallet address for that reason, use another account of the wallet with the setting off, or create a new account in the wallet. Then run the script:
 
 ```sh
 RETURN_TO=<return address> npx hardhat run scripts/return-funds.ts
 ```
 
-A tiny amount stays behind, 0.0000045 ETH in the recorded run, because the script reserves the fee at the highest price the transaction may pay. Run again, the script stops with `the balance of <deployer address>, … ETH, does not cover the fee` and sends nothing.
+A tiny amount stays behind, 0.0000045 ETH in the recorded run, because the script reserves the fee at the highest price the transaction may pay. Run it again and the script stops with `the balance of <deployer address>, … ETH, does not cover the fee` and sends nothing.
 
-When the script stops early, it prints one line and exits with code 1. If the transfer reverts, the line is `the transfer reverted in <transaction hash>; the funds are still at <deployer address>`: the funds have not moved, so set `RETURN_TO` to an address with no code and run again.
+When the script stops early, it prints one line and exits with code 1. If the transfer reverts, the line is `the transfer reverted in <transaction hash>; only the fee was spent, and the rest is still at <deployer address>`. Run the script again with another address that has no code.
 
 Before you remove the key, open the deployer address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com) and check that its balance is close to zero. Once the key is gone, nothing can move what is left.
 
