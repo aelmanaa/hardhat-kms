@@ -1,6 +1,6 @@
 name: Mutation testing
 
-# Runs Stryker on the core's crypto/ and signer/ code against every core unit test
+# Runs Stryker on the core's crypto/, signer/, viem/ and rpc/send-guard.ts against every core unit test
 # (docs/contributor/testing.md, layer 8). Not a required check and no pull_request trigger: a full
 # run takes far longer than the rest of CI.
 #
@@ -15,7 +15,7 @@ name: Mutation testing
 #   set, a cron line fires on either.
 # - Monthly, and on dispatch with `force`: a full run. Incremental mode does not see changes outside
 #   the mutated and test files, such as dependency updates or unmutated source the mutated code
-#   imports (errors.ts, error-catalog.ts, rpc/), so their effect shows only in a full run.
+#   imports (errors.ts, error-catalog.ts, the rest of rpc/), so their effect shows only in a full run.
 #
 # Cache design. Cache entries cannot be overwritten, so every run that reaches Stryker saves its
 # incremental file under a new key:

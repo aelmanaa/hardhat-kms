@@ -132,6 +132,7 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
     let cancel: (() => void) | undefined;
     const waiter: Waiter = {
       grant: () => {
+        // Stryker disable next-line OptionalChaining: restart below sets cancel before any grant
         cancel?.();
         resolve();
       },
@@ -211,6 +212,7 @@ function warnAboutLibraryWait(key: string): void {
  * @returns Whether it does.
  */
 export function holdsSendLock(key: string): boolean {
+  // Stryker disable next-line ArrayDeclaration: a string in the array has no key, so some() finds no hold
   return (holds.getStore() ?? []).some((hold) => hold.key === key && !hold.released);
 }
 
@@ -253,6 +255,7 @@ export async function withSendLock<T>(
   }
   const hold: Hold = { key, released: false };
   try {
+    // Stryker disable next-line ArrayDeclaration: holdsSendLock, the only reader, skips an entry with no key
     return await holds.run([...(holds.getStore() ?? []), hold], run);
   } finally {
     hold.released = true;
@@ -336,13 +339,16 @@ export async function holdForLibrary(
         }
         libraryHolds.delete(key);
         cancel();
+        // Stryker disable next-line OptionalChaining: the promise executor above set release
         control.release?.();
       },
     };
     libraryHolds.set(key, hold);
+    // Stryker disable next-line OptionalChaining: the promise executor above set acquired
     control.acquired?.(nonce);
     await released;
   });
+  // Stryker disable next-line ArrowFunction: holding resolves only after acquired, so the race is already settled
   return await Promise.race([acquired, holding.then(async () => await acquired)]);
 }
 
@@ -401,6 +407,7 @@ export function takeOwedLibraryReset(key: string): boolean {
   if (owed === 0) {
     return false;
   }
+  // Stryker disable next-line ConditionalExpression: a count of 0 left in the map reads as no reset owed
   if (owed === 1) {
     pendingResets.delete(key);
   } else {
@@ -477,6 +484,7 @@ export function canonicalJson(value: unknown): string | undefined {
     return undefined;
   }
   const fields: string[] = [];
+  // Stryker disable next-line EqualityOperator: Object.entries never yields two equal keys
   for (const [key, item] of Object.entries(value).toSorted(([a], [b]) => (a < b ? -1 : 1))) {
     if (item === undefined) {
       continue;
@@ -561,8 +569,9 @@ export class ConnectionSends {
    */
   public nonceFor(from: string, pending: bigint): bigint {
     let nonce = pending;
-    const mark = this.#highWaterEnabled ? this.#highWater.get(from) : undefined;
-    if (mark !== undefined && mark >= nonce) {
+    // -1n: no mark yet. recordSent keeps none when the mark is off.
+    const mark = this.#highWater.get(from) ?? -1n;
+    if (mark >= nonce) {
       nonce = mark + 1n;
     }
     for (const reserved of this.#live(from).keys()) {
@@ -708,7 +717,7 @@ export class ConnectionSends {
    * none or the mark is off.
    */
   public highWaterOf(from: string): bigint | undefined {
-    return this.#highWaterEnabled ? this.#highWater.get(from) : undefined;
+    return this.#highWater.get(from);
   }
 
   /**
@@ -722,7 +731,11 @@ export class ConnectionSends {
       return;
     }
     const mark = this.#highWater.get(from);
-    if (mark === undefined || nonce > mark) {
+    if (
+      mark === undefined ||
+      // Stryker disable next-line EqualityOperator: >= sets the mark to the value it already has
+      nonce > mark
+    ) {
       this.#highWater.set(from, nonce);
     }
   }
