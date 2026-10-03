@@ -111,6 +111,70 @@ describe("hiddenSet and masker", () => {
   });
 });
 
+describe("short ids", () => {
+  const PROJECT = "my-prj";
+
+  it("masks an id of 6 or 7 characters as a whole word, in any case", () => {
+    const mask = maskKeys([], [PROJECT, "prj-123"]);
+    assert.equal(mask("project my-prj"), "project <hidden>");
+    assert.equal(mask("MY-PRJ, then prj-123."), "<hidden>, then <hidden>.");
+    assert.equal(mask("sa@my-prj.iam.gserviceaccount.com"), "sa@<hidden>.iam.gserviceaccount.com");
+    assert.equal(mask("projects/my-prj/locations/global"), "projects/<hidden>/locations/global");
+    assert.deepEqual(
+      hiddenSet({ keys: [], others: [PROJECT, "abcde"] }).map((entry) => entry.value),
+      [PROJECT],
+    );
+  });
+
+  it("never masks a short id inside a longer run of letters, digits, _ or -", () => {
+    const mask = maskKeys([], [PROJECT, "signer"]);
+    assert.equal(
+      mask("my-prj2 xmy-prj my-prj-sa my_prj_x amy-prj_"),
+      "my-prj2 xmy-prj my-prj-sa my_prj_x amy-prj_",
+    );
+    assert.equal(
+      mask("signers co-signer signer_1 cosigner"),
+      "signers co-signer signer_1 cosigner",
+    );
+    // A project named like a common word is masked where the word stands alone.
+    assert.equal(mask("the signer signed"), "the <hidden> signed");
+  });
+
+  it("masks the URL-encoded and \\/-escaped forms of a short id", () => {
+    const mask = maskKeys([], ["a/b.cd", PROJECT]);
+    assert.equal(mask("?p=a%2Fb.cd&x=1"), "?p=<hidden>&x=1");
+    assert.equal(mask('"a\\/b.cd"'), '"<hidden>"');
+    assert.equal(mask("a/b.cd"), "<hidden>");
+    // A %XX escape before a short id is a word boundary.
+    assert.equal(mask("projects%2Fmy-prj%2FkeyRings"), "projects%2F<hidden>%2FkeyRings");
+    assert.equal(mask("projects%2fMY-PRJ"), "projects%2f<hidden>");
+    assert.equal(mask("projects%252Fmy-prj"), "projects%252F<hidden>");
+    assert.equal(mask("projects%252525252Fmy-prj"), "projects%252525252F<hidden>");
+    // Encoded more than five times is not a boundary, which keeps the lookbehind a fixed size.
+    assert.equal(mask("projects%25252525252Fmy-prj"), "projects%25252525252Fmy-prj");
+  });
+
+  it("masks a short id after a literal backslash escape, never after a bare letter", () => {
+    const mask = maskKeys([], [PROJECT]);
+    assert.equal(mask("projects\\u002Fmy-prj"), "projects\\u002F<hidden>");
+    assert.equal(mask("projects\\x2Fmy-prj"), "projects\\x2F<hidden>");
+    assert.equal(mask("line\\nmy-prj"), "line\\n<hidden>");
+    assert.equal(mask("tab\\tmy-prj"), "tab\\t<hidden>");
+    assert.equal(
+      mask("cr\\rmy-prj ff\\fmy-prj bs\\bmy-prj"),
+      "cr\\r<hidden> ff\\f<hidden> bs\\b<hidden>",
+    );
+    assert.equal(
+      mask("xmy-prj Fmy-prj nmy-prj u002Fmy-prj"),
+      "xmy-prj Fmy-prj nmy-prj u002Fmy-prj",
+    );
+  });
+
+  it("still masks a long id inside a longer word", () => {
+    assert.equal(maskKeys([], ["secret-project"])("xsecret-projecty"), "x<hidden>y");
+  });
+});
+
 describe("errorMasker", () => {
   const mask = errorMasker(
     hiddenSet({ keys: ["alias/deployer-key"], others: [] }),
