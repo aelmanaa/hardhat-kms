@@ -61,4 +61,18 @@ describe("library account debug lines", () => {
       `${ADDRESS}: signing an authorization for chain 31337`,
     ]);
   });
+
+  it("logs a nonce manager reset that failed, with the error's class only", async () => {
+    const { connection } = setup();
+    connection.nonces.reset = async () => {
+      throw await Promise.resolve(new TypeError("no chain at https://secret.example"));
+    };
+    const account = await createKmsNetworkConnection(connection).getAccount(ADDRESS);
+    account.nonceManager.reset({ address: ADDRESS, chainId: CHAIN_ID });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(lines(), [
+      `${ADDRESS}: account for network local`,
+      `${ADDRESS}: nonceManager.reset failed (TypeError)`,
+    ]);
+  });
 });

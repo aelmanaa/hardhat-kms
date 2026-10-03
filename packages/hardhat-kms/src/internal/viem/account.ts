@@ -148,32 +148,30 @@ function loadFailure(error: unknown): string {
 let warnedAboutTransport = false;
 
 /**
- * Tells whether a viem client's transport does not go through Hardhat: one whose type is not
- * `custom`, such as `http(url)` or `webSocket(url)`. A `custom` transport over another provider
- * cannot be told apart from `custom(connection.provider)`.
+ * The type of a viem client's transport when it does not go through Hardhat: any type but
+ * `custom`, such as `http` or `webSocket`. A `custom` transport over another provider cannot be
+ * told apart from `custom(connection.provider)`.
  *
  * @param client - The viem client of the send.
- * @returns Whether it does not.
+ * @returns The transport's type, or `undefined` for a `custom` or unknown transport.
  */
-function ownTransport(client: unknown): boolean {
+function ownTransportType(client: unknown): string | undefined {
   const transport: unknown = isObject(client) ? client.transport : undefined;
   const type: unknown = isObject(transport) ? transport.type : undefined;
-  return typeof type === "string" && type !== "custom";
+  return typeof type === "string" && type !== "custom" ? type : undefined;
 }
 
 /**
  * Warns, once per process, when viem asks for a nonce for a client whose transport does not go
  * through Hardhat: its broadcast never reaches the plugin.
  *
- * @param client - The viem client of the send.
+ * @param type - The transport's type.
  */
-function warnAboutTransport(client: unknown): void {
+function warnAboutTransport(type: string): void {
   if (warnedAboutTransport) {
     return;
   }
   warnedAboutTransport = true;
-  const transport: unknown = isObject(client) ? client.transport : undefined;
-  const type = isObject(transport) ? String(transport.type) : "";
   warn(
     `a connection.kms.getAccount account sends with a viem "${type}" transport, which does not go through Hardhat. The plugin chose the transaction's nonce and keeps it from its own sends for 60 s, but it does not order or see the broadcast. Send through custom(connection.provider); see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.`,
   );
@@ -351,9 +349,10 @@ function buildNonceManager(context: AccountContext): KmsNonceManager {
     reserve: boolean,
   ): Promise<number> => {
     checkOpen(connection, operation);
-    const own = reserve && ownTransport(parameters.client);
+    const type = reserve ? ownTransportType(parameters.client) : undefined;
+    const own = type !== undefined;
     if (own) {
-      warnAboutTransport(parameters.client);
+      warnAboutTransport(type);
     }
     const chainId = BigInt(parameters.chainId);
     return Number(await connection.nonces.choose({ address, chainId, reserve, ownTransport: own }));
