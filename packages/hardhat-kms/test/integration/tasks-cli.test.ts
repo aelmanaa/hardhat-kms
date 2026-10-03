@@ -175,8 +175,8 @@ describe("kms tasks from the Hardhat CLI", () => {
   it("fails on an unknown key with the known names", async () => {
     const run = await hardhat(["kms", "address", "nobody"]);
 
-    assert.notEqual(run.status, 0);
-    assert.notEqual(run.status, null, "the task did not exit");
+    assert.notEqual(run.status, null, `the task did not exit:\n${run.report}`);
+    assert.notEqual(run.status, 0, run.report);
     assert.match(run.output, /unknown key "nobody"\. Known keys: deployer, chatty, pinned\./);
   });
 
@@ -396,8 +396,8 @@ describe("kms tasks from the Hardhat CLI", () => {
   it("refuses a --no-hash value that is not 32 bytes", async () => {
     const run = await hardhat(["kms", "sign", "--no-hash", "deployer", `0x${"ab".repeat(31)}`]);
 
-    assert.notEqual(run.status, 0);
-    assert.notEqual(run.status, null, "the task did not exit");
+    assert.notEqual(run.status, null, `the task did not exit:\n${run.report}`);
+    assert.notEqual(run.status, 0, run.report);
     assert.equal(run.stdout, "");
     assert.match(run.output, /--no-hash needs a 32-byte digest, got 31 bytes/);
   });
@@ -449,7 +449,7 @@ describe("kms tasks from the Hardhat CLI", () => {
       );
 
       assert.notEqual(run.status, null, `the task did not exit:\n${run.report}`);
-      assert.notEqual(run.status, 0);
+      assert.notEqual(run.status, 0, run.report);
       assert.match(run.output, /the typed data is for chain 1, but network remote is chain 31337/);
       assert.ok(node.methods.includes("eth_chainId"), node.methods.join(", "));
     } finally {
@@ -460,8 +460,8 @@ describe("kms tasks from the Hardhat CLI", () => {
   it("refuses typed data for a chain when none is given to compare", async () => {
     const run = await hardhat(["kms", "sign", "--data", "deployer", JSON.stringify(EIP712_MAIL)]);
 
-    assert.notEqual(run.status, 0);
-    assert.notEqual(run.status, null, "the task did not exit");
+    assert.notEqual(run.status, null, `the task did not exit:\n${run.report}`);
+    assert.notEqual(run.status, 0, run.report);
     assert.match(
       run.output,
       /the typed data is for chain 1, and there is no chain to compare it with/,
@@ -659,8 +659,8 @@ describe("kms tasks from the Hardhat CLI", () => {
       "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     ]);
 
-    assert.notEqual(run.status, 0);
-    assert.notEqual(run.status, null, "the task did not exit");
+    assert.notEqual(run.status, null, `the task did not exit:\n${run.report}`);
+    assert.notEqual(run.status, 0, run.report);
     assert.equal(run.stdout, "");
     assert.match(
       run.output,

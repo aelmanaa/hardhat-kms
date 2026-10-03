@@ -10,8 +10,12 @@
 // - A run with no marker, such as a `kms` task or a script copied from the docs, cannot tell its
 //   startup from its work, so it gets one limit, RUN_LIMIT_MS, sized for a loaded startup.
 // The helper stops the child with SIGKILL at a limit, at a stderr line the test names, or when the
-// test's signal aborts, and the result says which and when. Every exit path ends the child.
-import { spawn } from "node:child_process";
+// test's signal aborts, and the result says which and when. On Node 22, `node --test --test-timeout`
+// also limits each test file and ends a file that runs too long with SIGTERM, which skips every
+// `finally` and abort listener; a SIGTERM handler here ends the children then. The helper does not
+// end the child's own children: a grandchild that keeps stdout open delays the result until it
+// exits.
+import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +30,26 @@ export const HARDHAT_CLI: string = path.join(repo, "node_modules/hardhat/dist/sr
  * margin, and below the 120 s per-test timeout of `pnpm run test:integration`.
  */
 export const RUN_LIMIT_MS: number = 100_000;
+
+/** The children still running, ended when the test process gets SIGTERM. */
+const running = new Set<ChildProcess>();
+
+process.once("SIGTERM", () => {
+  for (const child of running) {
+    child.kill("SIGKILL");
+  }
+  process.exit(143);
+});
+
+/**
+ * Ends `child` with the test process, also when Node's test runner ends the file with SIGTERM.
+ *
+ * @param child - A child the test started, such as `hardhat node`.
+ */
+export function endWithTestProcess(child: ChildProcess): void {
+  running.add(child);
+  child.once("exit", () => running.delete(child));
+}
 
 /** How long a run may take. */
 export type RunLimits =
@@ -51,7 +75,10 @@ export interface HardhatRunOptions {
   limits?: RunLimits;
   /** A stderr pattern that stops the run at its first match, such as the plugin's warning. */
   stopOn?: { pattern: RegExp; reason: string };
-  /** Stops the run when it aborts. Pass the test context's `signal`. */
+  /**
+   * A signal that stops the run when it aborts. Pass the test context's `signal`, which aborts when
+   * the test ends or times out.
+   */
   signal?: AbortSignal | undefined;
 }
 
@@ -106,6 +133,7 @@ export async function runHardhat(args: string[], options: HardhatRunOptions): Pr
     env: hardhatEnv(options.env),
     stdio: ["ignore", "pipe", "pipe"],
   });
+  endWithTestProcess(child);
   const started = Date.now();
   let stopped: string | undefined;
   let stdout = "";
@@ -163,9 +191,11 @@ export async function runHardhat(args: string[], options: HardhatRunOptions): Pr
     }
   }
   const ended =
-    stopped === undefined
-      ? `exited with ${String(status)}${status === 13 ? " (a top-level await never settled)" : ""}`
-      : `stopped by the test: ${stopped}`;
+    stopped !== undefined
+      ? `stopped by the test: ${stopped}`
+      : status === null
+        ? `ended by ${String(child.signalCode)}`
+        : `exited with ${String(status)}${status === 13 ? " (a top-level await never settled)" : ""}`;
   return {
     status,
     ...(stopped === undefined ? {} : { stopped }),
