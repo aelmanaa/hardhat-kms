@@ -103,8 +103,16 @@ export interface SendHarness {
  * The network hook's handlers with fake timers, a runtime with two third-party keys (cow, zero),
  * and a fake node. The network sets a fixed gas and gas price, so a fill only reads the chain id
  * and the pending count.
+ *
+ * @param type - The network type.
+ * @param chainId - The chain id of the network and its node. The send locks are process-global
+ * and keyed by chain id and address, so a test with a chain id of its own cannot wait behind, or
+ * leave waiters for, the sends of another test.
  */
-export async function setUp(type: "http" | "edr-simulated" = "http"): Promise<SendHarness> {
+export async function setUp(
+  type: "http" | "edr-simulated" = "http",
+  chainId = 31337,
+): Promise<SendHarness> {
   const keys = Object.fromEntries(Object.keys(SECRETS).map((name) => [name, vaultKey(name)]));
   const hre = await createHardhatRuntimeEnvironment({
     plugins: [hardhatKms],
@@ -113,7 +121,7 @@ export async function setUp(type: "http" | "edr-simulated" = "http"): Promise<Se
       remote: {
         type: "http",
         url: "http://127.0.0.1:1",
-        chainId: 31337,
+        chainId,
         gas: 21_000,
         gasPrice: 1,
         kmsAccounts: ["cow", "zero"],
@@ -154,7 +162,7 @@ export async function setUp(type: "http" | "edr-simulated" = "http"): Promise<Se
     const ok = (result: unknown): JsonRpcResponse => ({ jsonrpc: "2.0", id: request.id, result });
     switch (request.method) {
       case "eth_chainId":
-        return ok("0x7a69");
+        return ok(`0x${chainId.toString(16)}`);
       case "eth_getTransactionCount":
         return ok(`0x${node.pending.toString(16)}`);
       case "eth_fillTransaction":
