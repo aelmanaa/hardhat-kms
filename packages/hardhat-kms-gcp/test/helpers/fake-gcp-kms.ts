@@ -1,4 +1,5 @@
 import { createPrivateKey, createPublicKey } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import type { protos } from "@google-cloud/kms";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
@@ -91,6 +92,15 @@ export interface FakeKmsOptions {
   int64Form?: "number" | "string";
   /** Fail every call with this error. */
   callError?: Error;
+  /** Reject `initialize()` with this error, as the SDK does when credentials cannot be loaded. */
+  initializeError?: Error;
+  /** How many clients, counted from the first, fail to initialize; every client by default. */
+  initializeFailures?: Times;
+  /**
+   * How long each `initialize()` call, across all clients and counted from 0, waits before it
+   * settles, in milliseconds: calls that share a client then see its outcome at different times.
+   */
+  initializeDelayMs?: (call: number) => number;
   /** Fail this many calls of one method, counted from the first, with this error. */
   failFirst?: { method: "getPublicKey" | "asymmetricSign"; error: Error; times: number };
   /** Answer getPublicKey only after the call's signal aborts, like a late network response. */
@@ -109,11 +119,12 @@ export interface RecordedCall {
   options: GcpCallOptions;
 }
 
-/** A recorded client: what it was created with, and whether it was closed. */
+/** A recorded client: what it was created with, and how often it was initialized and closed. */
 export interface RecordedClient {
   options: GcpClientOptions;
   gax: GaxModule;
-  closed: boolean;
+  initialized: number;
+  closed: number;
 }
 
 /** The fake SDK module, and what was done with it. */
@@ -132,6 +143,8 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
   const calls: RecordedCall[] = [];
   const clients: RecordedClient[] = [];
   let failed = 0;
+  let initializations = 0;
+  let initializeCalls = 0;
   const fail = (method: "getPublicKey" | "asymmetricSign"): void => {
     if (options.callError !== undefined) {
       throw options.callError;
@@ -150,9 +163,31 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
 
   class KeyManagementServiceClient implements GcpKmsClient {
     readonly #record: RecordedClient;
+    #initialization: Promise<void> | undefined;
     public constructor(clientOptions: GcpClientOptions, gaxModule?: GaxModule) {
-      this.#record = { options: clientOptions, gax: gaxModule, closed: false };
+      this.#record = { options: clientOptions, gax: gaxModule, initialized: 0, closed: 0 };
       clients.push(this.#record);
+    }
+
+    /** Like the SDK's, it keeps the outcome of its first initialization, a failure included. */
+    public async initialize(): Promise<void> {
+      this.#record.initialized++;
+      const delay = options.initializeDelayMs?.(initializeCalls++) ?? 0;
+      if (delay > 0) {
+        await sleep(delay);
+      }
+      this.#initialization ??= this.#initialize(initializations++);
+      await this.#initialization;
+    }
+
+    async #initialize(initialization: number): Promise<void> {
+      if (
+        options.initializeError !== undefined &&
+        faulty(options.initializeFailures ?? Infinity, initialization)
+      ) {
+        throw options.initializeError;
+      }
+      await Promise.resolve();
     }
 
     public async getPublicKey(request: { name: string }, callOptions: GcpCallOptions) {
@@ -223,9 +258,10 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
       ]);
     }
 
+    /** Like the SDK's, it waits for the initialization, and rejects with its failure. */
     public async close(): Promise<void> {
-      this.#record.closed = true;
-      await Promise.resolve();
+      this.#record.closed++;
+      await (this.#initialization ?? Promise.resolve());
     }
   }
 

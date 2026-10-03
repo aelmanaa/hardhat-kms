@@ -18,7 +18,7 @@ import type {
 } from "hardhat-kms/types";
 
 import { ERRORS } from "./error-catalog.ts";
-import { statusName } from "./wire.ts";
+import { credentialFailure, statusName } from "./wire.ts";
 
 /** The body of an `entries.list` request. */
 export interface ListEntriesRequest {
@@ -483,7 +483,12 @@ export async function readGcpSignHistory(
         }
         timeouts += timedOut ? 1 : 0;
         const status = httpStatus(error);
-        const code = status === undefined ? networkCode(error) : undefined;
+        // A credentials file that cannot be read fails with its file system code, such as
+        // ENOENT: that is not a network error, and a retry would not fix it.
+        const code =
+          status === undefined && credentialFailure(error) === undefined
+            ? networkCode(error)
+            : undefined;
         const delay = RETRY_DELAYS_MS[attempt];
         const retryable = timedOut
           ? timeouts <= TIMEOUT_RETRIES
@@ -532,13 +537,9 @@ export async function readGcpSignHistory(
     if (error instanceof CallTimedOut) {
       return fail(ERRORS.historyCallTimedOut, { seconds: error.seconds, attempts });
     }
-    // google-auth-library's message for missing Application Default Credentials. It holds no
-    // request details, so it is safe to recognise.
-    if (
-      error instanceof Error &&
-      error.message.includes("Could not load the default credentials")
-    ) {
-      return fail(ERRORS.noCredentials, {});
+    const credentials = credentialFailure(error);
+    if (credentials !== undefined) {
+      return fail(ERRORS[credentials], {});
     }
     return error;
   };

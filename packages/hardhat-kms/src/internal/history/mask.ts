@@ -1,8 +1,35 @@
 import { parseAwsKeyId } from "../providers/aws/key-id.ts";
 import { parseAzureKeyId } from "../providers/azure/key-id.ts";
 
-/** Values shorter than this are never replaced, so that masking cannot garble ordinary text. */
-const MIN_HIDDEN_LENGTH = 8;
+/**
+ * Values shorter than this are never replaced, so that masking cannot garble ordinary text.
+ *
+ * Every value the masker is given is an id the core knows: a key identifier and its parts, a scope
+ * id, an `extraIds` value, a reader's `hiddenValues`, a workspace id or a configuration variable
+ * part. None is free text, so one floor fits them all. It is 6, the shortest Google Cloud project
+ * id.
+ */
+const MIN_HIDDEN_LENGTH = 6;
+
+/**
+ * Values at least this long are replaced wherever they appear, even inside a longer word. Shorter
+ * ones are replaced only as a whole word: not next to a letter, digit, `_` or `-`, in any case. An
+ * escape before the value counts as a word boundary, so a short id still masks after a `%XX`
+ * escape, encoded up to five times (`projects%2Fmy-prj`, `projects%252Fmy-prj`), and after a
+ * literal backslash escape such as `\u002F`, `\x2F`, `\n` or `\t`. The bound on `%25` keeps the
+ * lookbehind a fixed size: an unbounded `(?:25)*` makes a long run of `%2525…` take quadratic time
+ * when a hidden value starts with `2` or `5`.
+ *
+ * A short id that is also an ordinary word, such as a project named `signer`, is therefore masked
+ * where that word stands alone in a note or user agent, but never inside a longer word such as
+ * `signers` or `co-signer`. That is accepted: the value is the user's own id, and hiding a word too
+ * many keeps the output readable, while printing the id would not keep it hidden.
+ */
+const MIN_ANYWHERE_LENGTH = 8;
+
+/** The characters a short value must not touch, on either side. */
+const WORD_BEFORE = String.raw`(?<=^|[^A-Za-z0-9_-]|%(?:25){0,4}[0-9A-Fa-f]{2}|\\(?:u[0-9A-Fa-f]{4}|x[0-9A-Fa-f]{2}|[nrtbf]))`;
+const WORD_AFTER = "(?![A-Za-z0-9_-])";
 
 /** What a value that names something other than the key prints as. */
 const HIDDEN = "<hidden>";
@@ -96,7 +123,7 @@ function encodedForms(entry: HiddenValue): HiddenValue[] {
 
 /**
  * The values to hide: each given value, the parts that name something on their own, and their
- * URL-encoded and `\/`-escaped forms, long enough to mask safely, each once whatever its case,
+ * URL-encoded and `\/`-escaped forms, at least 6 characters long, each once whatever its case,
  * longest first. A value given both as a key and as something else is masked as the key.
  *
  * @param sources - The key's identifiers and the other values to hide.
@@ -145,8 +172,9 @@ function outside(text: string, keep: string, replace: (part: string) => string):
 
 /**
  * Builds a function that replaces each hidden value in a text, in any case: a key value with the
- * key's display id, any other value with `<hidden>`. The display id itself is never rewritten, so
- * a literal key's display id stays as it is.
+ * key's display id, any other value with `<hidden>`. A value shorter than
+ * {@link MIN_ANYWHERE_LENGTH} is replaced only as a whole word. The display id itself is never
+ * rewritten, so a literal key's display id stays as it is.
  *
  * @param hidden - The values to hide, from {@link hiddenSet}.
  * @param displayId - What a key value prints as.
@@ -160,9 +188,17 @@ export function masker(
     return (text) => text;
   }
   const entries = new Map(hidden.map((entry) => [entry.value.toLowerCase(), entry]));
-  // Longest first, so a key ARN is replaced whole before its key id.
+  // Longest first, so a key ARN is replaced whole before its key id. A short value matches only
+  // as a whole word (see MIN_ANYWHERE_LENGTH).
   const pattern = new RegExp(
-    hidden.map((entry) => entry.value.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+    hidden
+      .map((entry) => {
+        const literal = entry.value.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return entry.value.length >= MIN_ANYWHERE_LENGTH
+          ? literal
+          : `${WORD_BEFORE}${literal}${WORD_AFTER}`;
+      })
+      .join("|"),
     "gi",
   );
   return (text) =>

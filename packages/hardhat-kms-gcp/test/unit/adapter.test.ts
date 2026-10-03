@@ -146,8 +146,17 @@ describe("Google Cloud KMS adapter", () => {
       pinnedId: "<GCP_KEY>",
       displayId: "gcp:<GCP_KEY>",
     });
+    // The first call creates the client: its constructor starts a credentials lookup.
+    assert.equal(clients.length, 0);
     await adapter.close?.();
-    assert.equal(clients[0]?.closed, true);
+    assert.equal(clients.length, 0);
+
+    await lookUp(adapter);
+    await adapter.close?.();
+    assert.deepEqual(
+      clients.map(({ closed }) => closed),
+      [1],
+    );
   });
 
   describe("refuses key versions and responses that are not what it asked for", () => {
@@ -385,10 +394,136 @@ describe("Google Cloud KMS adapter", () => {
       ]);
     });
 
-    it("passes other errors on unchanged", async () => {
+    const UNREADABLE_FILE =
+      "Unable to read the credential file specified by the GOOGLE_APPLICATION_CREDENTIALS environment variable: The file at /secret/path/adc.json does not exist, or it is not a file. ENOENT: no such file or directory";
+
+    it("explains a credentials file that cannot be read, without its path", async () => {
+      const { adapter } = await adapterFor({ callError: new Error(UNREADABLE_FILE) });
+      await assert.rejects(lookUp(adapter), (error: unknown) => {
+        assert.ok(error instanceof HardhatPluginError);
+        assert.ok(error.message.includes("gcp, connect,"), error.message);
+        assert.ok(
+          error.message.includes("the credentials file GOOGLE_APPLICATION_CREDENTIALS names"),
+          error.message,
+        );
+        assert.ok(!error.message.includes("/secret/path"), error.message);
+        return true;
+      });
+    });
+
+    it("initializes the client before each call, and makes no call when that fails", async () => {
+      const { adapter, calls, clients } = await adapterFor({
+        initializeError: new Error(UNREADABLE_FILE),
+      });
+      for (const attempt of [lookUp(adapter), sign(adapter)]) {
+        await assertGcpError(attempt, ["gcp, connect,", "GOOGLE_APPLICATION_CREDENTIALS names"]);
+      }
+      assert.deepEqual(calls, []);
+      // Both calls started together on the client, which failed and was closed once.
+      assert.deepEqual(
+        clients.map(({ initialized, closed }) => ({ initialized, closed })),
+        [{ initialized: 2, closed: 1 }],
+      );
+
+      const healthy = await adapterFor();
+      await sign(healthy.adapter);
+      assert.equal(healthy.clients.length, 1);
+      assert.equal(healthy.clients[0]?.initialized, healthy.calls.length);
+    });
+
+    it("replaces a client whose initialization failed, so the next call looks up credentials again", async () => {
+      // The SDK keeps the first initialize() promise, rejected or not: the same client would
+      // fail every later call with the first error.
+      const { adapter, clients, methods } = await adapterFor({
+        initializeError: new Error(UNREADABLE_FILE),
+        initializeFailures: 1,
+      });
+      await assertGcpError(lookUp(adapter), [
+        "gcp, connect,",
+        "the credentials file GOOGLE_APPLICATION_CREDENTIALS names could not be read",
+      ]);
+      assert.equal(methods("getPublicKey"), 0);
+      // The failed client is closed, and the next call creates another.
+      assert.deepEqual(
+        clients.map(({ closed }) => closed),
+        [1],
+      );
+
+      assert.deepEqual(await lookUp(adapter), publicKey);
+      assert.ok((await sign(adapter)) !== undefined);
+      assert.equal(clients.length, 2);
+      assert.deepEqual(
+        clients.map(({ initialized, closed }) => ({ initialized, closed })),
+        [
+          { initialized: 1, closed: 1 },
+          { initialized: 2, closed: 0 },
+        ],
+      );
+      await adapter.close?.();
+      assert.equal(clients[1]?.closed, 1);
+    });
+
+    it("closes each failed client, however often initialization fails", async () => {
+      const { adapter, clients } = await adapterFor({
+        initializeError: new Error(UNREADABLE_FILE),
+      });
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        await assertGcpError(lookUp(adapter), ["gcp, connect,"]);
+        // One client per attempt, each initialized once and closed.
+        assert.deepEqual(
+          clients.map(({ initialized, closed }) => ({ initialized, closed })),
+          Array.from({ length: attempt }, () => ({ initialized: 1, closed: 1 })),
+        );
+      }
+      await adapter.close?.();
+      assert.equal(clients.length, 5);
+    });
+
+    it("replaces a failed client once when concurrent calls share it", async () => {
+      const { adapter, clients } = await adapterFor({
+        initializeError: new Error(UNREADABLE_FILE),
+        initializeFailures: 1,
+      });
+      const results = await Promise.allSettled([lookUp(adapter), lookUp(adapter)]);
+      assert.deepEqual(
+        results.map(({ status }) => status),
+        ["rejected", "rejected"],
+      );
+      assert.equal(clients.length, 1);
+      assert.deepEqual(await lookUp(adapter), publicKey);
+      assert.equal(clients.length, 2);
+    });
+
+    it("keeps the new client when a call on the failed one learns of the failure late", async () => {
+      // Calls 0 and 1 share the first client; call 1 sees its failure 50 ms after call 0 does.
+      // Call 2, made in between, creates the second client.
+      const { adapter, clients } = await adapterFor({
+        initializeError: new Error(UNREADABLE_FILE),
+        initializeFailures: 1,
+        initializeDelayMs: (call) => (call === 1 ? 50 : 0),
+      });
+      const early = lookUp(adapter);
+      const late = lookUp(adapter);
+      await assertGcpError(early, ["gcp, connect,"]);
+      assert.deepEqual(await lookUp(adapter), publicKey);
+      await assertGcpError(late, ["gcp, connect,"]);
+
+      // The late failure neither closes the first client again nor drops the second.
+      assert.deepEqual(await lookUp(adapter), publicKey);
+      assert.deepEqual(
+        clients.map(({ closed }) => closed),
+        [1, 0],
+      );
+    });
+
+    it("passes other errors on unchanged, and keeps the client", async () => {
       for (const error of [new Error("socket hang up"), googleError(99, "?")]) {
-        const { adapter } = await adapterFor({ callError: error });
+        const { adapter, clients } = await adapterFor({ callError: error });
         await assert.rejects(lookUp(adapter), (thrown) => thrown === error);
+        await assert.rejects(lookUp(adapter), (thrown) => thrown === error);
+        // Only a failed initialization replaces the client; a failed call does not.
+        assert.equal(clients.length, 1);
+        assert.equal(clients[0]?.closed, 0);
       }
     });
   });
