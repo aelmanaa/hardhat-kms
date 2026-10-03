@@ -169,7 +169,7 @@ sequenceDiagram
   V->>N: eth_sendRawTransaction (as the send that holds the lock, otherwise unchanged)
 ```
 
-Every refusal comes before the KMS call. The unit tests in `packages/hardhat-kms/test/unit/viem/account.test.ts` count the fake adapter's calls around each refusal, and compare every method's output with viem's `privateKeyToAccount` on the same key.
+Every refusal comes before the KMS call. The unit tests in `packages/hardhat-kms/test/unit/viem/account.test.ts` count the fake adapter's calls around each refusal, and compare every method's output with viem's `privateKeyToAccount` on the same key. `signAuthorization` returns no `v`, so its comparison leaves out viem's `v`.
 
 viem is an optional peer dependency (`peerDependenciesMeta`). `account.ts` loads it with a dynamic `import("viem")` in `getAccount`, and no other module imports it, so the hook and task modules that Hardhat loads never need it. `packages/hardhat-kms/test/integration/no-viem.test.ts` runs every task, a send and a signature in a process where viem cannot be resolved, and checks that only `getAccount` asks for it. The account keeps no signer, key config or key material: it is a frozen object of strings and closures. `sign({ hash })` exists only with `rawSign: true` ([decision 0014](decisions/0014-library-account-raw-sign.md)).
 

@@ -67,9 +67,7 @@ export interface KmsSignedAuthorization {
   r: KmsHex;
   /** 32 bytes, in the lower half of the curve order. */
   s: KmsHex;
-  /** 27 or 28. */
-  v: bigint;
-  /** 0 or 1. */
+  /** 0 or 1. There is no `v`; viem marks `v` on signatures as deprecated. */
   yParity: number;
 }
 

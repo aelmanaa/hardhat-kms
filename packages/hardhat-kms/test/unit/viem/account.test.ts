@@ -30,6 +30,7 @@ import {
   kmsCalls,
   setup,
   VIEM_ACCOUNT,
+  viemAuthorizationWithoutV,
 } from "../../helpers/library-account.ts";
 import { COW_ACCOUNT, EIP712_MAIL, HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
 
@@ -289,15 +290,40 @@ describe("connection.kms.getAccount", () => {
           ] as const) {
             assert.deepEqual(
               await account.signAuthorization(request),
-              await VIEM_ACCOUNT.signAuthorization(request),
+              await viemAuthorizationWithoutV(request),
             );
           }
           const anyChain = await kms.getAccount(ADDRESS, { allowChainZeroAuthorization: true });
           const request = { contractAddress: DELEGATE, chainId: 0, nonce: 5 } as const;
           assert.deepEqual(
             await anyChain.signAuthorization(request),
-            await VIEM_ACCOUNT.signAuthorization(request),
+            await viemAuthorizationWithoutV(request),
           );
+        });
+
+        it("for authorizations, with yParity and no v", async () => {
+          const { connection } = setup({ adapter: adapterOptions });
+          const account = await createKmsNetworkConnection(connection).getAccount(ADDRESS);
+          // Ten nonces give both yParity values with this key.
+          const parities = new Set<number>();
+          for (let nonce = 0; nonce < 10; nonce += 1) {
+            const signed = await account.signAuthorization({
+              contractAddress: DELEGATE,
+              chainId: CHAIN_ID,
+              nonce,
+            });
+            assert.equal("v" in signed, false);
+            assert.deepEqual(Object.keys(signed).toSorted(), [
+              "address",
+              "chainId",
+              "nonce",
+              "r",
+              "s",
+              "yParity",
+            ]);
+            parities.add(signed.yParity);
+          }
+          assert.deepEqual(parities, new Set([0, 1]));
         });
 
         it("for bare digests with rawSign", async () => {

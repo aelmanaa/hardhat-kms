@@ -2216,17 +2216,11 @@ The address of the code to delegate to, as it was requested.
 
 32 bytes, in the lower half of the curve order.
 
-##### v
-
-> **v**: `bigint`
-
-27 or 28.
-
 ##### yParity
 
 > **yParity**: `number`
 
-0 or 1.
+0 or 1. There is no `v`; viem marks `v` on signatures as deprecated.
 
 ---
 
