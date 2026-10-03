@@ -15,7 +15,7 @@ import { Transaction } from "micro-eth-signer";
 import type { KmsKeyConfig } from "../../types.ts";
 import { keyIdentity } from "../config/key-identity.ts";
 import { toChecksumAddress } from "../crypto/address.ts";
-import { kmsDebug } from "../debug.ts";
+import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, catalogMessage, errorName } from "../errors.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
@@ -40,7 +40,7 @@ import { notPlainData, stringResult, type TransactionFiller } from "./transactio
 import { signTransaction } from "./transactions.ts";
 import { checkTypedDataChain, readTypedData } from "./typed-data.ts";
 
-const log = kmsDebug("rpc");
+const log = coreDebug("rpc");
 
 /** The KMS keys of one network connection. */
 export interface NetworkKeys {

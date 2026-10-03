@@ -32,5 +32,6 @@ export { parseAzureKeyId, type ParsedAzureKeyId } from "./internal/providers/azu
 export { checkProviderVersion } from "./internal/providers/version.ts";
 // For history readers, first-party or not: the errors kms history expects when a log cannot be read.
 export { auditLogAccessDenied, auditLogThrottled } from "./internal/history/errors.ts";
-// For provider plugins: a logger under `hardhat:kms:<namespace>` that prints plain values only.
+// For provider plugins: a logger under `hardhat:kms:<provider id>` that prints plain values only.
+// The core's own namespaces are refused.
 export { kmsDebug, type DebugValue, type KmsDebugLogger } from "./internal/debug.ts";

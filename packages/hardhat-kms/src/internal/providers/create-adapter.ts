@@ -3,13 +3,13 @@ import { HardhatPluginError } from "hardhat/plugins";
 import type { HookContext } from "hardhat/types/hooks";
 
 import type { KmsKeyConfig } from "../../types.ts";
-import { kmsDebug } from "../debug.ts";
+import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, type ErrorDetails, errorName } from "../errors.ts";
 import type { KmsKeyAdapter } from "../signer/types.ts";
 import { builtinProvider } from "./registry.ts";
 
-const log = kmsDebug("providers");
+const log = coreDebug("providers");
 
 const SIGNING_METHODS = ["signDigest", "signMessage", "signTypedData"] as const;
 const IDENTITY_METHODS = ["getPublicKey", "getAddress"] as const;

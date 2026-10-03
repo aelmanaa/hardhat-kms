@@ -3,7 +3,7 @@ import { HardhatPluginError } from "hardhat/plugins";
 import type { HookContext } from "hardhat/types/hooks";
 
 import type { KmsKeyConfig } from "../../types.ts";
-import { kmsDebug } from "../debug.ts";
+import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, type ErrorDetails, errorName } from "../errors.ts";
 import { builtinProvider } from "../providers/registry.ts";
@@ -19,7 +19,7 @@ import type {
   KmsHistoryScope,
 } from "./types.ts";
 
-const log = kmsDebug("history");
+const log = coreDebug("history");
 
 /**
  * How long `kms history` waits for a reader, in milliseconds. A read can take many requests: pages

@@ -10,7 +10,7 @@ import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import { addressFromPublicKey, sameAddress } from "../crypto/address.ts";
 import { authorizationDigest } from "../crypto/digests.ts";
 import { recoverPublicKey, toRpcSignature } from "../crypto/signature.ts";
-import { kmsDebug } from "../debug.ts";
+import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, errorName } from "../errors.ts";
 import {
@@ -45,7 +45,7 @@ import type {
   KmsTypedDataDefinition,
 } from "./types.ts";
 
-const log = kmsDebug("account");
+const log = coreDebug("account");
 
 /** What an account needs from its network connection. */
 export interface AccountConnection {
