@@ -6,7 +6,7 @@
 //
 // Usage: node scripts/generate-errors-doc.ts
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -72,12 +72,15 @@ function parseEntry(value: unknown, where: string): CatalogueEntry {
   };
 }
 
-/** The packages with an error catalogue, in the order of the page. */
-export const CATALOGUED_PACKAGES: readonly string[] = [
-  "hardhat-kms",
-  "hardhat-kms-aws",
-  "hardhat-kms-azure",
-  "hardhat-kms-gcp",
+/**
+ * The package directories with an error catalogue, relative to the repository root, in the order of
+ * the page. Each heading on the page is the `name` in the directory's package.json.
+ */
+export const CATALOGUED_DIRECTORIES: readonly string[] = [
+  "packages/hardhat-kms",
+  "packages/hardhat-kms-aws",
+  "packages/hardhat-kms-azure",
+  "packages/hardhat-kms-gcp",
 ];
 
 /**
@@ -85,35 +88,55 @@ export const CATALOGUED_PACKAGES: readonly string[] = [
  * page, or of the source check, without anyone noticing.
  */
 export function checkPackageLists(): void {
-  const listed = new Set(CATALOGUED_PACKAGES);
+  const listed = new Set(CATALOGUED_DIRECTORIES);
   const unlisted = readdirSync(path.join(root, "packages"), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !listed.has(entry.name))
-    .map((entry) => entry.name);
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.posix.join("packages", entry.name))
+    .filter((directory) => !listed.has(directory));
   if (unlisted.length > 0) {
     throw new Error(
-      `${unlisted.join(", ")}: add the package to CATALOGUED_PACKAGES in scripts/generate-errors-doc.ts, with its src/internal/error-catalog.ts`,
+      `${unlisted.join(", ")}: add the directory to CATALOGUED_DIRECTORIES in scripts/generate-errors-doc.ts, with its src/internal/error-catalog.ts`,
     );
   }
 }
 
 /**
- * Loads the error catalogue of every package in {@link CATALOGUED_PACKAGES}.
+ * Reads the package name from a package directory's package.json.
+ *
+ * @param directory - The package directory, relative to the repository root.
+ * @returns The `name` field.
+ */
+function packageNameOf(directory: string): string {
+  const manifest: unknown = JSON.parse(
+    readFileSync(path.join(root, directory, "package.json"), "utf8"),
+  );
+  const name: unknown =
+    typeof manifest === "object" && manifest !== null ? Reflect.get(manifest, "name") : undefined;
+  if (typeof name !== "string" || name === "") {
+    throw new Error(`${directory}: package.json has no name`);
+  }
+  return name;
+}
+
+/**
+ * Loads the error catalogue of every package in {@link CATALOGUED_DIRECTORIES}.
  *
  * @returns The catalogues, in the order of the list.
  */
 export async function loadCatalogues(): Promise<Catalogue[]> {
   checkPackageLists();
   const catalogues: Catalogue[] = [];
-  for (const packageName of CATALOGUED_PACKAGES) {
-    const file = path.join(root, "packages", packageName, "src/internal/error-catalog.ts");
+  for (const directory of CATALOGUED_DIRECTORIES) {
+    const packageName = packageNameOf(directory);
+    const file = path.join(root, directory, "src/internal/error-catalog.ts");
     if (!existsSync(file)) {
-      throw new Error(`${packageName}: src/internal/error-catalog.ts is missing`);
+      throw new Error(`${directory}: src/internal/error-catalog.ts is missing`);
     }
     const module: unknown = await import(pathToFileURL(file).href);
     const errors: unknown =
       typeof module === "object" && module !== null ? Reflect.get(module, "ERRORS") : undefined;
     if (typeof errors !== "object" || errors === null) {
-      throw new Error(`${packageName}: error-catalog.ts exports no ERRORS object`);
+      throw new Error(`${directory}: error-catalog.ts exports no ERRORS object`);
     }
     const entries = Object.entries(errors).map(([key, value]) =>
       parseEntry(value, `${packageName} ERRORS.${key}`),

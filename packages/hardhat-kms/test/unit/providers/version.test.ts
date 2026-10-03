@@ -15,16 +15,16 @@ const coreVersion = String(
 
 describe("provider version check", () => {
   it("accepts a provider package of the installed hardhat-kms version", () => {
-    checkProviderVersion("hardhat-kms-aws", coreVersion);
-    assert.equal(versionMismatch("hardhat-kms-aws", "0.3.1", "0.3.1"), undefined);
+    checkProviderVersion("@hardhat-kms/aws", coreVersion);
+    assert.equal(versionMismatch("@hardhat-kms/aws", "0.3.1", "0.3.1"), undefined);
     // Build metadata does not make a different release.
-    assert.equal(versionMismatch("hardhat-kms-aws", "0.3.1+build.5", "0.3.1"), undefined);
+    assert.equal(versionMismatch("@hardhat-kms/aws", "0.3.1+build.5", "0.3.1"), undefined);
   });
 
   it("fails with both versions, the given details and an install command", () => {
     assert.throws(
       () =>
-        checkProviderVersion("hardhat-kms-aws", "999.0.0", {
+        checkProviderVersion("@hardhat-kms/aws", "999.0.0", {
           provider: "aws",
           operation: "create adapter",
           key: "aws:alias/a",
@@ -33,11 +33,11 @@ describe("provider version check", () => {
         assert.ok(error instanceof HardhatPluginError, String(error));
         assert.ok(
           error.message.includes(
-            `aws, create adapter, key aws:alias/a: hardhat-kms-aws 999.0.0 needs hardhat-kms 999.0.0, but hardhat-kms ${coreVersion} is installed`,
+            `aws, create adapter, key aws:alias/a: @hardhat-kms/aws 999.0.0 needs hardhat-kms 999.0.0, but hardhat-kms ${coreVersion} is installed`,
           ),
           error.message,
         );
-        assert.ok(error.message.includes("hardhat-kms@999.0.0 hardhat-kms-aws@999.0.0"));
+        assert.ok(error.message.includes("hardhat-kms@999.0.0 @hardhat-kms/aws@999.0.0"));
         return true;
       },
     );
@@ -50,8 +50,8 @@ describe("provider version check", () => {
       ["0.2.1", "0.2.0", "0.2.1"],
     ] as const) {
       assert.match(
-        versionMismatch("hardhat-kms-aws", provider, core) ?? "",
-        new RegExp(`hardhat-kms@${target} hardhat-kms-aws@${target}\``),
+        versionMismatch("@hardhat-kms/aws", provider, core) ?? "",
+        new RegExp(`hardhat-kms@${target} @hardhat-kms/aws@${target}\``),
         `${provider} / ${core}`,
       );
     }
@@ -63,13 +63,13 @@ describe("provider version check", () => {
       ["1.0.0", "1.0.0-rc.1"],
     ] as const) {
       assert.match(
-        versionMismatch("hardhat-kms-aws", provider, core) ?? "",
-        /@1\.0\.0 hardhat-kms-aws@1\.0\.0`/,
+        versionMismatch("@hardhat-kms/aws", provider, core) ?? "",
+        /@1\.0\.0 @hardhat-kms\/aws@1\.0\.0`/,
       );
     }
     assert.match(
-      versionMismatch("hardhat-kms-aws", "next", "0.2.0") ?? "",
-      /hardhat-kms-aws next needs hardhat-kms next, but hardhat-kms 0\.2\.0 is installed\. Install the same version of both$/,
+      versionMismatch("@hardhat-kms/aws", "next", "0.2.0") ?? "",
+      /@hardhat-kms\/aws next needs hardhat-kms next, but hardhat-kms 0\.2\.0 is installed\. Install the same version of both$/,
     );
   });
 });

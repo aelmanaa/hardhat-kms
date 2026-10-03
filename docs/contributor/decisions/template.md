@@ -1,6 +1,6 @@
 # NNNN: Short statement of the decision
 
-Status: Proposed | Accepted | Superseded by NNNN
+Status: Proposed | Accepted | Superseded by NNNN | Amended by NNNN
 
 Issue: #n
 

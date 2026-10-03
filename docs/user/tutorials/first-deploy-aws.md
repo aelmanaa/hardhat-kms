@@ -119,17 +119,17 @@ The first prints `"findings": []` and the second `allowed`. The same simulation 
 Install the core plugin and the AWS provider:
 
 ```sh
-npm install --save-dev hardhat-kms hardhat-kms-aws
+npm install --save-dev hardhat-kms @hardhat-kms/aws
 ```
 
-Until the packages are published on npm, this command fails with `E404`. Build them from a clone of the [repository](https://github.com/aelmanaa/hardhat-kms) instead: run `pnpm install`, then `pnpm run build`, then `pnpm pack` in `packages/hardhat-kms` and in `packages/hardhat-kms-aws`. Install the two `.tgz` files it writes with `npm install --save-dev <path to hardhat-kms tgz> <path to hardhat-kms-aws tgz>`.
+Until the packages are published on npm, this command fails with `E404`. Build them from a clone of the [repository](https://github.com/aelmanaa/hardhat-kms) instead: run `pnpm install`, then `pnpm run build`, then `pnpm pack` in `packages/hardhat-kms` and in `packages/hardhat-kms-aws`. Install the two `.tgz` files it writes with `npm install --save-dev <path to hardhat-kms tgz> <path to provider tgz>`. The provider's file is named `hardhat-kms-aws-<version>.tgz`, although the package inside is `@hardhat-kms/aws`.
 
 Replace `hardhat.config.ts` with the file below. Compared with the template, it adds `hardhatKmsAws` to `plugins`, adds a `kms` section with the key, gives the `sepolia` network `kmsAccounts` instead of `accounts`, so no private key is in the project, and turns Etherscan verification off:
 
 ```ts
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAws from "hardhat-kms-aws";
+import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin, hardhatKmsAws],
@@ -195,7 +195,7 @@ It prints the key's address, `0x` and 40 hex digits. Pin it: add an `address` li
 ```ts
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAws from "hardhat-kms-aws";
+import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin, hardhatKmsAws],
@@ -434,5 +434,5 @@ To keep the key instead, run only the `disable-key` command: a disabled key cann
 
 - [Deploy with Hardhat Ignition](../guides/deploy-with-ignition.md): choose the deployer and rehearse on a simulated network.
 - [Set up an AWS KMS key](../guides/aws-kms-setup.md): every option of an AWS key, and the errors you can meet.
-- [Errors](../reference/errors.md#hardhat-kms-aws): every error message, with its cause and fix.
+- [Errors](../reference/errors.md#hardhat-kmsaws): every error message, with its cause and fix.
 - [Prevent and recover from losing a key](../guides/key-loss.md) before the key holds anything of value.

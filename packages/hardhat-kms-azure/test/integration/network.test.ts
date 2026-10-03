@@ -32,7 +32,7 @@ const SIGNED_TRANSACTION =
   "0x02f868827a698001843b9aca008252089470997970c51812dc3a010c7d01b50e0d17dc79c80180c080a09a383148f3856d41c63a9f5f1aa23ecdb6bbfbbeb5cd0721ce040291d890df62a01e03ff1466ba6e09588cddddd8d21cd72db773ab8a490216c55a42a10b1e302e";
 
 const ownVersion = String(
-  Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms-azure/package.json")), "version"),
+  Reflect.get(Object(createRequire(import.meta.url)("@hardhat-kms/azure/package.json")), "version"),
 );
 
 /** A connection whose only accounts are one Azure key, on a fake Key Vault. */
@@ -60,7 +60,7 @@ async function connect(
   return { connection, ...fake };
 }
 
-describe("hardhat-kms-azure through a network connection", () => {
+describe("@hardhat-kms/azure through a network connection", () => {
   it("lists the Azure account and signs personal_sign like Hardhat's local accounts", async () => {
     const { connection, calls } = await connect();
 

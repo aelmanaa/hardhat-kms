@@ -33,9 +33,9 @@ import {
 
 /**
  * Package names of cloud SDKs: the dependencies whose floor matters. google-gax is the transport
- * under @google-cloud/kms. hardhat-kms-gcp depends on it directly and hands it to the client, so
+ * under @google-cloud/kms. @hardhat-kms/gcp depends on it directly and hands it to the client, so
  * its floor is what runs: releases before 6.5.0 never enforce the per-call deadline over REST.
- * google-auth-library signs the Cloud Logging reads of `kms history` in hardhat-kms-gcp.
+ * google-auth-library signs the Cloud Logging reads of `kms history` in @hardhat-kms/gcp.
  */
 const CLOUD_SDK = /^(@(aws-sdk|google-cloud|azure)\/|google-gax$|google-auth-library$)/;
 
@@ -141,6 +141,7 @@ const passed = await withRestoredFiles(restorable, async () => {
   for (const floor of found.filter((candidate) => candidate.kind === "dependency")) {
     process.stdout.write(`\n== ${floor.packageName}: ${floor.sdk}@${floor.version}\n`);
     run([
+      "--fail-if-no-match",
       "--filter",
       floor.packageName,
       "add",
@@ -169,12 +170,16 @@ const passed = await withRestoredFiles(restorable, async () => {
     ...new Set(
       found.filter((floor) => floor.kind === "dependency").map((floor) => floor.packageName),
     ),
-  ].map((packageName) => ({ packageName, args: ["--filter", packageName, "run", "test"] }));
+  ].map((packageName) => ({
+    packageName,
+    args: ["--fail-if-no-match", "--filter", packageName, "run", "test"],
+  }));
   for (const floor of found.filter((candidate) => candidate.kind === "peer")) {
     const files = PEER_FLOOR_TESTS[floor.sdk] ?? [];
     testRuns.push({
       packageName: `${floor.packageName} (${floor.sdk} ${floor.version})`,
       args: [
+        "--fail-if-no-match",
         "--filter",
         floor.packageName,
         "exec",
@@ -223,7 +228,15 @@ const passed = await withRestoredFiles(restorable, async () => {
       }
       process.stdout.write(`\n== ${floor.packageName}: refuses ${floor.sdk}@${check.version}\n`);
       try {
-        run(["--filter", floor.packageName, "exec", "node", "--test", check.file]);
+        run([
+          "--fail-if-no-match",
+          "--filter",
+          floor.packageName,
+          "exec",
+          "node",
+          "--test",
+          check.file,
+        ]);
       } catch (error) {
         await deliverSignals();
         if (wasInterrupted()) {

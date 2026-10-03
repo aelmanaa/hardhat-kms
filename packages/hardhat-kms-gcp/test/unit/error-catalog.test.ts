@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { ENTRIES, ERRORS } from "../../src/internal/error-catalog.ts";
 
-describe("the hardhat-kms-gcp error catalogue", () => {
+describe("the @hardhat-kms/gcp error catalogue", () => {
   it("lists every entry once, with a unique id in the gcp namespace", () => {
     assert.equal(ENTRIES.length, Object.keys(ERRORS).length);
     const ids = ENTRIES.map((entry) => entry.id);

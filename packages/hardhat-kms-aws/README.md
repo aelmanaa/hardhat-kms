@@ -1,4 +1,6 @@
-# hardhat-kms-aws
+# @hardhat-kms/aws
+
+Works with AWS KMS. Not affiliated with or endorsed by Amazon Web Services.
 
 > In development. Not published to npm yet.
 
@@ -9,16 +11,16 @@ It depends on `@aws-sdk/client-kms`, so there is no SDK to install separately.
 ## Install
 
 ```sh
-npm install --save-dev hardhat-kms hardhat-kms-aws
+npm install --save-dev hardhat-kms @hardhat-kms/aws
 ```
 
 ## Usage
 
-Add `hardhat-kms-aws` to `plugins`. It loads `hardhat-kms` itself.
+Add `@hardhat-kms/aws` to `plugins`. It loads `hardhat-kms` itself.
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAws from "hardhat-kms-aws";
+import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],

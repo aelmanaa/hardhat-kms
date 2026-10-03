@@ -20,7 +20,7 @@ const coreVersion = String(
   Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms/package.json")), "version"),
 );
 const ownVersion = String(
-  Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms-azure/package.json")), "version"),
+  Reflect.get(Object(createRequire(import.meta.url)("@hardhat-kms/azure/package.json")), "version"),
 );
 
 async function runtime(plugins: HardhatPlugin[] = [hardhatKmsAzure]) {
@@ -63,7 +63,7 @@ async function createAdapter(
   );
 }
 
-describe("hardhat-kms-azure plugin", () => {
+describe("@hardhat-kms/azure plugin", () => {
   it("loads hardhat-kms through its plugin dependency", async () => {
     const hre = await runtime();
 
@@ -217,7 +217,7 @@ describe("hardhat-kms-azure plugin", () => {
 
   it("refuses Azure keys when hardhat-kms is another version, and passes other keys on", async () => {
     const hre = await runtime();
-    // Handlers registered at run time run first: these behave like a hardhat-kms-azure 9.9.9.
+    // Handlers registered at run time run first: these behave like a @hardhat-kms/azure 9.9.9.
     hre.hooks.registerHandlers("kms", kmsHandlers("9.9.9"));
     const unclaimed: string[] = [];
 
@@ -225,12 +225,12 @@ describe("hardhat-kms-azure plugin", () => {
       assert.ok(error instanceof Error);
       assert.ok(
         error.message.includes(
-          `azure, create adapter, key azure:${VAULT_URL}/keys/${KEY_NAME}: hardhat-kms-azure 9.9.9 needs hardhat-kms 9.9.9, but hardhat-kms ${coreVersion} is installed`,
+          `azure, create adapter, key azure:${VAULT_URL}/keys/${KEY_NAME}: @hardhat-kms/azure 9.9.9 needs hardhat-kms 9.9.9, but hardhat-kms ${coreVersion} is installed`,
         ),
         error.message,
       );
       assert.ok(
-        error.message.includes("npm install --save-dev hardhat-kms@9.9.9 hardhat-kms-azure@9.9.9"),
+        error.message.includes("npm install --save-dev hardhat-kms@9.9.9 @hardhat-kms/azure@9.9.9"),
       );
       return true;
     });

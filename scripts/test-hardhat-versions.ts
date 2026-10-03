@@ -170,6 +170,7 @@ await withRestoredFiles([path.join(root, "pnpm-lock.yaml"), workspaceFile], asyn
       run(["exec", "tsc", "-b", plugin]);
       stage = "tests";
       run([
+        "--fail-if-no-match",
         "--filter",
         "hardhat-kms",
         "exec",

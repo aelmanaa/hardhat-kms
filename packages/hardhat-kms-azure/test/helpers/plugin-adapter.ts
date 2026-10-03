@@ -49,7 +49,7 @@ export function loaderFor<Key extends KeyVaultKeyLike>(
 }
 
 /**
- * Builds the adapter for an Azure key the way a Hardhat project with hardhat-kms-azure does (the
+ * Builds the adapter for an Azure key the way a Hardhat project with @hardhat-kms/azure does (the
  * plugin and the `kms` hook chain), runs `use` with it and closes it.
  *
  * @param key - The key's config, as in `kms.keys`.

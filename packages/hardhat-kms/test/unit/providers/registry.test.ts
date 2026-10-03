@@ -9,9 +9,9 @@ describe("provider registry", () => {
     for (const [id, provider] of Object.entries(BUILTIN_PROVIDERS)) {
       assert.equal(provider.id, id);
     }
-    assert.deepEqual(builtinProvider("aws")?.adapter, { package: "hardhat-kms-aws" });
-    assert.deepEqual(builtinProvider("gcp")?.adapter, { package: "hardhat-kms-gcp" });
-    assert.deepEqual(builtinProvider("azure")?.adapter, { package: "hardhat-kms-azure" });
+    assert.deepEqual(builtinProvider("aws")?.adapter, { package: "@hardhat-kms/aws" });
+    assert.deepEqual(builtinProvider("gcp")?.adapter, { package: "@hardhat-kms/gcp" });
+    assert.deepEqual(builtinProvider("azure")?.adapter, { package: "@hardhat-kms/azure" });
   });
 
   it("returns nothing for third-party ids and Object.prototype names", () => {

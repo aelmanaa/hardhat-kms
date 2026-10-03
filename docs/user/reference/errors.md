@@ -305,7 +305,7 @@ Errors never include credentials or the text of an SDK error, which can carry re
 | `core.internal.kms-option-no-value` | internal | `no value for {name}`                                       | A `--kms` key asked for a variable the option had not read. It only asks for the ones it read.                          | Open an issue at https://github.com/aelmanaa/hardhat-kms/issues with the message and the stack trace.       |
 | `core.internal.no-package-version`  | internal | `{packageName}/package.json has no version`                 | An installed package's package.json has no `version`, so the install is broken.                                         | Reinstall the dependencies. If it repeats, open an issue at https://github.com/aelmanaa/hardhat-kms/issues. |
 
-## hardhat-kms-aws
+## @hardhat-kms/aws
 
 ### Keys
 
@@ -341,11 +341,11 @@ Errors never include credentials or the text of an SDK error, which can carry re
 
 ### Internal
 
-| Id                                | Kind     | Message                                     | Cause                                                                                         | Fix                                                                                                         |
-| --------------------------------- | -------- | ------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `aws.internal.no-package-version` | internal | `{packageName}/package.json has no version` | The installed hardhat-kms-aws has no `version` in its package.json, so the install is broken. | Reinstall the dependencies. If it repeats, open an issue at https://github.com/aelmanaa/hardhat-kms/issues. |
+| Id                                | Kind     | Message                                     | Cause                                                                                          | Fix                                                                                                         |
+| --------------------------------- | -------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `aws.internal.no-package-version` | internal | `{packageName}/package.json has no version` | The installed @hardhat-kms/aws has no `version` in its package.json, so the install is broken. | Reinstall the dependencies. If it repeats, open an issue at https://github.com/aelmanaa/hardhat-kms/issues. |
 
-## hardhat-kms-azure
+## @hardhat-kms/azure
 
 ### Credentials
 
@@ -415,11 +415,11 @@ Errors never include credentials or the text of an SDK error, which can carry re
 
 ### Internal
 
-| Id                                  | Kind     | Message                                     | Cause                                                                                           | Fix                                                                                                         |
-| ----------------------------------- | -------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `azure.internal.no-package-version` | internal | `{packageName}/package.json has no version` | The installed hardhat-kms-azure has no `version` in its package.json, so the install is broken. | Reinstall the dependencies. If it repeats, open an issue at https://github.com/aelmanaa/hardhat-kms/issues. |
+| Id                                  | Kind     | Message                                     | Cause                                                                                            | Fix                                                                                                         |
+| ----------------------------------- | -------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `azure.internal.no-package-version` | internal | `{packageName}/package.json has no version` | The installed @hardhat-kms/azure has no `version` in its package.json, so the install is broken. | Reinstall the dependencies. If it repeats, open an issue at https://github.com/aelmanaa/hardhat-kms/issues. |
 
-## hardhat-kms-gcp
+## @hardhat-kms/gcp
 
 ### Responses
 
@@ -487,6 +487,6 @@ Errors never include credentials or the text of an SDK error, which can carry re
 
 ### Internal
 
-| Id                                | Kind     | Message                                     | Cause                                                                                         | Fix                                                                                                         |
-| --------------------------------- | -------- | ------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `gcp.internal.no-package-version` | internal | `{packageName}/package.json has no version` | The installed hardhat-kms-gcp has no `version` in its package.json, so the install is broken. | Reinstall the dependencies. If it repeats, open an issue at https://github.com/aelmanaa/hardhat-kms/issues. |
+| Id                                | Kind     | Message                                     | Cause                                                                                          | Fix                                                                                                         |
+| --------------------------------- | -------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `gcp.internal.no-package-version` | internal | `{packageName}/package.json has no version` | The installed @hardhat-kms/gcp has no `version` in its package.json, so the install is broken. | Reinstall the dependencies. If it repeats, open an issue at https://github.com/aelmanaa/hardhat-kms/issues. |

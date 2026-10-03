@@ -1,5 +1,5 @@
+import hardhatKmsAws from "@hardhat-kms/aws";
 import hardhatViem from "@nomicfoundation/hardhat-viem";
-import hardhatKmsAws from "hardhat-kms-aws";
 import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({

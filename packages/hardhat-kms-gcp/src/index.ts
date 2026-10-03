@@ -12,8 +12,8 @@ import type { HardhatPlugin } from "hardhat/types/plugins";
  * `hardhat-kms` does not need its own entry.
  */
 const hardhatKmsGcpPlugin: HardhatPlugin = definePlugin({
-  id: "hardhat-kms-gcp",
-  npmPackage: "hardhat-kms-gcp",
+  id: "@hardhat-kms/gcp",
+  npmPackage: "@hardhat-kms/gcp",
   dependencies: () => [import("hardhat-kms")],
   hookHandlers: {
     kms: () => import("./internal/hook-handlers/kms.ts"),

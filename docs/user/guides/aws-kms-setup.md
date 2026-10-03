@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in AWS KMS.
 
-Status: the AWS adapter is implemented (M3), in the `hardhat-kms-aws` package. With the network hook (M4), a connection lists the key's account and signs messages and typed data with it. M5 adds signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)). And `kms history` ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)) lists who signed with the key, when and from where, from the CloudTrail event history that AWS keeps for every account without any setup.
+Status: the AWS adapter is implemented (M3), in the `@hardhat-kms/aws` package. With the network hook (M4), a connection lists the key's account and signs messages and typed data with it. M5 adds signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)). And `kms history` ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)) lists who signed with the key, when and from where, from the CloudTrail event history that AWS keeps for every account without any setup.
 
 ## 1. Create a secp256k1 signing key
 
@@ -58,14 +58,14 @@ Credentials come from the AWS SDK's default chain: environment variables, `~/.aw
 ## 3. Install the plugin and configure the key
 
 ```sh
-npm install --save-dev hardhat-kms hardhat-kms-aws
+npm install --save-dev hardhat-kms @hardhat-kms/aws
 ```
 
-`hardhat-kms-aws` brings the AWS SDK (`@aws-sdk/client-kms`) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
+`@hardhat-kms/aws` brings the AWS SDK (`@aws-sdk/client-kms`) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAws from "hardhat-kms-aws";
+import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],
@@ -179,8 +179,8 @@ Each message starts with the provider, the operation and the key, for example `a
 
 | Error                                                                     | Cause and fix                                                                                                                                     |
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS KMS keys need the hardhat-kms-aws plugin`                            | Run `npm install --save-dev hardhat-kms-aws` in the Hardhat project, and add `hardhatKmsAws` to `plugins` in the config.                          |
-| `hardhat-kms-aws … needs hardhat-kms …, but hardhat-kms … is installed`   | The two packages are released together and must be the same version. Run the install command the error prints.                                    |
+| `AWS KMS keys need the @hardhat-kms/aws plugin`                           | Run `npm install --save-dev @hardhat-kms/aws` in the Hardhat project, and add `hardhatKmsAws` to `plugins` in the config.                         |
+| `@hardhat-kms/aws … needs hardhat-kms …, but hardhat-kms … is installed`  | The two packages are released together and must be the same version. Run the install command the error prints.                                    |
 | `the key spec is …, not ECC_SECG_P256K1 (secp256k1)`                      | The key is not a secp256k1 key. A key's spec cannot be changed, so create a new key as in step 1.                                                 |
 | `the key derives to 0x…, but the configured address is 0x…`               | The alias points at another key, or the pin is wrong. Check the alias, then update `address`.                                                     |
 | `the provider call failed (AccessDeniedException)`                        | The identity lacks `kms:GetPublicKey` or `kms:Sign` on this key, the `Sign` conditions do not match, or the key policy does not allow IAM access. |
@@ -193,4 +193,4 @@ Each message starts with the provider, the operation and the key, for example `a
 | `cannot find the key ARN: the credentials lack kms:GetPublicKey`          | `kms history` reads the key ARN of an alias or a bare key id with `GetPublicKey`. Grant it, or set `keyId` to the key ARN.                        |
 | `the audit log kept refusing requests as too frequent`                    | CloudTrail allows two lookups a second per account and Region, shared with other tools. Wait a minute, or narrow the range.                       |
 
-Provider errors show only the error's class name, never its message, since SDK messages can carry request details. Run with `DEBUG=hardhat:kms:*` to see each call; see [Debug output](debug-output.md). The table lists the most common errors; the [errors reference](../reference/errors.md#hardhat-kms-aws) lists every one, with its id, cause and fix, and the [core plugin's errors](../reference/errors.md#hardhat-kms) too.
+Provider errors show only the error's class name, never its message, since SDK messages can carry request details. Run with `DEBUG=hardhat:kms:*` to see each call; see [Debug output](debug-output.md). The table lists the most common errors; the [errors reference](../reference/errors.md#hardhat-kmsaws) lists every one, with its id, cause and fix, and the [core plugin's errors](../reference/errors.md#hardhat-kms) too.

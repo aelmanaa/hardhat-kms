@@ -6,7 +6,8 @@ import type { AzureKmsKeyConfig, KmsHooks, KmsKeyAdapter } from "hardhat-kms/typ
 import { ERRORS } from "../error-catalog.ts";
 import type { QueryWorkspace } from "../history.ts";
 
-const PACKAGE_NAME = "hardhat-kms-azure";
+/** The npm name this handler checks its version under; it must equal the manifest name. */
+export const PACKAGE_NAME = "@hardhat-kms/azure";
 
 /** This package's version, read through its own `package.json` export. */
 function ownVersion(): string {

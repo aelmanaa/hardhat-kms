@@ -5,7 +5,8 @@ import type { KmsHooks } from "hardhat-kms/types";
 
 import { ERRORS } from "../error-catalog.ts";
 
-const PACKAGE_NAME = "hardhat-kms-aws";
+/** The npm name this handler checks its version under; it must equal the manifest name. */
+export const PACKAGE_NAME = "@hardhat-kms/aws";
 
 /** This package's version, read through its own `package.json` export. */
 function ownVersion(): string {

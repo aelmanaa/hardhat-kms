@@ -1,4 +1,6 @@
-# hardhat-kms-gcp
+# @hardhat-kms/gcp
+
+Works with Google Cloud KMS. Not affiliated with or endorsed by Google.
 
 > In development. Not published to npm yet.
 
@@ -9,16 +11,16 @@ It depends on `@google-cloud/kms`, so there is no SDK to install separately.
 ## Install
 
 ```sh
-npm install --save-dev hardhat-kms hardhat-kms-gcp
+npm install --save-dev hardhat-kms @hardhat-kms/gcp
 ```
 
 ## Usage
 
-Add `hardhat-kms-gcp` to `plugins`. It loads `hardhat-kms` itself.
+Add `@hardhat-kms/gcp` to `plugins`. It loads `hardhat-kms` itself.
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsGcp from "hardhat-kms-gcp";
+import hardhatKmsGcp from "@hardhat-kms/gcp";
 
 export default defineConfig({
   plugins: [hardhatKmsGcp],

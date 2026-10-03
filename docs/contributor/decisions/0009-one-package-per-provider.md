@@ -2,6 +2,8 @@
 
 Status: Accepted (2026-10-01). Supersedes [0005](0005-lazy-sdk-loading.md).
 
+Amended by [0015](0015-npm-names.md): the provider packages are named `@hardhat-kms/aws`, `@hardhat-kms/gcp` and `@hardhat-kms/azure`, and 0015 corrects this record's note on Hardhat's unused-plugin warning.
+
 Issue: [#91](https://github.com/aelmanaa/hardhat-kms/issues/91)
 
 ## Context

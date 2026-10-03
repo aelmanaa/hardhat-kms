@@ -29,7 +29,7 @@ import {
 } from "../helpers/logging-server.ts";
 
 const ownVersion = String(
-  Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms-gcp/package.json")), "version"),
+  Reflect.get(Object(createRequire(import.meta.url)("@hardhat-kms/gcp/package.json")), "version"),
 );
 
 // A range that holds the recorded entries, and is in the past.
@@ -242,7 +242,7 @@ describe("kms history on a Google Cloud key", () => {
   it("passes keys of other providers on", async () => {
     const { error } = await history({ key: "amazon" });
     assert.ok(error instanceof Error);
-    assert.match(error.message, /hardhat-kms-aws/);
+    assert.match(error.message, /@hardhat-kms\/aws/);
     assert.equal(server.requests.length, 0);
   });
 

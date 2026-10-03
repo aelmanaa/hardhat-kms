@@ -27,7 +27,7 @@ const coreVersion = String(
   Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms/package.json")), "version"),
 );
 const ownVersion = String(
-  Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms-aws/package.json")), "version"),
+  Reflect.get(Object(createRequire(import.meta.url)("@hardhat-kms/aws/package.json")), "version"),
 );
 
 async function runtime(plugins: HardhatPlugin[] = [hardhatKmsAws]) {
@@ -70,7 +70,7 @@ async function createAdapter(
   );
 }
 
-describe("hardhat-kms-aws plugin", () => {
+describe("@hardhat-kms/aws plugin", () => {
   before(async () => {
     server = await startKmsServer(secretKey);
     restoreEnvironment = isolateAwsEnvironment();
@@ -163,7 +163,7 @@ describe("hardhat-kms-aws plugin", () => {
 
   it("refuses AWS keys when hardhat-kms is another version, and passes other keys on", async () => {
     const hre = await runtime();
-    // Handlers registered at run time run first: these behave like a hardhat-kms-aws 9.9.9.
+    // Handlers registered at run time run first: these behave like a @hardhat-kms/aws 9.9.9.
     hre.hooks.registerHandlers("kms", kmsHandlers("9.9.9"));
     const unclaimed: string[] = [];
 
@@ -171,12 +171,12 @@ describe("hardhat-kms-aws plugin", () => {
       assert.ok(error instanceof Error);
       assert.ok(
         error.message.includes(
-          `aws, create adapter, key aws:alias/deployer: hardhat-kms-aws 9.9.9 needs hardhat-kms 9.9.9, but hardhat-kms ${coreVersion} is installed`,
+          `aws, create adapter, key aws:alias/deployer: @hardhat-kms/aws 9.9.9 needs hardhat-kms 9.9.9, but hardhat-kms ${coreVersion} is installed`,
         ),
         error.message,
       );
       assert.ok(
-        error.message.includes("npm install --save-dev hardhat-kms@9.9.9 hardhat-kms-aws@9.9.9"),
+        error.message.includes("npm install --save-dev hardhat-kms@9.9.9 @hardhat-kms/aws@9.9.9"),
       );
       return true;
     });

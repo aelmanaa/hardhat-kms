@@ -20,8 +20,8 @@ Declare each key once under `kms.keys`, and list it by name in the `kmsAccounts`
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAzure from "hardhat-kms-azure";
-import hardhatKmsGcp from "hardhat-kms-gcp";
+import hardhatKmsAzure from "@hardhat-kms/azure";
+import hardhatKmsGcp from "@hardhat-kms/gcp";
 
 export default defineConfig({
   plugins: [hardhatKmsGcp, hardhatKmsAzure],
@@ -52,7 +52,7 @@ Pin each key's `address` once you know it, in `kms.keys`, and every network that
 
 ## Mix providers
 
-Each provider's keys need its provider package in `plugins`: `hardhat-kms-aws`, `hardhat-kms-gcp` or `hardhat-kms-azure`. The config above lists two, and each loads `hardhat-kms` itself. A key whose provider package is missing fails when it is first used, and the error names the package to install ([Provider packages](../reference/configuration.md#provider-packages)).
+Each provider's keys need its provider package in `plugins`: `@hardhat-kms/aws`, `@hardhat-kms/gcp` or `@hardhat-kms/azure`. The config above lists two, and each loads `hardhat-kms` itself. A key whose provider package is missing fails when it is first used, and the error names the package to install ([Provider packages](../reference/configuration.md#provider-packages)).
 
 Each provider takes its credentials from its own SDK's default chain, so a project that mixes providers needs a sign-in for each one, such as `gcloud auth application-default login` and `az login` ([Credentials](../reference/configuration.md#credentials)).
 
@@ -89,7 +89,7 @@ A network can have `accounts` and `kmsAccounts` together. Its local accounts the
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsGcp from "hardhat-kms-gcp";
+import hardhatKmsGcp from "@hardhat-kms/gcp";
 
 export default defineConfig({
   plugins: [hardhatKmsGcp],

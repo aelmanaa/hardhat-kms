@@ -31,7 +31,7 @@ import {
 import { type LogAnalyticsHttp, logAnalyticsHttp } from "../helpers/log-analytics-http.ts";
 
 const ownVersion = String(
-  Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms-azure/package.json")), "version"),
+  Reflect.get(Object(createRequire(import.meta.url)("@hardhat-kms/azure/package.json")), "version"),
 );
 
 // A range that holds the recorded rows, and is in the past.
@@ -273,7 +273,7 @@ describe("kms history on an Azure key", () => {
   it("passes another provider's key on", async () => {
     const { error } = await history({ key: "amazon" });
     assert.ok(error instanceof Error);
-    assert.match(error.message, /hardhat-kms-aws/);
+    assert.match(error.message, /@hardhat-kms\/aws/);
     assert.equal(endpoint.requests.length, 0);
   });
 

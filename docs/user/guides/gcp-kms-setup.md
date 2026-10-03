@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in Google Cloud KMS.
 
-Status: the Google Cloud adapter is implemented (M6, [#29](https://github.com/aelmanaa/hardhat-kms/issues/29)), in the `hardhat-kms-gcp` package. A connection lists the key's account, signs messages and typed data with it, and signs and sends transactions.
+Status: the Google Cloud adapter is implemented (M6, [#29](https://github.com/aelmanaa/hardhat-kms/issues/29)), in the `@hardhat-kms/gcp` package. A connection lists the key's account, signs messages and typed data with it, and signs and sends transactions.
 
 ## 1. Create a secp256k1 signing key
 
@@ -55,14 +55,14 @@ Credentials come from Application Default Credentials: `gcloud auth application-
 ## 3. Install the plugin and configure the key
 
 ```sh
-npm install --save-dev hardhat-kms hardhat-kms-gcp
+npm install --save-dev hardhat-kms @hardhat-kms/gcp
 ```
 
-`hardhat-kms-gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later to run it on) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
+`@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later to run it on) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsGcp from "hardhat-kms-gcp";
+import hardhatKmsGcp from "@hardhat-kms/gcp";
 
 export default defineConfig({
   plugins: [hardhatKmsGcp],
@@ -117,7 +117,7 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 - It checks every request and response with CRC32C. It sends `digestCrc32c` with the digest, requires `verifiedDigestCrc32c` to be true in the response, and checks `signatureCrc32c` against the signature and `pemCrc32c` against the public key. A missing checksum counts as a mismatch, and so does a digest that Cloud KMS refuses because its checksum does not match (INVALID_ARGUMENT).
 - After a checksum mismatch, or when Cloud KMS is unavailable or cannot be reached, it repeats the call, at most three more times, then fails. Before repeating an unavailable call it waits 100 ms, then 200 ms, then 400 ms. The SDK's own retries are off, so this is the only retry loop, and it starts no new attempt once the call has timed out.
 - When the credentials cannot be loaded, the call fails with a `gcp.connect.*` error and nothing is sent. The plugin does not keep that failure: the next call creates a new client, which looks the credentials up again, so a passing failure, such as a metadata server that did not answer in time, ends once the credentials can be found.
-- It uses the SDK's REST transport, so no gRPC connection keeps `hardhat run` from exiting. Each request's deadline is the key's `timeoutMs`; google-gax enforces it over REST from 6.5.0, the version `hardhat-kms-gcp` requires and hands to the client. The SDK cannot cancel a request already sent, so after a timeout the request in flight runs until that deadline, and nothing more is sent.
+- It uses the SDK's REST transport, so no gRPC connection keeps `hardhat run` from exiting. Each request's deadline is the key's `timeoutMs`; google-gax enforces it over REST from 6.5.0, the version `@hardhat-kms/gcp` requires and hands to the client. The SDK cannot cancel a request already sent, so after a timeout the request in flight runs until that deadline, and nothing more is sent.
 - It parses every DER signature, normalizes it to low-S and verifies it against the public key before using it; see the [signing pipeline](../../contributor/signing-pipeline.md).
 - It puts `hardhat-kms/<version>` at the start of the user agent of every request, so `protoPayload.requestMetadata.callerSuppliedUserAgent` in the Cloud KMS audit log starts with `hardhat-kms/1.0.0` (with your installed version) when Data Access logs are on for Cloud KMS. The client reports this tag and anyone can send the same string, so it marks the plugin's calls but proves nothing.
 
@@ -199,8 +199,8 @@ Each message starts with the provider, the operation and the key, for example `g
 
 | Error                                                                                                             | Cause and fix                                                                                                                                                                                |
 | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Google Cloud KMS keys need the hardhat-kms-gcp plugin`                                                           | Run `npm install --save-dev hardhat-kms-gcp` in the Hardhat project, and add `hardhatKmsGcp` to `plugins` in the config.                                                                     |
-| `hardhat-kms-gcp … needs hardhat-kms …, but hardhat-kms … is installed`                                           | The two packages are released together and must be the same version. Run the install command the error prints.                                                                               |
+| `Google Cloud KMS keys need the @hardhat-kms/gcp plugin`                                                          | Run `npm install --save-dev @hardhat-kms/gcp` in the Hardhat project, and add `hardhatKmsGcp` to `plugins` in the config.                                                                    |
+| `@hardhat-kms/gcp … needs hardhat-kms …, but hardhat-kms … is installed`                                          | The two packages are released together and must be the same version. Run the install command the error prints.                                                                               |
 | `the key version's algorithm is …, not EC_SIGN_SECP256K1_SHA256 (secp256k1)`                                      | The key is not a secp256k1 key. A key's algorithm cannot be changed, so create a new key as in step 1.                                                                                       |
 | `the key derives to 0x…, but the configured address is 0x…`                                                       | The configuration names another key or version, or the pin is wrong. Check `keyVersionName`, then update `address`.                                                                          |
 | `could not reach Google Cloud KMS (ECONNREFUSED), after 4 attempts`                                               | The request never reached Cloud KMS. The code says why: `ENOTFOUND` or `EAI_AGAIN` for DNS, `ECONNREFUSED` or `ECONNRESET` for the connection. Check the network, DNS and any `HTTPS_PROXY`. |
@@ -216,4 +216,4 @@ Each message starts with the provider, the operation and the key, for example `g
 | `cannot read the audit log: the credentials lack logging.privateLogEntries.list (roles/logging.privateLogViewer)` | From `kms history`. Grant the role on the key's project, as in [Allow reading the logs](#allow-reading-the-logs).                                                                            |
 | `the Cloud Logging API is disabled in the project the request is billed to (SERVICE_DISABLED)`                    | From `kms history`. Run `gcloud services enable logging.googleapis.com` in the credentials' quota project, or set another one with `gcloud auth application-default set-quota-project`.      |
 
-Other Cloud KMS errors show as `the Google Cloud KMS call failed (<STATUS>)`, with the gRPC status name. The plugin never shows the server's message, since it names the project and the key. Run with `DEBUG=hardhat:kms:*` to see each call; see [Debug output](debug-output.md). The table lists the most common errors; the [errors reference](../reference/errors.md#hardhat-kms-gcp) lists every one, with its id, cause and fix, and the [core plugin's errors](../reference/errors.md#hardhat-kms) too.
+Other Cloud KMS errors show as `the Google Cloud KMS call failed (<STATUS>)`, with the gRPC status name. The plugin never shows the server's message, since it names the project and the key. Run with `DEBUG=hardhat:kms:*` to see each call; see [Debug output](debug-output.md). The table lists the most common errors; the [errors reference](../reference/errors.md#hardhat-kmsgcp) lists every one, with its id, cause and fix, and the [core plugin's errors](../reference/errors.md#hardhat-kms) too.

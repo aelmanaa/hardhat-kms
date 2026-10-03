@@ -1,6 +1,6 @@
+import hardhatKmsAws from "@hardhat-kms/aws";
 import hardhatEthers from "@nomicfoundation/hardhat-ethers";
 import hardhatTypechain from "@nomicfoundation/hardhat-typechain";
-import hardhatKmsAws from "hardhat-kms-aws";
 import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({

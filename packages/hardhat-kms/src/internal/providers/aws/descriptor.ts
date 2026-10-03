@@ -9,5 +9,5 @@ export const awsProvider: KmsProviderDescriptor = {
   resolve: (key, context) =>
     key.provider === "aws" ? resolveAwsKey(key, context) : wrongProvider("aws", key.provider),
   name: "AWS KMS",
-  adapter: { package: "hardhat-kms-aws" },
+  adapter: { package: "@hardhat-kms/aws" },
 };

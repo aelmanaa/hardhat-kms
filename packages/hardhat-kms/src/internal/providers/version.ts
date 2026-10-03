@@ -94,7 +94,7 @@ export function versionMismatch(
 }
 
 /**
- * Checks that a first-party provider package, such as hardhat-kms-aws, is the same version as the
+ * Checks that a first-party provider package, such as @hardhat-kms/aws, is the same version as the
  * installed hardhat-kms. They are released together, and the `kms` hook may change between
  * versions before 1.0. npm refuses such an install, but pnpm and Yarn only warn. Third-party
  * providers have their own versions and should not call this.

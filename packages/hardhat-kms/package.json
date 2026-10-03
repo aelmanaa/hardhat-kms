@@ -1,17 +1,21 @@
 {
   "name": "hardhat-kms",
   "version": "0.0.0",
-  "description": "Hardhat 3 plugin to sign transactions, messages and typed data with keys held in AWS KMS, Google Cloud KMS and Azure Key Vault or Managed HSM. Each cloud has its own provider package, such as hardhat-kms-aws.",
+  "description": "Hardhat 3 plugin to sign transactions, messages and typed data with keys held in AWS KMS, Google Cloud KMS and Azure Key Vault or Managed HSM. Each cloud has its own provider package, such as @hardhat-kms/aws.",
   "keywords": [
     "hardhat",
+    "hardhat3",
     "hardhat-plugin",
     "kms",
+    "signer",
+    "remote-signer",
+    "ethereum",
+    "ethers",
+    "viem",
     "hsm",
     "aws-kms",
-    "gcp-kms",
-    "azure-key-vault",
-    "signer",
-    "ethereum"
+    "google-cloud-kms",
+    "azure-key-vault"
   ],
   "homepage": "https://github.com/aelmanaa/hardhat-kms#readme",
   "bugs": {

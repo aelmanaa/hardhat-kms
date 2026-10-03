@@ -21,7 +21,7 @@ List the provider package and Ignition in `plugins`, and the key in the network'
 ```ts
 import hardhatIgnitionViem from "@nomicfoundation/hardhat-ignition-viem";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAws from "hardhat-kms-aws";
+import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
   plugins: [hardhatKmsAws, hardhatIgnitionViem],

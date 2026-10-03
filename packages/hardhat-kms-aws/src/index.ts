@@ -12,8 +12,8 @@ import type { HardhatPlugin } from "hardhat/types/plugins";
  * `hardhat-kms` does not need its own entry.
  */
 const hardhatKmsAwsPlugin: HardhatPlugin = definePlugin({
-  id: "hardhat-kms-aws",
-  npmPackage: "hardhat-kms-aws",
+  id: "@hardhat-kms/aws",
+  npmPackage: "@hardhat-kms/aws",
   dependencies: () => [import("hardhat-kms")],
   hookHandlers: {
     kms: () => import("./internal/hook-handlers/kms.ts"),

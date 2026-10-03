@@ -7,7 +7,7 @@
     }
   ],
   "commit": false,
-  "fixed": [["hardhat-kms", "hardhat-kms-aws", "hardhat-kms-azure", "hardhat-kms-gcp"]],
+  "fixed": [["hardhat-kms", "@hardhat-kms/aws", "@hardhat-kms/azure", "@hardhat-kms/gcp"]],
   "linked": [],
   "access": "public",
   "baseBranch": "main",

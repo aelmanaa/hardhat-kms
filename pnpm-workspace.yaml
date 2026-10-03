@@ -3,7 +3,7 @@ packages:
   - examples/*
   - tools/*
 
-# The examples ask for hardhat-kms and hardhat-kms-aws by version range, as a project that
+# The examples ask for hardhat-kms and @hardhat-kms/aws by version range, as a project that
 # installs them from npm does. This links them to the workspace packages instead.
 linkWorkspacePackages: true
 

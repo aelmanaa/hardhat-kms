@@ -13,8 +13,8 @@ import type { HardhatPlugin } from "hardhat/types/plugins";
  * `hardhat-kms` does not need its own entry.
  */
 const hardhatKmsAzurePlugin: HardhatPlugin = definePlugin({
-  id: "hardhat-kms-azure",
-  npmPackage: "hardhat-kms-azure",
+  id: "@hardhat-kms/azure",
+  npmPackage: "@hardhat-kms/azure",
   dependencies: () => [import("hardhat-kms")],
   hookHandlers: {
     kms: () => import("./internal/hook-handlers/kms.ts"),

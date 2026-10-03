@@ -6,12 +6,12 @@ Status: runs in CI against LocalStack's KMS emulator. The packages are not on np
 
 This project's Ignition module deploys `contracts/Counter.sol` and calls `add(5)`. Ignition sends both transactions from the KMS account, and the key in AWS KMS signs them. The module is unchanged from one you would write for a local account. [Deploy with Hardhat Ignition](../../docs/user/guides/deploy-with-ignition.md) explains how to choose the deployer and how to resume a deployment.
 
-| File                          | What it holds                                                                                                             |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `hardhat.config.ts`           | The `hardhat-kms-aws` and `hardhat-ignition-viem` plugins, the `deployer` key, and the `rehearsal` and `sepolia` networks |
-| `contracts/Counter.sol`       | A counter that only its deployer can change                                                                               |
-| `ignition/modules/Counter.ts` | The Ignition module                                                                                                       |
-| `scripts/deploy.ts`           | Deploys the module with `ignition.deploy` from the KMS account, then reads the counter's state back                       |
+| File                          | What it holds                                                                                                              |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `hardhat.config.ts`           | The `@hardhat-kms/aws` and `hardhat-ignition-viem` plugins, the `deployer` key, and the `rehearsal` and `sepolia` networks |
+| `contracts/Counter.sol`       | A counter that only its deployer can change                                                                                |
+| `ignition/modules/Counter.ts` | The Ignition module                                                                                                        |
+| `scripts/deploy.ts`           | Deploys the module with `ignition.deploy` from the KMS account, then reads the counter's state back                        |
 
 ## Run it
 
