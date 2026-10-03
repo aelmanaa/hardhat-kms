@@ -1,17 +1,29 @@
-# The macOS and Windows test jobs. A macOS minute costs about ten Linux minutes, so pull requests skip
-# them unless they carry the label ci:all-os. Pushes to main, the merge queue and manual dispatch always
-# run them. They live in their own workflow so that adding a label reruns only these jobs: the Linux jobs
-# in ci.yml do not listen to label events, so a label never cancels or overwrites their required checks.
+# The macOS and Windows test jobs. A macOS minute costs about ten Linux minutes and a Windows minute
+# about 1.7, so these jobs run:
+# - nightly on main, and only when no earlier run passed both of them on main's newest commit. A failed,
+#   cancelled or skipped run, or a dry run, does not count as a pass, so the next night tests again;
+# - on manual dispatch. With `dry-run`, only the decide job runs: its summary says what a nightly run
+#   would do, and the run does not count as a pass;
+# - on pull requests that carry the label ci:all-os.
+# A push to main starts none of them; ci.yml tests every push on Linux.
+# scripts/ci-all-os-decide.ts holds the nightly decision and the report. A failure on main opens one
+# tracking issue, or comments on it while it is open; the next pass comments and closes it.
+# They live in their own workflow so that adding a label reruns only these jobs: the Linux jobs in
+# ci.yml do not listen to label events, so a label never cancels or overwrites their required checks.
 # These checks are not required: a required check that never reports blocks the merge.
 name: CI (macOS, Windows)
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
-  push:
-    branches: [main]
-  merge_group:
+  schedule:
+    - cron: "23 2 * * *" # 02:23 UTC; GitHub delays more scheduled runs at the start of an hour
   workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Run only the decide job and report what a nightly run would do
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,13 +36,47 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Scheduled and dispatched runs only; a pull request decides by its label in the test job, with no
+  # extra runner.
+  decide:
+    if: github.event_name != 'pull_request'
+    name: Decide
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # checks out the script
+      actions: read # lists this workflow's runs on main and their jobs
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci-all-os-decide.ts
+          sparse-checkout-cone-mode: false
+      # Node 24 strips the script's types; it imports only node: modules, so nothing is installed.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Decide whether the test jobs run
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry-run == true }}
+        run: >-
+          node scripts/ci-all-os-decide.ts decide --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA"
+          --run-id "$GITHUB_RUN_ID" --event "$GITHUB_EVENT_NAME" --dry-run "$DRY_RUN"
+          --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
   test:
-    # On a pull request: run when the label ci:all-os is added, and on every push while the pull request
-    # carries it. Adding any other label skips the job.
+    # Scheduled or dispatched: run when decide says so. On a pull request, where decide is skipped: run
+    # when the label ci:all-os is added, and on every push while the pull request carries it. Adding
+    # any other label skips the job.
+    needs: decide
     if: >-
-      github.event_name != 'pull_request'
-      || (github.event.action == 'labeled' && github.event.label.name == 'ci:all-os')
-      || (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'ci:all-os'))
+      ${{ !cancelled() && (needs.decide.outputs.run == 'true'
+      || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'ci:all-os')
+      || (github.event_name == 'pull_request' && github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'ci:all-os'))) }}
     name: Test (${{ matrix.os-name }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
@@ -77,3 +123,35 @@ jobs:
         env:
           NODE_OPTIONS: ${{ matrix.node == '22.13.0' && '--import tsx' || '' }}
         run: pnpm test
+
+  # Keeps the tracking issue for failures on main: scheduled runs and dispatches without dry-run only,
+  # never pull requests. It also reports a decide job that failed, which would otherwise stop the
+  # nightly tests unseen.
+  report:
+    needs: [decide, test]
+    if: >-
+      ${{ !cancelled() && github.ref == 'refs/heads/main'
+      && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.dry-run != true))
+      && (needs.decide.result == 'failure' || needs.decide.outputs.run == 'true') }}
+    name: Report
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # checks out the script
+      issues: write # opens, comments on and closes the tracking issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci-all-os-decide.ts
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Open, comment on or close the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.decide.result == 'success' && needs.test.result == 'success' && 'success' || 'failure' }}
+        run: >-
+          node scripts/ci-all-os-decide.ts report --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA"
+          --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --result "$RESULT"

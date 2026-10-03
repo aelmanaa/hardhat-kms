@@ -1,0 +1,16 @@
+{
+  "total_count": 1,
+  "workflow_runs": [
+    {
+      "id": 1001,
+      "name": "CI (macOS, Windows)",
+      "head_branch": "main",
+      "head_sha": "1111111111111111111111111111111111111111",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/owner/repo/actions/runs/1001",
+      "run_attempt": 1
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "number": 10,
+    "title": "Some other issue",
+    "state": "open",
+    "html_url": "https://github.com/owner/repo/issues/10"
+  },
+  {
+    "number": 11,
+    "title": "Add a feature",
+    "state": "open",
+    "html_url": "https://github.com/owner/repo/pull/11",
+    "pull_request": {
+      "url": "https://api.github.com/repos/owner/repo/pulls/11"
+    }
+  }
+]

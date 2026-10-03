@@ -1,0 +1,15 @@
+{
+  "total_count": 1,
+  "jobs": [
+    {
+      "id": 2001,
+      "run_id": 1001,
+      "head_branch": "main",
+      "head_sha": "1111111111111111111111111111111111111111",
+      "name": "Test (${{ matrix.os-name }}, Node ${{ matrix.node }})",
+      "status": "completed",
+      "conclusion": "skipped",
+      "html_url": "https://github.com/owner/repo/actions/runs/1001/job/2001"
+    }
+  ]
+}
