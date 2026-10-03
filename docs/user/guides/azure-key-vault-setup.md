@@ -90,14 +90,16 @@ az keyvault role assignment create \
 
 hardhat-kms tries these credential sources in order and uses the first that returns a token:
 
-1. A service principal from the environment: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` (or `AZURE_CLIENT_CERTIFICATE_PATH`).
-2. Workload identity, when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_FEDERATED_TOKEN_FILE` are set, as on AKS or in GitHub Actions with OIDC federation.
-3. The Azure CLI (`az login`), then the Azure Developer CLI (`azd auth login`).
-4. A managed identity, user-assigned when `AZURE_CLIENT_ID` is set. It gets 10 seconds for a token and 3 seconds for each request. In Azure Cloud Shell and Service Fabric, where a user-assigned identity cannot be chosen, it is left out when `AZURE_CLIENT_ID` is set.
+1. A service principal from the environment: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` (or `AZURE_CLIENT_CERTIFICATE_PATH`). This is for a CI system or server that holds the service principal's secret or certificate.
+2. Workload identity, when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_FEDERATED_TOKEN_FILE` are set. AKS sets them in a pod that uses workload identity.
+3. The Azure CLI (`az login`), then the Azure Developer CLI (`azd auth login`). This is for a laptop, and for GitHub Actions: the `azure/login` action signs the Azure CLI in, with OIDC federation or a secret, and sets no `AZURE_*` variables, so the plugin gets its token from the Azure CLI.
+4. A managed identity, user-assigned when `AZURE_CLIENT_ID` is set. This is for code that runs on Azure, such as a virtual machine or a container app. It gets 10 seconds for a token and 3 seconds for each request. In Azure Cloud Shell and Service Fabric, where a user-assigned identity cannot be chosen, it is left out when `AZURE_CLIENT_ID` is set.
 
 This is the order of Foundry's Azure Key Vault signer. The developer tools come before the managed identity, so a local `az login` works without waiting for the managed identity endpoint, which outside Azure may never answer. A source that is not configured is skipped; a source that is configured but fails, such as a service principal with a wrong secret, stops the search with its error.
 
-On a laptop, `az login` is enough. In CI, use workload identity rather than a client secret.
+On a laptop, `az login` is enough. In GitHub Actions, run `azure/login` with OIDC federation rather than a client secret.
+
+A service principal in the environment takes precedence over every other source. With `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` (or `AZURE_CLIENT_CERTIFICATE_PATH`) set, the plugin signs in as that service principal even after `az login` or `azure/login`. Unset `AZURE_CLIENT_SECRET` or `AZURE_CLIENT_CERTIFICATE_PATH` to use another source.
 
 ## 4. Install the plugin and configure the key
 
