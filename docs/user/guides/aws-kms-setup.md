@@ -64,6 +64,8 @@ aws iam attach-role-policy --role-name <role name> --policy-arn <Policy.Arn from
 aws iam attach-user-policy --user-name <user name> --policy-arn <Policy.Arn from the output above>
 ```
 
+Prefer a role, IAM Identity Center (`aws sso login`) or `aws login` to an IAM user's access keys. AWS says "Where possible, we recommend relying on temporary credentials instead of creating long-term credentials such as access keys" ([Security best practices in IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)). In CI, have the job assume a role through OIDC, for example with `aws-actions/configure-aws-credentials` and its `role-to-assume` input.
+
 The policy's two KMS permissions, `kms:GetPublicKey` and `kms:Sign`, have not yet been checked alone against real AWS KMS: the plugin's live tests ran with an administrator identity.
 
 Credentials come from the AWS SDK's default chain: access keys in the environment, then a `~/.aws` profile or SSO session, then a web identity token, then the role of the container or machine. A key's `profile` option picks a named profile. Never set a profile and access keys in the environment together: today a profile, from `profile` or `AWS_PROFILE`, makes the SDK ignore the keys, and the SDK's own warning says a future version may prefer the keys instead. A CI job that exports keys therefore needs a config without a literal `profile`; on a laptop, set `AWS_PROFILE` instead, or see [One config for a laptop and CI](#one-config-for-a-laptop-and-ci). An alias names a key in the credentials' own account and region, so pin the key's `address`. [Credentials](../reference/configuration.md#aws) gives the full order and both rules.

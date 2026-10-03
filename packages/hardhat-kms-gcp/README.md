@@ -43,7 +43,7 @@ export default defineConfig({
 });
 ```
 
-Credentials come from Application Default Credentials: `gcloud auth application-default login`, `GOOGLE_APPLICATION_CREDENTIALS`, or the service account of the machine or CI job. The key version must use the algorithm `EC_SIGN_SECP256K1_SHA256`, at protection level HSM. Every request and response is checked with CRC32C.
+Credentials come from Application Default Credentials: `gcloud auth application-default login`, `GOOGLE_APPLICATION_CREDENTIALS`, or the service account of the machine or CI job. Prefer impersonation or workload identity federation to a service account key file, which Google does not recommend ([How Application Default Credentials works](https://docs.cloud.google.com/docs/authentication/application-default-credentials)). The key version must use the algorithm `EC_SIGN_SECP256K1_SHA256`, at protection level HSM. Every request and response is checked with CRC32C.
 
 ## Docs
 

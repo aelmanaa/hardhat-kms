@@ -57,7 +57,7 @@ az keyvault create --name "$VAULT" --resource-group hardhat-kms-tutorial --locat
   --sku standard --enable-rbac-authorization true --retention-days 7
 ```
 
-`--enable-rbac-authorization true` makes the vault use Azure role-based access control (RBAC). Recent Azure CLIs do so by default, older ones create a vault with access policies, where the role assignments below have no effect. To check, `az keyvault show --name "$VAULT" --query properties.enableRbacAuthorization` prints `true`. `--retention-days 7` keeps a deleted key or vault recoverable for 7 days instead of the default 90, the shortest period Key Vault allows; it is enough for a throwaway vault.
+`--enable-rbac-authorization true` makes the vault use Azure role-based access control (RBAC). Recent Azure CLIs do so by default, older ones create a vault with access policies, a model Microsoft calls "a legacy authorization system" ([Azure RBAC vs. access policies](https://learn.microsoft.com/en-us/azure/key-vault/general/rbac-access-policy)), where the role assignments below have no effect. To check, `az keyvault show --name "$VAULT" --query properties.enableRbacAuthorization` prints `true`. `--retention-days 7` keeps a deleted key or vault recoverable for 7 days instead of the default 90, the shortest period Key Vault allows; it is enough for a throwaway vault.
 
 Some regions refuse new vaults for some subscriptions. If `az keyvault create` fails for the region, run it again with another `--location`; the resource group can stay where it is.
 

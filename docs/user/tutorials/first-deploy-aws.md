@@ -89,7 +89,7 @@ aws iam put-role-policy --role-name hardhat-deployer --policy-name hardhat-kms-t
   --policy-document "file://$POLICY"
 ```
 
-For an IAM user, use `aws iam put-user-policy --user-name <user name>` instead. If you sign in through IAM Identity Center, ask your administrator to add the policy to your permission set.
+For an IAM user, use `aws iam put-user-policy --user-name <user name>` instead. If you sign in through IAM Identity Center, ask your administrator to add the policy to your permission set. Prefer a role or IAM Identity Center to an IAM user's access keys: AWS recommends "relying on temporary credentials instead of creating long-term credentials such as access keys" ([Security best practices in IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)).
 
 To check the policy without changing anything, AWS IAM Access Analyzer and the policy simulator accept the file:
 
