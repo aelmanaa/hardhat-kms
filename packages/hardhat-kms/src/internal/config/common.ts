@@ -40,11 +40,9 @@ export const identifierSchema: typeof sensitiveStringSchema = sensitiveStringSch
 export const commonKeyFields: {
   address: z.ZodOptional<typeof addressSchema>;
   timeoutMs: z.ZodOptional<z.ZodNumber>;
-  approvalTimeoutMs: z.ZodOptional<z.ZodNumber>;
 } = {
   address: addressSchema.optional(),
   timeoutMs: timeoutSchema.optional(),
-  approvalTimeoutMs: timeoutSchema.optional(),
 };
 
 /** A non-empty string without surrounding whitespace. */

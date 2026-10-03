@@ -26,12 +26,10 @@ export function resolveCommonKeyConfig(
   context: KeyResolveContext,
   displayId: string,
 ): KmsKeyCommonConfig {
-  const approvalTimeoutMs = key.approvalTimeoutMs ?? context.defaults.approvalTimeoutMs;
   return {
     name: context.name,
     displayId,
     timeoutMs: key.timeoutMs ?? context.defaults.timeoutMs,
-    ...(approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs }),
     ...(key.address === undefined ? {} : { address: toChecksumAddress(key.address) }),
   };
 }

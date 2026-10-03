@@ -94,7 +94,7 @@ Any of these requests can reach the KMS and produce a signature the plugin never
 ### What this means for you
 
 - Your provider's request counts and audit logs can show more sign requests than the signatures your script used. Each extra one is for the same digest your script asked for, never for another one.
-- If you use a third-party provider plugin that asks a person to approve each signature, an approval request can stay open after the plugin has given up on it. Approving it then signs a digest that the plugin drops, and your script has already seen an error.
+- If you use a third-party provider plugin that asks a person to approve each signature, an approval request can stay open after the plugin has given up on it. Approving it then signs a digest that the plugin drops, and your script has already seen an error. `timeoutMs` also bounds the wait for that approval: raise it on that key to cover the time a person takes to approve.
 - A timeout on a send leaves no transaction behind. Check the error, then run the script again; the plugin fills the transaction afresh.
 
 ## Audit logs

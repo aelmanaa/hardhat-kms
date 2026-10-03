@@ -11,12 +11,8 @@ export interface SignContext {
   signal: AbortSignal;
   /** Shows a status line to the user (for example while waiting for an approval). */
   displayMessage(message: string): Promise<void>;
-  /** Identifies this call in logs and in provider requests. */
+  /** Identifies this call in the plugin's debug output. */
   requestId: string;
-  /** Present for transaction sends; lets remote broadcasters deduplicate retries. */
-  idempotencyKey?: string | undefined;
-  /** The chain the signature is for, when known. */
-  chainId?: bigint | undefined;
 }
 
 /**

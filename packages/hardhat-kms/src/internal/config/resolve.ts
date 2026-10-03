@@ -90,12 +90,10 @@ export function resolveKmsConfig(
   resolveVariable: ConfigurationVariableResolver,
 ): KmsConfig {
   const user = userConfig.kms ?? {};
-  const approvalTimeoutMs = user.defaults?.approvalTimeoutMs;
   const region = user.defaults?.aws?.region;
   const defaults: KmsConfig["defaults"] = {
     aws: region === undefined ? {} : { region },
     timeoutMs: user.defaults?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    ...(approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs }),
   };
   const keys = Object.fromEntries(
     Object.entries(user.keys ?? {}).map(([name, key]) => [
