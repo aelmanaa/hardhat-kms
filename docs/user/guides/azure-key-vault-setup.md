@@ -123,7 +123,7 @@ hardhat-kms tries these credential sources in order and uses the first that retu
 3. The Azure CLI (`az login`), then the Azure Developer CLI (`azd auth login`). This is for a laptop, and for GitHub Actions: the `azure/login` action signs the Azure CLI in, with OIDC federation or a secret, and sets no `AZURE_*` variables, so the plugin gets its token from the Azure CLI.
 4. A managed identity, user-assigned when `AZURE_CLIENT_ID` is set. This is for code that runs on Azure, such as a virtual machine or a container app. It gets 10 seconds for a token and 3 seconds for each request. In Azure Cloud Shell and Service Fabric, where a user-assigned identity cannot be chosen, it is left out when `AZURE_CLIENT_ID` is set.
 
-This is the order of Foundry's Azure Key Vault signer. The developer tools come before the managed identity, so a local `az login` works without waiting for the managed identity endpoint, which outside Azure may never answer. A source that is not configured is skipped; a source that is configured but fails, such as a service principal with a wrong secret, stops the search with its error.
+This is the order proposed for Foundry's Azure Key Vault signer in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120), which no Foundry release includes yet. The developer tools come before the managed identity, so a local `az login` works without waiting for the managed identity endpoint, which outside Azure may never answer. A source that is not configured is skipped; a source that is configured but fails, such as a service principal with a wrong secret, stops the search with its error.
 
 On a laptop, `az login` is enough. In GitHub Actions, run `azure/login` with OIDC federation rather than a client secret.
 

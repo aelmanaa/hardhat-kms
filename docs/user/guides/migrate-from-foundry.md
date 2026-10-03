@@ -4,7 +4,7 @@ Audience: Foundry users moving KMS signing to Hardhat.
 
 Status: Implemented ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)), following [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md). `--kms` keys are added to the selected network and sign messages, typed data and transactions (M5). The AWS (M3), Google Cloud and Azure (M6) adapters are implemented.
 
-Foundry picks a KMS signer per command with `--aws`, `--gcp` or `--azure`, and reads the key from environment variables. hardhat-kms reads the same variables, in two ways. Both need the provider's package in `plugins`: `@hardhat-kms/aws` ([Set up an AWS KMS key](aws-kms-setup.md#3-install-the-plugin-and-configure-the-key)), `@hardhat-kms/gcp` ([Set up a Google Cloud KMS key](gcp-kms-setup.md#3-install-the-plugin-and-configure-the-key)) or `@hardhat-kms/azure` ([Set up an Azure Key Vault key](azure-key-vault-setup.md#4-install-the-plugin-and-configure-the-key)).
+Foundry picks a KMS signer per command with `--aws` or `--gcp`, and reads the key from environment variables. hardhat-kms reads the same variables, in two ways. Both need the provider's package in `plugins`: `@hardhat-kms/aws` ([Set up an AWS KMS key](aws-kms-setup.md#3-install-the-plugin-and-configure-the-key)), `@hardhat-kms/gcp` ([Set up a Google Cloud KMS key](gcp-kms-setup.md#3-install-the-plugin-and-configure-the-key)) or `@hardhat-kms/azure` ([Set up an Azure Key Vault key](azure-key-vault-setup.md#4-install-the-plugin-and-configure-the-key)).
 
 ## From the command line, as in Foundry
 
@@ -23,6 +23,8 @@ AWS_KMS_KEY_ID=alias/deployer npx hardhat run scripts/deploy.ts --network sepoli
 | `aws`         | `AWS_KMS_KEY_IDS` (comma-separated) if set, else `AWS_KMS_KEY_ID`                   |
 | `gcp`         | `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME`, `GCP_KEY_VERSION` |
 | `azure`       | `AZURE_KEY_VAULT_KEY_IDS` (comma-separated) if set, else `AZURE_KEY_VAULT_KEY_ID`   |
+
+Foundry has no Azure Key Vault signer in a release yet: Foundry 1.8.4, the latest on 2026-10-03, has no `--azure`. The signer is proposed in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120), a draft that was still open on that date. The `azure` variable names follow that proposal and may change before it ships.
 
 - Several providers: `--kms aws,azure`.
 - In CI, `HARDHAT_KMS=aws` does the same as the option. Hardhat reads it for every command, so do not leave it in a shell profile unless every Hardhat command there should load KMS keys.
