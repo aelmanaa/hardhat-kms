@@ -12,6 +12,9 @@
 //   - viem-range: viem ~2.54.0, a range entirely below the floor.
 //   - provider-mismatch: hardhat-kms one patch release ahead of the provider package, which asks
 //     for the exact core version.
+//   - viem-locked: an existing project, as Hardhat's viem template creates it: viem `^2.47.6` in
+//     package.json, which overlaps the peer range, and 2.52.2, below the floor, in the lockfile.
+//     The plugin packages are then added with each package manager's add command.
 // For each it records the install's exit code, the viem that hardhat-kms resolves and what
 // getAccount reports, then compares them with EXPECTED. A pnpm project also gets a run without
 // `allowBuilds`, to check that pnpm stops on the dependencies' install scripts (esbuild from
@@ -30,6 +33,7 @@ import {
   appendFileSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -39,7 +43,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { output, readJson, resolvedVersion, root, run } from "./temporary-install.ts";
+import { output, readJson, resolvedVersion, root, run, stringRecord } from "./temporary-install.ts";
 
 /** The package managers measured, with the exact versions, so a result names what produced it. */
 const YARN_CLASSIC = "1.22.22";
@@ -47,8 +51,27 @@ const YARN_BERRY = "4.18.1";
 const MANAGERS = ["npm", "npm --legacy-peer-deps", "pnpm", "yarn classic", "yarn berry"] as const;
 type Manager = (typeof MANAGERS)[number];
 
-const CASES = ["control", "viem-pinned", "viem-range", "provider-mismatch"] as const;
+const CASES = ["control", "viem-pinned", "viem-range", "provider-mismatch", "viem-locked"] as const;
 type Case = (typeof CASES)[number];
+
+/** The floor of hardhat-kms's viem peer range, from its caret range. */
+const VIEM_FLOOR = ((): string => {
+  const peers = readJson(
+    path.join(root, "packages", "hardhat-kms", "package.json"),
+  ).peerDependencies;
+  const range: unknown =
+    typeof peers === "object" && peers !== null ? Reflect.get(peers, "viem") : undefined;
+  const floor = typeof range === "string" ? /^\^(\d+\.\d+\.\d+)$/.exec(range)?.[1] : undefined;
+  if (floor === undefined) {
+    throw new Error("hardhat-kms must declare viem as a caret range, such as ^2.55.13");
+  }
+  return floor;
+})();
+/** viem's range in a project from Hardhat's viem template, and an older release it may have locked. */
+const VIEM_TEMPLATE_RANGE = "^2.47.6";
+const VIEM_LOCKED = "2.52.2";
+/** npm moves viem from the locked release to the newest one, in the peer range. */
+const EXPECTED_NPM_LOCKED = { installs: true, viem: "in range", outcome: "reached KMS" } as const;
 
 /** What getAccount reported in the scratch project. */
 type Outcome =
@@ -71,7 +94,7 @@ interface Result {
 /**
  * What a case should give: whether the install succeeds, the viem that hardhat-kms resolves (`-`
  * when the install fails, `workspace` for the version this repository resolves, `2.54.x` for any
- * 2.54 release) and what getAccount reports.
+ * 2.54 release, `in range` for any release at or above the floor) and what getAccount reports.
  */
 interface Expected {
   installs: boolean;
@@ -89,6 +112,7 @@ const WARNS_ONLY: Record<Case, Expected> = {
     viem: "workspace",
     outcome: "core.provider.version-mismatch",
   },
+  "viem-locked": { installs: true, viem: VIEM_LOCKED, outcome: "core.account.viem-too-old" },
 };
 
 /** The measured behaviour. A difference fails the script; update the docs with this table. */
@@ -98,16 +122,29 @@ const EXPECTED: Record<Manager, Partial<Record<Case, Expected>>> = {
     "viem-pinned": { installs: false, viem: "-", outcome: "not run" },
     "viem-range": { installs: false, viem: "-", outcome: "not run" },
     "provider-mismatch": { installs: false, viem: "-", outcome: "not run" },
+    "viem-locked": EXPECTED_NPM_LOCKED,
   },
   "npm --legacy-peer-deps": {
     "viem-pinned": WARNS_ONLY["viem-pinned"],
     "viem-range": WARNS_ONLY["viem-range"],
     "provider-mismatch": WARNS_ONLY["provider-mismatch"],
+    "viem-locked": WARNS_ONLY["viem-locked"],
   },
   pnpm: WARNS_ONLY,
   "yarn classic": WARNS_ONLY,
   "yarn berry": WARNS_ONLY,
 };
+
+/** Whether a `major.minor.patch` version is at or above the peer floor. */
+function atLeastFloor(version: string): boolean {
+  const parts = /^(\d+)\.(\d+)\.(\d+)$/.exec(version)?.slice(1).map(Number);
+  if (parts === undefined) {
+    return false;
+  }
+  const floor = VIEM_FLOOR.split(".").map(Number);
+  const difference = parts.map((part, index) => part - (floor[index] ?? 0)).find((d) => d !== 0);
+  return (difference ?? 0) >= 0;
+}
 
 /** Whether a measured result is the expected one. */
 function asExpected(
@@ -121,9 +158,11 @@ function asExpected(
   const viem =
     expected.viem === "workspace"
       ? result.viem === workspaceViem
-      : expected.viem.endsWith(".x")
-        ? result.viem.startsWith(expected.viem.slice(0, -1))
-        : result.viem === expected.viem;
+      : expected.viem === "in range"
+        ? atLeastFloor(result.viem)
+        : expected.viem.endsWith(".x")
+          ? result.viem.startsWith(expected.viem.slice(0, -1))
+          : result.viem === expected.viem;
   return (
     expected.installs === (result.exitCode === 0) && viem && expected.outcome === result.outcome
   );
@@ -343,6 +382,99 @@ function writeProjectFiles(directory: string, endpoint: string): void {
   );
 }
 
+/** The command that adds development dependencies to a project, for each package manager. */
+const ADD: Record<Manager, [string, string[]]> = {
+  npm: [npm, ["install", "--ignore-scripts", "--save-dev"]],
+  "npm --legacy-peer-deps": [
+    npm,
+    ["install", "--ignore-scripts", "--legacy-peer-deps", "--save-dev"],
+  ],
+  pnpm: [pnpm, ["add", "--save-dev"]],
+  "yarn classic": [
+    "corepack",
+    [`yarn@${YARN_CLASSIC}`, "add", "--dev", "--ignore-scripts", "--non-interactive"],
+  ],
+  "yarn berry": ["corepack", [`yarn@${YARN_BERRY}`, "add", "--dev"]],
+};
+
+/** Writes a scratch project's package.json. */
+function writeManifest(
+  directory: string,
+  testCase: Case,
+  devDependencies: Record<string, string>,
+): void {
+  writeFileSync(
+    path.join(directory, "package.json"),
+    `${JSON.stringify(
+      { name: `peer-install-${testCase}`, private: true, type: "module", devDependencies },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+/**
+ * Leaves a project whose package.json asks for {@link VIEM_TEMPLATE_RANGE} and whose lockfile holds
+ * {@link VIEM_LOCKED}: the state of a project created by Hardhat's template before a newer viem
+ * came out. Yarn Berry does it with `yarn set resolution`, which writes the lockfile only. Berry
+ * resolves a hand-edited lockfile entry again, so the other package managers, installed with
+ * {@link VIEM_LOCKED} as an exact version, get the viem specifier rewritten in package.json and
+ * in the lockfile, which keys or records the dependency by it. The rows where viem stays at
+ * {@link VIEM_LOCKED} (npm with `--legacy-peer-deps` among them) show that each package manager
+ * kept the edited lockfile entry.
+ */
+async function lockTemplateRange(directory: string, manager: Manager): Promise<void> {
+  if (manager === "yarn berry") {
+    const set = await exec(
+      "corepack",
+      [
+        `yarn@${YARN_BERRY}`,
+        "set",
+        "resolution",
+        `viem@npm:${VIEM_TEMPLATE_RANGE}`,
+        `npm:${VIEM_LOCKED}`,
+      ],
+      directory,
+    );
+    if (set.status !== 0) {
+      throw new Error(`yarn set resolution failed:\n${set.output}`);
+    }
+    return;
+  }
+  const manifestFile = path.join(directory, "package.json");
+  const manifest = readJson(manifestFile);
+  writeFileSync(
+    manifestFile,
+    `${JSON.stringify(
+      {
+        ...manifest,
+        devDependencies: { ...stringRecord(manifest.devDependencies), viem: VIEM_TEMPLATE_RANGE },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  const edit = (file: string, from: string, to: string): void => {
+    const text = readFileSync(path.join(directory, file), "utf8");
+    if (!text.includes(from)) {
+      throw new Error(`${manager}: ${file} has no ${from}`);
+    }
+    writeFileSync(path.join(directory, file), text.replaceAll(from, to));
+  };
+  switch (manager) {
+    case "npm":
+    case "npm --legacy-peer-deps":
+      edit("package-lock.json", `"viem": "${VIEM_LOCKED}"`, `"viem": "${VIEM_TEMPLATE_RANGE}"`);
+      return;
+    case "pnpm":
+      edit("pnpm-lock.yaml", `specifier: ${VIEM_LOCKED}`, `specifier: '${VIEM_TEMPLATE_RANGE}'`);
+      return;
+    case "yarn classic":
+      edit("yarn.lock", `viem@${VIEM_LOCKED}:`, `viem@${VIEM_TEMPLATE_RANGE}:`);
+      return;
+  }
+}
+
 /** The command that installs a project's dependencies, for each package manager. */
 const INSTALL: Record<Manager, [string, string[]]> = {
   npm: [npm, ["install", "--ignore-scripts"]],
@@ -401,28 +533,24 @@ async function measure(
         ? VIEM_RANGE
         : versions.viem;
   const core = testCase === "provider-mismatch" ? tarballs.coreAhead : tarballs.core;
-  writeFileSync(
-    path.join(directory, "package.json"),
-    `${JSON.stringify(
-      {
-        name: `peer-install-${testCase}`,
-        private: true,
-        type: "module",
-        devDependencies: {
-          "@hardhat-kms/aws": `file:${tarballs.aws}`,
-          hardhat: versions.hardhat,
-          "hardhat-kms": `file:${core}`,
-          viem,
-        },
-      },
-      null,
-      2,
-    )}\n`,
-  );
+  const plugins = { "@hardhat-kms/aws": `file:${tarballs.aws}`, "hardhat-kms": `file:${core}` };
+  const locked = testCase === "viem-locked";
+  writeManifest(directory, testCase, {
+    ...(locked ? {} : plugins),
+    hardhat: versions.hardhat,
+    // Yarn Berry gets the template range at once, and the old release through `yarn set resolution`.
+    viem: locked ? (manager === "yarn berry" ? VIEM_TEMPLATE_RANGE : VIEM_LOCKED) : viem,
+  });
   writeManagerFiles(directory, manager, true);
   writeProjectFiles(directory, kms.url);
   const [command, args] = INSTALL[manager];
-  const install = await exec(command, args, directory);
+  let install = await exec(command, args, directory);
+  if (locked && install.status === 0) {
+    await lockTemplateRange(directory, manager);
+    const [addCommand, addArgs] = ADD[manager];
+    const specs = Object.entries(plugins).map(([name, spec]) => `${name}@${spec}`);
+    install = await exec(addCommand, [...addArgs, ...specs], directory);
+  }
   if (install.status !== 0) {
     const tail = install.output.trim().split("\n").slice(-15).join("\n");
     rmSync(directory, { recursive: true, force: true });

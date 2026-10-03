@@ -5,12 +5,18 @@ name: Peer installs
 # checks what each package manager and the plugin's run-time checks do (scripts/test-peer-installs.ts).
 # The docs state that behaviour, so a package manager that changes it fails here.
 # It runs when the code of the two checks, a published manifest, the pnpm settings or the script
-# change, which includes the version bumps of a release, and monthly, for new npm and pnpm
-# releases. Linux only, on Node 24, the last line that ships corepack, which runs Yarn.
+# change, which includes the version bumps of a release, and monthly. The monthly run sees new npm
+# releases that come with Node 24. pnpm is the version in the root package.json's packageManager
+# field, and the Yarn versions are pinned in the script, so a new pnpm or Yarn is tested only when
+# one of those files changes. Linux only, on Node 24, the last line that ships corepack, which runs
+# Yarn.
 # It is not a required check: path-filtered checks would block merges that do not trigger them.
 on:
   pull_request:
     paths:
+      - "package.json"
+      - "packages/hardhat-kms/src/provider-utils.ts"
+      - "packages/hardhat-kms/src/internal/errors.ts"
       - "packages/hardhat-kms/package.json"
       - "packages/hardhat-kms-aws/package.json"
       - "packages/hardhat-kms-gcp/package.json"
@@ -25,6 +31,9 @@ on:
   push:
     branches: [main]
     paths:
+      - "package.json"
+      - "packages/hardhat-kms/src/provider-utils.ts"
+      - "packages/hardhat-kms/src/internal/errors.ts"
       - "packages/hardhat-kms/package.json"
       - "packages/hardhat-kms-aws/package.json"
       - "packages/hardhat-kms-gcp/package.json"

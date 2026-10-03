@@ -43,7 +43,7 @@ const authorization = await createWalletClient({
 
 `address` must be the address of one of the connection's KMS accounts, from the network's `kmsAccounts` or from `--kms`. Any other address fails with the KMS addresses the connection has.
 
-`getAccount` needs the `viem` package in the project. viem is an optional peer dependency of hardhat-kms: nothing else in the plugin loads it, and a project without it runs every task. Calling `getAccount` there fails with `connection.kms.getAccount needs the viem package, which could not be loaded`. The lowest viem version tested is 2.55.13, the floor of the peer range `^2.55.13`: earlier releases do not reset the account's nonce manager after every failed send, or can reset it for a send that never asked it for a nonce ([Sending](#sending)). npm stops an install that puts viem below the range, but pnpm and Yarn install it ([Package managers and the peer ranges](#package-managers-and-the-peer-ranges)), so `getAccount` checks viem's version too and refuses one below 2.55.13 with [`core.account.viem-too-old`](errors.md#library-accounts), before any KMS call. The check reads the viem that hardhat-kms resolves. In a workspace where the client's code resolves another, nested copy of viem, the check can pass while the client runs an older one; it is a best-effort check.
+`getAccount` needs the `viem` package in the project. viem is an optional peer dependency of hardhat-kms: nothing else in the plugin loads it, and a project without it runs every task. Calling `getAccount` there fails with `connection.kms.getAccount needs the viem package, which could not be loaded`. The lowest viem version tested is 2.55.13, the floor of the peer range `^2.55.13`: earlier releases do not reset the account's nonce manager after every failed send, or can reset it for a send that never asked it for a nonce ([Sending](#sending)). Depending on the package manager and the project's own viem range, an install can leave viem below the range ([Package managers and the peer ranges](#package-managers-and-the-peer-ranges)), so `getAccount` checks viem's version too and refuses one below 2.55.13 with [`core.account.viem-too-old`](errors.md#library-accounts), before any KMS call. The check reads the viem that hardhat-kms resolves. In a workspace where the client's code resolves another, nested copy of viem, the check can pass while the client runs an older one; it is a best-effort check.
 
 `getAccount` asks the KMS for the key's public key once, which also checks the key's `address` pin. Each method of the account then makes one KMS signing call.
 
@@ -51,19 +51,35 @@ The account belongs to its connection. After `connection.close()`, `getAccount` 
 
 The types are exported from `hardhat-kms/types` (`KmsAccount`, `KmsRawSignAccount`, `KmsAccountOptions`, `KmsNetworkConnection`), and are written without viem's types, so a project without viem still typechecks. A test checks that they are assignable to viem's `LocalAccount`.
 
-### Package managers and the peer ranges
+## Package managers and the peer ranges
 
-hardhat-kms declares viem as an optional peer dependency with the range `^2.55.13`, and each provider package declares hardhat-kms as a peer dependency at its own exact version. Whether a project can end up outside these ranges depends on the package manager. Measured on Node 24.16.0 with Hardhat 3.18.0, installing hardhat-kms and `@hardhat-kms/aws` into a new project:
+hardhat-kms declares viem as an optional peer dependency with the range `^2.55.13`, and each provider package declares hardhat-kms as a peer dependency at its own exact version. Whether a project ends up outside these ranges depends on the package manager and on what the project already asks for.
+
+The first table covers projects whose own spec allows no release in the peer range: viem pinned to `2.55.11`, viem `~2.54.0`, or a provider package at another version than hardhat-kms. Each project is new, with no lockfile, and installs hardhat-kms and `@hardhat-kms/aws` together:
 
 | Package manager                         | viem `2.55.11` or `~2.54.0` in the project                                    | hardhat-kms at another version than the provider package                           |
 | --------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| npm 11.15.0                             | Stops with `ERESOLVE`, exit code 1.                                           | Stops with `ERESOLVE`, exit code 1.                                                |
-| npm 11.15.0 with `--legacy-peer-deps`   | Installs that viem. `getAccount` refuses it with `core.account.viem-too-old`. | Installs both. The first use of a key fails with `core.provider.version-mismatch`. |
+| npm                                     | Stops with `ERESOLVE`, exit code 1.                                           | Stops with `ERESOLVE`, exit code 1.                                                |
+| npm with `--legacy-peer-deps`           | Installs that viem. `getAccount` refuses it with `core.account.viem-too-old`. | Installs both. The first use of a key fails with `core.provider.version-mismatch`. |
 | pnpm 12.8.1                             | Warns, installs that viem. `getAccount` refuses it.                           | Warns, installs both. The first use of a key fails.                                |
 | Yarn 1.22.22                            | Installs that viem with no warning. `getAccount` refuses it.                  | Warns, installs both. The first use of a key fails.                                |
 | Yarn 4.18.1, `nodeLinker: node-modules` | Warns (`YN0060`), installs that viem. `getAccount` refuses it.                | Warns, installs both. The first use of a key fails.                                |
 
-With viem `~2.54.0`, every package manager that installs resolves 2.54.6, the last 2.54 release. No package manager upgrades viem into the range. `pnpm run test:peer-installs` in the repository repeats these installs and fails when one of them changes.
+With `~2.54.0`, every package manager that installs resolves 2.54.6, the last 2.54 release.
+
+The second table covers an existing project as Hardhat's viem template creates it: viem `^2.47.6` in `package.json`, a range that overlaps the peer range, and the older 2.52.2 in the lockfile. The plugin packages are then added with the package manager's add command, such as `npm install --save-dev hardhat-kms @hardhat-kms/aws`:
+
+| Package manager                         | viem after adding the plugin packages                                             |
+| --------------------------------------- | --------------------------------------------------------------------------------- |
+| npm                                     | Exit code 0. npm moves viem to the newest release, 2.57.2 when measured.          |
+| npm with `--legacy-peer-deps`           | Exit code 0. viem stays at 2.52.2, and `getAccount` refuses it.                   |
+| pnpm 12.8.1                             | Exit code 0. viem stays at 2.52.2, and `getAccount` refuses it.                   |
+| Yarn 1.22.22                            | Exit code 0. viem stays at 2.52.2, and `getAccount` refuses it.                   |
+| Yarn 4.18.1, `nodeLinker: node-modules` | Exit code 0, warns (`YN0060`). viem stays at 2.52.2, and `getAccount` refuses it. |
+
+To move viem into the range with pnpm or Yarn, upgrade it as the fix of [`core.account.viem-too-old`](errors.md#library-accounts) shows.
+
+The measurements ran with Hardhat 3.18.0, on macOS with Node 24.16.0 and npm 11.15.0. CI repeats them on Linux with the npm that comes with Node 24, which was npm 11.19.0 on Node 24.21.0 for the first table. `pnpm run test:peer-installs` in the repository runs these installs and fails when an install's exit code, the viem that hardhat-kms resolves or what `getAccount` reports changes. It does not check the warnings, which come from manual runs of the same installs.
 
 ## Options
 
