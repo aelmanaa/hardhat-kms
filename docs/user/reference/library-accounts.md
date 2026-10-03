@@ -65,7 +65,7 @@ The first table covers projects whose own spec allows no release in the peer ran
 | Yarn 1.22.22                            | Installs that viem with no warning. `getAccount` refuses it.                  | Warns, installs both. The first use of a key fails.                                |
 | Yarn 4.18.1, `nodeLinker: node-modules` | Warns (`YN0060`), installs that viem. `getAccount` refuses it.                | Warns, installs both. The first use of a key fails.                                |
 
-With `~2.54.0`, every package manager that installs resolves 2.54.6, the last 2.54 release.
+With `~2.54.0`, each package manager in the table that installed resolved 2.54.6, the newest 2.54 release when measured.
 
 The second table covers a project that has only `hardhat` and `viem` installed, with viem `^2.47.6` in `package.json` (the range Hardhat's viem template uses, which overlaps the peer range) and the older 2.52.2 in the lockfile. The plugin packages are then added with the package manager's add command, such as `npm install --save-dev hardhat-kms @hardhat-kms/aws`:
 

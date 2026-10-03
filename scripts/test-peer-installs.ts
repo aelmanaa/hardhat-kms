@@ -12,8 +12,9 @@
 //   - viem-range: viem ~2.54.0, a range entirely below the floor.
 //   - provider-mismatch: hardhat-kms one patch release ahead of the provider package, which asks
 //     for the exact core version.
-//   - viem-locked: an existing project, as Hardhat's viem template creates it: viem `^2.47.6` in
-//     package.json, which overlaps the peer range, and 2.52.2, below the floor, in the lockfile.
+//   - viem-locked: an existing project with only hardhat and viem: viem `^2.47.6` (the range
+//     Hardhat's viem template uses) in package.json, which overlaps the peer range, and 2.52.2,
+//     below the floor, in the lockfile.
 //     The plugin packages are then added with each package manager's add command.
 // For each it records the install's exit code, the viem that hardhat-kms resolves and what
 // getAccount reports, then compares them with EXPECTED. A pnpm project also gets a run without
@@ -67,7 +68,7 @@ const VIEM_FLOOR = ((): string => {
   }
   return floor;
 })();
-/** viem's range in a project from Hardhat's viem template, and an older release it may have locked. */
+/** The viem range Hardhat's viem template uses, and an older release in the lockfile. */
 const VIEM_TEMPLATE_RANGE = "^2.47.6";
 const VIEM_LOCKED = "2.52.2";
 /** npm moves viem from the locked release to the newest one, in the peer range. */
@@ -415,8 +416,7 @@ function writeManifest(
 
 /**
  * Leaves a project whose package.json asks for {@link VIEM_TEMPLATE_RANGE} and whose lockfile holds
- * {@link VIEM_LOCKED}: the state of a project created by Hardhat's template before a newer viem
- * came out. Yarn Berry does it with `yarn set resolution`, which writes the lockfile only. Berry
+ * {@link VIEM_LOCKED}, with only hardhat and viem installed. Yarn Berry does it with `yarn set resolution`, which writes the lockfile only. Berry
  * resolves a hand-edited lockfile entry again, so the other package managers, installed with
  * {@link VIEM_LOCKED} as an exact version, get the viem specifier rewritten in package.json and
  * in the lockfile, which keys or records the dependency by it. The rows where viem stays at
