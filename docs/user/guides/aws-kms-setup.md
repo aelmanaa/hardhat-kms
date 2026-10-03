@@ -23,7 +23,7 @@ Deleting the key loses its address for good, along with any funds it holds, once
 
 ## 2. Allow signing, and nothing else
 
-The identity that runs Hardhat needs two permissions on this key. The conditions limit `kms:Sign` to what the plugin sends, a 32-byte digest signed with ECDSA over SHA-256:
+The identity that runs Hardhat needs two permissions on this key. Which identity that is depends on where Hardhat runs and what its environment holds: [How the plugin reaches your cloud](../explanation/cloud-access.md) shows the laptop, CI and server cases. The conditions limit `kms:Sign` to what the plugin sends, a 32-byte digest signed with ECDSA over SHA-256:
 
 ```json
 {

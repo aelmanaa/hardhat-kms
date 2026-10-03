@@ -96,7 +96,7 @@ The lock bounds the wait for it, not the work of its holder. Three limits apply,
 
 The holder itself has no deadline. Its KMS calls stop at `timeoutMs`, and its broadcast stops at Hardhat's network timeout (the http network's `timeout`, 300 s by default). A deadline that fired during the broadcast could not say whether the transaction went out. The two numeric limits are constants, and are not configurable in 1.0. The timers come from the `Timers` seam, so the unit tests drive them with a fake clock.
 
-The nonce for a KMS send whose caller gave none is `max(pending, highWater + 1)`, where `pending` is the filler's `eth_getTransactionCount [from, "pending"]`. `signTransaction` takes the choice as `chooseNonce`, applied after the fill. The high-water mark is keyed by (connection, from):
+The nonce for a KMS send whose caller gave none is `max(pending, highWater + 1, highest reservation + 1)` (`ConnectionSends.nonceFor`), where `pending` is the filler's `eth_getTransactionCount [from, "pending"]` and the reservations are the nonces handed to library accounts' clients ([Library accounts: nonces and raw transactions](#library-accounts-nonces-and-raw-transactions)). `signTransaction` takes the choice as `chooseNonce`, applied after the fill. The high-water mark is keyed by (connection, from):
 
 - After a send, `hw = max(hw, usedNonce)`.
 - A nonce supplied by the caller (Ignition does this) is always honoured, and sets `hw = max(hw, nonce)`.

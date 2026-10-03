@@ -19,7 +19,7 @@ pnpm run test:live              # deploys, sends and signs with each configured 
 pnpm run test:live:aws          # AWS adapter against real KMS (needs HARDHAT_KMS_LIVE_AWS_KEY_ID)
 pnpm run coverage               # tests with coverage thresholds
 pnpm run pkg:check              # build + publint + arethetypeswrong + knip
-pnpm run docs:check             # doc snippets typecheck, every page is indexed, generated pages are current
+pnpm run docs:check             # doc snippets typecheck, every page is indexed, generated pages are current, Mermaid blocks parse
 pnpm run docs:api               # regenerate the API reference after changing TSDoc or a public type
 ```
 

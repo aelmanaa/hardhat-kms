@@ -29,6 +29,7 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 - Complete projects to copy, which deploy and call a contract with viem, ethers or Ignition: [examples/README.md](examples/README.md)
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - How a request goes from viem or ethers through the plugin to the KMS and the node: [docs/user/explanation/how-it-works.md](docs/user/explanation/how-it-works.md)
+- Which credentials sign on a laptop, in CI and on a server, per cloud: [docs/user/explanation/cloud-access.md](docs/user/explanation/cloud-access.md)
 - What the plugin protects against and what it does not, what to configure, and what happens when a KMS call times out: [docs/user/explanation/security-model.md](docs/user/explanation/security-model.md)
 - Pages not written yet (the remaining guides, a docs site): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
 
@@ -54,7 +55,7 @@ pnpm run test:live              # deploys, sends and signs with each configured 
 pnpm run test:live:aws          # AWS adapter against real KMS (needs HARDHAT_KMS_LIVE_AWS_KEY_ID)
 pnpm run coverage               # tests with the 95% coverage threshold
 pnpm run pkg:check              # build, publint, arethetypeswrong, knip
-pnpm run docs:check             # doc snippets typecheck, every page is indexed, generated pages are current
+pnpm run docs:check             # doc snippets typecheck, every page is indexed, generated pages are current, Mermaid blocks parse
 pnpm run docs:errors            # regenerate docs/user/reference/errors.md from the error catalogues
 pnpm run docs:api               # build, then regenerate docs/user/reference/api/ from TSDoc
 ```

@@ -151,7 +151,7 @@ hardhat-kms tries these credential sources in order and uses the first that retu
 
 This is the order proposed for Foundry's Azure Key Vault signer in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120), which no Foundry release includes yet. The developer tools come before the managed identity, so a local `az login` works without waiting for the managed identity endpoint, which outside Azure may never answer. A source that is not configured is skipped; a source that is configured but fails, such as a service principal with a wrong secret, stops the search with its error.
 
-Every Azure key of a run signs as the identity this chain finds; [Credentials](../reference/configuration.md#azure) lists the variables that turn each source on.
+Every Azure key of a run signs as the identity this chain finds; [Credentials](../reference/configuration.md#azure) lists the variables that turn each source on, and [How the plugin reaches your cloud](../explanation/cloud-access.md) shows which source a laptop, a CI job and a server use.
 
 On a laptop, `az login` is enough. In GitHub Actions, run `azure/login` with OIDC federation rather than a client secret.
 
