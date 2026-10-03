@@ -99,7 +99,7 @@ This is the order of Foundry's Azure Key Vault signer. The developer tools come 
 
 On a laptop, `az login` is enough. In GitHub Actions, run `azure/login` with OIDC federation rather than a client secret.
 
-A client secret in the environment takes precedence over every other source, because the service principal comes first. With `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` set, the plugin signs in as that service principal even after `az login` or `azure/login`, and a wrong secret stops the search before it reaches the Azure CLI. Unset them to use another source.
+A service principal in the environment takes precedence over every other source. With `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` (or `AZURE_CLIENT_CERTIFICATE_PATH`) set, the plugin signs in as that service principal even after `az login` or `azure/login`. Unset `AZURE_CLIENT_SECRET` or `AZURE_CLIENT_CERTIFICATE_PATH` to use another source.
 
 ## 4. Install the plugin and configure the key
 
