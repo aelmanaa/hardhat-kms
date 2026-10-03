@@ -2,13 +2,9 @@
 
 Audience: users who hold funds or contract roles at a KMS key's address and want to know what the plugin guarantees, what it leaves to them, and what can still go wrong. Assumes you have read [How hardhat-kms works](how-it-works.md) or know the path of a request.
 
-Status: Implemented. Every guarantee below is on `main`. The contributor version, with the code that enforces each control, is the [threat model summary](../../contributor/signing-pipeline.md#threat-model-summary).
-
 The plugin never holds a private key: the KMS signs and the plugin checks. Its job is to make sure that what the KMS signs is what you asked for, for the chain you meant, with the key you configured, and that nothing leaks on the way. Who may use the key at all is for your cloud provider's access control to decide, not the plugin.
 
 ## What the plugin protects against
-
-Each row is one row of the [threat model summary](../../contributor/signing-pipeline.md#threat-model-summary), in the order it lists them.
 
 | Risk                                                                                      | What the plugin does                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -26,19 +22,19 @@ The plugin's core enforces the first four guarantees below, outside the adapter,
 
 ### Every signature is verified
 
-No signature leaves the plugin unless it recovers to the account's address. The signer parses each signature strictly, checks the range of `r` and `s`, folds `s` to its low form, finds the recovery bit by trying each candidate against the public key it already knows, and verifies the result. Messages and typed data are checked once more with an EIP-191 or EIP-712 verifier, and a transaction must recover to its `from` before it is sent. A signature that fails one of the signer's own checks (parse, range, recovery and verification against the key) gets one fresh attempt, then an error. A failure of the final EIP-191 or EIP-712 verification, or of the sender check, fails at once. See [decision 0004](../../contributor/decisions/0004-verify-every-signature.md).
+No signature leaves the plugin unless it recovers to the account's address. The signer parses each signature strictly, checks the range of `r` and `s`, folds `s` to its low form, finds the recovery bit by trying each candidate against the public key it already knows, and verifies the result. Messages and typed data are checked once more with an EIP-191 or EIP-712 verifier, and a transaction must recover to its `from` before it is sent. A signature that fails one of the signer's own checks (parse, range, recovery and verification against the key) gets one fresh attempt, then an error. A failure of the final EIP-191 or EIP-712 verification, or of the sender check, fails at once.
 
 ### No bare digests over RPC
 
-No JSON-RPC method signs an arbitrary 32-byte digest. `eth_sign` and `personal_sign` both add the EIP-191 prefix, as Hardhat does. Signing a raw digest is possible only with the [`kms sign --no-hash`](../reference/tasks.md#raw-digests) task, which prints a warning each time it runs. A tool that expects raw-digest signing over RPC does not work with a KMS account, by design. See [decision 0003](../../contributor/decisions/0003-no-bare-digest-over-rpc.md).
+No JSON-RPC method signs an arbitrary 32-byte digest. `eth_sign` and `personal_sign` both add the EIP-191 prefix, as Hardhat does. Signing a raw digest is possible only with the [`kms sign --no-hash`](../reference/tasks.md#raw-digests) task, which prints a warning each time it runs. A tool that expects raw-digest signing over RPC does not work with a KMS account, by design.
 
 ### Typed data checks its chain
 
-When typed data names a chain in `domain.chainId`, it must equal the connection's chain, read with `eth_chainId`, or the request fails before any sign request. (For a key without an `address` pin, the first request may still read the key's public key.) `chainId: 0` is checked like any other value. `kms.allowCrossChainTypedData: true` turns the check off. Typed data without `domain.chainId` is signed, as Hardhat, Foundry and MetaMask sign it, and its signature is valid on every chain. The `kms sign --data` task runs the same check against `--chain`, else the `--network` config's `chainId`, else that network's `eth_chainId`; without `--chain` or `--network`, typed data that names a chain is refused. `--allow-cross-chain` turns the check off for one run. See [decision 0011](../../contributor/decisions/0011-typed-data-chain-check.md).
+When typed data names a chain in `domain.chainId`, it must equal the connection's chain, read with `eth_chainId`, or the request fails before any sign request. (For a key without an `address` pin, the first request may still read the key's public key.) `chainId: 0` is checked like any other value. `kms.allowCrossChainTypedData: true` turns the check off. Typed data without `domain.chainId` is signed, as Hardhat, Foundry and MetaMask sign it, and its signature is valid on every chain. The `kms sign --data` task runs the same check against `--chain`, else the `--network` config's `chainId`, else that network's `eth_chainId`; without `--chain` or `--network`, typed data that names a chain is refused. `--allow-cross-chain` turns the check off for one run.
 
 ### Transactions from one account go out in order
 
-The send lock runs sends from one KMS address on one chain one after the other, so parallel sends from one account on one connection get consecutive nonces. A library account's transactions that viem sends through the connection take their turn too, from the nonce to the broadcast; a viem client with its own transport only reserves its nonce ([Library accounts](../reference/library-accounts.md#sending)). Each request reaches the node's `eth_sendRawTransaction` at most once, and a request never signs again after its broadcast. When a broadcast gets no answer, the plugin keeps the signed bytes for 120 s. A retry of the identical request usually resends them, with the same hash and nonce; if that nonce has since been used and the node does not know the transaction, the plugin signs a new one. A retry is also signed afresh when it comes on another connection (the cache is per connection), when its params cannot be used as a cache key (a `Date` or a `Map`, for example), or after a later send asked the node about the first transaction and the node did not have it. See [Nonces and the send lock](../../contributor/transactions.md#nonces-and-the-send-lock) and [Retries after broadcast](../../contributor/transactions.md#retries-after-broadcast).
+The send lock runs sends from one KMS address on one chain one after the other, so parallel sends from one account on one connection get consecutive nonces. A library account's transactions that viem sends through the connection take their turn too, from the nonce to the broadcast; a viem client with its own transport only reserves its nonce ([Library accounts](../reference/library-accounts.md#sending)). Each request reaches the node's `eth_sendRawTransaction` at most once, and a request never signs again after its broadcast. When a broadcast gets no answer, the plugin keeps the signed bytes for 120 s. A retry of the identical request usually resends them, with the same hash and nonce; if that nonce has since been used and the node does not know the transaction, the plugin signs a new one. A retry is also signed afresh when it comes on another connection (the cache is per connection), when its params cannot be used as a cache key (a `Date` or a `Map`, for example), or after a later send asked the node about the first transaction and the node did not have it. Optional, for more detail: [Nonces and the send lock](../../contributor/transactions.md#nonces-and-the-send-lock) and [Retries after broadcast](../../contributor/transactions.md#retries-after-broadcast) in the contributor docs.
 
 ### No secrets in errors, logs or task output
 
@@ -59,7 +55,7 @@ A key id read from a configuration variable shows as the variable's name, such a
 
 The official packages are `hardhat-kms` and the packages under the `@hardhat-kms` npm scope. A package with any other name, such as `hardhat-kms-aws`, does not come from this project.
 
-Only members of the `hardhat-kms` npm organization can publish under `@hardhat-kms/`, but anyone can publish an unscoped name that looks like this project's. A provider package runs inside your Hardhat process with the same access as the rest of your code. It can read your environment and cloud credentials, and sign with any key those credentials allow. Check the name before you install. A third-party provider is published under its own name or scope; review it as you would any dependency that runs with your cloud credentials. See [decision 0015](../../contributor/decisions/0015-npm-names.md).
+Only members of the `hardhat-kms` npm organization can publish under `@hardhat-kms/`, but anyone can publish an unscoped name that looks like this project's. A provider package runs inside your Hardhat process with the same access as the rest of your code. It can read your environment and cloud credentials, and sign with any key those credentials allow. Check the name before you install. A third-party provider is published under its own name or scope; review it as you would any dependency that runs with your cloud credentials.
 
 ## What you configure
 
@@ -136,7 +132,7 @@ What this means for you:
 
 ## Read next
 
-- [Threat model summary](../../contributor/signing-pipeline.md#threat-model-summary), and the signature pipeline and key pinning, for contributors and security reviewers.
+- Optional, for contributors and security reviewers: the [threat model summary](../../contributor/signing-pipeline.md#threat-model-summary) in the contributor docs, with the code that enforces each control.
 - [Prevent and recover from losing a key](../guides/key-loss.md).
 - [Comparison with Foundry](foundry-comparison.md): the checks hardhat-kms adds over Foundry's KMS signers.
 - [SECURITY.md](../../../SECURITY.md): how to report a vulnerability.

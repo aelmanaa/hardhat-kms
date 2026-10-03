@@ -1,18 +1,8 @@
 # First deploy on Sepolia with AWS KMS
 
-<!--
-This page is the template for the Google Cloud KMS (#66) and Azure Key Vault (#67) tutorials.
-Shared, copy as is: step 1, step 5, steps 6 and 7, the return-funds half of step 8, Next steps.
-In the shared parts, change only the provider's name and key terms (key or key version, Sign or
-AsymmetricSign) in: the audience and intro lines, step 5's second paragraph, step 6's sentence on
-the Sign call, step 7's last sentence and step 8's opening sentence.
-Provider-specific, rewrite per provider: the region and credentials prerequisites, the cost
-paragraph, steps 2 and 3, the install line and the kms.keys entry in step 4, the key removal in step 8.
--->
-
 Audience: developers who have an AWS account and the AWS CLI signed in, and have not used AWS KMS with Hardhat.
 
-Status: followed from an empty directory on 2026-10-01, at commit [`7c4262e`](https://github.com/aelmanaa/hardhat-kms/commit/7c4262e), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 8 minutes, without the wait for Sepolia ETH ([#65](https://github.com/aelmanaa/hardhat-kms/issues/65)). The plugin is not on npm yet; step 4 says how to install it until then.
+Status: followed from an empty directory on 2026-10-01, at commit [`7c4262e`](https://github.com/aelmanaa/hardhat-kms/commit/7c4262e), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 8 minutes, without the wait for Sepolia ETH. The plugin is not on npm yet; step 4 says how to install it until then.
 
 In this tutorial you create a Hardhat project, create a signing key in AWS KMS, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves AWS KMS: Hardhat asks KMS for a signature each time it sends a transaction.
 

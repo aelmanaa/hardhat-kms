@@ -2,7 +2,7 @@
 
 Audience: developers who have an Azure subscription and the Azure CLI signed in, and have not used Azure Key Vault with Hardhat.
 
-Status: followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH ([#67](https://github.com/aelmanaa/hardhat-kms/issues/67)). The run used an existing Standard vault with RBAC: it ran the key commands of steps 2 and 8, and listed the role assignments at the vault scope. It did not create the resource group or the vault, create or delete role assignments, or delete the vault. The plugin is not on npm yet; step 4 says how to install it until then.
+Status: followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH. The run used an existing Standard vault with RBAC: it ran the key commands of steps 2 and 8, and listed the role assignments at the vault scope. It did not create the resource group or the vault, create or delete role assignments, or delete the vault. The plugin is not on npm yet; step 4 says how to install it until then.
 
 In this tutorial you create a Hardhat project, create a signing key in Azure Key Vault, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Key Vault: Hardhat asks Key Vault for a signature each time it sends a transaction.
 

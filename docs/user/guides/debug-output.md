@@ -2,8 +2,6 @@
 
 Audience: users who want to see what the plugin does, for example when a key is slow or fails.
 
-Status: M2 adds `hardhat:kms:config`, `hardhat:kms:providers` and `hardhat:kms:signer`, the network hook (M4) adds `hardhat:kms:rpc`, and the library account (1.0) adds `hardhat:kms:account`. The providers and signer namespaces log when a connection first uses a key, to look up its address or to sign.
-
 Set `DEBUG` to turn on the plugin's debug output. It goes to standard error:
 
 ```sh

@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in Google Cloud KMS.
 
-Status: the Google Cloud adapter is implemented (M6, [#29](https://github.com/aelmanaa/hardhat-kms/issues/29)), in the `@hardhat-kms/gcp` package. A connection lists the key's account, signs messages and typed data with it, and signs and sends transactions.
+With `@hardhat-kms/gcp`, a connection lists the key's account, signs messages and typed data with it, and signs and sends transactions.
 
 ## 1. Create a secp256k1 signing key
 
@@ -63,7 +63,7 @@ done
 
 Use `serviceAccount:<email>` as the member for a service account. `roles/cloudkms.signerVerifier` also holds both permissions in one role, plus `useToVerify`, which the plugin does not use. The permissions in each role are listed in [Cloud KMS permissions and roles](https://cloud.google.com/kms/docs/reference/permissions-and-roles).
 
-This setup has not yet been checked against real Cloud KMS with a least-privilege identity; the live test ([Testing](../../contributor/testing.md)) runs with the developer's own identity.
+This setup has not yet been checked against real Cloud KMS with a least-privilege identity; the plugin's live tests ran with an identity that has wider permissions.
 
 ## 3. Install the plugin and configure the key
 
@@ -133,7 +133,7 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 - After a checksum mismatch, or when Cloud KMS is unavailable or cannot be reached, it repeats the call, at most three more times, then fails. Before repeating an unavailable call it waits 100 ms, then 200 ms, then 400 ms. The SDK's own retries are off, so this is the only retry loop, and it starts no new attempt once the call has timed out.
 - When the credentials cannot be loaded, the call fails with a `gcp.connect.*` error and nothing is sent. The plugin does not keep that failure: the next call creates a new client, which looks the credentials up again, so a passing failure, such as a metadata server that did not answer in time, ends once the credentials can be found.
 - It uses the SDK's REST transport, so no gRPC connection keeps `hardhat run` from exiting. Each request's deadline is the key's `timeoutMs`; google-gax enforces it over REST from 6.5.0, the version `@hardhat-kms/gcp` requires and hands to the client. The SDK cannot cancel a request already sent, so after a timeout the request in flight runs until that deadline, and nothing more is sent.
-- It parses every DER signature, normalizes it to low-S and verifies it against the public key before using it; see the [signing pipeline](../../contributor/signing-pipeline.md).
+- It parses every DER signature, normalizes it to low-S and verifies it against the public key before using it; see the [security model](../explanation/security-model.md#every-signature-is-verified).
 - It puts `hardhat-kms/<version>` at the start of the user agent of every request, so `protoPayload.requestMetadata.callerSuppliedUserAgent` in the Cloud KMS audit log starts with `hardhat-kms/1.0.0` (with your installed version) when Data Access logs are on for Cloud KMS. The client reports this tag and anyone can send the same string, so it marks the plugin's calls but proves nothing.
 
 ## Audit logs

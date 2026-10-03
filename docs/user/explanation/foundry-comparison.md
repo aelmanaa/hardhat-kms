@@ -2,8 +2,6 @@
 
 Audience: Users choosing between Foundry and Hardhat for KMS signing.
 
-Status: Implemented. Every difference below is on `main`.
-
 ## Differences from Foundry
 
 What hardhat-kms adds over Foundry's KMS signers:

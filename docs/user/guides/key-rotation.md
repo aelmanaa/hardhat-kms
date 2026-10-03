@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in AWS KMS, Google Cloud KMS or Azure Key Vault and want to rotate it, or want a rotation to fail loudly rather than change their address. Assumes a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).
 
-Status: the provider facts below were checked against each provider's documentation on 2026-10-02. The AWS alias case and the Azure version case in [What a pin does](#what-a-pin-does) ran that day on throwaway keys ([#70](https://github.com/aelmanaa/hardhat-kms/issues/70)). Provider behaviour can change; each fact links to the page it comes from.
+Status: the provider facts below were checked against each provider's documentation on 2026-10-02. The AWS alias case and the Azure version case in [What a pin does](#what-a-pin-does) ran that day on throwaway keys. Provider behaviour can change; each fact links to the page it comes from.
 
 An Ethereum address is derived from the public key. New key material is a new public key, and so a new address. Rotating a signing key does not move anything: the funds, the nonce history and every contract role stay with the old address, and only the old key can sign for it.
 

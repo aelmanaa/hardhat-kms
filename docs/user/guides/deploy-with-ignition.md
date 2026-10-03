@@ -2,7 +2,7 @@
 
 Audience: users who deploy contracts with Hardhat Ignition and want a KMS key to sign the deployment. Assumes a working key setup, such as [Set up an AWS KMS key](aws-kms-setup.md), and an Ignition module.
 
-Status: M5 signs and sends transactions from KMS accounts ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)), and the deploy tests cover Ignition, hardhat-viem and hardhat-ethers ([#26](https://github.com/aelmanaa/hardhat-kms/issues/26)). The tests ran with `@nomicfoundation/hardhat-ignition` 3.1.8 and `@nomicfoundation/hardhat-ignition-viem` 3.1.6 on Hardhat 3.18.0. The plugin is not on npm yet.
+Status: deploys from a KMS account were tested with Ignition, hardhat-viem and hardhat-ethers, using `@nomicfoundation/hardhat-ignition` 3.1.8 and `@nomicfoundation/hardhat-ignition-viem` 3.1.6 on Hardhat 3.18.0. The plugin is not on npm yet.
 
 For a complete project to start from, see the [Ignition example](../../../examples/ignition/README.md). It deploys the `Counter` module below from a KMS account, with the `ignition deploy` task and from a script, and CI runs it on every pull request.
 
