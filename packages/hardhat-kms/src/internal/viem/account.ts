@@ -1,6 +1,9 @@
 // `connection.kms.getAccount`: a viem local account whose key is a KMS key. It signs with the same
 // signer, digests and checks as the JSON-RPC path, and refuses before any KMS call what it does
 // not sign. viem is an optional peer dependency, loaded only here, on the first getAccount.
+import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 
@@ -10,7 +13,11 @@ import { recoverPublicKey, toRpcSignature } from "../crypto/signature.ts";
 import { kmsDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, errorName } from "../errors.ts";
-import { type ConnectionAccounts, kmsAccountsSentence } from "../rpc/dispatcher.ts";
+import {
+  type ConnectionAccounts,
+  kmsAccountsSentence,
+  type LibraryNonceRequest,
+} from "../rpc/dispatcher.ts";
 import { assembleSignedTransaction } from "../rpc/transactions.ts";
 import { checkTypedDataChain } from "../rpc/typed-data.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
@@ -29,6 +36,7 @@ import type {
   KmsAuthorizationRequest,
   KmsHex,
   KmsNetworkConnection,
+  KmsNonceManager,
   KmsRawSignAccount,
   KmsSignedAuthorization,
   KmsSignTransactionOptions,
@@ -51,12 +59,26 @@ export interface AccountConnection {
   allowCrossChainTypedData: boolean;
   /** Whether the connection is closed; its accounts then refuse to sign. */
   closed(): boolean;
+  /** The connection's nonces for its library accounts' own sends. */
+  nonces: {
+    /**
+     * Chooses an account's next nonce; for `consume`, under its send lock, which the send keeps
+     * until its broadcast.
+     */
+    choose(request: LibraryNonceRequest): Promise<bigint>;
+    /** Notes that the account signed a transaction with this nonce. */
+    signed(address: string, nonce: bigint): void;
+    /** Ends the hold or the reservation of a send that failed. */
+    reset(address: string, chainId: bigint): Promise<void>;
+  };
 }
 
 /** The parts of viem an account uses. */
 interface ViemParts {
   /** viem's default transaction serializer, which must encode the transaction as the plugin does. */
   serializeTransaction: KmsTransactionSerializer;
+  /** viem's version, `X.Y.Z`, from its `package.json`; `""` when it cannot be read. */
+  version: string;
 }
 
 /** Loads viem, the account's optional peer dependency. */
@@ -69,8 +91,60 @@ export type LoadViem = () => Promise<ViemParts>;
  */
 export const loadViem: LoadViem = async () => {
   const viem = await import("viem");
-  return { serializeTransaction: viem.serializeTransaction };
+  return { serializeTransaction: viem.serializeTransaction, version: await readViemVersion() };
 };
+
+/**
+ * Reads the version of the viem that `import("viem")` loads from this module, from its
+ * `package.json`, which viem exports.
+ *
+ * @param resolve - Resolves a module specifier to a file; tests pass another resolver.
+ * @returns The version, or `""` when it cannot be read.
+ */
+export async function readViemVersion(
+  resolve: (specifier: string) => string = createRequire(import.meta.url).resolve,
+): Promise<string> {
+  try {
+    const manifest: unknown = JSON.parse(String(await readFile(resolve("viem/package.json"))));
+    return isObject(manifest) && typeof manifest.version === "string" ? manifest.version : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The lowest viem release whose `sendTransaction` calls the nonce manager's `reset` only after its
+ * `consume` (wevm/viem#4967); the floor of the peer range.
+ */
+export const VIEM_FLOOR = "2.55.13";
+
+/**
+ * Refuses a viem release below {@link VIEM_FLOOR}, since pnpm and Yarn only warn when the
+ * installed viem is outside the peer range. A pre-release of the floor, such as `2.55.13-canary.0`,
+ * is below it, as semver orders them. A version that does not read as `X.Y.Z` passes: the check
+ * must not refuse a viem it cannot read.
+ *
+ * @param version - viem's version, such as `2.57.2`.
+ * @param operation - The account method, for the error message.
+ */
+function checkViemVersion(version: string, operation: string): void {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:$|\+|(-))/.exec(version);
+  if (match === null) {
+    return;
+  }
+  // The first part that differs decides: negative when the installed viem is older.
+  const order =
+    VIEM_FLOOR.split(".")
+      .map((minimum, index) => Number(match[index + 1]) - Number(minimum))
+      .find((difference) => difference !== 0) ?? 0;
+  if (order < 0 || (order === 0 && match[4] === "-")) {
+    throw catalogError(
+      ERRORS.accountViemTooOld,
+      { installed: version.slice(0, 64), floor: VIEM_FLOOR },
+      { operation },
+    );
+  }
+}
 
 const OPTION_NAMES = new Set(["rawSign", "allowChainZeroAuthorization"]);
 
@@ -126,17 +200,37 @@ function loadFailure(error: unknown): string {
     : errorName(error);
 }
 
-// Printed once per process, on the first transaction a library account signs.
-let warnedAboutSends = false;
+// Printed once per process, the first time a library account's nonce is chosen for a client
+// whose transport does not go through Hardhat.
+let warnedAboutTransport = false;
 
-/** Warns, once per process, that viem sends the account's transactions past the plugin. */
-function warnAboutSends(): void {
-  if (warnedAboutSends) {
+/**
+ * The type of a viem client's transport when it does not go through Hardhat: any type but
+ * `custom`, such as `http` or `webSocket`. A `custom` transport over another provider cannot be
+ * told apart from `custom(connection.provider)`.
+ *
+ * @param client - The viem client of the send.
+ * @returns The transport's type, or `undefined` for a `custom` or unknown transport.
+ */
+function ownTransportType(client: unknown): string | undefined {
+  const transport: unknown = isObject(client) ? client.transport : undefined;
+  const type: unknown = isObject(transport) ? transport.type : undefined;
+  return typeof type === "string" && type !== "custom" ? type : undefined;
+}
+
+/**
+ * Warns, once per process, when viem asks for a nonce for a client whose transport does not go
+ * through Hardhat: its broadcast never reaches the plugin.
+ *
+ * @param type - The transport's type.
+ */
+function warnAboutTransport(type: string): void {
+  if (warnedAboutTransport) {
     return;
   }
-  warnedAboutSends = true;
+  warnedAboutTransport = true;
   warn(
-    "a transaction signed by a connection.kms.getAccount account is sent by viem with eth_sendRawTransaction, which bypasses the plugin's nonce tracking and send lock. Send from a KMS account with connection.viem.getWalletClient(address); see https://github.com/aelmanaa/hardhat-kms/issues/186.",
+    `a connection.kms.getAccount account sends with a viem "${type}" transport, which does not go through Hardhat. The plugin chose the transaction's nonce and keeps it from its own sends for 60 s, but it does not order or see the broadcast, so a node that mines each transaction on arrival, such as Hardhat's simulated network, can refuse the plugin's next send with "Nonce too high". Send through custom(connection.provider); see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#clients-with-their-own-transport-on-an-automining-node.`,
   );
 }
 
@@ -234,8 +328,8 @@ async function signTransaction(
     const signature = await signer.signDigest(keccak_256(unsignedBytes));
     return assembleSignedTransaction(input.unsigned, signature, address, operation);
   });
-  // After the signature: a transaction the KMS did not sign is never sent.
-  warnAboutSends();
+  // After the signature: a reservation whose transaction was signed is the one most likely sent.
+  connection.nonces.signed(address.toLowerCase(), input.unsigned.raw.nonce);
   return hex(signed.toHex(true));
 }
 
@@ -297,6 +391,44 @@ async function signAuthorization(
   return signed;
 }
 
+/**
+ * Builds the account's viem `nonceManager`. viem calls `consume` once per send without a nonce
+ * (`sendTransaction`, `writeContract`, `deployContract`), and `reset` when that send fails. The
+ * connection chooses the nonce as the plugin's own sends would, and keeps it from them until the
+ * raw transaction reaches the node, `reset` is called, or 60 s pass.
+ */
+function buildNonceManager(context: AccountContext): KmsNonceManager {
+  const { connection } = context;
+  const address = context.address.toLowerCase();
+  const choose = async (
+    operation: string,
+    parameters: { chainId: number; client?: unknown },
+    reserve: boolean,
+  ): Promise<number> => {
+    checkOpen(connection, operation);
+    const type = reserve ? ownTransportType(parameters.client) : undefined;
+    const own = type !== undefined;
+    if (own) {
+      warnAboutTransport(type);
+    }
+    const chainId = BigInt(parameters.chainId);
+    return Number(await connection.nonces.choose({ address, chainId, reserve, ownTransport: own }));
+  };
+  const manager: KmsNonceManager = {
+    consume: async (parameters) => await choose("nonceManager.consume", parameters, true),
+    get: async (parameters) => await choose("nonceManager.get", parameters, false),
+    // Nothing to count: each consume reads the node and the reservations again.
+    increment: () => undefined,
+    reset: (parameters) => {
+      // viem does not await reset; a failure only leaves the hold to its time limit.
+      connection.nonces.reset(address, BigInt(parameters.chainId)).catch((error: unknown) => {
+        log("%s: nonceManager.reset failed (%s)", context.address, errorName(error));
+      });
+    },
+  };
+  return Object.freeze(manager);
+}
+
 /** Builds the account object. It holds closures only: no signer, key config or key material. */
 function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | KmsRawSignAccount {
   const { connection, withSigner } = context;
@@ -334,6 +466,7 @@ function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | 
     signTransaction: async (transaction, options) =>
       await signTransaction(context, transaction, options),
     signAuthorization: async (parameters) => await signAuthorization(context, parameters),
+    nonceManager: buildNonceManager(context),
   };
   if (!context.options.rawSign) {
     return Object.freeze(account);
@@ -378,6 +511,7 @@ export function createKmsNetworkConnection(
     } catch (error) {
       throw catalogError(ERRORS.accountViemMissing, { reason: loadFailure(error) }, { operation });
     }
+    checkViemVersion(viem.version, operation);
     const checked = readOptions(options, operation);
     const checksummed = readAddress(address, "address", operation);
     const { accounts } = connection;

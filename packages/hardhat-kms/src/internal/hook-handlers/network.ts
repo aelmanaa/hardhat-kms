@@ -3,7 +3,14 @@ import type { NetworkConnection } from "hardhat/types/network";
 
 import { kmsDebug } from "../debug.ts";
 import { type ConnectionChain, createConnectionChain } from "../rpc/chain-id.ts";
-import { ConnectionAccounts, dispatch, type NetworkKeys } from "../rpc/dispatcher.ts";
+import {
+  ConnectionAccounts,
+  type ConnectionTransactions,
+  dispatch,
+  libraryNonce,
+  type NetworkKeys,
+  resetLibraryNonce,
+} from "../rpc/dispatcher.ts";
 import { ConnectionSends } from "../rpc/send-guard.ts";
 import { createTransactionFiller, type TransactionFiller } from "../rpc/transaction-filler.ts";
 import { SignerCache } from "../signer/key-cache.ts";
@@ -83,11 +90,14 @@ const hasKeys = (keys: NetworkKeys): boolean =>
  *
  * @param timers - Timer functions for the idle close and the retry entries, for tests.
  * @param load - Loads viem for `connection.kms.getAccount`, for tests.
+ * @param highWaterOnSimulated - Keeps the nonce high-water mark on `edr-simulated` networks too,
+ * for tests that need it there.
  * @returns The handlers.
  */
 export function createNetworkHandlers(
   timers: Timers = systemTimers,
   load: LoadViem = loadViem,
+  highWaterOnSimulated = false,
 ): Partial<NetworkHooks> {
   const cache = new SignerCache(timers);
   const accountsByConnection = new WeakMap<object, ConnectionAccounts>();
@@ -138,13 +148,24 @@ export function createNetworkHandlers(
     let sends = sendsByConnection.get(connection);
     if (sends === undefined) {
       sends = new ConnectionSends({
-        highWater: connection.networkConfig.type !== "edr-simulated",
+        highWater: highWaterOnSimulated || connection.networkConfig.type !== "edr-simulated",
         timers,
       });
       sendsByConnection.set(connection, sends);
     }
     return sends;
   };
+
+  const transactionsOf = (connection: NetworkConnection<string>): ConnectionTransactions => ({
+    filler: () => fillerOf(connection),
+    defaultSender: async () => await defaultSender(connection),
+    chainId: async () => await chainOf(connection).chainId(),
+    sends: () => sendsOf(connection),
+    request: async (method, params) => {
+      const result: unknown = await connection.provider.request({ method, params });
+      return result;
+    },
+  });
 
   return {
     newConnection: async (context, next) => {
@@ -155,6 +176,15 @@ export function createNetworkHandlers(
         {
           network: connection.networkName,
           accounts: accountsOf(context, connection),
+          nonces: {
+            choose: async (request) => await libraryNonce(transactionsOf(connection), request),
+            signed: (address, nonce) => {
+              sendsOf(connection).signedReservation(address, nonce);
+            },
+            reset: async (address, chainId) => {
+              await resetLibraryNonce(transactionsOf(connection), address, chainId);
+            },
+          },
           chainId: async () => await chainOf(connection).chainId(),
           allowCrossChainTypedData: context.config.kms.allowCrossChainTypedData,
           closed: () => closed.has(connection),
@@ -211,16 +241,7 @@ export function createNetworkHandlers(
           chain: chainOf(connection),
           allowCrossChainTypedData: context.config.kms.allowCrossChainTypedData,
         },
-        {
-          filler: () => fillerOf(connection),
-          defaultSender: async () => await defaultSender(connection),
-          chainId: async () => await chainOf(connection).chainId(),
-          sends: () => sendsOf(connection),
-          request: async (method, params) => {
-            const result: unknown = await connection.provider.request({ method, params });
-            return result;
-          },
-        },
+        transactionsOf(connection),
       ),
   };
 }

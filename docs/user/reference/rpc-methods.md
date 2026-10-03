@@ -17,7 +17,8 @@ The plugin installs a network hook on every connection. On a connection whose ne
 - `eth_signTransaction` fills and signs the same way, and returns the signed raw transaction as hex without sending it, like `cast mktx` and viem's json-rpc `signTransaction`. The nonce is read from the node and not reserved: sending another transaction first makes the signed one stale. Hardhat's local accounts do not sign `eth_signTransaction`. The [`kms sign-tx`](tasks.md#kms-sign-tx) task does the same from the command line, for any configured key.
 - A transaction's `chainId`, when set, must equal the connection's chain id (read with `eth_chainId`, and checked against the network's `chainId` when the config sets one). A mismatch fails before any KMS call.
 - No RPC method signs a bare digest.
-- `connection.kms.getAccount(address)` gives library code a viem account for a KMS key, outside the JSON-RPC path. Its sends do not go through the send lock described below; see [Library accounts](library-accounts.md).
+- `connection.kms.getAccount(address)` gives library code a viem account for a KMS key, outside the JSON-RPC path. viem sends its transactions with `eth_sendRawTransaction`, or `eth_sendRawTransactionSync` for `sendTransactionSync` and `writeContractSync`; see [Library accounts](library-accounts.md#sending).
+- `eth_sendRawTransaction` and `eth_sendRawTransactionSync` ([EIP-7966](https://eips.ethereum.org/EIPS/eip-7966)) from a KMS account go to the node unchanged, in turn with that account's sends (see below). No answer is rewritten: `eth_getTransactionCount` and every other read pass through untouched.
 - Every other method passes through untouched.
 
 When `from` (or the address param) is not a KMS address, the request passes through. If the sender is not a local account either, the node or Hardhat refuses it, and the plugin appends the network's checksummed KMS addresses to that error. On a simulated network with one KMS account, a request from `0x1111111111111111111111111111111111111111` fails with:
@@ -46,7 +47,7 @@ The plugin copies a KMS account's transaction when the request arrives, so chang
 
 ## Parallel sends and failed broadcasts
 
-`eth_sendTransaction` calls from one KMS account on one chain run one at a time within a process, so parallel sends get consecutive nonces. Sends from other accounts, or to other chains, do not wait for each other. `eth_signTransaction` does not wait for sends.
+`eth_sendTransaction` calls from one KMS account on one chain run one at a time within a process, so parallel sends get consecutive nonces. A library account's send through the connection takes its turn the same way, from its nonce to its broadcast; see [Library accounts](library-accounts.md#sending). Sends from other accounts, or to other chains, do not wait for each other. `eth_signTransaction` does not wait for sends.
 
 A send whose broadcast hangs keeps the account's turn until Hardhat's network timeout (the network's `timeout`, 300 seconds by default) ends it. The account's sends waiting behind it do not wait that long: each fails after 120 seconds in which none of the account's earlier sends finished. A slow RPC endpoint can trigger this.
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 
 import { HardhatPluginError } from "hardhat/plugins";
 
@@ -8,7 +8,17 @@ import {
   canonicalJson,
   ConnectionSends,
   MAX_RETRY_ENTRIES,
+  endLibraryHold,
+  endLibraryHoldsOf,
+  expectLibraryReset,
+  holdForLibrary,
+  LIBRARY_HOLD_MS,
+  LIBRARY_WAIT_WARNING_MS,
+  libraryHoldOf,
+  libraryHoldsActive,
   MAX_SEND_LOCK_WAITERS,
+  RESERVATION_MS,
+  takeOwedLibraryReset,
   RETRY_TTL_MS,
   SEND_LOCK_STALL_MS,
   sendLocksInUse,
@@ -350,8 +360,9 @@ describe("withSendLock limits", () => {
     const b = watch(send("b"));
     const c = send("c");
     await settle();
-    assert.equal(scheduled.length, 3, "one limit per waiter");
-    const limitOfB = scheduled[1];
+    // Per waiter, in order: its warning timer (LIBRARY_WAIT_WARNING_MS), then its limit.
+    assert.equal(scheduled.length, 6, "one warning timer and one limit per waiter");
+    const limitOfB = scheduled[3];
     assert.ok(limitOfB !== undefined);
     limitOfB.live = false;
     limitOfB.callback();
@@ -619,5 +630,402 @@ describe("ConnectionSends", () => {
     const off = new ConnectionSends({ highWater: false, timers });
     off.recordSent("0xa", 2n);
     assert.equal(off.highWaterOf("0xa"), undefined);
+  });
+});
+
+/** A send state with a clock the test moves. */
+function withClock(highWater = true): { sends: ConnectionSends; clock: { now: number } } {
+  const clock = { now: 1_000 };
+  const sends = new ConnectionSends({ highWater, timers: fakeTimers(), now: () => clock.now });
+  return { sends, clock };
+}
+
+describe("ConnectionSends nonce reservations", () => {
+  const COW = "0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
+  const ZERO = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+
+  it("keeps a send above every reservation, the mark and the pending count", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 3n);
+    sends.reserve(COW, 5n);
+    assert.equal(sends.nonceFor(COW, 0n), 6n);
+    assert.equal(sends.nonceFor(COW, 9n), 9n);
+    sends.recordSent(COW, 7n);
+    assert.equal(sends.nonceFor(COW, 0n), 8n);
+    assert.equal(sends.nonceFor(ZERO, 2n), 2n, "another sender's reservations do not count");
+  });
+
+  it("counts reservations with the high-water mark off too", () => {
+    const { sends } = withClock(false);
+    sends.reserve(COW, 4n);
+    assert.equal(sends.nonceFor(COW, 4n), 5n);
+    assert.equal(sends.nonceFor(COW, 6n), 6n);
+  });
+
+  it(`stops counting a reservation ${RESERVATION_MS} ms after it was made, with no timer`, () => {
+    const { sends, clock } = withClock();
+    sends.reserve(COW, 2n);
+    clock.now += RESERVATION_MS - 1;
+    assert.equal(sends.nonceFor(COW, 0n), 3n);
+    clock.now += 1;
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
+    // Reserved again, it counts again for a full period.
+    sends.reserve(COW, 2n);
+    clock.now += RESERVATION_MS - 1;
+    assert.equal(sends.nonceFor(COW, 0n), 3n);
+  });
+
+  it("ends one reservation by its nonce, or every one up to a nonce", () => {
+    const { sends } = withClock();
+    for (const nonce of [1n, 2n, 3n, 5n]) {
+      sends.reserve(COW, nonce);
+    }
+    sends.releaseReservation(COW, 5n);
+    assert.equal(sends.nonceFor(COW, 0n), 4n);
+    sends.releaseReservationsUpTo(COW, 2n);
+    assert.equal(sends.nonceFor(COW, 0n), 4n, "3 is still reserved");
+    sends.releaseReservationsUpTo(COW, 3n);
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
+    sends.releaseReservation(ZERO, 1n);
+    sends.releaseReservationsUpTo(ZERO, 1n);
+  });
+
+  it("tells whether live reservations exist, and ends those below the node's pending count", () => {
+    const { sends, clock } = withClock();
+    assert.equal(sends.hasReservations(COW), false);
+    sends.reserve(COW, 1n);
+    sends.reserve(COW, 3n);
+    assert.equal(sends.hasReservations(COW), true);
+    assert.equal(sends.hasReservations(ZERO), false);
+    sends.releaseReservationsBelow(COW, 0n);
+    sends.releaseReservationsBelow(COW, 1n);
+    assert.equal(sends.nonceFor(COW, 0n), 4n, "the node has no transaction with 1 yet");
+    sends.releaseReservationsBelow(COW, 3n);
+    assert.equal(sends.nonceFor(COW, 0n), 4n, "3 is still reserved");
+    sends.releaseReservationsBelow(COW, 4n);
+    assert.equal(sends.hasReservations(COW), false);
+    sends.reserve(COW, 5n);
+    clock.now += RESERVATION_MS;
+    assert.equal(sends.hasReservations(COW), false, "an expired one does not count");
+  });
+
+  it("resets the newest failed reservation, else the newest unsigned one, else the newest", () => {
+    const { sends } = withClock();
+    for (const nonce of [1n, 2n, 3n, 4n]) {
+      sends.reserve(COW, nonce);
+    }
+    sends.signedReservation(COW, 3n);
+    sends.signedReservation(COW, 4n);
+    sends.failReservation(COW, 1n);
+    sends.signedReservation(ZERO, 1n);
+    sends.failReservation(ZERO, 1n);
+    sends.resetReservation(COW);
+    // 1 failed: gone. Left: 2 (unsigned), 3 and 4 (signed).
+    sends.resetReservation(COW);
+    // 2 unsigned: gone. Left: 3 and 4.
+    assert.equal(sends.nonceFor(COW, 0n), 5n);
+    sends.resetReservation(COW);
+    assert.equal(sends.nonceFor(COW, 0n), 4n, "the newest, 4, is gone");
+    sends.resetReservation(COW);
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
+    sends.resetReservation(COW);
+    sends.resetReservation(ZERO);
+  });
+
+  it("resets a failed reservation before a newer signed one", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 5n);
+    sends.reserve(COW, 6n);
+    sends.signedReservation(COW, 5n);
+    sends.signedReservation(COW, 6n);
+    sends.failReservation(COW, 5n);
+    sends.resetReservation(COW);
+    // 5's raw transaction was refused, so the reset is its; 6 is still in flight.
+    assert.equal(sends.nonceFor(COW, 6n), 7n, "6 is still reserved");
+    sends.resetReservation(COW);
+    assert.equal(sends.hasReservations(COW), false, "one reset each: 5 went first");
+  });
+
+  it("treats a nonce handed out again as the newest", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 1n);
+    sends.reserve(COW, 2n);
+    sends.reserve(COW, 1n);
+    sends.resetReservation(COW);
+    assert.equal(sends.nonceFor(COW, 0n), 3n, "1 was reset, 2 stays");
+  });
+
+  it("forgets every reservation when the connection closes, and reserves nothing after", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 1n);
+    sends.close();
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
+    sends.reserve(COW, 1n);
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
+  });
+});
+
+describe("library holds", () => {
+  const HOLDER = "0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
+  const KEY = `31337:${HOLDER}`;
+  /** The holder's address as the warnings print it. */
+  const CHECKSUMMED = "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826";
+  const DOCS =
+    "https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#warnings";
+
+  it("keeps the lock after the nonce is chosen, until the broadcast ends the hold", async () => {
+    const timers = fakeTimers();
+    const owner = {};
+    const nonce = await holdForLibrary(KEY, owner, async () => await Promise.resolve(4n), timers);
+    assert.equal(nonce, 4n);
+    assert.equal(libraryHoldOf(KEY)?.nonce, 4n);
+    let ran = false;
+    const waiting = withSendLock(KEY, async () => {
+      ran = true;
+      await Promise.resolve();
+    });
+    await Promise.resolve();
+    assert.equal(ran, false, "a send waits behind the hold");
+    assert.deepEqual(timers.delays().includes(LIBRARY_HOLD_MS), true);
+    endLibraryHold(KEY, false);
+    endLibraryHold(KEY, false);
+    await waiting;
+    assert.equal(ran, true);
+    assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
+    assert.equal(
+      takeOwedLibraryReset(KEY),
+      false,
+      "no reset is owed for a broadcast that went out",
+    );
+    assert.equal(libraryHoldsActive(), false);
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it(`ends the hold after ${LIBRARY_HOLD_MS} ms when nothing else ends it, with a warning`, async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const timers = fakeTimers();
+      await holdForLibrary(KEY, {}, async () => await Promise.resolve(1n), timers);
+      timers.fire();
+      await withSendLock(KEY, async () => {
+        await Promise.resolve();
+      });
+      assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
+      assert.deepEqual(
+        warn.mock.calls.map((call) => call.arguments),
+        [
+          [
+            `hardhat-kms: a connection.kms.getAccount send from ${CHECKSUMMED} on chain 31337 chose nonce 1, and after 60 s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast later, it and the account's next send share a nonce, and the node refuses one of them. Send the library account through custom(connection.provider); see ${DOCS}.`,
+          ],
+        ],
+      );
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it("prints no limit warning for a hold that ends before its limit", async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const timers = fakeTimers();
+      await holdForLibrary(KEY, {}, async () => await Promise.resolve(1n), timers);
+      endLibraryHold(KEY, false);
+      timers.fire();
+      await withSendLock(KEY, async () => {
+        await Promise.resolve();
+      });
+      assert.equal(warn.mock.callCount(), 0);
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it(`warns once when a send waits ${LIBRARY_WAIT_WARNING_MS} ms behind a hold`, async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const clock = clockTimers();
+      await holdForLibrary(KEY, {}, async () => await Promise.resolve(6n), fakeTimers());
+      const waiting = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
+      await clock.advance(LIBRARY_WAIT_WARNING_MS - 1);
+      assert.equal(warn.mock.callCount(), 0, "not before the delay");
+      await clock.advance(1);
+      await clock.advance(SEND_LOCK_STALL_MS - LIBRARY_WAIT_WARNING_MS - 1);
+      assert.deepEqual(
+        warn.mock.calls.map((call) => call.arguments),
+        [
+          [
+            `hardhat-kms: a send from ${CHECKSUMMED} on chain 31337 has waited 5 s for a connection.kms.getAccount send that chose nonce 6 and has not broadcast it through the connection. It waits until that raw transaction goes out, viem resets that send, or 60 s after the nonce was chosen. If the library send's client does not send through custom(connection.provider), send it through that transport; see ${DOCS}.`,
+          ],
+        ],
+        "once per hold",
+      );
+      endLibraryHold(KEY, false);
+      await settle();
+      assert.equal(waiting.done, true);
+      assert.equal(waiting.error, undefined);
+      assert.equal(clock.pending(), 0, "the warning timer is cancelled when the wait ends");
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it("warns once for a wait behind two holds in a row, and not after the holds end at close", async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const clock = clockTimers();
+      const owner = {};
+      await holdForLibrary(KEY, owner, async () => await Promise.resolve(1n), fakeTimers());
+      const second = holdForLibrary(
+        KEY,
+        owner,
+        async () => await Promise.resolve(2n),
+        fakeTimers(),
+      );
+      const waiting = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
+      endLibraryHold(KEY, false);
+      assert.equal(await second, 2n);
+      await clock.advance(LIBRARY_WAIT_WARNING_MS * 3);
+      assert.equal(warn.mock.callCount(), 1, "one warning per wait");
+      assert.match(String(warn.mock.calls[0]?.arguments[0]), /chose nonce 2 /);
+      endLibraryHold(KEY, false);
+      await settle();
+      assert.equal(waiting.done, true);
+
+      await holdForLibrary(KEY, owner, async () => await Promise.resolve(3n), fakeTimers());
+      const closing = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
+      endLibraryHoldsOf(owner);
+      await settle();
+      assert.equal(closing.done, true);
+      await clock.advance(LIBRARY_WAIT_WARNING_MS * 2);
+      assert.equal(warn.mock.callCount(), 1, "no warning after the connection closed");
+      assert.equal(sendLocksInUse(), 0);
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it("warns once per hold, however many sends wait behind it", async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const clock = clockTimers();
+      await holdForLibrary(KEY, {}, async () => await Promise.resolve(8n), fakeTimers());
+      const waiters = [0, 1, 2].map((index) =>
+        watch(withSendLock(KEY, async () => await Promise.resolve(index), clock)),
+      );
+      await clock.advance(LIBRARY_WAIT_WARNING_MS);
+      assert.equal(warn.mock.callCount(), 1);
+      endLibraryHold(KEY, false);
+      await settle();
+      assert.ok(waiters.every((waiter) => waiter.done && waiter.error === undefined));
+      assert.equal(sendLocksInUse(), 0);
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it("ignores a second end of a hold, even after a newer hold started", async () => {
+    const first = await holdForLibrary(
+      KEY,
+      {},
+      async () => await Promise.resolve(1n),
+      fakeTimers(),
+    );
+    assert.equal(first, 1n);
+    const old = libraryHoldOf(KEY);
+    assert.ok(old !== undefined);
+    old.end();
+    await holdForLibrary(KEY, {}, async () => await Promise.resolve(2n), fakeTimers());
+    old.end();
+    assert.equal(libraryHoldOf(KEY)?.nonce, 2n, "the newer hold stays");
+    endLibraryHold(KEY, false);
+    await settle();
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("warns and ends a hold before a send waiting behind it could stall", () => {
+    assert.ok(LIBRARY_WAIT_WARNING_MS < LIBRARY_HOLD_MS);
+    assert.ok(LIBRARY_HOLD_MS < SEND_LOCK_STALL_MS);
+  });
+
+  it("does not warn for a wait behind a plugin send, or one shorter than the delay", async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const clock = clockTimers();
+      const plugin = gate();
+      const holder = withSendLock(KEY, async () => await plugin.promise);
+      const behindPlugin = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
+      await clock.advance(LIBRARY_WAIT_WARNING_MS * 2);
+      plugin.open();
+      await holder;
+      await settle();
+      assert.equal(behindPlugin.done, true);
+
+      await holdForLibrary(KEY, {}, async () => await Promise.resolve(2n), fakeTimers());
+      const short = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
+      await clock.advance(LIBRARY_WAIT_WARNING_MS - 1);
+      endLibraryHold(KEY, false);
+      await settle();
+      assert.equal(short.done, true);
+      assert.equal(clock.pending(), 0, "its warning timer is cancelled");
+      await clock.advance(LIBRARY_WAIT_WARNING_MS);
+      assert.equal(warn.mock.callCount(), 0);
+      assert.equal(sendLocksInUse(), 0);
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it("uses up the resets owed by failed sends before it ends a hold", async () => {
+    const timers = fakeTimers();
+    expectLibraryReset(KEY);
+    await holdForLibrary(KEY, {}, async () => await Promise.resolve(2n), timers);
+    endLibraryHold(KEY, true);
+    expectLibraryReset(KEY);
+    await holdForLibrary(KEY, {}, async () => await Promise.resolve(3n), timers);
+    // Owed: the first expected reset, the failed broadcast of 2, and the second expected reset.
+    for (let i = 0; i < 3; i++) {
+      assert.equal(takeOwedLibraryReset(KEY), true, "owed");
+      assert.equal(libraryHoldOf(KEY)?.nonce, 3n, "the hold is still there");
+    }
+    assert.equal(takeOwedLibraryReset(KEY), false, "the next reset is the hold's own");
+    assert.equal(libraryHoldsActive(), true);
+    libraryHoldOf(KEY)?.end();
+    assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("ends only the holds of a closing connection", async () => {
+    const timers = fakeTimers();
+    const mine = {};
+    const other = {};
+    const otherKey = `${KEY}0`;
+    await holdForLibrary(KEY, mine, async () => await Promise.resolve(1n), timers);
+    await holdForLibrary(otherKey, other, async () => await Promise.resolve(1n), timers);
+    endLibraryHoldsOf(mine);
+    assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
+    assert.equal(libraryHoldOf(otherKey)?.nonce, 1n);
+    endLibraryHoldsOf(other);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("holds nothing when the nonce cannot be chosen, and throws its error", async () => {
+    await assert.rejects(
+      holdForLibrary(KEY, {}, async () => {
+        throw await Promise.resolve(new Error("no node"));
+      }),
+      /no node/,
+    );
+    assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("keeps the process alive while a hold lasts, by default", async () => {
+    const timers = fakeTimers();
+    const done = holdForLibrary(KEY, {}, async () => await Promise.resolve(9n));
+    assert.equal(await done, 9n);
+    assert.equal(timers.pending(), 0, "the default timers are real, and the test ends the hold");
+    endLibraryHold(KEY, false);
   });
 });

@@ -814,10 +814,11 @@ An entry of an access list.
 A viem local account whose key is a KMS key, from `connection.kms.getAccount`. Pass it to
 viem as `account`, or as the owner of a smart account.
 
-Sends through it bypass the plugin's send lock, nonce tracking and retry cache: viem fills the
-transaction and sends it with `eth_sendRawTransaction` itself, and the first transaction an
-account signs in a process prints a warning. To send from a KMS account, use
-`connection.viem.getWalletClient(address)` instead.
+viem fills the account's transactions and sends them with `eth_sendRawTransaction` itself.
+Through `custom(connection.provider)`, the account's `nonceManager` and the plugin's send lock
+keep those sends and the plugin's own sends from one key on distinct nonces, one after the
+other. Not so for a client with its own transport, such as `http(url)`: only its nonce is
+reserved. These sends have no retry cache.
 
 After `connection.close()`, every method refuses before any KMS call.
 
@@ -832,6 +833,12 @@ After `connection.close()`, every method refuses before any KMS call.
 > `readonly` **address**: `` `0x${string}` ``
 
 The checksummed address.
+
+##### nonceManager
+
+> `readonly` **nonceManager**: [`KmsNonceManager`](#kmsnoncemanager)
+
+viem's nonce manager for the account's sends; see [KmsNonceManager](#kmsnoncemanager).
 
 ##### publicKey
 
@@ -1955,6 +1962,105 @@ The account.
 
 ---
 
+### KmsNonceManager
+
+The account's viem nonce manager. viem calls `consume` for each send that has no nonce, and
+`reset` when that send fails. The nonce is chosen as the plugin's own sends would choose it,
+under the account's send lock, and is kept from those sends until its raw transaction reaches
+the node through the connection, `reset` is called, or 60 s pass.
+
+#### Properties
+
+##### consume
+
+> `readonly` **consume**: (`parameters`: [`KmsNonceManagerParameters`](#kmsnoncemanagerparameters) & \{ `client`: `unknown`; \}) => `Promise`\<`number`\>
+
+Chooses the next nonce and reserves it.
+
+###### Parameters
+
+| Parameter    | Type                                                                                   | Description                                 |
+| ------------ | -------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `parameters` | [`KmsNonceManagerParameters`](#kmsnoncemanagerparameters) & \{ `client`: `unknown`; \} | The account, the chain and the viem client. |
+
+###### Returns
+
+`Promise`\<`number`\>
+
+The nonce.
+
+##### get
+
+> `readonly` **get**: (`parameters`: [`KmsNonceManagerParameters`](#kmsnoncemanagerparameters) & \{ `client`: `unknown`; \}) => `Promise`\<`number`\>
+
+Chooses the next nonce without reserving it.
+
+###### Parameters
+
+| Parameter    | Type                                                                                   | Description                                 |
+| ------------ | -------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `parameters` | [`KmsNonceManagerParameters`](#kmsnoncemanagerparameters) & \{ `client`: `unknown`; \} | The account, the chain and the viem client. |
+
+###### Returns
+
+`Promise`\<`number`\>
+
+The nonce.
+
+##### increment
+
+> `readonly` **increment**: (`parameters`: [`KmsNonceManagerParameters`](#kmsnoncemanagerparameters)) => `void`
+
+Does nothing: each `consume` reads the node and the reservations again.
+
+###### Parameters
+
+| Parameter    | Type                                                      |
+| ------------ | --------------------------------------------------------- |
+| `parameters` | [`KmsNonceManagerParameters`](#kmsnoncemanagerparameters) |
+
+###### Returns
+
+`void`
+
+##### reset
+
+> `readonly` **reset**: (`parameters`: [`KmsNonceManagerParameters`](#kmsnoncemanagerparameters)) => `void`
+
+Ends the reservation of a send that failed.
+
+###### Parameters
+
+| Parameter    | Type                                                      |
+| ------------ | --------------------------------------------------------- |
+| `parameters` | [`KmsNonceManagerParameters`](#kmsnoncemanagerparameters) |
+
+###### Returns
+
+`void`
+
+---
+
+### KmsNonceManagerParameters
+
+What viem passes to a nonce manager.
+
+#### Properties
+
+##### address
+
+> **address**: `` `0x${string}` ``
+
+The account's address.
+
+##### chainId
+
+> **chainId**: `number`
+
+The chain of the transaction.
+
+---
+
 ### KmsProviderConfigs
 
 Resolved key config types by provider id. A third-party provider that augments
@@ -2024,6 +2130,16 @@ The checksummed address.
 ###### Inherited from
 
 [`KmsAccount`](#kmsaccount).[`address`](#address-11)
+
+##### nonceManager
+
+> `readonly` **nonceManager**: [`KmsNonceManager`](#kmsnoncemanager)
+
+viem's nonce manager for the account's sends; see [KmsNonceManager](#kmsnoncemanager).
+
+###### Inherited from
+
+[`KmsAccount`](#kmsaccount).[`nonceManager`](#noncemanager)
 
 ##### publicKey
 

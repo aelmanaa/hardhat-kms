@@ -448,7 +448,7 @@ export function notPlainData(method: string): HardhatPluginError {
  * @param operation - The operation, for the error message.
  * @returns The string.
  */
-function stringResult(value: unknown, what: string, operation: string): string {
+export function stringResult(value: unknown, what: string, operation: string): string {
   if (typeof value !== "string") {
     throw catalogError(ERRORS.nodeAnswerNotString, { what }, { operation });
   }

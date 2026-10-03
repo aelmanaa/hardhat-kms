@@ -1102,6 +1102,26 @@ export const ERRORS = {
       "Code that runs during a send, such as a network hook, sent from the same account again.",
     fix: "Send the second transaction after the first one returns.",
   },
+  accountNonceReentrant: {
+    id: "core.account.nonce-reentrant",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "A transaction of the library account {account} was started from inside an earlier send from the same account on that chain, for example by a hook during its fill or broadcast. It would wait for itself, so it was not signed or sent.",
+    cause:
+      "Code that runs during a send, such as a network hook, sent a transaction with a connection.kms.getAccount account of the same address.",
+    fix: "Send the second transaction after the first one returns.",
+  },
+  rawSendReentrant: {
+    id: "core.tx.raw-send-reentrant",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "A raw transaction from {account} was sent from inside an earlier send from the same account on that chain, for example by a hook during its fill or broadcast. It would wait for itself, so it was not sent.",
+    cause:
+      "Code that runs during a send, such as a network hook, sent a transaction that the same account signed outside the plugin, for example with a connection.kms.getAccount account.",
+    fix: "Send the second transaction after the first one returns.",
+  },
   sendOutcomeUnknown: {
     id: "core.tx.outcome-unknown",
     kind: "error",
@@ -1767,10 +1787,20 @@ export const ERRORS = {
     kind: "error",
     group: "Library accounts",
     template:
-      "connection.kms.getAccount needs the viem package, which could not be loaded ({reason}). Install it with `npm install --save-dev viem`",
+      "connection.kms.getAccount needs the viem package, which could not be loaded ({reason}). Install viem in the project",
     cause:
       "`getAccount` returns a viem account, and viem, an optional peer dependency of hardhat-kms, is not installed in the project, or failed to load.",
-    fix: "Install viem in the project. Nothing else in the plugin needs it.",
+    fix: "Install viem in the project with your package manager (for example `npm install --save-dev viem`, `pnpm add -D viem` or `yarn add -D viem`). Nothing else in the plugin needs it.",
+  },
+  accountViemTooOld: {
+    id: "core.account.viem-too-old",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "connection.kms.getAccount needs viem {floor} or later, and the project has viem {installed}. Upgrade viem to {floor} or later",
+    cause:
+      "The account's nonce manager relies on viem calling its `reset` after every failed send, and only after a `consume`. With viem 2.49.3 and earlier, a failed library send never resets, so the account's next send through the plugin waits up to 60 s. With viem 2.50.3 to 2.55.11, a `reset` can follow a send that never asked for a nonce and end another send's hold, so a send through the plugin can take a nonce that send still needs. npm, by default, upgrades viem into the peer range or stops the install (`--legacy-peer-deps` installs it anyway); pnpm and Yarn only warn and keep the older release.",
+    fix: "Upgrade viem in the project to 2.55.13 or later, the floor of its peer range, with your package manager (for example `npm install --save-dev viem@^2.55.13`, `pnpm add -D viem@^2.55.13` or `yarn add -D viem@^2.55.13`).",
   },
   accountConnectionClosed: {
     id: "core.account.connection-closed",

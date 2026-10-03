@@ -371,7 +371,7 @@ describe("a library account refuses, with the exact message", () => {
         await createKmsNetworkConnection(connection, failingViem(["ERR_ARRAY"])).getAccount(
           ADDRESS,
         ),
-      "getAccount: connection.kms.getAccount needs the viem package, which could not be loaded (TypeError). Install it with `npm install --save-dev viem`",
+      "getAccount: connection.kms.getAccount needs the viem package, which could not be loaded (TypeError). Install viem in the project",
     );
   });
 });

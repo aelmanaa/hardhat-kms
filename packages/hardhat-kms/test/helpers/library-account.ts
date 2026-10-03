@@ -37,6 +37,8 @@ export interface Setup {
   chainCalls: { count: number };
   /** Set `closed` to close the connection. */
   state: { closed: boolean };
+  /** The calls to the connection's nonces, in order, as `[method, ...arguments]`. */
+  nonceCalls: unknown[][];
 }
 
 /**
@@ -66,6 +68,7 @@ export function setup(
   });
   const chainCalls = { count: 0 };
   const state = { closed: false };
+  const nonceCalls: unknown[][] = [];
   const connection: AccountConnection = {
     network: "local",
     accounts: {
@@ -80,8 +83,21 @@ export function setup(
     },
     allowCrossChainTypedData: options.allowCrossChainTypedData ?? false,
     closed: () => state.closed,
+    nonces: {
+      choose: async (request) => {
+        nonceCalls.push(["choose", request]);
+        return await Promise.resolve(7n);
+      },
+      signed: (address, nonce) => {
+        nonceCalls.push(["signed", address, nonce]);
+      },
+      reset: async (address, chainId) => {
+        nonceCalls.push(["reset", address, chainId]);
+        await Promise.resolve();
+      },
+    },
   };
-  return { adapter, connection, chainCalls, state };
+  return { adapter, connection, chainCalls, state, nonceCalls };
 }
 
 /**
