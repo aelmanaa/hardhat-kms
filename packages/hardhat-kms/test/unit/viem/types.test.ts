@@ -3,12 +3,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import type { Account, LocalAccount, PrivateKeyAccount } from "viem";
+import type {
+  Account,
+  LocalAccount,
+  PrivateKeyAccount,
+  SignedAuthorization,
+  SignedAuthorizationList,
+} from "viem";
 import { createWalletClient, http } from "viem";
 import { toCoinbaseSmartAccount, toSimple7702SmartAccount } from "viem/account-abstraction";
 import type { CustomSource } from "viem/accounts";
 
-import type { KmsAccount, KmsRawSignAccount } from "../../../src/types.ts";
+import type { KmsAccount, KmsRawSignAccount, KmsSignedAuthorization } from "../../../src/types.ts";
 
 /**
  * Assignments the compiler checks; never called.
@@ -42,8 +48,31 @@ function assignments(account: KmsAccount, rawAccount: KmsRawSignAccount): unknow
   return [local, source, any, rawLocal, privateKey, wallet, owner, simple7702];
 }
 
+/**
+ * A signed authorization without `v` is still viem's `SignedAuthorization`, through the branch of
+ * viem's `Signature` that requires `yParity` and leaves `v` optional. Never called.
+ *
+ * @param account - An account from `getAccount(address)`.
+ * @param signed - What `account.signAuthorization` returns.
+ * @returns The assigned values, and a send that takes the authorization.
+ */
+function authorizationAssignments(account: KmsAccount, signed: KmsSignedAuthorization): unknown[] {
+  const one: SignedAuthorization = signed;
+  const list: SignedAuthorizationList = [signed];
+  // @ts-expect-error -- the result has no `v`, not even an optional one; read `yParity`.
+  void signed.v;
+  const wallet = createWalletClient({ account, transport: http() });
+  const send = async (): Promise<`0x${string}`> =>
+    await wallet.sendTransaction({ chain: null, to: account.address, authorizationList: [signed] });
+  return [one, list, send];
+}
+
 describe("KmsAccount types", () => {
   it("are assignable to viem's account types (checked by tsc)", () => {
     assert.equal(typeof assignments, "function");
+  });
+
+  it("give a signed authorization viem's type, without v (checked by tsc)", () => {
+    assert.equal(typeof authorizationAssignments, "function");
   });
 });

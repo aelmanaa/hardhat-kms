@@ -371,7 +371,6 @@ async function signAuthorization(
     nonce: request.nonce,
     r: word(signature.r),
     s: word(signature.s),
-    v: signature.yParity === 1 ? 28n : 27n,
     yParity: signature.yParity,
   };
   // Read back from the returned fields, so the check also covers the step from signature to

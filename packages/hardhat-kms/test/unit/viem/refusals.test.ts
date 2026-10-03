@@ -16,6 +16,7 @@ import {
   kmsCalls,
   setup,
   VIEM_ACCOUNT,
+  viemAuthorizationWithoutV,
 } from "../../helpers/library-account.ts";
 import { COW_ACCOUNT } from "../../helpers/vectors.ts";
 
@@ -426,7 +427,7 @@ describe("a library account reads fields as viem does", () => {
       [686, "r"],
     ] as const) {
       const request = { address: DELEGATE, chainId: CHAIN_ID, nonce } as const;
-      const expected = await VIEM_ACCOUNT.signAuthorization(request);
+      const expected = await viemAuthorizationWithoutV(request);
       assert.ok(expected[word].startsWith("0x00"));
       assert.deepEqual(await account.signAuthorization(request), expected);
     }

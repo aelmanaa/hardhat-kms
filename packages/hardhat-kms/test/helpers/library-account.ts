@@ -8,7 +8,7 @@ import { type PrivateKeyAccount, privateKeyToAccount } from "viem/accounts";
 
 import { KmsSigner } from "../../src/internal/signer/kms-signer.ts";
 import type { AccountConnection } from "../../src/internal/viem/account.ts";
-import type { KmsKeyConfig } from "../../src/types.ts";
+import type { KmsKeyConfig, KmsSignedAuthorization } from "../../src/types.ts";
 import { type FakeAdapter, type FakeAdapterOptions, fakeAdapter } from "./fake-adapter.ts";
 import { HARDHAT_ACCOUNT_0 } from "./vectors.ts";
 
@@ -16,6 +16,29 @@ import { HARDHAT_ACCOUNT_0 } from "./vectors.ts";
 export const VIEM_ACCOUNT: PrivateKeyAccount = privateKeyToAccount(
   `0x${HARDHAT_ACCOUNT_0.secretKey}`,
 );
+/**
+ * viem's signed authorization for `request`, from {@link VIEM_ACCOUNT}, without `v`. viem's local
+ * account still returns `v`; the KMS account returns `yParity` and no `v`, so its result
+ * deep-equals this one.
+ *
+ * @param request - The authorization to sign, as viem takes it.
+ * @returns Every field viem returns, except `v`.
+ */
+export async function viemAuthorizationWithoutV(
+  request: Parameters<PrivateKeyAccount["signAuthorization"]>[0],
+): Promise<KmsSignedAuthorization> {
+  const signed = await VIEM_ACCOUNT.signAuthorization(request);
+  const { address, chainId, nonce, r, s, yParity } = signed;
+  assert.ok(yParity === 0 || yParity === 1);
+  // `v` is the only field left out, so a field viem adds later fails the comparison.
+  const kept = new Set(["address", "chainId", "nonce", "r", "s", "yParity"]);
+  assert.deepEqual(
+    Object.keys(signed).filter((key) => !kept.has(key)),
+    ["v"],
+  );
+  return { address, chainId, nonce, r, s, yParity };
+}
+
 /** The KMS account's address. */
 export const ADDRESS: `0x${string}` = VIEM_ACCOUNT.address;
 /** The connection's chain. */
