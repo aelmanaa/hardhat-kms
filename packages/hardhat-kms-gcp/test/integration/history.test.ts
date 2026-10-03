@@ -29,7 +29,7 @@ import {
 } from "../helpers/logging-server.ts";
 
 const ownVersion = String(
-  Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms-gcp/package.json")), "version"),
+  Reflect.get(Object(createRequire(import.meta.url)("@hardhat-kms/gcp/package.json")), "version"),
 );
 
 // A range that holds the recorded entries, and is in the past.

@@ -7,7 +7,7 @@ import type { GcpKmsSdk } from "../adapter.ts";
 import { ERRORS } from "../error-catalog.ts";
 import type { ListEntries } from "../history.ts";
 
-const PACKAGE_NAME = "hardhat-kms-gcp";
+const PACKAGE_NAME = "@hardhat-kms/gcp";
 
 /** This package's version, read through its own `package.json` export. */
 function ownVersion(): string {

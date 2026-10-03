@@ -1,4 +1,6 @@
-# hardhat-kms-azure
+# @hardhat-kms/azure
+
+Works with Azure Key Vault and Azure Key Vault Managed HSM. Not affiliated with or endorsed by Microsoft.
 
 > In development. Not published to npm yet.
 
@@ -9,16 +11,16 @@ It depends on `@azure/keyvault-keys` and `@azure/identity`, so there is no SDK t
 ## Install
 
 ```sh
-npm install --save-dev hardhat-kms hardhat-kms-azure
+npm install --save-dev hardhat-kms @hardhat-kms/azure
 ```
 
 ## Usage
 
-Add `hardhat-kms-azure` to `plugins`. It loads `hardhat-kms` itself.
+Add `@hardhat-kms/azure` to `plugins`. It loads `hardhat-kms` itself.
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAzure from "hardhat-kms-azure";
+import hardhatKmsAzure from "@hardhat-kms/azure";
 
 export default defineConfig({
   plugins: [hardhatKmsAzure],

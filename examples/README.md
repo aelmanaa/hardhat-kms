@@ -12,7 +12,7 @@ Each folder is a small Hardhat 3 project with one contract, `Counter`, and a scr
 | [ethers](ethers/)     | `@nomicfoundation/hardhat-ethers`: `ethers.deployContract`            |
 | [ignition](ignition/) | Hardhat Ignition: a module, deployed by a script or `ignition deploy` |
 
-All three use the AWS provider, `hardhat-kms-aws`. Each project's README shows how to run it.
+All three use the AWS provider, `@hardhat-kms/aws`. Each project's README shows how to run it.
 
 ## Use an example in your own project
 
@@ -22,7 +22,7 @@ Copy the example's folder out of this repository and install its dependencies wi
 npm install
 ```
 
-The `package.json` lists `hardhat-kms` and `hardhat-kms-aws` with a caret range on the packages' current version, the same as `npm install --save-dev hardhat-kms hardhat-kms-aws` would write. Inside this repository, pnpm links those two packages to the workspace's own builds instead.
+The `package.json` lists `hardhat-kms` and `@hardhat-kms/aws` with a caret range on the packages' current version, the same as `npm install --save-dev hardhat-kms @hardhat-kms/aws` would write. Inside this repository, pnpm links those two packages to the workspace's own builds instead.
 
 The scripts need an AWS KMS key with the `ECC_SECG_P256K1` key spec and AWS credentials that can use it. [Set up an AWS KMS key](../docs/user/guides/aws-kms-setup.md) covers both.
 

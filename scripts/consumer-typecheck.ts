@@ -16,9 +16,13 @@ if (typescriptVersion === undefined) {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pluginPackage = path.join(root, "packages", "hardhat-kms");
-const packages = ["hardhat-kms", "hardhat-kms-aws", "hardhat-kms-azure", "hardhat-kms-gcp"].map(
-  (name) => path.join(root, "packages", name),
-);
+// Package directories, which keep their names; the provider packages are named @hardhat-kms/<id>.
+const packages = [
+  "packages/hardhat-kms",
+  "packages/hardhat-kms-aws",
+  "packages/hardhat-kms-azure",
+  "packages/hardhat-kms-gcp",
+].map((directory) => path.join(root, directory));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
@@ -150,7 +154,7 @@ try {
     ].join("\n"),
   );
   // A user of the AWS package, who imports nothing from hardhat-kms: the `kms` config types must
-  // come with hardhat-kms-aws.
+  // come with @hardhat-kms/aws.
   writeFileSync(
     path.join(consumer, "tsconfig.aws.json"),
     JSON.stringify({ extends: "./tsconfig.json", include: ["aws-only.config.ts"] }, null, 2),
@@ -159,7 +163,7 @@ try {
     path.join(consumer, "aws-only.config.ts"),
     [
       'import { configVariable, defineConfig } from "hardhat/config";',
-      'import hardhatKmsAws from "hardhat-kms-aws";',
+      'import hardhatKmsAws from "@hardhat-kms/aws";',
       "",
       "export default defineConfig({",
       "  plugins: [hardhatKmsAws],",
@@ -186,7 +190,7 @@ try {
     path.join(consumer, "azure-only.config.ts"),
     [
       'import { configVariable, defineConfig } from "hardhat/config";',
-      'import hardhatKmsAzure from "hardhat-kms-azure";',
+      'import hardhatKmsAzure from "@hardhat-kms/azure";',
       "",
       "export default defineConfig({",
       "  plugins: [hardhatKmsAzure],",
@@ -214,7 +218,7 @@ try {
     path.join(consumer, "gcp-only.config.ts"),
     [
       'import { configVariable, defineConfig } from "hardhat/config";',
-      'import hardhatKmsGcp from "hardhat-kms-gcp";',
+      'import hardhatKmsGcp from "@hardhat-kms/gcp";',
       "",
       "export default defineConfig({",
       "  plugins: [hardhatKmsGcp],",
@@ -283,7 +287,7 @@ try {
       "// A third-party plugin adds the provider through the kms hook.",
       "declare const vaultAdapter: KmsKeyAdapter;",
       "export const myVaultPlugin: HardhatPlugin = {",
-      '  id: "hardhat-kms-myvault",',
+      '  id: "@acme/hardhat-myvault",',
       "  hookHandlers: {",
       "    kms: async () => ({",
       "      default: async (): Promise<Partial<KmsHooks>> => ({",

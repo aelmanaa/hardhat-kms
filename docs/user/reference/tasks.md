@@ -2,7 +2,7 @@
 
 Audience: Users running the `kms` tasks.
 
-Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-auth` ([#35](https://github.com/aelmanaa/hardhat-kms/issues/35)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). `kms history` is implemented, with a reader in each provider package: CloudTrail event history in `hardhat-kms-aws`, the Data Access audit log in `hardhat-kms-gcp`, and Key Vault's audit log in a Log Analytics workspace in `hardhat-kms-azure` ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)).
+Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-auth` ([#35](https://github.com/aelmanaa/hardhat-kms/issues/35)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). `kms history` is implemented, with a reader in each provider package: CloudTrail event history in `@hardhat-kms/aws`, the Data Access audit log in `@hardhat-kms/gcp`, and Key Vault's audit log in a Log Analytics workspace in `@hardhat-kms/azure` ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)).
 
 ## Tasks
 
@@ -64,7 +64,7 @@ deployer                aws       kms.keys     0xf39Fd6e51aad88F6F4ce6aB8827279c
 sepolia.kmsAccounts[1]  gcp       kmsAccounts  0x70997970C51812dc3A010C7d01b50e0d17dc79C8  none     gcp:<GCP_KEY_VERSION_NAME>
   also: mainnet.kmsAccounts[0]
 AWS_KMS_KEY_ID          aws       --kms        FAILED                                      -        aws:<AWS_KMS_KEY_ID>
-  error: aws, create adapter, key aws:<AWS_KMS_KEY_ID>: AWS KMS keys need the hardhat-kms-aws plugin. Install it with `npm install --save-dev hardhat-kms-aws` and add it to `plugins` in your Hardhat config
+  error: aws, create adapter, key aws:<AWS_KMS_KEY_ID>: AWS KMS keys need the @hardhat-kms/aws plugin. Install it with `npm install --save-dev @hardhat-kms/aws` and add it to `plugins` in your Hardhat config
 
 Address pins to add to each key's config:
   networks.sepolia.kmsAccounts[1]: address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",

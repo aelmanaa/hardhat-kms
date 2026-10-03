@@ -1,5 +1,5 @@
 ---
-"hardhat-kms-aws": minor
+"@hardhat-kms/aws": minor
 ---
 
 Add the AWS reader for `kms history`. It lists a key's `Sign` events from CloudTrail event history: it looks up the account's `Sign` events in the key's Region and keeps those whose resources name the key ARN, so calls made with an alias or a bare key id are found too. It pages 50 events at a time, at most two requests a second, and stops after 60 pages or 90 seconds. Reading needs `cloudtrail:LookupEvents`; an alias or a bare key id is first resolved with one `GetPublicKey` call, which CloudTrail logs. The history is marked complete only when the credentials are in the key's account, the read is in the key's Region, the key is not multi-Region and every event could be tied to the key; otherwise a note (`other-account`, `other-region`, `caller-account-unknown`, `multi-region-key` or `unattributed-events`) says what may be missing. A call from another account or an IAM Identity Center user has no principal ARN; its caller is kept in the event's id fields. The package now depends on `@aws-sdk/client-cloudtrail` and `@aws-sdk/client-sts` 3.1143.0 or later, which load only when `kms history` reads an AWS key.

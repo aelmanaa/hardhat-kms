@@ -1,4 +1,4 @@
-// Loads hardhat-kms-gcp and resolves a config with keys of every first-party provider, as
+// Loads @hardhat-kms/gcp and resolves a config with keys of every first-party provider, as
 // `hardhat` would, and optionally creates one key's adapter or runs a `kms` task. A test runs
 // this in a child process and checks which modules it imported.
 import { fileURLToPath } from "node:url";

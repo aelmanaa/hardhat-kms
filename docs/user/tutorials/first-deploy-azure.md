@@ -121,17 +121,17 @@ az role assignment list --scope "$KEY_SCOPE" --include-inherited \
 Install the core plugin and the Azure provider:
 
 ```sh
-npm install --save-dev hardhat-kms hardhat-kms-azure
+npm install --save-dev hardhat-kms @hardhat-kms/azure
 ```
 
-Until the packages are published on npm, this command fails with `E404`. Build them from a clone of the [repository](https://github.com/aelmanaa/hardhat-kms) instead: run `pnpm install`, then `pnpm run build`, then `pnpm pack` in `packages/hardhat-kms` and in `packages/hardhat-kms-azure`. Install the two `.tgz` files it writes with `npm install --save-dev <path to hardhat-kms tgz> <path to hardhat-kms-azure tgz>`.
+Until the packages are published on npm, this command fails with `E404`. Build them from a clone of the [repository](https://github.com/aelmanaa/hardhat-kms) instead: run `pnpm install`, then `pnpm run build`, then `pnpm pack` in `packages/hardhat-kms` and in `packages/hardhat-kms-azure`. Install the two `.tgz` files it writes with `npm install --save-dev <path to hardhat-kms tgz> <path to provider tgz>`. The provider's file is named `hardhat-kms-azure-<version>.tgz`, although the package inside is `@hardhat-kms/azure`.
 
 Replace `hardhat.config.ts` with the file below, with the id that `echo "$KEY_ID"` printed in place of the `keyId` value. Compared with the template, it adds `hardhatKmsAzure` to `plugins`, adds a `kms` section with the key, gives the `sepolia` network `kmsAccounts` instead of `accounts`, so no private key is in the project, and turns Etherscan verification off:
 
 ```ts
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAzure from "hardhat-kms-azure";
+import hardhatKmsAzure from "@hardhat-kms/azure";
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin, hardhatKmsAzure],
@@ -197,7 +197,7 @@ It prints the key's address, `0x` and 40 hex digits. Pin it: add an `address` li
 ```ts
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAzure from "hardhat-kms-azure";
+import hardhatKmsAzure from "@hardhat-kms/azure";
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin, hardhatKmsAzure],
@@ -459,5 +459,5 @@ A deleted vault, like a deleted key, stays recoverable until you purge it or its
 
 - [Deploy with Hardhat Ignition](../guides/deploy-with-ignition.md): choose the deployer and rehearse on a simulated network.
 - [Set up an Azure Key Vault key](../guides/azure-key-vault-setup.md): access policies, Managed HSM, the credential order, and the errors you can meet.
-- [Errors](../reference/errors.md#hardhat-kms-azure): every error message, with its cause and fix.
+- [Errors](../reference/errors.md#hardhat-kmsazure): every error message, with its cause and fix.
 - [Prevent and recover from losing a key](../guides/key-loss.md) before the key holds anything of value.

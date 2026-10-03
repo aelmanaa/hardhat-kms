@@ -21,7 +21,7 @@ export const signContext = (): SignContext => ({
 });
 
 /**
- * Builds the adapter for an AWS key the way a Hardhat project with hardhat-kms-aws does (the
+ * Builds the adapter for an AWS key the way a Hardhat project with @hardhat-kms/aws does (the
  * plugin and the `kms` hook chain), runs `use` with it and closes it.
  *
  * @param key - The key's config, as in `kms.keys`.

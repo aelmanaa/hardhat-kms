@@ -6,11 +6,11 @@ Status: runs in CI against LocalStack's KMS emulator. The packages are not on np
 
 This project deploys `contracts/Counter.sol` from a KMS account, calls `add(5)`, and reads the contract's owner and count back. Every transaction is signed by the key in AWS KMS.
 
-| File                    | What it holds                                                                                                    |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `hardhat.config.ts`     | The `hardhat-kms-aws` and `hardhat-viem` plugins, the `deployer` key, and the `rehearsal` and `sepolia` networks |
-| `contracts/Counter.sol` | A counter that only its deployer can change                                                                      |
-| `scripts/deploy.ts`     | Deploys the counter with `viem.deployContract`, calls `add`, prints the result                                   |
+| File                    | What it holds                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `hardhat.config.ts`     | The `@hardhat-kms/aws` and `hardhat-viem` plugins, the `deployer` key, and the `rehearsal` and `sepolia` networks |
+| `contracts/Counter.sol` | A counter that only its deployer can change                                                                       |
+| `scripts/deploy.ts`     | Deploys the counter with `viem.deployContract`, calls `add`, prints the result                                    |
 
 ## Run it
 

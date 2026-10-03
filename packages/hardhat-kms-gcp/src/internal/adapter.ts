@@ -77,7 +77,7 @@ export type GaxModule = ConstructorParameters<typeof KeyManagementServiceClient>
 export interface GcpKmsSdk {
   KeyManagementServiceClient: new (options: GcpClientOptions, gax?: GaxModule) => GcpKmsClient;
   /**
-   * The google-gax module to run the client on. hardhat-kms-gcp depends on google-gax `^6.5.0`
+   * The google-gax module to run the client on. @hardhat-kms/gcp depends on google-gax `^6.5.0`
    * and passes it in, so the client enforces deadlines even when @google-cloud/kms resolves an
    * older google-gax of its own.
    */

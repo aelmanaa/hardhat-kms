@@ -22,7 +22,7 @@ import { parseSync } from "oxc-parser";
 
 import { API_DOCS_COMMAND, API_DOCS_DIR, diffApiDocs, renderApiDocs } from "./generate-api-docs.ts";
 import {
-  CATALOGUED_PACKAGES,
+  CATALOGUED_DIRECTORIES,
   ERRORS_DOC,
   ERRORS_DOC_COMMAND,
   loadCatalogues,
@@ -365,7 +365,7 @@ const ERROR_NAME = /^(?:[A-Z]\w*)?(?:Error|Failure|Exception)$/;
  */
 function checkErrorSites(): string[] {
   const problems: string[] = [];
-  const directories = CATALOGUED_PACKAGES.map((name) => path.posix.join("packages", name, "src"));
+  const directories = CATALOGUED_DIRECTORIES.map((directory) => path.posix.join(directory, "src"));
   for (const file of directories.flatMap((directory) => sourceFiles(directory))) {
     if (file === ERROR_HELPERS) {
       continue;

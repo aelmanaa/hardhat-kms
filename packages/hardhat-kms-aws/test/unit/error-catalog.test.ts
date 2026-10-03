@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { ENTRIES, ERRORS } from "../../src/internal/error-catalog.ts";
 
-describe("the hardhat-kms-aws error catalogue", () => {
+describe("the @hardhat-kms/aws error catalogue", () => {
   it("lists every entry once, with a unique id in the aws namespace", () => {
     assert.equal(ENTRIES.length, Object.keys(ERRORS).length);
     const ids = ENTRIES.map((entry) => entry.id);

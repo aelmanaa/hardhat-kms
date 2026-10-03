@@ -80,7 +80,7 @@ Address pins to add to each key's config:
 Add the line to the key's entry:
 
 ```ts
-import hardhatKmsAws from "hardhat-kms-aws";
+import hardhatKmsAws from "@hardhat-kms/aws";
 import { defineConfig } from "hardhat/config";
 
 export default defineConfig({

@@ -44,7 +44,7 @@ const coreVersion = String(
   Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms/package.json")), "version"),
 );
 const ownVersion = String(
-  Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms-gcp/package.json")), "version"),
+  Reflect.get(Object(createRequire(import.meta.url)("@hardhat-kms/gcp/package.json")), "version"),
 );
 
 async function runtime(plugins: HardhatPlugin[] = [hardhatKmsGcp], local = true) {
@@ -166,7 +166,7 @@ async function withCredentialsFile(
   }
 }
 
-describe("hardhat-kms-gcp plugin", () => {
+describe("@hardhat-kms/gcp plugin", () => {
   before(async () => {
     server = await startKmsServer(secretKey);
     restoreEnvironment = isolateGcpEnvironment();
@@ -390,12 +390,12 @@ describe("hardhat-kms-gcp plugin", () => {
       assert.ok(error instanceof Error);
       assert.ok(
         error.message.includes(
-          `gcp, create adapter, key gcp:${KEY_VERSION_NAME}: hardhat-kms-gcp 9.9.9 needs hardhat-kms 9.9.9, but hardhat-kms ${coreVersion} is installed`,
+          `gcp, create adapter, key gcp:${KEY_VERSION_NAME}: @hardhat-kms/gcp 9.9.9 needs hardhat-kms 9.9.9, but hardhat-kms ${coreVersion} is installed`,
         ),
         error.message,
       );
       assert.ok(
-        error.message.includes("npm install --save-dev hardhat-kms@9.9.9 hardhat-kms-gcp@9.9.9"),
+        error.message.includes("npm install --save-dev hardhat-kms@9.9.9 @hardhat-kms/gcp@9.9.9"),
       );
       return true;
     });

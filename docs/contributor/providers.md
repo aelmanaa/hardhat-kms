@@ -2,7 +2,7 @@
 
 Audience: Contributors adding or changing a KMS or HSM provider.
 
-Status: the adapter contract is in `packages/hardhat-kms/src/internal/signer/types.ts`, and `hardhat-kms/types` exports it (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). The built-in providers' descriptors and the registry are internal code (see [Built-in descriptors](#built-in-descriptors)). `hardhat-kms-aws`, `hardhat-kms-gcp` and `hardhat-kms-azure` are the first-party provider packages (see [First-party provider packages](#first-party-provider-packages)). Transactions are signed through the adapter's `signDigest`. `signTransaction` and `sendTransaction` are planned and arrive with the providers that need them, Turnkey ([#54](https://github.com/aelmanaa/hardhat-kms/issues/54)) and Fireblocks ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)).
+Status: the adapter contract is in `packages/hardhat-kms/src/internal/signer/types.ts`, and `hardhat-kms/types` exports it (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). The built-in providers' descriptors and the registry are internal code (see [Built-in descriptors](#built-in-descriptors)). `@hardhat-kms/aws`, `@hardhat-kms/gcp` and `@hardhat-kms/azure` are the first-party provider packages (see [First-party provider packages](#first-party-provider-packages)). Transactions are signed through the adapter's `signDigest`. `signTransaction` and `sendTransaction` are planned and arrive with the providers that need them, Turnkey ([#54](https://github.com/aelmanaa/hardhat-kms/issues/54)) and Fireblocks ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)).
 
 ## Provider contract
 
@@ -84,13 +84,13 @@ Built-in providers' keys are validated inside the root zod schema with `conditio
 
 Each built-in provider has a descriptor in `packages/hardhat-kms/src/internal/providers/<id>/descriptor.ts`, registered under its `id` in `packages/hardhat-kms/src/internal/providers/registry.ts`. The internal shape, in `packages/hardhat-kms/src/internal/providers/types.ts`, differs from the public contract above:
 
-| Field     | Meaning                                                                                                                                                                                                                                                                        |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `id`      | The value of `provider` in a key's config.                                                                                                                                                                                                                                     |
-| `schema`  | The zod schema for a key's config, with the provider's format checks.                                                                                                                                                                                                          |
-| `resolve` | Turns a validated key config into its resolved form, including `displayId`.                                                                                                                                                                                                    |
-| `name`    | The provider's name in messages, for example `AWS KMS`.                                                                                                                                                                                                                        |
-| `adapter` | Where the adapter comes from: `{ package: "hardhat-kms-aws" }` for AWS, `{ package: "hardhat-kms-gcp" }` for Google Cloud and `{ package: "hardhat-kms-azure" }` for Azure. A provider without a package yet names the issue that tracks it instead, as `{ issue: <number> }`. |
+| Field     | Meaning                                                                                                                                                                                                                                                                           |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`      | The value of `provider` in a key's config.                                                                                                                                                                                                                                        |
+| `schema`  | The zod schema for a key's config, with the provider's format checks.                                                                                                                                                                                                             |
+| `resolve` | Turns a validated key config into its resolved form, including `displayId`.                                                                                                                                                                                                       |
+| `name`    | The provider's name in messages, for example `AWS KMS`.                                                                                                                                                                                                                           |
+| `adapter` | Where the adapter comes from: `{ package: "@hardhat-kms/aws" }` for AWS, `{ package: "@hardhat-kms/gcp" }` for Google Cloud and `{ package: "@hardhat-kms/azure" }` for Azure. A provider without a package yet names the issue that tracks it instead, as `{ issue: <number> }`. |
 
 The config hook imports every descriptor through the registry, so a descriptor must never import an SDK. It imports its provider's config module and a few SDK-free helpers. A descriptor builds no adapter: the core reads `name` and `adapter` only to explain a key that no `kms` handler claims.
 
@@ -120,7 +120,9 @@ declare module "hardhat-kms/types" {
 declare function createMyVaultAdapter(key: ExternalKmsKeyConfig<"myvault">): Promise<KmsKeyAdapter>;
 
 const plugin: HardhatPlugin = {
-  id: "hardhat-kms-myvault",
+  // The package name, under the plugin author's own scope.
+  id: "@acme/hardhat-myvault",
+  npmPackage: "@acme/hardhat-myvault",
   // Loads hardhat-kms, so its config section and the kms hook exist when only this plugin is listed.
   dependencies: () => [import("hardhat-kms")],
   hookHandlers: {
@@ -138,6 +140,7 @@ export default plugin;
 
 The rules:
 
+- Publish the plugin under your own name or scope, not under `@hardhat-kms/` and not with a `hardhat-kms-` prefix. The project's official packages are `hardhat-kms` and `@hardhat-kms/*` ([decision 0015](decisions/0015-npm-names.md)), and users tell a third-party provider apart by its name. Set the plugin's `id` and `npmPackage` to the package name: Hardhat prints the id in its install errors and looks up `npmPackage` to find the plugin's `package.json`.
 - The handler builds adapters only for its own provider ids and passes every other key to `next`.
 - Declare `hardhat-kms` in the plugin's `dependencies`, as above, and as a `peerDependency` in its `package.json`, so the project has a single copy of it.
 - The provider id must not look like a misspelled built-in id. The config schema rejects an id that matches `aws`, `gcp` or `azure` in another case or is one edit away from one (a changed, added or removed letter, or two adjacent letters swapped), such as `AWS`, `gpc` or `azurre`. Ids such as `kms` or `hsm` are fine.
@@ -227,7 +230,8 @@ declare function queryMyVaultLog(
 ): Promise<{ denied: boolean; events: KmsHistoryEvent[]; stopped: boolean }>;
 
 const plugin: HardhatPlugin = {
-  id: "hardhat-kms-myvault",
+  id: "@acme/hardhat-myvault",
+  npmPackage: "@acme/hardhat-myvault",
   dependencies: () => [import("hardhat-kms")],
   hookHandlers: {
     kms: async () => ({
@@ -292,7 +296,7 @@ The core checks every result in `packages/hardhat-kms/src/internal/history/read.
 
 ## First-party provider packages
 
-`hardhat-kms-aws`, `hardhat-kms-gcp` and `hardhat-kms-azure` are provider plugins like the one above, kept in this repository and released with the core. They differ from a third-party plugin in these ways:
+`@hardhat-kms/aws`, `@hardhat-kms/gcp` and `@hardhat-kms/azure` are provider plugins like the one above, kept in this repository and released with the core. A first-party provider is named `@hardhat-kms/<id>`, and its plugin `id` and `npmPackage` equal that name ([decision 0015](decisions/0015-npm-names.md)); its directory stays `packages/hardhat-kms-<id>`. They differ from a third-party plugin in these ways:
 
 - Its key format lives in the core, as a [built-in descriptor](#built-in-descriptors). The config schema checks `aws`, `gcp` and `azure` keys strictly, and a missing package produces an error that names it. The package declares no key types. Its `src/index.ts` starts with `/// <reference types="hardhat-kms/types" preserve="true" />`, so a project that imports only one provider package still gets the `kms` config types. A reference adds nothing to the JavaScript: if `hardhat-kms` is missing, Hardhat reports it as a missing plugin dependency instead of Node failing to find the module.
 - It builds on `hardhat-kms/provider-utils`: `publicKeyFromSpkiDer`, `publicKeyFromSpkiPem` (Google Cloud's PEM) and `InvalidPublicKeyError` to parse the key's public key, `crc32c` for Google Cloud's checksums, `kmsError` and its `ErrorDetails` for allow-listed errors, `catalogError`, `catalogMessage` and `internalError` with the `ErrorEntry` and `TemplateParams` types to build its errors from its [error catalogue](architecture.md#errors), `parseAwsKeyId` and its `ParsedAwsKeyId` to read the kind of an AWS key id and the region of an ARN, `publicKeyFromJwk` with its `EcJsonWebKey` type and `parseAzureKeyId` with its `ParsedAzureKeyId` for Azure's JWK public keys and key URLs, `checkProviderVersion`, which its handler calls before building an adapter, and `auditLogAccessDenied` and `auditLogThrottled` for [history readers](#history-readers). The entry point is marked `@experimental` until 1.0. Third-party providers may use it too, including the history reader errors, except `checkProviderVersion` and the catalogue helpers, which only fit packages released with the core: a third-party provider builds its errors with `kmsError`.
@@ -301,10 +305,10 @@ The core checks every result in `packages/hardhat-kms/src/internal/history/read.
 
 To add another first-party provider package:
 
-1. Create `packages/hardhat-kms-<id>` with the layout of `packages/hardhat-kms-aws` (see [Module layout](architecture.md#module-layout)). The plugin declares `dependencies: () => [import("hardhat-kms")]` and a `kms` hook handler. The handler claims the provider's keys, passes other keys to `next`, calls `checkProviderVersion` with the package's own name and version, and loads the adapter and the SDK with dynamic `import()`. The adapter takes the SDK as an argument, so unit tests can pass a fake.
+1. Create `packages/hardhat-kms-<id>` with the layout of `packages/hardhat-kms-aws` (see [Module layout](architecture.md#module-layout)). Name the package `@hardhat-kms/<id>`, set the plugin's `id` and `npmPackage` to that name, and copy the `package-name.test.ts` unit test that checks them. The plugin declares `dependencies: () => [import("hardhat-kms")]` and a `kms` hook handler. The handler claims the provider's keys, passes other keys to `next`, calls `checkProviderVersion` with the package's own name and version, and loads the adapter and the SDK with dynamic `import()`. The adapter takes the SDK as an argument, so unit tests can pass a fake.
 2. In its `package.json`, put the SDK in `dependencies` as a caret range on a tested version (`^x.y.z`), `hardhat` in `peerDependencies`, and `hardhat-kms` in `peerDependencies` as `workspace:*`. `pnpm run test:sdk-floors` tests every dependency under `@aws-sdk/`, `@google-cloud/` or `@azure/` at its floor and rejects other range forms. An SDK in another scope goes into `CLOUD_SDK` in `scripts/test-sdk-floors.ts` and into the Dependabot `cloud-sdks` group, as `google-gax` does.
-3. In the core, set the descriptor's `adapter` to `{ package: "hardhat-kms-<id>" }`.
+3. In the core, set the descriptor's `adapter` to `{ package: "@hardhat-kms/<id>" }`.
 4. Move any helper the adapter needs from the core to `packages/hardhat-kms/src/provider-utils.ts`, and update the export list checked by `packages/hardhat-kms/test/unit/plugin.test.ts`.
 5. Give the package its error catalogue, `src/internal/error-catalog.ts`, with ids under the provider id, and a test that checks it, as `packages/hardhat-kms-aws` has. Build every error from it (see [Errors](architecture.md#errors)), then run `pnpm run docs:errors`.
-6. Register the package with the tooling: the `fixed` group in `.changeset/config.json`, a workspace entry in `knip.json`, a reference in the root `tsconfig.json`, a root devDependency so doc snippets can import it, and the package list in `scripts/consumer-typecheck.ts`.
-7. Test it as `hardhat-kms-aws` is tested: adapter unit tests with a fake SDK, an integration test with the real SDK against a local endpoint, and an import test that loads a config without loading the SDK (see [Testing](testing.md)). The package's `.c8rc.json` holds it to 95% coverage.
+6. Register the package with the tooling: the `fixed` group in `.changeset/config.json`, a workspace entry in `knip.json`, a reference in the root `tsconfig.json`, a root devDependency so doc snippets can import it, the directory lists in `scripts/consumer-typecheck.ts` and in `CATALOGUED_DIRECTORIES` of `scripts/generate-errors-doc.ts`, and `--fail-if-no-match` on any root script that filters to it.
+7. Test it as `@hardhat-kms/aws` is tested: adapter unit tests with a fake SDK, an integration test with the real SDK against a local endpoint, and an import test that loads a config without loading the SDK (see [Testing](testing.md)). The package's `.c8rc.json` holds it to 95% coverage.

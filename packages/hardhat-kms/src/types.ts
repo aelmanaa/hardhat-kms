@@ -261,7 +261,7 @@ export type { KmsHistoryEntry, KmsHistoryReport } from "./internal/history/repor
 export interface KmsHooks {
   /**
    * Builds the adapter for one key. A handler builds adapters for its own provider ids and calls
-   * `next` for any other key. The first-party provider packages, such as hardhat-kms-aws, use
+   * `next` for any other key. The first-party provider packages, such as @hardhat-kms/aws, use
    * this hook too. A key that no handler claims fails with an error; for `aws`, `gcp` and `azure`
    * keys, the error names the package to install.
    *

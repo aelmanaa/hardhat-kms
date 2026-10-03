@@ -105,6 +105,15 @@ importers:
       '@changesets/cli':
         specifier: 'catalog:'
         version: 3.0.3
+      '@hardhat-kms/aws':
+        specifier: workspace:*
+        version: link:packages/hardhat-kms-aws
+      '@hardhat-kms/azure':
+        specifier: workspace:*
+        version: link:packages/hardhat-kms-azure
+      '@hardhat-kms/gcp':
+        specifier: workspace:*
+        version: link:packages/hardhat-kms-gcp
       '@nomicfoundation/hardhat-ignition':
         specifier: 'catalog:'
         version: 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.18.0))(hardhat@3.18.0)
@@ -132,15 +141,6 @@ importers:
       hardhat-kms:
         specifier: workspace:*
         version: link:packages/hardhat-kms
-      hardhat-kms-aws:
-        specifier: workspace:*
-        version: link:packages/hardhat-kms-aws
-      hardhat-kms-azure:
-        specifier: workspace:*
-        version: link:packages/hardhat-kms-azure
-      hardhat-kms-gcp:
-        specifier: workspace:*
-        version: link:packages/hardhat-kms-gcp
       knip:
         specifier: 'catalog:'
         version: 6.38.0
@@ -174,6 +174,9 @@ importers:
 
   examples/ethers:
     devDependencies:
+      '@hardhat-kms/aws':
+        specifier: ^0.0.0
+        version: link:../../packages/hardhat-kms-aws
       '@nomicfoundation/hardhat-ethers':
         specifier: ^4.2.0
         version: 4.2.0(hardhat@3.18.0)
@@ -192,15 +195,15 @@ importers:
       hardhat-kms:
         specifier: ^0.0.0
         version: link:../../packages/hardhat-kms
-      hardhat-kms-aws:
-        specifier: ^0.0.0
-        version: link:../../packages/hardhat-kms-aws
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
 
   examples/ignition:
     devDependencies:
+      '@hardhat-kms/aws':
+        specifier: ^0.0.0
+        version: link:../../packages/hardhat-kms-aws
       '@nomicfoundation/hardhat-ignition':
         specifier: ^3.1.8
         version: 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.18.0))(hardhat@3.18.0)
@@ -219,9 +222,6 @@ importers:
       hardhat-kms:
         specifier: ^0.0.0
         version: link:../../packages/hardhat-kms
-      hardhat-kms-aws:
-        specifier: ^0.0.0
-        version: link:../../packages/hardhat-kms-aws
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -231,6 +231,9 @@ importers:
 
   examples/viem:
     devDependencies:
+      '@hardhat-kms/aws':
+        specifier: ^0.0.0
+        version: link:../../packages/hardhat-kms-aws
       '@nomicfoundation/hardhat-viem':
         specifier: ^3.0.9
         version: 3.0.9(hardhat@3.18.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
@@ -243,9 +246,6 @@ importers:
       hardhat-kms:
         specifier: ^0.0.0
         version: link:../../packages/hardhat-kms
-      hardhat-kms-aws:
-        specifier: ^0.0.0
-        version: link:../../packages/hardhat-kms-aws
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

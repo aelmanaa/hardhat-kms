@@ -250,7 +250,7 @@ describe("kms history", () => {
 
     assertPluginError(
       run.error,
-      "aws, history, key aws:<HHKMS_HISTORY_KEY_ID>: no installed plugin reads AWS KMS audit logs. The reader ships in hardhat-kms-aws; install or update it to the same version as hardhat-kms, and add it to `plugins` in your Hardhat config",
+      "aws, history, key aws:<HHKMS_HISTORY_KEY_ID>: no installed plugin reads AWS KMS audit logs. The reader ships in @hardhat-kms/aws; install or update it to the same version as hardhat-kms, and add it to `plugins` in your Hardhat config",
     );
   });
 

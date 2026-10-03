@@ -84,13 +84,13 @@ describe("kms hook", () => {
 
     await assertPluginError(createKeyAdapter(hre, key(hre, "aws")), [
       "aws, create adapter, key aws:alias/deployer:",
-      "AWS KMS keys need the hardhat-kms-aws plugin",
-      "`npm install --save-dev hardhat-kms-aws`",
+      "AWS KMS keys need the @hardhat-kms/aws plugin",
+      "`npm install --save-dev @hardhat-kms/aws`",
       "`plugins`",
     ]);
     await assertPluginError(createKeyAdapter(hre, key(hre, "gcp")), [
-      "Google Cloud KMS keys need the hardhat-kms-gcp plugin",
-      "`npm install --save-dev hardhat-kms-gcp`",
+      "Google Cloud KMS keys need the @hardhat-kms/gcp plugin",
+      "`npm install --save-dev @hardhat-kms/gcp`",
     ]);
   });
 

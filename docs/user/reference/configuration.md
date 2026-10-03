@@ -2,15 +2,15 @@
 
 Audience: Users configuring the plugin.
 
-Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `hardhat-kms-aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). M4 adds the network hook: connections to a network with `kmsAccounts` list the KMS accounts and sign messages and typed data with them ([RPC methods](rpc-methods.md)). `kms.allowCrossChainTypedData` governs the typed-data chain check ([#20](https://github.com/aelmanaa/hardhat-kms/issues/20)), and `--kms` keys are added to the selected network ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). `kms.simulatedBalance` funds KMS accounts on `edr-simulated` networks ([#103](https://github.com/aelmanaa/hardhat-kms/issues/103)). The Azure adapter is in the `hardhat-kms-azure` package ([set up an Azure Key Vault key](../guides/azure-key-vault-setup.md), [#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). The Google Cloud adapter is in the `hardhat-kms-gcp` package ([set up a Google Cloud KMS key](../guides/gcp-kms-setup.md), [#29](https://github.com/aelmanaa/hardhat-kms/issues/29)).
+Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `@hardhat-kms/aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). M4 adds the network hook: connections to a network with `kmsAccounts` list the KMS accounts and sign messages and typed data with them ([RPC methods](rpc-methods.md)). `kms.allowCrossChainTypedData` governs the typed-data chain check ([#20](https://github.com/aelmanaa/hardhat-kms/issues/20)), and `--kms` keys are added to the selected network ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). `kms.simulatedBalance` funds KMS accounts on `edr-simulated` networks ([#103](https://github.com/aelmanaa/hardhat-kms/issues/103)). The Azure adapter is in the `@hardhat-kms/azure` package ([set up an Azure Key Vault key](../guides/azure-key-vault-setup.md), [#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). The Google Cloud adapter is in the `@hardhat-kms/gcp` package ([set up a Google Cloud KMS key](../guides/gcp-kms-setup.md), [#29](https://github.com/aelmanaa/hardhat-kms/issues/29)).
 
 ## Configuration
 
-Keys are declared once under `kms.keys` and referenced by name from any network. Each provider's keys need its [provider package](#provider-packages) in `plugins`; the example lists `hardhat-kms-aws`, which loads `hardhat-kms` itself:
+Keys are declared once under `kms.keys` and referenced by name from any network. Each provider's keys need its [provider package](#provider-packages) in `plugins`; the example lists `@hardhat-kms/aws`, which loads `hardhat-kms` itself:
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAws from "hardhat-kms-aws";
+import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],
@@ -132,18 +132,18 @@ Third-party providers extend the config types through the declaration-merged `Km
 
 `hardhat-kms` validates the keys of every provider, but signs only through a provider package. Each provider package is a Hardhat plugin that depends on its cloud SDK, so installing it installs the SDK:
 
-| Provider         | Package                                                                                         |
-| ---------------- | ----------------------------------------------------------------------------------------------- |
-| AWS KMS          | `npm install --save-dev hardhat-kms hardhat-kms-aws`, then add `hardhatKmsAws` to `plugins`     |
-| Google Cloud KMS | `npm install --save-dev hardhat-kms hardhat-kms-gcp`, then add `hardhatKmsGcp` to `plugins`     |
-| Azure Key Vault  | `npm install --save-dev hardhat-kms hardhat-kms-azure`, then add `hardhatKmsAzure` to `plugins` |
+| Provider         | Package                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| AWS KMS          | `npm install --save-dev hardhat-kms @hardhat-kms/aws`, then add `hardhatKmsAws` to `plugins`     |
+| Google Cloud KMS | `npm install --save-dev hardhat-kms @hardhat-kms/gcp`, then add `hardhatKmsGcp` to `plugins`     |
+| Azure Key Vault  | `npm install --save-dev hardhat-kms @hardhat-kms/azure`, then add `hardhatKmsAzure` to `plugins` |
 
 A provider package loads `hardhat-kms` itself, so `plugins: [hardhatKmsAws]` is enough. Listing `hardhatKms` as well also works. Install `hardhat-kms` and the provider packages at the same version; they are released together.
 
 Loading the config never loads an SDK. A provider package loads its SDK the first time one of its keys is used. A key whose provider package is not in `plugins` fails when it is first used, and the error says which package to install:
 
 ```text
-aws, create adapter, key aws:alias/deployer: AWS KMS keys need the hardhat-kms-aws plugin. Install it with `npm install --save-dev hardhat-kms-aws` and add it to `plugins` in your Hardhat config
+aws, create adapter, key aws:alias/deployer: AWS KMS keys need the @hardhat-kms/aws plugin. Install it with `npm install --save-dev @hardhat-kms/aws` and add it to `plugins` in your Hardhat config
 ```
 
 ## Other signing plugins
@@ -153,7 +153,7 @@ hardhat-kms works next to `@nomicfoundation/hardhat-ledger`. List hardhat-ledger
 ```ts
 import hardhatLedger from "@nomicfoundation/hardhat-ledger";
 import { defineConfig } from "hardhat/config";
-import hardhatKmsAws from "hardhat-kms-aws";
+import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
   plugins: [hardhatLedger, hardhatKmsAws],

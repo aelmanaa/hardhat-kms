@@ -55,6 +55,12 @@ A key id read from a configuration variable shows as the variable's name, such a
 - Key deletion and lockout. If the key is deleted, or nobody can reach it any more, the funds and roles at its address are lost for good: nobody holds a copy of the private key. [Prevent and recover from losing a key](../guides/key-loss.md) covers each provider's waiting period, the undo paths, lockout and backups.
 - The KMS service and the machine running Hardhat. The plugin trusts the provider's service to keep the key, and the machine's credentials to be yours. [SECURITY.md](../../../SECURITY.md) lists these as out of scope.
 
+## Official packages
+
+The official packages are `hardhat-kms` and the packages under the `@hardhat-kms` npm scope. A package with any other name, such as `hardhat-kms-aws`, does not come from this project.
+
+Only members of the `hardhat-kms` npm organization can publish under `@hardhat-kms/`, but anyone can publish an unscoped name that looks like this project's. A provider package runs in your Hardhat process and sees its keys' config, so check the name before you install. A third-party provider is published under its own name or scope; read its code as you would any other code in the process. See [decision 0015](../../contributor/decisions/0015-npm-names.md).
+
 ## What you configure
 
 The plugin's checks work best with these settings:

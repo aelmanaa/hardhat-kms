@@ -696,7 +696,7 @@ describe("SignerCache identity", () => {
     });
     const cache = new SignerCache(fakeTimers());
 
-    await assert.rejects(cache.signerFor(hre, key), /hardhat-kms-aws/);
+    await assert.rejects(cache.signerFor(hre, key), /@hardhat-kms\/aws/);
     assert.equal(reads, 0);
   });
 

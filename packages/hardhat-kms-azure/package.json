@@ -1,15 +1,21 @@
 {
-  "name": "hardhat-kms-azure",
+  "name": "@hardhat-kms/azure",
   "version": "0.0.0",
   "description": "Azure Key Vault provider for hardhat-kms: sign Hardhat 3 transactions, messages and typed data with secp256k1 keys held in Azure Key Vault or Managed HSM.",
   "keywords": [
     "hardhat",
+    "hardhat3",
     "hardhat-plugin",
     "kms",
+    "signer",
+    "remote-signer",
+    "ethereum",
+    "ethers",
+    "viem",
+    "azure",
     "azure-key-vault",
     "managed-hsm",
-    "signer",
-    "ethereum"
+    "hsm"
   ],
   "homepage": "https://github.com/aelmanaa/hardhat-kms#readme",
   "bugs": {

@@ -9,5 +9,5 @@ export const azureProvider: KmsProviderDescriptor = {
   resolve: (key, context) =>
     key.provider === "azure" ? resolveAzureKey(key, context) : wrongProvider("azure", key.provider),
   name: "Azure Key Vault",
-  adapter: { package: "hardhat-kms-azure" },
+  adapter: { package: "@hardhat-kms/azure" },
 };

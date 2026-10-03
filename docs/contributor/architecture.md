@@ -25,7 +25,7 @@ flowchart TD
   tasks --> hooks
   registry --> descriptors["providers/aws, gcp, azure<br/>descriptor, key format"]
   signer --> crypto["crypto/<br/>keys, signatures, digests"]
-  packages["provider packages<br/>hardhat-kms-aws, hardhat-kms-gcp:<br/>kms handler, adapter"] --> utils["provider-utils.ts<br/>helpers for provider plugins"]
+  packages["provider packages<br/>@hardhat-kms/aws, @hardhat-kms/gcp:<br/>kms handler, adapter"] --> utils["provider-utils.ts<br/>helpers for provider plugins"]
   utils --> crypto
   utils --> descriptors
   crypto --> vendor["vendor/micro-eth-signer<br/>EIP-712 encoder"]
@@ -238,7 +238,7 @@ Each provider package has the same small layout. For AWS:
 
 ```
 packages/hardhat-kms-aws/src/
-  index.ts                  definePlugin: id and npmPackage "hardhat-kms-aws", depends on hardhat-kms,
+  index.ts                  definePlugin: id and npmPackage "@hardhat-kms/aws", depends on hardhat-kms,
                             lazy `kms` hook handler import; references "hardhat-kms/types" for the config types
   internal/
     hook-handlers/kms.ts    claims `aws` keys, passes other keys to next; imports the adapter and the SDK on first use
@@ -259,7 +259,7 @@ The dispatcher follows these rules. They keep the hook from deadlocking on its o
 
 ## Other signing plugins
 
-Hardhat runs dynamically registered handlers first, then plugins in reverse order of the `plugins` array, and its built-in handlers last. Another plugin that intercepts `eth_accounts` or `eth_sendTransaction`, such as `@nomicfoundation/hardhat-ledger`, therefore runs before or after hardhat-kms depending on where each appears in `plugins`. A provider package such as `hardhat-kms-aws` depends on hardhat-kms, so Hardhat places hardhat-kms just before it.
+Hardhat runs dynamically registered handlers first, then plugins in reverse order of the `plugins` array, and its built-in handlers last. Another plugin that intercepts `eth_accounts` or `eth_sendTransaction`, such as `@nomicfoundation/hardhat-ledger`, therefore runs before or after hardhat-kms depending on where each appears in `plugins`. A provider package such as `@hardhat-kms/aws` depends on hardhat-kms, so Hardhat places hardhat-kms just before it.
 
 hardhat-kms only acts on addresses it owns and passes everything else on. hardhat-ledger also passes requests for other addresses on, but only after it has validated their params: `LedgerHandler.handle` runs `validateParams` on `personal_sign`, `eth_sign`, `eth_signTypedData_v4` and `eth_sendTransaction` before it checks who owns the address. `packages/hardhat-kms/test/integration/ledger.test.ts` checks both orders. The order has three effects:
 
@@ -319,13 +319,13 @@ A placeholder holds a value: a name, a number, an address or a list. Where the w
 
 ## Timeouts and retries
 
-One AbortSignal timeout covers each whole KMS call, including the SDK's own retries. The default is 30 s (`kms.defaults.timeoutMs`, overridable per key). For GCP the adapter passes the key's timeout as gax's `timeout` call option, the deadline of each request, with `retry: null`, which turns the SDK's retries off. google-gax enforces that deadline over REST only from 6.5.0, and `@google-cloud/kms` 6.2.1 accepts any 6.x, so `hardhat-kms-gcp` depends on `google-gax` `^6.5.0` itself and passes it to the client's constructor; the client then runs on that copy even if `@google-cloud/kms` resolves an older one. The client's methods return plain promises, so a request already sent cannot be cancelled: after the AbortSignal fires, the request in flight ends at its deadline, and the adapter starts no other.
+One AbortSignal timeout covers each whole KMS call, including the SDK's own retries. The default is 30 s (`kms.defaults.timeoutMs`, overridable per key). For GCP the adapter passes the key's timeout as gax's `timeout` call option, the deadline of each request, with `retry: null`, which turns the SDK's retries off. google-gax enforces that deadline over REST only from 6.5.0, and `@google-cloud/kms` 6.2.1 accepts any 6.x, so `@hardhat-kms/gcp` depends on `google-gax` `^6.5.0` itself and passes it to the client's constructor; the client then runs on that copy even if `@google-cloud/kms` resolves an older one. The client's methods return plain promises, so a request already sent cannot be cancelled: after the AbortSignal fires, the request in flight ends at its deadline, and the adapter starts no other.
 
 Signing has no side effects, so calls can be repeated. The AWS SDK retries transient errors itself within that timeout. The GCP adapter has its own loop instead: it repeats a call whose CRC32C check fails, whose digest Cloud KMS refuses for its checksum, or that fails with UNAVAILABLE (after 100, 200 and 400 ms), at most three times (`MAX_RETRIES` in `packages/hardhat-kms-gcp/src/internal/adapter.ts`), and stops once the AbortSignal fires. Its pauses use timers that are not `unref`'d: a signature in progress waits on them, so an `unref`'d pause would let Node exit in the middle of `hardhat run`. Only idle and cleanup timers, such as the signer cache's idle close and the retry entries' expiry, and the core's per-call deadline, which races a request that holds its own socket, are `unref`'d.
 
 ## SDK loading
 
-Each provider package lists its cloud SDK in `dependencies`: `hardhat-kms-aws` depends on `@aws-sdk/client-kms` `^3.1143.0`, `hardhat-kms-gcp` on `@google-cloud/kms` `^6.2.1`, `google-gax` `^6.5.0` and, for the Cloud Logging reads of `kms history`, `google-auth-library` `^11.0.0` (the range google-gax 6.5.0 asks for, so it adds no second copy), and `hardhat-kms-azure` on `@azure/keyvault-keys` `^4.10.2` and `@azure/identity` `^4.13.3`. Installing the package installs the SDK. The core depends on no cloud SDK, and `packages/hardhat-kms/test/unit/plugin.test.ts` fails if its `package.json` lists one.
+Each provider package lists its cloud SDK in `dependencies`: `@hardhat-kms/aws` depends on `@aws-sdk/client-kms` `^3.1143.0`, `@hardhat-kms/gcp` on `@google-cloud/kms` `^6.2.1`, `google-gax` `^6.5.0` and, for the Cloud Logging reads of `kms history`, `google-auth-library` `^11.0.0` (the range google-gax 6.5.0 asks for, so it adds no second copy), and `@hardhat-kms/azure` on `@azure/keyvault-keys` `^4.10.2` and `@azure/identity` `^4.13.3`. Installing the package installs the SDK. The core depends on no cloud SDK, and `packages/hardhat-kms/test/unit/plugin.test.ts` fails if its `package.json` lists one.
 
 A provider package imports its SDK only when it creates an adapter: its plugin definition registers the `kms` hook handler as a lazy import, and the handler loads the SDK on first use. The handler, `packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts`, passes keys of other providers to `next`. For an `aws` key it imports `adapter.ts` and `@aws-sdk/client-kms` with dynamic `import()`, then calls `createAwsKeyAdapter(key, sdk)`. The adapter receives the SDK as an argument typed `AwsKmsSdk`, so unit tests pass a fake.
 
@@ -333,4 +333,4 @@ The core has two peer dependencies: `hardhat`, and `viem`, which is optional and
 
 The SDK range is a caret range that starts at a version the tests run. CI tests the version in `pnpm-lock.yaml`, and the SDK floors workflow tests the lowest version the range allows (see [Testing](testing.md)).
 
-`packages/hardhat-kms-aws/test/integration/sdk-loading.test.ts` runs `packages/hardhat-kms-aws/test/fixtures/load-config.ts` in a child process. The fixture loads `hardhat-kms-aws` and resolves a config with a key for every built-in provider. `packages/hardhat-kms-aws/test/helpers/import-recorder.mjs` records the file URL of every module the process loads: through `module.registerHooks` where Node has it, which also sees `require`, and otherwise through asynchronous hooks plus the CommonJS module cache at exit. The test fails if any file under `@aws-sdk/`, `@smithy/` or `@aws-crypto/` is among them. A positive control also creates the AWS key's adapter, with both hook kinds, and must record `@aws-sdk/client-kms`. `packages/hardhat-kms-gcp/test/integration/sdk-loading.test.ts` does the same for `@google-cloud/`, `google-gax`, `google-auth-library`, `gaxios`, `@grpc/` and `protobufjs`, and for the history reader's own modules, also when `kms history` runs on another provider's key.
+`packages/hardhat-kms-aws/test/integration/sdk-loading.test.ts` runs `packages/hardhat-kms-aws/test/fixtures/load-config.ts` in a child process. The fixture loads `@hardhat-kms/aws` and resolves a config with a key for every built-in provider. `packages/hardhat-kms-aws/test/helpers/import-recorder.mjs` records the file URL of every module the process loads: through `module.registerHooks` where Node has it, which also sees `require`, and otherwise through asynchronous hooks plus the CommonJS module cache at exit. The test fails if any file under `@aws-sdk/`, `@smithy/` or `@aws-crypto/` is among them. A positive control also creates the AWS key's adapter, with both hook kinds, and must record `@aws-sdk/client-kms`. `packages/hardhat-kms-gcp/test/integration/sdk-loading.test.ts` does the same for `@google-cloud/`, `google-gax`, `google-auth-library`, `gaxios`, `@grpc/` and `protobufjs`, and for the history reader's own modules, also when `kms history` runs on another provider's key.

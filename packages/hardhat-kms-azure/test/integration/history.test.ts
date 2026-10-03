@@ -31,7 +31,7 @@ import {
 import { type LogAnalyticsHttp, logAnalyticsHttp } from "../helpers/log-analytics-http.ts";
 
 const ownVersion = String(
-  Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms-azure/package.json")), "version"),
+  Reflect.get(Object(createRequire(import.meta.url)("@hardhat-kms/azure/package.json")), "version"),
 );
 
 // A range that holds the recorded rows, and is in the past.

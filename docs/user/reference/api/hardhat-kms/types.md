@@ -1526,7 +1526,7 @@ The hook may change before 1.0.
 > **createKeyAdapter**(`context`: `HookContext`, `key`: [`KmsKeyConfig`](#kmskeyconfig), `next`: (`nextContext`: `HookContext`, `nextKey`: [`KmsKeyConfig`](#kmskeyconfig)) => `Promise`\<[`KmsKeyAdapter`](#kmskeyadapter)\>): `Promise`\<[`KmsKeyAdapter`](#kmskeyadapter)\>
 
 Builds the adapter for one key. A handler builds adapters for its own provider ids and calls
-`next` for any other key. The first-party provider packages, such as hardhat-kms-aws, use
+`next` for any other key. The first-party provider packages, such as @hardhat-kms/aws, use
 this hook too. A key that no handler claims fails with an error; for `aws`, `gcp` and `azure`
 keys, the error names the package to install.
 

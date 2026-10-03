@@ -1,13 +1,13 @@
 import type { ErrorEntry } from "hardhat-kms/provider-utils";
 
 /*
- * Every error hardhat-kms-aws builds, with its cause and fix. Build errors only from these
+ * Every error @hardhat-kms/aws builds, with its cause and fix. Build errors only from these
  * entries, with catalogError, catalogMessage or internalError from hardhat-kms/provider-utils;
  * `pnpm run docs:check` fails on a throw that bypasses them. `pnpm run docs:errors` writes
  * docs/user/reference/errors.md from this file.
  */
 
-/** The hardhat-kms-aws error catalogue. */
+/** The @hardhat-kms/aws error catalogue. */
 export const ERRORS = {
   keySpec: {
     id: "aws.key.spec",
@@ -124,7 +124,7 @@ export const ERRORS = {
     group: "Internal",
     template: "{packageName}/package.json has no version",
     cause:
-      "The installed hardhat-kms-aws has no `version` in its package.json, so the install is broken.",
+      "The installed @hardhat-kms/aws has no `version` in its package.json, so the install is broken.",
     fix: "Reinstall the dependencies. If it repeats, open an issue at https://github.com/aelmanaa/hardhat-kms/issues.",
   },
 } as const;
