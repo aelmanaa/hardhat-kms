@@ -101,7 +101,7 @@ Creating the key in step 1 needs a broader role, such as Key Vault Crypto Office
 
 ### Vaults that use access policies
 
-Older vaults grant access with access policies, which apply to every key in the vault. Grant only the two key permissions to the identity's object id, found as in [Vaults that use Azure RBAC](#vaults-that-use-azure-rbac):
+Older vaults grant access with access policies, which apply to every key in the vault. Microsoft calls them "a legacy authorization system" and recommends Azure RBAC, which is the default for vaults created with Key Vault API version 2026-02-01 or later ([Azure RBAC vs. access policies](https://learn.microsoft.com/en-us/azure/key-vault/general/rbac-access-policy)). To move a vault to RBAC, see [Migrate to Azure role-based access control](https://learn.microsoft.com/en-us/azure/key-vault/general/rbac-migration). Until then, grant only the two key permissions to the identity's object id, found as in [Vaults that use Azure RBAC](#vaults-that-use-azure-rbac):
 
 ```sh
 az keyvault set-policy --name my-vault --object-id <principal object id> --key-permissions get sign

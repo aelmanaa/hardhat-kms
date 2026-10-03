@@ -49,6 +49,8 @@ curl -s -d "access_token=$(gcloud auth application-default print-access-token \
 
 The `email` field of the response is the identity; the command asks for the `userinfo.email` scope because the response has `email` only when the token has that scope ([Token types](https://docs.cloud.google.com/docs/authentication/token-types)). Use the email with `user:`, or with `serviceAccount:` when it ends in `.gserviceaccount.com`. If the response still has no `email`, ADC holds a service account: the machine's or CI job's, the one named with `gcloud auth application-default login --impersonate-service-account`, or the one whose key file `GOOGLE_APPLICATION_CREDENTIALS` names. The `azp` field is then its unique ID, and `gcloud iam service-accounts describe <azp> --format='value(email)'` prints its email. If you unset `auth/impersonate_service_account` and your gcloud commands rely on it, set it again with `gcloud config set auth/impersonate_service_account <account>`.
 
+Avoid service account key files. Google says "Service account keys create a security risk and are not recommended" ([How Application Default Credentials works](https://docs.cloud.google.com/docs/authentication/application-default-credentials)), and organizations created on or after 2024-05-03 block key creation by default ([Best practices for managing service account keys](https://docs.cloud.google.com/iam/docs/best-practices-for-managing-service-account-keys)). On a laptop, run `gcloud auth application-default login`, with `--impersonate-service-account <email>` to sign as a service account; your account needs the Service Account Token Creator role (`roles/iam.serviceAccountTokenCreator`) on that service account ([Set up ADC for a local development environment](https://docs.cloud.google.com/docs/authentication/set-up-adc-local-dev-environment)). In CI, use workload identity federation: `GOOGLE_APPLICATION_CREDENTIALS` can name its `external_account` configuration file, which holds no key. On Google Cloud, use the service account attached to the machine.
+
 The predefined roles `roles/cloudkms.publicKeyViewer` and `roles/cloudkms.signer` each hold one of the two permissions. Grant both on the key, not on the project, so the identity can use no other key:
 
 ```sh
@@ -73,7 +75,9 @@ npm install --save-dev hardhat-kms @hardhat-kms/gcp
 
 Until the packages are published on npm, this command fails with `E404`; follow [Install before the first npm release](install-before-release.md) instead.
 
-`@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later to run it on) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
+`@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later to run it on) with it, so there is nothing else to install. npm prints `npm warn deprecated node-domexception@1.0.0` during the install. The warning comes from Google's libraries: `gaxios` and `google-gax` depend on `node-fetch` 3, which pulls in `node-domexception` through `fetch-blob`, and the latest `gaxios`, 8.1.0, still does. It is harmless and needs no action.
+
+Add the plugin to `plugins`; it loads `hardhat-kms` itself:
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
