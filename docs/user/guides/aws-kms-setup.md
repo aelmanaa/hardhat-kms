@@ -64,7 +64,7 @@ aws iam attach-role-policy --role-name <role name> --policy-arn <Policy.Arn from
 aws iam attach-user-policy --user-name <user name> --policy-arn <Policy.Arn from the output above>
 ```
 
-Prefer a role, IAM Identity Center (`aws sso login`) or `aws login` to an IAM user's access keys. AWS says "Where possible, we recommend relying on temporary credentials instead of creating long-term credentials such as access keys" ([Security best practices in IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)). In CI, have the job assume a role through OIDC, for example with `aws-actions/configure-aws-credentials` and its `role-to-assume` input.
+Prefer a role, IAM Identity Center (`aws sso login`) or `aws login` ([AWS CLI 2.32.0 or later](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html)) to an IAM user's access keys. AWS says "Where possible, we recommend relying on temporary credentials instead of creating long-term credentials such as access keys" ([Security best practices in IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)). In CI, have the job assume a role through OIDC, for example with `aws-actions/configure-aws-credentials` and its `role-to-assume` input.
 
 The policy's two KMS permissions, `kms:GetPublicKey` and `kms:Sign`, have not yet been checked alone against real AWS KMS: the plugin's live tests ran with an administrator identity.
 
