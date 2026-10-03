@@ -1,0 +1,45 @@
+lockfileVersion: "9.0"
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+  packages/hardhat-kms-gcp:
+    dependencies:
+      google-auth-library:
+        specifier: ^11.1.0
+        version: 11.1.0
+    devDependencies:
+      old-tool:
+        specifier: ^1.0.0
+        version: 1.0.0
+
+packages:
+  "@scope/old-sdk@2.0.0":
+    resolution: { integrity: sha512-AAAA }
+    deprecated: "Use @scope/new-sdk instead, it's maintained"
+
+  fetch-blob@3.2.0:
+    resolution: { integrity: sha512-BBBB }
+    engines: { node: ^12.20 || >= 14.13 }
+
+  google-auth-library@11.1.0:
+    resolution: { integrity: sha512-CCCC }
+
+  node-domexception@1.0.0:
+    resolution: { integrity: sha512-DDDD }
+    engines: { node: ">=10.5.0" }
+    deprecated: Use your platform's native DOMException instead
+
+  old-tool@1.0.0:
+    resolution: { integrity: sha512-EEEE }
+    deprecated: "No longer maintained: use new-tool"
+
+snapshots:
+  fetch-blob@3.2.0:
+    dependencies:
+      node-domexception: 1.0.0
+
+  node-domexception@1.0.0:
+    deprecated: not a package entry

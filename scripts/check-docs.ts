@@ -1,6 +1,7 @@
 // Keeps the docs in step with the code:
 // - every TypeScript snippet in the READMEs and docs/ typechecks against the built package, the way
-//   a user's project imports it (run `pnpm run build` first; `pnpm run docs:check` does);
+//   a user's project imports it (run `pnpm run build` first; `pnpm run docs:check` does), and calls
+//   no API marked `@deprecated` (scripts/doc-snippets.ts);
 // - every page under docs/ is linked from AGENTS.md and docs/README.md, and every decision record
 //   from the decision index, with the exceptions listed in checkIndexes;
 // - docs/user/reference/errors.md matches the error catalogues (scripts/generate-errors-doc.ts);
@@ -15,13 +16,13 @@
 // `<!-- docs-check: skip -->` on its own line.
 //
 // Usage: node scripts/check-docs.ts
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parseSync } from "oxc-parser";
 
+import { checkSnippets } from "./doc-snippets.ts";
 import { API_DOCS_COMMAND, API_DOCS_DIR, diffApiDocs, renderApiDocs } from "./generate-api-docs.ts";
 import {
   CATALOGUED_DIRECTORIES,
@@ -30,10 +31,9 @@ import {
   loadCatalogues,
   renderErrorsDoc,
 } from "./generate-errors-doc.ts";
-import { SKIP_MARKER, userPageProblems } from "./user-pages.ts";
+import { userPageProblems } from "./user-pages.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const TYPESCRIPT_LANGUAGES = new Set(["ts", "typescript", "tsx", "mts", "cts"]);
 
 function markdownFiles(directory: string): string[] {
   return readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap((entry) => {
@@ -43,127 +43,6 @@ function markdownFiles(directory: string): string[] {
     }
     return entry.name.endsWith(".md") ? [relative] : [];
   });
-}
-
-/** A fenced code block at the top level of a Markdown file. */
-interface Fence {
-  language: string;
-  /** 1-based line of the opening fence. */
-  line: number;
-  code: string;
-  skipped: boolean;
-}
-
-/**
- * Parses the top-level fenced code blocks of a Markdown file (CommonMark fences: three or more
- * backticks or tildes, indented by at most three spaces). Fences inside another fence, such as a
- * Markdown example that shows a TypeScript block, are part of the outer block's content.
- */
-function fences(file: string): Fence[] {
-  const lines = readFileSync(path.join(root, file), "utf8").split(/\r?\n/);
-  const found: Fence[] = [];
-  for (let index = 0; index < lines.length; index++) {
-    const open = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)/.exec(lines[index] ?? "");
-    if (open === null) {
-      continue;
-    }
-    const [, marker = "```", language = ""] = open;
-    const closing = new RegExp(`^ {0,3}${marker[0] === "`" ? "`" : "~"}{${marker.length},}\\s*$`);
-    const end = lines.findIndex((line, at) => at > index && closing.test(line));
-    if (end === -1) {
-      throw new Error(`${file}:${index + 1}: unterminated code block`);
-    }
-    const previous = lines.slice(0, index).findLast((line) => line.trim() !== "");
-    found.push({
-      language: language.toLowerCase(),
-      line: index + 1,
-      code: lines.slice(index + 1, end).join("\n"),
-      skipped: previous?.trim() === SKIP_MARKER,
-    });
-    index = end;
-  }
-  return found;
-}
-
-/** Compiler options for snippets: strict, as many users' projects are. */
-const SNIPPET_COMPILER_OPTIONS = {
-  target: "ES2023",
-  module: "nodenext",
-  moduleResolution: "nodenext",
-  strict: true,
-  exactOptionalPropertyTypes: true,
-  noEmit: true,
-  skipLibCheck: true,
-  types: ["node"],
-};
-
-/**
- * Typechecks one snippet as its own program, so type extensions declared in one snippet cannot
- * make another pass. The snippet sits inside the package, so `hardhat-kms` resolves through the
- * package's own `exports` to the built types, as it does for users.
- */
-function checkSnippet(directory: string, source: string, code: string): string[] {
-  mkdirSync(directory, { recursive: true });
-  // `export {}` makes the snippet a module even when it has no imports.
-  writeFileSync(path.join(directory, "snippet.ts"), `${code}\nexport {};\n`);
-  writeFileSync(
-    path.join(directory, "tsconfig.json"),
-    JSON.stringify({ compilerOptions: SNIPPET_COMPILER_OPTIONS, include: ["snippet.ts"] }),
-  );
-  const result = spawnSync(
-    process.execPath,
-    [path.join(root, "node_modules/typescript/bin/tsc"), "-p", directory, "--pretty", "false"],
-    { cwd: root, encoding: "utf8" },
-  );
-  if (result.status === 0) {
-    return [];
-  }
-  const [file = source, start = "0"] = source.split(":");
-  const errors: string[] = [];
-  for (const line of result.stdout.split(/\r?\n/)) {
-    const match = /snippet\.ts\((\d+),\d+\): (error TS\d+: .*)$/.exec(line);
-    if (match !== null) {
-      // Line 1 of the snippet is the line after the opening fence.
-      errors.push(`${file}:${Number(start) + Number(match[1])}: ${match[2] ?? ""}`);
-    } else if (/^\s+\S/.test(line) && errors.length > 0) {
-      errors.push(line); // tsc's follow-up explanation of the previous error.
-    }
-  }
-  // A crash, a missing compiler or an error outside the snippet: report tsc's own output.
-  return errors.length > 0
-    ? errors
-    : [
-        `${source}: tsc failed (exit ${String(result.status)}): ${`${result.stdout}${result.stderr}`.trim()}`,
-      ];
-}
-
-function checkSnippets(files: string[]): string[] {
-  const directory = path.join(root, ".docs-check");
-  rmSync(directory, { recursive: true, force: true });
-  try {
-    const problems: string[] = [];
-    let count = 0;
-    for (const file of files) {
-      for (const fence of fences(file)) {
-        if (!TYPESCRIPT_LANGUAGES.has(fence.language) || fence.skipped) {
-          continue;
-        }
-        count++;
-        problems.push(
-          ...checkSnippet(
-            path.join(directory, `snippet-${count}`),
-            `${file}:${fence.line}`,
-            fence.code,
-          ),
-        );
-      }
-    }
-    return problems;
-  } catch (error) {
-    return [error instanceof Error ? error.message : String(error)];
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
 }
 
 /**
@@ -494,5 +373,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 process.stdout.write(
-  `docs check passed: ${pages.length} pages indexed, snippets typecheck, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes\n`,
+  `docs check passed: ${pages.length} pages indexed, snippets typecheck and call no deprecated API, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes\n`,
 );
