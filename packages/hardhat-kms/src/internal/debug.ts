@@ -1,7 +1,13 @@
 import { createDebug } from "@nomicfoundation/hardhat-utils/debug";
 
+import { ERRORS } from "./error-catalog.ts";
+import { internalError } from "./errors.ts";
+
+/** A namespace: lowercase letters, digits and `-`, starting with a letter, such as `signer`. */
+const NAMESPACE = /^[a-z][a-z0-9-]*$/;
+
 /** A value a debug line may contain. Objects and errors are refused: they print whole. */
-type DebugValue = string | number | bigint | boolean | undefined;
+export type DebugValue = string | number | bigint | boolean | undefined;
 
 /** A logger that only accepts plain values; see {@link kmsDebug}. */
 export interface KmsDebugLogger {
@@ -42,12 +48,20 @@ function printable(value: unknown): DebugValue {
  * Log only what is safe to print: display ids, addresses, digests, provider ids, operation names,
  * the plugin's own request ids, timings, error class names and SDK package details. Never log
  * configuration variable values, credentials, a provider's request details or its error text.
- * The logger accepts plain values only, and replaces any object or error it is given.
+ * The logger accepts plain values only, and replaces any object or error it is given. A string is
+ * printed as given, with only its control characters escaped, so never pass a variable's value or
+ * a secret. Write the format as a string literal and pass every value through a `%s` or `%d`
+ * placeholder: text built into the format is neither type-checked nor escaped.
  *
- * @param namespace - The sub-namespace, such as `signer`.
+ * @param namespace - The sub-namespace: lowercase letters, digits and `-`, starting with a
+ *   letter, such as `signer`.
  * @returns The logger.
+ * @throws An `Error` (`core.internal.debug-namespace`) for any other namespace.
  */
 export function kmsDebug(namespace: string): KmsDebugLogger {
+  if (!NAMESPACE.test(namespace)) {
+    throw internalError(ERRORS.debugNamespace, {});
+  }
   const log = createDebug(`hardhat:kms:${namespace}`);
   const safe = (format: string, ...values: DebugValue[]): void => {
     if (log.enabled) {

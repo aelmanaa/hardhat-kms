@@ -9,7 +9,7 @@ import { createAzureCredential } from "../../src/internal/credential.ts";
 const started = Date.now();
 let outcome = "token";
 try {
-  await createAzureCredential(identity, undefined).getToken("https://vault.azure.net/.default");
+  await createAzureCredential(identity, {}).getToken("https://vault.azure.net/.default");
 } catch (error) {
   outcome = error instanceof Error ? error.name : typeof error;
 }

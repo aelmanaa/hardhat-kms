@@ -179,6 +179,33 @@ The message, with `{name}` placeholders.
 
 ---
 
+### KmsDebugLogger()
+
+A logger that only accepts plain values; see [kmsDebug](#kmsdebug).
+
+> **KmsDebugLogger**(`format`: `string`, ...`values`: [`DebugValue`](#debugvalue)[]): `void`
+
+A logger that only accepts plain values; see [kmsDebug](#kmsdebug).
+
+#### Parameters
+
+| Parameter   | Type                          |
+| ----------- | ----------------------------- |
+| `format`    | `string`                      |
+| ...`values` | [`DebugValue`](#debugvalue)[] |
+
+#### Returns
+
+`void`
+
+#### Properties
+
+##### enabled
+
+> `readonly` **enabled**: `boolean`
+
+---
+
 ### ParsedAwsKeyId
 
 A parsed AWS KMS key reference.
@@ -218,6 +245,14 @@ A parsed Azure key identifier.
 `https://<host>`, without a trailing slash.
 
 ## Type Aliases
+
+### DebugValue
+
+> **DebugValue** = `string` \| `number` \| `bigint` \| `boolean` \| `undefined`
+
+A value a debug line may contain. Objects and errors are refused: they print whole.
+
+---
 
 ### ErrorKind
 
@@ -449,6 +484,40 @@ For hardhat-kms and its first-party provider packages; a third-party provider us
 `Error`
 
 The error to throw.
+
+---
+
+### kmsDebug()
+
+> **kmsDebug**(`namespace`: `string`): [`KmsDebugLogger`](#kmsdebuglogger)
+
+Creates a logger under the plugin's `hardhat:kms:*` debug namespace. It writes to standard error
+when `DEBUG` matches, for example `DEBUG=hardhat:kms:*`, and `DEBUG` is read when the logger is
+created.
+
+Log only what is safe to print: display ids, addresses, digests, provider ids, operation names,
+the plugin's own request ids, timings, error class names and SDK package details. Never log
+configuration variable values, credentials, a provider's request details or its error text.
+The logger accepts plain values only, and replaces any object or error it is given. A string is
+printed as given, with only its control characters escaped, so never pass a variable's value or
+a secret. Write the format as a string literal and pass every value through a `%s` or `%d`
+placeholder: text built into the format is neither type-checked nor escaped.
+
+#### Parameters
+
+| Parameter   | Type     | Description                                                                                     |
+| ----------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `namespace` | `string` | The sub-namespace: lowercase letters, digits and `-`, starting with a letter, such as `signer`. |
+
+#### Returns
+
+[`KmsDebugLogger`](#kmsdebuglogger)
+
+The logger.
+
+#### Throws
+
+An `Error` (`core.internal.debug-namespace`) for any other namespace.
 
 ---
 

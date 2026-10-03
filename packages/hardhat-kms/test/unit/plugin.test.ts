@@ -33,6 +33,7 @@ describe("plugin definition", () => {
       "checkProviderVersion",
       "crc32c",
       "internalError",
+      "kmsDebug",
       "kmsError",
       "parseAwsKeyId",
       "parseAzureKeyId",

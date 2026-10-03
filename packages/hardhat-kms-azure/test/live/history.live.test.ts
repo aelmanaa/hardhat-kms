@@ -99,7 +99,7 @@ async function signThroughPlugin(): Promise<void> {
  * of the sign call: the server's `x-ms-request-id` and the client's `x-ms-client-request-id`.
  */
 async function signWithSdk(): Promise<{ server: string; client: string }> {
-  const client = new CryptographyClient(keyId, createAzureCredential(identity, undefined), {
+  const client = new CryptographyClient(keyId, createAzureCredential(identity, process.env), {
     userAgentOptions: { userAgentPrefix: "hardhat-kms-live-history-sdk" },
   });
   let ids: { server: string; client: string } | undefined;

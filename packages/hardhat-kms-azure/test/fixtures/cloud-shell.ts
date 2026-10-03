@@ -12,5 +12,5 @@ try {
 } catch (error) {
   direct = error instanceof Error ? error.name : typeof error;
 }
-createAzureCredential(identity, "client");
+createAzureCredential(identity, { AZURE_CLIENT_ID: "client" });
 process.stdout.write(`direct: ${direct}; chain: built\n`);

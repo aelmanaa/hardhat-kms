@@ -1937,6 +1937,16 @@ export const ERRORS = {
   },
 
   // Internal: only a bug or a broken install reaches these. They are plain `Error`s.
+  debugNamespace: {
+    id: "core.internal.debug-namespace",
+    kind: "internal",
+    group: "Internal",
+    template:
+      "a debug namespace may hold only lowercase letters, digits and -, and must start with a letter",
+    cause:
+      "`kmsDebug` was called with a namespace that is empty or holds another character, such as `*`, `,` or `:`, which would change which `DEBUG` patterns match it. Its callers pass fixed names, so this is a bug in the plugin or the provider that called it.",
+    fix: "Open an issue at https://github.com/aelmanaa/hardhat-kms/issues with the message and the stack trace, or, in your own provider plugin, pass a name such as `my-provider`.",
+  },
   identifierPartMissing: {
     id: "core.internal.identifier-part",
     kind: "internal",
