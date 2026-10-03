@@ -115,7 +115,7 @@ With the pin set to the first address, the same command fails, and so does any s
 
 ```text
 $ npx hardhat kms address deployer
-Error in community plugin hardhat-kms: aws, check address, key aws:alias/hardhat-kms-rotation-demo: the key derives to 0xddA8d8e1b90f18E39985E8d4Fb67F75C20b3A34C, but the configured address is 0x94640fE13D4C4e16CbeD96Ec794788893A4d64cD. If the key was rotated or an alias now points to another key, update the configuration.
+Error in community plugin hardhat-kms: aws, check address, key aws:alias/hardhat-kms-rotation-demo: the key derives to 0xddA8d8e1b90f18E39985E8d4Fb67F75C20b3A34C, but the configured address is 0x94640fE13D4C4e16CbeD96Ec794788893A4d64cD, so nothing was signed. The key id may now name the wrong key or a substituted one, or the pin may be wrong. Do not change the pin to match until you know why the key changed; see When the pin fails in the key rotation guide, which also covers a deliberate move to a new key.
 ```
 
 `kms accounts` shows the key as `FAILED`, prints the same error under it, and exits with code 1:
@@ -123,7 +123,7 @@ Error in community plugin hardhat-kms: aws, check address, key aws:alias/hardhat
 ```text
 NAME      PROVIDER  SOURCE    ADDRESS  PIN  KEY ID
 deployer  aws       kms.keys  FAILED   -    aws:alias/hardhat-kms-rotation-demo
-  error: aws, check address, key aws:alias/hardhat-kms-rotation-demo: the key derives to 0xddA8d8e1b90f18E39985E8d4Fb67F75C20b3A34C, but the configured address is 0x94640fE13D4C4e16CbeD96Ec794788893A4d64cD. If the key was rotated or an alias now points to another key, update the configuration.
+  error: aws, check address, key aws:alias/hardhat-kms-rotation-demo: the key derives to 0xddA8d8e1b90f18E39985E8d4Fb67F75C20b3A34C, but the configured address is 0x94640fE13D4C4e16CbeD96Ec794788893A4d64cD, so nothing was signed. The key id may now name the wrong key or a substituted one, or the pin may be wrong. Do not change the pin to match until you know why the key changed; see When the pin fails in the key rotation guide, which also covers a deliberate move to a new key.
 ```
 
 ### Azure: a key rotated under an unversioned id
@@ -142,7 +142,7 @@ With the pin set to the first address, the command fails with both addresses:
 
 ```text
 $ npx hardhat kms address deployer
-Error in community plugin hardhat-kms: azure, check address, key azure:<AZURE_KEY_ID>: the key derives to 0x59Cb7e031E40fBF39f687c8ed628a512b27B58CC, but the configured address is 0x85cF964F950127F59021A03fac285235B49E324e. If the key was rotated or an alias now points to another key, update the configuration.
+Error in community plugin hardhat-kms: azure, check address, key azure:<AZURE_KEY_ID>: the key derives to 0x59Cb7e031E40fBF39f687c8ed628a512b27B58CC, but the configured address is 0x85cF964F950127F59021A03fac285235B49E324e, so nothing was signed. The key id may now name the wrong key or a substituted one, or the pin may be wrong. Do not change the pin to match until you know why the key changed; see When the pin fails in the key rotation guide, which also covers a deliberate move to a new key.
 ```
 
 The id of the first version, with the same pin, still shows `matches` after the rotation: a versioned id never follows a rotation.

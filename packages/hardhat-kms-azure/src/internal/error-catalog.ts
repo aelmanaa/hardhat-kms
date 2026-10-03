@@ -77,10 +77,10 @@ export const ERRORS = {
     kind: "error",
     group: "Key Vault answers",
     template:
-      "Key Vault answered {status}: the identity may not use this key. It needs the keys/get and keys/sign permissions: the Key Vault Crypto User role on an RBAC vault, or the Get and Sign key permissions in an access policy. A disabled key or a firewall rule also gives 403",
+      "Key Vault answered {status}: the identity may not use this key. It needs to read the key and sign with it: on an RBAC vault, a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User; in an access policy, the `get` and `sign` key permissions. See step 2 of the Azure setup guide. A disabled key or a firewall rule also gives 403",
     cause:
-      "The identity lacks `get` or `sign` on the key, the role assignment has not taken effect yet (it can take a few minutes), the key is disabled, or the vault firewall blocks the network.",
-    fix: "Grant the role or the access policy the message names, wait a few minutes, and check the key and the vault's network rules.",
+      "The identity may not read the key or sign with it, the role assignment has not taken effect yet (it can take a few minutes), the key is disabled, or the vault firewall blocks the network.",
+    fix: "Grant read and sign on the key, as step 2 of the Azure setup guide shows: on an RBAC vault, a custom role with the data actions `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action`, assigned on the key, or the built-in Key Vault Crypto User role, which also holds actions the plugin does not use; in an access policy, the `get` and `sign` key permissions; on a Managed HSM, a local role with `Microsoft.KeyVault/managedHsm/keys/read/action` and `Microsoft.KeyVault/managedHsm/keys/sign/action`. Then wait a few minutes, and check that the key is enabled and the vault's network rules.",
   },
   notFound: {
     id: "azure.service.404",
@@ -163,9 +163,9 @@ export const ERRORS = {
     kind: "error",
     group: "Keys",
     template:
-      "the key version is disabled. Enable it with `az keyvault key set-attributes --enabled true`",
+      "the key version is disabled. Enable it with `az keyvault key set-attributes {vaultOption} {vaultName} --name {keyName} --version {keyVersion} --enabled true`",
     cause: "The key version is disabled.",
-    fix: "Enable it with `az keyvault key set-attributes` and `--enabled true`, giving the vault, the key and the version.",
+    fix: "Run the command the message gives. It names the vault (`--vault-name`, or `--hsm-name` for a Managed HSM), the key and the version, because without `--version` the command changes the latest version, which may not be the one the config signs with. A part of the key id that comes from a configuration variable is shown as `<vault-name>`, `<key-name>` or `<version>`; fill it in from that variable.",
   },
   notYetValid: {
     id: "azure.key.not-yet-valid",
@@ -173,7 +173,7 @@ export const ERRORS = {
     group: "Keys",
     template: "the key version is not valid before {date}",
     cause: "The key's activation date is in the future.",
-    fix: "Change it with `az keyvault key set-attributes --not-before`, or use another version.",
+    fix: "Change it with `az keyvault key set-attributes --vault-name <vault-name> --name <key-name> --version <version> --not-before <date>`, or use another version. Without `--version` the command changes the latest version.",
   },
   expired: {
     id: "azure.key.expired",
@@ -182,16 +182,16 @@ export const ERRORS = {
     template: "the key version expired at {date}",
     cause:
       "The key's expiry date has passed. The plugin checks it when it reads the key and again before each signature.",
-    fix: "Change it with `az keyvault key set-attributes --expires`, or use another version.",
+    fix: "Change it with `az keyvault key set-attributes --vault-name <vault-name> --name <key-name> --version <version> --expires <date>`, or use another version. Without `--version` the command changes the latest version.",
   },
   noSignOperation: {
     id: "azure.key.no-sign-operation",
     kind: "error",
     group: "Keys",
     template:
-      "the key's permitted operations do not include sign. Set them with `az keyvault key set-attributes --ops sign verify`",
+      "the key's permitted operations do not include sign. Set them with `az keyvault key set-attributes {vaultOption} {vaultName} --name {keyName} --version {keyVersion} --ops sign verify`",
     cause: "The key was created without `sign` in `--ops`.",
-    fix: "Add it with `az keyvault key set-attributes --ops sign verify`.",
+    fix: "Run the command the message gives. It names the vault (`--vault-name`, or `--hsm-name` for a Managed HSM), the key and the version, because without `--version` the command changes the latest version. A part of the key id that comes from a configuration variable is shown as `<vault-name>`, `<key-name>` or `<version>`; fill it in from that variable.",
   },
   lookupUnfinished: {
     id: "azure.sign.lookup-unfinished",

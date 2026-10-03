@@ -207,7 +207,7 @@ describe("kms tasks", () => {
 
       await assertKmsError(run(hre, "address", "deployer"), [
         `the key derives to ${HARDHAT_ACCOUNT_0.address}, but the configured address is ${COW_ACCOUNT.address}`,
-        "rotated",
+        "Do not change the pin to match until you know why the key changed",
       ]);
       assert.equal(created[0]?.closed, 1);
     });

@@ -60,6 +60,28 @@ async function assertAzureError(promise: Promise<unknown>, includes: string[]): 
 
 const digest = new Uint8Array(32).fill(9);
 
+/** The message of the error the adapter throws when it reads a key with these attributes. */
+async function hintFor(
+  keyId: string,
+  display: string,
+  options: Partial<FakeKeyVaultOptions>,
+): Promise<string> {
+  const fake = fakeKeyVaultSdk({ secretKey, ...options });
+  const adapter = await createAzureKeyAdapter(
+    azureKey(keyId, display),
+    fake.sdk,
+    credential,
+    USER_AGENT,
+  );
+  let message = "";
+  await assert.rejects(adapter.getPublicKey?.(context()) ?? Promise.resolve(), (error) => {
+    assert.ok(error instanceof HardhatPluginError, String(error));
+    message = error.message;
+    return true;
+  });
+  return message;
+}
+
 describe("Azure Key Vault adapter", () => {
   it("returns the key's public key and Key Vault's r || s signature of the digest, unchanged", async () => {
     for (const highS of [false, true]) {
@@ -197,7 +219,11 @@ describe("Azure Key Vault adapter", () => {
       ],
       ["no curve", { crv: undefined }, "the key curve is missing"],
       ["no public key", { omitJwk: true }, "the response has no public key"],
-      ["a disabled key", { enabled: false }, "the key version is disabled"],
+      [
+        "a disabled key",
+        { enabled: false },
+        `the key version is disabled. Enable it with \`az keyvault key set-attributes --vault-name test-vault --name ${KEY_NAME} --version ${KEY_VERSION} --enabled true\``,
+      ],
       [
         "a key that is not valid yet",
         { notBefore: new Date(Date.now() + 86_400_000) },
@@ -207,7 +233,7 @@ describe("Azure Key Vault adapter", () => {
       [
         "a key that may not sign",
         { keyOperations: ["verify"] },
-        "the key's permitted operations do not include sign",
+        `the key's permitted operations do not include sign. Set them with \`az keyvault key set-attributes --vault-name test-vault --name ${KEY_NAME} --version ${KEY_VERSION} --ops sign verify\``,
       ],
       ["no key id", { keyId: undefined }, "the response has no versioned key id"],
       ["an unversioned key id", { keyId: KEY_URL }, "the response has no versioned key id"],
@@ -332,6 +358,104 @@ describe("Azure Key Vault adapter", () => {
     assert.ok(calls.every((call) => call.method === "getKey"));
   });
 
+  describe("names the vault, key and version in its set-attributes hints", () => {
+    const hsmKeyUrl = `https://test-hsm.managedhsm.azure.net/keys/${KEY_NAME}/${KEY_VERSION}`;
+
+    const disabled = { enabled: false };
+    const cannotSign = { keyOperations: ["verify"] };
+
+    it("for a disabled version of a literal versioned key id", async () => {
+      assert.equal(
+        await hintFor(VERSIONED_KEY_URL, VERSIONED_KEY_URL, disabled),
+        `azure, get public key, key azure:${VERSIONED_KEY_URL}: the key version is disabled. Enable it with \`az keyvault key set-attributes --vault-name test-vault --name ${KEY_NAME} --version ${KEY_VERSION} --enabled true\``,
+      );
+    });
+
+    it("for a key that may not sign", async () => {
+      assert.equal(
+        await hintFor(VERSIONED_KEY_URL, VERSIONED_KEY_URL, cannotSign),
+        `azure, get public key, key azure:${VERSIONED_KEY_URL}: the key's permitted operations do not include sign. Set them with \`az keyvault key set-attributes --vault-name test-vault --name ${KEY_NAME} --version ${KEY_VERSION} --ops sign verify\``,
+      );
+    });
+
+    it("with the version Key Vault returned for an unversioned key id", async () => {
+      const current = "fedcba9876543210fedcba9876543210";
+      const message = await hintFor(KEY_URL, KEY_URL, { ...disabled, currentVersion: current });
+      assert.ok(
+        message.endsWith(
+          `\`az keyvault key set-attributes --vault-name test-vault --name ${KEY_NAME} --version ${current} --enabled true\``,
+        ),
+        message,
+      );
+    });
+
+    it("with --hsm-name for a Managed HSM key", async () => {
+      const message = await hintFor(hsmKeyUrl, hsmKeyUrl, cannotSign);
+      assert.ok(
+        message.includes(
+          `\`az keyvault key set-attributes --hsm-name test-hsm --name ${KEY_NAME} --version ${KEY_VERSION} --ops sign verify\``,
+        ),
+        message,
+      );
+    });
+
+    const hidden: Array<[string, string, string, string, string[]]> = [
+      [
+        "a key id from a configuration variable",
+        VERSIONED_KEY_URL,
+        "<AZURE_KEY_ID>",
+        "--vault-name <vault-name> --name <key-name> --version <version>",
+        ["test-vault", KEY_NAME, KEY_VERSION],
+      ],
+      [
+        "an unversioned key id from a configuration variable",
+        KEY_URL,
+        "<AZURE_KEY_ID>",
+        "--vault-name <vault-name> --name <key-name> --version <version>",
+        ["test-vault", KEY_NAME, KEY_VERSION],
+      ],
+      [
+        "a Managed HSM key id from a configuration variable",
+        hsmKeyUrl,
+        "<AZURE_KEY_ID>",
+        "--hsm-name <hsm-name> --name <key-name> --version <version>",
+        ["test-hsm", KEY_NAME, KEY_VERSION],
+      ],
+      [
+        "a vault URL from a configuration variable",
+        KEY_URL,
+        `<AZURE_VAULT_URL>/keys/${KEY_NAME}`,
+        `--vault-name <vault-name> --name ${KEY_NAME} --version ${KEY_VERSION}`,
+        ["test-vault"],
+      ],
+      [
+        "a key name from a configuration variable",
+        VERSIONED_KEY_URL,
+        `${VAULT_URL}/keys/<AZURE_KEY_NAME>/${KEY_VERSION}`,
+        `--vault-name test-vault --name <key-name> --version ${KEY_VERSION}`,
+        [`--name ${KEY_NAME}`],
+      ],
+      [
+        "a key version from a configuration variable",
+        VERSIONED_KEY_URL,
+        `${KEY_URL}/<AZURE_KEY_VERSION>`,
+        `--vault-name test-vault --name ${KEY_NAME} --version <version>`,
+        [KEY_VERSION],
+      ],
+    ];
+    for (const [name, keyId, display, target, absent] of hidden) {
+      it(`with placeholders for ${name}`, async () => {
+        for (const options of [disabled, cannotSign]) {
+          const message = await hintFor(keyId, display, options);
+          assert.ok(message.includes(`set-attributes ${target} --`), message);
+          for (const value of absent) {
+            assert.ok(!message.includes(value), `"${message}" should not include "${value}"`);
+          }
+        }
+      });
+    }
+  });
+
   it("passes a signature of the wrong length on unchanged, for the core to reject", async () => {
     const { adapter } = await adapterFor(VERSIONED_KEY_URL, { signatureLength: 63 });
     const signature = await adapter.signDigest?.({ digest }, context());
@@ -344,7 +468,7 @@ describe("Azure Key Vault adapter", () => {
       [
         "403",
         restError(403, "Forbidden"),
-        "Key Vault answered 403 Forbidden: the identity may not use this key. It needs the keys/get and keys/sign permissions: the Key Vault Crypto User role",
+        "Key Vault answered 403 Forbidden: the identity may not use this key. It needs to read the key and sign with it: on an RBAC vault, a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User; in an access policy, the `get` and `sign` key permissions. See step 2 of the Azure setup guide. A disabled key or a firewall rule also gives 403",
       ],
       [
         "404",

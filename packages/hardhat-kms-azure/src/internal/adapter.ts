@@ -99,6 +99,48 @@ function shown(value: unknown): string {
 
 const sameId = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
+const KEYS_PATH = "/keys/";
+
+/** Whether a part of a key id's display form was printed as written, not as `<VARIABLE_NAME>`. */
+const shownAsWritten = (part: string | undefined): boolean =>
+  part !== undefined && !part.startsWith("<");
+
+/**
+ * The `az keyvault key set-attributes` arguments that name one key version, for the hints of the
+ * key checks. Without `--version` the command changes the latest version, which may not be the
+ * one the config signs with. A part read from a configuration variable is shown as a placeholder:
+ * its display form is `<VARIABLE_NAME>`, and a key id read whole from one has no `/keys/` in it.
+ */
+function setAttributesTarget(
+  id: ParsedAzureKeyId,
+  display: string,
+  version: string,
+): { vaultOption: string; vaultName: string; keyName: string; keyVersion: string } {
+  const host = new URL(id.vaultUrl).hostname;
+  const hsm = host.toLowerCase().includes(".managedhsm.");
+  const at = display.indexOf(KEYS_PATH);
+  if (at === -1) {
+    return {
+      vaultOption: hsm ? "--hsm-name" : "--vault-name",
+      vaultName: hsm ? "<hsm-name>" : "<vault-name>",
+      keyName: "<key-name>",
+      keyVersion: "<version>",
+    };
+  }
+  const [nameShown, versionShown] = display.slice(at + KEYS_PATH.length).split("/");
+  return {
+    vaultOption: hsm ? "--hsm-name" : "--vault-name",
+    vaultName: shownAsWritten(display.slice(0, at))
+      ? host.slice(0, host.indexOf("."))
+      : hsm
+        ? "<hsm-name>"
+        : "<vault-name>",
+    keyName: shownAsWritten(nameShown) ? id.keyName : "<key-name>",
+    // An unversioned key id shows the version Key Vault returned, which the adapter pins.
+    keyVersion: versionShown === undefined || shownAsWritten(versionShown) ? version : "<version>",
+  };
+}
+
 /**
  * The Azure Key Vault (and Managed HSM) adapter for one key.
  *
@@ -152,7 +194,7 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     if (wanted !== undefined && !sameId(version, wanted)) {
       throw this.#error("get public key", ERRORS.responseVersion, {});
     }
-    this.#checkUsable(response, "get public key");
+    this.#checkUsable(response, "get public key", version);
     const jwk = response.key;
     if (jwk === undefined) {
       throw this.#error("get public key", ERRORS.noPublicKey, {});
@@ -192,7 +234,7 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     // The SDK checks the dates of the key it was given too, but fails with a message that names
     // the key URL, which the signer can only show as "Error". A key that expired since it was
     // pinned gets the same clear error as at the lookup.
-    this.#checkUsable(pinned.key, "sign");
+    this.#checkUsable(pinned.key, "sign", pinned.version);
     let kid: unknown;
     const response = await this.#send(
       "sign",
@@ -234,11 +276,11 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
   }
 
   /** Checks the key's attributes, as Key Vault would before signing, to fail with a clear error. */
-  #checkUsable(response: KeyVaultKeyLike, operation: string): void {
+  #checkUsable(response: KeyVaultKeyLike, operation: string, version: string): void {
     const { enabled, notBefore, expiresOn } = response.properties;
     const now = Date.now();
     if (enabled === false) {
-      throw this.#error(operation, ERRORS.disabled, {});
+      throw this.#error(operation, ERRORS.disabled, this.#target(version));
     }
     if (notBefore instanceof Date && notBefore.getTime() > now) {
       throw this.#error(operation, ERRORS.notYetValid, { date: notBefore.toISOString() });
@@ -248,8 +290,12 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     }
     const operations: unknown = response.keyOperations;
     if (Array.isArray(operations) && !operations.includes(SIGN_OPERATION)) {
-      throw this.#error(operation, ERRORS.noSignOperation, {});
+      throw this.#error(operation, ERRORS.noSignOperation, this.#target(version));
     }
+  }
+
+  #target(version: string): ReturnType<typeof setAttributesTarget> {
+    return setAttributesTarget(this.#id, this.#key.keyId.display, version);
   }
 
   /**

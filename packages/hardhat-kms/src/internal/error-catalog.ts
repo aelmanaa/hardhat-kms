@@ -616,10 +616,10 @@ export const ERRORS = {
     kind: "error",
     group: "Signing",
     template:
-      "the key derives to {address}, but the configured address is {expected}. If the key was rotated or an alias now points to another key, update the configuration.",
+      "the key derives to {address}, but the configured address is {expected}, so nothing was signed. The key id may now name the wrong key or a substituted one, or the pin may be wrong. Do not change the pin to match until you know why the key changed; see When the pin fails in the key rotation guide, which also covers a deliberate move to a new key.",
     cause:
-      "The key's public key gives another address than its `address` pin: the key id, alias or version now names another key, or the pin is wrong. Nothing was signed.",
-    fix: "Check which key the config names. If the change is intended, update `address`; see the key rotation guide.",
+      "The key's public key gives another address than its `address` pin: the key id, alias or version now names another key, by mistake or by substitution, or the pin is wrong. Nothing was signed.",
+    fix: "Find out why the key changed before you touch the pin. If the change was a mistake, point the config back at the old key. If it was deliberate, point the old entry back at the old key and follow Move to a new key in the key rotation guide, which gives the new key its own entry and pin.",
   },
   signerDigestLength: {
     id: "core.signer.digest-length",
@@ -1644,7 +1644,7 @@ export const ERRORS = {
     template: "the sign check failed: {reason}",
     cause:
       "`kms accounts --check-sign` asked the key to sign a random EIP-191 message, and the KMS refused or the signature did not recover to the key's address. Reading a public key and signing need different permissions, so a key can pass the plain check and fail this one.",
-    fix: "Give the credentials the provider's sign permission: `kms:Sign` on AWS, `cloudkms.cryptoKeyVersions.useToSign` on Google Cloud, `Microsoft.KeyVault/vaults/keys/sign/action` (the Key Vault Crypto User role) or the `sign` key permission on Azure. The text after the colon says what failed.",
+    fix: "Give the credentials the provider's sign permission: `kms:Sign` on AWS, `cloudkms.cryptoKeyVersions.useToSign` on Google Cloud. On Azure, the identity needs read and sign on the key, as step 2 of the Azure setup guide shows: `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` in a custom role or the built-in Key Vault Crypto User role, the `get` and `sign` key permissions in an access policy, or `Microsoft.KeyVault/managedHsm/keys/read/action` and `Microsoft.KeyVault/managedHsm/keys/sign/action` on a Managed HSM. The text after the colon says what failed.",
   },
 
   // kms history: reading a key's sign events from its provider's audit log.
