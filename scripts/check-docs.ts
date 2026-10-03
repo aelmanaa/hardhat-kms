@@ -8,7 +8,7 @@
 //   (scripts/generate-api-docs.ts); its pages are skipped by the snippet typecheck;
 // - first-party source builds its errors only through the catalogue helpers (checkErrorSites);
 // - the user docs and the READMEs hold no milestone codes and no HTML comments other than the
-//   skip marker and the pre-release note (checkUserPages).
+//   skip marker and the pre-release note (scripts/user-pages.ts).
 // lychee checks the links themselves (see lychee.toml).
 //
 // A snippet that is not meant to compile, such as a sketch of a planned API, is preceded by
@@ -30,9 +30,9 @@ import {
   loadCatalogues,
   renderErrorsDoc,
 } from "./generate-errors-doc.ts";
+import { SKIP_MARKER, userPageProblems } from "./user-pages.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SKIP_MARKER = "<!-- docs-check: skip -->";
 const TYPESCRIPT_LANGUAGES = new Set(["ts", "typescript", "tsx", "mts", "cts"]);
 
 function markdownFiles(directory: string): string[] {
@@ -231,56 +231,11 @@ function packageReadmes(): string[] {
     .filter((file) => existsSync(path.join(root, file)));
 }
 
-/**
- * HTML comments that user pages may hold: the snippet skip marker, and the note at the top of the
- * pre-release install page that tells the release pull request what to delete with it.
- */
-function isAllowedComment(file: string, comment: string): boolean {
-  if (comment === SKIP_MARKER) {
-    return true;
-  }
-  return (
-    file === "docs/user/guides/install-before-release.md" &&
-    comment.startsWith("<!--\nPre-release only.")
-  );
-}
-
-/** Replaces each character but a newline with a space, so offsets and line numbers stay put. */
-function blank(text: string): string {
-  return text.replaceAll(/[^\n]/g, " ");
-}
-
-function lineOf(text: string, offset: number): number {
-  return text.slice(0, offset).split("\n").length;
-}
-
-/**
- * Checks the pages a user reads (docs/user and the READMEs, which npm shows) for maintainer
- * content: milestone codes such as `M5`, outside code, and HTML comments, which GitHub hides but a
- * raw view or a docs site can show.
- */
+/** Checks the pages a user reads for maintainer content; see `scripts/user-pages.ts`. */
 function checkUserPages(files: string[]): string[] {
-  const problems: string[] = [];
-  for (const file of files) {
-    const text = readFileSync(path.join(root, file), "utf8");
-    for (const match of text.matchAll(/<!--[\s\S]*?-->/g)) {
-      if (!isAllowedComment(file, match[0])) {
-        problems.push(
-          `${file}:${lineOf(text, match.index)}: HTML comment in a user page; move maintainer notes to docs/contributor/`,
-        );
-      }
-    }
-    const prose = text
-      .replaceAll(/<!--[\s\S]*?-->/g, blank)
-      .replaceAll(/^ {0,3}(`{3,}|~{3,})[\s\S]*?^ {0,3}\1\s*$/gm, blank)
-      .replaceAll(/`[^`\n]*`/g, blank);
-    for (const match of prose.matchAll(/\bM\d+\b/g)) {
-      problems.push(
-        `${file}:${lineOf(text, match.index)}: milestone code ${match[0]} in a user page; say what works instead`,
-      );
-    }
-  }
-  return problems;
+  return files.flatMap((file) =>
+    userPageProblems(file, readFileSync(path.join(root, file), "utf8")),
+  );
 }
 
 /** The `name` of every package under packages/, read from its package.json. */

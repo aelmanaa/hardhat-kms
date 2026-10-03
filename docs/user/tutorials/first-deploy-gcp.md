@@ -2,7 +2,7 @@
 
 Audience: developers who have a Google Cloud project and the gcloud CLI signed in, and have not used Cloud KMS with Hardhat.
 
-Status: followed from an empty directory on 2026-10-02, at commit [`ab3ee2a`](https://github.com/aelmanaa/hardhat-kms/commit/ab3ee2a), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 6 minutes, without the wait for Sepolia ETH. The run kept the 30-day default destroy schedule; the 24-hour schedule in step 2 ran on an HSM secp256k1 key in the [key-loss check](../guides/key-loss.md#google-cloud-kms) of 2026-10-01. The plugin is not on npm yet; step 4 says how to install it until then.
+This tutorial was followed from an empty directory on 2026-10-02, at commit [`ab3ee2a`](https://github.com/aelmanaa/hardhat-kms/commit/ab3ee2a), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 6 minutes, without the wait for Sepolia ETH. The run kept the 30-day default destroy schedule; the 24-hour schedule in step 2 ran on an HSM secp256k1 key in the [key-loss check](../guides/key-loss.md#google-cloud-kms) of 2026-10-01. The plugin is not on npm yet; step 4 says how to install it until then.
 
 In this tutorial you create a Hardhat project, create a signing key in Google Cloud KMS, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Cloud KMS: Hardhat asks Cloud KMS for a signature each time it sends a transaction.
 

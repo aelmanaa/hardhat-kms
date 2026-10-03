@@ -20,6 +20,8 @@ DEBUG=hardhat:kms:* npx hardhat run scripts/deploy.ts --network sepolia
 | `hardhat:kms:rpc`       | Each connection to a network with KMS keys, with the network name and the number of keys; the display ids of the keys once their addresses are resolved; an `eth_accounts` or `eth_requestAccounts` call that failed downstream, with the error's class name, after which only the KMS addresses are listed; a nonce given to a library account's send, which then holds the lock, or reserved for one with its own transport; a library account's `reset` that could not read the pending count, with the error's class name; and a raw transaction passed on without the lock, with the reason. |
 | `hardhat:kms:account`   | Each library account made with `connection.kms.getAccount`, with its address and network, and each transaction or authorization it signs, with its type and chain.                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
+`hardhat:kms:providers` and `hardhat:kms:signer` print nothing until a connection first uses a key, to look up its address or to sign.
+
 ## What the output contains
 
 The output is meant to be pasted into an issue. It contains display ids (`aws:<AWS_KMS_KEY_ID>`), addresses, provider ids, operation names, request ids, timings and error class names. Key and network names from your config are printed as written, with control characters escaped.

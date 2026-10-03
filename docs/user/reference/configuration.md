@@ -160,7 +160,7 @@ export default defineConfig({
 });
 ```
 
-In this order, hardhat-kms gives a raw `eth_sendTransaction` request without `from` its default sender ([RPC methods](rpc-methods.md#rpc-behaviour)) before hardhat-ledger checks it. In the other order, hardhat-ledger rejects every such request on a network with `ledgerAccounts`, as it does when loaded alone. hardhat-viem, hardhat-ethers and Ignition always set `from`, to the first address of `eth_accounts` unless you name another, so the order does not change their sender. The order also sets where the KMS and Ledger accounts appear in `eth_accounts`; see [Add local or Ledger accounts](../guides/multiple-keys.md#add-local-or-ledger-accounts).
+In this order, hardhat-kms gives a raw `eth_sendTransaction` request without `from` its default sender ([RPC methods](rpc-methods.md#rpc-behaviour)) before hardhat-ledger checks it. In the other order, hardhat-ledger rejects every such request on a network with `ledgerAccounts`, as it does when loaded alone. hardhat-viem, hardhat-ethers and Ignition always set `from`, to the first address of `eth_accounts` unless you name another, so the order does not change their sender. The order also sets `eth_accounts`: with hardhat-ledger first, the network's own accounts come first, then the Ledger addresses, then the KMS addresses. In the other order the KMS addresses come before the Ledger ones, and `eth_requestAccounts` leaves the Ledger addresses out. Code that picks an account by index, such as Ignition's `m.getAccount(index)`, sees the difference.
 
 ## Credentials
 

@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in Azure Key Vault or Azure Managed HSM, and who have the `az` CLI.
 
-With `@hardhat-kms/azure`, a connection lists the key's account and signs transactions, messages and typed data with it. The plugin's live tests on Sepolia ran against a real vault. `kms history` lists who signed with the key, when and from where, from the Key Vault audit log that a diagnostic setting sends to a Log Analytics workspace; see [Audit logs](#audit-logs).
+With `@hardhat-kms/azure`, a connection lists the key's account and signs transactions, messages and typed data with it. The plugin's live tests on Sepolia ran against a real vault, with the developer's own identity, not with the roles in [step 2](#2-allow-get-and-sign-and-nothing-else). `kms history` lists who signed with the key, when and from where, from the Key Vault audit log that a diagnostic setting sends to a Log Analytics workspace; see [Audit logs](#audit-logs).
 
 ## 1. Create a secp256k1 signing key
 
@@ -77,6 +77,8 @@ az role assignment create \
   --assignee <user, group, service principal or managed identity id> \
   --scope "$(az keyvault show --name my-vault --query id --output tsv)/keys/deployer"
 ```
+
+This role has not yet been checked against real Key Vault: the plugin's live tests ran with the developer's own identity.
 
 If you cannot create a custom role, the built-in role with the fewest permissions that still covers both is **Key Vault Crypto User** (`12338af0-0e69-4776-bea7-57ae8d297424`). Assign it the same way, with `--role "Key Vault Crypto User"`. It also holds seven data actions the plugin does not use: `encrypt`, `decrypt`, `wrap`, `unwrap`, `verify`, `update` and `backup` ([Azure built-in roles](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/security#key-vault-crypto-user)):
 
