@@ -40,6 +40,8 @@ export default defineConfig({
       forking: { url: configVariable("SEPOLIA_RPC_URL") },
       kmsAccounts: ["deployer"],
     },
+    // For keys passed with --kms: lists no KMS keys of its own.
+    rehearsalCli: { type: "edr-simulated" },
   },
 });
 ```
@@ -138,10 +140,10 @@ Ignition keeps nothing from a deployment to an `edr-simulated` network. To rehea
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender 0x…
 ```
 
-A key chosen with `--kms` instead of a config entry is added to the network selected with `--network`, or to `default` without one. Use `--kms` on a network that does not list the same key: `rehearsal` already lists `deployer`, so `--kms aws` with `AWS_KMS_KEY_ID=alias/deployer` fails there with an error that names both. The built-in `default` network lists no KMS keys and is `edr-simulated`, so `kms.simulatedBalance` funds the key there:
+A key chosen with `--kms` instead of a config entry is added to the network selected with `--network`. Pass `--kms` with a network that does not list the same key: `rehearsal` already lists `deployer`, so `--kms aws` with `AWS_KMS_KEY_ID=alias/deployer` fails there with an error that names both. `rehearsalCli` lists no KMS keys and is `edr-simulated`, so `kms.simulatedBalance` funds the key there:
 
 ```sh
-AWS_KMS_KEY_ID=alias/deployer npx hardhat ignition deploy ignition/modules/Counter.ts --kms aws --default-sender 0x…
+AWS_KMS_KEY_ID=alias/deployer npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsalCli --kms aws --default-sender 0x…
 ```
 
 On a live network, `kms.simulatedBalance` does nothing: fund the key's address there yourself.
