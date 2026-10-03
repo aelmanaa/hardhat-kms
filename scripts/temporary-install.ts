@@ -1,8 +1,7 @@
 // Helpers for scripts that install other dependency versions for a test run and put the lockfile
 // versions back afterwards: scripts/test-sdk-floors.ts and scripts/test-hardhat-versions.ts.
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -67,20 +66,24 @@ export function stringRecord(value: unknown): Record<string, string> {
   );
 }
 
-/** The version of a dependency that a package resolves, read from the installed package.json. */
+/**
+ * The version of a dependency that a package resolves, read from the installed package.json.
+ *
+ * It looks for node_modules/<dependency> in the package's folder and each parent, as Node does
+ * for a bare specifier, and reads the manifest from disk on every call. require.resolve would
+ * not do: Node caches resolutions and symlink targets for the life of the process, so after a
+ * second install in the same run it would still report the first version.
+ */
 export function resolvedVersion(directory: string, dependency: string): string {
-  const require = createRequire(path.join(directory, "package.json"));
-  // Read the manifest from the package's folder: `exports` may not expose package.json.
-  const entry = require.resolve(dependency);
-  const marker = `${path.sep}node_modules${path.sep}${dependency.split("/").join(path.sep)}${path.sep}`;
-  const end = entry.lastIndexOf(marker);
-  if (end === -1) {
-    throw new Error(
-      `${dependency} resolved to ${entry}, outside a node_modules/${dependency} folder`,
-    );
+  for (let folder = path.resolve(directory); ; folder = path.dirname(folder)) {
+    const manifest = path.join(folder, "node_modules", ...dependency.split("/"), "package.json");
+    if (existsSync(manifest)) {
+      return String(readJson(manifest).version);
+    }
+    if (path.dirname(folder) === folder) {
+      throw new Error(`${dependency} is not installed for ${directory}`);
+    }
   }
-  const folder = entry.slice(0, end + marker.length);
-  return String(readJson(path.join(folder, "package.json")).version);
 }
 
 /**
