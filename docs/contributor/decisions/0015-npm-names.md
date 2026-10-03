@@ -27,7 +27,7 @@ The official packages are `hardhat-kms` and the packages under the `@hardhat-kms
 
 The directories under `packages/` keep their names (`packages/hardhat-kms-aws` and so on). Users never see them, and the CI path filters and module-URL checks in the tests depend on them.
 
-The rest of 0009 stands: four packages, released together at the same version as one changesets `fixed` group.
+The rest of 0009 stands: four packages, released together at the same version as one changesets `fixed` group. One correction to its consequences: Hardhat's unused-plugin warning names a plugin that the config imports but leaves out of `plugins`, not a provider that has no key in the config.
 
 ## Consequences
 
