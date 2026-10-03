@@ -75,7 +75,7 @@ const SETUP_HINT =
 
 const SCOPE_DESCRIPTION = `${TABLE} in one Log Analytics workspace, every version of the key`;
 
-/** The vault hosts of Azure's public cloud, whose workspaces answer on `api.loganalytics.io`. */
+/** The vault hosts of Azure's public cloud, whose workspaces answer on `api.loganalytics.azure.com`. */
 const PUBLIC_VAULT_SUFFIX = ".vault.azure.net";
 const MANAGED_HSM = /\.managedhsm\./;
 

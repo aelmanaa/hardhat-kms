@@ -352,7 +352,7 @@ export const ERRORS = {
       "could not reach Log Analytics ({code}). Check the network connection, DNS and any proxy",
     cause:
       "The query got no HTTP answer, after the Azure SDK's retries. The code says why, for example `ENOTFOUND` for DNS.",
-    fix: "Check that `api.loganalytics.io` can be reached, and any `HTTPS_PROXY`.",
+    fix: "Check that `api.loganalytics.azure.com` can be reached, and any `HTTPS_PROXY`.",
   },
   historyBadResponse: {
     id: "azure.history.bad-response",

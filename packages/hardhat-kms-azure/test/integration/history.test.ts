@@ -133,11 +133,16 @@ describe("kms history on an Azure key", () => {
     const [request] = endpoint.requests;
     assert.equal(endpoint.requests.length, 1);
     assert.equal(request?.method, "POST");
-    assert.equal(request?.url, `https://api.loganalytics.io/v1/workspaces/${WORKSPACE_ID}/query`);
+    assert.equal(
+      request?.url,
+      `https://api.loganalytics.azure.com/v1/workspaces/${WORKSPACE_ID}/query`,
+    );
     assert.equal(request?.authorization, "Bearer fake-log-analytics-token");
     // The server ends a slow query within the 120 seconds the task waits.
     assert.equal(request?.prefer, "wait=100");
     assert.deepEqual(endpoint.scopes, [LOG_ANALYTICS_SCOPE]);
+    // The new host still takes tokens for the api.loganalytics.io resource.
+    assert.equal(LOG_ANALYTICS_SCOPE, "https://api.loganalytics.io/.default");
     assert.ok(
       String(request?.userAgent).startsWith(`hardhat-kms/${ownVersion} `),
       "the read carries the plugin's user agent",
