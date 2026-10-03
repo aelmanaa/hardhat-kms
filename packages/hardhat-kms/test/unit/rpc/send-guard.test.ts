@@ -436,6 +436,36 @@ describe("withSendLock limits", () => {
     assert.equal(sendLocksInUse(), 0);
   });
 
+  it("fails a send whose timers throw, and leaves no waiter behind", async () => {
+    let calls = 0;
+    // The second timer is the waiter's no-progress limit; the first is its warning timer.
+    const timers: Timers = {
+      setTimeout() {
+        calls += 1;
+        if (calls === 2) {
+          throw new Error("no timer");
+        }
+        return () => {};
+      },
+    };
+    const held = gate();
+    const holder = withSendLock(
+      "1:0xb4",
+      async () => {
+        await held.promise;
+        return "done";
+      },
+      timers,
+    );
+    await assert.rejects(
+      withSendLock("1:0xb4", async () => await Promise.resolve("b"), timers),
+      /no timer/,
+    );
+    held.open();
+    assert.equal(await holder, "done");
+    assert.equal(sendLocksInUse(), 0, "the failed send is not left in the queue");
+  });
+
   it("never trips the limit while each holder takes 100 s", async () => {
     const timers = clockTimers();
     const order: number[] = [];
@@ -1105,6 +1135,20 @@ describe("library holds", () => {
     libraryHoldOf(KEY)?.end();
     assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
     await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("ends the holds a connection gave when its send state closes", async () => {
+    const KEY = nextKey();
+    const timers: Timers = { setTimeout: () => () => {} };
+    const sends = new ConnectionSends({ highWater: true, timers });
+    assert.equal(
+      await holdForLibrary(KEY, sends, async () => await Promise.resolve(3n), timers),
+      3n,
+    );
+    sends.close();
+    assert.equal(libraryHoldOf(KEY), undefined);
+    await settle();
     assert.equal(sendLocksInUse(), 0);
   });
 

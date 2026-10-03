@@ -113,6 +113,9 @@ export function describeSendKey(key: string): string {
   return colon === -1 ? key : `${key.slice(colon + 1)} on chain ${key.slice(0, colon)}`;
 }
 
+/** The cancel function of a timer not yet armed: there is nothing to cancel. */
+function noTimer(): void {}
+
 /**
  * Waits for the turn of a send behind a held lock. Fails at once when {@link MAX_SEND_LOCK_WAITERS}
  * sends already wait, and after {@link SEND_LOCK_STALL_MS} without the lock passing to a new holder.
@@ -129,15 +132,15 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
     });
   }
   await new Promise<void>((resolve, reject) => {
-    let cancel: (() => void) | undefined;
+    // Cancels the waiter's current no-progress timer; there is none until the first restart.
+    let cancel: () => void = noTimer;
     const waiter: Waiter = {
       grant: () => {
-        // Stryker disable next-line OptionalChaining: restart below sets cancel before any grant
-        cancel?.();
+        cancel();
         resolve();
       },
       restart: () => {
-        cancel?.();
+        cancel();
         cancel = timers.setTimeout(() => {
           const index = lock.waiters.indexOf(waiter);
           if (index === -1) {
@@ -153,8 +156,10 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
         }, SEND_LOCK_STALL_MS);
       },
     };
-    lock.waiters.push(waiter);
+    // Armed before the waiter joins the queue: when the timers throw, the send fails and leaves no
+    // waiter behind that would be granted the lock.
     waiter.restart();
+    lock.waiters.push(waiter);
   });
 }
 
@@ -256,7 +261,8 @@ export async function withSendLock<T>(
   const hold: Hold = { key, released: false };
   try {
     // Stryker disable next-line ArrayDeclaration: holdsSendLock, the only reader, skips an entry with no key
-    return await holds.run([...(holds.getStore() ?? []), hold], run);
+    const outer = holds.getStore() ?? [];
+    return await holds.run([...outer, hold], run);
   } finally {
     hold.released = true;
     const next = lock.waiters.shift();
