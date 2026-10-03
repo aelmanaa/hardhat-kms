@@ -146,13 +146,13 @@ const STATUS_ERRORS: Partial<Record<StatusName, StatusEntry>> = {
  * Every call is checked for corruption in transit with CRC32C, in both directions: the digest
  * goes with `digestCrc32c`, and the response must confirm it with `verifiedDigestCrc32c` and carry
  * a matching `signatureCrc32c`; a public key must match its `pemCrc32c`. A mismatch repeats the
- * call, at most {@link CHECKSUM_RETRIES} times. A response for another key version fails at once.
+ * call, at most {@link MAX_RETRIES} times. A response for another key version fails at once.
  */
 class GcpKeyAdapter implements KmsKeyAdapter {
   readonly #key: GcpKmsKeyConfig;
   readonly #name: string;
   readonly #createClient: () => GcpKmsClient;
-  /** The client, or none after one failed to initialize: the next call creates another. */
+  /** The client, created by the first call, and again by the call after one failed to initialize. */
   #client: GcpKmsClient | undefined;
   readonly #userAgent: string;
   #checked = false;
@@ -166,7 +166,6 @@ class GcpKeyAdapter implements KmsKeyAdapter {
     this.#key = key;
     this.#name = name;
     this.#createClient = createClient;
-    this.#client = createClient();
     this.#userAgent = userAgent;
   }
 
@@ -359,9 +358,10 @@ class GcpKeyAdapter implements KmsKeyAdapter {
    * the same way. So a client whose initialization failed is closed and dropped, and the next
    * call creates another, which looks the credentials up again. Never cache a failure.
    *
-   * The replacement is created by that next call, not at once: the client's constructor starts a
-   * credentials lookup of its own, for its long-running operations client, and keeps a failure of
-   * it. Created just before `initialize()`, both share one lookup and its result.
+   * Every client is created by a call, just before `initialize()`, and never ahead of it: the
+   * client's constructor starts a credentials lookup of its own, for its long-running operations
+   * client, and keeps a failure of it, which its `close()` later prints with the credentials
+   * file's path. Created just before `initialize()`, both share one lookup and its result.
    */
   async #initialized(): Promise<GcpKmsClient> {
     const client = (this.#client ??= this.#createClient());
