@@ -39,7 +39,7 @@ Each command writes a `.tgz` file into its package directory: `packages/hardhat-
 
 ## 3. Install the packed files in your project
 
-Copy the two files into your Hardhat project, then install them by path. The install records the path in `package.json`, so a copy inside the project keeps working after the clone moves or is deleted:
+Copy the two files into your Hardhat project, then install them by path. In the commands below, `<clone>` is the path to your clone of the repository. The install records the path in `package.json`, so a copy inside the project keeps working after the clone moves or is deleted:
 
 ```sh
 mkdir -p vendor
@@ -53,6 +53,14 @@ In a pnpm project:
 pnpm add -D ./vendor/hardhat-kms-0.0.0.tgz ./vendor/hardhat-kms-aws-0.0.0.tgz
 ```
 
-If pnpm stops with `Ignored build scripts: esbuild`, add `allowBuilds:` with `esbuild: false` to `pnpm-workspace.yaml` and install again. Step 4 of [First deploy on Sepolia with AWS KMS](../tutorials/first-deploy-aws.md#4-add-the-plugin-and-the-key-to-the-project) explains why that script is not needed.
+If pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, add the packages it names to `pnpm-workspace.yaml`, next to `package.json`, and install again. `esbuild` (all providers) and `protobufjs` (Google Cloud only) do not need their scripts:
 
-`npx hardhat kms --help` then lists the plugin's tasks. Go back to the page you came from and continue after its install command.
+```yaml
+allowBuilds:
+  esbuild: false
+  protobufjs: false # Google Cloud only
+```
+
+Step 4 of [First deploy on Sepolia with Google Cloud KMS](../tutorials/first-deploy-gcp.md#4-add-the-plugin-and-the-key-to-the-project) explains why for both.
+
+`npx hardhat kms --help` then lists the plugin's tasks. Go back to the page you came from and continue after its install instructions.
