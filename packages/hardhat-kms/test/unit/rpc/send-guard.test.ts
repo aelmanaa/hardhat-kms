@@ -7,6 +7,7 @@ import { PLUGIN_ID } from "../../../src/internal/constants.ts";
 import {
   canonicalJson,
   ConnectionSends,
+  describeSendKey,
   MAX_RETRY_ENTRIES,
   endLibraryHold,
   endLibraryHoldsOf,
@@ -126,6 +127,13 @@ const QUEUE_FULL = (address: string): RegExp =>
   new RegExp(
     `Too many sends from ${address} on chain 1 are waiting: the limit is 1024\\. .* not signed or sent`,
   );
+
+describe("describeSendKey", () => {
+  it("names the account and the chain of a lock key, and returns a key without a colon as is", () => {
+    assert.equal(describeSendKey("1:0xab"), "0xab on chain 1");
+    assert.equal(describeSendKey("0xab"), "0xab");
+  });
+});
 
 describe("withSendLock", () => {
   it("runs holders of one key one after the other, in order", async () => {
@@ -379,6 +387,85 @@ describe("withSendLock limits", () => {
     );
   });
 
+  it("ignores the limit of a waiter that already has the lock", async () => {
+    // Timers that cannot be cancelled, like a limit that fires while the lock is handed over.
+    const callbacks: (() => void)[] = [];
+    const timers: Timers = {
+      setTimeout(callback) {
+        callbacks.push(callback);
+        return () => {};
+      },
+    };
+    const held = gate();
+    const second = gate();
+    const order: string[] = [];
+    const holder = withSendLock("1:0xb3", async () => await held.promise, timers);
+    const b = withSendLock(
+      "1:0xb3",
+      async () => {
+        order.push("b");
+        await second.promise;
+      },
+      timers,
+    );
+    const c = watch(
+      withSendLock(
+        "1:0xb3",
+        async () => {
+          order.push("c");
+          await Promise.resolve();
+        },
+        timers,
+      ),
+    );
+    await settle();
+    // In order: b's warning timer and limit, then c's.
+    const limitOfB = callbacks[1];
+    assert.ok(limitOfB !== undefined);
+    held.open();
+    await holder;
+    await settle();
+    assert.deepEqual(order, ["b"]);
+    limitOfB();
+    second.open();
+    await b;
+    await settle();
+    assert.deepEqual(order, ["b", "c"], "c keeps its place in the queue");
+    assert.equal(c.done, true);
+    assert.equal(c.error, undefined);
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("fails a send whose timers throw, and leaves no waiter behind", async () => {
+    let calls = 0;
+    // The second timer is the waiter's no-progress limit; the first is its warning timer.
+    const timers: Timers = {
+      setTimeout() {
+        calls += 1;
+        if (calls === 2) {
+          throw new Error("no timer");
+        }
+        return () => {};
+      },
+    };
+    const held = gate();
+    const holder = withSendLock(
+      "1:0xb4",
+      async () => {
+        await held.promise;
+        return "done";
+      },
+      timers,
+    );
+    await assert.rejects(
+      withSendLock("1:0xb4", async () => await Promise.resolve("b"), timers),
+      /no timer/,
+    );
+    held.open();
+    assert.equal(await holder, "done");
+    assert.equal(sendLocksInUse(), 0, "the failed send is not left in the queue");
+  });
+
   it("never trips the limit while each holder takes 100 s", async () => {
     const timers = clockTimers();
     const order: number[] = [];
@@ -450,6 +537,16 @@ describe("withSendLock limits", () => {
   });
 });
 
+/**
+ * A function with no prototype, which the object branch of canonicalJson would write as `{}`.
+ *
+ * @returns 1.
+ */
+function bareFunction(): number {
+  return 1;
+}
+Object.setPrototypeOf(bareFunction, null);
+
 describe("canonicalJson", () => {
   it("sorts object keys and drops undefined values", () => {
     assert.equal(
@@ -474,6 +571,14 @@ describe("canonicalJson", () => {
     assert.equal(canonicalJson(Object.create(null)), "{}");
   });
 
+  it("writes a bigint with an n and undefined as a word", () => {
+    assert.equal(canonicalJson(true), "true");
+    assert.equal(canonicalJson(false), "false");
+    assert.equal(canonicalJson(12n), "12n");
+    assert.equal(canonicalJson(undefined), "undefined");
+    assert.equal(canonicalJson([1n, undefined]), "[1n,undefined]");
+  });
+
   it("refuses values it does not handle", () => {
     for (const value of [
       Number.NaN,
@@ -484,6 +589,7 @@ describe("canonicalJson", () => {
       { nested: { at: new Date(0) } },
       Symbol("x"),
       () => 1,
+      bareFunction,
     ]) {
       assert.equal(canonicalJson(value), undefined, typeof value);
     }
@@ -609,6 +715,30 @@ describe("ConnectionSends", () => {
     assert.equal(sends.takeRetry("key2"), undefined);
     assert.equal(sends.takeRetry("key1"), transaction);
     assert.equal(sends.takeRetry("one more"), transaction);
+  });
+
+  it("makes a replaced entry the newest, without dropping another to make room", () => {
+    const sends = new ConnectionSends({ highWater: true, timers: fakeTimers() });
+    const transaction = { raw: "0x01", hash: "0x02", nonce: 0n };
+    for (let i = 0; i < MAX_RETRY_ENTRIES; i++) {
+      sends.rememberFailure(`key${i}`, transaction);
+    }
+    sends.rememberFailure("key5", transaction);
+    sends.rememberFailure("one more", transaction);
+    assert.equal(sends.takeRetry("key0"), undefined, "the oldest made room for one more");
+    assert.equal(sends.takeRetry("key1"), transaction, "replacing key5 made no room");
+    for (let i = 0; i < 6; i++) {
+      sends.rememberFailure(`later${i}`, transaction);
+    }
+    assert.equal(sends.takeRetry("key6"), undefined);
+    assert.equal(sends.takeRetry("key5"), transaction, "key5 counts as newer than key6");
+  });
+
+  it("forgets the uncertain transactions when it is closed", () => {
+    const sends = new ConnectionSends({ highWater: true, timers: fakeTimers() });
+    sends.rememberUncertain("0xa", { raw: "0x01", hash: "0x02", nonce: 0n });
+    sends.close();
+    assert.equal(sends.takeUncertain("0xa"), undefined);
   });
 
   it("drops every retry entry of a hash, and reports the mark only when it is on", () => {
@@ -767,13 +897,18 @@ describe("ConnectionSends nonce reservations", () => {
 
 describe("library holds", () => {
   const HOLDER = "0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
-  const KEY = `31337:${HOLDER}`;
+  // Each test takes the next chain id, so a test that fails with a hold still open does not leave
+  // the next one waiting for it: the run fails at once instead of hanging.
+  let chain = 31337;
+  /** A lock key of the holder on a chain no other test uses. */
+  const nextKey = (): string => `${chain++}:${HOLDER}`;
   /** The holder's address as the warnings print it. */
   const CHECKSUMMED = "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826";
   const DOCS =
     "https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#warnings";
 
   it("keeps the lock after the nonce is chosen, until the broadcast ends the hold", async () => {
+    const KEY = nextKey();
     const timers = fakeTimers();
     const owner = {};
     const nonce = await holdForLibrary(KEY, owner, async () => await Promise.resolve(4n), timers);
@@ -802,6 +937,7 @@ describe("library holds", () => {
   });
 
   it(`ends the hold after ${LIBRARY_HOLD_MS} ms when nothing else ends it, with a warning`, async () => {
+    const KEY = nextKey();
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const timers = fakeTimers();
@@ -815,7 +951,7 @@ describe("library holds", () => {
         warn.mock.calls.map((call) => call.arguments),
         [
           [
-            `hardhat-kms: a connection.kms.getAccount send from ${CHECKSUMMED} on chain 31337 chose nonce 1, and after 60 s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast later, it and the account's next send share a nonce, and the node refuses one of them. Send the library account through custom(connection.provider); see ${DOCS}.`,
+            `hardhat-kms: a connection.kms.getAccount send from ${CHECKSUMMED} on chain ${KEY.slice(0, KEY.indexOf(":"))} chose nonce 1, and after 60 s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast later, it and the account's next send share a nonce, and the node refuses one of them. Send the library account through custom(connection.provider); see ${DOCS}.`,
           ],
         ],
       );
@@ -825,6 +961,7 @@ describe("library holds", () => {
   });
 
   it("prints no limit warning for a hold that ends before its limit", async () => {
+    const KEY = nextKey();
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const timers = fakeTimers();
@@ -841,6 +978,7 @@ describe("library holds", () => {
   });
 
   it(`warns once when a send waits ${LIBRARY_WAIT_WARNING_MS} ms behind a hold`, async () => {
+    const KEY = nextKey();
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const clock = clockTimers();
@@ -854,7 +992,7 @@ describe("library holds", () => {
         warn.mock.calls.map((call) => call.arguments),
         [
           [
-            `hardhat-kms: a send from ${CHECKSUMMED} on chain 31337 has waited 5 s for a connection.kms.getAccount send that chose nonce 6 and has not broadcast it through the connection. It waits until that raw transaction goes out, viem resets that send, or 60 s after the nonce was chosen. If the library send's client does not send through custom(connection.provider), send it through that transport; see ${DOCS}.`,
+            `hardhat-kms: a send from ${CHECKSUMMED} on chain ${KEY.slice(0, KEY.indexOf(":"))} has waited 5 s for a connection.kms.getAccount send that chose nonce 6 and has not broadcast it through the connection. It waits until that raw transaction goes out, viem resets that send, or 60 s after the nonce was chosen. If the library send's client does not send through custom(connection.provider), send it through that transport; see ${DOCS}.`,
           ],
         ],
         "once per hold",
@@ -870,6 +1008,7 @@ describe("library holds", () => {
   });
 
   it("warns once for a wait behind two holds in a row, and not after the holds end at close", async () => {
+    const KEY = nextKey();
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const clock = clockTimers();
@@ -905,6 +1044,7 @@ describe("library holds", () => {
   });
 
   it("warns once per hold, however many sends wait behind it", async () => {
+    const KEY = nextKey();
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const clock = clockTimers();
@@ -924,6 +1064,7 @@ describe("library holds", () => {
   });
 
   it("ignores a second end of a hold, even after a newer hold started", async () => {
+    const KEY = nextKey();
     const first = await holdForLibrary(
       KEY,
       {},
@@ -948,6 +1089,7 @@ describe("library holds", () => {
   });
 
   it("does not warn for a wait behind a plugin send, or one shorter than the delay", async () => {
+    const KEY = nextKey();
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const clock = clockTimers();
@@ -976,6 +1118,7 @@ describe("library holds", () => {
   });
 
   it("uses up the resets owed by failed sends before it ends a hold", async () => {
+    const KEY = nextKey();
     const timers = fakeTimers();
     expectLibraryReset(KEY);
     await holdForLibrary(KEY, {}, async () => await Promise.resolve(2n), timers);
@@ -995,7 +1138,22 @@ describe("library holds", () => {
     assert.equal(sendLocksInUse(), 0);
   });
 
+  it("ends the holds a connection gave when its send state closes", async () => {
+    const KEY = nextKey();
+    const timers: Timers = { setTimeout: () => () => {} };
+    const sends = new ConnectionSends({ highWater: true, timers });
+    assert.equal(
+      await holdForLibrary(KEY, sends, async () => await Promise.resolve(3n), timers),
+      3n,
+    );
+    sends.close();
+    assert.equal(libraryHoldOf(KEY), undefined);
+    await settle();
+    assert.equal(sendLocksInUse(), 0);
+  });
+
   it("ends only the holds of a closing connection", async () => {
+    const KEY = nextKey();
     const timers = fakeTimers();
     const mine = {};
     const other = {};
@@ -1011,6 +1169,7 @@ describe("library holds", () => {
   });
 
   it("holds nothing when the nonce cannot be chosen, and throws its error", async () => {
+    const KEY = nextKey();
     await assert.rejects(
       holdForLibrary(KEY, {}, async () => {
         throw await Promise.resolve(new Error("no node"));
@@ -1022,6 +1181,7 @@ describe("library holds", () => {
   });
 
   it("keeps the process alive while a hold lasts, by default", async () => {
+    const KEY = nextKey();
     const timers = fakeTimers();
     const done = holdForLibrary(KEY, {}, async () => await Promise.resolve(9n));
     assert.equal(await done, 9n);

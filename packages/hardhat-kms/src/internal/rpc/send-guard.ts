@@ -113,6 +113,9 @@ export function describeSendKey(key: string): string {
   return colon === -1 ? key : `${key.slice(colon + 1)} on chain ${key.slice(0, colon)}`;
 }
 
+/** The cancel function of a timer not yet armed: there is nothing to cancel. */
+function noTimer(): void {}
+
 /**
  * Waits for the turn of a send behind a held lock. Fails at once when {@link MAX_SEND_LOCK_WAITERS}
  * sends already wait, and after {@link SEND_LOCK_STALL_MS} without the lock passing to a new holder.
@@ -129,14 +132,15 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
     });
   }
   await new Promise<void>((resolve, reject) => {
-    let cancel: (() => void) | undefined;
+    // Cancels the waiter's current no-progress timer; there is none until the first restart.
+    let cancel: () => void = noTimer;
     const waiter: Waiter = {
       grant: () => {
-        cancel?.();
+        cancel();
         resolve();
       },
       restart: () => {
-        cancel?.();
+        cancel();
         cancel = timers.setTimeout(() => {
           const index = lock.waiters.indexOf(waiter);
           if (index === -1) {
@@ -152,8 +156,13 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
         }, SEND_LOCK_STALL_MS);
       },
     };
-    lock.waiters.push(waiter);
+    // Armed before the waiter joins the queue: when the timers throw, the send fails and leaves no
+    // waiter behind that would be granted the lock. This relies on the Timers contract that a
+    // callback never runs inside setTimeout itself, as real timers guarantee: a limit that fired
+    // here would find no waiter to fail, and the send would wait with no limit until the next
+    // hand-off.
     waiter.restart();
+    lock.waiters.push(waiter);
   });
 }
 
@@ -211,6 +220,7 @@ function warnAboutLibraryWait(key: string): void {
  * @returns Whether it does.
  */
 export function holdsSendLock(key: string): boolean {
+  // Stryker disable next-line ArrayDeclaration: a string in the array has no key, so some() finds no hold
   return (holds.getStore() ?? []).some((hold) => hold.key === key && !hold.released);
 }
 
@@ -253,7 +263,9 @@ export async function withSendLock<T>(
   }
   const hold: Hold = { key, released: false };
   try {
-    return await holds.run([...(holds.getStore() ?? []), hold], run);
+    // Stryker disable next-line ArrayDeclaration: holdsSendLock, the only reader, skips an entry with no key
+    const outer = holds.getStore() ?? [];
+    return await holds.run([...outer, hold], run);
   } finally {
     hold.released = true;
     const next = lock.waiters.shift();
@@ -336,13 +348,16 @@ export async function holdForLibrary(
         }
         libraryHolds.delete(key);
         cancel();
+        // Stryker disable next-line OptionalChaining: the promise executor above set release
         control.release?.();
       },
     };
     libraryHolds.set(key, hold);
+    // Stryker disable next-line OptionalChaining: the promise executor above set acquired
     control.acquired?.(nonce);
     await released;
   });
+  // Stryker disable next-line ArrowFunction: holding resolves only after acquired, so the race is already settled
   return await Promise.race([acquired, holding.then(async () => await acquired)]);
 }
 
@@ -401,6 +416,7 @@ export function takeOwedLibraryReset(key: string): boolean {
   if (owed === 0) {
     return false;
   }
+  // Stryker disable next-line ConditionalExpression: a count of 0 left in the map reads as no reset owed
   if (owed === 1) {
     pendingResets.delete(key);
   } else {
@@ -477,6 +493,7 @@ export function canonicalJson(value: unknown): string | undefined {
     return undefined;
   }
   const fields: string[] = [];
+  // Stryker disable next-line EqualityOperator: Object.entries never yields two equal keys
   for (const [key, item] of Object.entries(value).toSorted(([a], [b]) => (a < b ? -1 : 1))) {
     if (item === undefined) {
       continue;
@@ -561,8 +578,9 @@ export class ConnectionSends {
    */
   public nonceFor(from: string, pending: bigint): bigint {
     let nonce = pending;
-    const mark = this.#highWaterEnabled ? this.#highWater.get(from) : undefined;
-    if (mark !== undefined && mark >= nonce) {
+    // -1n: no mark yet. recordSent keeps none when the mark is off.
+    const mark = this.#highWater.get(from) ?? -1n;
+    if (mark >= nonce) {
       nonce = mark + 1n;
     }
     for (const reserved of this.#live(from).keys()) {
@@ -708,7 +726,7 @@ export class ConnectionSends {
    * none or the mark is off.
    */
   public highWaterOf(from: string): bigint | undefined {
-    return this.#highWaterEnabled ? this.#highWater.get(from) : undefined;
+    return this.#highWater.get(from);
   }
 
   /**
@@ -722,7 +740,11 @@ export class ConnectionSends {
       return;
     }
     const mark = this.#highWater.get(from);
-    if (mark === undefined || nonce > mark) {
+    if (
+      mark === undefined ||
+      // Stryker disable next-line EqualityOperator: >= sets the mark to the value it already has
+      nonce > mark
+    ) {
       this.#highWater.set(from, nonce);
     }
   }

@@ -4,7 +4,9 @@ import { catalogMessage } from "../errors.ts";
 /** Timer functions, injectable so tests can control time. */
 export interface Timers {
   /**
-   * Schedules `callback` after `ms` milliseconds.
+   * Schedules `callback` after `ms` milliseconds. It never calls `callback` before it returns, as
+   * the global `setTimeout` never does; the send lock arms a waiter's limit before it queues the
+   * waiter and relies on this.
    *
    * @returns A function that cancels the timer.
    */

@@ -1,13 +1,22 @@
 name: Mutation testing
 
-# Runs Stryker on the core's crypto/ and signer/ code against every core unit test
-# (docs/contributor/testing.md, layer 8). Not a required check and no pull_request trigger: a full
-# run takes far longer than the rest of CI.
+# Runs Stryker on the core files that `mutate` in packages/hardhat-kms/stryker.config.json names, against
+# every core unit test (docs/contributor/testing.md, layer 8). Not a required check and no pull_request
+# trigger: a full run takes far longer than the rest of CI.
 #
-# - Weekly, Mondays: skipped before install when the last run on the same inputs passed; otherwise
-#   an incremental run that re-tests only the mutants in changed mutated files and the mutants
-#   covered by changed tests. GitHub evicts cache entries unused for 7 days, so most weekly runs find
-#   no incremental file and test every mutant.
+# Shards. The `plan` job reads `mutate` and makes one shard per directory under src/internal/ that it
+# names (today crypto, signer, viem and rpc). Each shard is its own job on its own runner, with its own
+# incremental file and cache entries, so the slowest shard sets the wall time instead of the sum of
+# all of them, and a shard that runs long does not cancel the others. The `score` job adds up the
+# shards' reports and checks the total against `break`. Each shard also checks its own score against
+# `break`, so one weak shard fails even when the total passes. An entry of `mutate` outside
+# src/internal/<directory>/, or in a directory whose name has other characters than lowercase letters
+# and digits, fails the plan, so no file is left out of every shard.
+#
+# - Weekly, Mondays: a shard is skipped before install when its last run on the same inputs passed;
+#   otherwise an incremental run that re-tests only the mutants in changed mutated files and the
+#   mutants covered by changed tests. GitHub evicts cache entries unused for 7 days, so most weekly
+#   runs find no incremental file and test every mutant.
 # - When the 1st is a Monday, both schedules fire and queue in either order. The weekly run checks
 #   the UTC date and skips itself on the 1st, so only the monthly full run tests. The no-change skip
 #   is not enough: a weekly run that goes first would test just before the full run. Cron cannot
@@ -15,19 +24,21 @@ name: Mutation testing
 #   set, a cron line fires on either.
 # - Monthly, and on dispatch with `force`: a full run. Incremental mode does not see changes outside
 #   the mutated and test files, such as dependency updates or unmutated source the mutated code
-#   imports (errors.ts, error-catalog.ts, rpc/), so their effect shows only in a full run.
+#   imports (errors.ts, error-catalog.ts, the rest of rpc/), so their effect shows only in a full run.
 #
-# Cache design. Cache entries cannot be overwritten, so every run that reaches Stryker saves its
+# Cache design. Cache entries cannot be overwritten, so every shard that reaches Stryker saves its
 # incremental file under a new key:
-#   stryker-<os>-<hash of the inputs>-<run id>-<attempt>-<pass|fail>
+#   stryker-<os>-<shard>-<hash of the inputs>-<run id>-<attempt>-<pass|fail>
 # The inputs are the core's src/ and test/, the Stryker config, the lockfile and this file.
-# - Skip: a lookup with the prefix stryker-<os>-<hash>- returns the newest entry for these inputs.
-#   The run is skipped only when that entry ends in -pass. After a failed run (a score below
-#   `break`, including a full run), the next weekly run runs again and fails again until fixed.
-# - Restore: the newest entry for these inputs, else the newest entry of any inputs. Incremental
-#   results are valid whether that run passed or failed.
+# - Skip: a lookup with the prefix stryker-<os>-<shard>-<hash>- returns the shard's newest entry for
+#   these inputs. The shard is skipped only when that entry ends in -pass. After a failed run (a
+#   score below `break`, including a full run), the next weekly run runs again and fails again until
+#   fixed.
+# - Restore: the shard's newest entry for these inputs, else its newest entry of any inputs.
+#   Incremental results are valid whether that run passed or failed.
 # - Save: whenever Stryker ran, full runs included, so a full run replaces stale incremental results.
-#   Stryker writes the incremental file also when the score is below `break`.
+#   Stryker writes the incremental file also when the score is below `break`. A shard cancelled at
+#   its time limit saves nothing, which is why each shard has a limit well above its expected time.
 on:
   schedule:
     - cron: "17 3 * * 1" # weekly at 03:17 UTC on Mondays; skips itself on the 1st
@@ -35,7 +46,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: Run every mutant, ignoring the incremental file and the no-change skip
+        description: Run every mutant, ignoring the incremental files and the no-change skip
         type: boolean
         default: false
 
@@ -47,12 +58,52 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  mutation:
-    name: Mutation testing (Linux)
+  plan:
+    name: Plan the shards
     runs-on: ubuntu-26.04
-    timeout-minutes: 90
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.shards.outputs.shards }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # One shard per directory under src/internal/ that `mutate` names, in order of first mention.
+      - name: Shards from the Stryker config
+        id: shards
+        working-directory: packages/hardhat-kms
+        shell: bash
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, re, sys
+          shards = []
+          for entry in json.load(open("stryker.config.json"))["mutate"]:
+              # No "-" in a shard name: the cache key prefix stryker-<os>-<shard>- must not be a
+              # prefix of another shard's keys.
+              match = re.match(r"!?src/internal/([a-z0-9]+)/", entry)
+              if match is None:
+                  sys.exit(f"mutate entry {entry!r} is not under src/internal/<directory>/ with a name of lowercase letters and digits, so no shard runs it")
+              if not entry.startswith("!") and match.group(1) not in shards:
+                  shards.append(match.group(1))
+          print(f"shards={json.dumps(shards)}")
+          EOF
+
+  mutation:
+    name: Mutation testing, ${{ matrix.shard }} (Linux)
+    needs: plan
+    runs-on: ubuntu-26.04
+    # In the first full CI run (run 37131684354), the Stryker step took 14 min 10 s for crypto, the
+    # slowest shard, 12 min 35 s for rpc, 11 min 28 s for signer and 9 min 37 s for viem. The limit is
+    # far above that, since a cancelled shard saves no incremental file and would start from scratch
+    # the next week.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     env:
       FULL_RUN: ${{ github.event.schedule == '17 3 1 * *' || inputs.force == true }}
+      SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,8 +112,8 @@ jobs:
         id: key
         env:
           HASH: ${{ hashFiles('packages/hardhat-kms/src/**', 'packages/hardhat-kms/test/**', 'packages/hardhat-kms/stryker.config.json', 'pnpm-lock.yaml', '.github/workflows/mutation.yml') }}
-        run: echo "prefix=stryker-${RUNNER_OS}-${HASH}-" >> "$GITHUB_OUTPUT"
-      # The primary key never matches; restore-keys returns the newest entry for these inputs.
+        run: echo "prefix=stryker-${RUNNER_OS}-${SHARD}-${HASH}-" >> "$GITHUB_OUTPUT"
+      # The primary key never matches; restore-keys returns the shard's newest entry for these inputs.
       - name: Look for the last run on the same inputs
         id: seen
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -78,9 +129,9 @@ jobs:
           SCHEDULE: ${{ github.event.schedule }}
         run: |
           if [ "$SCHEDULE" = "17 3 * * 1" ] && [ "$(date -u +%d)" = "01" ]; then
-            echo "The 1st is a Monday: the monthly full run covers today; skipped." >> "$GITHUB_STEP_SUMMARY"
+            echo "$SHARD: the 1st is a Monday, and the monthly full run covers today; skipped." >> "$GITHUB_STEP_SUMMARY"
           elif [ "$FULL_RUN" != "true" ] && [ -n "$MATCHED" ] && [ "${MATCHED%-pass}" != "$MATCHED" ]; then
-            echo "The last run on the same code, tests, Stryker config, lockfile and workflow passed; skipped." >> "$GITHUB_STEP_SUMMARY"
+            echo "$SHARD: the last run on the same code, tests, Stryker config, lockfile and workflow passed; skipped." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "go=true" >> "$GITHUB_OUTPUT"
           fi
@@ -94,7 +145,7 @@ jobs:
           cache: pnpm
       - if: steps.run.outputs.go == 'true'
         run: pnpm install --frozen-lockfile --ignore-scripts
-      # The newest incremental file from an earlier run. A full run (--force) does not read it.
+      # The shard's newest incremental file from an earlier run. A full run (--force) does not read it.
       - name: Restore the incremental file
         if: steps.run.outputs.go == 'true' && env.FULL_RUN != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -103,7 +154,7 @@ jobs:
           key: ${{ steps.key.outputs.prefix }}lookup
           restore-keys: |
             ${{ steps.key.outputs.prefix }}
-            stryker-${{ runner.os }}-
+            stryker-${{ runner.os }}-${{ matrix.shard }}-
       - name: Stryker
         id: stryker
         if: steps.run.outputs.go == 'true'
@@ -112,28 +163,31 @@ jobs:
         run: |
           set -o pipefail
           if [ "$FULL_RUN" = "true" ]; then mode=--force; else mode=--incremental; fi
+          # The shard's entries of `mutate`, exclusions included, as Stryker's comma-separated list.
+          mutate=$(python3 -c 'import json, os, re; print(",".join(e for e in json.load(open("stryker.config.json"))["mutate"] if re.match(r"!?src/internal/" + re.escape(os.environ["SHARD"]) + "/", e)))')
+          echo "Mutating: $mutate"
           # 2 workers on the 2-vCPU runner, set explicitly: timeouts count as caught, and more workers
           # than cores turn survivors into timeouts, so the score depends on the worker count.
-          pnpm exec stryker run "$mode" --concurrency 2 --reporters clear-text,html,json 2>&1 | tee "$RUNNER_TEMP/stryker.log"
+          pnpm exec stryker run "$mode" --mutate "$mutate" --concurrency 2 --reporters clear-text,html,json 2>&1 | tee "$RUNNER_TEMP/stryker.log"
       # Stryker's clear-text table: per-file score, killed, timeout, survived, no coverage, errors.
       - name: Score table
         if: always() && steps.stryker.outcome != 'skipped'
         shell: bash
         run: |
           {
-            echo "### Mutation score ($([ "$FULL_RUN" = "true" ] && echo full || echo incremental) run)"
+            echo "### Mutation score, $SHARD ($([ "$FULL_RUN" = "true" ] && echo full || echo incremental) run)"
             echo
             echo '```'
             sed 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/stryker.log" | awk '/^-+\|-+\|/ { on = 1 } on && /\|/ { print; next } on { exit }'
             echo '```'
             echo
-            echo "Surviving mutants are listed in the job log and in the mutation-report artifact."
+            echo "Surviving mutants are listed in the job log and in the mutation-report-$SHARD artifact."
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the report
         if: always() && steps.stryker.outcome != 'skipped'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: mutation-report
+          name: mutation-report-${{ matrix.shard }}
           path: packages/hardhat-kms/reports/mutation/
           retention-days: 14
           if-no-files-found: ignore
@@ -151,3 +205,61 @@ jobs:
         with:
           path: packages/hardhat-kms/reports/stryker-incremental.json
           key: ${{ steps.save.outputs.key }}
+
+  score:
+    name: Mutation score, all shards
+    needs: [plan, mutation]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # One folder per shard that ran; a skipped shard uploads nothing.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: mutation-report-*
+          path: reports
+      # Stryker's score: (killed + timeout) / (every mutant but the ignored ones and the errors).
+      - name: Total score against break
+        env:
+          SHARDS: ${{ needs.plan.outputs.shards }}
+          MUTATION_RESULT: ${{ needs.mutation.result }}
+        shell: bash
+        run: |
+          python3 - <<'EOF'
+          import json, os, pathlib, sys
+          threshold = json.load(open("packages/hardhat-kms/stryker.config.json"))["thresholds"]["break"]
+          result = os.environ["MUTATION_RESULT"]
+          detected = valid = 0
+          rows = []
+          for shard in json.loads(os.environ["SHARDS"]):
+              report = pathlib.Path("reports") / f"mutation-report-{shard}" / "mutation.json"
+              if not report.exists():
+                  rows.append(f"| {shard} | not run: skipped as unchanged, or ended before its report | | |")
+                  continue
+              counts = {}
+              for file in json.load(open(report))["files"].values():
+                  for mutant in file["mutants"]:
+                      counts[mutant["status"]] = counts.get(mutant["status"], 0) + 1
+              shard_detected = counts.get("Killed", 0) + counts.get("Timeout", 0)
+              shard_valid = sum(n for status, n in counts.items() if status not in ("Ignored", "RuntimeError", "CompileError"))
+              detected += shard_detected
+              valid += shard_valid
+              # A shard whose mutants are all ignored or errors adds nothing to the total.
+              shard_score = f"{100 * shard_detected / shard_valid:.2f}%" if shard_valid > 0 else "no valid mutants"
+              rows.append(f"| {shard} | {shard_score} | {shard_detected} | {shard_valid} |")
+          lines = ["### Mutation score, all shards that ran", "", "| Shard | Score | Caught | Valid mutants |", "|---|---|---|---|", *rows]
+          failed = result not in ("success", "skipped")
+          if valid > 0:
+              score = 100 * detected / valid
+              lines += ["", f"Total: {score:.2f}% ({detected} of {valid}); break is {threshold}."]
+              failed = failed or score < threshold
+          if result not in ("success", "skipped"):
+              lines += ["", f"The shard jobs ended with: {result}."]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          sys.exit(1 if failed else 0)
+          EOF
