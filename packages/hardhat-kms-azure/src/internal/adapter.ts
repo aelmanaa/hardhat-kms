@@ -147,7 +147,7 @@ function setAttributesTarget(
  * It reads the key's JWK once, checks that it is an enabled secp256k1 key that may sign, and pins
  * the key version from the response: an unversioned key id is resolved to the current version
  * once, and every signature uses that version. Each sign response must name the pinned version
- * in its `kid`, as Foundry's Azure signer checks. Key Vault signs the 32-byte digest as given with
+ * in its `kid`, as the Azure signer proposed for Foundry (foundry-rs/foundry#17120) checks. Key Vault signs the 32-byte digest as given with
  * `ES256K` and returns `r || s`; the core normalizes S, recovers the parity and verifies it.
  */
 class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {

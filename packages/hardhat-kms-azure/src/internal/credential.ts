@@ -251,10 +251,11 @@ export interface ManagedIdentitySettings {
  *    `AzureDeveloperCliCredential` (`azd auth login`).
  * 4. `ManagedIdentityCredential`, user-assigned when `clientId` is given, with a time limit and
  *    a timeout on each of its HTTP requests. Where it cannot be used with a client id (Cloud
- *    Shell, Service Fabric), it is left out, as Foundry does.
+ *    Shell, Service Fabric), it is left out, as the proposed Foundry signer does.
  *
- * This is the order of Foundry's Azure Key Vault signer: developer tools come before the managed
- * identity, so a local login is not delayed by the managed identity endpoint.
+ * This is the order of the Azure Key Vault signer proposed for Foundry in foundry-rs/foundry#17120,
+ * which no Foundry release includes yet: developer tools come before the managed identity, so a
+ * local login is not delayed by the managed identity endpoint.
  *
  * @param identity - The @azure/identity module.
  * @param clientId - `AZURE_CLIENT_ID`, which selects a user-assigned managed identity.
