@@ -1,4 +1,4 @@
-// The check behind `scripts/fail-on-deprecation.ts`, which the Node 26 leg of the CI test job
+// The check behind `scripts/fail-on-deprecation.mjs`, which the Node 26 leg of the CI test job
 // preloads into every Node process: a DeprecationWarning that ALLOWED_WARNINGS does not list makes
 // the process fail. Kept apart from the preload, which installs it on import, so
 // `test/scripts/deprecation-hook.test.ts` can test it on a fake process.
@@ -27,10 +27,15 @@ function warningId(warning: Error): string {
   return typeof code === "string" && code !== "" ? code : warning.message;
 }
 
+/** Whether an exit code means success: unset or 0. */
+function succeeds(code: number | string | null | undefined): boolean {
+  return code === undefined || code === null || Number(code) === 0;
+}
+
 /**
  * Listens for warnings on `target`. On a DeprecationWarning that `allowed` does not list, it writes
- * the warning to `write` and sets a failing exit code, and keeps it failing if the process later
- * exits with code 0. Returns whether such a warning was seen so far.
+ * the warning to `write` and turns a successful exit code into 1, also if the process later exits
+ * with code 0; a failing code stays as it is. Returns whether such a warning was seen so far.
  */
 export function failOnDeprecation(
   target: NodeJS.EventEmitter & { exitCode?: number | string | null | undefined },
@@ -47,9 +52,11 @@ export function failOnDeprecation(
       return;
     }
     failed = true;
-    target.exitCode = 1;
+    if (succeeds(target.exitCode)) {
+      target.exitCode = 1;
+    }
     write(
-      `fail-on-deprecation: ${id} is not in ALLOWED_WARNINGS of scripts/deprecation-hook.ts; this process exits with code 1.\n${warning.stack ?? `${warning.name}: ${warning.message}`}\n`,
+      `fail-on-deprecation: ${id} is not in ALLOWED_WARNINGS of scripts/deprecation-hook.ts; this process fails.\n${warning.stack ?? `${warning.name}: ${warning.message}`}\n`,
     );
   });
   target.on("exit", (code: number) => {

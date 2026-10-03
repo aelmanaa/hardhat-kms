@@ -20,11 +20,14 @@ if (typeof module.registerHooks === "function" && process.env.IMPORT_RECORDER_AS
 } else {
   // Node 26 deprecates module.register (DEP0205), but Node 22.13 has nothing else, so the tests
   // force this path on purpose. Silence that one warning, so that the Node 26 CI leg, which fails
-  // on any DeprecationWarning (scripts/fail-on-deprecation.ts), does not count it.
+  // on any DeprecationWarning (scripts/fail-on-deprecation.mjs), does not count it.
   const noDeprecation = process.noDeprecation;
   process.noDeprecation = true;
-  module.register("./import-recorder-hooks.mjs", import.meta.url, { data: { log } });
-  process.noDeprecation = noDeprecation;
+  try {
+    module.register("./import-recorder-hooks.mjs", import.meta.url, { data: { log } });
+  } finally {
+    process.noDeprecation = noDeprecation;
+  }
 }
 
 // Asynchronous hooks do not see require(), so also list every CommonJS module loaded.

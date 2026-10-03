@@ -1,5 +1,5 @@
 // The runtime deprecation check of the Node 26 CI test leg (`scripts/deprecation-hook.ts`, preloaded
-// by `scripts/fail-on-deprecation.ts`): a DeprecationWarning that the allowlist does not list fails
+// by `scripts/fail-on-deprecation.mjs`): a DeprecationWarning that the allowlist does not list fails
 // the process, even one that later exits with code 0; an allowed one and other warnings do not.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -70,6 +70,14 @@ describe("failOnDeprecation", () => {
     assert.equal(target.exitCode, undefined);
   });
 
+  it("keeps a failing exit code the process already set", () => {
+    const { target } = install();
+    target.exitCode = 3;
+    target.emit("warning", deprecation("old API", "DEP9999"));
+    target.emit("exit", 3);
+    assert.equal(target.exitCode, 3);
+  });
+
   it("keeps the exit code failing when the process later sets it to 0", () => {
     const { target } = install();
     target.emit("warning", deprecation("old API", "DEP9999"));
@@ -86,8 +94,8 @@ describe("failOnDeprecation", () => {
   });
 });
 
-describe("scripts/fail-on-deprecation.ts", () => {
-  const preload = pathToFileURL(path.join(root, "scripts/fail-on-deprecation.ts")).href;
+describe("scripts/fail-on-deprecation.mjs", () => {
+  const preload = pathToFileURL(path.join(root, "scripts/fail-on-deprecation.mjs")).href;
   const run = (code: string): ReturnType<typeof spawnSync> =>
     spawnSync(process.execPath, ["--import", preload, "--input-type=module", "-e", code], {
       cwd: root,

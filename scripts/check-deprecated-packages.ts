@@ -152,7 +152,7 @@ export function classify(
       notes.push(`${key} is deprecated, in the development tree only: ${message}`);
     } else if (allowance === undefined) {
       problems.push(
-        `${key} is deprecated and in a published package's production tree (${chain}): ${message}`,
+        `${key} is deprecated and in a published package's production tree (${chain}): ${message.replace(/\.$/, "")}. Replace or update the dependency that brings it in; if no upstream release drops it, add it to ALLOWED in scripts/check-deprecated-packages.ts with the reason and the upstream link`,
       );
     } else {
       used.add(allowance.name);
@@ -189,9 +189,6 @@ function main(): void {
   }
   if (report.problems.length > 0) {
     process.stderr.write(`${report.problems.join("\n")}\n`);
-    process.stderr.write(
-      "Replace or update the dependency that brings it in. If no upstream fix exists, add it to ALLOWED with the reason and the upstream link.\n",
-    );
     process.exitCode = 1;
     return;
   }

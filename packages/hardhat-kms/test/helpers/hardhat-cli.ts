@@ -97,6 +97,19 @@ export interface HardhatRun {
 }
 
 /**
+ * `NODE_OPTIONS` without `--import tsx`.
+ *
+ * @param options - The test process's `NODE_OPTIONS`.
+ * @returns The other options, or `""`.
+ */
+function withoutTsx(options: string | undefined): string {
+  return (options ?? "")
+    .replaceAll(/(?:^|\s)--import[=\s]tsx(?=\s|$)/g, " ")
+    .trim()
+    .replaceAll(/\s+/g, " ");
+}
+
+/**
  * The environment of a Hardhat child: the test process's environment, without what would make the
  * run differ from a user's, then `extra`.
  *
@@ -110,8 +123,9 @@ export function hardhatEnv(extra: Record<string, string> = {}): NodeJS.ProcessEn
     // data would clash with the native runs of the same files.
     NODE_V8_COVERAGE: "",
     // CI adds --import tsx on Node 22.13 for the test runner. A user's shell does not, and the CLI
-    // does not need it: Hardhat registers tsx itself.
-    NODE_OPTIONS: "",
+    // does not need it: Hardhat registers tsx itself. Any other option stays, such as the
+    // deprecation preload of the Node 26 CI leg (scripts/fail-on-deprecation.mjs).
+    NODE_OPTIONS: withoutTsx(process.env["NODE_OPTIONS"]),
     HARDHAT_KMS: "",
     AWS_KMS_KEY_ID: "",
     AWS_KMS_KEY_IDS: "",

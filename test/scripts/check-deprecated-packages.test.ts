@@ -74,7 +74,7 @@ describe("classify", () => {
   it("fails on a new deprecated package in a production tree, and prints the rest", () => {
     const report = classify(deprecated, production, [NODE_DOMEXCEPTION]);
     assert.deepEqual(report.problems, [
-      "@scope/old-sdk@2.0.0 is deprecated and in a published package's production tree (@hardhat-kms/gcp > @scope/old-sdk): Use @scope/new-sdk instead, it's maintained",
+      "@scope/old-sdk@2.0.0 is deprecated and in a published package's production tree (@hardhat-kms/gcp > @scope/old-sdk): Use @scope/new-sdk instead, it's maintained. Replace or update the dependency that brings it in; if no upstream release drops it, add it to ALLOWED in scripts/check-deprecated-packages.ts with the reason and the upstream link",
     ]);
     assert.deepEqual(report.notes, [
       "node-domexception@1.0.0 is deprecated, allowed (@hardhat-kms/gcp > google-auth-library > fetch-blob > node-domexception): https://example.com/1",
