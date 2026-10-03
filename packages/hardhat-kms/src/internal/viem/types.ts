@@ -117,10 +117,11 @@ export interface KmsSignTransactionOptions {
  * A viem local account whose key is a KMS key, from `connection.kms.getAccount`. Pass it to
  * viem as `account`, or as the owner of a smart account.
  *
- * viem fills the account's transactions and sends them with `eth_sendRawTransaction` itself. With
- * a client whose transport is `custom(connection.provider)`, the account's `nonceManager` and the
- * plugin's send lock keep those sends and the plugin's own sends on distinct nonces. A client with
- * its own transport, such as `http(url)`, is not ordered. There is no retry cache for these sends.
+ * viem fills the account's transactions and sends them with `eth_sendRawTransaction` itself.
+ * Through `custom(connection.provider)`, the account's `nonceManager` and the plugin's send lock
+ * keep those sends and the plugin's own sends from one key on distinct nonces, one after the
+ * other. Not so for a client with its own transport, such as `http(url)`: only its nonce is
+ * reserved. These sends have no retry cache.
  *
  * After `connection.close()`, every method refuses before any KMS call.
  */
