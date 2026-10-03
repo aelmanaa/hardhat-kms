@@ -45,6 +45,7 @@ const PEER_FLOOR_TESTS: Readonly<Record<string, readonly string[]>> = {
     "test/unit/viem/nonce-manager.test.ts",
     "test/integration/get-account.test.ts",
     "test/integration/raw-send.test.ts",
+    "test/integration/library-send-cli.test.ts",
   ],
 };
 

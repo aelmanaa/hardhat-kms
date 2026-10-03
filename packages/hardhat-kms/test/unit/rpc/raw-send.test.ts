@@ -64,13 +64,14 @@ async function sendRaw(
   harness: SendHarness,
   connection: NetworkConnection<string>,
   raw: unknown,
+  method = "eth_sendRawTransaction",
 ): Promise<{ response: JsonRpcResponse; params: unknown[]; forwardedParams: unknown[] }> {
   const params = [raw];
-  const { response, forwarded } = await harness.call(connection, "eth_sendRawTransaction", params);
+  const { response, forwarded } = await harness.call(connection, method, params);
   assert.equal(forwarded.length, 1, "exactly one request reached the node");
   const [request] = forwarded;
   assert.ok(request !== undefined);
-  assert.equal(request.method, "eth_sendRawTransaction");
+  assert.equal(request.method, method);
   assert.ok(Array.isArray(request.params));
   return { response, params, forwardedParams: request.params };
 }
@@ -675,5 +676,221 @@ describe("a pending-count read for a KMS account", () => {
     resultOf(await sending);
     resultOf(await send(connection, { from: COW, to: TO }));
     assert.deepEqual(node.raw.map(nonceOf), [0n, 2n, 3n], "the reads changed nothing");
+  });
+});
+
+describe("eth_sendRawTransactionSync (EIP-7966) from a KMS account", () => {
+  const SYNC = "eth_sendRawTransactionSync";
+
+  it("raises the mark when the receipt comes back, and passes the receipt on unchanged", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const raw = cowRaw(0n);
+    const { response } = await sendRaw(harness, connection, raw, SYNC);
+    assert.deepEqual(resultOf(response), { transactionHash: hashOf(raw), status: "0x1" });
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("ends a library send's hold at its receipt", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const manager = await library(connection);
+    assert.equal(await manager.consume(), 0);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the plugin's send waits for the hold");
+    resultOf((await sendRaw(harness, connection, cowRaw(0n), SYNC)).response);
+    assert.equal(await settled(sending), true, "the hold ended at the receipt");
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("counts a timeout answer (code 4) as in the pool, ends the hold, and owes its reset", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const first = await library(connection);
+    assert.equal(await first.consume(), 0);
+    const raw = cowRaw(0n);
+    node.onRaw = async () =>
+      await Promise.resolve({
+        jsonrpc: "2.0" as const,
+        id: 1,
+        error: { code: 4, message: "wasn't processed in time", data: hashOf(raw) },
+      });
+    const answer = await sendRaw(harness, connection, raw, SYNC);
+    assert.equal(errorOf(answer.response).code, 4, "the answer comes back unchanged");
+    node.onRaw = undefined;
+    const second = await library(connection);
+    assert.equal(await second.consume(), 1, "the mark rose");
+    // viem resets after the timeout error; that reset is owed and leaves the second hold alone.
+    await first.reset();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the second library send still holds the lock");
+    resultOf((await sendRaw(harness, connection, cowRaw(1n), SYNC)).response);
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 2n]);
+  });
+
+  it("treats a refusal as the async method does: the nonce is free again", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const manager = await library(connection);
+    assert.equal(await manager.consume(), 0);
+    refuse(node, "nonce gap", 6);
+    errorOf((await sendRaw(harness, connection, cowRaw(0n), SYNC)).response);
+    node.onRaw = undefined;
+    await manager.reset();
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n]);
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("passes another sender's transaction on unchanged", async () => {
+    const harness = await setUp();
+    const connection = await openKnown(harness);
+    const raw = signedRaw(OTHER_SECRET, 0n);
+    const { response, params, forwardedParams } = await sendRaw(harness, connection, raw, SYNC);
+    resultOf(response);
+    assert.equal(forwardedParams, params);
+    assert.deepEqual(harness.node.methods, [SYNC]);
+  });
+});
+
+describe("a reset when a held send and own-transport reservations are both open", () => {
+  it("ends the reservation, not the hold of another consume", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const own = await library(connection, HTTP_CLIENT);
+    const through = await library(connection);
+    assert.equal(await own.consume(), 0, "X, reserved for an http client");
+    assert.equal(await through.consume(), 1, "Y, held for a custom client");
+    // X's send fails; viem resets with the address and chain only.
+    await own.reset();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the plugin's send still waits for Y");
+    resultOf((await sendRaw(harness, connection, cowRaw(1n))).response);
+    resultOf(await sending);
+    const nonces = node.raw.map(nonceOf);
+    assert.equal(new Set(nonces).size, nonces.length, "distinct nonces");
+    assert.deepEqual(nonces, [1n, 2n], "the plugin's send goes after Y's");
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("first ends the reservations the node already has, then ends the hold", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const own = await library(connection, HTTP_CLIENT);
+    const through = await library(connection);
+    assert.equal(await own.consume(), 0);
+    // The http client broadcast X; the node's pending count shows it.
+    node.pending = 1n;
+    assert.equal(await through.consume(), 1);
+    await through.reset();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), true, "Y's hold ended at its reset");
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [1n]);
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("keeps the reservations when the pending count cannot be read", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const own = await library(connection, HTTP_CLIENT);
+    const through = await library(connection);
+    assert.equal(await own.consume(), 0);
+    assert.equal(await through.consume(), 1);
+    let reads = 0;
+    // The fake node fails the pending read of the reset.
+    const original = Object.getOwnPropertyDescriptor(node, "pending");
+    assert.ok(original !== undefined);
+    Object.defineProperty(node, "pending", {
+      configurable: true,
+      get: () => {
+        reads++;
+        throw new Error("node down");
+      },
+    });
+    await through.reset();
+    Object.defineProperty(node, "pending", original);
+    assert.equal(reads, 1);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the reset took X's reservation; Y still holds");
+    resultOf((await sendRaw(harness, connection, cowRaw(1n))).response);
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [1n, 2n]);
+  });
+});
+
+describe("a library account's consume after a broadcast with no answer", () => {
+  it("looks the transaction up first, as a send through the plugin does", async () => {
+    const harness = await setUp();
+    const { node } = harness;
+    const connection = await openKnown(harness);
+    const raw = cowRaw(0n);
+    node.onRaw = async () => {
+      node.onRaw = undefined;
+      await Promise.resolve();
+      throw new Error("socket hang up");
+    };
+    await assert.rejects(sendRaw(harness, connection, raw), /socket hang up/);
+    // The node has it, though its pending count lags at 0.
+    node.lookUp = (hash) => (hash === hashOf(raw) ? { hash } : null);
+    node.methods.length = 0;
+    const manager = await library(connection);
+    assert.equal(await manager.consume(), 1, "past the transaction the node has");
+    assert.ok(node.methods.includes("eth_getTransactionByHash"));
+    await manager.reset();
+    assert.equal(sendLocksInUse(), 0);
+  });
+});
+
+describe("a library send's raw transaction on a connection that has not looked up its KMS addresses", () => {
+  it("still ends the hold, with no KMS call", async () => {
+    const harness = await setUp();
+    const { node, state, send } = harness;
+    const connection = await openKnown(harness);
+    const other = await harness.open();
+    const manager = await library(connection);
+    assert.equal(await manager.consume(), 0);
+    const signatures = state.signatures;
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false);
+    // The node counts it; the mark is per connection, and this one never saw it.
+    node.onRaw = async (raw) => {
+      node.onRaw = undefined;
+      node.pending = 1n;
+      return await Promise.resolve({ jsonrpc: "2.0" as const, id: 1, result: hashOf(raw) });
+    };
+    resultOf((await sendRaw(harness, other, cowRaw(0n))).response);
+    assert.equal(await settled(sending), true, "the hold ended at the raw transaction");
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+    assert.equal(state.signatures, signatures + 1, "only the plugin's send signed");
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("passes on a transaction from an address that holds nothing", async () => {
+    const harness = await setUp();
+    const { node } = harness;
+    const connection = await openKnown(harness);
+    const other = await harness.open();
+    const manager = await library(connection);
+    assert.equal(await manager.consume(), 0);
+    node.methods.length = 0;
+    const raw = signedRaw(OTHER_SECRET, 0n);
+    resultOf((await sendRaw(harness, other, raw)).response);
+    assert.ok(!node.methods.includes("eth_getTransactionByHash"));
+    await manager.reset();
+    assert.equal(sendLocksInUse(), 0);
   });
 });

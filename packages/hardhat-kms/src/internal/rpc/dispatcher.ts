@@ -28,12 +28,12 @@ import {
   SendOutcomeUnknownError,
   type SentTransaction,
   describeSendKey,
-  endLibraryHold,
   expectLibraryReset,
   holdForLibrary,
   holdsSendLock,
-  libraryHoldNonce,
-  resetLibraryHold,
+  libraryHoldOf,
+  libraryHoldsActive,
+  takeOwedLibraryReset,
   withSendLock,
 } from "./send-guard.ts";
 import { notPlainData, stringResult, type TransactionFiller } from "./transaction-filler.ts";
@@ -55,6 +55,11 @@ export interface NetworkKeys {
 /** The methods the dispatcher looks at; every other method passes through (rule 1). */
 const ACCOUNT_METHODS = new Set(["eth_accounts", "eth_requestAccounts"]);
 const TRANSACTION_METHODS = new Set(["eth_sendTransaction", "eth_signTransaction"]);
+/**
+ * The methods that broadcast a signed transaction: `eth_sendRawTransaction`, and its EIP-7966
+ * form that waits for the receipt, which viem's `sendTransactionSync` and `writeContractSync` use.
+ */
+const RAW_SEND_METHODS = new Set(["eth_sendRawTransaction", "eth_sendRawTransactionSync"]);
 
 /** The methods that name an account; a node or Hardhat refuses them for an account it lacks. */
 const SENDER_METHODS = new Set([
@@ -364,8 +369,8 @@ export async function dispatch(
     if (outcome.params !== undefined) {
       return await passThrough(accounts, { ...request, params: outcome.params }, next);
     }
-  } else if (request.method === "eth_sendRawTransaction") {
-    const raw = rawKmsTransaction(accounts, params);
+  } else if (RAW_SEND_METHODS.has(request.method)) {
+    const raw = rawKmsTransaction(accounts, request.method, params);
     if (raw !== undefined) {
       return await sendRawTransaction(request, raw, transactions, next);
     }
@@ -913,25 +918,35 @@ interface RawKmsTransaction {
   address: string;
   /** The raw transaction, its hash and its nonce. */
   transaction: SentTransaction;
+  /**
+   * Whether the connection has not looked up its KMS addresses, so the sender counts only when a
+   * library send of that address holds the lock on this chain.
+   */
+  heldOnly: boolean;
 }
 
 /**
- * Finds the KMS account that signed the raw transaction of an `eth_sendRawTransaction` request.
- * The sender is recovered only when the connection's KMS addresses have already been looked up,
- * as `connection.kms.getAccount`, a send or `eth_accounts` does; so a raw transaction never
- * causes a KMS call. Params that do not decode as a signed transaction give `undefined`, and the
- * request passes on unchanged.
+ * Finds the KMS account that signed the raw transaction of an `eth_sendRawTransaction` or
+ * `eth_sendRawTransactionSync` request. The sender is recovered when the connection's KMS
+ * addresses have already been looked up, as `connection.kms.getAccount`, a send or `eth_accounts`
+ * does, or when a library send holds a lock, which its raw transaction must end even when it
+ * reaches a connection that has not looked them up. So a raw transaction never causes a KMS call.
+ * Params that do not decode as a signed transaction give `undefined`, and the request passes on
+ * unchanged.
  *
  * @param accounts - The connection's KMS accounts.
+ * @param method - The request's method, for the debug output.
  * @param params - The request's params.
  * @returns The transaction, or `undefined` when it is not a KMS account's.
  */
 function rawKmsTransaction(
   accounts: ConnectionAccounts,
+  method: string,
   params: readonly unknown[],
 ): RawKmsTransaction | undefined {
   const [raw] = params;
-  if (typeof raw !== "string" || !accounts.hasKnownAddresses) {
+  const known = accounts.hasKnownAddresses;
+  if (typeof raw !== "string" || (!known && !libraryHoldsActive())) {
     return undefined;
   }
   let address: string;
@@ -942,15 +957,15 @@ function rawKmsTransaction(
     address = transaction.sender.toLowerCase();
     nonce = transaction.raw.nonce;
   } catch (error) {
-    log("eth_sendRawTransaction: the plugin cannot decode it (%s); passed on", errorName(error));
+    log("%s: the plugin cannot decode it (%s); passed on", method, errorName(error));
     return undefined;
   }
-  if (!accounts.isKnownKmsAccount(address)) {
+  if (known && !accounts.isKnownKmsAccount(address)) {
     return undefined;
   }
   const bytes = Buffer.from(raw.replace(/^0x/i, ""), "hex");
   const hash = `0x${Buffer.from(keccak_256(bytes)).toString("hex")}`;
-  return { address, transaction: { raw, hash, nonce } };
+  return { address, transaction: { raw, hash, nonce }, heldOnly: !known };
 }
 
 /**
@@ -977,15 +992,19 @@ async function sendRawTransaction(
   try {
     chainId = await transactions.chainId();
   } catch (error) {
-    log("eth_sendRawTransaction: the chain id is unknown (%s); passed on", errorName(error));
+    log("%s: the chain id is unknown (%s); passed on", request.method, errorName(error));
     return await next(request);
   }
   const key = `${chainId}:${raw.address}`;
+  const hold = libraryHoldOf(key);
+  if (raw.heldOnly && hold === undefined) {
+    return await next(request);
+  }
   if (holdsSendLock(key)) {
     throw catalogError(ERRORS.rawSendReentrant, { account: describeSendKey(key) });
   }
   const sends = transactions.sends();
-  if (libraryHoldNonce(key) === raw.transaction.nonce) {
+  if (hold?.nonce === raw.transaction.nonce) {
     // The library send that holds the lock for this nonce: it goes out as the holder.
     let failed = true;
     try {
@@ -993,7 +1012,12 @@ async function sendRawTransaction(
       failed = "error" in answer;
       return answer;
     } finally {
-      endLibraryHold(key, failed);
+      // viem resets the nonce manager after an error; that reset must not end another hold.
+      if (failed) {
+        expectLibraryReset(key);
+      }
+      // This hold only: after its time limit, another send may hold the lock by now.
+      hold.end();
     }
   }
   return await underSendLock(
@@ -1060,6 +1084,16 @@ export async function libraryNonce(
   if (!reserve) {
     return await choose();
   }
+  // Under the lock, as a send through the plugin does: a transaction whose broadcast got no
+  // answer is looked up first, so a node whose pending count lags cannot hand out its nonce.
+  const chooseForSend = async (): Promise<bigint> => {
+    await settleUncertain(
+      address,
+      sends,
+      async (hash) => await nodeHasTransaction(transactions, hash),
+    );
+    return await choose();
+  };
   const key = `${chainId}:${address}`;
   try {
     if (holdsSendLock(key)) {
@@ -1070,12 +1104,12 @@ export async function libraryNonce(
       );
     }
     if (!request.ownTransport) {
-      const nonce = await holdForLibrary(key, sends, choose);
+      const nonce = await holdForLibrary(key, sends, chooseForSend);
       log("%s: nonce %d given to a library account's send, which holds the lock", address, nonce);
       return nonce;
     }
     return await withSendLock(key, async () => {
-      const nonce = await choose();
+      const nonce = await chooseForSend();
       sends.reserve(address, nonce);
       log("%s: nonce %d reserved for a library account's own transport", address, nonce);
       return nonce;
@@ -1092,6 +1126,20 @@ export async function libraryNonce(
  * lock, or, for a client with its own transport, one reservation. A reset for another chain than
  * the connection's comes from a send that got no nonce from the plugin, and does nothing.
  *
+ * viem passes `reset` only the address and the chain, not the client or the nonce, so a reset
+ * cannot say which `consume` it follows. In order:
+ *
+ * 1. A reset owed by a send that holds nothing any more (its `consume` failed, or its broadcast
+ *    failed) is used up.
+ * 2. With no reservation of the sender on this connection, the reset is the hold's.
+ * 3. With reservations and a hold, the reservations whose nonce the node already has (below its
+ *    pending count) are ended first: their sends are past their broadcast and cannot fail.
+ * 4. A reservation that is left takes the reset, and the hold stays. A reservation's send
+ *    started before the hold took the lock, so it may well fail while the hold lasts. Ending the
+ *    hold instead would let a send through the plugin take the held nonce before its raw
+ *    transaction goes out. The cost of a wrong guess is the other way round: a held send that
+ *    failed keeps the lock until its 60 s limit, or until the reservation's own reset comes.
+ *
  * @param transactions - The connection's send state.
  * @param address - The account's lowercase address.
  * @param chainId - The chain viem names.
@@ -1104,8 +1152,31 @@ export async function resetLibraryNonce(
   if (chainId !== (await transactions.chainId())) {
     return;
   }
-  if (!resetLibraryHold(`${chainId}:${address}`)) {
-    transactions.sends().resetReservation(address);
+  const key = `${chainId}:${address}`;
+  if (takeOwedLibraryReset(key)) {
+    return;
+  }
+  const sends = transactions.sends();
+  const hold = libraryHoldOf(key);
+  if (hold !== undefined && sends.hasReservations(address)) {
+    try {
+      const count = await transactions.request("eth_getTransactionCount", [address, "pending"]);
+      sends.releaseReservationsBelow(
+        address,
+        hexStringToBigInt(stringResult(count, "eth_getTransactionCount", "nonceManager.reset")),
+      );
+    } catch (error) {
+      log(
+        "%s: nonceManager.reset could not read the pending count (%s)",
+        address,
+        errorName(error),
+      );
+    }
+  }
+  if (sends.hasReservations(address)) {
+    sends.resetReservation(address);
+  } else {
+    hold?.end();
   }
 }
 
@@ -1137,9 +1208,16 @@ async function underSendLock(
 }
 
 /**
+ * The error code of an `eth_sendRawTransactionSync` answer (EIP-7966) that says the transaction
+ * is in the node's pool but no receipt came within the timeout.
+ */
+const SYNC_TIMEOUT_CODE = 4;
+
+/**
  * Sends a raw transaction on with one `next`, and records what the answer says about its nonce.
- * Accepted, mined with an error, or "already known" means the node has it: the mark rises and the
- * nonce's reservation ends. Any other outcome marks the reservation failed, so the client's
+ * Accepted (a hash, or the receipt of `eth_sendRawTransactionSync`), mined with an error, "already
+ * known", or EIP-7966's timeout (code 4: in the pool, no receipt yet) means the node has it: the
+ * mark rises and the nonce's reservation ends. Any other outcome marks the reservation failed, so the client's
  * `reset` after its error ends that one; an uncertain answer or no answer also makes it the
  * uncertain transaction. Unlike {@link broadcast}, nothing is wrapped or kept for a retry: the
  * caller holds the bytes and can send them again.
@@ -1159,7 +1237,11 @@ async function broadcastRaw(
   const learn = (error: Record<string, unknown>): void => {
     const message = typeof error.message === "string" ? error.message : "";
     const code = typeof error.code === "number" ? error.code : 0;
-    if (minedHashOf(error) !== undefined || isAlreadyKnown(message)) {
+    if (
+      minedHashOf(error) !== undefined ||
+      isAlreadyKnown(message) ||
+      (request.method === "eth_sendRawTransactionSync" && code === SYNC_TIMEOUT_CODE)
+    ) {
       nodeHasIt();
       return;
     }

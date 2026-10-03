@@ -241,7 +241,7 @@ const keepAliveTimers: Timers = {
  * Takes the send lock for a library account's send and keeps it after `choose` returns: viem
  * signs and sends the transaction with the chosen nonce itself, in later requests. The hold ends
  * when that raw transaction is broadcast ({@link endLibraryHold}), when viem's `reset` reports
- * that the send failed ({@link resetLibraryHold}), when the owner's connection closes, or after
+ * that the send failed (`resetLibraryNonce` in the dispatcher), when the owner's connection closes, or after
  * {@link LIBRARY_HOLD_MS}. Sends that wait behind it wait as they wait behind any send.
  *
  * When the lock cannot be had, or `choose` fails, nothing is held and the error is thrown.
@@ -294,13 +294,23 @@ export async function holdForLibrary(
 }
 
 /**
- * The nonce of the library send that holds a key's lock.
+ * The library send that holds a key's lock.
  *
  * @param key - The lock key.
- * @returns The nonce, or `undefined` when no library send holds it.
+ * @returns Its nonce and how to end it, or `undefined` when no library send holds the lock. The
+ * same object is returned while the same send holds the lock.
  */
-export function libraryHoldNonce(key: string): bigint | undefined {
-  return libraryHolds.get(key)?.nonce;
+export function libraryHoldOf(key: string): Pick<LibraryHold, "nonce" | "end"> | undefined {
+  return libraryHolds.get(key);
+}
+
+/**
+ * Tells whether any library send holds a lock, on any connection.
+ *
+ * @returns Whether one does.
+ */
+export function libraryHoldsActive(): boolean {
+  return libraryHolds.size > 0;
 }
 
 /**
@@ -327,25 +337,23 @@ export function expectLibraryReset(key: string): void {
 }
 
 /**
- * Handles viem's `reset` for a key: one owed by a send that no longer holds the lock is used up;
- * otherwise the current hold ends, since its send failed before its broadcast.
+ * Uses up one viem `reset` owed by a library send that no longer holds the lock (its nonce choice
+ * failed, or its broadcast failed), so that it ends no other send's hold.
  *
  * @param key - The lock key.
- * @returns Whether the reset was for a library hold, held or past.
+ * @returns Whether a reset was owed.
  */
-export function resetLibraryHold(key: string): boolean {
+export function takeOwedLibraryReset(key: string): boolean {
   const owed = pendingResets.get(key) ?? 0;
-  if (owed > 0) {
-    if (owed === 1) {
-      pendingResets.delete(key);
-    } else {
-      pendingResets.set(key, owed - 1);
-    }
-    return true;
+  if (owed === 0) {
+    return false;
   }
-  const hold = libraryHolds.get(key);
-  hold?.end();
-  return hold !== undefined;
+  if (owed === 1) {
+    pendingResets.delete(key);
+  } else {
+    pendingResets.set(key, owed - 1);
+  }
+  return true;
 }
 
 /**
@@ -570,6 +578,29 @@ export class ConnectionSends {
    */
   public releaseReservation(from: string, nonce: bigint): void {
     this.#reservations.get(from)?.delete(nonce);
+  }
+
+  /**
+   * Tells whether the sender has reservations that still count.
+   *
+   * @param from - The sender's lowercase address.
+   * @returns Whether it has.
+   */
+  public hasReservations(from: string): boolean {
+    return this.#live(from).size > 0;
+  }
+
+  /**
+   * Ends the reservations of nonces below the node's pending count: the node has a transaction
+   * with each of them, so their sends are past their broadcast.
+   *
+   * @param from - The sender's lowercase address.
+   * @param pending - The node's pending transaction count for the sender.
+   */
+  public releaseReservationsBelow(from: string, pending: bigint): void {
+    if (pending > 0n) {
+      this.releaseReservationsUpTo(from, pending - 1n);
+    }
   }
 
   /**

@@ -161,11 +161,18 @@ export async function setUp(type: "http" | "edr-simulated" = "http"): Promise<Se
         return ok({ raw: "0x", tx: { nonce: `0x${node.pending.toString(16)}` } });
       case "eth_getTransactionByHash":
         return ok(node.lookUp(Array.isArray(request.params) ? request.params[0] : undefined));
-      case "eth_sendRawTransaction": {
+      case "eth_sendRawTransaction":
+      case "eth_sendRawTransactionSync": {
         const [raw]: unknown[] = Array.isArray(request.params) ? request.params : [];
         assert.ok(typeof raw === "string");
         node.raw.push(raw);
-        return node.onRaw === undefined ? ok(hashOf(raw)) : await node.onRaw(raw, request);
+        if (node.onRaw !== undefined) {
+          return await node.onRaw(raw, request);
+        }
+        // EIP-7966: the sync form answers with the receipt.
+        return request.method === "eth_sendRawTransaction"
+          ? ok(hashOf(raw))
+          : ok({ transactionHash: hashOf(raw), status: "0x1" });
       }
       default:
         throw new Error(`the fake node does not answer ${request.method}`);

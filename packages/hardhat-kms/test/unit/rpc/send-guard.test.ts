@@ -13,10 +13,11 @@ import {
   expectLibraryReset,
   holdForLibrary,
   LIBRARY_HOLD_MS,
-  libraryHoldNonce,
+  libraryHoldOf,
+  libraryHoldsActive,
   MAX_SEND_LOCK_WAITERS,
   RESERVATION_MS,
-  resetLibraryHold,
+  takeOwedLibraryReset,
   RETRY_TTL_MS,
   SEND_LOCK_STALL_MS,
   sendLocksInUse,
@@ -687,6 +688,25 @@ describe("ConnectionSends nonce reservations", () => {
     sends.releaseReservationsUpTo(ZERO, 1n);
   });
 
+  it("tells whether live reservations exist, and ends those below the node's pending count", () => {
+    const { sends, clock } = withClock();
+    assert.equal(sends.hasReservations(COW), false);
+    sends.reserve(COW, 1n);
+    sends.reserve(COW, 3n);
+    assert.equal(sends.hasReservations(COW), true);
+    assert.equal(sends.hasReservations(ZERO), false);
+    sends.releaseReservationsBelow(COW, 0n);
+    sends.releaseReservationsBelow(COW, 1n);
+    assert.equal(sends.nonceFor(COW, 0n), 4n, "the node has no transaction with 1 yet");
+    sends.releaseReservationsBelow(COW, 3n);
+    assert.equal(sends.nonceFor(COW, 0n), 4n, "3 is still reserved");
+    sends.releaseReservationsBelow(COW, 4n);
+    assert.equal(sends.hasReservations(COW), false);
+    sends.reserve(COW, 5n);
+    clock.now += RESERVATION_MS;
+    assert.equal(sends.hasReservations(COW), false, "an expired one does not count");
+  });
+
   it("resets the newest failed reservation, else the newest unsigned one, else the newest", () => {
     const { sends } = withClock();
     for (const nonce of [1n, 2n, 3n, 4n]) {
@@ -737,7 +757,7 @@ describe("library holds", () => {
     const owner = {};
     const nonce = await holdForLibrary(KEY, owner, async () => await Promise.resolve(4n), timers);
     assert.equal(nonce, 4n);
-    assert.equal(libraryHoldNonce(KEY), 4n);
+    assert.equal(libraryHoldOf(KEY)?.nonce, 4n);
     let ran = false;
     const waiting = withSendLock(KEY, async () => {
       ran = true;
@@ -750,8 +770,13 @@ describe("library holds", () => {
     endLibraryHold(KEY, false);
     await waiting;
     assert.equal(ran, true);
-    assert.equal(libraryHoldNonce(KEY), undefined);
-    assert.equal(resetLibraryHold(KEY), false, "no reset is owed for a broadcast that went out");
+    assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
+    assert.equal(
+      takeOwedLibraryReset(KEY),
+      false,
+      "no reset is owed for a broadcast that went out",
+    );
+    assert.equal(libraryHoldsActive(), false);
     assert.equal(sendLocksInUse(), 0);
   });
 
@@ -762,7 +787,7 @@ describe("library holds", () => {
     await withSendLock(KEY, async () => {
       await Promise.resolve();
     });
-    assert.equal(libraryHoldNonce(KEY), undefined);
+    assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
   });
 
   it("uses up the resets owed by failed sends before it ends a hold", async () => {
@@ -774,12 +799,13 @@ describe("library holds", () => {
     await holdForLibrary(KEY, {}, async () => await Promise.resolve(3n), timers);
     // Owed: the first expected reset, the failed broadcast of 2, and the second expected reset.
     for (let i = 0; i < 3; i++) {
-      assert.equal(resetLibraryHold(KEY), true, "owed");
-      assert.equal(libraryHoldNonce(KEY), 3n, "the hold is still there");
+      assert.equal(takeOwedLibraryReset(KEY), true, "owed");
+      assert.equal(libraryHoldOf(KEY)?.nonce, 3n, "the hold is still there");
     }
-    assert.equal(resetLibraryHold(KEY), true, "the hold's own reset");
-    assert.equal(libraryHoldNonce(KEY), undefined);
-    assert.equal(resetLibraryHold(KEY), false);
+    assert.equal(takeOwedLibraryReset(KEY), false, "the next reset is the hold's own");
+    assert.equal(libraryHoldsActive(), true);
+    libraryHoldOf(KEY)?.end();
+    assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(sendLocksInUse(), 0);
   });
@@ -792,8 +818,8 @@ describe("library holds", () => {
     await holdForLibrary(KEY, mine, async () => await Promise.resolve(1n), timers);
     await holdForLibrary(otherKey, other, async () => await Promise.resolve(1n), timers);
     endLibraryHoldsOf(mine);
-    assert.equal(libraryHoldNonce(KEY), undefined);
-    assert.equal(libraryHoldNonce(otherKey), 1n);
+    assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
+    assert.equal(libraryHoldOf(otherKey)?.nonce, 1n);
     endLibraryHoldsOf(other);
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(sendLocksInUse(), 0);
@@ -806,7 +832,7 @@ describe("library holds", () => {
       }),
       /no node/,
     );
-    assert.equal(libraryHoldNonce(KEY), undefined);
+    assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
     assert.equal(sendLocksInUse(), 0);
   });
 
