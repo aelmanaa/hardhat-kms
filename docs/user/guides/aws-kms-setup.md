@@ -66,7 +66,7 @@ aws iam attach-user-policy --user-name <user name> --policy-arn <Policy.Arn from
 
 The policy's two KMS permissions, `kms:GetPublicKey` and `kms:Sign`, have not yet been checked alone against real AWS KMS: the plugin's live tests ran with an administrator identity.
 
-Credentials come from the AWS SDK's default chain: environment variables, `~/.aws` profiles and SSO, or the role of the machine or CI job. A key's `profile` option picks a named profile.
+Credentials come from the AWS SDK's default chain: access keys in the environment, then a `~/.aws` profile or SSO session, then a web identity token, then the role of the container or machine. A key's `profile` option picks a named profile. A profile, from `profile` or `AWS_PROFILE`, makes the SDK ignore access keys in the environment. A CI job that exports keys therefore needs a config without `profile`; on a laptop, set `AWS_PROFILE` instead. An alias names a key in the credentials' own account and region, so pin the key's `address`. [Credentials](../reference/configuration.md#aws) gives the full order and both rules.
 
 ## 3. Install the plugin and configure the key
 

@@ -164,22 +164,42 @@ In this order, hardhat-kms gives a raw `eth_sendTransaction` request without `fr
 
 ## Credentials
 
-No secrets live in the Hardhat config. Each provider takes credentials from its SDK's default chain:
+No secrets live in the Hardhat config. On AWS and Google Cloud the plugin passes no credentials, so the cloud's SDK walks its own chain of sources and uses the first one that is configured. On Azure the plugin builds the chain listed below. The lists give the order in which sources are tried.
 
-- AWS uses the SDK default chain: environment, then SSO/ini/profile, then process, then web identity, then IMDS/ECS.
-- GCP uses Application Default Credentials: `gcloud auth application-default login`, `GOOGLE_APPLICATION_CREDENTIALS`, or the service account of the machine or CI job.
-- Azure builds the chain below, which follows the order proposed for Foundry's Azure Key Vault signer in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120) (service principal, workload identity, `az`/`azd`, managed identity). No Foundry release includes that signer yet. The code is `packages/hardhat-kms-azure/src/internal/credential.ts`.
+### AWS
 
-<!-- docs-check: skip -->
+1. Access keys in the environment: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, with `AWS_SESSION_TOKEN` for temporary keys. Skipped whenever a profile is set; see below.
+2. The profile in `~/.aws/config` and `~/.aws/credentials` named by the key's `profile`, else by `AWS_PROFILE`, else `default`. A profile can hold access keys, an SSO session (`aws sso login`), an `aws login` session, a role to assume, a `credential_process` command or a web identity token file.
+3. A web identity token: `AWS_WEB_IDENTITY_TOKEN_FILE` with `AWS_ROLE_ARN`, as EKS sets for IAM roles for service accounts.
+4. Container credentials when `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` or `AWS_CONTAINER_CREDENTIALS_FULL_URI` is set (an ECS task role, EKS Pod Identity). Otherwise the EC2 instance role, unless `AWS_EC2_METADATA_DISABLED` is set.
 
-```ts
-new ChainedTokenCredential(
-  new EnvironmentCredential(),
-  new WorkloadIdentityCredential(), // only when its variables are set
-  new AzureCliCredential(),
-  new AzureDeveloperCliCredential(),
-  new ManagedIdentityCredential({ clientId: AZURE_CLIENT_ID, httpClient }), // 3 s per request, 10 s in all
-);
-```
+**A profile skips the environment keys.** When a key sets `profile`, or `AWS_PROFILE` is set, the AWS SDK for JavaScript ignores `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. If they are set, it prints a warning once per process, which names `AWS_PROFILE` even when the profile comes from the key's `profile`. A CI job that exports keys, as `aws-actions/configure-aws-credentials` does, then looks for the profile instead. It finds none and fails, or signs as whatever identity a later source returns, such as the runner's instance role. Keep `profile` out of a config that CI runs, and set `AWS_PROFILE` on the laptop instead. Foundry differs here: the AWS SDK for Rust uses the environment keys even when `AWS_PROFILE` is set.
+
+**An alias or a bare key id names a key in the credentials' own account and in the key's region.** That region is the one in a key ARN, then the key's `region`, then `kms.defaults.aws.region`, then the SDK's own (`AWS_REGION`, then the profile's region). The AWS KMS API reaches another account's key only through a key ARN or an alias ARN. Other credentials, or another region, can therefore find a different key under the same alias, and sign with it. An [`address` pin](#configuration) catches this: the plugin refuses to sign when the key derives to another address. A key ARN fixes both the account and the region.
+
+Each AWS key can set its own `profile`, so the keys of one run can sign with different credentials. `--kms aws` keys have no `profile` of their own and follow `AWS_PROFILE`.
+
+### Google Cloud
+
+Application Default Credentials (ADC):
+
+1. The JSON file named by `GOOGLE_APPLICATION_CREDENTIALS`: a service account key, or a workload identity federation config (`external_account`) such as the one `google-github-actions/auth` writes. If the variable names a file that is missing or cannot be read, the run fails; ADC does not fall back to the next source.
+2. `application_default_credentials.json`, which `gcloud auth application-default login` writes, in the directory named by `CLOUDSDK_CONFIG`, else `~/.config/gcloud` (`%APPDATA%\gcloud` on Windows). Signing in with `--impersonate-service-account` makes it an impersonated service account.
+3. The metadata server, on Google Cloud: the service account attached to the VM, GKE workload or Cloud Run service.
+
+Either file can hold a service account key, a user, an impersonated service account or an `external_account` config. `GOOGLE_CLOUD_QUOTA_PROJECT` sets the quota project. The plugin does not use the account of `gcloud auth login`, nor gcloud settings such as `auth/impersonate_service_account`.
+
+### Azure
+
+The plugin builds its own chain rather than `DefaultAzureCredential`, in the order proposed for Foundry's Azure Key Vault signer in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120). No Foundry release includes that signer yet. The code is `packages/hardhat-kms-azure/src/internal/credential.ts`.
+
+1. `EnvironmentCredential`, when `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set with one of: `AZURE_CLIENT_SECRET` for a service principal secret, or `AZURE_CLIENT_CERTIFICATE_PATH`, with `AZURE_CLIENT_CERTIFICATE_PASSWORD` for a protected certificate. The secret wins over the certificate. `EnvironmentCredential` also signs in a user from `AZURE_USERNAME` and `AZURE_PASSWORD`; Microsoft has deprecated that sign-in because it cannot do multi-factor authentication, so do not use it for a signing key.
+2. `WorkloadIdentityCredential`, when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_FEDERATED_TOKEN_FILE` are set, as AKS sets them for workload identity.
+3. `AzureCliCredential` (`az login`, or the `azure/login` action in GitHub Actions), then `AzureDeveloperCliCredential` (`azd auth login`).
+4. `ManagedIdentityCredential`, user-assigned when `AZURE_CLIENT_ID` is set.
 
 `AZURE_CLIENT_ID` selects a user-assigned managed identity. The managed identity has 10 s to return a token, after which it counts as unavailable, and each of its HTTP requests times out after 3 s. @azure/identity does not pass an abort signal on to those requests, so the request timeout is what ends one to an endpoint that never answers and lets `hardhat run` exit. Where the managed identity refuses a client id (Azure Cloud Shell, Service Fabric), it is left out of the chain. A source that is not configured is skipped; a configured source that fails, such as a service principal with a wrong secret, stops the chain with its error. All Azure keys of a run share the chain and its tokens, so `az login` users see one `az` call per run, not one per key. See [Set up an Azure Key Vault key](../guides/azure-key-vault-setup.md#3-sign-in).
+
+### One identity per run on Google Cloud and Azure
+
+Only AWS keys can choose their credentials, with `profile`. No config field selects a credential on Google Cloud or Azure: every Google Cloud key of a run signs as the ADC identity, and every Azure key as the first source in the Azure chain that returns a token. `kms history` reads with the same identity. To sign as two identities, run Hardhat twice with different environments.
