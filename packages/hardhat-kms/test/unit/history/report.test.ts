@@ -338,6 +338,48 @@ describe("buildHistoryReport", () => {
     );
   });
 
+  it("masks a 6-character scope id in extra, notes and user agents, and not in principals", () => {
+    const event = historyEvent({
+      principal: "sa@my-prj.iam.gserviceaccount.com",
+      userAgent: "gcloud/1.0 project/my-prj",
+      extra: { project: "my-prj", resource: "projects/my-prj/locations/global", word: "my-prjx" },
+    });
+    const report = buildHistoryReport(
+      input({
+        result: historyResult({
+          events: [event],
+          scope: { description: "one project", ids: { project: "my-prj" } },
+        }),
+        notes: [{ code: "reader-note", message: "read project MY-PRJ" }],
+      }),
+    );
+    const [entry] = report.events;
+
+    assert.equal(entry?.userAgent, "gcloud/1.0 project/<hidden>");
+    assert.deepEqual(entry?.extra, {
+      project: "<hidden>",
+      resource: "projects/<hidden>/locations/global",
+      word: "my-prjx",
+    });
+    assert.equal(report.notes[0]?.message, "read project <hidden>");
+    assert.equal(report.scope, "project <hidden>, one project");
+    // Scope ids are shown in principals, as for longer ids.
+    assert.equal(entry?.principal, "sa@my-prj.iam.gserviceaccount.com");
+  });
+
+  it("masks a short extraIds value inside a principal, as a longer one is", () => {
+    const event = historyEvent({
+      principal: "arn:aws:sts::111122223333:assumed-role/deployer/alice1",
+      extraIds: { sourceIdentity: "alice1" },
+    });
+    const report = buildHistoryReport(input({ result: historyResult({ events: [event] }) }));
+
+    assert.equal(
+      report.events[0]?.principal,
+      "arn:aws:sts::111122223333:assumed-role/deployer/<hidden>",
+    );
+  });
+
   it("prints the scope with its ids hidden, and in full with --show-ids", () => {
     const result = historyResult({
       scope: { description: `us-east-1 ${PLACEHOLDERS.keyArn}`, ids: { account: "999988887777" } },
