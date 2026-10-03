@@ -22,8 +22,10 @@ Create a project from Hardhat's viem template in an empty directory:
 ```sh
 mkdir kms-tutorial
 cd kms-tutorial
-npx hardhat@latest --init --template node-test-runner-viem
+npx --yes hardhat@latest --init --template node-test-runner-viem
 ```
+
+`--yes` lets npx download Hardhat without asking first.
 
 The template has a `Counter` contract, the Ignition module `ignition/modules/Counter.ts` that deploys it, and a `sepolia` network. It also installs `@nomicfoundation/hardhat-verify`, which verifies contracts on block explorers.
 
@@ -84,7 +86,7 @@ KEY_ID=$(az keyvault key show --vault-name "$VAULT" --name hardhat-kms-tutorial 
 echo "$KEY_ID"
 ```
 
-`KEY_ID` is the versioned id of the key, `https://<vault name>.vault.azure.net/keys/hardhat-kms-tutorial/` and 32 hex digits. Keep this shell open: step 3 and step 8 use `VAULT` and `KEY_ID`.
+`KEY_ID` is the versioned id of the key, `https://<vault name>.vault.azure.net/keys/hardhat-kms-tutorial/` and 32 hex digits. Keep this shell open: the next steps use `VAULT`, `VAULT_ID` and `KEY_ID`.
 
 ## 3. Allow the key to sign, and nothing else
 
@@ -135,7 +137,7 @@ allowBuilds:
   esbuild: false
 ```
 
-Replace `hardhat.config.ts` with the file below, with the id that `echo "$KEY_ID"` printed in place of the `keyId` value. Compared with the template, it adds `hardhatKmsAzure` to `plugins`, adds a `kms` section with the key, gives the `sepolia` network `kmsAccounts` instead of `accounts`, so no private key is in the project, and turns Etherscan verification off:
+Replace `hardhat.config.ts` with the file below. Compared with the template, it adds `hardhatKmsAzure` to `plugins`, adds a `kms` section with the key, gives the `sepolia` network `kmsAccounts` instead of `accounts`, so no private key is in the project, and turns Etherscan verification off. The key id comes from the variable `AZURE_KEY_ID`, so the vault name stays out of the file:
 
 ```ts
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
@@ -169,7 +171,7 @@ export default defineConfig({
     keys: {
       deployer: {
         provider: "azure",
-        keyId: "https://<vault name>.vault.azure.net/keys/hardhat-kms-tutorial/<version>",
+        keyId: configVariable("AZURE_KEY_ID"),
       },
     },
   },
@@ -194,69 +196,44 @@ export default defineConfig({
 
 Etherscan needs an API key, and without one its verification fails. To verify on Etherscan too, get a key from [Etherscan](https://etherscan.io/apis), store it with `npx hardhat keystore set ETHERSCAN_API_KEY` or `export ETHERSCAN_API_KEY=…`, and replace `enabled: false` with `apiKey: configVariable("ETHERSCAN_API_KEY")`.
 
+Every command that uses the key needs `AZURE_KEY_ID`. Set it from step 2's `KEY_ID`:
+
+```sh
+export AZURE_KEY_ID="$KEY_ID"
+```
+
+In a new shell, set `VAULT`, `KEY_ID` and `AZURE_KEY_ID` again first, with the vault name that step 2 printed:
+
+```sh
+VAULT=<vault name>
+KEY_ID=$(az keyvault key show --vault-name "$VAULT" --name hardhat-kms-tutorial --query key.kid --output tsv)
+export AZURE_KEY_ID="$KEY_ID"
+```
+
+`az keyvault key show` returns the latest version of the key, which is the one you created unless someone rotated the key; once the address is pinned below, the plugin refuses any other version.
+
 Set the RPC URL, then ask Key Vault for the key's address:
 
 ```sh
 export SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
-npx hardhat kms address deployer
+DEPLOYER_ADDRESS=$(npx hardhat kms address deployer)
+echo "$DEPLOYER_ADDRESS"
 ```
 
-It prints the key's address, `0x` and 40 hex digits. Pin it: add an `address` line to the `deployer` key, with the address you got in place of `<deployer address>`:
+It prints the key's address, `0x` and 40 hex digits. Steps 5 and 6 use `DEPLOYER_ADDRESS`; in a new shell, run the same command again first. Pin the address: in `hardhat.config.ts`, add an `address` line to the `deployer` key, with the address in place of `<deployer address>`. The rest of the file stays the same:
+
+<!-- docs-check: skip -->
 
 ```ts
-import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
-import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAzure from "@hardhat-kms/azure";
-
-export default defineConfig({
-  plugins: [hardhatToolboxViemPlugin, hardhatKmsAzure],
-  solidity: {
-    profiles: {
-      default: {
-        version: "0.8.34",
-      },
-      production: {
-        version: "0.8.34",
-        settings: {
-          optimizer: {
-            enabled: true,
-            runs: 200,
-          },
-        },
-      },
-    },
-  },
-  verify: {
-    etherscan: {
-      enabled: false,
-    },
-  },
   kms: {
     keys: {
       deployer: {
         provider: "azure",
-        keyId: "https://<vault name>.vault.azure.net/keys/hardhat-kms-tutorial/<version>",
+        keyId: configVariable("AZURE_KEY_ID"),
         address: "<deployer address>",
       },
     },
   },
-  networks: {
-    hardhatMainnet: {
-      type: "edr-simulated",
-      chainType: "l1",
-    },
-    hardhatOp: {
-      type: "edr-simulated",
-      chainType: "op",
-    },
-    sepolia: {
-      type: "http",
-      chainType: "l1",
-      url: configVariable("SEPOLIA_RPC_URL"),
-      kmsAccounts: ["deployer"],
-    },
-  },
-});
 ```
 
 The versioned id keeps the project on this version of the key if someone rotates it, and with the pin the plugin refuses to sign if the id ever names another key. [Rotate a key and pin its address](../guides/key-rotation.md#what-a-pin-does) explains why.
@@ -269,12 +246,52 @@ The address belongs to the Key Vault key alone. If the key is purged, any funds 
 
 To see the balance, open the address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com).
 
+To try the deployment before you fund the address, rehearse it on a local fork of Sepolia. In `hardhat.config.ts`, add `simulatedBalance` to the `kms` section and a `sepoliaFork` network:
+
+<!-- docs-check: skip -->
+
+```ts
+  kms: {
+    // The deployer's balance on simulated networks such as sepoliaFork. Sepolia ignores it.
+    simulatedBalance: 10n ** 18n,
+    keys: {
+      // The deployer key, unchanged.
+    },
+  },
+  networks: {
+    // The other networks, unchanged.
+    sepoliaFork: {
+      type: "edr-simulated",
+      forking: { url: configVariable("SEPOLIA_RPC_URL") },
+      kmsAccounts: ["deployer"],
+    },
+  },
+```
+
+Then run step 6's command with `--network sepoliaFork`, and without `--verify`:
+
+```sh
+npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender "$DEPLOYER_ADDRESS"
+```
+
+The plugin signs with the real key, so the rehearsal also checks the key and its permissions. Each transaction costs one Key Vault signing call, plus one public key read per run. The rehearsal took about a minute in a test run, most of it spent fetching Sepolia's state, and ends like this, with a `Counter` address that exists only in the fork:
+
+```text
+[ CounterModule ] successfully deployed 🚀
+
+Deployed Addresses
+
+CounterModule#Counter - <contract address>
+```
+
+The fork ends with the command, so no explorer can verify the contract. [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network) has more.
+
 ## 6. Deploy and verify
 
 Deploy the module from the deployer address, and verify the contract, in one command:
 
 ```sh
-npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --verify --default-sender <deployer address>
+npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --verify --default-sender "$DEPLOYER_ADDRESS"
 ```
 
 Ignition asks you to confirm the network; answer `y`. Each transaction costs one Key Vault `sign` operation. Naming the sender by its address keeps the deployer the same when you add accounts or keys to the network later; [Choose the sender by address](../guides/multiple-keys.md#choose-the-sender-by-address) explains why.
@@ -353,7 +370,7 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 ## 8. Clean up
 
-When you are done, send the remaining Sepolia ETH back, then disable the key, delete it, and delete the vault.
+When you are done, send the remaining Sepolia ETH back, then disable the key, delete it, and delete the vault. In a new shell, set `SEPOLIA_RPC_URL` and `AZURE_KEY_ID` again first, as in step 4: the script loads the config, which reads them.
 
 Save this script as `scripts/return-funds.ts`. It reads the deployer address from the pin, and sends the whole balance, less the fee, to the address in `RETURN_TO`. It refuses the zero address, the deployer address and any address with code. It also checks that the transfer succeeded:
 
@@ -362,7 +379,13 @@ Save this script as `scripts/return-funds.ts`. It reads the deployer address fro
 import "@nomicfoundation/hardhat-viem";
 import "hardhat-kms";
 import hre from "hardhat";
-import { formatEther, isAddress, isAddressEqual, zeroAddress } from "viem";
+import {
+  WaitForTransactionReceiptTimeoutError,
+  formatEther,
+  isAddress,
+  isAddressEqual,
+  zeroAddress,
+} from "viem";
 
 /**
  * Sends the deployer's balance, less the fee, to RETURN_TO.
@@ -418,7 +441,16 @@ async function returnFunds(): Promise<string | undefined> {
     maxFeePerGas,
     maxPriorityFeePerGas,
   });
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  // viem waits up to 3 minutes for the receipt, then throws this error.
+  const receipt = await publicClient.waitForTransactionReceipt({ hash }).catch((error: unknown) => {
+    if (error instanceof WaitForTransactionReceiptTimeoutError) {
+      return undefined;
+    }
+    throw error;
+  });
+  if (receipt === undefined) {
+    return `the transfer ${hash} is not confirmed yet and may still go through; look it up on a Sepolia explorer before you run the script again`;
+  }
   if (receipt.status !== "success") {
     return `the transfer reverted in ${hash}; only the fee was spent, and the rest is still at ${from}`;
   }
@@ -441,28 +473,23 @@ RETURN_TO=<return address> npx hardhat run scripts/return-funds.ts
 
 A tiny amount stays behind, 0.0000015 ETH in the recorded run, because the script reserves the fee at the highest price the transaction may pay. Run it again and the script stops with `the balance of <deployer address>, … ETH, does not cover the fee` and sends nothing.
 
-When the script stops early, it prints one line and exits with code 1. If the transfer reverts, the line is `the transfer reverted in <transaction hash>; only the fee was spent, and the rest is still at <deployer address>`. Run the script again with another address that has no code.
+When the script stops early, it prints one line and exits with code 1. If the transfer reverts, the line is `the transfer reverted in <transaction hash>; only the fee was spent, and the rest is still at <deployer address>`. Run the script again with another address that has no code. If the transfer is not mined within 3 minutes, the line is `the transfer <transaction hash> is not confirmed yet and may still go through; look it up on a Sepolia explorer before you run the script again`. The transfer was sent, and once it is mined, the funds are returned.
 
 Before you remove the key, open the deployer address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com) and check that its balance is close to zero. Once the key is gone, nothing can move what is left.
 
-Then remove the key. If you closed the shell since step 2, set `VAULT` and `VAULT_ID` again first, with the vault name that step 2 printed:
+Then remove the key. If you closed the shell since step 4, set `VAULT`, `VAULT_ID`, `KEY_ID` and `AZURE_KEY_ID` again first, with the vault name that step 2 printed:
 
 ```sh
 VAULT=<vault name>
 VAULT_ID=$(az keyvault show --name "$VAULT" --query id --output tsv)
+KEY_ID=$(az keyvault key show --vault-name "$VAULT" --name hardhat-kms-tutorial --query key.kid --output tsv)
+export AZURE_KEY_ID="$KEY_ID"
 ```
 
-Set `KEY_ID` from the `keyId` in `hardhat.config.ts`, the version your config signs with. `az keyvault key show` returns the latest version, which is another one if someone rotated the key:
+Disable the key version your config uses, the one in `AZURE_KEY_ID`. A disabled version cannot sign, and `--enabled true` brings it back:
 
 ```sh
-KEY_ID=$(grep -o 'https://[^"]*/keys/hardhat-kms-tutorial/[0-9a-f]*' hardhat.config.ts)
-echo "$KEY_ID"
-```
-
-Disable the key version your config uses. A disabled version cannot sign, and `--enabled true` brings it back:
-
-```sh
-az keyvault key set-attributes --id "$KEY_ID" --enabled false
+az keyvault key set-attributes --id "$AZURE_KEY_ID" --enabled false
 ```
 
 To keep the key instead, run only the disable step, and stop here. A disabled key costs nothing, because nothing can use it.

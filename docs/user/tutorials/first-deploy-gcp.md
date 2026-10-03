@@ -23,8 +23,10 @@ Create a project from Hardhat's viem template in an empty directory:
 ```sh
 mkdir kms-tutorial
 cd kms-tutorial
-npx hardhat@latest --init --template node-test-runner-viem
+npx --yes hardhat@latest --init --template node-test-runner-viem
 ```
+
+`--yes` lets npx download Hardhat without asking first.
 
 The template has a `Counter` contract, the Ignition module `ignition/modules/Counter.ts` that deploys it, and a `sepolia` network. It also installs `@nomicfoundation/hardhat-verify`, which verifies contracts on block explorers.
 
@@ -87,7 +89,7 @@ Find the ADC identity. First check that the gcloud CLI does not impersonate a se
 gcloud config get auth/impersonate_service_account
 ```
 
-If it prints an account, run `gcloud config unset auth/impersonate_service_account`. That setting changes which token the next command gets, but the plugin does not read gcloud settings, so the check would name the wrong identity.
+If it prints an account, note it, and run `gcloud config unset auth/impersonate_service_account`. That setting changes which token the next command gets, but the plugin does not read gcloud settings, so the check would name the wrong identity.
 
 Then get an access token from your ADC and ask Google's token information endpoint whose it is. The token goes in the request body and is not printed:
 
@@ -108,6 +110,8 @@ DEPLOYER="user:<email>"
 ```
 
 For a service account named `hardhat-deployer`, it is `DEPLOYER="serviceAccount:hardhat-deployer@$GCP_PROJECT_ID.iam.gserviceaccount.com"`.
+
+If you unset `auth/impersonate_service_account` above and your gcloud commands rely on it, set it again with the account you noted: `gcloud config set auth/impersonate_service_account <account>`.
 
 Grant both roles on the key, not on the project, so the identity can use no other key. The gcloud CLI account runs the grant, which needs `cloudkms.cryptoKeys.setIamPolicy`; Owner and Cloud KMS Admin hold it:
 
@@ -220,39 +224,15 @@ Set the RPC URL, then ask Cloud KMS for the key's address:
 
 ```sh
 export SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
-npx hardhat kms address deployer
+DEPLOYER_ADDRESS=$(npx hardhat kms address deployer)
+echo "$DEPLOYER_ADDRESS"
 ```
 
-It prints the key's address, `0x` and 40 hex digits. Pin it: add an `address` line to the `deployer` key, with the address you got in place of `<deployer address>`:
+It prints the key's address, `0x` and 40 hex digits. Steps 5 and 6 use `DEPLOYER_ADDRESS`; in a new shell, run the same command again first. Pin the address: in `hardhat.config.ts`, add an `address` line to the `deployer` key, with the address in place of `<deployer address>`. The rest of the file stays the same:
+
+<!-- docs-check: skip -->
 
 ```ts
-import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
-import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsGcp from "@hardhat-kms/gcp";
-
-export default defineConfig({
-  plugins: [hardhatToolboxViemPlugin, hardhatKmsGcp],
-  solidity: {
-    profiles: {
-      default: {
-        version: "0.8.34",
-      },
-      production: {
-        version: "0.8.34",
-        settings: {
-          optimizer: {
-            enabled: true,
-            runs: 200,
-          },
-        },
-      },
-    },
-  },
-  verify: {
-    etherscan: {
-      enabled: false,
-    },
-  },
   kms: {
     keys: {
       deployer: {
@@ -266,23 +246,6 @@ export default defineConfig({
       },
     },
   },
-  networks: {
-    hardhatMainnet: {
-      type: "edr-simulated",
-      chainType: "l1",
-    },
-    hardhatOp: {
-      type: "edr-simulated",
-      chainType: "op",
-    },
-    sepolia: {
-      type: "http",
-      chainType: "l1",
-      url: configVariable("SEPOLIA_RPC_URL"),
-      kmsAccounts: ["deployer"],
-    },
-  },
-});
 ```
 
 With the pin, the plugin refuses to sign if the variables ever name another project, location or key with the same names. [Rotate a key and pin its address](../guides/key-rotation.md#what-a-pin-does) explains why.
@@ -295,12 +258,52 @@ The address belongs to the key version alone. If the version is destroyed, any f
 
 To see the balance, open the address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com).
 
+To try the deployment before you fund the address, rehearse it on a local fork of Sepolia. In `hardhat.config.ts`, add `simulatedBalance` to the `kms` section and a `sepoliaFork` network:
+
+<!-- docs-check: skip -->
+
+```ts
+  kms: {
+    // The deployer's balance on simulated networks such as sepoliaFork. Sepolia ignores it.
+    simulatedBalance: 10n ** 18n,
+    keys: {
+      // The deployer key, unchanged.
+    },
+  },
+  networks: {
+    // The other networks, unchanged.
+    sepoliaFork: {
+      type: "edr-simulated",
+      forking: { url: configVariable("SEPOLIA_RPC_URL") },
+      kmsAccounts: ["deployer"],
+    },
+  },
+```
+
+Then run step 6's command with `--network sepoliaFork`, and without `--verify`:
+
+```sh
+npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender "$DEPLOYER_ADDRESS"
+```
+
+The plugin signs with the real key, so the rehearsal also checks the key and its permissions. Each transaction costs one Cloud KMS signing call, plus one public key read per run. The rehearsal took about a minute in a test run, most of it spent fetching Sepolia's state, and ends like this, with a `Counter` address that exists only in the fork:
+
+```text
+[ CounterModule ] successfully deployed 🚀
+
+Deployed Addresses
+
+CounterModule#Counter - <contract address>
+```
+
+The fork ends with the command, so no explorer can verify the contract. [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network) has more.
+
 ## 6. Deploy and verify
 
 Deploy the module from the deployer address, and verify the contract, in one command:
 
 ```sh
-npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --verify --default-sender <deployer address>
+npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --verify --default-sender "$DEPLOYER_ADDRESS"
 ```
 
 Ignition asks you to confirm the network; answer `y`. Each transaction costs one Cloud KMS `AsymmetricSign` call. Naming the sender by its address keeps the deployer the same when you add accounts or keys to the network later; [Choose the sender by address](../guides/multiple-keys.md#choose-the-sender-by-address) explains why.
@@ -379,7 +382,7 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 ## 8. Clean up
 
-When you are done, send the remaining Sepolia ETH back, then disable the key version and schedule its destruction.
+When you are done, send the remaining Sepolia ETH back, then disable the key version and schedule its destruction. In a new shell, set `SEPOLIA_RPC_URL`, `GCP_PROJECT_ID` and `GCP_LOCATION` again first, as in steps 2 and 4: the script loads the config, which reads them.
 
 Save this script as `scripts/return-funds.ts`. It reads the deployer address from the pin, and sends the whole balance, less the fee, to the address in `RETURN_TO`. It refuses the zero address, the deployer address and any address with code. It also checks that the transfer succeeded:
 
@@ -388,7 +391,13 @@ Save this script as `scripts/return-funds.ts`. It reads the deployer address fro
 import "@nomicfoundation/hardhat-viem";
 import "hardhat-kms";
 import hre from "hardhat";
-import { formatEther, isAddress, isAddressEqual, zeroAddress } from "viem";
+import {
+  WaitForTransactionReceiptTimeoutError,
+  formatEther,
+  isAddress,
+  isAddressEqual,
+  zeroAddress,
+} from "viem";
 
 /**
  * Sends the deployer's balance, less the fee, to RETURN_TO.
@@ -444,7 +453,16 @@ async function returnFunds(): Promise<string | undefined> {
     maxFeePerGas,
     maxPriorityFeePerGas,
   });
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  // viem waits up to 3 minutes for the receipt, then throws this error.
+  const receipt = await publicClient.waitForTransactionReceipt({ hash }).catch((error: unknown) => {
+    if (error instanceof WaitForTransactionReceiptTimeoutError) {
+      return undefined;
+    }
+    throw error;
+  });
+  if (receipt === undefined) {
+    return `the transfer ${hash} is not confirmed yet and may still go through; look it up on a Sepolia explorer before you run the script again`;
+  }
   if (receipt.status !== "success") {
     return `the transfer reverted in ${hash}; only the fee was spent, and the rest is still at ${from}`;
   }
@@ -467,11 +485,11 @@ RETURN_TO=<return address> npx hardhat run scripts/return-funds.ts
 
 A tiny amount stays behind, 0.0000045 ETH in the recorded run, because the script reserves the fee at the highest price the transaction may pay. Run it again and the script stops with `the balance of <deployer address>, … ETH, does not cover the fee` and sends nothing.
 
-When the script stops early, it prints one line and exits with code 1. If the transfer reverts, the line is `the transfer reverted in <transaction hash>; only the fee was spent, and the rest is still at <deployer address>`. Run the script again with another address that has no code.
+When the script stops early, it prints one line and exits with code 1. If the transfer reverts, the line is `the transfer reverted in <transaction hash>; only the fee was spent, and the rest is still at <deployer address>`. Run the script again with another address that has no code. If the transfer is not mined within 3 minutes, the line is `the transfer <transaction hash> is not confirmed yet and may still go through; look it up on a Sepolia explorer before you run the script again`. The transfer was sent, and once it is mined, the funds are returned.
 
 Before you remove the key, open the deployer address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com) and check that its balance is close to zero. Once the key is gone, nothing can move what is left.
 
-Then disable the key version and schedule its destruction:
+Then disable the key version and schedule its destruction. If you closed the shell since step 3, set `GCP_PROJECT_ID`, `GCP_LOCATION` and `DEPLOYER` again first, as in steps 2 and 3:
 
 ```sh
 gcloud kms keys versions disable 1 --key deployer --keyring hardhat-kms-tutorial --location "$GCP_LOCATION"
@@ -496,7 +514,7 @@ The change takes a moment to reach every Cloud KMS server. A disabled version us
 
 After the 24 hours, the version is destroyed for good, and nothing can sign for the address again. The key ring and the key stay, with no cost.
 
-Remove the two roles you granted in step 3. In a new shell, set `GCP_PROJECT_ID`, `GCP_LOCATION` and `DEPLOYER` again first, as in steps 2 and 3:
+Remove the two roles you granted in step 3:
 
 ```sh
 for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do

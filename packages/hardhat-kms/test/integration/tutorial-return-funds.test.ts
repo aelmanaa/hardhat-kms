@@ -6,7 +6,8 @@
 //
 // The script imports `hardhat-kms`, which resolves to the built package: run `pnpm run build` first
 // (`pnpm test` does). The tests share the node's state and run in order: the refusals, then the
-// reverted transfer, then the transfer that empties the deployer, then the second run.
+// reverted transfer, then the transfer that is not mined in time, then the transfer that empties
+// the deployer, then the second run.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -31,6 +32,8 @@ const DELEGATED = "0x00000000000000000000000000000000000c0de2";
 /** An ordinary account's address with one letter's case flipped, which breaks its checksum. */
 const BAD_CHECKSUM = "0x70997970c51812dc3A010C7d01b50e0d17dc79C8";
 const ZERO = "0x0000000000000000000000000000000000000000";
+/** The receipt wait, as the tutorials print it, with viem's default timeout. */
+const RECEIPT_WAIT = /\.waitForTransactionReceipt\(\{ hash \}\)/;
 const CODE_REFUSAL = /has code, so it is a contract or a smart account \(EIP-7702\)/;
 /** The comment and the check that refuse an address with code, as the tutorials print them. */
 const CODE_CHECK =
@@ -234,6 +237,12 @@ describe("the tutorials' return-funds script", { timeout: 300_000 }, () => {
       path.join(project, "scripts", "return-funds-unchecked.ts"),
       script.replace(CODE_CHECK, "\n"),
     );
+    // A copy that waits 2 seconds for the receipt instead of viem's default of 3 minutes.
+    assert.match(script, RECEIPT_WAIT, "the receipt wait is not where the test expects it");
+    writeFileSync(
+      path.join(project, "scripts", "return-funds-short-wait.ts"),
+      script.replace(RECEIPT_WAIT, ".waitForTransactionReceipt({ hash, timeout: 2_000 })"),
+    );
 
     nodeUrl = await startNode();
     await rpc("hardhat_setBalance", [COW_ACCOUNT.address, `0x${ONE_ETH.toString(16)}`]);
@@ -298,6 +307,35 @@ describe("the tutorials' return-funds script", { timeout: 300_000 }, () => {
     assert.equal(await receiptStatus(hash), "0x0", "the transfer was mined and reverted");
     const left = await balanceOf(COW_ACCOUNT.address);
     assert.ok(left < balance && left > balance / 2n, "only the fee was spent");
+  });
+
+  it("reports a transfer that is not mined in time with its hash, and exits 1", async () => {
+    const balance = await balanceOf(COW_ACCOUNT.address);
+    const nonce = await nonceOf(COW_ACCOUNT.address);
+    // The node keeps the transfer pending, as a congested network can.
+    await rpc("evm_setAutomine", [false]);
+    let hash: string | undefined;
+    try {
+      const run = runScript("scripts/return-funds-short-wait.ts", EOA);
+      // Read first, so that a failed assertion still drops the transfer.
+      hash = /0x[0-9a-f]{64}/.exec(`${run.stdout}${run.stderr}`)?.[0];
+      assertStopped(
+        run,
+        /^the transfer 0x[0-9a-f]{64} is not confirmed yet and may still go through; look it up on a Sepolia explorer before you run the script again$/,
+      );
+      assert.match(run.stdout, /^sending [\d.]+ ETH from 0x[0-9a-fA-F]{40} to 0x[0-9a-fA-F]{40}$/m);
+      assert.ok(hash !== undefined);
+      const pending = await rpc("eth_getTransactionByHash", [hash]);
+      assert.equal(Reflect.get(Object(pending), "blockNumber"), null, "the transfer is pending");
+    } finally {
+      // Drops the pending transfer, so the next tests start from the same balance and nonce.
+      if (hash !== undefined) {
+        await rpc("hardhat_dropTransaction", [hash]);
+      }
+      await rpc("evm_setAutomine", [true]);
+    }
+    assert.equal(await balanceOf(COW_ACCOUNT.address), balance);
+    assert.equal(await nonceOf(COW_ACCOUNT.address), nonce);
   });
 
   it("sends the balance to an address with no code", async () => {
