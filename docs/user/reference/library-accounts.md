@@ -67,7 +67,7 @@ The first table covers projects whose own spec allows no release in the peer ran
 
 With `~2.54.0`, every package manager that installs resolves 2.54.6, the last 2.54 release.
 
-The second table covers an existing project as Hardhat's viem template creates it: viem `^2.47.6` in `package.json`, a range that overlaps the peer range, and the older 2.52.2 in the lockfile. The plugin packages are then added with the package manager's add command, such as `npm install --save-dev hardhat-kms @hardhat-kms/aws`:
+The second table covers a project that has only `hardhat` and `viem` installed, with viem `^2.47.6` in `package.json` (the range Hardhat's viem template uses, which overlaps the peer range) and the older 2.52.2 in the lockfile. The plugin packages are then added with the package manager's add command, such as `npm install --save-dev hardhat-kms @hardhat-kms/aws`:
 
 | Package manager                         | viem after adding the plugin packages                                             |
 | --------------------------------------- | --------------------------------------------------------------------------------- |
