@@ -1,45 +1,29 @@
 // Runs the real Hardhat CLI, to cover what the programmatic API does not: the HARDHAT_KMS
 // environment form and help output.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { type HardhatRun, runHardhat } from "../helpers/hardhat-cli.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 let project: string;
+/** The signal of the running test. */
+let signal: AbortSignal | undefined;
 
-function hardhat(
-  args: string[],
-  env: Record<string, string>,
-): { status: number | null; output: string } {
-  const result = spawnSync(
-    process.execPath,
-    [path.join(repo, "node_modules/hardhat/dist/src/cli.js"), ...args],
-    {
-      cwd: project,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        // A black-box run: Hardhat loads the plugin through its own TypeScript loader, and that
-        // coverage data would clash with the native runs of the same files.
-        NODE_V8_COVERAGE: "",
-        // CI adds --import tsx on Node 22.13 for the test runner. A user's shell does not, and the
-        // CLI does not need it: Hardhat registers tsx itself.
-        NODE_OPTIONS: "",
-        AWS_KMS_KEY_ID: "",
-        AWS_KMS_KEY_IDS: "",
-        HARDHAT_KMS: "",
-        ...env,
-      },
-      timeout: 60_000,
-    },
-  );
-  return { status: result.status, output: `${result.stdout}${result.stderr}` };
+/** Runs the Hardhat CLI in the project, under the helper's one limit for startup and task. */
+async function hardhat(args: string[], env: Record<string, string>): Promise<HardhatRun> {
+  return await runHardhat(args, { cwd: project, env, signal });
 }
 
 describe("--kms from the Hardhat CLI", () => {
+  // Stops a run when its test ends or times out.
+  beforeEach((t) => {
+    signal = t.signal;
+  });
+
   before(() => {
     // The project sits inside the package, so Node and Hardhat find `hardhat` and `tsx` in the
     // package's node_modules by the normal upward lookup. A project in os.tmpdir() needs a link to
@@ -67,32 +51,35 @@ describe("--kms from the Hardhat CLI", () => {
     rmSync(project, { recursive: true, force: true });
   });
 
-  it("reads --kms and its HARDHAT_KMS form", () => {
-    const flag = hardhat(["--kms", "aws", "run", "--no-compile", "show.ts"], {
-      AWS_KMS_KEY_ID: "alias/a",
-    });
-    assert.equal(flag.status, 0, flag.output);
+  // Each test starts its two runs in parallel, so it fits its timeout when each run takes the
+  // helper's whole limit.
+  it("reads --kms and its HARDHAT_KMS form", async () => {
+    const [flag, env] = await Promise.all([
+      hardhat(["--kms", "aws", "run", "--no-compile", "show.ts"], { AWS_KMS_KEY_ID: "alias/a" }),
+      hardhat(["run", "--no-compile", "show.ts"], {
+        HARDHAT_KMS: "aws",
+        AWS_KMS_KEY_IDS: "alias/a,alias/b",
+      }),
+    ]);
+    assert.equal(flag.status, 0, flag.report);
     assert.match(flag.output, /keys: aws:<AWS_KMS_KEY_ID>/);
-
-    const env = hardhat(["run", "--no-compile", "show.ts"], {
-      HARDHAT_KMS: "aws",
-      AWS_KMS_KEY_IDS: "alias/a,alias/b",
-    });
-    assert.equal(env.status, 0, env.output);
+    assert.equal(env.status, 0, env.report);
     assert.match(env.output, /keys: aws:<AWS_KMS_KEY_IDS\[0\]> aws:<AWS_KMS_KEY_IDS\[1\]>/);
   });
 
-  it("fails before the task with a clear error, but still shows help", () => {
-    const failed = hardhat(["run", "--no-compile", "show.ts"], { HARDHAT_KMS: "aws" });
-    assert.notEqual(failed.status, 0);
+  it("fails before the task with a clear error, but still shows help", async () => {
+    const [failed, help] = await Promise.all([
+      hardhat(["run", "--no-compile", "show.ts"], { HARDHAT_KMS: "aws" }),
+      hardhat(["--help"], { HARDHAT_KMS: "aws" }),
+    ]);
+    assert.notEqual(failed.status, 0, failed.report);
+    assert.notEqual(failed.status, null, failed.report);
     assert.match(
       failed.output,
       /--kms aws: set AWS_KMS_KEY_ID, or AWS_KMS_KEY_IDS for several keys/,
     );
     assert.doesNotMatch(failed.output, /keys:/);
-
-    const help = hardhat(["--help"], { HARDHAT_KMS: "aws" });
-    assert.equal(help.status, 0, help.output);
+    assert.equal(help.status, 0, help.report);
     assert.match(help.output, /--kms/);
   });
 });
