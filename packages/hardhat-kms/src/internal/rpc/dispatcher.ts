@@ -1,7 +1,6 @@
-import { AsyncLocalStorage } from "node:async_hooks";
-
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
+import { hexStringToBigInt } from "@nomicfoundation/hardhat-utils/hex";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import {
   rpcAddress,
@@ -29,20 +28,19 @@ import {
   SendOutcomeUnknownError,
   type SentTransaction,
   describeSendKey,
+  endLibraryHold,
+  expectLibraryReset,
+  holdForLibrary,
   holdsSendLock,
+  libraryHoldNonce,
+  resetLibraryHold,
   withSendLock,
 } from "./send-guard.ts";
-import { notPlainData, type TransactionFiller } from "./transaction-filler.ts";
+import { notPlainData, stringResult, type TransactionFiller } from "./transaction-filler.ts";
 import { signTransaction } from "./transactions.ts";
 import { checkTypedDataChain, readTypedData } from "./typed-data.ts";
 
 const log = kmsDebug("rpc");
-
-/**
- * Set while `eth_signTransaction` fills a KMS account's transaction, so the filler's pending-count
- * read passes on unchanged: that method never reads the high-water mark (rule 5).
- */
-const signingWithoutSend = new AsyncLocalStorage<boolean>();
 
 /** The KMS keys of one network connection. */
 export interface NetworkKeys {
@@ -66,12 +64,6 @@ const SENDER_METHODS = new Set([
   "personal_sign",
   "eth_signTypedData_v4",
 ]);
-
-/**
- * The reads from which a client that signs for itself, such as viem for a local account, takes a
- * KMS account's next nonce.
- */
-const NONCE_READ_METHODS = new Set(["eth_getTransactionCount", "eth_fillTransaction"]);
 
 /** How many KMS addresses an "unknown account" error lists before it says "and N more". */
 const LISTED_KMS_ADDRESSES = 10;
@@ -357,19 +349,15 @@ export async function dispatch(
     if ("kms" in outcome) {
       // eth_signTransaction takes no lock and leaves the high-water mark alone (rule 5).
       const { key, address, params: signParams } = outcome.kms;
-      const signed = await signingWithoutSend.run(
-        true,
-        async () =>
-          await accounts.signWith(
-            key,
-            async (signer) =>
-              await signTransaction(signer, {
-                filler: transactions.filler(),
-                method: request.method,
-                params: signParams,
-                from: address,
-              }),
-          ),
+      const signed = await accounts.signWith(
+        key,
+        async (signer) =>
+          await signTransaction(signer, {
+            filler: transactions.filler(),
+            method: request.method,
+            params: signParams,
+            from: address,
+          }),
       );
       return response(request, signed.raw);
     }
@@ -380,11 +368,6 @@ export async function dispatch(
     const raw = rawKmsTransaction(accounts, params);
     if (raw !== undefined) {
       return await sendRawTransaction(request, raw, transactions, next);
-    }
-  } else if (NONCE_READ_METHODS.has(request.method) && signingWithoutSend.getStore() !== true) {
-    const address = nonceReadAddress(request.method, params);
-    if (address !== undefined && accounts.isKnownKmsAccount(address)) {
-      return await readNonceAfterSends(request, address, transactions, next);
     }
   }
   return await passThrough(accounts, request, next);
@@ -645,22 +628,7 @@ async function sendTransaction(
     callerParams === undefined ? undefined : `${chainId}\0${address}\0${callerParams}`;
   const nodeHas = async (hash: string): Promise<boolean> =>
     await nodeHasTransaction(transactions, hash);
-  const leased = (): boolean => !kms.callerNonce && sends.hasLease(address);
-  for (;;) {
-    if (leased()) {
-      // A library account's client was given the next nonce and has not sent it yet.
-      log("%s: waiting for a library account's raw transaction", address);
-      await sends.leasesEnded(address);
-    }
-    const answer = await withSendLock(`${chainId}:${address}`, async () =>
-      leased() ? undefined : await sendUnderLock(),
-    );
-    if (answer !== undefined) {
-      return answer;
-    }
-  }
-
-  async function sendUnderLock(): Promise<JsonRpcResponse> {
+  return await withSendLock(`${chainId}:${address}`, async () => {
     const retry = retryKey === undefined ? undefined : sends.takeRetry(retryKey);
     const mark = sends.highWaterOf(address);
     if (retry !== undefined && mark !== undefined && retry.nonce <= mark) {
@@ -704,7 +672,7 @@ async function sendTransaction(
       nodeHas,
       resend: false,
     });
-  }
+  });
 }
 
 /**
@@ -850,6 +818,7 @@ async function broadcast(
   const accepted = (): JsonRpcResponse => {
     sends.settleUncertain(address, transaction.hash);
     sends.recordSent(address, transaction.nonce);
+    sends.releaseReservationsUpTo(address, transaction.nonce);
     return response(request, transaction.hash);
   };
   const keepUncertain = (): void => {
@@ -869,6 +838,7 @@ async function broadcast(
     if (!("error" in answer)) {
       sends.settleUncertain(address, transaction.hash);
       sends.recordSent(address, transaction.nonce);
+      sends.releaseReservationsUpTo(address, transaction.nonce);
       return answer;
     }
     error = answer.error;
@@ -910,6 +880,7 @@ async function broadcast(
     if (minedHashOf(error) !== undefined) {
       sends.settleUncertain(address, transaction.hash);
       sends.recordSent(address, transaction.nonce);
+      sends.releaseReservationsUpTo(address, transaction.nonce);
       return passOn();
     }
     // A revert without a hash, for bytes sent again: the first send may have been mined, and
@@ -983,111 +954,20 @@ function rawKmsTransaction(
 }
 
 /**
- * The KMS-relevant address of a nonce read: the account of `eth_getTransactionCount [address,
- * "pending"]`, or the `from` of `eth_fillTransaction`.
- *
- * @returns The lowercase address, or `undefined` for any other read.
- */
-function nonceReadAddress(method: string, params: readonly unknown[]): string | undefined {
-  if (method === "eth_getTransactionCount") {
-    return params[1] === "pending" ? addressParam(params[0]) : undefined;
-  }
-  const [transaction] = params;
-  return isObject(transaction) ? addressParam(transaction.from) : undefined;
-}
-
-/**
- * Reads a KMS account's next nonce for a client that fills its own, such as viem for a
- * `connection.kms.getAccount` account, after the account's sends through the plugin. The read
- * waits for the account's send lock, so a send that is filling, signing or broadcasting finishes
- * first and the node counts it. For `eth_getTransactionCount`, when the connection's high-water
- * mark is at or above the node's count, the answer is the mark plus one, the nonce the plugin's
- * next send would take. An `eth_fillTransaction` answer is passed on unchanged, since its `tx` and
- * its `raw` bytes must agree. The plugin's own reads during a send hold the lock already and pass
- * on at once, as does any read when the chain id cannot be read.
- */
-async function readNonceAfterSends(
-  request: JsonRpcRequest,
-  address: string,
-  transactions: ConnectionTransactions,
-  next: Next,
-): Promise<JsonRpcResponse> {
-  let chainId: bigint;
-  try {
-    chainId = await transactions.chainId();
-  } catch (error) {
-    log("%s: the chain id is unknown (%s); passed on", request.method, errorName(error));
-    return await next(request);
-  }
-  const key = `${chainId}:${address}`;
-  if (holdsSendLock(key)) {
-    return await next(request);
-  }
-  const sends = transactions.sends();
-  return await underSendLock(key, request, next, async () => {
-    const answer = await next(request);
-    const answered = "result" in answer ? answeredNonce(request.method, answer.result) : undefined;
-    if (answered === undefined) {
-      return answer;
-    }
-    const mark = sends.highWaterOf(address);
-    if (request.method === "eth_fillTransaction" || mark === undefined || answered > mark) {
-      sends.lease(address, answered);
-      return answer;
-    }
-    log("pending count of %s raised from %d to %d", address, answered, mark + 1n);
-    sends.lease(address, mark + 1n);
-    return { ...answer, result: `0x${(mark + 1n).toString(16)}` };
-  });
-}
-
-/**
- * The nonce a nonce read answered: the count of `eth_getTransactionCount`, or the `tx.nonce` of
- * `eth_fillTransaction`.
- *
- * @returns The nonce, or `undefined` when the answer does not hold one as hex.
- */
-function answeredNonce(method: string, result: unknown): bigint | undefined {
-  const value: unknown =
-    method === "eth_getTransactionCount"
-      ? result
-      : isObject(result) && isObject(result.tx)
-        ? result.tx.nonce
-        : undefined;
-  return typeof value === "string" && /^0x[0-9a-fA-F]{1,64}$/.test(value)
-    ? BigInt(value)
-    : undefined;
-}
-
-/**
  * Broadcasts a KMS account's raw transaction, signed outside the plugin (by a
  * `connection.kms.getAccount` account, for example), under the same send lock as the account's
  * `eth_sendTransaction` requests. The request goes on unchanged, with exactly one `next`, and its
  * answer or error comes back unchanged. Only the connection's send state learns from it: when the
- * node has the transaction, its nonce raises the high-water mark, so the account's next send
- * through the plugin takes a higher nonce; when the outcome is unknown, the transaction becomes
- * the account's uncertain transaction, which that next send looks up first.
+ * node has the transaction, its nonce raises the high-water mark and its nonce reservation ends,
+ * so the account's next send through the plugin takes a higher nonce; when the outcome is unknown,
+ * the transaction becomes the account's uncertain transaction, which that next send looks up
+ * first.
  *
  * A raw transaction made from inside a send from the same account, which would wait for itself,
  * fails at once and is not sent. When the chain id cannot be read, the request passes on
- * unchanged. Whatever happens, the account's leases up to its nonce end: the client has used it.
+ * unchanged.
  */
 async function sendRawTransaction(
-  request: JsonRpcRequest,
-  raw: RawKmsTransaction,
-  transactions: ConnectionTransactions,
-  next: Next,
-): Promise<JsonRpcResponse> {
-  const sends = transactions.sends();
-  try {
-    return await sendRawUnderLock(request, raw, transactions, next);
-  } finally {
-    sends.endLeases(raw.address, raw.transaction.nonce);
-  }
-}
-
-/** {@link sendRawTransaction} without the end of the leases. */
-async function sendRawUnderLock(
   request: JsonRpcRequest,
   raw: RawKmsTransaction,
   transactions: ConnectionTransactions,
@@ -1105,6 +985,17 @@ async function sendRawUnderLock(
     throw catalogError(ERRORS.rawSendReentrant, { account: describeSendKey(key) });
   }
   const sends = transactions.sends();
+  if (libraryHoldNonce(key) === raw.transaction.nonce) {
+    // The library send that holds the lock for this nonce: it goes out as the holder.
+    let failed = true;
+    try {
+      const answer = await broadcastRaw(request, raw, sends, next);
+      failed = "error" in answer;
+      return answer;
+    } finally {
+      endLibraryHold(key, failed);
+    }
+  }
   return await underSendLock(
     key,
     request,
@@ -1113,11 +1004,116 @@ async function sendRawUnderLock(
   );
 }
 
+/** How a library account's nonce manager asks for a nonce. */
+export interface LibraryNonceRequest {
+  /** The account's lowercase address. */
+  address: string;
+  /** The chain viem asks for. */
+  chainId: bigint;
+  /** `consume`: the send will use the nonce. `get`: only read it. */
+  reserve: boolean;
+  /** Whether the client's transport does not go through Hardhat, such as `http(url)`. */
+  ownTransport: boolean;
+}
+
 /**
- * Runs a raw transaction or a nonce read under the send lock. When the lock cannot be had (too
- * many waiters, or 120 s without progress), the request passes on unchanged
- * instead: these requests were made outside the plugin, and waiting for its sends must not make
- * one fail. An error from `run` itself comes back as it is.
+ * Chooses the nonce of a library account's transaction, for its viem `nonceManager`: the node's
+ * pending count, read through the connection and passed on unchanged, raised past the high-water
+ * mark and past reserved nonces (`ConnectionSends.nonceFor`), the nonce a send through the plugin
+ * would take.
+ *
+ * For `consume`, the choice runs under the account's send lock, so a send through the plugin in
+ * progress is broadcast first. With a client that sends through the connection, the send then
+ * keeps the lock until its raw transaction is broadcast or viem resets it (`holdForLibrary`), as
+ * a send through the plugin keeps it from its fill to its broadcast: the account's other sends
+ * wait, and the next one counts this one. A client with its own transport never sends through
+ * the connection, so the lock is released at once and the nonce is reserved instead: sends
+ * through the plugin skip it until viem resets it or {@link RESERVATION_MS} pass.
+ *
+ * For another chain than the connection's, it returns the pending count and holds nothing; the
+ * account's `signTransaction` then refuses the transaction. Called from inside a send from the
+ * same account, which would wait for itself, it fails at once.
+ *
+ * @param transactions - The connection's send state and requests.
+ * @param request - The account, the chain and the kind of request.
+ * @returns The nonce.
+ */
+export async function libraryNonce(
+  transactions: ConnectionTransactions,
+  request: LibraryNonceRequest,
+): Promise<bigint> {
+  const { address, chainId, reserve } = request;
+  const operation = reserve ? "nonceManager.consume" : "nonceManager.get";
+  const pending = async (): Promise<bigint> =>
+    hexStringToBigInt(
+      stringResult(
+        await transactions.request("eth_getTransactionCount", [address, "pending"]),
+        "eth_getTransactionCount",
+        operation,
+      ),
+    );
+  if (chainId !== (await transactions.chainId())) {
+    return await pending();
+  }
+  const sends = transactions.sends();
+  const choose = async (): Promise<bigint> => sends.nonceFor(address, await pending());
+  if (!reserve) {
+    return await choose();
+  }
+  const key = `${chainId}:${address}`;
+  try {
+    if (holdsSendLock(key)) {
+      throw catalogError(
+        ERRORS.accountNonceReentrant,
+        { account: describeSendKey(key) },
+        { operation },
+      );
+    }
+    if (!request.ownTransport) {
+      const nonce = await holdForLibrary(key, sends, choose);
+      log("%s: nonce %d given to a library account's send, which holds the lock", address, nonce);
+      return nonce;
+    }
+    return await withSendLock(key, async () => {
+      const nonce = await choose();
+      sends.reserve(address, nonce);
+      log("%s: nonce %d reserved for a library account's own transport", address, nonce);
+      return nonce;
+    });
+  } catch (error) {
+    // viem resets the nonce manager after this failure; that reset must not end another hold.
+    expectLibraryReset(key);
+    throw error;
+  }
+}
+
+/**
+ * Handles viem's `reset` for a library account's send that failed: it ends the send's hold of the
+ * lock, or, for a client with its own transport, one reservation. A reset for another chain than
+ * the connection's comes from a send that got no nonce from the plugin, and does nothing.
+ *
+ * @param transactions - The connection's send state.
+ * @param address - The account's lowercase address.
+ * @param chainId - The chain viem names.
+ */
+export async function resetLibraryNonce(
+  transactions: ConnectionTransactions,
+  address: string,
+  chainId: bigint,
+): Promise<void> {
+  if (chainId !== (await transactions.chainId())) {
+    return;
+  }
+  if (!resetLibraryHold(`${chainId}:${address}`)) {
+    transactions.sends().resetReservation(address);
+  }
+}
+
+/**
+ * Runs a raw transaction under the send lock. When the lock cannot be had (too many waiters, or
+ * 120 s without progress), the request passes on unchanged instead: the transaction was signed
+ * outside the plugin, and waiting for the plugin's sends must not make it fail. An error from
+ * `run` itself comes back as it is.
  */
 async function underSendLock(
   key: string,
@@ -1141,10 +1137,12 @@ async function underSendLock(
 }
 
 /**
- * Sends a raw transaction on with one `next`, and records what the answer says about its nonce:
- * accepted, mined with an error, or "already known" means the node has it; an uncertain answer
- * or no answer means it may have it. A refusal records nothing. Unlike {@link broadcast}, nothing
- * is wrapped or kept for a retry: the caller holds the bytes and can send them again.
+ * Sends a raw transaction on with one `next`, and records what the answer says about its nonce.
+ * Accepted, mined with an error, or "already known" means the node has it: the mark rises and the
+ * nonce's reservation ends. Any other outcome marks the reservation failed, so the client's
+ * `reset` after its error ends that one; an uncertain answer or no answer also makes it the
+ * uncertain transaction. Unlike {@link broadcast}, nothing is wrapped or kept for a retry: the
+ * caller holds the bytes and can send them again.
  */
 async function broadcastRaw(
   request: JsonRpcRequest,
@@ -1153,13 +1151,20 @@ async function broadcastRaw(
   next: Next,
 ): Promise<JsonRpcResponse> {
   const { address, transaction } = raw;
+  const nodeHasIt = (): void => {
+    sends.settleUncertain(address, transaction.hash);
+    sends.recordSent(address, transaction.nonce);
+    sends.releaseReservation(address, transaction.nonce);
+  };
   const learn = (error: Record<string, unknown>): void => {
     const message = typeof error.message === "string" ? error.message : "";
     const code = typeof error.code === "number" ? error.code : 0;
     if (minedHashOf(error) !== undefined || isAlreadyKnown(message)) {
-      sends.settleUncertain(address, transaction.hash);
-      sends.recordSent(address, transaction.nonce);
-    } else if (isUncertainAnswer(code, message)) {
+      nodeHasIt();
+      return;
+    }
+    sends.failReservation(address, transaction.nonce);
+    if (isUncertainAnswer(code, message)) {
       sends.rememberUncertain(address, transaction);
     }
   };
@@ -1170,17 +1175,19 @@ async function broadcastRaw(
     const error = nodeAnswer(thrown);
     if (error !== undefined) {
       learn(error);
-    } else if (!isConnectionRefused(thrown)) {
-      log("raw transaction %s got no answer (%s)", transaction.hash, errorName(thrown));
-      sends.rememberUncertain(address, transaction);
+    } else {
+      sends.failReservation(address, transaction.nonce);
+      if (!isConnectionRefused(thrown)) {
+        log("raw transaction %s got no answer (%s)", transaction.hash, errorName(thrown));
+        sends.rememberUncertain(address, transaction);
+      }
     }
     throw thrown;
   }
   if ("error" in answer) {
     learn(answer.error);
   } else {
-    sends.settleUncertain(address, transaction.hash);
-    sends.recordSent(address, transaction.nonce);
+    nodeHasIt();
   }
   return answer;
 }

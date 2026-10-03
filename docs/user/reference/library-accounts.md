@@ -5,12 +5,12 @@ Audience: Users and library authors who need a viem account object for a KMS key
 Status: `connection.kms.getAccount` is implemented ([#51](https://github.com/aelmanaa/hardhat-kms/issues/51)). The rule for bare digests is [decision 0014](../../contributor/decisions/0014-library-account-raw-sign.md).
 
 > [!WARNING]
-> Send the account's transactions through the connection, with a viem client whose transport is `custom(connection.provider)`. viem fills a local account's nonce and sends its transactions with `eth_sendRawTransaction` itself. Through the connection, the plugin orders those requests with the account's sends through the plugin ([Sending](#sending)). A viem client with its own transport, such as `http(url)`, never goes through Hardhat, so the plugin's send lock and nonce tracking never see its sends. Two failures follow when the same key also sends through the plugin, or through a second client:
+> Send the account's transactions with a viem client whose transport is `custom(connection.provider)`. viem fills a local account's transaction and sends it with `eth_sendRawTransaction` itself. Through the connection, the account's sends and the plugin's own sends from the same key take turns and never share a nonce ([Sending](#sending)). A client with its own transport, such as `http(url)`, never goes through Hardhat: its nonce is reserved for 60 s, but its broadcast is not ordered. If the same key also sends through the plugin, or through a second client, two failures can follow:
 >
 > - nonce too low: the two paths pick the same nonce, and the node refuses the second transaction;
 > - on a real network, a same-nonce higher-fee replacement whose receipt viem returns as yours: the node keeps whichever transaction pays more, and viem's `waitForTransactionReceipt` follows the replacement and returns its receipt, so the code reads another transaction's receipt as the one it sent.
 >
-> The first `signTransaction` of a process prints a warning that says so.
+> Such a client prints a warning the first time it asks the account for a nonce.
 
 ## `connection.kms.getAccount`
 
@@ -43,7 +43,7 @@ const authorization = await createWalletClient({
 
 `address` must be the address of one of the connection's KMS accounts, from the network's `kmsAccounts` or from `--kms`. Any other address fails with the KMS addresses the connection has.
 
-`getAccount` needs the `viem` package in the project. viem is an optional peer dependency of hardhat-kms: nothing else in the plugin loads it, and a project without it runs every task. Calling `getAccount` there fails with `connection.kms.getAccount needs the viem package, which could not be loaded`. The lowest viem version tested is the floor of the peer range, `^2.47.6`.
+`getAccount` needs the `viem` package in the project. viem is an optional peer dependency of hardhat-kms: nothing else in the plugin loads it, and a project without it runs every task. Calling `getAccount` there fails with `connection.kms.getAccount needs the viem package, which could not be loaded`. The lowest viem version tested is the floor of the peer range, `^2.56.0`: earlier releases do not reset the account's nonce manager after every failed send ([Sending](#sending)).
 
 `getAccount` asks the KMS for the key's public key once, which also checks the key's `address` pin. Each method of the account then makes one KMS signing call.
 
@@ -97,27 +97,26 @@ Each error is listed with its cause and fix in the [errors reference](errors.md#
 
 ## Sending
 
-viem sends a local account's transactions itself. It reads the nonce with `eth_getTransactionCount [address, "pending"]`, or takes it from `eth_fillTransaction` on a node that has that method. It then fills the fees, calls `signTransaction`, and sends `eth_sendRawTransaction`. When these requests go through the connection, the plugin orders them with the account's sends through the plugin in the same process, such as `connection.viem.getWalletClient(address)`, scripts and Ignition:
+The account has a viem `nonceManager`. For each send that has no `nonce` of its own (`sendTransaction`, `writeContract`, `deployContract`), viem asks it for the nonce, then fills the fees, calls `signTransaction` and sends `eth_sendRawTransaction`. When the send fails, viem calls the manager's `reset`. Through the connection, the plugin orders these sends with the account's sends through the plugin in the same process, such as `connection.viem.getWalletClient(address)`, scripts and Ignition:
 
-- The nonce read waits until a send of the account through the plugin that is in progress has been broadcast, so the node counts it. When the connection's nonce high-water mark is at or above the node's pending count, `eth_getTransactionCount` answers the mark plus one. An `eth_fillTransaction` answer is passed on unchanged.
-- After that read, the account's next send through the plugin without a nonce of its own waits until the raw transaction that uses the nonce has been sent, for 10 seconds at most.
-- The raw transaction goes to the node under the account's send lock, unchanged, and the node's answer comes back unchanged. When the node takes it, or answers that it already has it, its nonce raises the high-water mark, so the plugin's next send takes a higher nonce even from a node whose pending count lags. When the node does not answer, the plugin's next send first asks the node whether it has the transaction.
+- The nonce is chosen under the account's send lock, as a send through the plugin chooses it: the node's pending count, read through the connection, past the nonces the plugin used on this connection. A send through the plugin in progress is broadcast first.
+- The send then keeps the lock until its raw transaction goes out, as a send through the plugin keeps it from its fill to its broadcast. The account's other sends, through the plugin or the account, wait for it, then count it. When viem resets the send after a failure, at its gas estimate for example, the lock is released at once and the nonce is free again.
+- The raw transaction goes to the node unchanged, and the node's answer comes back unchanged. When the node takes it, or answers that it already has it, its nonce raises the plugin's high-water mark, so the next send takes a higher nonce even from a node whose pending count lags. When the node gives no answer, the plugin's next send first asks the node whether it has the transaction.
+
+No RPC answer is rewritten: `eth_getTransactionCount` and every other read come back as the node answered. A read changes nothing and waits for nothing.
 
 Some cases stay outside this:
 
-- A viem client with its own transport, such as `http(url)` or `webSocket(url)`: its requests never reach Hardhat. Another process is not ordered either.
-- Two clients that send through library accounts of one key at the same time can read the same nonce, as two viem clients with one private key can. Send one after the other.
-- A script that reads the account's pending count without sending, after `getAccount` gave out the account, holds back the account's next send through the plugin for up to 10 seconds.
+- A client with its own transport, such as `http(url)` or `webSocket(url)`. Its nonce is still chosen under the lock and kept from the plugin's sends until viem resets it or 60 s pass, but the plugin never sees its broadcast. A `custom` transport over another provider looks like `custom(connection.provider)` to the plugin: its send keeps the account's lock until viem resets it or 60 s pass. Another process is not ordered either.
+- A transaction that viem signs with a `nonce` you pass, or that you prepare, sign and send step by step: viem does not ask the nonce manager. Its raw transaction is still ordered and counted when it goes through the connection.
+- A blob transaction (type 3) in its network form, with its blobs, is passed on without being decoded, and is not counted.
 - A raw transaction from a KMS address goes on untouched until the connection has looked up its KMS addresses. `getAccount`, a send and `eth_accounts` do that.
-- A raw transaction from the account, sent by code that runs inside a send from the same account, such as a network hook during the fill, fails at once and is not sent: it would wait for itself. Its error is `core.tx.raw-send-reentrant` ([Errors](errors.md#transactions)).
+- A send of the account started by code that runs inside a send from the same account, such as a network hook during the fill, fails at once and is not signed or sent: it would wait for itself. Its error is `core.account.nonce-reentrant` ([Errors](errors.md#library-accounts)).
+- A send whose raw transaction does not reach the plugin and that viem does not reset keeps the account's lock for at most 60 s; the timer keeps the process alive until then.
 
-The first transaction an account signs in a process prints:
+The lowest viem release with the `reset` call after every failed send is 2.56.0, the floor of the peer range.
 
-```text
-hardhat-kms: a transaction signed by a connection.kms.getAccount account is ordered with the plugin's own sends only when viem sends it through the connection, as with custom(connection.provider). A client with its own transport, such as http(url), bypasses the plugin's nonce tracking and send lock; see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.
-```
-
-`connection.viem.getWalletClient(address)` from hardhat-viem is still the simpler way to send from a KMS account. The plugin fills, signs and broadcasts under one lock, and a retry after a broadcast that got no answer sends the same bytes again; raw transactions have no retry cache. Use the account for what a JSON-RPC account cannot do: viem's `signAuthorization`, a smart-account owner, and signatures in code that has no wallet client.
+`connection.viem.getWalletClient(address)` from hardhat-viem is still the simpler way to send from a KMS account: the plugin fills, signs and broadcasts under one lock, and a retry after a broadcast that got no answer sends the same bytes again; raw transactions have no retry cache. Use the account for what a JSON-RPC account cannot do: viem's `signAuthorization`, a smart-account owner, and signatures in code that has no wallet client.
 
 ## Examples
 

@@ -1,60 +1,53 @@
-// The warning about where a library account's transactions are sent. It is printed
-// once per process, so this file holds the process's first signed transaction: node --test runs
-// each test file in its own process.
+// The warning for a library account whose client sends with its own transport. It is printed
+// once per process, so this file holds the process's first such send: node --test runs each test
+// file in its own process.
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 
 import { createKmsNetworkConnection } from "../../../src/internal/viem/account.ts";
-import { ADDRESS, setup } from "../../helpers/library-account.ts";
+import { ADDRESS, CHAIN_ID, setup } from "../../helpers/library-account.ts";
 
-const TO = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
-const TRANSACTION = {
-  type: "eip1559",
-  chainId: 31337,
-  nonce: 0,
-  gas: 21_000n,
-  maxFeePerGas: 2n,
-  maxPriorityFeePerGas: 1n,
-  to: TO,
-  value: 1n,
-} as const;
-const WARNING =
-  "hardhat-kms: a transaction signed by a connection.kms.getAccount account is ordered with the plugin's own sends only when viem sends it through the connection, as with custom(connection.provider). A client with its own transport, such as http(url), bypasses the plugin's nonce tracking and send lock; see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.";
+const warning = (type: string): string =>
+  `hardhat-kms: a connection.kms.getAccount account sends with a viem "${type}" transport, which does not go through Hardhat. The plugin chose the transaction's nonce and keeps it from its own sends for 60 s, but it does not order or see the broadcast. Send through custom(connection.provider); see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.`;
 
-describe("the send warning of library accounts", () => {
-  it("is printed once per process, after the first transaction the KMS signs", async () => {
+describe("the transport warning of library accounts", () => {
+  it("is printed once per process, for the first consume with a transport that is not custom", async () => {
     const warn = mock.method(console, "warn", () => undefined);
     try {
-      // The KMS refuses the first transaction's signature (the second signature of the process):
-      // nothing is signed, so nothing can be sent, and no warning is printed yet.
-      let signs = 0;
-      const first = await createKmsNetworkConnection(
-        setup({
-          adapter: {
-            beforeSign: async () => {
-              signs++;
-              if (signs === 2) {
-                throw await Promise.resolve(new Error("the KMS refused"));
-              }
-            },
-          },
-        }).connection,
-      ).getAccount(ADDRESS);
-      await first.signMessage({ message: "not a transaction" });
-      await assert.rejects(async () => await first.signTransaction({ ...TRANSACTION, chainId: 1 }));
-      assert.equal(warn.mock.callCount(), 0, "no transaction signed yet, so no warning");
-      await assert.rejects(async () => await first.signTransaction(TRANSACTION));
-      assert.equal(signs, 2, "the KMS was asked, and refused");
-      assert.equal(warn.mock.callCount(), 0, "the KMS refused, so no warning");
+      const { connection, nonceCalls } = setup();
+      const account = await createKmsNetworkConnection(connection).getAccount(ADDRESS);
+      const consume = async (client: unknown): Promise<number> =>
+        await account.nonceManager.consume({ address: ADDRESS, chainId: CHAIN_ID, client });
+      for (const client of [
+        { transport: { type: "custom" } },
+        {},
+        undefined,
+        { transport: "http" },
+        { transport: { type: 7 } },
+      ]) {
+        assert.equal(await consume(client), 7);
+      }
+      await account.nonceManager.get({
+        address: ADDRESS,
+        chainId: CHAIN_ID,
+        client: { transport: { type: "http" } },
+      });
+      assert.equal(warn.mock.callCount(), 0, "custom, unknown or get: no warning");
 
-      await first.signTransaction(TRANSACTION);
-      assert.equal(warn.mock.callCount(), 1);
-      assert.deepEqual(warn.mock.calls[0]?.arguments, [WARNING]);
-
-      await first.signTransaction({ ...TRANSACTION, nonce: 1 });
+      await consume({ transport: { type: "http" } });
+      assert.deepEqual(
+        warn.mock.calls.map((call) => call.arguments),
+        [[warning("http")]],
+      );
+      await consume({ transport: { type: "webSocket" } });
       const second = await createKmsNetworkConnection(setup().connection).getAccount(ADDRESS);
-      await second.signTransaction({ ...TRANSACTION, nonce: 2 });
+      await second.nonceManager.consume({
+        address: ADDRESS,
+        chainId: CHAIN_ID,
+        client: { transport: { type: "http" } },
+      });
       assert.equal(warn.mock.callCount(), 1, "printed once for every account of the process");
+      assert.equal(nonceCalls.filter(([method]) => method === "choose").length, 8);
     } finally {
       warn.mock.restore();
     }

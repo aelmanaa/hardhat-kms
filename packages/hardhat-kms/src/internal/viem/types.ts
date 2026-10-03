@@ -117,10 +117,10 @@ export interface KmsSignTransactionOptions {
  * A viem local account whose key is a KMS key, from `connection.kms.getAccount`. Pass it to
  * viem as `account`, or as the owner of a smart account.
  *
- * Sends through it bypass the plugin's send lock, nonce tracking and retry cache: viem fills the
- * transaction and sends it with `eth_sendRawTransaction` itself, and the first transaction an
- * account signs in a process prints a warning. To send from a KMS account, use
- * `connection.viem.getWalletClient(address)` instead.
+ * viem fills the account's transactions and sends them with `eth_sendRawTransaction` itself. With
+ * a client whose transport is `custom(connection.provider)`, the account's `nonceManager` and the
+ * plugin's send lock keep those sends and the plugin's own sends on distinct nonces. A client with
+ * its own transport, such as `http(url)`, is not ordered. There is no retry cache for these sends.
  *
  * After `connection.close()`, every method refuses before any KMS call.
  */
@@ -170,6 +170,45 @@ export interface KmsAccount {
   readonly signAuthorization: (
     parameters: KmsAuthorizationRequest,
   ) => Promise<KmsSignedAuthorization>;
+  /** viem's nonce manager for the account's sends; see {@link KmsNonceManager}. */
+  readonly nonceManager: KmsNonceManager;
+}
+
+/** What viem passes to a nonce manager. */
+export interface KmsNonceManagerParameters {
+  /** The account's address. */
+  address: KmsHex;
+  /** The chain of the transaction. */
+  chainId: number;
+}
+
+/**
+ * The account's viem nonce manager. viem calls `consume` for each send that has no nonce, and
+ * `reset` when that send fails. The nonce is chosen as the plugin's own sends would choose it,
+ * under the account's send lock, and is kept from those sends until its raw transaction reaches
+ * the node through the connection, `reset` is called, or 60 s pass.
+ */
+export interface KmsNonceManager {
+  /**
+   * Chooses the next nonce and reserves it.
+   *
+   * @param parameters - The account, the chain and the viem client.
+   * @returns The nonce.
+   */
+  readonly consume: (
+    parameters: KmsNonceManagerParameters & { client: unknown },
+  ) => Promise<number>;
+  /**
+   * Chooses the next nonce without reserving it.
+   *
+   * @param parameters - The account, the chain and the viem client.
+   * @returns The nonce.
+   */
+  readonly get: (parameters: KmsNonceManagerParameters & { client: unknown }) => Promise<number>;
+  /** Does nothing: each `consume` reads the node and the reservations again. */
+  readonly increment: (parameters: KmsNonceManagerParameters) => void;
+  /** Ends the reservation of a send that failed. */
+  readonly reset: (parameters: KmsNonceManagerParameters) => void;
 }
 
 /** A {@link KmsAccount} that also signs bare digests, from `getAccount(address, { rawSign: true })`. */

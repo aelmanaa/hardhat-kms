@@ -195,7 +195,7 @@ describe("a library account's send next to the plugin's sends", { timeout: 300_0
     assert.ok(inner instanceof Error);
     assert.match(
       String(inner),
-      /raw transaction from 0x[0-9a-f]{40} on chain 31337 was sent from inside/,
+      /library account 0x[0-9a-f]{40} on chain 31337 was started from inside/,
     );
     assert.equal(sendLocksInUse(), 0);
     await connection.close();
@@ -239,5 +239,71 @@ describe("a library account's send next to the plugin's sends", { timeout: 300_0
     } finally {
       await node.server.close();
     }
+  });
+
+  it(`gives two parallel sends through the account distinct nonces, ${ROUNDS} times`, async () => {
+    for (let round = 0; round < ROUNDS; round++) {
+      const connection = await connect(withHighWater);
+      const library = createWalletClient({
+        account: await connection.kms.getAccount(COW),
+        chain: hardhat,
+        transport: custom(connection.provider),
+      });
+      const hashes = await Promise.all([
+        library.sendTransaction({ to: TO, value: 1n }),
+        library.sendTransaction({ to: TO, value: 2n }),
+      ]);
+      const publicClient = await viemOf(connection);
+      const mined = await Promise.all(
+        hashes.map(async (hash) => await minedOf(publicClient, hash)),
+      );
+      assert.deepEqual(
+        mined.map(({ nonce }) => nonce).toSorted((a, b) => a - b),
+        [0, 1],
+        `round ${round}: distinct nonces`,
+      );
+      await connection.close();
+    }
+  });
+
+  it("does not delay the plugin's next send after a library send that failed its gas estimate", async () => {
+    const connection = await connect(withHighWater);
+    const library = createWalletClient({
+      account: await connection.kms.getAccount(COW),
+      chain: hardhat,
+      transport: custom(connection.provider),
+    });
+    // Creation code that reverts, so viem's gas estimate fails after its nonce was reserved.
+    await assert.rejects(library.sendTransaction({ data: "0x60006000fd" }));
+    const plugin = await connection.viem.getWalletClient(COW);
+    const started = Date.now();
+    const hash = await plugin.sendTransaction({ to: TO, value: 1n });
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 1000, `the send took ${elapsed} ms`);
+    assert.equal((await minedOf(await viemOf(connection), hash)).nonce, 0, "the nonce is free");
+    await connection.close();
+  });
+
+  it("answers pending and latest counts as the node does, during and after library sends", async () => {
+    const connection = await connect(withHighWater);
+    const account = await connection.kms.getAccount(COW);
+    const library = createWalletClient({
+      account,
+      chain: hardhat,
+      transport: custom(connection.provider),
+    });
+    const publicClient = await viemOf(connection);
+    const counts = async (): Promise<[number, number]> => [
+      await publicClient.getTransactionCount({ address: COW, blockTag: "pending" }),
+      await publicClient.getTransactionCount({ address: COW, blockTag: "latest" }),
+    ];
+    assert.deepEqual(await counts(), [0, 0]);
+    // A reservation that no transaction used yet: the counts stay the node's.
+    await account.nonceManager.consume({ address: COW, chainId: hardhat.id, client: library });
+    assert.deepEqual(await counts(), [0, 0], "as Ignition compares them");
+    account.nonceManager.reset({ address: COW, chainId: hardhat.id });
+    await minedOf(publicClient, await library.sendTransaction({ to: TO, value: 1n }));
+    assert.deepEqual(await counts(), [1, 1]);
+    await connection.close();
   });
 });

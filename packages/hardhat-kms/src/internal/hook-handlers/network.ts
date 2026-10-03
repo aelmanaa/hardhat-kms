@@ -3,7 +3,14 @@ import type { NetworkConnection } from "hardhat/types/network";
 
 import { kmsDebug } from "../debug.ts";
 import { type ConnectionChain, createConnectionChain } from "../rpc/chain-id.ts";
-import { ConnectionAccounts, dispatch, type NetworkKeys } from "../rpc/dispatcher.ts";
+import {
+  ConnectionAccounts,
+  type ConnectionTransactions,
+  dispatch,
+  libraryNonce,
+  type NetworkKeys,
+  resetLibraryNonce,
+} from "../rpc/dispatcher.ts";
 import { ConnectionSends } from "../rpc/send-guard.ts";
 import { createTransactionFiller, type TransactionFiller } from "../rpc/transaction-filler.ts";
 import { SignerCache } from "../signer/key-cache.ts";
@@ -149,26 +156,34 @@ export function createNetworkHandlers(
     return sends;
   };
 
+  const transactionsOf = (connection: NetworkConnection<string>): ConnectionTransactions => ({
+    filler: () => fillerOf(connection),
+    defaultSender: async () => await defaultSender(connection),
+    chainId: async () => await chainOf(connection).chainId(),
+    sends: () => sendsOf(connection),
+    request: async (method, params) => {
+      const result: unknown = await connection.provider.request({ method, params });
+      return result;
+    },
+  });
+
   return {
     newConnection: async (context, next) => {
       const connection = await next(context);
       // Set on every connection, as hardhat-viem sets `connection.viem`; viem loads only when
       // getAccount is called.
-      const accounts = accountsOf(context, connection);
       connection.kms = createKmsNetworkConnection(
         {
           network: connection.networkName,
-          accounts: {
-            // A key found here is a library account's: the dispatcher leases its nonce reads.
-            keyFor: async (address) => {
-              const key = await accounts.keyFor(address);
-              if (key !== undefined) {
-                sendsOf(connection).addLibraryAccount(address);
-              }
-              return key;
+          accounts: accountsOf(context, connection),
+          nonces: {
+            choose: async (request) => await libraryNonce(transactionsOf(connection), request),
+            signed: (address, nonce) => {
+              sendsOf(connection).signedReservation(address, nonce);
             },
-            addresses: async () => await accounts.addresses(),
-            signWith: async (key, sign) => await accounts.signWith(key, sign),
+            reset: async (address, chainId) => {
+              await resetLibraryNonce(transactionsOf(connection), address, chainId);
+            },
           },
           chainId: async () => await chainOf(connection).chainId(),
           allowCrossChainTypedData: context.config.kms.allowCrossChainTypedData,
@@ -226,16 +241,7 @@ export function createNetworkHandlers(
           chain: chainOf(connection),
           allowCrossChainTypedData: context.config.kms.allowCrossChainTypedData,
         },
-        {
-          filler: () => fillerOf(connection),
-          defaultSender: async () => await defaultSender(connection),
-          chainId: async () => await chainOf(connection).chainId(),
-          sends: () => sendsOf(connection),
-          request: async (method, params) => {
-            const result: unknown = await connection.provider.request({ method, params });
-            return result;
-          },
-        },
+        transactionsOf(connection),
       ),
   };
 }

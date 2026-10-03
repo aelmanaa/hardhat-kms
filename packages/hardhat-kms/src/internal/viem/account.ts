@@ -10,7 +10,11 @@ import { recoverPublicKey, toRpcSignature } from "../crypto/signature.ts";
 import { kmsDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, errorName } from "../errors.ts";
-import { type ConnectionAccounts, kmsAccountsSentence } from "../rpc/dispatcher.ts";
+import {
+  type ConnectionAccounts,
+  kmsAccountsSentence,
+  type LibraryNonceRequest,
+} from "../rpc/dispatcher.ts";
 import { assembleSignedTransaction } from "../rpc/transactions.ts";
 import { checkTypedDataChain } from "../rpc/typed-data.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
@@ -29,6 +33,7 @@ import type {
   KmsAuthorizationRequest,
   KmsHex,
   KmsNetworkConnection,
+  KmsNonceManager,
   KmsRawSignAccount,
   KmsSignedAuthorization,
   KmsSignTransactionOptions,
@@ -51,6 +56,18 @@ export interface AccountConnection {
   allowCrossChainTypedData: boolean;
   /** Whether the connection is closed; its accounts then refuse to sign. */
   closed(): boolean;
+  /** The connection's nonces for its library accounts' own sends. */
+  nonces: {
+    /**
+     * Chooses an account's next nonce; for `consume`, under its send lock, which the send keeps
+     * until its broadcast.
+     */
+    choose(request: LibraryNonceRequest): Promise<bigint>;
+    /** Notes that the account signed a transaction with this nonce. */
+    signed(address: string, nonce: bigint): void;
+    /** Ends the hold or the reservation of a send that failed. */
+    reset(address: string, chainId: bigint): Promise<void>;
+  };
 }
 
 /** The parts of viem an account uses. */
@@ -126,17 +143,39 @@ function loadFailure(error: unknown): string {
     : errorName(error);
 }
 
-// Printed once per process, on the first transaction a library account signs.
-let warnedAboutSends = false;
+// Printed once per process, the first time a library account's nonce is chosen for a client
+// whose transport does not go through Hardhat.
+let warnedAboutTransport = false;
 
-/** Warns, once per process, that only sends through the connection are ordered with the plugin's. */
-function warnAboutSends(): void {
-  if (warnedAboutSends) {
+/**
+ * Tells whether a viem client's transport does not go through Hardhat: one whose type is not
+ * `custom`, such as `http(url)` or `webSocket(url)`. A `custom` transport over another provider
+ * cannot be told apart from `custom(connection.provider)`.
+ *
+ * @param client - The viem client of the send.
+ * @returns Whether it does not.
+ */
+function ownTransport(client: unknown): boolean {
+  const transport: unknown = isObject(client) ? client.transport : undefined;
+  const type: unknown = isObject(transport) ? transport.type : undefined;
+  return typeof type === "string" && type !== "custom";
+}
+
+/**
+ * Warns, once per process, when viem asks for a nonce for a client whose transport does not go
+ * through Hardhat: its broadcast never reaches the plugin.
+ *
+ * @param client - The viem client of the send.
+ */
+function warnAboutTransport(client: unknown): void {
+  if (warnedAboutTransport) {
     return;
   }
-  warnedAboutSends = true;
+  warnedAboutTransport = true;
+  const transport: unknown = isObject(client) ? client.transport : undefined;
+  const type = isObject(transport) ? String(transport.type) : "";
   warn(
-    "a transaction signed by a connection.kms.getAccount account is ordered with the plugin's own sends only when viem sends it through the connection, as with custom(connection.provider). A client with its own transport, such as http(url), bypasses the plugin's nonce tracking and send lock; see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.",
+    `a connection.kms.getAccount account sends with a viem "${type}" transport, which does not go through Hardhat. The plugin chose the transaction's nonce and keeps it from its own sends for 60 s, but it does not order or see the broadcast. Send through custom(connection.provider); see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.`,
   );
 }
 
@@ -234,8 +273,8 @@ async function signTransaction(
     const signature = await signer.signDigest(keccak_256(unsignedBytes));
     return assembleSignedTransaction(input.unsigned, signature, address, operation);
   });
-  // After the signature: a transaction the KMS did not sign is never sent.
-  warnAboutSends();
+  // After the signature: a reservation whose transaction was signed is the one most likely sent.
+  connection.nonces.signed(address.toLowerCase(), input.unsigned.raw.nonce);
   return hex(signed.toHex(true));
 }
 
@@ -297,6 +336,43 @@ async function signAuthorization(
   return signed;
 }
 
+/**
+ * Builds the account's viem `nonceManager`. viem calls `consume` once per send without a nonce
+ * (`sendTransaction`, `writeContract`, `deployContract`), and `reset` when that send fails. The
+ * connection chooses the nonce as the plugin's own sends would, and keeps it from them until the
+ * raw transaction reaches the node, `reset` is called, or 60 s pass.
+ */
+function buildNonceManager(context: AccountContext): KmsNonceManager {
+  const { connection } = context;
+  const address = context.address.toLowerCase();
+  const choose = async (
+    operation: string,
+    parameters: { chainId: number; client?: unknown },
+    reserve: boolean,
+  ): Promise<number> => {
+    checkOpen(connection, operation);
+    const own = reserve && ownTransport(parameters.client);
+    if (own) {
+      warnAboutTransport(parameters.client);
+    }
+    const chainId = BigInt(parameters.chainId);
+    return Number(await connection.nonces.choose({ address, chainId, reserve, ownTransport: own }));
+  };
+  const manager: KmsNonceManager = {
+    consume: async (parameters) => await choose("nonceManager.consume", parameters, true),
+    get: async (parameters) => await choose("nonceManager.get", parameters, false),
+    // Nothing to count: each consume reads the node and the reservations again.
+    increment: () => undefined,
+    reset: (parameters) => {
+      // viem does not await reset; a failure only leaves the hold to its time limit.
+      connection.nonces.reset(address, BigInt(parameters.chainId)).catch((error: unknown) => {
+        log("%s: nonceManager.reset failed (%s)", context.address, errorName(error));
+      });
+    },
+  };
+  return Object.freeze(manager);
+}
+
 /** Builds the account object. It holds closures only: no signer, key config or key material. */
 function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | KmsRawSignAccount {
   const { connection, withSigner } = context;
@@ -334,6 +410,7 @@ function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | 
     signTransaction: async (transaction, options) =>
       await signTransaction(context, transaction, options),
     signAuthorization: async (parameters) => await signAuthorization(context, parameters),
+    nonceManager: buildNonceManager(context),
   };
   if (!context.options.rawSign) {
     return Object.freeze(account);

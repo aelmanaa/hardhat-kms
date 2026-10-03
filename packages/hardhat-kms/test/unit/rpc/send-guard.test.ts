@@ -8,8 +8,15 @@ import {
   canonicalJson,
   ConnectionSends,
   MAX_RETRY_ENTRIES,
+  endLibraryHold,
+  endLibraryHoldsOf,
+  expectLibraryReset,
+  holdForLibrary,
+  LIBRARY_HOLD_MS,
+  libraryHoldNonce,
   MAX_SEND_LOCK_WAITERS,
-  NONCE_LEASE_MS,
+  RESERVATION_MS,
+  resetLibraryHold,
   RETRY_TTL_MS,
   SEND_LOCK_STALL_MS,
   sendLocksInUse,
@@ -623,64 +630,191 @@ describe("ConnectionSends", () => {
   });
 });
 
-describe("ConnectionSends leases", () => {
+/** A send state with a clock the test moves. */
+function withClock(highWater = true): { sends: ConnectionSends; clock: { now: number } } {
+  const clock = { now: 1_000 };
+  const sends = new ConnectionSends({ highWater, timers: fakeTimers(), now: () => clock.now });
+  return { sends, clock };
+}
+
+describe("ConnectionSends nonce reservations", () => {
   const COW = "0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
   const ZERO = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
 
-  it("leases only for a sender with a library account", () => {
-    const sends = new ConnectionSends({ highWater: false, timers: fakeTimers() });
-    sends.lease(COW, 0n);
-    assert.equal(sends.hasLease(COW), false);
-    sends.addLibraryAccount(COW);
-    sends.lease(COW, 0n);
-    assert.equal(sends.hasLease(COW), true);
-    assert.equal(sends.hasLease(ZERO), false);
+  it("keeps a send above every reservation, the mark and the pending count", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 3n);
+    sends.reserve(COW, 5n);
+    assert.equal(sends.nonceFor(COW, 0n), 6n);
+    assert.equal(sends.nonceFor(COW, 9n), 9n);
+    sends.recordSent(COW, 7n);
+    assert.equal(sends.nonceFor(COW, 0n), 8n);
+    assert.equal(sends.nonceFor(ZERO, 2n), 2n, "another sender's reservations do not count");
   });
 
-  it("ends the leases up to a sent nonce, and wakes the waiters when none is left", async () => {
-    const timers = fakeTimers();
-    const sends = new ConnectionSends({ highWater: true, timers });
-    sends.addLibraryAccount(COW);
-    sends.lease(COW, 3n);
-    sends.lease(COW, 5n);
-    let woken = false;
-    const waiting = sends.leasesEnded(COW).finally(() => {
-      woken = true;
-    });
-    sends.endLeases(COW, 4n);
-    await Promise.resolve();
-    assert.equal(woken, false, "the lease of nonce 5 is still there");
-    assert.equal(timers.pending(), 1, "the ended lease's timer is cancelled");
-    sends.endLeases(ZERO, 9n);
-    sends.endLeases(COW, 5n);
-    await waiting;
-    assert.equal(sends.hasLease(COW), false);
-    await sends.leasesEnded(COW);
+  it("counts reservations with the high-water mark off too", () => {
+    const { sends } = withClock(false);
+    sends.reserve(COW, 4n);
+    assert.equal(sends.nonceFor(COW, 4n), 5n);
+    assert.equal(sends.nonceFor(COW, 6n), 6n);
   });
 
-  it(`ends a lease after ${NONCE_LEASE_MS} ms`, async () => {
-    const timers = fakeTimers();
-    const sends = new ConnectionSends({ highWater: true, timers });
-    sends.addLibraryAccount(COW);
-    sends.lease(COW, 0n);
-    assert.deepEqual(timers.delays(), [NONCE_LEASE_MS]);
-    const waiting = sends.leasesEnded(COW);
-    timers.fire();
-    await waiting;
-    assert.equal(sends.hasLease(COW), false);
+  it(`stops counting a reservation ${RESERVATION_MS} ms after it was made, with no timer`, () => {
+    const { sends, clock } = withClock();
+    sends.reserve(COW, 2n);
+    clock.now += RESERVATION_MS - 1;
+    assert.equal(sends.nonceFor(COW, 0n), 3n);
+    clock.now += 1;
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
+    // Reserved again, it counts again for a full period.
+    sends.reserve(COW, 2n);
+    clock.now += RESERVATION_MS - 1;
+    assert.equal(sends.nonceFor(COW, 0n), 3n);
   });
 
-  it("ends every lease and forgets the library accounts when the connection closes", async () => {
-    const timers = fakeTimers();
-    const sends = new ConnectionSends({ highWater: true, timers });
-    sends.addLibraryAccount(COW);
-    sends.lease(COW, 0n);
-    const waiting = sends.leasesEnded(COW);
+  it("ends one reservation by its nonce, or every one up to a nonce", () => {
+    const { sends } = withClock();
+    for (const nonce of [1n, 2n, 3n, 5n]) {
+      sends.reserve(COW, nonce);
+    }
+    sends.releaseReservation(COW, 5n);
+    assert.equal(sends.nonceFor(COW, 0n), 4n);
+    sends.releaseReservationsUpTo(COW, 2n);
+    assert.equal(sends.nonceFor(COW, 0n), 4n, "3 is still reserved");
+    sends.releaseReservationsUpTo(COW, 3n);
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
+    sends.releaseReservation(ZERO, 1n);
+    sends.releaseReservationsUpTo(ZERO, 1n);
+  });
+
+  it("resets the newest failed reservation, else the newest unsigned one, else the newest", () => {
+    const { sends } = withClock();
+    for (const nonce of [1n, 2n, 3n, 4n]) {
+      sends.reserve(COW, nonce);
+    }
+    sends.signedReservation(COW, 3n);
+    sends.signedReservation(COW, 4n);
+    sends.failReservation(COW, 1n);
+    sends.signedReservation(ZERO, 1n);
+    sends.failReservation(ZERO, 1n);
+    sends.resetReservation(COW);
+    // 1 failed: gone. Left: 2 (unsigned), 3 and 4 (signed).
+    sends.resetReservation(COW);
+    // 2 unsigned: gone. Left: 3 and 4.
+    assert.equal(sends.nonceFor(COW, 0n), 5n);
+    sends.resetReservation(COW);
+    assert.equal(sends.nonceFor(COW, 0n), 4n, "the newest, 4, is gone");
+    sends.resetReservation(COW);
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
+    sends.resetReservation(COW);
+    sends.resetReservation(ZERO);
+  });
+
+  it("treats a nonce handed out again as the newest", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 1n);
+    sends.reserve(COW, 2n);
+    sends.reserve(COW, 1n);
+    sends.resetReservation(COW);
+    assert.equal(sends.nonceFor(COW, 0n), 3n, "1 was reset, 2 stays");
+  });
+
+  it("forgets every reservation when the connection closes, and reserves nothing after", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 1n);
     sends.close();
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
+    sends.reserve(COW, 1n);
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
+  });
+});
+
+describe("library holds", () => {
+  const KEY = "31337:0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
+
+  it("keeps the lock after the nonce is chosen, until the broadcast ends the hold", async () => {
+    const timers = fakeTimers();
+    const owner = {};
+    const nonce = await holdForLibrary(KEY, owner, async () => await Promise.resolve(4n), timers);
+    assert.equal(nonce, 4n);
+    assert.equal(libraryHoldNonce(KEY), 4n);
+    let ran = false;
+    const waiting = withSendLock(KEY, async () => {
+      ran = true;
+      await Promise.resolve();
+    });
+    await Promise.resolve();
+    assert.equal(ran, false, "a send waits behind the hold");
+    assert.deepEqual(timers.delays().includes(LIBRARY_HOLD_MS), true);
+    endLibraryHold(KEY, false);
+    endLibraryHold(KEY, false);
     await waiting;
-    assert.equal(timers.pending(), 0);
-    sends.addLibraryAccount(COW);
-    sends.lease(COW, 1n);
-    assert.equal(sends.hasLease(COW), false, "a closed connection leases nothing");
+    assert.equal(ran, true);
+    assert.equal(libraryHoldNonce(KEY), undefined);
+    assert.equal(resetLibraryHold(KEY), false, "no reset is owed for a broadcast that went out");
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it(`ends the hold after ${LIBRARY_HOLD_MS} ms when nothing else ends it`, async () => {
+    const timers = fakeTimers();
+    await holdForLibrary(KEY, {}, async () => await Promise.resolve(1n), timers);
+    timers.fire();
+    await withSendLock(KEY, async () => {
+      await Promise.resolve();
+    });
+    assert.equal(libraryHoldNonce(KEY), undefined);
+  });
+
+  it("uses up the resets owed by failed sends before it ends a hold", async () => {
+    const timers = fakeTimers();
+    expectLibraryReset(KEY);
+    await holdForLibrary(KEY, {}, async () => await Promise.resolve(2n), timers);
+    endLibraryHold(KEY, true);
+    expectLibraryReset(KEY);
+    await holdForLibrary(KEY, {}, async () => await Promise.resolve(3n), timers);
+    // Owed: the first expected reset, the failed broadcast of 2, and the second expected reset.
+    for (let i = 0; i < 3; i++) {
+      assert.equal(resetLibraryHold(KEY), true, "owed");
+      assert.equal(libraryHoldNonce(KEY), 3n, "the hold is still there");
+    }
+    assert.equal(resetLibraryHold(KEY), true, "the hold's own reset");
+    assert.equal(libraryHoldNonce(KEY), undefined);
+    assert.equal(resetLibraryHold(KEY), false);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("ends only the holds of a closing connection", async () => {
+    const timers = fakeTimers();
+    const mine = {};
+    const other = {};
+    const otherKey = `${KEY}0`;
+    await holdForLibrary(KEY, mine, async () => await Promise.resolve(1n), timers);
+    await holdForLibrary(otherKey, other, async () => await Promise.resolve(1n), timers);
+    endLibraryHoldsOf(mine);
+    assert.equal(libraryHoldNonce(KEY), undefined);
+    assert.equal(libraryHoldNonce(otherKey), 1n);
+    endLibraryHoldsOf(other);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("holds nothing when the nonce cannot be chosen, and throws its error", async () => {
+    await assert.rejects(
+      holdForLibrary(KEY, {}, async () => {
+        throw await Promise.resolve(new Error("no node"));
+      }),
+      /no node/,
+    );
+    assert.equal(libraryHoldNonce(KEY), undefined);
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("keeps the process alive while a hold lasts, by default", async () => {
+    const timers = fakeTimers();
+    const done = holdForLibrary(KEY, {}, async () => await Promise.resolve(9n));
+    assert.equal(await done, 9n);
+    assert.equal(timers.pending(), 0, "the default timers are real, and the test ends the hold");
+    endLibraryHold(KEY, false);
   });
 });

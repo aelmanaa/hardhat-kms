@@ -562,6 +562,7 @@ describe("connection.kms.getAccount", () => {
     assert.ok(Object.isFrozen(kms));
     assert.deepEqual(Object.keys(account).toSorted(), [
       "address",
+      "nonceManager",
       "publicKey",
       "signAuthorization",
       "signMessage",
@@ -573,9 +574,19 @@ describe("connection.kms.getAccount", () => {
     for (const name of Object.keys(account)) {
       const value: unknown = Reflect.get(account, name);
       assert.ok(
-        typeof value === "string" || typeof value === "function",
+        typeof value === "string" || typeof value === "function" || name === "nonceManager",
         `${name} is a string or a function`,
       );
+    }
+    assert.ok(Object.isFrozen(account.nonceManager));
+    assert.deepEqual(Object.keys(account.nonceManager).toSorted(), [
+      "consume",
+      "get",
+      "increment",
+      "reset",
+    ]);
+    for (const value of Object.values(account.nonceManager)) {
+      assert.equal(typeof value, "function");
     }
     const raw = await kms.getAccount(ADDRESS, { rawSign: true });
     assert.equal(typeof raw.sign, "function");

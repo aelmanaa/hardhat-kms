@@ -13,10 +13,10 @@ import { systemTimers, type Timers } from "../signer/timeout.ts";
 export const RETRY_TTL_MS = 120_000;
 
 /**
- * How long a nonce read for a library account holds back the account's next send through the
- * plugin, waiting for the raw transaction that uses the nonce. Not configurable in 1.0.
+ * How long a nonce that a library account's nonce manager handed out keeps counting, when neither
+ * its raw transaction nor the client's `reset` ends it first. Not configurable in 1.0.
  */
-export const NONCE_LEASE_MS = 10_000;
+export const RESERVATION_MS = 60_000;
 
 /** The most retry entries a connection keeps; a new entry beyond it drops the oldest. */
 export const MAX_RETRY_ENTRIES = 256;
@@ -200,6 +200,168 @@ export async function withSendLock<T>(
 }
 
 /**
+ * How long a library account's send may keep its account's send lock when neither its raw
+ * transaction nor viem's `reset` ends the hold first. Not configurable in 1.0.
+ */
+export const LIBRARY_HOLD_MS = 60_000;
+
+/** A library account's send that holds its account's send lock, from its nonce to its broadcast. */
+interface LibraryHold {
+  /** The nonce the send was given. */
+  readonly nonce: bigint;
+  /** The send state of the connection that gave it, so closing the connection ends the hold. */
+  readonly owner: object;
+  /** Ends the hold and releases the lock. */
+  readonly end: () => void;
+}
+
+/** The library sends that hold a send lock, by lock key. Process-global, as the locks are. */
+const libraryHolds = new Map<string, LibraryHold>();
+
+/**
+ * By lock key: the viem `reset` calls still to come for library sends that no longer hold the
+ * lock (their nonce choice failed, or their broadcast failed), which must not end another hold.
+ */
+const pendingResets = new Map<string, number>();
+
+/**
+ * Timer functions whose timers keep the process alive, unlike {@link systemTimers}: a send that
+ * waits behind a library hold must not see Node end the process before the hold ends.
+ */
+const keepAliveTimers: Timers = {
+  setTimeout(callback, ms) {
+    const handle = setTimeout(callback, ms);
+    return () => {
+      clearTimeout(handle);
+    };
+  },
+};
+
+/**
+ * Takes the send lock for a library account's send and keeps it after `choose` returns: viem
+ * signs and sends the transaction with the chosen nonce itself, in later requests. The hold ends
+ * when that raw transaction is broadcast ({@link endLibraryHold}), when viem's `reset` reports
+ * that the send failed ({@link resetLibraryHold}), when the owner's connection closes, or after
+ * {@link LIBRARY_HOLD_MS}. Sends that wait behind it wait as they wait behind any send.
+ *
+ * When the lock cannot be had, or `choose` fails, nothing is held and the error is thrown.
+ *
+ * @param key - The lock key.
+ * @param owner - The connection's send state.
+ * @param choose - Chooses the nonce, under the lock.
+ * @param timers - Timer functions for the hold's limit; by default they keep the process alive.
+ * @returns The nonce.
+ */
+export async function holdForLibrary(
+  key: string,
+  owner: object,
+  choose: () => Promise<bigint>,
+  timers: Timers = keepAliveTimers,
+): Promise<bigint> {
+  const control: { acquired?: (nonce: bigint) => void; release?: () => void } = {};
+  const acquired = new Promise<bigint>((resolve) => {
+    control.acquired = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    control.release = resolve;
+  });
+  const holding = withSendLock(key, async () => {
+    const nonce = await choose();
+    let ended = false;
+    const cancel = timers.setTimeout(() => {
+      hold.end();
+    }, LIBRARY_HOLD_MS);
+    const hold: LibraryHold = {
+      nonce,
+      owner,
+      end: () => {
+        if (ended) {
+          return;
+        }
+        ended = true;
+        cancel();
+        if (libraryHolds.get(key) === hold) {
+          libraryHolds.delete(key);
+        }
+        control.release?.();
+      },
+    };
+    libraryHolds.set(key, hold);
+    control.acquired?.(nonce);
+    await released;
+  });
+  return await Promise.race([acquired, holding.then(async () => await acquired)]);
+}
+
+/**
+ * The nonce of the library send that holds a key's lock.
+ *
+ * @param key - The lock key.
+ * @returns The nonce, or `undefined` when no library send holds it.
+ */
+export function libraryHoldNonce(key: string): bigint | undefined {
+  return libraryHolds.get(key)?.nonce;
+}
+
+/**
+ * Ends the hold of the library send whose raw transaction was just broadcast.
+ *
+ * @param key - The lock key.
+ * @param failed - Whether the broadcast failed, so viem's `reset` for it is still to come.
+ */
+export function endLibraryHold(key: string, failed: boolean): void {
+  if (failed) {
+    expectLibraryReset(key);
+  }
+  libraryHolds.get(key)?.end();
+}
+
+/**
+ * Counts a viem `reset` still to come for a library send that holds nothing, so that it does not
+ * end another send's hold.
+ *
+ * @param key - The lock key.
+ */
+export function expectLibraryReset(key: string): void {
+  pendingResets.set(key, (pendingResets.get(key) ?? 0) + 1);
+}
+
+/**
+ * Handles viem's `reset` for a key: one owed by a send that no longer holds the lock is used up;
+ * otherwise the current hold ends, since its send failed before its broadcast.
+ *
+ * @param key - The lock key.
+ * @returns Whether the reset was for a library hold, held or past.
+ */
+export function resetLibraryHold(key: string): boolean {
+  const owed = pendingResets.get(key) ?? 0;
+  if (owed > 0) {
+    if (owed === 1) {
+      pendingResets.delete(key);
+    } else {
+      pendingResets.set(key, owed - 1);
+    }
+    return true;
+  }
+  const hold = libraryHolds.get(key);
+  hold?.end();
+  return hold !== undefined;
+}
+
+/**
+ * Ends the library holds a connection's send state gave, when the connection closes.
+ *
+ * @param owner - The connection's send state.
+ */
+export function endLibraryHoldsOf(owner: object): void {
+  for (const hold of libraryHolds.values()) {
+    if (hold.owner === owner) {
+      hold.end();
+    }
+  }
+}
+
+/**
  * The number of send locks that are held or waited for. Tests use it to check that nothing is
  * left behind.
  *
@@ -277,10 +439,14 @@ export interface SentTransaction {
   nonce: bigint;
 }
 
-/** A nonce a client that signs for itself was given, and has not sent yet. */
-interface Lease {
-  nonce: bigint;
-  cancel: () => void;
+/** A nonce handed out to a library account's client, not yet known to the node. */
+interface Reservation {
+  /** When it stops counting, in the clock of {@link ConnectionSendsOptions.now}. */
+  expiresAt: number;
+  /** Whether the account has signed a transaction with this nonce. */
+  signed: boolean;
+  /** Whether its raw transaction went to the node and was not taken. */
+  failed: boolean;
 }
 
 interface RetryEntry {
@@ -294,6 +460,8 @@ export interface ConnectionSendsOptions {
   highWater: boolean;
   /** Timer functions for the retry entries' lifetime. */
   timers?: Timers;
+  /** The clock of the nonce reservations, in milliseconds; `Date.now` by default. */
+  now?: () => number;
 }
 
 /**
@@ -307,12 +475,9 @@ export class ConnectionSends {
   readonly #retries = new Map<string, RetryEntry>();
   /** By sender: the last transaction whose broadcast had no answer, still to be looked up. */
   readonly #uncertain = new Map<string, SentTransaction>();
-  /** The senders that have a library account on this connection. */
-  readonly #library = new Set<string>();
-  /** By sender: the nonces given to a library account's client and not yet sent. */
-  readonly #leases = new Map<string, Lease[]>();
-  /** By sender: the sends waiting for its leases to end. */
-  readonly #leaseWaiters = new Map<string, (() => void)[]>();
+  /** By sender, in the order they were handed out: the nonces reserved for library accounts. */
+  readonly #reservations = new Map<string, Map<bigint, Reservation>>();
+  readonly #now: () => number;
   #closed = false;
 
   /**
@@ -321,19 +486,135 @@ export class ConnectionSends {
   public constructor(options: ConnectionSendsOptions) {
     this.#highWaterEnabled = options.highWater;
     this.#timers = options.timers ?? systemTimers;
+    this.#now = options.now ?? Date.now;
   }
 
   /**
-   * Chooses the nonce of a send whose caller gave none: `max(pending, highWater + 1)`, so a node
-   * that lags on its pending count does not get a nonce that was already used.
+   * Chooses the nonce of a send whose caller gave none: `max(pending, highWater + 1, highest
+   * reservation + 1)`, so a node that lags on its pending count does not get a nonce that was
+   * already used, and a send never takes a nonce a library account's client was handed.
    *
    * @param from - The sender's lowercase address.
    * @param pending - The node's pending transaction count for the sender.
    * @returns The nonce to sign.
    */
   public nonceFor(from: string, pending: bigint): bigint {
+    let nonce = pending;
     const mark = this.#highWaterEnabled ? this.#highWater.get(from) : undefined;
-    return mark === undefined || pending > mark ? pending : mark + 1n;
+    if (mark !== undefined && mark >= nonce) {
+      nonce = mark + 1n;
+    }
+    for (const reserved of this.#live(from).keys()) {
+      if (reserved >= nonce) {
+        nonce = reserved + 1n;
+      }
+    }
+    return nonce;
+  }
+
+  /**
+   * Reserves a nonce handed out to a library account's client, which signs and sends it itself.
+   * It counts in {@link nonceFor} until its raw transaction reaches the node, the client's `reset`
+   * releases it, or {@link RESERVATION_MS} pass. Nothing waits for it.
+   *
+   * @param from - The sender's lowercase address.
+   * @param nonce - The nonce.
+   */
+  public reserve(from: string, nonce: bigint): void {
+    if (this.#closed) {
+      return;
+    }
+    const reservations = this.#live(from);
+    // Deleted first, so a nonce handed out again counts as the newest.
+    reservations.delete(nonce);
+    reservations.set(nonce, {
+      expiresAt: this.#now() + RESERVATION_MS,
+      signed: false,
+      failed: false,
+    });
+    this.#reservations.set(from, reservations);
+  }
+
+  /**
+   * Notes that the account signed a transaction with a reserved nonce.
+   *
+   * @param from - The sender's lowercase address.
+   * @param nonce - The transaction's nonce.
+   */
+  public signedReservation(from: string, nonce: bigint): void {
+    const reservation = this.#live(from).get(nonce);
+    if (reservation !== undefined) {
+      reservation.signed = true;
+    }
+  }
+
+  /**
+   * Notes that the raw transaction with a reserved nonce went to the node and was not taken, so
+   * the client's `reset` that follows its error releases this one.
+   *
+   * @param from - The sender's lowercase address.
+   * @param nonce - The transaction's nonce.
+   */
+  public failReservation(from: string, nonce: bigint): void {
+    const reservation = this.#live(from).get(nonce);
+    if (reservation !== undefined) {
+      reservation.failed = true;
+    }
+  }
+
+  /**
+   * Ends the reservation of a nonce whose raw transaction the node has.
+   *
+   * @param from - The sender's lowercase address.
+   * @param nonce - The transaction's nonce.
+   */
+  public releaseReservation(from: string, nonce: bigint): void {
+    this.#reservations.get(from)?.delete(nonce);
+  }
+
+  /**
+   * Ends the reservations of nonces up to one that a send through the plugin used.
+   *
+   * @param from - The sender's lowercase address.
+   * @param nonce - The send's nonce.
+   */
+  public releaseReservationsUpTo(from: string, nonce: bigint): void {
+    const reservations = this.#reservations.get(from);
+    for (const reserved of reservations?.keys() ?? []) {
+      if (reserved <= nonce) {
+        reservations?.delete(reserved);
+      }
+    }
+  }
+
+  /**
+   * Ends one reservation after a client's send failed (viem's `nonceManager.reset`), which does
+   * not say which nonce: the newest one whose raw transaction failed, else the newest one not yet
+   * signed, else the newest one.
+   *
+   * @param from - The sender's lowercase address.
+   */
+  public resetReservation(from: string): void {
+    const entries = [...this.#live(from)].toReversed();
+    const chosen =
+      entries.find(([, reservation]) => reservation.failed) ??
+      entries.find(([, reservation]) => !reservation.signed) ??
+      entries[0];
+    if (chosen !== undefined) {
+      this.releaseReservation(from, chosen[0]);
+    }
+  }
+
+  /** The sender's reservations that still count; expired ones are dropped. */
+  #live(from: string): Map<bigint, Reservation> {
+    const reservations = this.#reservations.get(from) ?? new Map<bigint, Reservation>();
+    const now = this.#now();
+    for (const [nonce, reservation] of reservations) {
+      if (reservation.expiresAt <= now) {
+        reservations.delete(nonce);
+      }
+    }
+    return reservations;
   }
 
   /**
@@ -471,100 +752,6 @@ export class ConnectionSends {
   }
 
   /**
-   * Notes that `connection.kms.getAccount` gave out a library account for the sender, whose client
-   * fills its own nonces. Only such senders get leases.
-   *
-   * @param from - The sender's lowercase address.
-   */
-  public addLibraryAccount(from: string): void {
-    if (!this.#closed) {
-      this.#library.add(from);
-    }
-  }
-
-  /**
-   * Leases a nonce that a nonce read gave a library account's client, which will sign and send it
-   * itself. Until a raw transaction with that nonce or a higher one is sent, or
-   * {@link NONCE_LEASE_MS} pass, the sender's sends through the plugin without the caller's nonce
-   * wait (see {@link leasesEnded}). Nothing is leased for a sender without a library account.
-   *
-   * @param from - The sender's lowercase address.
-   * @param nonce - The nonce the read answered.
-   */
-  public lease(from: string, nonce: bigint): void {
-    if (this.#closed || !this.#library.has(from)) {
-      return;
-    }
-    const lease: Lease = { nonce, cancel: () => undefined };
-    lease.cancel = this.#timers.setTimeout(() => {
-      this.#endLeases(from, (other) => other === lease);
-    }, NONCE_LEASE_MS);
-    const leases = this.#leases.get(from) ?? [];
-    leases.push(lease);
-    this.#leases.set(from, leases);
-  }
-
-  /**
-   * Ends the sender's leases of nonces up to `nonce`: a raw transaction with that nonce was sent.
-   *
-   * @param from - The sender's lowercase address.
-   * @param nonce - The raw transaction's nonce.
-   */
-  public endLeases(from: string, nonce: bigint): void {
-    this.#endLeases(from, (lease) => lease.nonce <= nonce);
-  }
-
-  /**
-   * Tells whether the sender has a lease.
-   *
-   * @param from - The sender's lowercase address.
-   * @returns Whether it has.
-   */
-  public hasLease(from: string): boolean {
-    return this.#leases.has(from);
-  }
-
-  /**
-   * Waits until the sender has no lease.
-   *
-   * @param from - The sender's lowercase address.
-   */
-  public async leasesEnded(from: string): Promise<void> {
-    if (!this.#leases.has(from)) {
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      const waiters = this.#leaseWaiters.get(from) ?? [];
-      waiters.push(resolve);
-      this.#leaseWaiters.set(from, waiters);
-    });
-  }
-
-  #endLeases(from: string, ends: (lease: Lease) => boolean): void {
-    const leases = this.#leases.get(from);
-    if (leases === undefined) {
-      return;
-    }
-    const kept = leases.filter((lease) => {
-      if (ends(lease)) {
-        lease.cancel();
-        return false;
-      }
-      return true;
-    });
-    if (kept.length > 0) {
-      this.#leases.set(from, kept);
-      return;
-    }
-    this.#leases.delete(from);
-    const waiters = this.#leaseWaiters.get(from) ?? [];
-    this.#leaseWaiters.delete(from);
-    for (const wake of waiters) {
-      wake();
-    }
-  }
-
-  /**
    * Drops every retry entry and cancels its timer; called when the connection closes. Later
    * failures are not remembered.
    */
@@ -576,9 +763,7 @@ export class ConnectionSends {
     this.#retries.clear();
     this.#highWater.clear();
     this.#uncertain.clear();
-    this.#library.clear();
-    for (const from of this.#leases.keys()) {
-      this.#endLeases(from, () => true);
-    }
+    this.#reservations.clear();
+    endLibraryHoldsOf(this);
   }
 }

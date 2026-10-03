@@ -1102,6 +1102,16 @@ export const ERRORS = {
       "Code that runs during a send, such as a network hook, sent from the same account again.",
     fix: "Send the second transaction after the first one returns.",
   },
+  accountNonceReentrant: {
+    id: "core.account.nonce-reentrant",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "A transaction of the library account {account} was started from inside an earlier send from the same account on that chain, for example by a hook during its fill or broadcast. It would wait for itself, so it was not signed or sent.",
+    cause:
+      "Code that runs during a send, such as a network hook, sent a transaction with a connection.kms.getAccount account of the same address.",
+    fix: "Send the second transaction after the first one returns.",
+  },
   rawSendReentrant: {
     id: "core.tx.raw-send-reentrant",
     kind: "error",
