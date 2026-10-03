@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
-import type { AwsKmsKeyConfig } from "hardhat-kms/types";
+import type { AwsKmsKeyConfig, KmsIdentifier } from "hardhat-kms/types";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import { createAwsKeyAdapter } from "../../src/internal/adapter.ts";
@@ -15,6 +15,17 @@ const context = () => ({
   displayMessage: async () => {},
   requestId: "r1",
 });
+
+/** A setting with a value, shown as it would be from a configuration variable. */
+function setting(value: string, display = value): KmsIdentifier {
+  return { get: async () => await Promise.resolve(value), display };
+}
+
+/** A setting whose read fails the test. */
+const unread: KmsIdentifier = {
+  get: async () => await Promise.reject(new Error("the region was read")),
+  display: "<AWS_KMS_REGION>",
+};
 
 /** A resolved AWS key, as hardhat-kms passes it to the adapter. */
 function awsKey(
@@ -102,10 +113,10 @@ describe("AWS KMS adapter", () => {
 
   it("uses the region of a key ARN over the key's, and passes profile and endpoint", async () => {
     // A key id read from a variable (or --kms) can hold an ARN: its region wins when it is read.
-    const arn = awsKey(KEY_ARN, { region: "us-east-1" });
+    const arn = awsKey(KEY_ARN, { region: unread });
     const plain = awsKey("alias/a", {
-      region: "us-east-1",
-      profile: "ci",
+      region: setting("us-east-1"),
+      profile: setting("ci"),
       endpoint: "http://localhost:4566",
     });
 
@@ -123,6 +134,35 @@ describe("AWS KMS adapter", () => {
     assert.deepEqual((await adapterFor(awsKey("alias/a"))).clients[0]?.config, {
       customUserAgent: USER_AGENT,
     });
+  });
+
+  it("reads a region and profile from variables, and leaves empty ones to the SDK", async () => {
+    const fromVariables = awsKey("alias/a", {
+      region: setting("ap-south-1", "<AWS_KMS_REGION>"),
+      profile: setting("sso-dev", "<AWS_KMS_PROFILE>"),
+    });
+    const empty = awsKey("alias/a", {
+      region: setting("", "<AWS_KMS_REGION>"),
+      profile: setting("", "<AWS_KMS_PROFILE>"),
+    });
+
+    assert.deepEqual((await adapterFor(fromVariables)).clients[0]?.config, {
+      customUserAgent: USER_AGENT,
+      region: "ap-south-1",
+      profile: "sso-dev",
+    });
+    assert.deepEqual((await adapterFor(empty)).clients[0]?.config, {
+      customUserAgent: USER_AGENT,
+    });
+  });
+
+  it("fails before building a client when a variable cannot be read", async () => {
+    const fake = fakeAwsKmsSdk({ secretKey });
+    await assert.rejects(
+      createAwsKeyAdapter(awsKey("alias/a", { region: unread }), fake.sdk, USER_AGENT),
+      /the region was read/,
+    );
+    assert.equal(fake.clients.length, 0);
   });
 
   it("describes the key by its display values, and closes the client", async () => {

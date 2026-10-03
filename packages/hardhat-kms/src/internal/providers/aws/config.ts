@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 import type { AwsKmsKeyConfig, AwsKmsKeyUserConfig } from "../../../types.ts";
-import { commonKeyFields, identifierSchema, nonEmptyString } from "../../config/common.ts";
-import { resolveIdentifier } from "../../config/identifiers.ts";
+import { commonKeyFields, identifierSchema, settingSchema } from "../../config/common.ts";
+import { firstSetIdentifier, resolveIdentifier } from "../../config/identifiers.ts";
 import { type KeyResolveContext, resolveCommonKeyConfig } from "../../config/key-common.ts";
 import { ERRORS } from "../../error-catalog.ts";
 import { catalogMessage } from "../../errors.ts";
@@ -23,8 +23,8 @@ export const awsKeySchema: z.ZodTypeAny = z
   .object({
     provider: z.literal("aws"),
     keyId: identifierSchema,
-    region: nonEmptyString.optional(),
-    profile: nonEmptyString.optional(),
+    region: settingSchema.optional(),
+    profile: settingSchema.optional(),
     endpoint: z.string().refine(isHttpUrl, catalogMessage(ERRORS.awsEndpoint, {})).optional(),
     ...commonKeyFields,
   })
@@ -42,7 +42,8 @@ export const awsKeySchema: z.ZodTypeAny = z
       });
     } else if (
       parsed.region !== undefined &&
-      key.region !== undefined &&
+      // A region from a configuration variable is compared when the key is first used.
+      typeof key.region === "string" &&
       parsed.region !== key.region
     ) {
       ctx.addIssue({
@@ -54,7 +55,14 @@ export const awsKeySchema: z.ZodTypeAny = z
   });
 
 /**
- * Resolves an AWS KMS key config.
+ * Resolves an AWS KMS key config. Nothing is read from configuration variables here: `keyId`,
+ * `region` and `profile` are read when the key is first used.
+ *
+ * The resolved `region` is the first one set among a literal key ARN's region, the key's `region`
+ * and `kms.defaults.aws.region`. A `region` from a configuration variable whose value is empty
+ * falls back to `kms.defaults.aws.region`. When `keyId` reads as a key ARN, its region wins, and
+ * a `region` that names another one fails the `keyId` check: at validation for two literals, at
+ * first use when either comes from a configuration variable.
  *
  * @param key - The validated key config.
  * @param context - The key's name and the resolved defaults.
@@ -64,29 +72,49 @@ export function resolveAwsKey(
   key: AwsKmsKeyUserConfig,
   context: KeyResolveContext,
 ): AwsKmsKeyConfig {
+  const keyRegion =
+    key.region === undefined
+      ? undefined
+      : resolveIdentifier(key.region, context.resolveVariable, `${context.path}.region`);
   const keyId = resolveIdentifier(
     key.keyId,
     context.resolveVariable,
     `${context.path}.keyId`,
-    (value) => {
+    async (value) => {
       const parsed = parseAwsKeyId(value);
       if (parsed === undefined) {
         return catalogMessage(ERRORS.awsKeyIdReason, {});
       }
-      if (parsed.region !== undefined && key.region !== undefined && parsed.region !== key.region) {
-        return catalogMessage(ERRORS.awsRegionConflictReason, { region: key.region });
+      if (parsed.region === undefined || keyRegion === undefined) {
+        return undefined;
       }
-      return undefined;
+      const configured = await keyRegion.get();
+      // An empty `region` from a configuration variable is unset, so it cannot conflict.
+      return configured !== "" && configured !== parsed.region
+        ? catalogMessage(ERRORS.awsRegionConflictReason, { region: keyRegion.display })
+        : undefined;
     },
   );
   const arnRegion = typeof key.keyId === "string" ? parseAwsKeyId(key.keyId)?.region : undefined;
-  const region = arnRegion ?? key.region ?? context.defaults.aws.region;
+  const defaultRegion = context.defaults.aws.region;
+  const region =
+    arnRegion !== undefined
+      ? resolveIdentifier(arnRegion, context.resolveVariable, `${context.path}.keyId`)
+      : keyRegion === undefined
+        ? defaultRegion
+        : typeof key.region === "string" || defaultRegion === undefined
+          ? keyRegion
+          : firstSetIdentifier([keyRegion, defaultRegion]);
+  const profile =
+    key.profile === undefined
+      ? undefined
+      : resolveIdentifier(key.profile, context.resolveVariable, `${context.path}.profile`);
   return {
     provider: "aws",
     ...resolveCommonKeyConfig(key, context, `aws:${keyId.display}`),
     keyId,
     ...(region === undefined ? {} : { region }),
-    ...(key.profile === undefined ? {} : { profile: key.profile }),
+    ...(profile === undefined ? {} : { profile }),
     ...(key.endpoint === undefined ? {} : { endpoint: key.endpoint }),
   };
 }

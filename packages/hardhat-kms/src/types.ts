@@ -31,10 +31,19 @@ export interface AwsKmsKeyUserConfig extends KmsKeyCommonUserConfig {
   provider: "aws";
   /** A key id, key ARN, alias name (`alias/...`) or alias ARN. */
   keyId: KmsIdentifierUserConfig;
-  /** AWS region. A region inside an ARN takes precedence and must not conflict with this one. */
-  region?: string;
-  /** Named profile from the AWS shared config files. */
-  profile?: string;
+  /**
+   * AWS region, literal or a configuration variable. A region inside an ARN takes precedence and
+   * must not conflict with this one. A variable is read when the key is first used; an empty value
+   * means no region, so `kms.defaults.aws.region` or the AWS SDK decides.
+   */
+  region?: KmsIdentifierUserConfig;
+  /**
+   * Named profile from the AWS shared config files, literal or a configuration variable. A
+   * variable is read when the key is first used; an empty value means no profile, so the AWS SDK's
+   * default credential chain decides. `configVariable("AWS_KMS_PROFILE", { default: "" })` makes
+   * the profile optional.
+   */
+  profile?: KmsIdentifierUserConfig;
   /** Custom KMS endpoint URL, for example a LocalStack instance. */
   endpoint?: string;
 }
@@ -122,8 +131,11 @@ export interface KmsUserConfig {
   /** Named keys, referenced by name from any network's `kmsAccounts`. */
   keys?: Record<string, KmsKeyUserConfig>;
   defaults?: {
-    /** Defaults for AWS keys. */
-    aws?: { region?: string };
+    /**
+     * Defaults for AWS keys. The `region` here, a literal or a configuration variable, applies to
+     * every key without a region of its own, including the keys that `--kms aws` adds.
+     */
+    aws?: { region?: KmsIdentifierUserConfig };
     /** Default time budget for each KMS call, in milliseconds. Default: 30000. */
     timeoutMs?: number;
   };
@@ -164,11 +176,14 @@ export interface AwsKmsKeyConfig extends KmsKeyCommonConfig {
   keyId: KmsIdentifier;
   /**
    * The first region set among a literal key ARN, the key's `region` and `kms.defaults.aws.region`.
+   * Its value is read on demand; an empty value means no region, so the AWS SDK decides. A `region`
+   * from a configuration variable whose value is empty falls back to `kms.defaults.aws.region`.
    * When `keyId` comes from a configuration variable and holds an ARN, the ARN's region is used
    * instead, and a conflicting `region` is an error when the key is first used.
    */
-  region?: string;
-  profile?: string;
+  region?: KmsIdentifier;
+  /** The profile. Its value is read on demand; an empty value means no profile. */
+  profile?: KmsIdentifier;
   endpoint?: string;
 }
 
@@ -223,7 +238,8 @@ export interface KmsAuditConfig {
 export interface KmsConfig {
   keys: Record<string, KmsKeyConfig>;
   defaults: {
-    aws: { region?: string };
+    /** `region` is read on demand; an empty value means no region. */
+    aws: { region?: KmsIdentifier };
     timeoutMs: number;
   };
   allowCrossChainTypedData: boolean;

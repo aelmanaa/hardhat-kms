@@ -32,6 +32,7 @@ describe("debug output", () => {
       "azure:<HHKMS_DEBUG_AZURE_VAULT>/keys/deployer",
       "hardhat:kms:config network sepolia:",
       "hardhat:kms:config --kms aws: aws:<AWS_KMS_KEY_ID>",
+      "hardhat:kms:config kms.keys.unsetProfile.profile: reading <HHKMS_DEBUG_UNSET_PROFILE> failed (HardhatError)",
       "hardhat:kms:providers creating the adapter for myvault:vault",
       "cryptoKeys/builtin/cryptoKeyVersions/1: no plugin claimed the key",
       "hardhat:kms:signer aws:<HHKMS_DEBUG_AWS_KEY_ID>: public key derives to 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",

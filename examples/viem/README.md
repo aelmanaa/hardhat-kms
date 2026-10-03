@@ -23,6 +23,8 @@ export AWS_REGION=eu-west-1            # the key's region, unless AWS_KMS_KEY_ID
 npx hardhat run scripts/deploy.ts --network rehearsal
 ```
 
+The config also reads two optional variables. `AWS_KMS_PROFILE` names an AWS profile to sign through, such as an SSO profile on a laptop, and `AWS_KMS_REGION` sets the key's region, unless `AWS_KMS_KEY_ID` is an ARN. Leave `AWS_KMS_PROFILE` unset in CI, so the job's environment keys sign. [One config for a laptop and CI](../../docs/user/guides/aws-kms-setup.md#one-config-for-a-laptop-and-ci) explains the pattern.
+
 The script prints the KMS account, the contract address, and the state it reads back:
 
 ```text

@@ -398,6 +398,11 @@ function variable(
   return resolveIdentifier(written, () => resolvedWith(get), "test");
 }
 
+/** A variable read that fails the test: building a signer identity must not read variables. */
+async function noRead(): Promise<string> {
+  return await Promise.reject(new Error("the signer identity read a configuration variable"));
+}
+
 /** A Google Cloud key given as components, resolved as the config resolves it. */
 function gcpComponentsKey(projectId: ConfigurationVariable): KmsKeyConfig {
   return resolveKey(
@@ -425,10 +430,29 @@ function awsKey(changes: Partial<AwsKmsKeyConfig> = {}): AwsKmsKeyConfig {
     name: "deployer",
     displayId: "aws:alias/deployer",
     keyId: literal("alias/deployer"),
-    region: "us-east-1",
+    region: literal("us-east-1"),
     timeoutMs: 1000,
     ...changes,
   };
+}
+
+/** A new AWS key whose region and profile come from variables that must not be read. */
+function keyWithSettingVariables(): AwsKmsKeyConfig {
+  return awsKey({
+    region: variable("AWS_KMS_REGION", noRead, { default: "" }),
+    profile: variable("AWS_KMS_PROFILE", noRead, { default: "" }),
+  });
+}
+
+/** A new AWS key whose region or profile config resolution did not build. */
+function keyWithHandMade(setting: "region" | "profile"): AwsKmsKeyConfig {
+  return awsKey({ [setting]: { get: noRead, display: "us-east-1" } });
+}
+
+/** An AWS key without a region. */
+function withoutRegion(): AwsKmsKeyConfig {
+  const { region: _region, ...rest } = awsKey();
+  return rest;
 }
 
 function gcpKey(changes: Partial<GcpKmsKeyConfig> = {}): GcpKmsKeyConfig {
@@ -521,12 +545,29 @@ describe("SignerCache identity", () => {
   const arn = "arn:aws:kms:us-east-1:000000000000:key/00000000-0000-0000-0000-000000000000";
   const variants: Record<string, [KmsKeyConfig, KmsKeyConfig]> = {
     "the key id": [awsKey(), awsKey({ keyId: literal("alias/other") })],
-    "the profile": [awsKey(), awsKey({ profile: "other" })],
+    "the profile": [awsKey(), awsKey({ profile: literal("other") })],
     "the profile of an ARN key": [
-      awsKey({ keyId: literal(arn), profile: "first" }),
-      awsKey({ keyId: literal(arn), profile: "second" }),
+      awsKey({ keyId: literal(arn), profile: literal("first") }),
+      awsKey({ keyId: literal(arn), profile: literal("second") }),
     ],
-    "the region": [awsKey(), awsKey({ region: "eu-west-1" })],
+    "the region": [awsKey(), awsKey({ region: literal("eu-west-1") })],
+    "a region set or not": [awsKey(), withoutRegion()],
+    "the profile variable's name": [
+      awsKey({ profile: variable("FIRST_PROFILE", noRead) }),
+      awsKey({ profile: variable("SECOND_PROFILE", noRead) }),
+    ],
+    "the region variable's name": [
+      awsKey({ region: variable("FIRST_REGION", noRead) }),
+      awsKey({ region: variable("SECOND_REGION", noRead) }),
+    ],
+    "the profile variable's default": [
+      awsKey({ profile: variable("AWS_KMS_PROFILE", noRead, { default: "" }) }),
+      awsKey({ profile: variable("AWS_KMS_PROFILE", noRead, { default: "ops" }) }),
+    ],
+    "a literal profile or a variable": [
+      awsKey({ profile: literal("ops") }),
+      awsKey({ profile: variable("ops", noRead) }),
+    ],
     "the endpoint": [awsKey(), awsKey({ endpoint: "http://127.0.0.1:4566" })],
     "the address pin": [awsKey(), awsKey({ address: COW_ACCOUNT.address })],
     "the time budget": [awsKey(), awsKey({ timeoutMs: 2000 })],
@@ -599,6 +640,16 @@ describe("SignerCache identity", () => {
     assert.equal(state.created, 1);
   });
 
+  it("shares a signer between copies of a key whose region and profile come from variables, reading neither", async () => {
+    const { context, state } = await identitySetUp();
+    const cache = new SignerCache(fakeTimers());
+    assert.equal(
+      await cache.signerFor(context, keyWithSettingVariables()),
+      await cache.signerFor(context, keyWithSettingVariables()),
+    );
+    assert.equal(state.created, 1);
+  });
+
   it("gives Google Cloud keys whose parts differ only in one part's format two signers", async () => {
     const { context, state } = await identitySetUp();
     const cache = new SignerCache(fakeTimers());
@@ -636,6 +687,18 @@ describe("SignerCache identity", () => {
     );
     assert.equal(state.created, 2);
   });
+
+  for (const setting of ["region", "profile"] as const) {
+    it(`gives a key whose ${setting} config resolution did not build its own signer`, async () => {
+      const { context, state } = await identitySetUp();
+      const cache = new SignerCache(fakeTimers());
+      assert.notEqual(
+        await cache.signerFor(context, keyWithHandMade(setting)),
+        await cache.signerFor(context, keyWithHandMade(setting)),
+      );
+      assert.equal(state.created, 2);
+    });
+  }
 
   it("gives each object of a third-party key its own signer", async () => {
     const { context, key, state } = await setUp();

@@ -15,7 +15,13 @@ import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
 const hex = (value: string) => new Uint8Array(Buffer.from(value, "hex"));
 
-const VARIABLES = ["AWS_KMS_KEY_ID", "HHKMS_TEST_DEPLOYER_ID", "HHKMS_TEST_UNSET_ID"];
+const VARIABLES = [
+  "AWS_KMS_KEY_ID",
+  "HHKMS_TEST_DEPLOYER_ID",
+  "HHKMS_TEST_UNSET_ID",
+  "HHKMS_TEST_PROFILE",
+  "HHKMS_TEST_REGION",
+];
 const saved = new Map(VARIABLES.map((name) => [name, process.env[name]]));
 afterEach(() => {
   for (const [name, value] of saved) {
@@ -511,6 +517,103 @@ describe("kms accounts", () => {
       shown.accounts.map((entry) => entry.endpoint),
       [null, null, null, "http://10.0.0.7:4566", null],
     );
+  });
+
+  it("shows a region and profile from variables by name, values only with --show-ids", async () => {
+    process.env.HHKMS_TEST_PROFILE = "sso-secret-profile";
+    process.env.HHKMS_TEST_REGION = "ap-south-1";
+    const id = { provider: "aws", keyId: "alias/deployer" } as const;
+    const { hre } = await runtime({
+      keys: {
+        fromVariables: {
+          ...id,
+          profile: configVariable("HHKMS_TEST_PROFILE"),
+          region: configVariable("HHKMS_TEST_REGION"),
+        },
+        // The same values, written out: the same KMS key, so one row.
+        literal: { ...id, profile: "sso-secret-profile", region: "ap-south-1" },
+        plain: id,
+        empty: {
+          ...id,
+          region: "eu-west-1",
+          profile: configVariable("HHKMS_TEST_EMPTY", { default: "" }),
+        },
+      },
+      adapters: Object.fromEntries(
+        ["fromVariables", "literal", "plain", "empty"].map((name) => [
+          name,
+          () => closableAdapter(),
+        ]),
+      ),
+    });
+
+    const run = await accounts(hre);
+
+    assert.deepEqual(
+      run.accounts.map((entry) => [entry.name, entry.otherNames.length]),
+      [
+        ["fromVariables", 1],
+        ["plain", 0],
+        ["empty", 0],
+      ],
+    );
+    assert.deepEqual(
+      run.accounts.map((entry) => [entry.region, entry.profile]),
+      [
+        ["<HHKMS_TEST_REGION>", "<HHKMS_TEST_PROFILE>"],
+        [null, null],
+        ["eu-west-1", "<HHKMS_TEST_EMPTY>"],
+      ],
+    );
+    assert.match(
+      run.printed,
+      /aws:alias\/deployer \(region <HHKMS_TEST_REGION>, profile <HHKMS_TEST_PROFILE>\)/,
+    );
+    assert.equal(/sso-secret-profile|ap-south-1/.test(`${run.printed}${run.stderr}`), false);
+
+    const shown = await accounts(hre, { showIds: true });
+    assert.deepEqual(
+      shown.accounts.map((entry) => [entry.region, entry.profile]),
+      [
+        ["ap-south-1", "sso-secret-profile"],
+        [null, null],
+        // An empty value means no profile.
+        ["eu-west-1", null],
+      ],
+    );
+    assert.match(shown.printed, /region ap-south-1, profile sso-secret-profile/);
+  });
+
+  it("reports an unset region variable on its key's row, and loads the config", async () => {
+    Reflect.deleteProperty(process.env, "HHKMS_TEST_REGION");
+    const { hre } = await runtime({
+      keys: {
+        unset: {
+          provider: "aws",
+          keyId: "alias/deployer",
+          region: configVariable("HHKMS_TEST_REGION"),
+        },
+      },
+      adapters: {
+        unset: () => {
+          throw new Error("the adapter is never built");
+        },
+      },
+    });
+    hre.hooks.registerHandlers("kms", {
+      createKeyAdapter: async (context, key, next) => {
+        if (key.provider === "aws") {
+          await key.region?.get();
+        }
+        return await next(context, key);
+      },
+    });
+
+    const shown = await accounts(hre, { showIds: true });
+
+    assert.equal(shown.success, false);
+    assert.equal(shown.accounts[0]?.region, "<HHKMS_TEST_REGION>");
+    assert.match(shown.accounts[0]?.error ?? "", /HHKMS_TEST_REGION/);
   });
 
   it("prints JSON with --json and nothing else on standard output", async () => {

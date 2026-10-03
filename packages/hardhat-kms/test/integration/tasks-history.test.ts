@@ -37,6 +37,9 @@ const VARIABLES = [
   "HHKMS_HISTORY_WORKSPACE",
   "HHKMS_HISTORY_PROJECT",
   "HHKMS_HISTORY_AZURE_KEY",
+  "HHKMS_HISTORY_PROFILE",
+  "HHKMS_HISTORY_REGION",
+  "HHKMS_HISTORY_DEFAULT_REGION",
 ];
 const saved = new Map(VARIABLES.map((name) => [name, process.env[name]]));
 afterEach(() => {
@@ -686,6 +689,92 @@ describe("kms history", () => {
 
     assert.equal(run.error, undefined);
     assert.equal(reader.requests.length, 1);
+  });
+
+  it("masks an AWS profile and region from variables as <hidden>, and shows them with --show-ids", async () => {
+    process.env.HHKMS_HISTORY_PROFILE = "sso-secret-profile";
+    process.env.HHKMS_HISTORY_REGION = "ap-southeast-2";
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKms],
+      kms: {
+        defaults: { aws: { region: "us-east-1" } },
+        keys: {
+          deployer: {
+            provider: "aws",
+            keyId: "alias/deployer",
+            profile: configVariable("HHKMS_HISTORY_PROFILE"),
+            region: configVariable("HHKMS_HISTORY_REGION"),
+          },
+        },
+      },
+    });
+    hre.hooks.registerHandlers(
+      "kms",
+      fakeHistoryReader("aws", () =>
+        historyResult({
+          events: [],
+          scope: { description: "ap-southeast-2" },
+          notes: [{ code: "profile", message: "read with sso-secret-profile, not us-east-1" }],
+        }),
+      ).handlers,
+    );
+
+    const masked = await history(hre, { key: "deployer", ...SETTLED, json: true });
+    const shown = await history(hre, { key: "deployer", ...SETTLED, json: true, showIds: true });
+
+    assert.equal(masked.report?.scope, "<hidden>");
+    // A literal fallback region is not a variable's value, so it stays.
+    assert.equal(
+      masked.report?.notes.find((note) => note.code === "profile")?.message,
+      "read with <hidden>, not us-east-1",
+    );
+    assert.doesNotMatch(`${masked.stdout}${masked.stderr}`, /sso-secret-profile|ap-southeast-2/);
+    assert.equal(shown.report?.scope, "ap-southeast-2");
+    assert.match(shown.stdout, /sso-secret-profile/);
+  });
+
+  it("reads kms.defaults.aws.region only for a key whose own region is empty and whose id is no ARN", async () => {
+    const fetched: string[] = [];
+    process.env.HHKMS_HISTORY_REGION = "ap-southeast-2";
+    process.env.HHKMS_HISTORY_KEY_ID = SECRET_KEY_ID;
+    Reflect.deleteProperty(process.env, "HHKMS_HISTORY_DEFAULT_REGION");
+    const region = configVariable("HHKMS_HISTORY_REGION");
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKms],
+      kms: {
+        defaults: { aws: { region: configVariable("HHKMS_HISTORY_DEFAULT_REGION") } },
+        keys: {
+          own: { provider: "aws", keyId: "alias/deployer", region },
+          // A key ARN from a variable: the key has no region of its own, so it falls back to
+          // the default, which the ARN's region overrides.
+          arn: { provider: "aws", keyId: configVariable("HHKMS_HISTORY_KEY_ID") },
+          fallback: {
+            provider: "aws",
+            keyId: "alias/deployer",
+            region: configVariable("HHKMS_HISTORY_EMPTY_REGION", { default: "" }),
+          },
+        },
+      },
+    });
+    // A keystore: Hardhat asks it for a variable only when the environment does not set it.
+    hre.hooks.registerHandlers("configurationVariables", {
+      fetchValue: async (context, variable, next) => {
+        fetched.push(variable.name);
+        return variable.name === "HHKMS_HISTORY_DEFAULT_REGION"
+          ? "eu-north-1"
+          : await next(context, variable);
+      },
+    });
+    hre.hooks.registerHandlers(
+      "kms",
+      fakeHistoryReader("aws", (request) => answerIn(request)).handlers,
+    );
+
+    await history(hre, { key: "own", ...SETTLED });
+    await history(hre, { key: "arn", ...SETTLED });
+    assert.equal(fetched.includes("HHKMS_HISTORY_DEFAULT_REGION"), false, fetched.join(", "));
+    await history(hre, { key: "fallback", ...SETTLED });
+    assert.equal(fetched.includes("HHKMS_HISTORY_DEFAULT_REGION"), true);
   });
 
   it("masks the value of a variable part of a Google Cloud key as <hidden>, and the joined key as the key", async () => {

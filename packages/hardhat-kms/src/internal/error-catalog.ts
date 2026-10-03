@@ -73,6 +73,15 @@ export const ERRORS = {
     cause: "A string field of the `kms` config starts or ends with whitespace.",
     fix: "Remove the spaces, tabs or newlines around the value.",
   },
+  settingType: {
+    id: "core.config.setting-type",
+    kind: "validation",
+    group: "Configuration",
+    template: "Expected a string or a Configuration Variable",
+    cause:
+      "An AWS key's `region` or `profile`, or `kms.defaults.aws.region`, is neither a string nor `configVariable(...)`.",
+    fix: "Use a string, such as `us-east-1` for a region, or `configVariable(...)`.",
+  },
   providerMisspelled: {
     id: "core.config.provider-misspelled",
     kind: "validation",
@@ -296,7 +305,8 @@ export const ERRORS = {
     kind: "reason",
     group: "Configuration",
     template: "the key ARN's region conflicts with `region` ({region})",
-    cause: "An AWS `keyId` is an ARN in another region than the key's `region`.",
+    cause:
+      "An AWS `keyId` is an ARN in another region than the key's `region`. `{region}` shows a region from a configuration variable by the variable's name, never its value.",
     fix: "Remove `region`, or fix the ARN.",
   },
   azureKeyIdReason: {
