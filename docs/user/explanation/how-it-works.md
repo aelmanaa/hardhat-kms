@@ -2,8 +2,6 @@
 
 Audience: users who send transactions or sign messages from a KMS account with viem, ethers or Ignition, and want to know what happens between their call and the chain. Assumes a configured key; no knowledge of the plugin's code.
 
-Status: Implemented. Everything below is on `main`. For the code behind each step, see [Architecture](../../contributor/architecture.md).
-
 hardhat-kms works at Hardhat's JSON-RPC layer. viem's wallet clients from hardhat-viem and the ethers signers from hardhat-ethers do not sign a KMS account's transaction themselves: they send it to the network connection as an `eth_sendTransaction` request, as they would for any account the node manages. The plugin's network hook picks up that request, has the KMS sign it, checks the signature, and sends the signed transaction to the node. Your script sees an ordinary account and gets an ordinary transaction hash back.
 
 ## The path of one transaction
@@ -74,6 +72,5 @@ All connections in one Hardhat run share one signer per configured key, so each 
 ## Read next
 
 - [Security model](security-model.md): what these checks protect against, what they do not, and what happens when a KMS call times out.
-- [Architecture](../../contributor/architecture.md): the modules, the code map and the request-flow rules, for contributors.
-- [Transactions](../../contributor/transactions.md): the filler, nonces, the send lock and retries in detail.
+- Optional, for contributors: [Architecture](../../contributor/architecture.md) and [Transactions](../../contributor/transactions.md) in the contributor docs, with the code behind each step, the filler, nonces, the send lock and retries.
 - [Debug output](../guides/debug-output.md): watch each step of a request with `DEBUG=hardhat:kms:*`.

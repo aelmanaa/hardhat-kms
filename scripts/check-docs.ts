@@ -6,7 +6,9 @@
 // - docs/user/reference/errors.md matches the error catalogues (scripts/generate-errors-doc.ts);
 // - docs/user/reference/api/ matches what TypeDoc generates from the built packages
 //   (scripts/generate-api-docs.ts); its pages are skipped by the snippet typecheck;
-// - first-party source builds its errors only through the catalogue helpers (checkErrorSites).
+// - first-party source builds its errors only through the catalogue helpers (checkErrorSites);
+// - the user docs and the READMEs hold no milestone codes and no HTML comments other than the
+//   skip marker and the pre-release note (scripts/user-pages.ts).
 // lychee checks the links themselves (see lychee.toml).
 //
 // A snippet that is not meant to compile, such as a sketch of a planned API, is preceded by
@@ -28,9 +30,9 @@ import {
   loadCatalogues,
   renderErrorsDoc,
 } from "./generate-errors-doc.ts";
+import { SKIP_MARKER, userPageProblems } from "./user-pages.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SKIP_MARKER = "<!-- docs-check: skip -->";
 const TYPESCRIPT_LANGUAGES = new Set(["ts", "typescript", "tsx", "mts", "cts"]);
 
 function markdownFiles(directory: string): string[] {
@@ -227,6 +229,13 @@ function packageReadmes(): string[] {
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.posix.join("packages", entry.name, "README.md"))
     .filter((file) => existsSync(path.join(root, file)));
+}
+
+/** Checks the pages a user reads for maintainer content; see `scripts/user-pages.ts`. */
+function checkUserPages(files: string[]): string[] {
+  return files.flatMap((file) =>
+    userPageProblems(file, readFileSync(path.join(root, file), "utf8")),
+  );
 }
 
 /** The `name` of every package under packages/, read from its package.json. */
@@ -474,11 +483,16 @@ const problems = [
   ...(await checkErrorsDoc()),
   ...checkApiDocs(),
   ...checkErrorSites(),
+  ...checkUserPages([
+    "README.md",
+    ...packageReadmes(),
+    ...pages.filter((page) => page.startsWith("docs/user/")),
+  ]),
 ];
 if (problems.length > 0) {
   process.stderr.write(`${problems.join("\n")}\n`);
   process.exit(1);
 }
 process.stdout.write(
-  `docs check passed: ${pages.length} pages indexed, snippets typecheck, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue\n`,
+  `docs check passed: ${pages.length} pages indexed, snippets typecheck, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes\n`,
 );

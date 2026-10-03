@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in AWS KMS.
 
-Status: the AWS adapter is implemented (M3), in the `@hardhat-kms/aws` package. With the network hook (M4), a connection lists the key's account and signs messages and typed data with it. M5 adds signing and sending transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)). And `kms history` ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)) lists who signed with the key, when and from where, from the CloudTrail event history that AWS keeps for every account without any setup.
+With `@hardhat-kms/aws`, a connection lists the key's account and signs messages, typed data and transactions with it. `kms history` lists who signed with the key, when and from where, from the CloudTrail event history that AWS keeps for every account without any setup.
 
 ## 1. Create a secp256k1 signing key
 
@@ -51,7 +51,7 @@ The identity that runs Hardhat needs two permissions on this key. The conditions
 
 Use the key ARN as the resource: an IAM policy cannot name a KMS key by its alias. This IAM policy takes effect only if the key policy lets IAM policies grant access. The default key policy of a key made with `create-key` does; if you set your own key policy, grant these permissions there instead.
 
-This policy has not yet been checked against real AWS KMS: the first live test ran with an administrator identity. That check is tracked in [#43](https://github.com/aelmanaa/hardhat-kms/issues/43).
+This policy has not yet been checked against real AWS KMS: the plugin's live tests ran with an administrator identity.
 
 Credentials come from the AWS SDK's default chain: environment variables, `~/.aws` profiles and SSO, or the role of the machine or CI job. A key's `profile` option picks a named profile.
 
@@ -119,7 +119,7 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 - It calls `GetPublicKey` once, checks the key spec, usage and algorithm, and takes the key ARN from the response.
 - It signs with that ARN, never with the alias you configured. Repointing the alias cannot change which key signs during a run, and an `address` pin catches the change on the next run.
 - It sends `Sign` with `MessageType: DIGEST` and `ECDSA_SHA_256`, and checks that the response names the same key and algorithm.
-- It parses every signature, normalizes it to low-S and verifies it against the public key before using it; see the [signing pipeline](../../contributor/signing-pipeline.md).
+- It parses every signature, normalizes it to low-S and verifies it against the public key before using it; see the [security model](../explanation/security-model.md#every-signature-is-verified).
 - It adds `hardhat-kms/<version>` to the end of the user agent of every request, so the `userAgent` field of a CloudTrail event ends in `hardhat-kms/1.0.0` (with your installed version). The client reports this tag and anyone can send the same string, so it marks the plugin's calls but proves nothing.
 
 ## Audit logs

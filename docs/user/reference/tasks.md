@@ -2,8 +2,6 @@
 
 Audience: Users running the `kms` tasks.
 
-Status: `kms address` and `kms public-key` are implemented ([#33](https://github.com/aelmanaa/hardhat-kms/issues/33)), and so are `kms accounts` ([#32](https://github.com/aelmanaa/hardhat-kms/issues/32)), `kms sign` ([#34](https://github.com/aelmanaa/hardhat-kms/issues/34)), `kms sign-auth` ([#35](https://github.com/aelmanaa/hardhat-kms/issues/35)), `kms sign-tx` ([#36](https://github.com/aelmanaa/hardhat-kms/issues/36)) and `kms verify` ([#37](https://github.com/aelmanaa/hardhat-kms/issues/37)). `kms history` is implemented, with a reader in each provider package: CloudTrail event history in `@hardhat-kms/aws`, the Data Access audit log in `@hardhat-kms/gcp`, and Key Vault's audit log in a Log Analytics workspace in `@hardhat-kms/azure` ([#126](https://github.com/aelmanaa/hardhat-kms/issues/126)).
-
 ## Tasks
 
 All tasks live in the `kms` namespace, which is an `emptyTask` in the same style as the keystore plugin. `npx hardhat kms` lists the implemented ones.
@@ -143,7 +141,7 @@ Prints the 65-byte signature `r || s || v` as `0x`-prefixed hex, with `v` 27 or 
 0xa461f509887bd19e312c0c58467ce8ff8e300d3c1a90b608a760c5b80318eaf15fe57c96f9175d6cd4daad4663763baa7e78836e067d0163e9a2ccf2ff753f5b1b
 ```
 
-Before it prints a signature, the task recovers the signer from it and checks that it is the key's address ([decision 0004](../../contributor/decisions/0004-verify-every-signature.md)). This catches a wrong or substituted signature from the signer. It is not a second check of the digest, which the task computes with the same code as the signer.
+Before it prints a signature, the task recovers the signer from it and checks that it is the key's address. This catches a wrong or substituted signature from the signer. It is not a second check of the digest, which the task computes with the same code as the signer.
 
 | Input                 | What is signed                                                                                             |
 | --------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -160,7 +158,7 @@ npx hardhat kms sign --data --from-file --network sepolia deployer permit.json
 
 ### Typed data and chains
 
-Typed data goes through the same chain check as `eth_signTypedData_v4` ([decision 0011](../../contributor/decisions/0011-typed-data-chain-check.md)). When `domain.chainId` is set, it must equal the chain given by one of these, which cannot be combined:
+Typed data goes through the same chain check as `eth_signTypedData_v4` ([Security model](../explanation/security-model.md#typed-data-checks-its-chain)). When `domain.chainId` is set, it must equal the chain given by one of these, which cannot be combined:
 
 - `--chain <id>`, a decimal or `0x` hex chain id.
 - `--network <name>`: the network's `chainId` in the config. When the config sets none, the task connects to the network and reads `eth_chainId`. Creating the connection runs the network hook, which can call the KMS, for example to fund the accounts of an `edr-simulated` network.
@@ -181,7 +179,7 @@ Error in community plugin hardhat-kms: kms sign: the typed data is for chain 1, 
 
 ### Raw digests
 
-`--no-hash` signs any 32 bytes, and a digest can be the hash of a transaction or a permit. No RPC method signs a bare digest. `--no-hash` is reachable only through the task, from the CLI or from code that runs the task ([decision 0003](../../contributor/decisions/0003-no-bare-digest-over-rpc.md)). Sign only a digest you computed yourself. The task prints a warning to standard error each time and refuses any value that is not exactly 32 bytes:
+`--no-hash` signs any 32 bytes, and a digest can be the hash of a transaction or a permit. No RPC method signs a bare digest. `--no-hash` is reachable only through the task, from the CLI or from code that runs the task. Sign only a digest you computed yourself. The task prints a warning to standard error each time and refuses any value that is not exactly 32 bytes:
 
 ```text
 [hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Sign only a digest you computed yourself: it can authorize a transaction or a permit.
@@ -202,7 +200,7 @@ Signs an EIP-7702 authorization that delegates the key's account to the code at 
 
 Each number is a `0x` hex quantity, `r` and `s` are 32 bytes each, and `address` is the delegate with its EIP-55 checksum. Hardhat's `authorizationList` schema refuses decimal strings, so the tuple can go into a request as printed. The signed message is `keccak256(0x05 || rlp([chainId, address, nonce]))`.
 
-Before it prints the tuple, the task reads it back, recovers the authority from it, and checks that it is the key's address and that `s` is low ([decision 0004](../../contributor/decisions/0004-verify-every-signature.md)). Nodes skip an authorization with a high `s`.
+Before it prints the tuple, the task reads it back, recovers the authority from it, and checks that it is the key's address and that `s` is low. Nodes skip an authorization with a high `s`.
 
 | Option             | What it does                                                                                                                                                                   |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -261,11 +259,11 @@ Once the transaction is mined, the account's code is `0xef0100` followed by the 
 
 Libraries take other shapes, and a tuple passed to them as printed fails or loses its signature:
 
-| Library                                       | Shape                                                                                                                                                                                                                                                                                                                                        |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider.request` with `eth_sendTransaction` | The tuple as printed. This is the recommended way.                                                                                                                                                                                                                                                                                           |
-| viem (`SignedAuthorization`)                  | `chainId`, `nonce` and `yParity` as numbers, for example `Number(tuple.chainId)`; `address`, `r` and `s` as printed. viem strips leading zero bytes from `r` and `s`, so about 1 tuple in 128 is then refused by Hardhat's schema ([#140](https://github.com/aelmanaa/hardhat-kms/issues/140)). Until that is fixed, use `provider.request`. |
-| ethers (`AuthorizationLike`)                  | `{ address, nonce, chainId, signature: { r, s, yParity } }`. ethers reads the signature only from `signature`, so a flat tuple goes out with a zero signature and no error.                                                                                                                                                                  |
+| Library                                       | Shape                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `provider.request` with `eth_sendTransaction` | The tuple as printed. This is the recommended way.                                                                                                                                                                                                                                                                                                                             |
+| viem (`SignedAuthorization`)                  | `chainId`, `nonce` and `yParity` as numbers, for example `Number(tuple.chainId)`; `address`, `r` and `s` as printed. viem drops leading zero bytes from `r` and `s`; when a KMS account sends the transaction, the plugin pads them back to 32 bytes before it signs. From an account in the network's `accounts`, Hardhat refuses a short `r` or `s`; use `provider.request`. |
+| ethers (`AuthorizationLike`)                  | `{ address, nonce, chainId, signature: { r, s, yParity } }`. ethers reads the signature only from `signature`, so a flat tuple goes out with a zero signature and no error.                                                                                                                                                                                                    |
 
 ## `kms sign-tx`
 
@@ -366,7 +364,7 @@ Invalid input also exits with code 1, with an `Error in community plugin hardhat
 Compared with `cast wallet verify`:
 
 - The message, `--data` and `--from-file`, the `v` values and the high-S handling are the same.
-- There is no `--no-hash`, on purpose. Only `kms sign --no-hash` handles raw 32-byte digests, as an explicit human action ([decision 0003](../../contributor/decisions/0003-no-bare-digest-over-rpc.md)). Verifying a signature over a raw digest may come later if users ask for it ([#31](https://github.com/aelmanaa/hardhat-kms/issues/31)).
+- There is no `--no-hash`, on purpose. Only `kms sign --no-hash` handles raw 32-byte digests, as an explicit human action.
 - `--key` checks against a KMS key without copying its address.
 - Only EOA signatures are checked. A smart-contract wallet's EIP-1271 `isValidSignature` is not called.
 
@@ -376,9 +374,9 @@ Compared with `cast wallet verify`:
 npx hardhat kms history <key> [--since <time>] [--until <time>] [--limit <n>] [--json] [--show-ids]
 ```
 
-Lists the key's sign events from its provider's audit log, newest first. The events come only from the log: the plugin stores nothing about the signatures it makes and adds nothing the log does not hold. Anyone with read access to the log gets the same list from any machine. The list includes sign requests made outside the plugin, for example from the provider's CLI or console, so it answers "who else signed with this key?". [Decision 0013](../../contributor/decisions/0013-history-from-cloud-logs.md) explains why.
+Lists the key's sign events from its provider's audit log, newest first. The events come only from the log: the plugin stores nothing about the signatures it makes and adds nothing the log does not hold. Anyone with read access to the log gets the same list from any machine. The list includes sign requests made outside the plugin, for example from the provider's CLI or console, so it answers "who else signed with this key?".
 
-The history covers the whole key: every version, even when the config pins one, with the version that signed in its own column where the provider logs it. Each provider package reads its own provider's log. A provider without a reader fails with an error that names it. A third-party provider adds one through the `kms` hook ([History readers](../../contributor/providers.md#history-readers)). [Audit logs](../explanation/security-model.md#audit-logs) lists what each provider records.
+The history covers the whole key: every version, even when the config pins one, with the version that signed in its own column where the provider logs it. Each provider package reads its own provider's log. A provider without a reader fails with an error that names it. A third-party provider adds one through the `kms` hook (optional, for provider authors: [History readers](../../contributor/providers.md#history-readers) in the contributor docs). [Audit logs](../explanation/security-model.md#audit-logs) lists what each provider records.
 
 - **`<key>`.** Named as in [Naming a key](#naming-a-key), including `--kms` variables. The task makes no sign call. On AWS it reads the key's public key to find the key ARN of an alias or a bare key id, which CloudTrail logs as a `GetPublicKey` event; [Audit logs](../guides/aws-kms-setup.md#audit-logs) in the AWS guide covers the permission and how the read works. On Azure it reads the workspace set in `kms.audit.azure.workspaceId`, which a diagnostic setting on the vault must send audit events to; see [Audit logs](../guides/azure-key-vault-setup.md#audit-logs) in the Azure guide. It does not need `--network`.
 - **`--since` and `--until`.** An ISO 8601 time with a time zone, such as `2026-10-02T09:00:00Z` or `2026-10-02T11:00:00+02:00`; a date, which means midnight UTC; or a duration before now: `45s`, `30m`, `6h`, `7d`. A time without a time zone, or an `--until` more than 5 minutes after now, is refused. `--until` defaults to now, and `--since` to 24 hours before `--until`. The task reads whole seconds: it rounds `--since` down and `--until` up, and prints the range it read.

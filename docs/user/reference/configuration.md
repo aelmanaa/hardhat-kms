@@ -2,8 +2,6 @@
 
 Audience: Users configuring the plugin.
 
-Status: M2 implements validation and resolution of this config, and M3 the AWS adapter in the `@hardhat-kms/aws` package ([set up an AWS KMS key](../guides/aws-kms-setup.md)). M4 adds the network hook: connections to a network with `kmsAccounts` list the KMS accounts and sign messages and typed data with them ([RPC methods](rpc-methods.md)). `kms.allowCrossChainTypedData` governs the typed-data chain check ([#20](https://github.com/aelmanaa/hardhat-kms/issues/20)), and `--kms` keys are added to the selected network ([#84](https://github.com/aelmanaa/hardhat-kms/issues/84)). `kms.simulatedBalance` funds KMS accounts on `edr-simulated` networks ([#103](https://github.com/aelmanaa/hardhat-kms/issues/103)). The Azure adapter is in the `@hardhat-kms/azure` package ([set up an Azure Key Vault key](../guides/azure-key-vault-setup.md), [#30](https://github.com/aelmanaa/hardhat-kms/issues/30)). The Google Cloud adapter is in the `@hardhat-kms/gcp` package ([set up a Google Cloud KMS key](../guides/gcp-kms-setup.md), [#29](https://github.com/aelmanaa/hardhat-kms/issues/29)).
-
 ## Configuration
 
 Keys are declared once under `kms.keys` and referenced by name from any network. Each provider's keys need its [provider package](#provider-packages) in `plugins`; the example lists `@hardhat-kms/aws`, which loads `hardhat-kms` itself:
@@ -65,7 +63,7 @@ When the `default` network has KMS keys, from `kmsAccounts` or from `--kms` with
 
 ## Keys from the command line
 
-Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. Foundry has not released an Azure signer: the `azure` variable names follow the proposal in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120) and may change before it ships. These keys inherit `kms.defaults` and pass the same checks as config keys. They are added to the selected network only (the `--network` value, or `default` without one), after the network's `kmsAccounts`. A command-line key that names the same KMS key as a config key on that network is an error that names both, without the value. See [Migrate from Foundry](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry) and [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md).
+Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. Foundry has not released an Azure signer: the `azure` variable names follow the proposal in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120) and may change before it ships. These keys inherit `kms.defaults` and pass the same checks as config keys. They are added to the selected network only (the `--network` value, or `default` without one), after the network's `kmsAccounts`. A command-line key that names the same KMS key as a config key on that network is an error that names both, without the value. See [Migrate from Foundry](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry).
 
 ## Validation rules
 
@@ -126,7 +124,7 @@ AWS resolves the region in this order: the region inside an ARN, then `key.regio
 
 Identifiers are not secrets. Every identifier field still accepts `string | ConfigurationVariable`. A value that came from a variable is displayed as `<VAR_NAME>` unless the user passes `--show-ids`.
 
-Third-party providers extend the config types through the declaration-merged `KmsProviderUserConfigs` interface (see [Provider contract](../../contributor/providers.md#provider-contract)).
+Third-party providers extend the config types through the declaration-merged `KmsProviderUserConfigs` interface (optional, for provider authors: [Provider contract](../../contributor/providers.md#provider-contract) in the contributor docs).
 
 ## Provider packages
 
@@ -162,7 +160,7 @@ export default defineConfig({
 });
 ```
 
-In this order, hardhat-kms gives a raw `eth_sendTransaction` request without `from` its default sender ([RPC methods](rpc-methods.md#rpc-behaviour)) before hardhat-ledger checks it. In the other order, hardhat-ledger rejects every such request on a network with `ledgerAccounts`, as it does when loaded alone. hardhat-viem, hardhat-ethers and Ignition always set `from`, to the first address of `eth_accounts` unless you name another, so the order does not change their sender. The order also sets where the KMS and Ledger accounts appear in `eth_accounts`; see [Other signing plugins](../../contributor/architecture.md#other-signing-plugins).
+In this order, hardhat-kms gives a raw `eth_sendTransaction` request without `from` its default sender ([RPC methods](rpc-methods.md#rpc-behaviour)) before hardhat-ledger checks it. In the other order, hardhat-ledger rejects every such request on a network with `ledgerAccounts`, as it does when loaded alone. hardhat-viem, hardhat-ethers and Ignition always set `from`, to the first address of `eth_accounts` unless you name another, so the order does not change their sender. The order also sets `eth_accounts`: with hardhat-ledger first, the network's own accounts come first, then the Ledger addresses, then the KMS addresses. In the other order the KMS addresses come before the Ledger ones, and `eth_requestAccounts` leaves the Ledger addresses out. Code that picks an account by index, such as Ignition's `m.getAccount(index)`, sees the difference.
 
 ## Credentials
 

@@ -2,8 +2,6 @@
 
 Audience: Users and library authors who need a viem account object for a KMS key, for example for viem's `signAuthorization`, a smart-account SDK or a script outside a wallet client.
 
-Status: `connection.kms.getAccount` is implemented ([#51](https://github.com/aelmanaa/hardhat-kms/issues/51)). The rule for bare digests is [decision 0014](../../contributor/decisions/0014-library-account-raw-sign.md).
-
 > [!WARNING]
 > Send the account's transactions with a viem client whose transport is `custom(connection.provider)`. viem fills a local account's transaction and sends it with `eth_sendRawTransaction` itself. Through the connection, the account's sends and the plugin's own sends from the same key take turns and do not share a nonce, within the cases in [Sending](#sending). A client with its own transport, such as `http(url)`, never goes through Hardhat: its nonce is reserved for 60 s, but its broadcast is not ordered. If the same key also sends through the plugin, or through a second client, two failures can follow:
 >
@@ -102,7 +100,7 @@ Any other key in the options object is refused, so that a misspelled option is n
 | `signAuthorization` | An EIP-7702 authorization for the connection's chain, or for chain 0 with `allowChainZeroAuthorization`. It returns viem's `SignedAuthorization`: `address`, `chainId`, `nonce`, `r`, `s`, `v` and `yParity`. |
 | `sign`              | Only with `rawSign: true`: a bare 32-byte digest, with no prefix.                                                                                                                                             |
 
-The account holds no signer, key config or key material, only these fields and functions, and it is frozen. Every signature goes through the same checks as the RPC path ([Signing pipeline](../../contributor/signing-pipeline.md)): low S, the recovery bit found against the known key, and a final check that the signature recovers to the account's address. With the same key and viem-typed inputs, the account returns the same bytes as viem's `privateKeyToAccount`.
+The account holds no signer, key config or key material, only these fields and functions, and it is frozen. Every signature goes through the same checks as the RPC path ([Security model](../explanation/security-model.md#every-signature-is-verified)): low S, the recovery bit found against the known key, and a final check that the signature recovers to the account's address. With the same key and viem-typed inputs, the account returns the same bytes as viem's `privateKeyToAccount`.
 
 Outside viem's types, the two can differ. A string `domain.chainId`, such as `"11155111"`, is one: viem's `hashTypedData` leaves it out of the domain, and the plugin encodes it as the `uint256` it stands for, so the plugin's digest is the one a contract whose domain has that chain id expects.
 

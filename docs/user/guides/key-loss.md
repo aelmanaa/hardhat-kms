@@ -2,7 +2,7 @@
 
 Audience: users who sign with a key in AWS KMS, Google Cloud KMS or Azure Key Vault and hold funds or contract roles at its address. Assumes a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).
 
-Status: the provider facts below were checked against each provider's documentation on 2026-10-01, and every undo path in [Undo a deletion](#undo-a-deletion) ran that day on a throwaway key ([#71](https://github.com/aelmanaa/hardhat-kms/issues/71)). Provider behaviour can change; each fact links to the page it comes from.
+The provider facts below were checked against each provider's documentation on 2026-10-01, and every undo path in [Undo a deletion](#undo-a-deletion) ran that day on a throwaway key. Provider behaviour can change; each fact links to the page it comes from.
 
 The private key of a KMS key never leaves the KMS, so neither you nor the plugin holds a copy. If the key is deleted, or nobody can use it any more, the address keeps its balance and its contract roles, but nothing can sign for it again. The plugin cannot recover anything.
 

@@ -8,7 +8,7 @@ the configuration reference (search for install-before-release.md).
 
 Audience: people who try hardhat-kms before its first npm release. The repository is private until it goes public ([#48](https://github.com/aelmanaa/hardhat-kms/issues/48)), so this path needs read access to it.
 
-Status: `hardhat-kms` and the `@hardhat-kms/*` packages are not on npm yet, and `npm install hardhat-kms` fails with `E404`. Until the first release ([#47](https://github.com/aelmanaa/hardhat-kms/issues/47)), build the packages from a clone, pack them and install the packed files. This page goes away with that release.
+`hardhat-kms` and the `@hardhat-kms/*` packages are not on npm yet, and `npm install hardhat-kms` fails with `E404`. Until the first release ([#47](https://github.com/aelmanaa/hardhat-kms/issues/47)), build the packages from a clone, pack them and install the packed files. This page goes away with that release.
 
 You need:
 
