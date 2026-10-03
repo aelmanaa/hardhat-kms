@@ -138,6 +138,8 @@ Third-party providers extend the config types through the declaration-merged `Km
 | Google Cloud KMS | `npm install --save-dev hardhat-kms @hardhat-kms/gcp`, then add `hardhatKmsGcp` to `plugins`     |
 | Azure Key Vault  | `npm install --save-dev hardhat-kms @hardhat-kms/azure`, then add `hardhatKmsAzure` to `plugins` |
 
+Until the first npm release these installs fail with `E404`; [Install before the first npm release](../guides/install-before-release.md) builds the packages from the repository instead.
+
 A provider package loads `hardhat-kms` itself, so `plugins: [hardhatKmsAws]` is enough. Listing `hardhatKms` as well also works. Install `hardhat-kms` and the provider packages at the same version; they are released together.
 
 Loading the config never loads an SDK. A provider package loads its SDK the first time one of its keys is used. A key whose provider package is not in `plugins` fails when it is first used, and the error says which package to install:

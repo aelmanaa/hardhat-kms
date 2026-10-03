@@ -146,6 +146,8 @@ A service principal in the environment takes precedence over every other source.
 npm install --save-dev hardhat-kms @hardhat-kms/azure
 ```
 
+Until the packages are published on npm, this command fails with `E404`; follow [Install before the first npm release](install-before-release.md) instead.
+
 `@hardhat-kms/azure` brings the Azure SDK (`@azure/keyvault-keys` and `@azure/identity`) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
 
 ```ts

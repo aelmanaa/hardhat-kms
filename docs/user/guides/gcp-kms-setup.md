@@ -71,6 +71,8 @@ This setup has not yet been checked against real Cloud KMS with a least-privileg
 npm install --save-dev hardhat-kms @hardhat-kms/gcp
 ```
 
+Until the packages are published on npm, this command fails with `E404`; follow [Install before the first npm release](install-before-release.md) instead.
+
 `@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later to run it on) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
 
 ```ts

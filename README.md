@@ -16,6 +16,8 @@ Each cloud has its own package, so signing with AWS KMS takes the core and `@har
 npm install --save-dev hardhat-kms @hardhat-kms/aws
 ```
 
+Until the first npm release, this command fails with `E404`; [Install before the first npm release](docs/user/guides/install-before-release.md) builds the packages from the repository instead.
+
 Keys are declared once under `kms.keys` and attached to networks by name. Credentials come from each cloud SDK's default chain, not from the config.
 
 ```ts

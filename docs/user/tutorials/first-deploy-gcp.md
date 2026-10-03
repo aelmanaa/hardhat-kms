@@ -141,7 +141,7 @@ Install the core plugin and the Google Cloud provider:
 npm install --save-dev hardhat-kms @hardhat-kms/gcp
 ```
 
-Until the packages are published on npm, this command fails with `E404`. Build them from a clone of the [repository](https://github.com/aelmanaa/hardhat-kms) instead: run `pnpm install`, then `pnpm run build`, then `pnpm pack` in `packages/hardhat-kms` and in `packages/hardhat-kms-gcp`. Install the two `.tgz` files it writes with `npm install --save-dev <path to hardhat-kms tgz> <path to provider tgz>`. The provider's file is named `hardhat-kms-gcp-<version>.tgz`, although the package inside is `@hardhat-kms/gcp`.
+Until the packages are published on npm, this command fails with `E404`: follow [Install before the first npm release](../guides/install-before-release.md) to build the two packages from the repository and install them, then continue below.
 
 In a pnpm project, install with `pnpm add -D hardhat-kms @hardhat-kms/gcp`. pnpm 12 runs no install scripts of dependencies until the project decides on each. If it stops with `ERR_PNPM_IGNORED_BUILDS` for `esbuild`, which Hardhat depends on, or `protobufjs`, which the Google Cloud SDK depends on, neither script is needed: esbuild's checks its platform binary and protobufjs's prints a warning. Add this to `pnpm-workspace.yaml`, next to `package.json`, and install again:
 
