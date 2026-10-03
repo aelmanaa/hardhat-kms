@@ -1,6 +1,9 @@
 // `connection.kms.getAccount`: a viem local account whose key is a KMS key. It signs with the same
 // signer, digests and checks as the JSON-RPC path, and refuses before any KMS call what it does
 // not sign. viem is an optional peer dependency, loaded only here, on the first getAccount.
+import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 
@@ -74,6 +77,8 @@ export interface AccountConnection {
 interface ViemParts {
   /** viem's default transaction serializer, which must encode the transaction as the plugin does. */
   serializeTransaction: KmsTransactionSerializer;
+  /** viem's version, `X.Y.Z`, from its `package.json`; `""` when it cannot be read. */
+  version: string;
 }
 
 /** Loads viem, the account's optional peer dependency. */
@@ -86,8 +91,60 @@ export type LoadViem = () => Promise<ViemParts>;
  */
 export const loadViem: LoadViem = async () => {
   const viem = await import("viem");
-  return { serializeTransaction: viem.serializeTransaction };
+  return { serializeTransaction: viem.serializeTransaction, version: await readViemVersion() };
 };
+
+/**
+ * Reads the version of the viem that `import("viem")` loads from this module, from its
+ * `package.json`, which viem exports.
+ *
+ * @param resolve - Resolves a module specifier to a file; tests pass another resolver.
+ * @returns The version, or `""` when it cannot be read.
+ */
+export async function readViemVersion(
+  resolve: (specifier: string) => string = createRequire(import.meta.url).resolve,
+): Promise<string> {
+  try {
+    const manifest: unknown = JSON.parse(String(await readFile(resolve("viem/package.json"))));
+    return isObject(manifest) && typeof manifest.version === "string" ? manifest.version : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The lowest viem release whose `sendTransaction` calls the nonce manager's `reset` only after its
+ * `consume` (wevm/viem#4967); the floor of the peer range.
+ */
+export const VIEM_FLOOR = "2.55.13";
+
+/**
+ * Refuses a viem release below {@link VIEM_FLOOR}, since pnpm and Yarn only warn when the
+ * installed viem is outside the peer range. A pre-release of the floor, such as `2.55.13-canary.0`,
+ * is below it, as semver orders them. A version that does not read as `X.Y.Z` passes: the check
+ * must not refuse a viem it cannot read.
+ *
+ * @param version - viem's version, such as `2.57.2`.
+ * @param operation - The account method, for the error message.
+ */
+function checkViemVersion(version: string, operation: string): void {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:$|\+|(-))/.exec(version);
+  if (match === null) {
+    return;
+  }
+  // The first part that differs decides: negative when the installed viem is older.
+  const order =
+    VIEM_FLOOR.split(".")
+      .map((minimum, index) => Number(match[index + 1]) - Number(minimum))
+      .find((difference) => difference !== 0) ?? 0;
+  if (order < 0 || (order === 0 && match[4] === "-")) {
+    throw catalogError(
+      ERRORS.accountViemTooOld,
+      { installed: version.slice(0, 64), floor: VIEM_FLOOR },
+      { operation },
+    );
+  }
+}
 
 const OPTION_NAMES = new Set(["rawSign", "allowChainZeroAuthorization"]);
 
@@ -173,7 +230,7 @@ function warnAboutTransport(type: string): void {
   }
   warnedAboutTransport = true;
   warn(
-    `a connection.kms.getAccount account sends with a viem "${type}" transport, which does not go through Hardhat. The plugin chose the transaction's nonce and keeps it from its own sends for 60 s, but it does not order or see the broadcast. Send through custom(connection.provider); see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.`,
+    `a connection.kms.getAccount account sends with a viem "${type}" transport, which does not go through Hardhat. The plugin chose the transaction's nonce and keeps it from its own sends for 60 s, but it does not order or see the broadcast, so a node that mines each transaction on arrival, such as Hardhat's simulated network, can refuse the plugin's next send with "Nonce too high". Send through custom(connection.provider); see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.`,
   );
 }
 
@@ -454,6 +511,7 @@ export function createKmsNetworkConnection(
     } catch (error) {
       throw catalogError(ERRORS.accountViemMissing, { reason: loadFailure(error) }, { operation });
     }
+    checkViemVersion(viem.version, operation);
     const checked = readOptions(options, operation);
     const checksummed = readAddress(address, "address", operation);
     const { accounts } = connection;

@@ -1792,6 +1792,16 @@ export const ERRORS = {
       "`getAccount` returns a viem account, and viem, an optional peer dependency of hardhat-kms, is not installed in the project, or failed to load.",
     fix: "Install viem in the project. Nothing else in the plugin needs it.",
   },
+  accountViemTooOld: {
+    id: "core.account.viem-too-old",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "connection.kms.getAccount needs viem {floor} or later, and the project has viem {installed}. Upgrade viem to {floor} or later",
+    cause:
+      "The account's nonce manager relies on viem calling its `reset` after every failed send, and only after a `consume`. viem releases before 2.55.13 skip the reset (before 2.50) or can call it without a `consume` (2.50 to 2.55.11). npm upgrades viem into the peer range or stops the install, but pnpm and Yarn only warn and keep the older release.",
+    fix: "Upgrade viem in the project to 2.55.13 or later, the floor of its peer range, with your package manager (for example `npm install --save-dev viem@^2.55.13`, `pnpm add -D viem@^2.55.13` or `yarn add -D viem@^2.55.13`).",
+  },
   accountConnectionClosed: {
     id: "core.account.connection-closed",
     kind: "error",

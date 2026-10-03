@@ -2,13 +2,13 @@
 // on an edr-simulated network: viem fills the account's nonce and sends eth_sendRawTransaction
 // through the connection, and the plugin orders it with its own sends. EDR holds none of the keys.
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 
 import hardhatViem from "@nomicfoundation/hardhat-viem";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatPlugin } from "hardhat/types/plugins";
 import { Transaction } from "micro-eth-signer";
-import { createWalletClient, custom, getAddress, type Hex, isHex } from "viem";
+import { createWalletClient, custom, getAddress, type Hex, http, isHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { hardhat } from "viem/chains";
 
@@ -456,6 +456,79 @@ describe("a library account's send next to the plugin's sends", { timeout: 300_0
       await first.close();
       await second.close();
     } finally {
+      await server.close();
+    }
+  });
+
+  // The documented gap of a client with its own transport (library-accounts.md#sending): the
+  // plugin reserves the library send's nonce and skips it, but cannot order the broadcast, so an
+  // automining node refuses the plugin's transaction while the library's is still being signed.
+  it("lets an automining node refuse a plugin send while an http-transport library send signs", async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    const nodeRuntime = await createHardhatRuntimeEnvironment({
+      networks: { node: { type: "edr-simulated", chainId: 31337 } },
+    });
+    const server = await nodeRuntime.network.createServer("node", "127.0.0.1", 0);
+    const { address, port } = await server.listen();
+    const url = `http://${address}:${port}`;
+    try {
+      const signing: { started?: () => void; release?: () => void } = {};
+      const started = new Promise<void>((resolve) => {
+        signing.started = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        signing.release = resolve;
+      });
+      let signatures = 0;
+      const hre = await createHardhatRuntimeEnvironment({
+        plugins: [hardhatKms, hardhatViem],
+        kms: { keys: { cow: vaultKey("cow") } },
+        networks: { remote: { type: "http", url, chainId: 31337, kmsAccounts: ["cow"] } },
+      });
+      hre.hooks.registerHandlers("kms", {
+        createKeyAdapter: async () =>
+          await Promise.resolve(
+            fakeAdapter({
+              secretKey,
+              // The first signature after getAccount is the library send's: hold it.
+              beforeSign: async () => {
+                signatures++;
+                if (signatures === 1) {
+                  signing.started?.();
+                  await released;
+                }
+              },
+            }),
+          ),
+      });
+      const connection = await hre.network.create({ network: "remote" });
+      await connection.provider.request({
+        method: "hardhat_setBalance",
+        params: [COW, "0xde0b6b3a7640000"],
+      });
+      const library = createWalletClient({
+        account: await connection.kms.getAccount(COW),
+        chain: hardhat,
+        transport: http(url),
+      });
+      const librarySend = library.sendTransaction({ to: TO, value: 1n });
+      await started;
+      const plugin = await connection.viem.getWalletClient(COW);
+      await assert.rejects(
+        plugin.sendTransaction({ to: TO, value: 2n }),
+        /Nonce too high\. Expected nonce to be 0 but got 1\. Note that transactions can't be queued when automining\./,
+      );
+      signing.release?.();
+      const publicClient = await connection.viem.getPublicClient();
+      // The workaround: wait for the library send's receipt, then send through the plugin.
+      assert.equal((await minedOf(publicClient, await librarySend)).nonce, 0);
+      const hash = await promptSend(plugin, 2n);
+      assert.equal((await minedOf(publicClient, hash)).nonce, 1);
+      assert.equal(warn.mock.callCount(), 1, "the transport warning");
+      assert.equal(sendLocksInUse(), 0);
+      await connection.close();
+    } finally {
+      warn.mock.restore();
       await server.close();
     }
   });

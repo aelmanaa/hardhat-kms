@@ -8,6 +8,7 @@ import { PLUGIN_ID } from "../constants.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
 import { systemTimers, type Timers } from "../signer/timeout.ts";
+import { warn } from "../warnings.ts";
 
 /** How long a retry entry lives after a failed broadcast. */
 export const RETRY_TTL_MS = 120_000;
@@ -79,6 +80,19 @@ interface Hold {
 /** The held send locks, by lock key. Process-global: every runtime shares it. */
 const locks = new Map<string, SendLock>();
 
+/** A library account's send that holds its account's send lock, from its nonce to its broadcast. */
+interface LibraryHold {
+  /** The nonce the send was given. */
+  readonly nonce: bigint;
+  /** The send state of the connection that gave it, so closing the connection ends the hold. */
+  readonly owner: object;
+  /** Ends the hold and releases the lock. */
+  readonly end: () => void;
+}
+
+/** The library sends that hold a send lock, by lock key. Process-global, as the locks are. */
+const libraryHolds = new Map<string, LibraryHold>();
+
 /**
  * The locks the current async context holds. Work started inside a holder inherits its store,
  * including work that outlives it, so a hold counts only until it is released.
@@ -141,6 +155,34 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
 }
 
 /**
+ * How long a library account's send may keep its account's send lock when neither its raw
+ * transaction nor viem's `reset` ends the hold first. Not configurable in 1.0.
+ */
+export const LIBRARY_HOLD_MS = 60_000;
+
+/**
+ * How long a send waits for its account's send lock before a warning says that a library
+ * account's send holds it. Not configurable in 1.0.
+ */
+export const LIBRARY_WAIT_WARNING_MS = 5000;
+
+/**
+ * Warns that a send has waited {@link LIBRARY_WAIT_WARNING_MS} for its account's send lock, when a
+ * library account's send holds that lock now. Printed at most once per wait.
+ *
+ * @param key - The lock key.
+ */
+function warnAboutLibraryWait(key: string): void {
+  const hold = libraryHolds.get(key);
+  if (hold === undefined) {
+    return;
+  }
+  warn(
+    `a send from ${describeSendKey(key)} has waited ${LIBRARY_WAIT_WARNING_MS / 1000} s for a connection.kms.getAccount send that chose nonce ${hold.nonce} and has not broadcast it through the connection. It waits until that raw transaction goes out, viem resets that send, or ${LIBRARY_HOLD_MS / 1000} s after the nonce was chosen; see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.`,
+  );
+}
+
+/**
  * Tells whether the current async context holds the send lock for a key, so that a send for that
  * key would wait for itself.
  *
@@ -179,7 +221,14 @@ export async function withSendLock<T>(
     lock = { waiters: [] };
     locks.set(key, lock);
   } else {
-    await waitForTurn(key, lock, timers);
+    const cancelWarning = timers.setTimeout(() => {
+      warnAboutLibraryWait(key);
+    }, LIBRARY_WAIT_WARNING_MS);
+    try {
+      await waitForTurn(key, lock, timers);
+    } finally {
+      cancelWarning();
+    }
   }
   const hold: Hold = { key, released: false };
   try {
@@ -198,25 +247,6 @@ export async function withSendLock<T>(
     }
   }
 }
-
-/**
- * How long a library account's send may keep its account's send lock when neither its raw
- * transaction nor viem's `reset` ends the hold first. Not configurable in 1.0.
- */
-export const LIBRARY_HOLD_MS = 60_000;
-
-/** A library account's send that holds its account's send lock, from its nonce to its broadcast. */
-interface LibraryHold {
-  /** The nonce the send was given. */
-  readonly nonce: bigint;
-  /** The send state of the connection that gave it, so closing the connection ends the hold. */
-  readonly owner: object;
-  /** Ends the hold and releases the lock. */
-  readonly end: () => void;
-}
-
-/** The library sends that hold a send lock, by lock key. Process-global, as the locks are. */
-const libraryHolds = new Map<string, LibraryHold>();
 
 /**
  * By lock key: the viem `reset` calls still to come for library sends that no longer hold the
@@ -269,6 +299,9 @@ export async function holdForLibrary(
     const nonce = await choose();
     let ended = false;
     const cancel = timers.setTimeout(() => {
+      warn(
+        `a connection.kms.getAccount send from ${describeSendKey(key)} chose nonce ${nonce} ${LIBRARY_HOLD_MS / 1000} s ago and has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. If that transaction is broadcast later, it can take the nonce of the account's next send.`,
+      );
       hold.end();
     }, LIBRARY_HOLD_MS);
     const hold: LibraryHold = {

@@ -43,7 +43,7 @@ const authorization = await createWalletClient({
 
 `address` must be the address of one of the connection's KMS accounts, from the network's `kmsAccounts` or from `--kms`. Any other address fails with the KMS addresses the connection has.
 
-`getAccount` needs the `viem` package in the project. viem is an optional peer dependency of hardhat-kms: nothing else in the plugin loads it, and a project without it runs every task. Calling `getAccount` there fails with `connection.kms.getAccount needs the viem package, which could not be loaded`. The lowest viem version tested is the floor of the peer range, `^2.56.0`: earlier releases do not reset the account's nonce manager after every failed send ([Sending](#sending)).
+`getAccount` needs the `viem` package in the project. viem is an optional peer dependency of hardhat-kms: nothing else in the plugin loads it, and a project without it runs every task. Calling `getAccount` there fails with `connection.kms.getAccount needs the viem package, which could not be loaded`. The lowest viem version tested is the floor of the peer range, `^2.55.13`: earlier releases do not reset the account's nonce manager after every failed send, or can reset it for a send that never asked it for a nonce ([Sending](#sending)). pnpm and Yarn only warn when the installed viem is below the range, so `getAccount` checks viem's version too and refuses one below 2.55.13 with `connection.kms.getAccount needs viem 2.55.13 or later`, before any KMS call.
 
 `getAccount` asks the KMS for the key's public key once, which also checks the key's `address` pin. Each method of the account then makes one KMS signing call.
 
@@ -107,7 +107,7 @@ No RPC answer is rewritten: `eth_getTransactionCount` and every other read come 
 
 Some cases stay outside this:
 
-- A client with its own transport, such as `http(url)` or `webSocket(url)`. Its nonce is still chosen under the lock and kept from the plugin's sends until viem resets it or 60 s pass, but the plugin never sees its broadcast. A `custom` transport over another provider looks like `custom(connection.provider)` to the plugin: its send keeps the account's lock until viem resets it or 60 s pass, and the timer keeps the process alive until then. Another process is not ordered either.
+- A client with its own transport, such as `http(url)` or `webSocket(url)`. Its nonce is still chosen under the lock and kept from the plugin's sends until viem resets it or 60 s pass, but the plugin never sees its broadcast, and on an automining node a send through the plugin can be refused ([below](#clients-with-their-own-transport-on-an-automining-node)). A `custom` transport over another provider looks like `custom(connection.provider)` to the plugin: its send keeps the account's lock until viem resets it or 60 s pass, and the timer keeps the process alive until then. Another process is not ordered either.
 - Clients of both kinds for one account at the same time. viem's `reset` names neither the client nor the nonce. When a send through the connection holds the lock and a send with its own transport has a reserved nonce the node does not have yet, a `reset` ends the reservation and the hold stays, so a send through the plugin never takes the held nonce. If the held send was the one that failed, the account's sends wait until its 60 s limit, or until the other send's own `reset`.
 - A transaction that viem signs with a `nonce` you pass, or that you prepare, sign and send step by step: viem does not ask the nonce manager. Its raw transaction is still ordered and counted when it goes through the connection.
 - A blob transaction (type 3) in its network form, with its blobs, is passed on without being decoded, and is not counted.
@@ -115,9 +115,26 @@ Some cases stay outside this:
 - A send of the account started by code that runs inside a send from the same account, such as a network hook during the fill, fails at once and is not signed or sent: it would wait for itself. Its error is `core.account.nonce-reentrant` ([Errors](errors.md#library-accounts)).
 - A send whose raw transaction does not reach the plugin and that viem does not reset keeps the account's lock for at most 60 s; the timer keeps the process alive until then. If that send's `reset` comes after the 60 s, it can end the hold of the account's next library send.
 
-The lowest viem release with the `reset` call after every failed send is 2.56.0, the floor of the peer range.
+The lowest viem release that calls `reset` after every failed send, and only for a send that asked for a nonce, is 2.55.13, the floor of the peer range.
 
 `connection.viem.getWalletClient(address)` from hardhat-viem is still the simpler way to send from a KMS account: the plugin fills, signs and broadcasts under one lock, and a retry after a broadcast that got no answer sends the same bytes again; raw transactions have no retry cache. Use the account for what a JSON-RPC account cannot do: viem's `signAuthorization`, a smart-account owner, and signatures in code that has no wallet client.
+
+### Clients with their own transport on an automining node
+
+A client with its own transport gets its nonce under the lock, but its broadcast does not reach the plugin. A send through the plugin skips the reserved nonce and takes the next one. If that send reaches the node before the library send's transaction, a node that mines each transaction as it arrives refuses it: Hardhat's simulated network does so by default. Through viem the error reads:
+
+```text
+Nonce provided for the transaction is higher than the next one expected.
+…
+Details: Nonce too high. Expected nonce to be 0 but got 1. Note that transactions can't be queued when automining.
+```
+
+The first line is viem's; the `Details:` line is the node's own message (EDR 0.22.0). To avoid it, send the library account through `custom(connection.provider)`, so the plugin orders the broadcast, or wait for the library send's receipt (`waitForTransactionReceipt`) before the next send through the plugin. A node that queues transactions, such as a public RPC node or `mining: { auto: false }`, takes both.
+
+### Warnings
+
+- When a send has waited 5 s for the account's lock while a library send holds it, one warning per wait names the account, the chain and the held nonce: `hardhat-kms: a send from 0x… on chain 31337 has waited 5 s for a connection.kms.getAccount send that chose nonce 3 and has not broadcast it through the connection. …` The send keeps waiting until that raw transaction goes out, viem resets that send, or 60 s after the nonce was chosen.
+- When the 60 s limit ends a hold, a warning says so: `hardhat-kms: a connection.kms.getAccount send from 0x… on chain 31337 chose nonce 3 60 s ago and has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. …` If that transaction is broadcast later, it can take the nonce of the account's next send.
 
 ## Examples
 

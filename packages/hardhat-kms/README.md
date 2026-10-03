@@ -39,6 +39,8 @@ export default defineConfig({
 
 To see the key's address, run `npx hardhat kms accounts`, then pin it in the key's config with `address`. `hardhat-kms-aws` loads `hardhat-kms` itself. Azure Key Vault and Managed HSM keys need `hardhat-kms-azure` instead ([setup guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/azure-key-vault-setup.md)). Google Cloud KMS keys need `hardhat-kms-gcp` ([setup guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/gcp-kms-setup.md)). See the [configuration reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/configuration.md) for every option.
 
+`connection.kms.getAccount`, which returns a viem account for a KMS key, needs viem 2.55.13 or later, a higher floor than hardhat-viem's `^2.47.6`. Before 2.50, viem never calls the account's nonce manager `reset` after a failed send, so the plugin's next send waits up to 60 s. From 2.50 to 2.55.11, viem can call `reset` for a send that never called `consume`, which ends another send's hold and lets a plugin send take the nonce that send still needs. See [library accounts](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md).
+
 ## Docs
 
 - All docs, for users and contributors: [docs/README.md](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/README.md)

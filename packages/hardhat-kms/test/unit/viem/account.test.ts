@@ -2,8 +2,13 @@
 // deterministic fake KMS (RFC 6979, as viem) must give the same bytes for every method. Every
 // refusal must come before any KMS call, which the fake adapter counts.
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, describe, it, mock } from "node:test";
 
+import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import { HardhatPluginError } from "hardhat/plugins";
 import { serializeTransaction, type SignedAuthorization, type TransactionSerializable } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -13,6 +18,8 @@ import {
   createKmsNetworkConnection,
   type LoadViem,
   loadViem,
+  readViemVersion,
+  VIEM_FLOOR,
 } from "../../../src/internal/viem/account.ts";
 import type { KmsAccountOptions } from "../../../src/types.ts";
 import type { FakeAdapter } from "../../helpers/fake-adapter.ts";
@@ -153,6 +160,15 @@ const failingViem =
   async () => {
     throw await Promise.resolve(Object.assign(new TypeError("no"), { code }));
   };
+
+/** A loader that returns the project's viem with another version string. */
+const viemVersion =
+  (version: string): LoadViem =>
+  async () => ({ ...(await loadViem()), version });
+
+/** The full message of the viem-too-old error, for the installed version given. */
+const viemTooOldMessage = (installed: string): string =>
+  `getAccount: connection.kms.getAccount needs viem 2.55.13 or later, and the project has viem ${installed}. Upgrade viem to 2.55.13 or later`;
 
 /** The full message of the viem-missing error, for the reason given. */
 const viemMissingMessage = (reason: string): string =>
@@ -631,6 +647,72 @@ describe("connection.kms.getAccount", () => {
       }
     });
 
+    it("a viem below 2.55.13, before any KMS call or key lookup", async () => {
+      const { adapter, connection } = setup();
+      let lookups = 0;
+      const counting: AccountConnection = {
+        ...connection,
+        accounts: {
+          ...connection.accounts,
+          keyFor: async (address) => {
+            lookups++;
+            return await connection.accounts.keyFor(address);
+          },
+        },
+      };
+      for (const [version, installed] of [
+        ["2.55.12", "2.55.12"],
+        ["2.55.12-canary.1", "2.55.12-canary.1"],
+        ["2.55.13-canary.0", "2.55.13-canary.0"],
+        ["02.55.12", "02.55.12"],
+        [`2.55.12-${"x".repeat(100)}`, `2.55.12-${"x".repeat(56)}`],
+        ["2.55.11", "2.55.11"],
+        ["2.54.99", "2.54.99"],
+        ["2.50.3", "2.50.3"],
+        ["2.47.6", "2.47.6"],
+        ["1.99.99", "1.99.99"],
+      ] as const) {
+        await assert.rejects(
+          async () =>
+            await createKmsNetworkConnection(counting, viemVersion(version)).getAccount(ADDRESS),
+          (error: unknown) => {
+            assert.ok(error instanceof HardhatPluginError);
+            assert.equal(error.message, viemTooOldMessage(installed), version);
+            return true;
+          },
+        );
+      }
+      assert.deepEqual({ kms: kmsCalls(adapter), lookups }, { kms: 0, lookups: 0 });
+    });
+
+    it("no viem from 2.55.13 on, nor one whose version it cannot read", async () => {
+      const { connection } = setup();
+      for (const version of [
+        "2.55.13",
+        "viem@2.55.12",
+        "2.55.13+build.1",
+        "2.55.14",
+        "2.55.14-canary.0",
+        "2.56.0",
+        "2.57.2",
+        "2.100.0",
+        "3.0.0",
+        "3.0.0-next.12",
+        "",
+        "unknown",
+        "2.55",
+        "v2.55.12",
+        "2.55.12x",
+        "viem@",
+      ]) {
+        const account = await createKmsNetworkConnection(
+          connection,
+          viemVersion(version),
+        ).getAccount(ADDRESS);
+        assert.equal(account.address, ADDRESS, version);
+      }
+    });
+
     it("an address that is not a KMS account, listing the KMS addresses", async () => {
       const { adapter, connection } = setup();
       await assertRefused(
@@ -819,6 +901,58 @@ describe("connection.kms.getAccount", () => {
       assert.equal(chainCalls.count, chainBefore, "nor ask the node for its chain");
       assert.equal(warn.mock.callCount(), 1, "only getAccount's rawSign warning");
     });
+  });
+
+  it("reads the project's viem version, and its floor is the peer range's", async () => {
+    const { version } = await loadViem();
+    const manifest: unknown = JSON.parse(
+      readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
+    );
+    const viemManifest: unknown = JSON.parse(
+      readFileSync(createRequire(import.meta.url).resolve("viem/package.json"), "utf8"),
+    );
+    assert.ok(isObject(manifest) && isObject(manifest.peerDependencies));
+    assert.ok(isObject(viemManifest));
+    assert.equal(version, viemManifest.version);
+    assert.equal(manifest.peerDependencies.viem, `^${VIEM_FLOOR}`);
+  });
+
+  it("reads no version when viem's package.json cannot be found or read", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "viem-version-"));
+    try {
+      const write = (name: string, content: string): string => {
+        const file = path.join(directory, name);
+        writeFileSync(file, content);
+        return file;
+      };
+      const cases: [string, () => string][] = [
+        [
+          "not found",
+          () => {
+            throw new Error("Cannot find module 'viem/package.json'");
+          },
+        ],
+        ["not JSON", () => write("text.json", "not json")],
+        ["not an object", () => write("array.json", '["2.55.12"]')],
+        ["no version", () => write("empty.json", "{}")],
+        ["a version that is not a string", () => write("number.json", '{"version":2}')],
+      ];
+      for (const [name, resolve] of cases) {
+        assert.equal(await readViemVersion(resolve), "", name);
+      }
+      const named: string[] = [];
+      const file = write("package.json", '{"version":"2.55.12"}');
+      assert.equal(
+        await readViemVersion((specifier) => {
+          named.push(specifier);
+          return file;
+        }),
+        "2.55.12",
+      );
+      assert.deepEqual(named, ["viem/package.json"]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("loads viem's serializer from the project", async () => {

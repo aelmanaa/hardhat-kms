@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 
 import { HardhatPluginError } from "hardhat/plugins";
 
@@ -13,6 +13,7 @@ import {
   expectLibraryReset,
   holdForLibrary,
   LIBRARY_HOLD_MS,
+  LIBRARY_WAIT_WARNING_MS,
   libraryHoldOf,
   libraryHoldsActive,
   MAX_SEND_LOCK_WAITERS,
@@ -359,8 +360,9 @@ describe("withSendLock limits", () => {
     const b = watch(send("b"));
     const c = send("c");
     await settle();
-    assert.equal(scheduled.length, 3, "one limit per waiter");
-    const limitOfB = scheduled[1];
+    // Per waiter, in order: its warning timer (LIBRARY_WAIT_WARNING_MS), then its limit.
+    assert.equal(scheduled.length, 6, "one warning timer and one limit per waiter");
+    const limitOfB = scheduled[3];
     assert.ok(limitOfB !== undefined);
     limitOfB.live = false;
     limitOfB.callback();
@@ -750,7 +752,8 @@ describe("ConnectionSends nonce reservations", () => {
 });
 
 describe("library holds", () => {
-  const KEY = "31337:0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
+  const HOLDER = "0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
+  const KEY = `31337:${HOLDER}`;
 
   it("keeps the lock after the nonce is chosen, until the broadcast ends the hold", async () => {
     const timers = fakeTimers();
@@ -780,14 +783,140 @@ describe("library holds", () => {
     assert.equal(sendLocksInUse(), 0);
   });
 
-  it(`ends the hold after ${LIBRARY_HOLD_MS} ms when nothing else ends it`, async () => {
-    const timers = fakeTimers();
-    await holdForLibrary(KEY, {}, async () => await Promise.resolve(1n), timers);
-    timers.fire();
-    await withSendLock(KEY, async () => {
-      await Promise.resolve();
-    });
-    assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
+  it(`ends the hold after ${LIBRARY_HOLD_MS} ms when nothing else ends it, with a warning`, async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const timers = fakeTimers();
+      await holdForLibrary(KEY, {}, async () => await Promise.resolve(1n), timers);
+      timers.fire();
+      await withSendLock(KEY, async () => {
+        await Promise.resolve();
+      });
+      assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
+      assert.deepEqual(
+        warn.mock.calls.map((call) => call.arguments),
+        [
+          [
+            `hardhat-kms: a connection.kms.getAccount send from ${HOLDER} on chain 31337 chose nonce 1 60 s ago and has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. If that transaction is broadcast later, it can take the nonce of the account's next send.`,
+          ],
+        ],
+      );
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it("prints no limit warning for a hold that ends before its limit", async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const timers = fakeTimers();
+      await holdForLibrary(KEY, {}, async () => await Promise.resolve(1n), timers);
+      endLibraryHold(KEY, false);
+      timers.fire();
+      await withSendLock(KEY, async () => {
+        await Promise.resolve();
+      });
+      assert.equal(warn.mock.callCount(), 0);
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it(`warns once when a send waits ${LIBRARY_WAIT_WARNING_MS} ms behind a hold`, async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const clock = clockTimers();
+      await holdForLibrary(KEY, {}, async () => await Promise.resolve(6n), fakeTimers());
+      const waiting = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
+      await clock.advance(LIBRARY_WAIT_WARNING_MS - 1);
+      assert.equal(warn.mock.callCount(), 0, "not before the delay");
+      await clock.advance(1);
+      await clock.advance(SEND_LOCK_STALL_MS - LIBRARY_WAIT_WARNING_MS - 1);
+      assert.deepEqual(
+        warn.mock.calls.map((call) => call.arguments),
+        [
+          [
+            `hardhat-kms: a send from ${HOLDER} on chain 31337 has waited 5 s for a connection.kms.getAccount send that chose nonce 6 and has not broadcast it through the connection. It waits until that raw transaction goes out, viem resets that send, or 60 s after the nonce was chosen; see https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#sending.`,
+          ],
+        ],
+        "once per wait",
+      );
+      endLibraryHold(KEY, false);
+      await settle();
+      assert.equal(waiting.done, true);
+      assert.equal(waiting.error, undefined);
+      assert.equal(clock.pending(), 0, "the warning timer is cancelled when the wait ends");
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it("warns once for a wait behind two holds in a row, and not after the holds end at close", async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const clock = clockTimers();
+      const owner = {};
+      await holdForLibrary(KEY, owner, async () => await Promise.resolve(1n), fakeTimers());
+      const second = holdForLibrary(
+        KEY,
+        owner,
+        async () => await Promise.resolve(2n),
+        fakeTimers(),
+      );
+      const waiting = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
+      endLibraryHold(KEY, false);
+      assert.equal(await second, 2n);
+      await clock.advance(LIBRARY_WAIT_WARNING_MS * 3);
+      assert.equal(warn.mock.callCount(), 1, "one warning per wait");
+      assert.match(String(warn.mock.calls[0]?.arguments[0]), /chose nonce 2 /);
+      endLibraryHold(KEY, false);
+      await settle();
+      assert.equal(waiting.done, true);
+
+      await holdForLibrary(KEY, owner, async () => await Promise.resolve(3n), fakeTimers());
+      const closing = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
+      endLibraryHoldsOf(owner);
+      await settle();
+      assert.equal(closing.done, true);
+      await clock.advance(LIBRARY_WAIT_WARNING_MS * 2);
+      assert.equal(warn.mock.callCount(), 1, "no warning after the connection closed");
+      assert.equal(sendLocksInUse(), 0);
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  it("warns and ends a hold before a send waiting behind it could stall", () => {
+    assert.ok(LIBRARY_WAIT_WARNING_MS < LIBRARY_HOLD_MS);
+    assert.ok(LIBRARY_HOLD_MS < SEND_LOCK_STALL_MS);
+  });
+
+  it("does not warn for a wait behind a plugin send, or one shorter than the delay", async () => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const clock = clockTimers();
+      const plugin = gate();
+      const holder = withSendLock(KEY, async () => await plugin.promise);
+      const behindPlugin = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
+      await clock.advance(LIBRARY_WAIT_WARNING_MS * 2);
+      plugin.open();
+      await holder;
+      await settle();
+      assert.equal(behindPlugin.done, true);
+
+      await holdForLibrary(KEY, {}, async () => await Promise.resolve(2n), fakeTimers());
+      const short = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
+      await clock.advance(LIBRARY_WAIT_WARNING_MS - 1);
+      endLibraryHold(KEY, false);
+      await settle();
+      assert.equal(short.done, true);
+      assert.equal(clock.pending(), 0, "its warning timer is cancelled");
+      await clock.advance(LIBRARY_WAIT_WARNING_MS);
+      assert.equal(warn.mock.callCount(), 0);
+      assert.equal(sendLocksInUse(), 0);
+    } finally {
+      warn.mock.restore();
+    }
   });
 
   it("uses up the resets owed by failed sends before it ends a hold", async () => {

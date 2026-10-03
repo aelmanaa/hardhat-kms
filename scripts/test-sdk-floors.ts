@@ -4,7 +4,9 @@
 // the declared floor still works.
 //
 // viem is an optional peer dependency that only connection.kms.getAccount loads, so its floor runs
-// the tests of getAccount, not the whole package.
+// the tests of getAccount, not the whole package. pnpm and Yarn install a viem below the peer range
+// with only a warning, so getAccount checks the version itself; after the floor passes, the script
+// installs the release just below the floor and checks that getAccount refuses it.
 //
 // For each package in packages/ whose dependencies include a cloud SDK, it installs the floor of
 // each SDK range (`^3.1143.0` gives 3.1143.0), also as a workspace override so other SDKs that
@@ -14,7 +16,7 @@
 // redone from the restored lockfile.
 //
 // Usage: node scripts/test-sdk-floors.ts
-import { appendFileSync, readdirSync, readFileSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -47,6 +49,14 @@ const PEER_FLOOR_TESTS: Readonly<Record<string, readonly string[]>> = {
     "test/integration/raw-send.test.ts",
     "test/integration/library-send-cli.test.ts",
   ],
+};
+
+/**
+ * Optional peer dependencies with a run-time version check: a release below the floor, and the test
+ * file that expects the plugin to refuse it.
+ */
+const PEER_BELOW_FLOOR: Readonly<Record<string, { version: string; file: string }>> = {
+  viem: { version: "2.55.11", file: "test/floors/viem-below-floor.test.ts" },
 };
 
 interface Floor {
@@ -188,6 +198,43 @@ const passed = await withRestoredFiles(restorable, async () => {
       );
     }
   }
+  // Last, since it replaces the floor overrides: a release below each checked peer's floor.
+  const below = found.flatMap((floor) => {
+    const check = floor.kind === "peer" ? PEER_BELOW_FLOOR[floor.sdk] : undefined;
+    return check === undefined ? [] : [{ floor, check }];
+  });
+  if (below.length > 0) {
+    let overrides = readFileSync(workspace, "utf8");
+    for (const { floor, check } of below) {
+      overrides = overrides.replace(
+        `  "${floor.sdk}": "${floor.version}"\n`,
+        `  "${floor.sdk}": "${check.version}"\n`,
+      );
+    }
+    writeFileSync(workspace, overrides);
+    run(["install", "--no-frozen-lockfile", "--ignore-scripts"]);
+    for (const { floor, check } of below) {
+      const installed = resolvedVersion(floor.directory, floor.sdk);
+      if (installed !== check.version) {
+        throw new Error(
+          `${floor.packageName} resolves ${floor.sdk} ${installed}, not ${check.version}`,
+        );
+      }
+      process.stdout.write(`\n== ${floor.packageName}: refuses ${floor.sdk}@${check.version}\n`);
+      try {
+        run(["--filter", floor.packageName, "exec", "node", "--test", check.file]);
+      } catch (error) {
+        await deliverSignals();
+        if (wasInterrupted()) {
+          throw error;
+        }
+        failed = true;
+        process.stderr.write(
+          `\n${floor.packageName} does not refuse ${floor.sdk} ${check.version}, below its floor ${floor.version}.\n`,
+        );
+      }
+    }
+  }
   return !failed;
 });
 
@@ -196,4 +243,9 @@ if (!passed) {
 }
 process.stdout.write(
   `\nSDK floors pass: ${found.map((floor) => `${floor.sdk}@${floor.version}`).join(", ")}\n`,
+);
+process.stdout.write(
+  `Refused below the floor: ${Object.entries(PEER_BELOW_FLOOR)
+    .map(([sdk, check]) => `${sdk}@${check.version}`)
+    .join(", ")}\n`,
 );
