@@ -246,8 +246,9 @@ export interface ManagedIdentitySettings {
  * 1. `EnvironmentCredential`: a service principal from `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and
  *    `AZURE_CLIENT_SECRET` (or `AZURE_CLIENT_CERTIFICATE_PATH`).
  * 2. `WorkloadIdentityCredential`, when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and
- *    `AZURE_FEDERATED_TOKEN_FILE` are set (AKS workload identity, GitHub Actions OIDC).
- * 3. `AzureCliCredential` (`az login`), then `AzureDeveloperCliCredential` (`azd auth login`).
+ *    `AZURE_FEDERATED_TOKEN_FILE` are set (AKS workload identity).
+ * 3. `AzureCliCredential` (`az login`, or the `azure/login` GitHub Action), then
+ *    `AzureDeveloperCliCredential` (`azd auth login`).
  * 4. `ManagedIdentityCredential`, user-assigned when `clientId` is given, with a time limit and
  *    a timeout on each of its HTTP requests. Where it cannot be used with a client id (Cloud
  *    Shell, Service Fabric), it is left out, as Foundry does.
