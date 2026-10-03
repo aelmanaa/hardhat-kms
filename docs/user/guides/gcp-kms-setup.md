@@ -37,7 +37,7 @@ The identity that runs Hardhat needs two permissions on this key:
 - `cloudkms.cryptoKeyVersions.viewPublicKey`, to read the public key and the version's algorithm.
 - `cloudkms.cryptoKeyVersions.useToSign`, to sign.
 
-Creating the key does not give them, and Cloud KMS Admin (`roles/cloudkms.admin`) holds neither: it leaves out cryptographic operations. Grant the roles below even to the identity that created the key, unless it is a project Owner.
+Creating the key does not give them, and Cloud KMS Admin (`roles/cloudkms.admin`) holds neither: it leaves out cryptographic operations. Grant the roles below even to the identity that created the key, unless it is a project Owner. Granting them needs `cloudkms.cryptoKeys.setIamPolicy` on the key, which Cloud KMS Admin and Owner hold.
 
 The plugin signs as the identity of Application Default Credentials (ADC): the account of `gcloud auth application-default login` on a workstation, the `GOOGLE_APPLICATION_CREDENTIALS` file, or the service account of the machine or CI job ([How Application Default Credentials works](https://docs.cloud.google.com/docs/authentication/application-default-credentials)). That is not always the account `gcloud auth login` signed the gcloud CLI in with, so grant the roles to the ADC identity. To see it, first check that `gcloud config get auth/impersonate_service_account` prints no account, and unset it with `gcloud config unset auth/impersonate_service_account` if it does: that setting changes the token gcloud returns, but the plugin does not read gcloud settings. Then ask Google's token information endpoint whose ADC access token it is:
 
@@ -63,7 +63,7 @@ done
 
 Use `serviceAccount:<email>` as the member for a service account. `roles/cloudkms.signerVerifier` also holds both permissions in one role, plus `useToVerify`, which the plugin does not use. The permissions in each role are listed in [Cloud KMS permissions and roles](https://cloud.google.com/kms/docs/reference/permissions-and-roles).
 
-This setup has not yet been checked against real Cloud KMS with a least-privilege identity; the plugin's live tests ran with an identity that has wider permissions.
+These two roles alone have not yet been checked against real Cloud KMS: the plugin's live tests ran with an identity that has wider permissions.
 
 ## 3. Install the plugin and configure the key
 
@@ -103,6 +103,8 @@ Instead of `keyVersionName`, a key can list its parts: `projectId`, `location`, 
 
 To use a key without a config entry, set `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME` and `GCP_KEY_VERSION` and pass `--kms gcp`; see [Migrate from Foundry](migrate-from-foundry.md). Such a key is added to the network selected with `--network`, or to `default` without one.
 
+`configVariable("SEPOLIA_RPC_URL")` reads the RPC URL when a network needs it: from an environment variable of that name (`export SEPOLIA_RPC_URL=https://…`), or from the Hardhat keystore if the project has `@nomicfoundation/hardhat-keystore`, which the Hardhat toolboxes include (`npx hardhat keystore set SEPOLIA_RPC_URL`). The script in step 4 uses it.
+
 ## 4. Check that the key signs
 
 Save this script as `scripts/check-kms.ts`. It lists the accounts on `sepolia`, then signs the message `hello` with the last one, which is the KMS account:
@@ -140,9 +142,15 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 
 [`kms history`](../reference/tasks.md#kms-history) lists a key's sign requests from Cloud Audit Logs: every `AsymmetricSign` call on any version of the key, from the plugin or from any other client. Cloud KMS logs these calls as Data Access logs, which are off by default. The plugin stores nothing itself, so with the logs off there is no history to read.
 
+```sh
+npx hardhat kms history deployer --since 7d
+```
+
+Without `--since`, the task reads the last 24 hours, and it lists at most 100 events, the newest; `--limit` takes up to 1000 ([`kms history`](../reference/tasks.md#kms-history)).
+
 ### Turn on Data Access logs for Cloud KMS
 
-`AsymmetricSign` is a `DATA_READ` operation. In the console, open **IAM & Admin > Audit Logs**, select **Cloud Key Management Service (KMS) API**, and check **Data Read**. With `gcloud`, add an `auditConfigs` entry to the project's IAM policy:
+`AsymmetricSign` is a `DATA_READ` operation. In the console, open **IAM & Admin > Audit Logs**, select **Cloud Key Management Service (KMS) API**, and check **Data Read**. With `gcloud`, add an `auditConfigs` entry to the project's IAM policy. `set-iam-policy` replaces the project's whole IAM policy with the file, so change nothing else in it and keep the `etag` that `get-iam-policy` wrote: if someone changes the policy in between, the write then fails instead of undoing their change. The console route above changes only the audit setting.
 
 ```sh
 gcloud projects get-iam-policy my-project --format=json > policy.json
@@ -158,7 +166,7 @@ Add this entry to the `auditConfigs` list in `policy.json` (create the list if i
 gcloud projects set-iam-policy my-project policy.json
 ```
 
-This needs `resourcemanager.projects.setIamPolicy` on the project. It changes only what is logged. A setting on the folder or the organization, or one for `allServices`, also turns the logs on. See [Configure Data Access audit logs](https://cloud.google.com/logging/docs/audit/configure-data-access).
+This needs `resourcemanager.projects.setIamPolicy` on the project, which Project IAM Admin (`roles/resourcemanager.projectIamAdmin`) and Owner hold. With the `auditConfigs` entry as the only change, it changes only what is logged. A setting on the folder or the organization, or one for `allServices`, also turns the logs on. See [Configure Data Access audit logs](https://cloud.google.com/logging/docs/audit/configure-data-access).
 
 ### Allow reading the logs
 
@@ -174,16 +182,20 @@ The reader uses Application Default Credentials, as signing does, with the `logg
 
 ### What the history shows
 
-| Column       | From the log entry                                                                                                                                        |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Time         | `timestamp`                                                                                                                                               |
-| Outcome      | `protoPayload.status`: empty for a served request; a code and a message for a refused one                                                                 |
-| Principal    | `authenticationInfo.principalEmail`, or `principalSubject` when there is no email                                                                         |
-| Source IP    | `requestMetadata.callerIp`, which reads `private` or `gce-internal-ip` for calls from inside Google Cloud                                                 |
-| User agent   | `requestMetadata.callerSuppliedUserAgent`, reported by the client                                                                                         |
-| Key version  | the last segment of `resourceName`                                                                                                                        |
-| Digest       | `request.digest.sha256`, logged as 64 hex characters; the reader adds `0x`                                                                                |
-| Other fields | `insertId`, `principalSubject` when it is more than the type and the email, `receiveTimestamp` and the status code; the OAuth client id with `--show-ids` |
+Each row comes from one log entry:
+
+| Column or field            | Log entry field                                                                                                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `time`                     | `timestamp`                                                                                                                                                                |
+| `principal`                | `protoPayload.authenticationInfo.principalEmail`, or `principalSubject` when there is no email                                                                             |
+| `sourceIp`                 | `protoPayload.requestMetadata.callerIp`, which reads `private` or `gce-internal-ip` for calls from inside Google Cloud                                                     |
+| `userAgent`                | `protoPayload.requestMetadata.callerSuppliedUserAgent`, reported by the client                                                                                             |
+| `keyVersion`               | the last segment of `protoPayload.resourceName`                                                                                                                            |
+| `digest`                   | `protoPayload.request.digest.sha256`, logged as 64 hex characters; the reader adds `0x`                                                                                    |
+| `error`                    | for a refused request, the status name of `protoPayload.status.code`, and `protoPayload.status.message` with `--show-ids`. A served request is logged with an empty status |
+| `keyResource`              | `protoPayload.resourceName`, the key version's full name, shown with `--show-ids`                                                                                          |
+| `extra`                    | `insertId`, `principalSubject` when it is more than the type and the email, `receiveTimestamp` and the status code                                                         |
+| `extra`, with `--show-ids` | the OAuth client id, `authenticationInfo.oauthInfo.oauthClientId`                                                                                                          |
 
 Cloud Audit Logs records no request id, so the history lists it as not logged. An entry's own id, `insertId`, is shown instead. No entry holds the message, the transaction or the signature, so the history cannot show what was signed; the digest identifies it if you have the transaction.
 

@@ -80,7 +80,7 @@ az keyvault key list-deleted --vault-name my-vault --query '[].[name,scheduledPu
 az keyvault key recover --vault-name my-vault --name deployer
 ```
 
-Recovering and purging need more than the signing role: the built-in role Microsoft names for both on keys is **Key Vault Crypto Officer**. While the key is deleted, Hardhat shows `Key Vault answered 404 …: the key or key version does not exist`.
+Listing deleted keys needs the keys `list` permission ([`az keyvault key list-deleted`](https://learn.microsoft.com/cli/azure/keyvault/key#az-keyvault-key-list-deleted)), and recovering and purging need more than the signing role: the built-in role Microsoft names for both on keys is **Key Vault Crypto Officer**, which also covers listing in a vault that uses Azure RBAC. In a vault that uses access policies, grant `list`, `recover` and `purge` as needed. While the key is deleted, Hardhat shows `Key Vault answered 404 …: the key or key version does not exist`.
 
 A deleted vault is recovered the same way, with `az keyvault list-deleted --resource-type vault` and `az keyvault recover --name my-vault`. Listing deleted vaults needs `Microsoft.KeyVault/locations/deletedVaults/read` at the subscription level, and recovering one needs the **Key Vault Contributor** role ([Azure Key Vault recovery overview](https://learn.microsoft.com/en-us/azure/key-vault/general/key-vault-recovery)). Its role assignments do not come back; see [Keep access to an Azure Key Vault key](#keep-access-to-an-azure-key-vault-key). For a Managed HSM, see Microsoft's [Managed HSM recovery overview](https://learn.microsoft.com/en-us/azure/key-vault/managed-hsm/recovery).
 

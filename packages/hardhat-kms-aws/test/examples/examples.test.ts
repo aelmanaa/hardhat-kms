@@ -7,7 +7,7 @@
 // computed here from its public key, and that the count read back from the contract is 7 + 5.
 import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -24,6 +24,8 @@ const REGION = "us-east-1";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const EXAMPLES_DIRECTORY = path.join(ROOT, "examples");
 const EXPECTED_COUNT = 12n;
+/** The guide whose `--kms` rehearsal command the Ignition example runs as written. */
+const IGNITION_GUIDE = path.join(ROOT, "docs", "user", "guides", "deploy-with-ignition.md");
 /** Hardhat's built-in `localhost` network, where `hardhat node` listens by default. */
 const NODE_URL = "http://127.0.0.1:8545";
 /** The selectors of `owner()` and `count()` in contracts/Counter.sol. */
@@ -84,6 +86,21 @@ function printed(output: string, label: string): string {
   const match = new RegExp(`^${label}: (\\S+)$`, "m").exec(output);
   assert.ok(match?.[1] !== undefined, `no "${label}:" line in:\n${output}`);
   return match[1];
+}
+
+/**
+ * The arguments after `npx hardhat` of the Ignition guide's `--kms aws` command, with the guide's
+ * `0x…` placeholder replaced by the key's address. The guide sets `AWS_KMS_KEY_ID` on the command;
+ * here the environment already holds the LocalStack key's id.
+ */
+function guideKmsDeployArguments(address: string): string[] {
+  const guide = readFileSync(IGNITION_GUIDE, "utf8");
+  const match = /^AWS_KMS_KEY_ID=\S+ npx hardhat (ignition deploy .*--kms aws.*)$/m.exec(guide);
+  assert.ok(
+    match?.[1] !== undefined,
+    `no "--kms aws" ignition deploy command in ${IGNITION_GUIDE}`,
+  );
+  return match[1].split(" ").map((argument) => (argument === "0x…" ? address : argument));
 }
 
 /** Sends one JSON-RPC request to the Hardhat node and returns its result. */
@@ -244,4 +261,15 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
       }
     }
   }
+
+  // Runs after the example's own test, which builds it. The guide's command runs on a simulated
+  // network that lists no KMS keys, so `--kms aws` adds the key there and `kms.simulatedBalance`
+  // funds it. Ignition fails if the counter's `add`, which only the deployer may call, reverts.
+  it("ignition: the deploy-with-ignition guide's --kms command deploys as written", async () => {
+    const commandArguments = guideKmsDeployArguments(kmsAddress);
+    assert.ok(commandArguments.includes(kmsAddress), commandArguments.join(" "));
+    const output = await pnpmIn("ignition", ["exec", "hardhat", ...commandArguments]);
+    assert.match(output, /successfully deployed/);
+    assert.match(output, /#Counter - 0x[0-9a-fA-F]{40}/);
+  });
 });

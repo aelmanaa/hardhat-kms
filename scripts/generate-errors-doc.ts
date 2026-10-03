@@ -171,7 +171,7 @@ export function renderErrorsDoc(catalogues: Catalogue[]): string {
     "",
     "Audience: anyone who got an error from hardhat-kms or one of its provider packages.",
     "",
-    `Status: generated from the error catalogues (\`packages/*/src/internal/error-catalog.ts\`) by \`${ERRORS_DOC_COMMAND}\`. Do not edit it by hand; \`pnpm run docs:check\` fails when it is out of date.`,
+    "This page is generated from the plugin's source, so it lists every error that this version of the plugin and its provider packages can raise.",
     "",
     "Every error the plugin builds has an entry here, with a stable id. Find an error by searching for a fixed part of its message.",
     "",
