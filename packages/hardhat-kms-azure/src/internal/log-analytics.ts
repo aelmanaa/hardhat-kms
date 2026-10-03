@@ -14,14 +14,14 @@ import type { TokenCredential } from "@azure/identity";
 import type { QueryWorkspace } from "./history.ts";
 
 /**
- * The Log Analytics query endpoint of Azure's public cloud. Microsoft replaces
+ * The Log Analytics query endpoint of Azure's public cloud. Microsoft is replacing
  * `api.loganalytics.io` with this host: https://learn.microsoft.com/en-us/azure/azure-monitor/logs/api/access-api
  */
 const LOG_ANALYTICS_ENDPOINT = "https://api.loganalytics.azure.com";
 
 /**
- * The token scope that Log Analytics queries need. It keeps the `api.loganalytics.io` resource,
- * which Microsoft still uses for tokens sent to the new host.
+ * The token scope that Log Analytics queries need. It stays on the `api.loganalytics.io` resource:
+ * Microsoft's examples request tokens for it and send them to the new host.
  */
 export const LOG_ANALYTICS_SCOPE = "https://api.loganalytics.io/.default";
 
