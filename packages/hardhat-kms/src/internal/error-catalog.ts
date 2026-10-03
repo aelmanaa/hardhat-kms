@@ -561,10 +561,10 @@ export const ERRORS = {
     kind: "error",
     group: "Provider plugins",
     template:
-      "kmsDebug namespace {namespace} is not valid: use lowercase letters, digits and -, starting with a letter",
+      "kmsDebug namespace {namespace} is not valid: use 1 to 64 lowercase letters, digits and -, starting with a letter",
     cause:
-      "A provider package called `kmsDebug` from `hardhat-kms/provider-utils` with a namespace that is empty or holds another character, such as `*`, `,` or `:`, which would change which `DEBUG` patterns match it.",
-    fix: 'If you wrote the provider package, log under its provider id, such as `kmsDebug("myvault")`. Otherwise report it to the provider package.',
+      "A provider package called `kmsDebug` from `hardhat-kms/provider-utils` with a namespace that is empty, longer than 64 characters, does not start with a letter, or holds another character, such as an uppercase letter, `*`, `,` or `:`. `*`, `,` and `:` would change which `DEBUG` patterns match it.",
+    fix: "If you wrote the provider package, pass its provider id to `kmsDebug`, such as `myvault`. Otherwise report it to the provider package.",
   },
   debugNamespaceReserved: {
     id: "core.provider.debug-namespace-reserved",
@@ -574,7 +574,7 @@ export const ERRORS = {
       "kmsDebug namespace {namespace} belongs to hardhat-kms ({reserved}); log under the provider id instead",
     cause:
       "A provider package called `kmsDebug` from `hardhat-kms/provider-utils` with one of the namespaces hardhat-kms logs under, so its lines would pass for the core's.",
-    fix: 'If you wrote the provider package, log under its provider id, such as `kmsDebug("myvault")`. Otherwise report it to the provider package.',
+    fix: "If you wrote the provider package, pass its provider id to `kmsDebug`, such as `myvault`. Otherwise report it to the provider package.",
   },
 
   // Signing.

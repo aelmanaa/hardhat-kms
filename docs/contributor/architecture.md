@@ -229,7 +229,7 @@ packages/hardhat-kms/src/
     errors.ts               allow-listed error builder; catalogError, catalogMessage, internalError
     error-catalog.ts        every error the core builds: id, message template, cause, fix
     warnings.ts             the one console.warn: warnings for the user
-    debug.ts                coreDebug (hardhat:kms:account, config, history, providers, rpc, signer) and kmsDebug for providers; plain values only
+    debug.ts                coreDebug (hardhat:kms:account, config, history, providers, rpc, signer) and kmsDebug for provider packages; plain values only
 ```
 
 The plugin object sets `npmPackage: "hardhat-kms"`. The config hook handler imports provider descriptors only, and no descriptor imports an SDK.

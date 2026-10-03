@@ -509,9 +509,9 @@ placeholder: text built into the format is neither type-checked nor escaped.
 
 #### Parameters
 
-| Parameter   | Type     | Description                                                                                            |
-| ----------- | -------- | ------------------------------------------------------------------------------------------------------ |
-| `namespace` | `string` | The sub-namespace: the provider id, made of lowercase letters, digits and `-`, starting with a letter. |
+| Parameter   | Type     | Description                                                                                                    |
+| ----------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `namespace` | `string` | The sub-namespace: the provider id, made of 1 to 64 lowercase letters, digits and `-`, starting with a letter. |
 
 #### Returns
 

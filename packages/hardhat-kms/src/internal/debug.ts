@@ -3,8 +3,11 @@ import { createDebug } from "@nomicfoundation/hardhat-utils/debug";
 import { ERRORS } from "./error-catalog.ts";
 import { catalogError } from "./errors.ts";
 
-/** A namespace: lowercase letters, digits and `-`, starting with a letter, such as `signer`. */
-const NAMESPACE = /^[a-z][a-z0-9-]*$/;
+/**
+ * A namespace: 1 to 64 lowercase letters, digits and `-`, starting with a letter, such as
+ * `signer`.
+ */
+const NAMESPACE = /^[a-z][a-z0-9-]{0,63}$/;
 
 /** The namespaces hardhat-kms logs under. {@link kmsDebug} refuses them. */
 export const CORE_NAMESPACES = [
@@ -99,8 +102,8 @@ export function coreDebug(namespace: CoreNamespace): KmsDebugLogger {
  * a secret. Write the format as a string literal and pass every value through a `%s` or `%d`
  * placeholder: text built into the format is neither type-checked nor escaped.
  *
- * @param namespace - The sub-namespace: the provider id, made of lowercase letters, digits and
- *   `-`, starting with a letter.
+ * @param namespace - The sub-namespace: the provider id, made of 1 to 64 lowercase letters,
+ *   digits and `-`, starting with a letter.
  * @returns The logger.
  * @throws A `HardhatPluginError`: `core.provider.debug-namespace-reserved` for one of the core's
  *   namespaces, and `core.provider.debug-namespace-invalid` for a name in any other form.

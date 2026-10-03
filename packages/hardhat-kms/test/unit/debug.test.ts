@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readdir, readFile } from "node:fs/promises";
+import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { HardhatPluginError } from "hardhat/plugins";
@@ -45,20 +47,41 @@ describe("kmsDebug", () => {
   });
 
   it("accepts provider ids and other lowercase names of letters, digits and -", () => {
-    for (const name of ["aws", "gcp", "azure", "myvault", "my-provider", "p2", "test"]) {
+    for (const name of [
+      "aws",
+      "gcp",
+      "azure",
+      "myvault",
+      "my-provider",
+      "p2",
+      "test",
+      `a${"b".repeat(63)}`,
+    ]) {
       assert.doesNotThrow(() => kmsDebug(name), name);
     }
   });
 
   it("refuses a name in another form with an error that names it and the rule", () => {
-    for (const name of ["", "Signer", "2fa", "-x", "a:b", "a,b", "*", "a b", "a\nb", "a_b"]) {
+    for (const name of [
+      "",
+      "Signer",
+      "2fa",
+      "-x",
+      "a:b",
+      "a,b",
+      "*",
+      "a b",
+      "a\nb",
+      "a_b",
+      `a${"b".repeat(64)}`,
+    ]) {
       assert.throws(
         () => kmsDebug(name),
         (error: unknown) => {
           assert.ok(error instanceof HardhatPluginError, JSON.stringify(name));
           assert.equal(
             error.message,
-            `kmsDebug namespace ${JSON.stringify(name)} is not valid: use lowercase letters, digits and -, starting with a letter`,
+            `kmsDebug namespace ${JSON.stringify(name)} is not valid: use 1 to 64 lowercase letters, digits and -, starting with a letter`,
           );
           assert.ok(!error.message.includes("\n"), "the message stays on one line");
           return true;
@@ -130,5 +153,27 @@ describe("kmsDebug", () => {
 
     assert.equal(log.enabled, false);
     assert.deepEqual(written, []);
+  });
+});
+
+describe("the core's loggers", () => {
+  it("come from coreDebug: no core file but debug.ts calls kmsDebug", async () => {
+    const source = path.join(import.meta.dirname, "../../src");
+    const entries = await readdir(source, { recursive: true, withFileTypes: true });
+    const callers: string[] = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".ts")) {
+        continue;
+      }
+      const file = path.join(entry.parentPath, entry.name);
+      const relative = path.relative(source, file);
+      if (relative === path.join("internal", "debug.ts")) {
+        continue;
+      }
+      if (/\bkmsDebug\s*\(/.test(await readFile(file, "utf8"))) {
+        callers.push(relative);
+      }
+    }
+    assert.deepEqual(callers, []);
   });
 });
