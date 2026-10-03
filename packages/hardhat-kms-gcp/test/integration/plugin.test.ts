@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { after, before, describe, it } from "node:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, before, describe, it, mock } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import * as kms from "@google-cloud/kms";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
+import gax from "google-gax";
 import hardhatKms from "hardhat-kms";
 import { crc32c } from "hardhat-kms/provider-utils";
 import type { KmsKeyAdapter, KmsKeyConfig } from "hardhat-kms/types";
@@ -11,6 +17,11 @@ import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatPlugin } from "hardhat/types/plugins";
 
 import hardhatKmsGcp from "../../src/index.ts";
+import {
+  createGcpKeyAdapter,
+  type GaxModule,
+  type GcpClientOptions,
+} from "../../src/internal/adapter.ts";
 import { kmsHandlers } from "../../src/internal/hook-handlers/kms.ts";
 import { KEY_VERSION_NAME } from "../helpers/fake-gcp-kms.ts";
 import {
@@ -181,6 +192,87 @@ describe("hardhat-kms-gcp plugin", () => {
     await adapter.close?.();
 
     assert.equal(server.requests.length, 3);
+  });
+
+  it("looks the credentials up again after the real SDK failed to load them", async () => {
+    // The SDK keeps the rejected promise of its first initialize(): the adapter must replace the
+    // client, or the call after the credentials file appears still fails.
+    const directory = mkdtempSync(join(tmpdir(), "hardhat-kms-gcp-credentials-"));
+    const keyFilename = join(directory, "service-account.json");
+    class KeyManagementServiceClient extends kms.KeyManagementServiceClient {
+      public constructor(options: GcpClientOptions, gaxModule?: GaxModule) {
+        super(
+          { ...options, apiEndpoint: "127.0.0.1", port: server.port, protocol: "http" },
+          gaxModule,
+        );
+      }
+    }
+    const saved = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = keyFilename;
+    const unhandled: unknown[] = [];
+    const record = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", record);
+    // The SDK prints some failures with console.error, its message and the file's path included.
+    const printed = mock.method(console, "error", () => {});
+    const adapter = await createGcpKeyAdapter(
+      {
+        provider: "gcp",
+        name: "deployer",
+        keyVersionName: { get: async () => await Promise.resolve(KEY_VERSION_NAME), display: "v" },
+        timeoutMs: 10_000,
+        displayId: "gcp:v",
+      },
+      { KeyManagementServiceClient, gax },
+      `hardhat-kms/${ownVersion}`,
+    );
+    try {
+      await assert.rejects(adapter.getPublicKey?.(signContext()) ?? Promise.resolve(), (error) => {
+        assert.ok(error instanceof Error);
+        assert.ok(error.message.includes("gcp, connect,"), error.message);
+        assert.ok(
+          error.message.includes("the credentials file GOOGLE_APPLICATION_CREDENTIALS names"),
+          error.message,
+        );
+        assert.ok(!error.message.includes(directory), error.message);
+        return true;
+      });
+
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      writeFileSync(
+        keyFilename,
+        JSON.stringify({
+          type: "service_account",
+          client_email: "hardhat-kms-test@example.iam.gserviceaccount.com",
+          private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+        }),
+      );
+      server.requests.length = 0;
+      assert.deepEqual(
+        await adapter.getPublicKey?.(signContext()),
+        secp256k1.getPublicKey(secretKey, false),
+      );
+      assert.equal(server.requests.length, 1);
+      await adapter.close?.();
+      // An unhandled rejection is reported on a later turn of the event loop.
+      await sleep(50);
+      assert.deepEqual(unhandled, []);
+      assert.deepEqual(
+        printed.mock.calls.map(({ arguments: args }) => args),
+        [],
+      );
+    } finally {
+      printed.mock.restore();
+      process.off("unhandledRejection", record);
+      if (saved === undefined) {
+        Reflect.deleteProperty(process.env, "GOOGLE_APPLICATION_CREDENTIALS");
+      } else {
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = saved;
+      }
+      await adapter.close?.();
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("says it could not reach Cloud KMS, without the host, when the connection is refused", async () => {

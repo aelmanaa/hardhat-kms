@@ -55,7 +55,8 @@ export interface GcpCallOptions {
 export interface GcpKmsClient {
   /**
    * Finds the credentials and builds the client's service stub, once; later calls return the
-   * same promise. The adapter awaits it before every call, so a credentials failure rejects here.
+   * same promise, even a rejected one. The adapter awaits it before every call, so a credentials
+   * failure rejects here, and replaces a client whose initialization failed.
    */
   initialize(): Promise<unknown>;
   getPublicKey(
@@ -150,14 +151,22 @@ const STATUS_ERRORS: Partial<Record<StatusName, StatusEntry>> = {
 class GcpKeyAdapter implements KmsKeyAdapter {
   readonly #key: GcpKmsKeyConfig;
   readonly #name: string;
-  readonly #client: GcpKmsClient;
+  readonly #createClient: () => GcpKmsClient;
+  /** The client, or none after one failed to initialize: the next call creates another. */
+  #client: GcpKmsClient | undefined;
   readonly #userAgent: string;
   #checked = false;
 
-  public constructor(key: GcpKmsKeyConfig, name: string, client: GcpKmsClient, userAgent: string) {
+  public constructor(
+    key: GcpKmsKeyConfig,
+    name: string,
+    createClient: () => GcpKmsClient,
+    userAgent: string,
+  ) {
     this.#key = key;
     this.#name = name;
-    this.#client = client;
+    this.#createClient = createClient;
+    this.#client = createClient();
     this.#userAgent = userAgent;
   }
 
@@ -174,7 +183,7 @@ class GcpKeyAdapter implements KmsKeyAdapter {
     const response = await this.#withRetries(operation, ctx, async () => {
       const [key] = await this.#call(
         operation,
-        async () => await this.#client.getPublicKey({ name: this.#name }, this.#options()),
+        async (client) => await client.getPublicKey({ name: this.#name }, this.#options()),
       );
       // The checks below do not trust the SDK's types: every field of a response is optional.
       if (key.name !== this.#name) {
@@ -216,8 +225,8 @@ class GcpKeyAdapter implements KmsKeyAdapter {
     const signature = await this.#withRetries(operation, ctx, async () => {
       const [response] = await this.#call(
         operation,
-        async () =>
-          await this.#client.asymmetricSign(
+        async (client) =>
+          await client.asymmetricSign(
             {
               name: this.#name,
               digest: { sha256: request.digest },
@@ -246,7 +255,7 @@ class GcpKeyAdapter implements KmsKeyAdapter {
   }
 
   public async close(): Promise<void> {
-    await this.#client.close();
+    await this.#client?.close();
   }
 
   #options(): GcpCallOptions {
@@ -302,10 +311,9 @@ class GcpKeyAdapter implements KmsKeyAdapter {
    * with an unhandled rejection. Awaiting `initialize()` here handles that failure instead, and
    * the method never runs.
    */
-  async #call<T>(operation: string, call: () => Promise<T>): Promise<T> {
+  async #call<T>(operation: string, call: (client: GcpKmsClient) => Promise<T>): Promise<T> {
     try {
-      await this.#client.initialize();
-      return await call();
+      return await call(await this.#initialized());
     } catch (error) {
       const status = statusOf(error);
       if (status === "UNAVAILABLE") {
@@ -343,6 +351,38 @@ class GcpKeyAdapter implements KmsKeyAdapter {
     }
   }
 
+  /**
+   * Returns the client once it is initialized.
+   *
+   * The client keeps the promise of its first `initialize()`, even a rejected one: after a
+   * passing failure, such as a credentials lookup that timed out, every later call would fail
+   * the same way. So a client whose initialization failed is closed and dropped, and the next
+   * call creates another, which looks the credentials up again. Never cache a failure.
+   *
+   * The replacement is created by that next call, not at once: the client's constructor starts a
+   * credentials lookup of its own, for its long-running operations client, and keeps a failure of
+   * it. Created just before `initialize()`, both share one lookup and its result.
+   */
+  async #initialized(): Promise<GcpKmsClient> {
+    const client = (this.#client ??= this.#createClient());
+    try {
+      await client.initialize();
+    } catch (error) {
+      // Calls that share the failed client all land here: only the first closes it.
+      if (this.#client === client) {
+        this.#client = undefined;
+        try {
+          // Its close awaits the same rejected promise; the failure is already being reported.
+          await client.close();
+        } catch {
+          // Nothing to release: the client never started.
+        }
+      }
+      throw error;
+    }
+    return client;
+  }
+
   #error<Template extends string>(
     operation: string,
     entry: ErrorEntry<Template, "error">,
@@ -367,6 +407,7 @@ export async function createGcpKeyAdapter(
 ): Promise<KmsKeyAdapter> {
   const name = await key.keyVersionName.get();
   // REST rather than gRPC: a gRPC channel would keep `hardhat run` alive after the script ends.
-  const client = new sdk.KeyManagementServiceClient({ fallback: true }, sdk.gax);
-  return new GcpKeyAdapter(key, name, client, userAgent);
+  const createClient = (): GcpKmsClient =>
+    new sdk.KeyManagementServiceClient({ fallback: true }, sdk.gax);
+  return new GcpKeyAdapter(key, name, createClient, userAgent);
 }

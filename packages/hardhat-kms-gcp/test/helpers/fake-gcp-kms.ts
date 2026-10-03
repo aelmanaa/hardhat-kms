@@ -93,6 +93,8 @@ export interface FakeKmsOptions {
   callError?: Error;
   /** Reject `initialize()` with this error, as the SDK does when credentials cannot be loaded. */
   initializeError?: Error;
+  /** How many clients, counted from the first, fail to initialize; every client by default. */
+  initializeFailures?: Times;
   /** Fail this many calls of one method, counted from the first, with this error. */
   failFirst?: { method: "getPublicKey" | "asymmetricSign"; error: Error; times: number };
   /** Answer getPublicKey only after the call's signal aborts, like a late network response. */
@@ -135,6 +137,7 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
   const calls: RecordedCall[] = [];
   const clients: RecordedClient[] = [];
   let failed = 0;
+  let initializations = 0;
   const fail = (method: "getPublicKey" | "asymmetricSign"): void => {
     if (options.callError !== undefined) {
       throw options.callError;
@@ -153,14 +156,24 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
 
   class KeyManagementServiceClient implements GcpKmsClient {
     readonly #record: RecordedClient;
+    #initialization: Promise<void> | undefined;
     public constructor(clientOptions: GcpClientOptions, gaxModule?: GaxModule) {
       this.#record = { options: clientOptions, gax: gaxModule, initialized: 0, closed: false };
       clients.push(this.#record);
     }
 
+    /** Like the SDK's, it keeps the outcome of its first initialization, a failure included. */
     public async initialize(): Promise<void> {
       this.#record.initialized++;
-      if (options.initializeError !== undefined) {
+      this.#initialization ??= this.#initialize(initializations++);
+      await this.#initialization;
+    }
+
+    async #initialize(initialization: number): Promise<void> {
+      if (
+        options.initializeError !== undefined &&
+        faulty(options.initializeFailures ?? Infinity, initialization)
+      ) {
         throw options.initializeError;
       }
       await Promise.resolve();
@@ -234,9 +247,10 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
       ]);
     }
 
+    /** Like the SDK's, it waits for the initialization, and rejects with its failure. */
     public async close(): Promise<void> {
       this.#record.closed = true;
-      await Promise.resolve();
+      await (this.#initialization ?? Promise.resolve());
     }
   }
 
