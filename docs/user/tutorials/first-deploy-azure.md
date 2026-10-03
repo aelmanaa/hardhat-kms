@@ -355,7 +355,7 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 When you are done, send the remaining Sepolia ETH back, then disable the key, delete it, and delete the vault.
 
-Save this script as `scripts/return-funds.ts`. It reads the deployer address from the pin, and sends the whole balance, less the fee, to the address in `RETURN_TO`:
+Save this script as `scripts/return-funds.ts`. It reads the deployer address from the pin, and sends the whole balance, less the fee, to the address in `RETURN_TO`. It refuses an address with code, and checks that the transfer succeeded:
 
 ```ts
 // The project's hardhat.config.ts loads these plugins' types; the imports make the file stand alone.
@@ -364,51 +364,77 @@ import "hardhat-kms";
 import hre from "hardhat";
 import { formatEther, isAddress, isAddressEqual } from "viem";
 
-const to = process.env.RETURN_TO;
-if (to === undefined || !isAddress(to)) {
-  throw new Error("set RETURN_TO to the address that gets the funds");
+/**
+ * Sends the deployer's balance, less the fee, to RETURN_TO.
+ *
+ * @returns Why it stopped without returning the funds, or nothing once the funds are returned.
+ */
+async function returnFunds(): Promise<string | undefined> {
+  const to = process.env.RETURN_TO;
+  if (to === undefined || !isAddress(to)) {
+    return "set RETURN_TO to the address that gets the funds";
+  }
+
+  // The address pinned on the deployer key in step 4.
+  const from = hre.config.kms.keys["deployer"]?.address;
+  if (from === undefined || !isAddress(from)) {
+    return "pin the deployer key's address in hardhat.config.ts first";
+  }
+
+  const { viem } = await hre.network.create("sepolia");
+  const wallets = await viem.getWalletClients();
+  if (!wallets.some((wallet) => isAddressEqual(wallet.account.address, from))) {
+    return `${from} is not an account of the sepolia network; check its kmsAccounts`;
+  }
+  const wallet = await viem.getWalletClient(from);
+  const publicClient = await viem.getPublicClient();
+
+  // A plain transfer with 21,000 gas runs out of gas at an address with code, and the funds stay.
+  if ((await publicClient.getCode({ address: to })) !== undefined) {
+    return `${to} has code, so it is a contract or a smart account (EIP-7702); send to an address with no code`;
+  }
+
+  const balance = await publicClient.getBalance({ address: from });
+  const { maxFeePerGas, maxPriorityFeePerGas } = await publicClient.estimateFeesPerGas();
+  const value = balance - 21_000n * maxFeePerGas;
+  if (value <= 0n) {
+    return `the balance of ${from}, ${formatEther(balance)} ETH, does not cover the fee`;
+  }
+
+  console.log(`sending ${formatEther(value)} ETH from ${from} to ${to}`);
+  const hash = await wallet.sendTransaction({
+    to,
+    value,
+    gas: 21_000n,
+    maxFeePerGas,
+    maxPriorityFeePerGas,
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") {
+    return `the transfer reverted in ${hash}; the funds are still at ${from}`;
+  }
+  console.log(`sent in ${hash}`);
+  return undefined;
 }
 
-// The address pinned on the deployer key in step 4.
-const from = hre.config.kms.keys["deployer"]?.address;
-if (from === undefined || !isAddress(from)) {
-  throw new Error("pin the deployer key's address in hardhat.config.ts first");
+const stopped = await returnFunds();
+if (stopped !== undefined) {
+  console.error(stopped);
+  process.exitCode = 1;
 }
-
-const { viem } = await hre.network.create("sepolia");
-const wallets = await viem.getWalletClients();
-if (!wallets.some((wallet) => isAddressEqual(wallet.account.address, from))) {
-  throw new Error(`${from} is not an account of the sepolia network; check its kmsAccounts`);
-}
-const wallet = await viem.getWalletClient(from);
-const publicClient = await viem.getPublicClient();
-
-const balance = await publicClient.getBalance({ address: from });
-const { maxFeePerGas, maxPriorityFeePerGas } = await publicClient.estimateFeesPerGas();
-const value = balance - 21_000n * maxFeePerGas;
-if (value <= 0n) {
-  throw new Error(`the balance of ${from}, ${formatEther(balance)} ETH, does not cover the fee`);
-}
-
-console.log(`sending ${formatEther(value)} ETH from ${from} to ${to}`);
-const hash = await wallet.sendTransaction({
-  to,
-  value,
-  gas: 21_000n,
-  maxFeePerGas,
-  maxPriorityFeePerGas,
-});
-await publicClient.waitForTransactionReceipt({ hash });
-console.log(`sent in ${hash}`);
 ```
 
-Run it with an ordinary account (an EOA) that should get the funds, such as your own wallet. The script sends a plain transfer with 21,000 gas, which a contract address may refuse:
+Set `RETURN_TO` to an address with no code, such as your own wallet's, and run the script. It sends a plain transfer with 21,000 gas, which runs out of gas at an address with code, so the script refuses a contract. It also refuses a wallet address whose smart account setting is on, because that setting gives the address code ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)):
 
 ```sh
 RETURN_TO=<return address> npx hardhat run scripts/return-funds.ts
 ```
 
 A tiny amount stays behind, 0.0000015 ETH in the recorded run, because the script reserves the fee at the highest price the transaction may pay. Run again, the script stops with `the balance of <deployer address>, … ETH, does not cover the fee` and sends nothing.
+
+When the script stops early, it prints one line and exits with code 1. If the transfer reverts, the line is `the transfer reverted in <transaction hash>; the funds are still at <deployer address>`: the funds have not moved, so set `RETURN_TO` to an address with no code and run again.
+
+Before you remove the key, open the deployer address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com) and check that its balance is close to zero. Once the key is gone, nothing can move what is left.
 
 Then remove the key. If you closed the shell since step 2, set `VAULT` and `VAULT_ID` again first, with the vault name that step 2 printed:
 

@@ -22,7 +22,7 @@ User docs follow the Diátaxis split: each page is a tutorial, a how-to guide, r
 - Every page is linked from [docs/README.md](../README.md) and from [AGENTS.md](../../AGENTS.md). Decision records are linked from the [decision index](decisions/README.md) instead of docs/README.md.
 - Every exported symbol has TSDoc, enforced by lint.
 - The provider tutorials share one shape. [First deploy on Sepolia with AWS KMS](../user/tutorials/first-deploy-aws.md) is the template: an HTML comment at its top lists the parts the other providers copy as they are and the parts they rewrite.
-- Examples use the real API and must run. The live tests (M9) run each tutorial's steps on Sepolia.
+- Examples use the real API and must run. The live tests (M9) run each tutorial's steps on Sepolia. `packages/hardhat-kms/test/integration/tutorial-return-funds.test.ts` checks that the three tutorials carry the same `scripts/return-funds.ts`, and runs it against a local `hardhat node`.
 - Never put credentials, real key ids or API-keyed RPC URLs in docs. Use placeholders such as `alias/deployer` and `configVariable("SEPOLIA_RPC_URL")`.
 
 ## Checks
