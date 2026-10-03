@@ -1,5 +1,7 @@
 // Helpers for scripts that install other dependency versions for a test run and put the lockfile
 // versions back afterwards: scripts/test-sdk-floors.ts and scripts/test-hardhat-versions.ts.
+// scripts/test-peer-installs.ts uses the read and pnpm helpers only: it installs into scratch
+// projects outside the workspace, so it has nothing to restore.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
