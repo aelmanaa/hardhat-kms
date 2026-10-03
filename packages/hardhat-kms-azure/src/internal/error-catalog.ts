@@ -165,7 +165,7 @@ export const ERRORS = {
     template:
       "the key version is disabled. Enable it with `az keyvault key set-attributes {vaultOption} {vaultName} --name {keyName} --version {keyVersion} --enabled true`",
     cause: "The key version is disabled.",
-    fix: "Run the command the message gives. It names the vault (`--vault-name`, or `--hsm-name` for a Managed HSM), the key and the version, because without `--version` the command changes the latest version, which may not be the one the config signs with. A part of the key id that comes from a configuration variable is shown as `<vault-name>`, `<key-name>` or `<version>`; fill it in from that variable. Run it as an identity with the keys/update permission, such as a key administrator with Key Vault Crypto Officer: the two-action signing role cannot. `--vault-name` and `--hsm-name` build the vault URL from the cloud `az` is set to, so for a vault in another Azure cloud, run `az cloud set` first.",
+    fix: "Run the command the message gives. It names the vault (`--vault-name`, or `--hsm-name` for a Managed HSM), the key and the version, because without `--version` the command changes the latest version, which may not be the one the config signs with. A part of the key id that comes from a configuration variable is shown as `<vault-name>`, `<key-name>` or `<version>`; fill it in from that variable. Run it as an identity with the keys/update permission, such as a key administrator with Key Vault Crypto Officer, or Managed HSM Crypto Officer on a Managed HSM: the two-action signing role cannot. `--vault-name` and `--hsm-name` build the vault URL from the cloud `az` is set to, so for a vault in another Azure cloud, run `az cloud set` first.",
   },
   notYetValid: {
     id: "azure.key.not-yet-valid",
@@ -173,7 +173,7 @@ export const ERRORS = {
     group: "Keys",
     template: "the key version is not valid before {date}",
     cause: "The key's activation date is in the future.",
-    fix: "Change it with `az keyvault key set-attributes --vault-name <vault-name> --name <key-name> --version <version> --not-before <date>` (or `--hsm-name` for a Managed HSM), or use another version. Without `--version` the command changes the latest version. Run it as an identity with the keys/update permission, such as a key administrator with Key Vault Crypto Officer: the two-action signing role cannot. `--vault-name` and `--hsm-name` build the vault URL from the cloud `az` is set to, so for a vault in another Azure cloud, run `az cloud set` first.",
+    fix: "Change it with `az keyvault key set-attributes --vault-name <vault-name> --name <key-name> --version <version> --not-before <date>` (or `--hsm-name` for a Managed HSM), or use another version. Without `--version` the command changes the latest version. Run it as an identity with the keys/update permission, such as a key administrator with Key Vault Crypto Officer, or Managed HSM Crypto Officer on a Managed HSM: the two-action signing role cannot. `--vault-name` and `--hsm-name` build the vault URL from the cloud `az` is set to, so for a vault in another Azure cloud, run `az cloud set` first.",
   },
   expired: {
     id: "azure.key.expired",
@@ -182,7 +182,7 @@ export const ERRORS = {
     template: "the key version expired at {date}",
     cause:
       "The key's expiry date has passed. The plugin checks it when it reads the key and again before each signature.",
-    fix: "Change it with `az keyvault key set-attributes --vault-name <vault-name> --name <key-name> --version <version> --expires <date>` (or `--hsm-name` for a Managed HSM), or use another version. Without `--version` the command changes the latest version. Run it as an identity with the keys/update permission, such as a key administrator with Key Vault Crypto Officer: the two-action signing role cannot. `--vault-name` and `--hsm-name` build the vault URL from the cloud `az` is set to, so for a vault in another Azure cloud, run `az cloud set` first.",
+    fix: "Change it with `az keyvault key set-attributes --vault-name <vault-name> --name <key-name> --version <version> --expires <date>` (or `--hsm-name` for a Managed HSM), or use another version. Without `--version` the command changes the latest version. Run it as an identity with the keys/update permission, such as a key administrator with Key Vault Crypto Officer, or Managed HSM Crypto Officer on a Managed HSM: the two-action signing role cannot. `--vault-name` and `--hsm-name` build the vault URL from the cloud `az` is set to, so for a vault in another Azure cloud, run `az cloud set` first.",
   },
   noSignOperation: {
     id: "azure.key.no-sign-operation",
@@ -191,7 +191,7 @@ export const ERRORS = {
     template:
       "the key's permitted operations do not include sign. Set them with `az keyvault key set-attributes {vaultOption} {vaultName} --name {keyName} --version {keyVersion} --ops sign verify`",
     cause: "The key was created without `sign` in `--ops`.",
-    fix: "Run the command the message gives. It names the vault (`--vault-name`, or `--hsm-name` for a Managed HSM), the key and the version, because without `--version` the command changes the latest version. A part of the key id that comes from a configuration variable is shown as `<vault-name>`, `<key-name>` or `<version>`; fill it in from that variable. Run it as an identity with the keys/update permission, such as a key administrator with Key Vault Crypto Officer: the two-action signing role cannot. `--vault-name` and `--hsm-name` build the vault URL from the cloud `az` is set to, so for a vault in another Azure cloud, run `az cloud set` first.",
+    fix: "Run the command the message gives. It names the vault (`--vault-name`, or `--hsm-name` for a Managed HSM), the key and the version, because without `--version` the command changes the latest version. A part of the key id that comes from a configuration variable is shown as `<vault-name>`, `<key-name>` or `<version>`; fill it in from that variable. Run it as an identity with the keys/update permission, such as a key administrator with Key Vault Crypto Officer, or Managed HSM Crypto Officer on a Managed HSM: the two-action signing role cannot. `--vault-name` and `--hsm-name` build the vault URL from the cloud `az` is set to, so for a vault in another Azure cloud, run `az cloud set` first.",
   },
   lookupUnfinished: {
     id: "azure.sign.lookup-unfinished",

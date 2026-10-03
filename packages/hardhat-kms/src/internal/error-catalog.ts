@@ -619,7 +619,7 @@ export const ERRORS = {
       'the key derives to {address}, but the configured address is {expected}, so nothing was signed. The key id may now name the wrong key or a substituted one, or the pin may be wrong. Do not change the pin to match until you know why the key changed; see "When the pin fails" in the key rotation guide, which also covers a deliberate move to a new key.',
     cause:
       "The key's public key gives another address than its `address` pin: the key id, alias or version now names another key, by mistake or by substitution, or the pin is wrong. Nothing was signed.",
-    fix: 'Find out why the key changed before you touch the pin. If the change was a mistake, point the config back at the old key. If it was deliberate, point the old entry back at the old key and follow "Move to a new key" in the key rotation guide, which gives the new key its own entry and pin. If the pin itself is wrong, for example mistyped, first confirm that the key id names the key that holds your funds and roles, then copy the address from `npx hardhat kms address <key>`.',
+    fix: 'Find out why the key changed before you touch the pin. If the change was a mistake, point the config back at the old key. If it was deliberate, point the old entry back at the old key and follow "Move to a new key" in the key rotation guide, which gives the new key its own entry and pin. If the pin itself is wrong, for example mistyped, do not change it until you have confirmed that the key id names the key that holds your funds and roles. Then set the pin to the address after "the key derives to" in this error, or remove the pin, run `npx hardhat kms address <key>` and pin what it prints.',
   },
   signerDigestLength: {
     id: "core.signer.digest-length",
