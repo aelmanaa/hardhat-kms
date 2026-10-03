@@ -15,7 +15,7 @@ az keyvault show --name my-vault \
   --query "{softDelete: properties.enableSoftDelete, retentionDays: properties.softDeleteRetentionInDays, purgeProtection: properties.enablePurgeProtection}"
 ```
 
-`purgeProtection` prints `null` or `false` when it is off; for a Managed HSM, use `--hsm-name my-hsm`. Give a key that will hold value the full 90 days: if this vault keeps deleted keys for less, create the key in a vault made with `az keyvault create --retention-days 90` instead, and see [Prevent and recover from losing a key](key-loss.md#azure-key-vault) for purge protection.
+`purgeProtection` prints `null` if purge protection was never turned on, and `true` once it is on, since it cannot be turned off; for a Managed HSM, use `--hsm-name my-hsm`. Give a key that will hold value the full 90 days: if this vault keeps deleted keys for less, create the key in a vault made with `az keyvault create --retention-days 90` instead, and see [Prevent and recover from losing a key](key-loss.md#azure-key-vault) for purge protection.
 
 Now create the key. Allow it to sign:
 
