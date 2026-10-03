@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import hardhatKms from "hardhat-kms";
+import { createHardhatRuntimeEnvironment } from "hardhat/hre";
+
 import hardhatKmsAzure from "../../src/index.ts";
+import { PACKAGE_NAME } from "../../src/internal/hook-handlers/kms.ts";
 
 const manifest: unknown = JSON.parse(
   readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
@@ -20,5 +24,38 @@ describe("the @hardhat-kms/azure package name", () => {
   it("is the plugin's id and npmPackage", () => {
     assert.equal(hardhatKmsAzure.id, name);
     assert.equal(hardhatKmsAzure.npmPackage, name);
+  });
+
+  it("is the name the kms handler reads its version under", () => {
+    assert.equal(PACKAGE_NAME, name);
+  });
+
+  // The core's descriptor for azure keys names the package in the error for a key no plugin claims.
+  it("is the package the core tells users to install", async () => {
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKms],
+      kms: {
+        keys: {
+          deployer: {
+            provider: "azure",
+            keyId:
+              "https://my-vault.vault.azure.net/keys/deployer/0123456789abcdef0123456789abcdef",
+          },
+        },
+      },
+    });
+
+    await assert.rejects(
+      hre.tasks.getTask(["kms", "address"]).run({ key: "deployer" }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.ok(error.message.includes(`need the ${String(name)} plugin`), error.message);
+        assert.ok(
+          error.message.includes(`\`npm install --save-dev ${String(name)}\``),
+          error.message,
+        );
+        return true;
+      },
+    );
   });
 });

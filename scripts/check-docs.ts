@@ -229,14 +229,48 @@ function packageReadmes(): string[] {
     .filter((file) => existsSync(path.join(root, file)));
 }
 
-/** Fails when the errors page differs from what the catalogues generate. */
+/** The `name` of every package under packages/, read from its package.json. */
+function workspacePackageNames(): Set<string> {
+  const names = new Set<string>();
+  for (const entry of readdirSync(path.join(root, "packages"), { withFileTypes: true })) {
+    const file = path.join(root, "packages", entry.name, "package.json");
+    if (!entry.isDirectory() || !existsSync(file)) {
+      continue;
+    }
+    const manifest: unknown = JSON.parse(readFileSync(file, "utf8"));
+    const name: unknown =
+      typeof manifest === "object" && manifest !== null ? Reflect.get(manifest, "name") : undefined;
+    if (typeof name === "string") {
+      names.add(name);
+    }
+  }
+  return names;
+}
+
+/**
+ * Fails when the errors page differs from what the catalogues generate, or when one of its `## `
+ * headings is not a package name. The second check does not use the generator, so a generator
+ * that writes directory names, which differ from the scoped package names, fails even after the
+ * page is regenerated.
+ */
 async function checkErrorsDoc(): Promise<string[]> {
   const expected = renderErrorsDoc(await loadCatalogues());
   const file = path.join(root, ERRORS_DOC);
   const actual = existsSync(file) ? readFileSync(file, "utf8") : "";
-  return actual === expected
-    ? []
-    : [`${ERRORS_DOC} is out of date with the error catalogues. Run \`${ERRORS_DOC_COMMAND}\`.`];
+  const problems =
+    actual === expected
+      ? []
+      : [`${ERRORS_DOC} is out of date with the error catalogues. Run \`${ERRORS_DOC_COMMAND}\`.`];
+  const names = workspacePackageNames();
+  for (const line of actual.split("\n")) {
+    const heading = line.startsWith("## ") ? line.slice(3).trim() : undefined;
+    if (heading !== undefined && !names.has(heading)) {
+      problems.push(
+        `${ERRORS_DOC}: the heading "## ${heading}" is not the name of a package under packages/`,
+      );
+    }
+  }
+  return problems;
 }
 
 /** Fails when the API pages differ from what TypeDoc generates. */

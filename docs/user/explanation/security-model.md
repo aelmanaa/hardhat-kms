@@ -59,7 +59,7 @@ A key id read from a configuration variable shows as the variable's name, such a
 
 The official packages are `hardhat-kms` and the packages under the `@hardhat-kms` npm scope. A package with any other name, such as `hardhat-kms-aws`, does not come from this project.
 
-Only members of the `hardhat-kms` npm organization can publish under `@hardhat-kms/`, but anyone can publish an unscoped name that looks like this project's. A provider package runs in your Hardhat process and sees its keys' config, so check the name before you install. A third-party provider is published under its own name or scope; read its code as you would any other code in the process. See [decision 0015](../../contributor/decisions/0015-npm-names.md).
+Only members of the `hardhat-kms` npm organization can publish under `@hardhat-kms/`, but anyone can publish an unscoped name that looks like this project's. A provider package runs inside your Hardhat process with the same access as the rest of your code. It can read your environment and cloud credentials, and sign with any key those credentials allow. Check the name before you install. A third-party provider is published under its own name or scope; review it as you would any dependency that runs with your cloud credentials. See [decision 0015](../../contributor/decisions/0015-npm-names.md).
 
 ## What you configure
 
