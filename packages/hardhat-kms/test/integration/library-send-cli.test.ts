@@ -8,11 +8,12 @@
 // STARTUP_LIMIT_MS for that. Startup is not timed beyond that limit.
 //
 // After READY, no send should wait on a timer, so the script times its reads and sends from READY
-// to the third send, and they must take under SENDS_BOUND_MS. They take well under a second, even
-// with 32 runs in parallel, so the bound fails a wait of a few seconds but not a loaded machine.
-// The test also stops the script at the plugin's first warning (a send has waited 5 s behind a
-// library send's hold), and SENDS_LIMIT_MS after READY, below the 60 s hold limit and the 120 s
-// stall limit, so a stuck send fails before either limit. Each failure shows the output.
+// to the third send, and they must take under SENDS_BOUND_MS. They take under 2 s even with 32
+// runs in parallel, so the bound fails a wait of a few seconds but not a loaded machine. The test
+// also stops the script at the plugin's first warning, such as the one printed when a send has
+// waited 5 s behind a library send's hold, and SENDS_LIMIT_MS after READY, below the 60 s hold
+// limit and the 120 s stall limit, so a stuck send fails before either limit. Each failure shows
+// the output.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
