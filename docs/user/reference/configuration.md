@@ -164,18 +164,18 @@ In this order, hardhat-kms gives a raw `eth_sendTransaction` request without `fr
 
 ## Credentials
 
-No secrets live in the Hardhat config. The plugin passes no credentials to the cloud SDKs, so each SDK walks its own chain of sources and uses the first one that is configured. The lists below give that order.
+No secrets live in the Hardhat config. On AWS and Google Cloud the plugin passes no credentials, so the cloud's SDK walks its own chain of sources and uses the first one that is configured. On Azure the plugin builds the chain listed below. The lists give the order in which sources are tried.
 
 ### AWS
 
 1. Access keys in the environment: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, with `AWS_SESSION_TOKEN` for temporary keys. Skipped whenever a profile is set; see below.
-2. The profile in `~/.aws/config` and `~/.aws/credentials` named by the key's `profile`, else by `AWS_PROFILE`, else `default`. A profile can hold access keys, an SSO session (`aws sso login`), a role to assume, a `credential_process` command or a web identity token file.
+2. The profile in `~/.aws/config` and `~/.aws/credentials` named by the key's `profile`, else by `AWS_PROFILE`, else `default`. A profile can hold access keys, an SSO session (`aws sso login`), an `aws login` session, a role to assume, a `credential_process` command or a web identity token file.
 3. A web identity token: `AWS_WEB_IDENTITY_TOKEN_FILE` with `AWS_ROLE_ARN`, as EKS sets for IAM roles for service accounts.
 4. Container credentials when `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` or `AWS_CONTAINER_CREDENTIALS_FULL_URI` is set (an ECS task role, EKS Pod Identity). Otherwise the EC2 instance role, unless `AWS_EC2_METADATA_DISABLED` is set.
 
-**A profile skips the environment keys.** When a key sets `profile`, or `AWS_PROFILE` is set, the AWS SDK for JavaScript ignores `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` and prints a warning if they are set. A CI job that exports keys, as `aws-actions/configure-aws-credentials` does, then looks for the profile instead. It finds none and fails, or signs as whatever identity a later source returns, such as the runner's instance role. Keep `profile` out of a config that CI runs, and set `AWS_PROFILE` on the laptop instead. Foundry differs here: the AWS SDK for Rust uses the environment keys even when `AWS_PROFILE` is set.
+**A profile skips the environment keys.** When a key sets `profile`, or `AWS_PROFILE` is set, the AWS SDK for JavaScript ignores `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. If they are set, it prints a warning once per process, which names `AWS_PROFILE` even when the profile comes from the key's `profile`. A CI job that exports keys, as `aws-actions/configure-aws-credentials` does, then looks for the profile instead. It finds none and fails, or signs as whatever identity a later source returns, such as the runner's instance role. Keep `profile` out of a config that CI runs, and set `AWS_PROFILE` on the laptop instead. Foundry differs here: the AWS SDK for Rust uses the environment keys even when `AWS_PROFILE` is set.
 
-**An alias or a bare key id names a key in the credentials' own account and in the key's region.** The AWS KMS API reaches another account's key only through a key ARN or an alias ARN. Other credentials, or another region, can therefore find a different key under the same alias, and sign with it. An [`address` pin](#configuration) catches this: the plugin refuses to sign when the key derives to another address. A key ARN fixes both the account and the region.
+**An alias or a bare key id names a key in the credentials' own account and in the key's region.** That region is the one in a key ARN, then the key's `region`, then `kms.defaults.aws.region`, then the SDK's own (`AWS_REGION`, then the profile's region). The AWS KMS API reaches another account's key only through a key ARN or an alias ARN. Other credentials, or another region, can therefore find a different key under the same alias, and sign with it. An [`address` pin](#configuration) catches this: the plugin refuses to sign when the key derives to another address. A key ARN fixes both the account and the region.
 
 Each AWS key can set its own `profile`, so the keys of one run can sign with different credentials. `--kms aws` keys have no `profile` of their own and follow `AWS_PROFILE`.
 
@@ -183,7 +183,7 @@ Each AWS key can set its own `profile`, so the keys of one run can sign with dif
 
 Application Default Credentials (ADC):
 
-1. The JSON file named by `GOOGLE_APPLICATION_CREDENTIALS`: a service account key, or a workload identity federation config (`external_account`) such as the one `google-github-actions/auth` writes.
+1. The JSON file named by `GOOGLE_APPLICATION_CREDENTIALS`: a service account key, or a workload identity federation config (`external_account`) such as the one `google-github-actions/auth` writes. If the variable names a file that is missing or cannot be read, the run fails; ADC does not fall back to the next source.
 2. `application_default_credentials.json`, which `gcloud auth application-default login` writes, in the directory named by `CLOUDSDK_CONFIG`, else `~/.config/gcloud` (`%APPDATA%\gcloud` on Windows). Signing in with `--impersonate-service-account` makes it an impersonated service account.
 3. The metadata server, on Google Cloud: the service account attached to the VM, GKE workload or Cloud Run service.
 
@@ -193,7 +193,7 @@ Either file can hold a service account key, a user, an impersonated service acco
 
 The plugin builds its own chain rather than `DefaultAzureCredential`, in the order proposed for Foundry's Azure Key Vault signer in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120). No Foundry release includes that signer yet. The code is `packages/hardhat-kms-azure/src/internal/credential.ts`.
 
-1. `EnvironmentCredential`, when `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set with one of: `AZURE_CLIENT_SECRET` for a service principal secret; `AZURE_CLIENT_CERTIFICATE_PATH`, with `AZURE_CLIENT_CERTIFICATE_PASSWORD` for a protected certificate; or `AZURE_USERNAME` and `AZURE_PASSWORD` for a user. The first complete set in that order wins.
+1. `EnvironmentCredential`, when `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set with one of: `AZURE_CLIENT_SECRET` for a service principal secret, or `AZURE_CLIENT_CERTIFICATE_PATH`, with `AZURE_CLIENT_CERTIFICATE_PASSWORD` for a protected certificate. The secret wins over the certificate. `EnvironmentCredential` also signs in a user from `AZURE_USERNAME` and `AZURE_PASSWORD`; Microsoft has deprecated that sign-in because it cannot do multi-factor authentication, so do not use it for a signing key.
 2. `WorkloadIdentityCredential`, when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_FEDERATED_TOKEN_FILE` are set, as AKS sets them for workload identity.
 3. `AzureCliCredential` (`az login`, or the `azure/login` action in GitHub Actions), then `AzureDeveloperCliCredential` (`azd auth login`).
 4. `ManagedIdentityCredential`, user-assigned when `AZURE_CLIENT_ID` is set.

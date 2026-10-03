@@ -244,7 +244,8 @@ export interface ManagedIdentitySettings {
  * stops the chain:
  *
  * 1. `EnvironmentCredential`: a service principal from `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and
- *    `AZURE_CLIENT_SECRET` (or `AZURE_CLIENT_CERTIFICATE_PATH`).
+ *    `AZURE_CLIENT_SECRET` (or `AZURE_CLIENT_CERTIFICATE_PATH`), or a user from those two ids with
+ *    `AZURE_USERNAME` and `AZURE_PASSWORD` (deprecated by Microsoft: no multi-factor authentication).
  * 2. `WorkloadIdentityCredential`, when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and
  *    `AZURE_FEDERATED_TOKEN_FILE` are set (AKS workload identity).
  * 3. `AzureCliCredential` (`az login`, or the `azure/login` GitHub Action), then
