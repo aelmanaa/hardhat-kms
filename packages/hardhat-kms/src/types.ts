@@ -329,6 +329,8 @@ export type {
   KmsAuthorizationRequest,
   KmsHex,
   KmsNetworkConnection,
+  KmsNonceManager,
+  KmsNonceManagerParameters,
   KmsRawSignAccount,
   KmsSignableMessage,
   KmsSignedAuthorization,
