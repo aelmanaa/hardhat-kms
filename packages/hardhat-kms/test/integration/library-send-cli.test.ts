@@ -15,13 +15,12 @@
 // limit and the 120 s stall limit, so a stuck send fails before either limit. Each failure shows
 // the output.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { runHardhat } from "../helpers/hardhat-cli.ts";
 import { COW_ACCOUNT } from "../helpers/vectors.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -95,77 +94,6 @@ console.log(JSON.stringify({ pending, nonces, sendsMs }));
 await connection.close();
 `;
 
-/** How a run of the script ended. */
-interface ScriptRun {
-  /** The exit code, or `null` when the run was stopped. */
-  status: number | null;
-  /** Why the test stopped the run, when it did. */
-  stopped?: string;
-  stdout: string;
-  stderr: string;
-}
-
-/**
- * Runs `hardhat run scripts/send.ts` in the project and stops it with SIGKILL when it starts too
- * slowly, when its sends take too long, or at the plugin's first warning.
- *
- * @returns How the run ended, with its output.
- */
-async function runScript(): Promise<ScriptRun> {
-  const child = spawn(
-    process.execPath,
-    [path.join(repo, "node_modules/hardhat/dist/src/cli.js"), "run", "scripts/send.ts"],
-    {
-      cwd: project,
-      env: {
-        ...process.env,
-        NODE_V8_COVERAGE: "",
-        NODE_OPTIONS: "",
-        HARDHAT_KMS: "",
-        AWS_KMS_KEY_ID: "",
-        AWS_KMS_KEY_IDS: "",
-      },
-    },
-  );
-  const started = Date.now();
-  const run: ScriptRun = { status: null, stdout: "", stderr: "" };
-  const stop = (reason: string): void => {
-    if (run.stopped === undefined && child.exitCode === null && child.signalCode === null) {
-      run.stopped = `${reason}, ${Date.now() - started} ms after the start`;
-      child.kill("SIGKILL");
-    }
-  };
-  let limit = setTimeout(() => {
-    stop(`no READY within ${STARTUP_LIMIT_MS} ms`);
-  }, STARTUP_LIMIT_MS);
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  let ready = false;
-  child.stdout.on("data", (chunk: string) => {
-    run.stdout += chunk;
-    if (!ready && /^READY$/m.test(run.stdout)) {
-      ready = true;
-      clearTimeout(limit);
-      limit = setTimeout(() => {
-        stop(`the sends did not finish within ${SENDS_LIMIT_MS} ms of READY`);
-      }, SENDS_LIMIT_MS);
-    }
-  });
-  child.stderr.on("data", (chunk: string) => {
-    run.stderr += chunk;
-    if (WARNING.test(run.stderr)) {
-      stop("the plugin printed a warning");
-    }
-  });
-  try {
-    const [status] = await once(child, "close");
-    run.status = typeof status === "number" ? status : null;
-  } finally {
-    clearTimeout(limit);
-  }
-  return run;
-}
-
 describe("a library account in a hardhat run script", () => {
   before(() => {
     // Inside the package, as in tasks-cli.test.ts, so the project resolves the package's modules.
@@ -195,16 +123,22 @@ describe("a library account in a hardhat run script", () => {
     {
       timeout: STARTUP_LIMIT_MS + SENDS_LIMIT_MS + 10_000,
     },
-    async () => {
-      const run = await runScript();
-      const output = `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`;
-      assert.equal(
-        run.stopped,
-        undefined,
-        `the test stopped the script: ${run.stopped}\n${output}`,
-      );
-      const unsettled = run.status === 13 ? " (a top-level await never settled)" : "";
-      assert.equal(run.status, 0, `the script exited with ${run.status}${unsettled}\n${output}`);
+    async (t) => {
+      // Stops the script when it starts too slowly, when its sends take too long, or at the
+      // plugin's first warning.
+      const run = await runHardhat(["run", "scripts/send.ts"], {
+        cwd: project,
+        limits: {
+          ready: /^READY$/m,
+          startupLimitMs: STARTUP_LIMIT_MS,
+          workLimitMs: SENDS_LIMIT_MS,
+        },
+        stopOn: { pattern: WARNING, reason: "the plugin printed a warning" },
+        signal: t.signal,
+      });
+      const output = run.report;
+      assert.equal(run.stopped, undefined, `the test stopped the script\n${output}`);
+      assert.equal(run.status, 0, `the script did not exit 0\n${output}`);
       assert.doesNotMatch(run.stderr, WARNING, `no send should wait\n${output}`);
       const line = run.stdout.trim().split("\n").at(-1) ?? "";
       const result: unknown = JSON.parse(line);

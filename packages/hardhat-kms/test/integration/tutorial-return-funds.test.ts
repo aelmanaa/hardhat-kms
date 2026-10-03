@@ -9,19 +9,26 @@
 // reverted transfer, then the transfer that is not mined in time, then the transfer that empties
 // the deployer, then the second run.
 import assert from "node:assert/strict";
-import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+  endWithTestProcess,
+  HARDHAT_CLI,
+  type HardhatRun,
+  hardhatEnv,
+  RUN_LIMIT_MS,
+  runHardhat,
+} from "../helpers/hardhat-cli.ts";
 import { COW_ACCOUNT } from "../helpers/vectors.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const TUTORIALS = ["aws", "gcp", "azure"].map((provider) =>
   path.resolve(repo, `../../docs/user/tutorials/first-deploy-${provider}.md`),
 );
-const CLI = path.join(repo, "node_modules/hardhat/dist/src/cli.js");
 const ONE_ETH = 10n ** 18n;
 /** An ordinary account with no code. */
 const EOA = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
@@ -79,8 +86,46 @@ export default {
 `;
 
 let project: string;
+/** The signal of the running test. */
+let signal: AbortSignal | undefined;
 let node: ChildProcess | undefined;
 let nodeUrl: string;
+
+/** The RETURN_TO values the script refuses before it sends, and its message for each. */
+const refusals: [name: string, returnTo: string | undefined, message: RegExp][] = [
+  ["a missing RETURN_TO", undefined, /^set RETURN_TO to the address that gets the funds$/],
+  [
+    "a malformed RETURN_TO",
+    "0x123",
+    /^RETURN_TO is not a valid address, or its checksum is wrong: 0x123$/,
+  ],
+  [
+    "a RETURN_TO with a wrong checksum",
+    BAD_CHECKSUM,
+    /^RETURN_TO is not a valid address, or its checksum is wrong: 0x70997970c5/,
+  ],
+  ["the zero address", ZERO, /^RETURN_TO is the zero address, and funds sent there are lost$/],
+  [
+    "the deployer address",
+    COW_ACCOUNT.address,
+    /^RETURN_TO is the deployer address 0x[0-9a-fA-F]{40}; set it to the address that gets/,
+  ],
+  ["a contract", CONTRACT, CODE_REFUSAL],
+  ["an EIP-7702 delegated account", DELEGATED, CODE_REFUSAL],
+];
+
+/** How long `hardhat node` may take to start. */
+const NODE_START_LIMIT_MS = 60_000;
+/** The script runs in the suite: one per refusal, then the four that reach a transfer. */
+const SCRIPT_RUNS = refusals.length + 4;
+/**
+ * The tests share the node and run one after another. Under load a run takes over 50 s, so the
+ * suite's limit gives the node's start and every run its whole limit: 1160 s. That applies to local
+ * runs only. In CI the job's 15-minute timeout, and on Node 22 the 120 s limit `--test-timeout` puts
+ * on the whole file, come first; a hang there ends at the test's or the run's own limit. Each test
+ * keeps its own limit.
+ */
+const SUITE_LIMIT_MS = NODE_START_LIMIT_MS + SCRIPT_RUNS * RUN_LIMIT_MS;
 
 /** The `scripts/return-funds.ts` code block of a tutorial. */
 function returnFundsScript(tutorial: string): string {
@@ -146,17 +191,18 @@ async function receiptStatus(hash: string): Promise<unknown> {
 /** Starts `hardhat node` on a free port in the project, and resolves with its URL. */
 async function startNode(): Promise<string> {
   // Node runs Hardhat's CLI directly, without pnpm in between, so that kill() stops the server.
-  const started = spawn(process.execPath, [CLI, "node", "--port", "0"], {
+  const started = spawn(process.execPath, [HARDHAT_CLI, "node", "--port", "0"], {
     cwd: project,
-    env: { ...process.env, NODE_V8_COVERAGE: "", NODE_OPTIONS: "", HARDHAT_KMS: "" },
+    env: hardhatEnv(),
     stdio: ["ignore", "pipe", "pipe"],
   });
   node = started;
+  endWithTestProcess(started);
   let output = "";
   return await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error(`hardhat node did not start:\n${output}`));
-    }, 60_000);
+    }, NODE_START_LIMIT_MS);
     const read = (chunk: Buffer): void => {
       output += chunk.toString("utf8");
       const match = /JSON-RPC server at (http:\/\/[^/\s]+)\//.exec(output);
@@ -174,37 +220,22 @@ async function startNode(): Promise<string> {
   });
 }
 
-interface Run {
-  status: number | null;
-  stdout: string;
-  stderr: string;
-}
-
-/** Runs a script of the project with `hardhat run`, as the tutorial does. */
-function runScript(script: string, returnTo: string | undefined): Run {
-  const run = spawnSync(process.execPath, [CLI, "run", script], {
+/**
+ * Runs a script of the project with `hardhat run`, as the tutorial does. A script from the docs
+ * prints no READY marker, so the run gets the helper's one limit for startup and work.
+ */
+async function runScript(script: string, returnTo: string | undefined): Promise<HardhatRun> {
+  return await runHardhat(["run", script], {
     cwd: project,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      NODE_V8_COVERAGE: "",
-      NODE_OPTIONS: "",
-      HARDHAT_KMS: "",
-      AWS_KMS_KEY_ID: "",
-      AWS_KMS_KEY_IDS: "",
-      RETURN_FUNDS_NODE_URL: nodeUrl,
-      RETURN_TO: returnTo ?? "",
-    },
-    timeout: 60_000,
-    killSignal: "SIGKILL",
+    env: { RETURN_FUNDS_NODE_URL: nodeUrl, RETURN_TO: returnTo ?? "" },
+    signal,
   });
-  return { status: run.status, stdout: run.stdout, stderr: run.stderr };
 }
 
 /** Asserts that a run stopped with exit code 1 and the one line `message`, without a stack trace. */
-function assertStopped(run: Run, message: RegExp): void {
-  const output = `${run.stdout}${run.stderr}`;
-  assert.equal(run.status, 1, output);
+function assertStopped(run: HardhatRun, message: RegExp): void {
+  const output = run.output;
+  assert.equal(run.status, 1, run.report);
   assert.match(run.stderr.trim(), message);
   assert.equal(run.stderr.trim().split("\n").length, 1, `more than one line:\n${run.stderr}`);
   assert.doesNotMatch(output, /sent in/);
@@ -212,7 +243,12 @@ function assertStopped(run: Run, message: RegExp): void {
   assert.doesNotMatch(output, /bug in Hardhat/);
 }
 
-describe("the tutorials' return-funds script", { timeout: 300_000 }, () => {
+describe("the tutorials' return-funds script", { timeout: SUITE_LIMIT_MS }, () => {
+  // Stops a run when its test ends or times out.
+  beforeEach((t) => {
+    signal = t.signal;
+  });
+
   before(async () => {
     // Inside the package, as in library-send-cli.test.ts, so the project resolves its modules.
     mkdirSync(path.join(repo, ".tmp"), { recursive: true });
@@ -262,32 +298,11 @@ describe("the tutorials' return-funds script", { timeout: 300_000 }, () => {
     }
   });
 
-  const refusals: [name: string, returnTo: string | undefined, message: RegExp][] = [
-    ["a missing RETURN_TO", undefined, /^set RETURN_TO to the address that gets the funds$/],
-    [
-      "a malformed RETURN_TO",
-      "0x123",
-      /^RETURN_TO is not a valid address, or its checksum is wrong: 0x123$/,
-    ],
-    [
-      "a RETURN_TO with a wrong checksum",
-      BAD_CHECKSUM,
-      /^RETURN_TO is not a valid address, or its checksum is wrong: 0x70997970c5/,
-    ],
-    ["the zero address", ZERO, /^RETURN_TO is the zero address, and funds sent there are lost$/],
-    [
-      "the deployer address",
-      COW_ACCOUNT.address,
-      /^RETURN_TO is the deployer address 0x[0-9a-fA-F]{40}; set it to the address that gets/,
-    ],
-    ["a contract", CONTRACT, CODE_REFUSAL],
-    ["an EIP-7702 delegated account", DELEGATED, CODE_REFUSAL],
-  ];
   for (const [name, returnTo, message] of refusals) {
     it(`refuses ${name} and sends nothing`, async () => {
       const balance = await balanceOf(COW_ACCOUNT.address);
       const nonce = await nonceOf(COW_ACCOUNT.address);
-      const run = runScript("scripts/return-funds.ts", returnTo);
+      const run = await runScript("scripts/return-funds.ts", returnTo);
       assertStopped(run, message);
       assert.doesNotMatch(run.stdout, /sending/);
       assert.equal(await balanceOf(COW_ACCOUNT.address), balance);
@@ -297,7 +312,7 @@ describe("the tutorials' return-funds script", { timeout: 300_000 }, () => {
 
   it("reports a reverted transfer with its hash, and exits 1", async () => {
     const balance = await balanceOf(COW_ACCOUNT.address);
-    const run = runScript("scripts/return-funds-unchecked.ts", CONTRACT);
+    const run = await runScript("scripts/return-funds-unchecked.ts", CONTRACT);
     assertStopped(
       run,
       /^the transfer reverted in 0x[0-9a-f]{64}; only the fee was spent, and the rest is still at 0x/,
@@ -316,7 +331,7 @@ describe("the tutorials' return-funds script", { timeout: 300_000 }, () => {
     await rpc("evm_setAutomine", [false]);
     let hash: string | undefined;
     try {
-      const run = runScript("scripts/return-funds-short-wait.ts", EOA);
+      const run = await runScript("scripts/return-funds-short-wait.ts", EOA);
       // Read first, so that a failed assertion still drops the transfer.
       hash = /0x[0-9a-f]{64}/.exec(`${run.stdout}${run.stderr}`)?.[0];
       assertStopped(
@@ -340,8 +355,8 @@ describe("the tutorials' return-funds script", { timeout: 300_000 }, () => {
 
   it("sends the balance to an address with no code", async () => {
     const received = await balanceOf(EOA);
-    const run = runScript("scripts/return-funds.ts", EOA);
-    assert.equal(run.status, 0, `${run.stdout}${run.stderr}`);
+    const run = await runScript("scripts/return-funds.ts", EOA);
+    assert.equal(run.status, 0, run.report);
     assert.match(run.stdout, /^sending [\d.]+ ETH from 0x[0-9a-fA-F]{40} to 0x[0-9a-fA-F]{40}$/m);
     const hash = /^sent in (0x[0-9a-f]{64})$/m.exec(run.stdout)?.[1];
     assert.ok(hash !== undefined, run.stdout);
@@ -351,9 +366,9 @@ describe("the tutorials' return-funds script", { timeout: 300_000 }, () => {
     assert.ok(left < 10n ** 15n, `the deployer still holds ${left} wei`);
   });
 
-  it("stops on a second run, when the balance does not cover the fee", () => {
+  it("stops on a second run, when the balance does not cover the fee", async () => {
     assertStopped(
-      runScript("scripts/return-funds.ts", EOA),
+      await runScript("scripts/return-funds.ts", EOA),
       /^the balance of 0x[0-9a-fA-F]{40}, [\d.e-]+ ETH, does not cover the fee$/,
     );
   });
