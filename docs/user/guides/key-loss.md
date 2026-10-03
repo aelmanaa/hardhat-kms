@@ -82,7 +82,7 @@ az keyvault key recover --vault-name my-vault --name deployer
 
 Recovering and purging need more than the signing role: the built-in role Microsoft names for both on keys is **Key Vault Crypto Officer**. While the key is deleted, Hardhat shows `Key Vault answered 404 …: the key or key version does not exist`.
 
-A deleted vault is recovered the same way, with `az keyvault list-deleted --resource-type vault` and `az keyvault recover --name my-vault`. Listing deleted vaults needs `Microsoft.KeyVault/locations/deletedVaults/read` at the subscription level, and recovering one needs the **Key Vault Contributor** role ([Azure Key Vault recovery overview](https://learn.microsoft.com/en-us/azure/key-vault/general/key-vault-recovery)). Its role assignments do not come back; see [Avoid lockout](#azure-key-vault-2). For a Managed HSM, see Microsoft's [Managed HSM recovery overview](https://learn.microsoft.com/en-us/azure/key-vault/managed-hsm/recovery).
+A deleted vault is recovered the same way, with `az keyvault list-deleted --resource-type vault` and `az keyvault recover --name my-vault`. Listing deleted vaults needs `Microsoft.KeyVault/locations/deletedVaults/read` at the subscription level, and recovering one needs the **Key Vault Contributor** role ([Azure Key Vault recovery overview](https://learn.microsoft.com/en-us/azure/key-vault/general/key-vault-recovery)). Its role assignments do not come back; see [Keep access to an Azure Key Vault key](#keep-access-to-an-azure-key-vault-key). For a Managed HSM, see Microsoft's [Managed HSM recovery overview](https://learn.microsoft.com/en-us/azure/key-vault/managed-hsm/recovery).
 
 Checked on 2026-10-01 on a throwaway `P-256K` key in a new vault with purge protection off: after the delete, the key was listed by `list-deleted`, and reading or signing with it failed with `KeyNotFound`. After `recover` it was enabled and signed. Deleting it again and purging it removed it from `list-deleted`.
 
@@ -100,7 +100,7 @@ Disable the version your config uses. Cloud KMS and Key Vault enable and disable
 
 The identity that signs never needs to delete. The AWS and Google Cloud setup guides grant it only reading the public key and signing, and so do the custom roles that the Azure guide recommends first. Azure's built-in alternatives grant more: Key Vault Crypto User can also back up the key and update its attributes, and Managed HSM Crypto User can also create, delete, back up and restore keys ([Allow get and sign, and nothing else](azure-key-vault-setup.md#2-allow-get-and-sign-and-nothing-else)). The guardrails below are for the people and pipelines that administer keys, and for any signing identity that holds one of those built-in roles.
 
-### AWS KMS
+### Guard an AWS KMS key
 
 Keep `kms:ScheduleKeyDeletion` to the key administrators who need it. Identities with `"Action": "*"` or `"Action": "kms:*"` in an IAM policy can already schedule and cancel deletion ([Control access to key deletion](https://docs.aws.amazon.com/kms/latest/developerguide/deleting-keys-adding-permission.html)). That holds when the key policy lets IAM policies grant access, which the default policy's account-principal statement does; without that statement, IAM policies that allow access to the key have no effect ([Default key policy](https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-default.html#key-policy-default-allow-root-enable-iam)).
 
@@ -127,9 +127,9 @@ aws kms put-key-policy --key-id <key id or ARN> --policy-name default --policy f
 
 To hear about a deletion while it can still be cancelled, alert on the `ScheduleKeyDeletion` event that AWS CloudTrail records when someone schedules it ([ScheduleKeyDeletion in CloudTrail](https://docs.aws.amazon.com/kms/latest/developerguide/ct-schedule-key-deletion.html)). AWS also documents a [CloudWatch alarm](https://docs.aws.amazon.com/kms/latest/developerguide/deleting-keys-creating-cloudwatch-alarm.html) that fires when something tries to use a key pending deletion; it does not fire on the scheduling itself, so a key nobody uses during the waiting period never trips it.
 
-### Google Cloud KMS
+### Guard a Google Cloud KMS key
 
-Choose the scheduled-destruction duration when you create the key, since it cannot change later. The [setup guide](gcp-kms-setup.md#1-create-a-secp256k1-signing-key)'s command sets `--destroy-scheduled-duration 120d`, the longest period; without the flag, the key gets 30 days.
+Choose the scheduled-destruction duration when you create the key, since it cannot change later. The [setup guide](gcp-kms-setup.md#1-create-a-secp256k1-signing-key)'s command sets `--destroy-scheduled-duration 120d`, the longest period, because a destroyed key loses its address and funds for good; without the flag, the key gets 30 days, which Google recommends unless you have specific requirements ([Variable duration](https://docs.cloud.google.com/kms/docs/key-states#variable_duration_of_the_scheduled_for_destruction_state)).
 
 Grant `cloudkms.cryptoKeyVersions.destroy` only to the identities that need it. It is in the Cloud KMS Admin role (`roles/cloudkms.admin`), together with `cloudkms.cryptoKeyVersions.restore` ([Destroy and restore key versions](https://docs.cloud.google.com/kms/docs/destroy-restore)). The basic Owner role (`roles/owner`) holds both as well, so check the project's Owners too; `gcloud iam roles describe roles/owner` lists its permissions.
 
@@ -140,7 +140,7 @@ In a project that belongs to an organization, two organization policy constraint
 - `constraints/cloudkms.minimumDestroyScheduledDuration` sets the shortest scheduled-destruction duration a new key may have: `7d`, `15d`, `30d`, `60d`, `90d` or `120d`.
 - `constraints/cloudkms.disableBeforeDestroy` requires a version to be disabled before it can be scheduled for destruction. Google recommends that no user then holds both `cloudkms.cryptoKeyVersions.update` and `cloudkms.cryptoKeyVersions.destroy`, which takes custom roles.
 
-### Azure Key Vault
+### Guard an Azure Key Vault key
 
 Turn on purge protection. With it, a deleted vault or key "can't be purged until the retention period passes", and it stays recoverable until then ([Purge protection](https://learn.microsoft.com/en-us/azure/key-vault/general/soft-delete-overview#purge-protection)):
 
@@ -158,17 +158,17 @@ To hear about a deletion, turn on Key Vault logging and alert on the `KeyDelete`
 
 A key can also be lost while it still exists, when nobody left has the right to use or manage it.
 
-### AWS KMS
+### Keep access to an AWS KMS key
 
 A key policy does not give the account or its administrators any access unless it says so. The default policy's first statement gives the account principal (`arn:aws:iam::<account id>:root`) full access and lets IAM policies grant access to the key. Without it, a key whose policy names one user becomes unmanageable when that user is deleted, and you must contact AWS Support to regain access ([Default key policy](https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-default.html#key-policy-default-allow-root-enable-iam)). Keep that statement when you write your own key policy.
 
 Closing the AWS account makes its KMS keys inaccessible ([Delete an AWS KMS key](https://docs.aws.amazon.com/kms/latest/developerguide/deleting-keys.html)).
 
-### Google Cloud KMS
+### Keep access to a Google Cloud KMS key
 
 Shutting down a project makes it unusable at once. It stays in the `DELETE_REQUESTED` state for 30 days, during which its owners can restore it; after that, the project and all its resources are deleted and cannot be recovered ([Shut down and restore projects](https://docs.cloud.google.com/resource-manager/docs/delete-restore-projects)). Keep the signing keys in a project that only their administrators can shut down, and make sure more than one person can restore it. A lien on the project blocks its deletion until someone with `resourcemanager.projects.updateLiens` removes the lien ([Protect projects with liens](https://docs.cloud.google.com/resource-manager/docs/project-liens)).
 
-### Azure Key Vault
+### Keep access to an Azure Key Vault key
 
 Know who can grant access to the keys, since the same people can remove it:
 

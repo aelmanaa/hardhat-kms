@@ -8,14 +8,14 @@ Status: the Azure adapter is implemented, in the `@hardhat-kms/azure` package ([
 
 Ethereum signs with secp256k1, the curve Key Vault calls `P-256K`, so the key must be an elliptic-curve key on it.
 
-Check the vault before you create the key. How long a deleted key stays recoverable is the vault's soft-delete retention, 7 to 90 days, 90 by default, and it "can only be configured during key vault creation" ([Soft-delete behavior](https://learn.microsoft.com/en-us/azure/key-vault/general/soft-delete-overview#soft-delete-behavior)). Purge protection is off by default; it can be turned on later, and then never off ([Purge protection](https://learn.microsoft.com/en-us/azure/key-vault/general/soft-delete-overview#purge-protection)). Read both:
+Check the vault before you create the key. How long a deleted key stays recoverable is the vault's soft-delete retention, 7 to 90 days, 90 by default, and it "can only be configured during key vault creation" ([Soft-delete behavior](https://learn.microsoft.com/en-us/azure/key-vault/general/soft-delete-overview#soft-delete-behavior)). Purge protection is off by default and can be turned on later ([Purge protection](https://learn.microsoft.com/en-us/azure/key-vault/general/soft-delete-overview#purge-protection)); "when purge protection is enabled, it cannot be disabled or overridden by anyone including Microsoft" ([Azure Key Vault recovery overview](https://learn.microsoft.com/en-us/azure/key-vault/general/key-vault-recovery)). Read all three:
 
 ```sh
 az keyvault show --name my-vault \
   --query "{softDelete: properties.enableSoftDelete, retentionDays: properties.softDeleteRetentionInDays, purgeProtection: properties.enablePurgeProtection}"
 ```
 
-`purgeProtection` prints `null` if purge protection was never turned on, and `true` once it is on, since it cannot be turned off; for a Managed HSM, use `--hsm-name my-hsm`. Give a key that will hold value the full 90 days: if this vault keeps deleted keys for less, create the key in a vault made with `az keyvault create --retention-days 90` instead, and see [Prevent and recover from losing a key](key-loss.md#azure-key-vault) for purge protection.
+`purgeProtection` prints `null` if purge protection was never turned on, and `true` once it is on; it cannot be turned off again. For a Managed HSM, use `--hsm-name my-hsm`. Give a key that will hold value the full 90 days: if this vault keeps deleted keys for less, create the key in a vault made with `az keyvault create --retention-days 90` instead, and see [Prevent and recover from losing a key](key-loss.md#guard-an-azure-key-vault-key) for purge protection.
 
 Now create the key. Allow it to sign:
 
