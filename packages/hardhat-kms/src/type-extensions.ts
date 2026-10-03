@@ -43,7 +43,10 @@ declare module "hardhat/types/hooks" {
 
 declare module "hardhat/types/global-options" {
   export interface GlobalOptions {
-    /** Providers whose keys to load from Foundry's environment variables, such as `aws,azure`. */
+    /**
+     * Providers whose keys to load from environment variables, such as `aws,azure`: aws and gcp
+     * use Foundry's variables, azure the names proposed in foundry-rs/foundry#17120.
+     */
     kms: string | undefined;
   }
 }

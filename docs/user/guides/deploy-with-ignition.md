@@ -34,11 +34,44 @@ export default defineConfig({
   networks: {
     sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },
     rehearsal: { type: "edr-simulated", kmsAccounts: ["deployer"] },
+    // A rehearsal against Sepolia's current state, read through SEPOLIA_RPC_URL.
+    sepoliaFork: {
+      type: "edr-simulated",
+      forking: { url: configVariable("SEPOLIA_RPC_URL") },
+      kmsAccounts: ["deployer"],
+    },
+    // For keys passed with --kms: lists no KMS keys of its own.
+    rehearsalCli: { type: "edr-simulated" },
   },
 });
 ```
 
-The module is an ordinary Ignition module. This one, `ignition/modules/Counter.ts`, deploys a contract and calls it:
+The contract, `contracts/Counter.sol`, keeps the address that deployed it, and only that address can call `add`:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.24;
+
+/// A counter that only its deployer can change, so a successful `add` came from the deployer.
+contract Counter {
+    address public immutable owner;
+    string public label;
+    uint256 public count;
+
+    constructor(string memory label_, uint256 start) {
+        owner = msg.sender;
+        label = label_;
+        count = start;
+    }
+
+    function add(uint256 amount) external {
+        require(msg.sender == owner, "not the owner");
+        count += amount;
+    }
+}
+```
+
+The module is an ordinary Ignition module. This one, `ignition/modules/Counter.ts`, deploys the contract and calls it:
 
 ```ts
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
@@ -54,7 +87,7 @@ export default buildModule("Counter", (m) => {
 
 Ignition sends from its default sender, the first address of `eth_accounts`. The plugin lists the network's own accounts first and the KMS accounts after them ([RPC methods](../reference/rpc-methods.md)), so a KMS account is the default sender only when the network has no accounts of its own. That is the case for an http network whose node lists no accounts, as public RPC endpoints do, and for a network with `accounts: []`.
 
-The KMS account's position in `eth_accounts` therefore differs between networks. On `sepolia` above it is index 0; on the `rehearsal` network below, which has EDR's 20 default accounts, it is index 20. Choose the deployer by address with `--default-sender`, which works on every network the key is listed on. `npx hardhat kms accounts` prints the key's address:
+The KMS account's position in `eth_accounts` therefore differs between networks. On `sepolia` above it is index 0; on `rehearsal` and `sepoliaFork`, which have EDR's 20 default accounts, it is index 20. Choose the deployer by address with `--default-sender`, which works on every network the key is listed on. `npx hardhat kms accounts` prints the key's address:
 
 ```sh
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --default-sender 0x…
@@ -101,12 +134,16 @@ Run the deployment on the `rehearsal` network first. `kms.simulatedBalance` give
 npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --default-sender 0x…
 ```
 
-Ignition keeps nothing from a deployment to an `edr-simulated` network. To rehearse against live state, add `forking` to the network, as in the [configuration reference](../reference/configuration.md).
-
-A key chosen with `--kms` instead of a config entry is added to the network selected with `--network`. On the `rehearsal` network, `kms.simulatedBalance` funds it as well:
+Ignition keeps nothing from a deployment to an `edr-simulated` network. To rehearse against Sepolia's current state, run the same command on `sepoliaFork`, which forks Sepolia through `SEPOLIA_RPC_URL`. The contracts are deployed only in the local fork, and `kms.simulatedBalance` funds the KMS account there too:
 
 ```sh
-AWS_KMS_KEY_ID=alias/deployer npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --kms aws --default-sender 0x…
+npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender 0x…
+```
+
+A key chosen with `--kms` instead of a config entry is added to the network selected with `--network`. Pass `--kms` with a network that does not list the same key: `rehearsal` already lists `deployer`, so `--kms aws` with `AWS_KMS_KEY_ID=alias/deployer` fails there with an error that names both. `rehearsalCli` lists no KMS keys and is `edr-simulated`, so `kms.simulatedBalance` funds the key there:
+
+```sh
+AWS_KMS_KEY_ID=alias/deployer npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsalCli --kms aws --default-sender 0x…
 ```
 
 On a live network, `kms.simulatedBalance` does nothing: fund the key's address there yourself.

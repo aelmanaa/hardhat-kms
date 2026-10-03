@@ -61,11 +61,11 @@ A network's `kmsAccounts` lists key names or inline key objects. [Use several ke
 | `address` (per key)            | Optional address pin. Recommended: it guards against key substitution. Listing a network's accounts uses the pin without a KMS call. The first signature and the `kms` tasks still read the public key of an AWS, Google Cloud or Azure key, and fail if it derives to another address.                                                                                              |
 | `timeoutMs` (per key)          | Overrides the default timeout for that key. For a third-party provider where a person approves each signature, `timeoutMs` also bounds the wait for that approval: raise it on that key to cover the time a person takes to approve.                                                                                                                                                 |
 
-When `kmsAccounts` is set on the `default` network, the plugin prints a warning once per run: tasks and tests use that network when no `--network` is given, so they would call KMS. Put KMS keys on a named network instead.
+When the `default` network has KMS keys, from `kmsAccounts` or from `--kms` without `--network`, the plugin prints a warning once per run: tasks and tests use that network when no `--network` is given, so they would call KMS. Put KMS keys on a named network instead.
 
 ## Keys from the command line
 
-Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. These keys inherit `kms.defaults` and pass the same checks as config keys. They are added to the selected network only (the `--network` value, or `default` without one), after the network's `kmsAccounts`. A command-line key that names the same KMS key as a config key on that network is an error that names both, without the value. See [Migrate from Foundry](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry) and [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md).
+Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. Foundry has not released an Azure signer: the `azure` variable names follow the proposal in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120) and may change before it ships. These keys inherit `kms.defaults` and pass the same checks as config keys. They are added to the selected network only (the `--network` value, or `default` without one), after the network's `kmsAccounts`. A command-line key that names the same KMS key as a config key on that network is an error that names both, without the value. See [Migrate from Foundry](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry) and [decision 0008](../../contributor/decisions/0008-kms-command-line-option.md).
 
 ## Validation rules
 
@@ -168,7 +168,7 @@ No secrets live in the Hardhat config. Each provider takes credentials from its 
 
 - AWS uses the SDK default chain: environment, then SSO/ini/profile, then process, then web identity, then IMDS/ECS.
 - GCP uses Application Default Credentials: `gcloud auth application-default login`, `GOOGLE_APPLICATION_CREDENTIALS`, or the service account of the machine or CI job.
-- Azure builds the chain below, which follows the order used by Foundry's Azure Key Vault signer (service principal, workload identity, `az`/`azd`, managed identity). The code is `packages/hardhat-kms-azure/src/internal/credential.ts`.
+- Azure builds the chain below, which follows the order proposed for Foundry's Azure Key Vault signer in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120) (service principal, workload identity, `az`/`azd`, managed identity). No Foundry release includes that signer yet. The code is `packages/hardhat-kms-azure/src/internal/credential.ts`.
 
 <!-- docs-check: skip -->
 
