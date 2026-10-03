@@ -34,12 +34,12 @@ const OTHER_SECRET = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b
 const OTHER = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
 /** A transfer signed outside the plugin, as a library account and viem sign it. */
-function signedRaw(secretKey: string, nonce: bigint, value = 1n): string {
+function signedRaw(secretKey: string, nonce: bigint, value = 1n, chainId = 31337n): string {
   return Transaction.prepare(
     {
       to: TO,
       nonce,
-      chainId: 31337n,
+      chainId,
       maxFeePerGas: 2n,
       maxPriorityFeePerGas: 1n,
       gasLimit: 21_000n,
@@ -51,8 +51,8 @@ function signedRaw(secretKey: string, nonce: bigint, value = 1n): string {
     .toHex(true);
 }
 
-const cowRaw = (nonce: bigint, value = 1n): string =>
-  signedRaw(COW_ACCOUNT.secretKey, nonce, value);
+const cowRaw = (nonce: bigint, value = 1n, chainId = 31337n): string =>
+  signedRaw(COW_ACCOUNT.secretKey, nonce, value, chainId);
 
 /** Opens a connection whose KMS addresses are known, as after `getAccount` or a first send. */
 async function openKnown(harness: SendHarness): Promise<NetworkConnection<string>> {
@@ -272,7 +272,7 @@ describe("a KMS account's raw transaction", () => {
     // A chain id of its own: if this test fails or times out, the sends it queued cannot fill the
     // queue of a later test.
     const harness = await setUp("http", 31338);
-    const { node, send } = harness;
+    const { node, send, call } = harness;
     const connection = await openKnown(harness);
     const held = gate();
     /** Lets the holder end, and fails every waiter at once, unsigned, at the no-progress limit. */
@@ -288,29 +288,37 @@ describe("a KMS account's raw transaction", () => {
     };
     const sending = send(connection, { from: COW, to: TO });
     await settle();
-    // Sends fill the queue: a send waits before it fills or signs. A raw transaction is signed by
-    // the test and decoded by the plugin before it waits, about 5 ms of CPU each when idle, so 1024
-    // of them ran past the test timeout on a loaded machine.
-    const waiting = Array.from(
-      { length: MAX_SEND_LOCK_WAITERS },
-      async () => await send(connection, { from: COW, to: TO }),
+    // One raw transaction waits first, so raw transactions count toward the limit. Sends fill the
+    // rest of the queue: a send waits before it fills or signs. A raw transaction is signed by the
+    // test and decoded by the plugin before it waits, about 5 ms of CPU each when idle, so 1024 of
+    // them ran past the test timeout on a loaded machine.
+    const rawWaiting = call(connection, "eth_sendRawTransaction", [cowRaw(2n, 1n, 31338n)]);
+    await settle();
+    // allSettled handles every rejection now, so the waiters that the after hook fails when the
+    // test fails are not reported as unhandled rejections, one per waiter.
+    const waited = Promise.allSettled(
+      Array.from(
+        { length: MAX_SEND_LOCK_WAITERS - 1 },
+        async () => await send(connection, { from: COW, to: TO }),
+      ),
     );
     await settle();
-    assert.equal(node.raw.length, 1, "the sends wait for the lock");
+    assert.equal(node.raw.length, 1, "the raw transaction and the sends wait for the lock");
     node.onRaw = undefined;
     // The queue is full: the raw transaction goes on at once, without the lock.
-    resultOf((await sendRaw(harness, connection, cowRaw(1n))).response);
+    resultOf((await sendRaw(harness, connection, cowRaw(1n, 1n, 31338n))).response);
     assert.equal(node.raw.length, 2);
     drain();
-    const waited = await Promise.allSettled(waiting);
     assert.ok(
-      waited.every(
+      (await waited).every(
         (outcome) => outcome.status === "rejected" && /none finished/.test(String(outcome.reason)),
       ),
-      "every waiter reached the no-progress limit",
+      "every send reached the no-progress limit",
     );
+    // At the no-progress limit, the waiting raw transaction goes on unchanged, without the lock.
+    resultOf((await rawWaiting).response);
     resultOf(await sending);
-    assert.equal(node.raw.length, 2, "no waiter was sent");
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 2n], "no send that waited was signed");
   });
 });
 
