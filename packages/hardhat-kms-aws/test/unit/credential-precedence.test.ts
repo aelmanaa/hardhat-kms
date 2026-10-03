@@ -139,15 +139,25 @@ describe("AWS credential precedence (pins the SDK behaviour the docs describe)",
     assert.equal(await resolvedAccessKeyId("p"), PROFILE_KEY_ID, SDK_CHANGED);
   });
 
+  // With the container and instance sources on, the chain tries them next (the docs say so); this
+  // file turns them off, so the chain ends in an error.
   it("fails, without trying the environment keys, when the profile does not exist", async () => {
-    await assert.rejects(resolvedAccessKeyId("missing"), (error: unknown) => {
-      assert.ok(error instanceof Error, SDK_CHANGED);
-      assert.equal(error.name, "CredentialsProviderError", SDK_CHANGED);
-      return true;
-    });
+    await assert.rejects(
+      resolvedAccessKeyId("missing"),
+      (error: unknown) => {
+        assert.ok(error instanceof Error, SDK_CHANGED);
+        assert.equal(error.name, "CredentialsProviderError", SDK_CHANGED);
+        return true;
+      },
+      SDK_CHANGED,
+    );
   });
 
   it("uses the environment keys when no profile is set (control)", async () => {
-    assert.equal(await resolvedAccessKeyId(), ENV_KEY_ID);
+    assert.equal(
+      await resolvedAccessKeyId(),
+      ENV_KEY_ID,
+      "Without a profile the SDK should use the environment keys; the test's environment isolation is broken.",
+    );
   });
 });
