@@ -121,9 +121,9 @@ const SCRIPT_RUNS = refusals.length + 4;
 /**
  * The tests share the node and run one after another. Under load a run takes over 50 s, so the
  * suite's limit gives the node's start and every run its whole limit: 1160 s. That applies to local
- * runs only. In CI the job's 15-minute timeout, and on Node 22 the 120 s limit `--test-timeout` puts
- * on the whole file, come first; a hang there ends at the test's or the run's own limit. Each test
- * keeps its own limit.
+ * runs only. In CI the job's 15-minute timeout, and on Node 22 the 600 s budget `--test-timeout`
+ * puts on the whole file, come first; a hang there ends at the test's or the run's own limit. Each
+ * test keeps its own limit.
  */
 const SUITE_LIMIT_MS = NODE_START_LIMIT_MS + SCRIPT_RUNS * RUN_LIMIT_MS;
 
