@@ -34,6 +34,7 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 | [Migrate from Foundry](user/guides/migrate-from-foundry.md)                   | How-to      |
 | [Comparison with Foundry](user/explanation/foundry-comparison.md)             | Explanation |
 | [How hardhat-kms works](user/explanation/how-it-works.md)                     | Explanation |
+| [How the plugin reaches your cloud](user/explanation/cloud-access.md)         | Explanation |
 | [Security model](user/explanation/security-model.md)                          | Explanation |
 
 Runnable projects for viem, ethers and Ignition are in [examples/](../examples/README.md). The remaining guides are listed under [Planned pages](contributor/documentation.md#planned-pages).
@@ -43,7 +44,7 @@ Runnable projects for viem, ethers and Ignition are in [examples/](../examples/R
 | Page                                                             | What it covers                                       |
 | ---------------------------------------------------------------- | ---------------------------------------------------- |
 | [CONTRIBUTING.md](../CONTRIBUTING.md)                            | Setup, commands, workflow, issue-first rule          |
-| [Architecture](contributor/architecture.md)                      | Module map, code map, request flows                  |
+| [Architecture](contributor/architecture.md)                      | Module map, code map, request flows, cloud access    |
 | [Signing pipeline and security](contributor/signing-pipeline.md) | Signature checks, key pinning, threat model          |
 | [Provider contract](contributor/providers.md)                    | The adapter interface for KMS and HSM providers      |
 | [Transactions](contributor/transactions.md)                      | Filling, nonces, the send lock, chain-id checks      |

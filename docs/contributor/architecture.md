@@ -6,12 +6,16 @@ Status: M1 implements the signing core (`crypto/`, `signer/`, the vendored EIP-7
 
 ## Module map
 
-Each arrow points from a module to a module it may import. Blue modules are implemented. All modules are in `packages/hardhat-kms/src/` except the provider packages, which reach the core only through `hardhat-kms/types` and `hardhat-kms/provider-utils`.
+Each arrow points from a module to a module it may import. All modules are in `packages/hardhat-kms/src/` except the provider packages, which reach the core only through `hardhat-kms/types` and `hardhat-kms/provider-utils`.
 
 ```mermaid
 flowchart TD
   index["index.ts<br/>plugin definition"] --> hooks["hook-handlers/<br/>config, hre, network"]
   index --> tasks["tasks/"]
+  tasks --> history["history/<br/>kms history: time range, reader hook chain,<br/>report, masking"]
+  history --> registry
+  history --> descriptors
+  history --> signer
   hooks --> config["config/<br/>schema and resolution"]
   hooks --> registry["providers/registry.ts<br/>providers/create-adapter.ts"]
   hooks --> rpc["rpc/<br/>dispatcher: accounts, messages,<br/>transactions"]
@@ -25,12 +29,10 @@ flowchart TD
   tasks --> hooks
   registry --> descriptors["providers/aws, gcp, azure<br/>descriptor, key format"]
   signer --> crypto["crypto/<br/>keys, signatures, digests"]
-  packages["provider packages<br/>@hardhat-kms/aws, @hardhat-kms/gcp:<br/>kms handler, adapter"] --> utils["provider-utils.ts<br/>helpers for provider plugins"]
+  packages["provider packages<br/>@hardhat-kms/aws, @hardhat-kms/gcp, @hardhat-kms/azure:<br/>kms hook handlers, adapter, history reader"] --> utils["provider-utils.ts<br/>helpers for provider plugins"]
   utils --> crypto
   utils --> descriptors
   crypto --> vendor["vendor/micro-eth-signer<br/>EIP-712 encoder"]
-  classDef done fill:#0847F7,color:#fff,stroke:#0847F7
-  class index,hooks,rpc,crypto,signer,vendor,config,registry,descriptors,packages,utils,tasks,viem done
 ```
 
 The rules behind the arrows:
@@ -44,12 +46,12 @@ The rules behind the arrows:
 
 The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspaces.md)). Following [decision 0009](decisions/0009-one-package-per-provider.md), each cloud provider has its own package around an SDK-free core:
 
-| Package                      | Holds                                                                                                   | Status                                                                 |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `packages/hardhat-kms`       | The core: config and key formats, signing checks, the `kms` hook, `--kms`, `hardhat-kms/provider-utils` | Implemented                                                            |
-| `packages/hardhat-kms-aws`   | The AWS plugin and adapter, depending on `@aws-sdk/client-kms`                                          | Implemented ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)) |
-| `packages/hardhat-kms-azure` | The Azure Key Vault plugin and adapter, depending on `@azure/keyvault-keys` and `@azure/identity`       | Implemented ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)) |
-| `packages/hardhat-kms-gcp`   | The Google Cloud plugin and adapter, depending on `@google-cloud/kms`                                   | Implemented ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29)) |
+| Package                      | Holds                                                                                                                                                                          | Status                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `packages/hardhat-kms`       | The core: config and key formats, signing checks, the `kms` hook, `--kms`, `hardhat-kms/provider-utils`                                                                        | Implemented                                                            |
+| `packages/hardhat-kms-aws`   | The AWS plugin, adapter and CloudTrail history reader, depending on `@aws-sdk/client-kms`, `@aws-sdk/client-cloudtrail` and `@aws-sdk/client-sts`                              | Implemented ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)) |
+| `packages/hardhat-kms-azure` | The Azure Key Vault plugin, credential chain, adapter and Log Analytics history reader, depending on `@azure/keyvault-keys`, `@azure/identity` and `@azure/core-rest-pipeline` | Implemented ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)) |
+| `packages/hardhat-kms-gcp`   | The Google Cloud plugin, adapter and Cloud Logging history reader, depending on `@google-cloud/kms`, `google-gax` and `google-auth-library`                                    | Implemented ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29)) |
 
 ## Code map
 
@@ -67,7 +69,7 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 | `kms` hook for provider plugins                                               | `packages/hardhat-kms/src/internal/providers/create-adapter.ts`, `KmsHooks` in `packages/hardhat-kms/src/types.ts`                                                | M2        |
 | Helpers for provider plugins                                                  | `packages/hardhat-kms/src/provider-utils.ts` (`hardhat-kms/provider-utils`)                                                                                       | M3        |
 | `--kms` option (Foundry's variables)                                          | `packages/hardhat-kms/src/internal/config/env-keys.ts`, `packages/hardhat-kms/src/internal/hook-handlers/hre.ts`                                                  | M2, M4    |
-| AWS plugin, `kms` hook handler and adapter                                    | `packages/hardhat-kms-aws/src/index.ts`, `packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts`, `packages/hardhat-kms-aws/src/internal/adapter.ts`         | M3        |
+| AWS plugin, `kms` hook handler, client settings and adapter                   | `packages/hardhat-kms-aws/src/index.ts`, `packages/hardhat-kms-aws/src/internal/{hook-handlers/kms,client-settings,adapter}.ts`                                   | M3        |
 | Azure plugin, credential chain and adapter                                    | `packages/hardhat-kms-azure/src/index.ts`, `packages/hardhat-kms-azure/src/internal/{hook-handlers/kms,credential,adapter}.ts`                                    | M6        |
 | GCP plugin, `kms` hook handler and adapter                                    | `packages/hardhat-kms-gcp/src/internal/hook-handlers/kms.ts`, `packages/hardhat-kms-gcp/src/internal/adapter.ts`, `packages/hardhat-kms-gcp/src/internal/wire.ts` | M6        |
 | Network hook                                                                  | `packages/hardhat-kms/src/internal/hook-handlers/network.ts`                                                                                                      | M4        |
@@ -88,7 +90,8 @@ The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspac
 | `kms accounts`                                                                | `packages/hardhat-kms/src/internal/tasks/accounts.ts`, `--balances` and `--check-sign` helpers in `account-checks.ts`                                             | M7, 1.0   |
 | `kms sign-tx`                                                                 | `packages/hardhat-kms/src/internal/tasks/sign-tx.ts`                                                                                                              | M7        |
 | `kms sign-auth`                                                               | `packages/hardhat-kms/src/internal/tasks/sign-auth.ts`                                                                                                            | M7        |
-| `kms history`: range, reader hook chain, result checks, notes, masking, table | `packages/hardhat-kms/src/internal/tasks/history.ts`, `packages/hardhat-kms/src/internal/history/{time,read,report,errors,types}.ts`                              | 1.0       |
+| `kms history`: range, reader hook chain, result checks, notes, masking, table | `packages/hardhat-kms/src/internal/tasks/history.ts`, `packages/hardhat-kms/src/internal/history/{time,read,report,mask,errors,types}.ts`                         | 1.0       |
+| History readers: CloudTrail, Cloud Logging, Log Analytics                     | `packages/hardhat-kms-{aws,gcp,azure}/src/internal/history.ts`; AWS `history-api.ts`, GCP `logging-client.ts`, Azure `log-analytics.ts`                           | 1.0       |
 
 ## Signing a message
 
@@ -129,10 +132,12 @@ sequenceDiagram
   participant S as KmsSigner
   participant N as Hardhat handlers and node
   C->>H: eth_sendTransaction(tx)
+  H->>N: eth_chainId (once per connection)
   H->>H: take lock chainId:from
+  H->>N: eth_getTransactionByHash for an earlier send with no answer, if any
   H->>F: fill nonce, gas, fees, chainId
   F->>N: reads through connection.provider (pass through the hook)
-  H->>H: nonce = max(pending, high-water + 1)
+  H->>H: nonce = max(pending, high-water + 1, highest reservation + 1)
   H->>S: sign the unsigned transaction's digest
   S-->>H: verified signature
   H->>H: rebuild signed tx, check sender == from
@@ -141,6 +146,8 @@ sequenceDiagram
   H->>H: raise the high-water mark, release lock
   H-->>C: hash
 ```
+
+The chain id comes first because the lock is keyed by it (`packages/hardhat-kms/src/internal/rpc/dispatcher.ts:628-636`). Inside the lock, a send without a caller's nonce first asks the node about the account's uncertain transaction (`dispatcher.ts:658-660`), then takes its nonce from `ConnectionSends.nonceFor`: the node's pending count, raised past the high-water mark and past every nonce reserved for a library account's client on the connection (`dispatcher.ts:669`, `packages/hardhat-kms/src/internal/rpc/send-guard.ts:579-592`). On `edr-simulated` networks the high-water mark is off; reservations still count.
 
 The rules that keep this safe are in [Request flow and re-entrancy rules](#request-flow-and-re-entrancy-rules) and in [Transactions](transactions.md).
 
@@ -224,7 +231,9 @@ packages/hardhat-kms/src/
                             uncertain transactions; SendOutcomeUnknownError
     tasks/                  keys.ts: key lookup by name, signers closed after each run, printLine;
                             inputs.ts: message and --data arguments; one action module per task:
-                            accounts, address, public-key, sign, sign-auth, sign-tx, verify
+                            accounts, address, history, public-key, sign, sign-auth, sign-tx, verify
+    history/                kms history: time range, the readSignHistory hook chain, result checks,
+                            report and masking; provider packages supply the readers
     vendor/micro-eth-signer/  vendored EIP-712 hashing (MIT, see "Vendored EIP-712")
     errors.ts               allow-listed error builder; catalogError, catalogMessage, internalError
     error-catalog.ts        every error the core builds: id, message template, cause, fix
@@ -241,11 +250,15 @@ packages/hardhat-kms-aws/src/
   index.ts                  definePlugin: id and npmPackage "@hardhat-kms/aws", depends on hardhat-kms,
                             lazy `kms` hook handler import; references "hardhat-kms/types" for the config types
   internal/
-    hook-handlers/kms.ts    claims `aws` keys, passes other keys to next; imports the adapter and the SDK on first use
+    hook-handlers/kms.ts    claims `aws` keys, passes other keys to next; imports the adapter and the SDK on first use;
+                            reads sign history for `kms history`
+    client-settings.ts      the region and profile of the SDK clients; reads configuration variables
     adapter.ts              createAwsKeyAdapter(key, sdk, userAgent): GetPublicKey, Sign, key spec checks, ARN pinning
+    history.ts              reads CloudTrail Sign events into the history report
+    history-api.ts          the CloudTrail, STS and KMS clients of one history read
 ```
 
-`packages/hardhat-kms-azure` follows it, with one more module, `internal/credential.ts`, which builds the credential chain that all Azure keys of a runtime share. Its handler loads `@azure/keyvault-keys`, `@azure/identity`, the credential module and the adapter together, once per runtime. Key Vault's formats need no module of their own: the public key is a JWK, which `publicKeyFromJwk` in `hardhat-kms/provider-utils` reads, and signatures are 64 bytes `r || s`, which the core parses. `packages/hardhat-kms-gcp` follows it too, with a pure `wire.ts` that reads the CRC32C checksums and the gRPC status codes of Google Cloud's responses.
+`packages/hardhat-kms-azure` follows it, with one more module, `internal/credential.ts`, which builds the credential chain that all Azure keys of a runtime share ([Cloud access and credentials](#cloud-access-and-credentials)). Its history reader is `history.ts`, with the Log Analytics query in `log-analytics.ts`. Its handler loads `@azure/keyvault-keys`, `@azure/identity`, the credential module and the adapter together, once per runtime. Key Vault's formats need no module of their own: the public key is a JWK, which `publicKeyFromJwk` in `hardhat-kms/provider-utils` reads, and signatures are 64 bytes `r || s`, which the core parses. `packages/hardhat-kms-gcp` follows it too, with a pure `wire.ts` that reads the CRC32C checksums and the gRPC status codes of Google Cloud's responses, and a history reader in `history.ts` and `logging-client.ts`.
 
 ## Request flow and re-entrancy rules
 
@@ -303,6 +316,142 @@ The cache counts connections that have KMS keys, for the whole cache rather than
 
 Status messages from adapters go to Hardhat's `interruptions.displayMessage` with the title `hardhat-kms`.
 
+## Cloud access and credentials
+
+The core never sees a credential. It builds a signer for a key through the signer cache, which runs the `kms` hook chain (`createKeyAdapter`), and the provider package that claims the key builds the SDK client. On AWS and Google Cloud the client gets no credential options, so the cloud's SDK walks its own default chain. On Azure the package builds the chain itself. The user-facing rules, with the variables each source reads, are in the [configuration reference](../user/reference/configuration.md#credentials) and [How the plugin reaches your cloud](../user/explanation/cloud-access.md).
+
+What all three providers share:
+
+- The signer cache keys signers by signer identity, so a new client is built only for a new identity (`packages/hardhat-kms/src/internal/signer/key-cache.ts:79-94`). An AWS identity holds the key's `region`, `profile` and `endpoint`; a Google Cloud or Azure identity holds none of those, since the environment picks their credentials (`packages/hardhat-kms/src/internal/signer/signer-identity.ts:53-74`).
+- A new signer gets its adapter from the hook chain (`key-cache.ts:149`, `packages/hardhat-kms/src/internal/providers/create-adapter.ts:123-132`), and each provider's handler checks its version against the core's before it loads its SDK.
+- Five seconds after the last connection with KMS keys closes, the idle close closes every signer and with it every adapter (`key-cache.ts:13`, `key-cache.ts:104-145`, `packages/hardhat-kms/src/internal/signer/kms-signer.ts:236-237`). The next request builds the client and looks up credentials again.
+- `kms history` runs the `readSignHistory` hook chain (`packages/hardhat-kms/src/internal/history/read.ts:111-127`). Its readers build their own clients for each read and never share the signers' clients.
+
+SDK line numbers below are for the versions in `pnpm-lock.yaml`: `@aws-sdk/client-kms` 3.1143.0, `@aws-sdk/core` 3.978.1, `@aws-sdk/credential-provider-node` 3.972.84, `google-gax` 6.10.0, `google-auth-library` 11.1.0 and `@azure/identity` 4.13.3. Paths are relative to each package's directory in `node_modules`.
+
+### AWS
+
+```mermaid
+flowchart TD
+  subgraph build["Client: one KMSClient per signer identity"]
+    key["AWS key config<br/>keyId, region, profile, endpoint"] --> identity["Signer identity<br/>keyId, region, profile, endpoint"]
+    identity --> cached{"Signer cached for<br/>this identity?"}
+    cached -->|no| handler["kms hook handler<br/>loads the adapter and @aws-sdk/client-kms"]
+    handler --> settings["awsClientSettings<br/>region: key ARN, else region,<br/>else kms.defaults.aws.region<br/>profile; an empty variable is unset"]
+    settings --> client["new KMSClient<br/>customUserAgent, region, profile, endpoint"]
+    client -.->|idle close| destroy["client.destroy()"]
+  end
+  client --> profile
+  subgraph chain["Credential chain: the SDK's default provider, first source that returns credentials"]
+    profile{"Profile set?<br/>key profile, else AWS_PROFILE"}
+    profile -->|no| env["1. Environment keys<br/>AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY"]
+    profile -->|"yes: environment keys skipped"| ini
+    env -->|not set| ini["2. Shared config files, selected profile or default<br/>keys, SSO, aws login, assume role"]
+    ini -->|no credentials| proc["2b. The profile's credential_process"]
+    proc -->|no credentials| web["3. Web identity token<br/>AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN"]
+    web -->|not set| container{"AWS_CONTAINER_CREDENTIALS_<br/>RELATIVE_URI or FULL_URI set?"}
+    container -->|yes| ecs["4. Container credentials<br/>ECS task role, EKS Pod Identity"]
+    container -->|no| imds["4. EC2 instance role through IMDS<br/>unless AWS_EC2_METADATA_DISABLED"]
+  end
+```
+
+The numbers match the user page's table; 2b is the SDK's separate `credential_process` provider, which the user page counts as part of the profile.
+
+Where each step is:
+
+- Key config to signer identity: the identity holds the comparison forms of `region` and `profile` and the `endpoint` (`packages/hardhat-kms/src/internal/signer/signer-identity.ts:61-74`). Two keys that differ in any of them get two signers, and so two clients.
+- Signer cache to handler: `packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts:48-63` claims `aws` keys, checks the version and imports `adapter.ts` and `@aws-sdk/client-kms`.
+- The region order: a literal key ARN's region, then the key's `region`, then `kms.defaults.aws.region` (`packages/hardhat-kms/src/internal/providers/aws/config.ts:98-107`). `awsClientSettings` reads the values when the adapter is built: the region of a key ARN read from a variable wins, and an empty variable leaves the setting to the SDK (`packages/hardhat-kms-aws/src/internal/client-settings.ts:11-14`, `client-settings.ts:26-36`). With no region set, the SDK takes `AWS_REGION`, then the profile's region.
+- Settings to client: `packages/hardhat-kms-aws/src/internal/adapter.ts:175-184`. The client gets no `credentials`, so it uses its default provider (`@aws-sdk/client-kms` `dist-cjs/index.js:2175`), and the client config, `profile` included, is the provider's input (`@aws-sdk/core` `dist-cjs/submodules/httpAuthSchemes/index.js:292-305`).
+- Idle close to `destroy()`: `adapter.ts:148-149`.
+- The chain: `@aws-sdk/credential-provider-node` `dist-cjs/index.js:96-160`. Source 1 runs only without a profile: with the key's `profile` or `AWS_PROFILE` set it steps aside, and prints the "Multiple credential sources detected" warning once when environment keys are also set (`index.js:97-125`). The second provider of the chain reads SSO fields passed in code, which the plugin never passes, so it always steps aside (`index.js:126-134`). Then come the shared config files (`index.js:135-139`), `credential_process` (`index.js:140-144`), the web identity token file (`index.js:145-149`), and the remote provider (`index.js:150-153`): container credentials when either container variable is set, else IMDS unless `AWS_EC2_METADATA_DISABLED` is set to anything but `false` (`index.js:5-19`).
+- A source that fails without marking its error as "try the next one" stops the chain (`index.js:78-93`).
+- Each client keeps the credentials it found and looks them up again five minutes before they expire (`index.js:21-77`, `index.js:162`).
+
+`kms history` builds a CloudTrail client, and an STS and a KMS client when it needs them, with the same `awsClientSettings` and user agent; only the KMS client gets the key's `endpoint` (`packages/hardhat-kms-aws/src/internal/history-api.ts:94-97`, `history-api.ts:119`, `history-api.ts:125-128`). The handler destroys them after the read (`hook-handlers/kms.ts:78-92`, `history-api.ts:133-138`).
+
+### Google Cloud
+
+```mermaid
+flowchart TD
+  subgraph build["Client: one per signer, built on its first call"]
+    key["Google Cloud key config<br/>key version name or its parts"] --> identity["Signer identity<br/>key version name; no credential setting"]
+    identity --> cached{"Signer cached for<br/>this identity?"}
+    cached -->|no| handler["kms hook handler<br/>loads the adapter, @google-cloud/kms and google-gax"]
+    handler --> adapter["createGcpKeyAdapter<br/>keeps a client factory, builds no client"]
+    adapter --> kmsCall["A KMS call"]
+    cached -->|yes| kmsCall
+    kmsCall --> make["client ??= new KeyManagementServiceClient<br/>fallback: true, REST"]
+    make --> init["client.initialize()<br/>google-gax builds a GoogleAuth"]
+    init -->|fails| drop["Close and drop the client<br/>the next call builds a new one"]
+    make -.->|idle close| close["client.close()"]
+  end
+  init --> envFile
+  subgraph adc["Application Default Credentials: google-auth-library"]
+    envFile{"GOOGLE_APPLICATION_CREDENTIALS set?"}
+    envFile -->|yes| one["1. That JSON file<br/>unreadable: the run fails, no fallback"]
+    envFile -->|no| wellKnown{"application_default_credentials.json<br/>in CLOUDSDK_CONFIG, else ~/.config/gcloud?"}
+    wellKnown -->|yes| two["2. The gcloud ADC file"]
+    wellKnown -->|no| gce{"On Google Cloud?"}
+    gce -->|yes| three["3. The metadata server"]
+    gce -->|no| none["gcp.connect.no-credentials"]
+  end
+```
+
+Where each step is:
+
+- Key config to signer identity: the identity holds the key version name and the key's common settings, and no setting that selects a credential (`packages/hardhat-kms/src/internal/signer/signer-identity.ts:53-56`). Every Google Cloud key of a run therefore uses the same ADC identity.
+- Signer cache to handler: `packages/hardhat-kms-gcp/src/internal/hook-handlers/kms.ts:94-105` claims `gcp` keys and loads the SDK with the `google-gax` this package depends on (`hook-handlers/kms.ts:40-43`).
+- The adapter keeps a factory and builds no client (`packages/hardhat-kms-gcp/src/internal/adapter.ts:403-413`). Each call builds the client if there is none, then awaits `initialize()` before it calls the SDK (`adapter.ts:313-316`, `adapter.ts:366-369`). The client runs over REST (`fallback: true`), so no gRPC channel keeps `hardhat run` alive (`adapter.ts:409-411`).
+- The client gets no credential options, so `google-gax` builds a `GoogleAuth` from them (`google-gax` `build/src/fallback.js:141-153`).
+- A failed `initialize()` closes and drops the client, so the next call looks the credentials up again instead of failing with a cached error (`adapter.ts:370-381`). The error is mapped to `gcp.connect.no-credentials` or `gcp.connect.credentials-file` (`adapter.ts:345-348`, `packages/hardhat-kms-gcp/src/internal/wire.ts:128-143`).
+- Idle close to `client.close()`: `adapter.ts:256-258`.
+- The ADC order: `google-auth-library` `build/src/auth/googleauth.js:245-286`. Source 1 is the file named by `GOOGLE_APPLICATION_CREDENTIALS`; a file that cannot be read throws, with no fallback (`googleauth.js:257-267`, `googleauth.js:315-330`). Source 2 is `application_default_credentials.json` in `CLOUDSDK_CONFIG`, else `%APPDATA%\gcloud` on Windows or `~/.config/gcloud` (`googleauth.js:269-279`, `googleauth.js:336-365`). Source 3 is the metadata server (`googleauth.js:281-284`). Then it throws (`googleauth.js:285`). `GOOGLE_CLOUD_QUOTA_PROJECT` sets the quota project of whichever source wins (`googleauth.js:287-290`).
+
+`kms history` builds a new `GoogleAuth` with the Cloud Logging read scope for each read, so it finds the same ADC identity as the KMS client (`hook-handlers/kms.ts:52-58`, `hook-handlers/kms.ts:88-92`).
+
+### Azure
+
+```mermaid
+flowchart TD
+  subgraph build["Clients: one credential per runtime, Key Vault clients per signer"]
+    first["First Azure key of the runtime"] --> load["kms hook handler: load once<br/>@azure/keyvault-keys, @azure/identity"]
+    load --> chainBuilt["createAzureCredential(process.env)"]
+    chainBuilt -->|"throws: bad tenant id, or username and password set"| reset["Error; the next Azure key tries again"]
+    chainBuilt --> shared["SharedTokenCredential<br/>one token per scope and tenant"]
+    shared --> keyClient["Per signer: KeyClient(vault URL, credential)<br/>then a CryptographyClient for the pinned version"]
+    keyClient -.->|idle close| dropped["Clients dropped; the credential and its tokens stay"]
+  end
+  shared --> sp
+  subgraph chain["Credential chain: first source that returns a token"]
+    sp{"AZURE_TENANT_ID and AZURE_CLIENT_ID,<br/>with a secret or a certificate path?"}
+    sp -->|yes| one["1. Service principal<br/>ClientSecretCredential, else ClientCertificateCredential<br/>any failure stops the chain"]
+    sp -->|no| wi{"Tenant, client id and<br/>AZURE_FEDERATED_TOKEN_FILE set?"}
+    wi -->|yes| two["2. WorkloadIdentityCredential"]
+    wi -->|no| cli["3. AzureCliCredential, then<br/>AzureDeveloperCliCredential"]
+    two -->|unavailable| cli
+    cli -->|unavailable| mi{"Managed identity in the chain?<br/>left out in Cloud Shell and Service Fabric<br/>when AZURE_CLIENT_ID is set"}
+    mi -->|yes| four["4. ManagedIdentityCredential<br/>user-assigned with AZURE_CLIENT_ID<br/>10 s per token, 3 s per request"]
+    mi -->|no| none["azure.credential.none"]
+    four -->|unavailable| none
+  end
+```
+
+Where each step is:
+
+- The handler builds the adapter factory, and with it the credential, on the first Azure key, and keeps it for the runtime; a failed load is dropped so that the next key tries again (`packages/hardhat-kms-azure/src/internal/hook-handlers/kms.ts:57-67`, `hook-handlers/kms.ts:123-141`). The handler passes `process.env` (`hook-handlers/kms.ts:51-54`).
+- `createAzureCredential` puts each source in the chain only when it applies, then wraps the chain in `SharedTokenCredential`, so all keys share one token per scope and tenant, and `az login` users see one `az` process per run (`packages/hardhat-kms-azure/src/internal/credential.ts:443-484`, `credential.ts:288-336`).
+- Building the chain throws `azure.credential.tenant-id` for a tenant id with a character a tenant id cannot have, and `azure.credential.username-password` when the environment would sign a user in with a password (`credential.ts:218-224`, `credential.ts:277-280`).
+- Signer identity: like Google Cloud, it holds the key URL and no credential setting (`packages/hardhat-kms/src/internal/signer/signer-identity.ts:57-60`).
+- Per signer, the adapter builds a `KeyClient` for the key's vault with the shared credential, then a `CryptographyClient` for the version it pins (`packages/hardhat-kms-azure/src/internal/adapter.ts:175`, `adapter.ts:212-217`, `adapter.ts:389-392`). The adapter has no `close`; the idle close drops the clients, and the credential and its tokens stay with the handler.
+- Source 1: the plugin picks the service principal itself. A secret wins over a certificate path, `AZURE_ADDITIONALLY_ALLOWED_TENANTS` and `AZURE_CLIENT_SEND_CERTIFICATE_CHAIN` become options, and an empty variable counts as unset (`credential.ts:185-188`, `credential.ts:248-282`). `FailureStopsChain` turns any failure of it into an `AuthenticationError`, which stops the chain, so a service principal that is refused never falls through to `az login` (`credential.ts:158-178`, `credential.ts:238`).
+- Source 2: `WorkloadIdentityCredential` joins the chain only when its constructor finds its three variables (`credential.ts:454-458`; `@azure/identity` `dist/commonjs/credentials/workloadIdentityCredential.js:50-70`).
+- Source 3: `AzureCliCredential`, then `AzureDeveloperCliCredential`, always in the chain (`credential.ts:459`).
+- Source 4: `ManagedIdentityCredential`, with `AZURE_CLIENT_ID` as its client id when set (`credential.ts:460-472`). Its constructor refuses a client id in Cloud Shell and Service Fabric, and the plugin then leaves it out (`credential.ts:386-398`; `@azure/identity` `dist/commonjs/credentials/managedIdentityCredential/index.js:106-137`). `TimeoutCredential` gives it 10 s for a token and its HTTP client 3 s per request (`credential.ts:16`, `credential.ts:23`, `credential.ts:371-379`, `credential.ts:461-464`, `credential.ts:473-481`).
+- The chain goes to the next source only on `CredentialUnavailableError` or `AuthenticationRequiredError`; any other error stops it (`@azure/identity` `dist/commonjs/credentials/chainedTokenCredential.js:79-98`). With no token at all, the adapter reports `azure.credential.none`, and for a source that was refused `azure.credential.failed` (`adapter.ts:89-92`, `adapter.ts:318-322`).
+
+`kms history` builds a new chain with the same function for each read, and sends its Log Analytics query to `api.loganalytics.azure.com` with a token for the `api.loganalytics.io` scope (`hook-handlers/kms.ts:77-85`, `packages/hardhat-kms-azure/src/internal/log-analytics.ts:20-26`, `log-analytics.ts:56-60`).
+
 ## Errors
 
 Every error that first-party code builds has an entry in its package's error catalogue, `src/internal/error-catalog.ts`: a stable id (`<package>.<area>.<name>`), a kind, a group, a message template with `{name}` placeholders, a cause and a fix. The catalogue is an `as const` object, so each template keeps its literal type, and `TemplateParams<Template>` in `packages/hardhat-kms/src/internal/errors.ts` turns its placeholders into required parameters: a missing or misspelt value does not compile. A `{` that does not start a `{name}` placeholder, as in `{name, type}`, is literal text, for the type and for `fillTemplate` alike.
@@ -325,7 +474,7 @@ Signing has no side effects, so calls can be repeated. The AWS SDK retries trans
 
 ## SDK loading
 
-Each provider package lists its cloud SDK in `dependencies`: `@hardhat-kms/aws` depends on `@aws-sdk/client-kms` `^3.1143.0`, `@hardhat-kms/gcp` on `@google-cloud/kms` `^6.2.1`, `google-gax` `^6.5.0` and, for the Cloud Logging reads of `kms history`, `google-auth-library` `^11.0.0` (the range google-gax 6.5.0 asks for, so it adds no second copy), and `@hardhat-kms/azure` on `@azure/keyvault-keys` `^4.10.2` and `@azure/identity` `^4.13.3`. Installing the package installs the SDK. The core depends on no cloud SDK, and `packages/hardhat-kms/test/unit/plugin.test.ts` fails if its `package.json` lists one.
+Each provider package lists its cloud SDK in `dependencies`: `@hardhat-kms/aws` depends on `@aws-sdk/client-kms` `^3.1143.0` and, for `kms history`, `@aws-sdk/client-cloudtrail` and `@aws-sdk/client-sts` at the same range, `@hardhat-kms/gcp` on `@google-cloud/kms` `^6.2.1`, `google-gax` `^6.5.0` and, for the Cloud Logging reads of `kms history`, `google-auth-library` `^11.0.0` (the range google-gax 6.5.0 asks for, so it adds no second copy), and `@hardhat-kms/azure` on `@azure/keyvault-keys` `^4.10.2`, `@azure/identity` `^4.13.3` and, for the credential chain's HTTP client and the Log Analytics query, `@azure/core-rest-pipeline` `^1.25.0`. Installing the package installs the SDK. The core depends on no cloud SDK, and `packages/hardhat-kms/test/unit/plugin.test.ts` fails if its `package.json` lists one.
 
 A provider package imports its SDK only when it creates an adapter: its plugin definition registers the `kms` hook handler as a lazy import, and the handler loads the SDK on first use. The handler, `packages/hardhat-kms-aws/src/internal/hook-handlers/kms.ts`, passes keys of other providers to `next`. For an `aws` key it imports `adapter.ts` and `@aws-sdk/client-kms` with dynamic `import()`, then calls `createAwsKeyAdapter(key, sdk)`. The adapter receives the SDK as an argument typed `AwsKmsSdk`, so unit tests pass a fake.
 

@@ -9,7 +9,8 @@
 //   (scripts/generate-api-docs.ts); its pages are skipped by the snippet typecheck;
 // - first-party source builds its errors only through the catalogue helpers (checkErrorSites);
 // - the user docs and the READMEs hold no milestone codes and no HTML comments other than the
-//   skip marker and the pre-release note (scripts/user-pages.ts).
+//   skip marker and the pre-release note (scripts/user-pages.ts);
+// - every ```mermaid block parses with Mermaid's own parser (scripts/mermaid-blocks.ts).
 // lychee checks the links themselves (see lychee.toml).
 //
 // A snippet that is not meant to compile, such as a sketch of a planned API, is preceded by
@@ -22,7 +23,7 @@ import { fileURLToPath } from "node:url";
 
 import { parseSync } from "oxc-parser";
 
-import { checkSnippets } from "./doc-snippets.ts";
+import { checkSnippets, fences } from "./doc-snippets.ts";
 import { API_DOCS_COMMAND, API_DOCS_DIR, diffApiDocs, renderApiDocs } from "./generate-api-docs.ts";
 import {
   CATALOGUED_DIRECTORIES,
@@ -31,6 +32,7 @@ import {
   loadCatalogues,
   renderErrorsDoc,
 } from "./generate-errors-doc.ts";
+import { mermaidProblems } from "./mermaid-blocks.ts";
 import { userPageProblems } from "./user-pages.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -115,6 +117,20 @@ function checkUserPages(files: string[]): string[] {
   return files.flatMap((file) =>
     userPageProblems(file, readFileSync(path.join(root, file), "utf8")),
   );
+}
+
+/** Parses every Mermaid block; see `scripts/mermaid-blocks.ts`. */
+async function checkMermaid(files: string[]): Promise<string[]> {
+  try {
+    const blocks = files.flatMap((file) =>
+      fences(file)
+        .filter((fence) => fence.language === "mermaid")
+        .map((fence) => ({ file, line: fence.line, code: fence.code })),
+    );
+    return await mermaidProblems(blocks);
+  } catch (error) {
+    return [error instanceof Error ? error.message : String(error)];
+  }
 }
 
 /** The `name` of every package under packages/, read from its package.json. */
@@ -367,11 +383,12 @@ const problems = [
     ...packageReadmes(),
     ...pages.filter((page) => page.startsWith("docs/user/")),
   ]),
+  ...(await checkMermaid(["README.md", ...packageReadmes(), ...pages])),
 ];
 if (problems.length > 0) {
   process.stderr.write(`${problems.join("\n")}\n`);
   process.exit(1);
 }
 process.stdout.write(
-  `docs check passed: ${pages.length} pages indexed, snippets typecheck and call no deprecated API, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes\n`,
+  `docs check passed: ${pages.length} pages indexed, snippets typecheck and call no deprecated API, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes, Mermaid blocks parse\n`,
 );

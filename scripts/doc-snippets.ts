@@ -14,7 +14,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TYPESCRIPT_LANGUAGES = new Set(["ts", "typescript", "tsx", "mts", "cts"]);
 
 /** A fenced code block at the top level of a Markdown file. */
-interface Fence {
+export interface Fence {
   language: string;
   /** 1-based line of the opening fence. */
   line: number;
@@ -27,7 +27,7 @@ interface Fence {
  * backticks or tildes, indented by at most three spaces). Fences inside another fence, such as a
  * Markdown example that shows a TypeScript block, are part of the outer block's content.
  */
-function fences(file: string): Fence[] {
+export function fences(file: string): Fence[] {
   const lines = readFileSync(path.join(root, file), "utf8").split(/\r?\n/);
   const found: Fence[] = [];
   for (let index = 0; index < lines.length; index++) {
