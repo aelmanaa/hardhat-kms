@@ -1,0 +1,34 @@
+[
+  {
+    "name": "@hardhat-kms/gcp",
+    "version": "0.0.0",
+    "private": false,
+    "dependencies": {
+      "google-auth-library": {
+        "from": "google-auth-library",
+        "version": "11.1.0",
+        "dependencies": {
+          "fetch-blob": {
+            "from": "fetch-blob",
+            "version": "3.2.0",
+            "dependencies": {
+              "node-domexception": { "from": "node-domexception", "version": "1.0.0" }
+            }
+          }
+        }
+      },
+      "hardhat-kms": { "from": "hardhat-kms", "version": "link:../hardhat-kms" }
+    },
+    "optionalDependencies": {
+      "sdk-alias": { "from": "@scope/old-sdk", "version": "2.0.0" }
+    }
+  },
+  {
+    "name": "api-docs",
+    "version": "0.0.0",
+    "private": true,
+    "dependencies": {
+      "old-tool": { "from": "old-tool", "version": "1.0.0" }
+    }
+  }
+]

@@ -55,8 +55,11 @@ function hardhat(args: string[]): { status: number | null; output: string } {
         // A black-box run: Hardhat loads the plugin through its own TypeScript loader, and that
         // coverage data would clash with the native runs of the same files.
         NODE_V8_COVERAGE: "",
-        // CI adds --import tsx on Node 22.13 for the test runner; the CLI registers tsx itself.
-        NODE_OPTIONS: "",
+        // CI adds --import tsx on Node 22.13 for the test runner; the CLI registers tsx itself. Any
+        // other option stays, such as the deprecation preload of the Node 26 CI leg.
+        NODE_OPTIONS: (process.env["NODE_OPTIONS"] ?? "")
+          .replaceAll(/(?:^|\s)--import(?:=|\s+)tsx(?=\s|$)/g, " ")
+          .trim(),
         GOOGLE_APPLICATION_CREDENTIALS: path.join(project, "missing-credentials.json"),
         HARDHAT_KMS: "",
       },

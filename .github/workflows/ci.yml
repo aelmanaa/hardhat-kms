@@ -90,11 +90,14 @@ jobs:
             ~/AppData/Local/hardhat-nodejs/Cache/compilers-v3
           key: solc-${{ runner.os }}-${{ hashFiles('packages/*/test/**/*.sol', 'pnpm-lock.yaml') }}
           restore-keys: solc-${{ runner.os }}-
-      # Node 22.13.0 cannot strip TypeScript types natively; load tsx there only.
+      # Node 22.13.0 cannot strip TypeScript types natively; load tsx there only. On Node 26.0.0,
+      # every Node process that inherits NODE_OPTIONS (pnpm, each test file, the fixture processes
+      # the tests start, the CLI tests' Hardhat runs) preloads scripts/fail-on-deprecation.mjs: a
+      # DeprecationWarning that scripts/deprecation-hook.ts does not allow fails the process.
       - name: Test
         shell: bash
         env:
-          NODE_OPTIONS: ${{ matrix.node == '22.13.0' && '--import tsx' || '' }}
+          NODE_OPTIONS: ${{ matrix.node == '22.13.0' && '--import tsx' || matrix.node == '26.0.0' && format('--import {0}/scripts/fail-on-deprecation.mjs', github.workspace) || '' }}
         run: pnpm test
 
   localstack:
