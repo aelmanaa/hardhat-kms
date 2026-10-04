@@ -1,12 +1,12 @@
 // The check behind `scripts/fail-on-deprecation.mjs`, which the Node 26 leg of the CI test job
-// preloads into every Node process: a DeprecationWarning that ALLOWED_WARNINGS does not list makes
+// preloads into every Node process that inherits `NODE_OPTIONS`: a DeprecationWarning that ALLOWED_WARNINGS does not list makes
 // the process fail. Kept apart from the preload, which installs it on import, so
 // `test/scripts/deprecation-hook.test.ts` can test it on a fake process.
 //
 // Why not `--throw-deprecation`: Node throws from `process.emitWarning` before its `onWarning`
 // handler reads `--disable-warning`, so a warning could not be allowed (nodejs/node v24.x at
-// e36633a, lib/internal/process/warning.js: the throw at line 172, the `--disable-warning` check at
-// line 98). This hook lets the process run on, prints the warning with its stack, and sets the
+// e36633a, lib/internal/process/warning.js: the `throwDeprecation` branch at line 172 throws at line
+// 176; the `--disable-warning` check is at line 98). This hook lets the process run on, prints the warning with its stack, and sets the
 // exit code.
 import process from "node:process";
 

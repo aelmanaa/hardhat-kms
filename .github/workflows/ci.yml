@@ -91,9 +91,9 @@ jobs:
           key: solc-${{ runner.os }}-${{ hashFiles('packages/*/test/**/*.sol', 'pnpm-lock.yaml') }}
           restore-keys: solc-${{ runner.os }}-
       # Node 22.13.0 cannot strip TypeScript types natively; load tsx there only. On Node 26.0.0,
-      # every Node process that inherits NODE_OPTIONS (pnpm, each test file, the CLI tests' Hardhat
-      # runs) preloads scripts/fail-on-deprecation.mjs: a DeprecationWarning that
-      # scripts/deprecation-hook.ts does not allow fails the process.
+      # every Node process that inherits NODE_OPTIONS (pnpm, each test file, the fixture processes
+      # the tests start, the CLI tests' Hardhat runs) preloads scripts/fail-on-deprecation.mjs: a
+      # DeprecationWarning that scripts/deprecation-hook.ts does not allow fails the process.
       - name: Test
         shell: bash
         env:

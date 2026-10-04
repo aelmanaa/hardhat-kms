@@ -104,7 +104,7 @@ export interface HardhatRun {
  */
 function withoutTsx(options: string | undefined): string {
   return (options ?? "")
-    .replaceAll(/(?:^|\s)--import[=\s]tsx(?=\s|$)/g, " ")
+    .replaceAll(/(?:^|\s)--import(?:=|\s+)tsx(?=\s|$)/g, " ")
     .trim()
     .replaceAll(/\s+/g, " ");
 }
