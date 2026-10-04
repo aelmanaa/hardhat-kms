@@ -15,6 +15,7 @@ flowchart TD
   tasks --> history["history/<br/>kms history: time range, reader hook chain,<br/>report, masking"]
   history --> registry
   history --> descriptors
+  history --> signer
   hooks --> config["config/<br/>schema and resolution"]
   hooks --> registry["providers/registry.ts<br/>providers/create-adapter.ts"]
   hooks --> rpc["rpc/<br/>dispatcher: accounts, messages,<br/>transactions"]
@@ -326,7 +327,7 @@ What all three providers share:
 - Five seconds after the last connection with KMS keys closes, the idle close closes every signer and with it every adapter (`key-cache.ts:13`, `key-cache.ts:104-145`, `packages/hardhat-kms/src/internal/signer/kms-signer.ts:236-237`). The next request builds the client and looks up credentials again.
 - `kms history` runs the `readSignHistory` hook chain (`packages/hardhat-kms/src/internal/history/read.ts:111-127`). Its readers build their own clients for each read and never share the signers' clients.
 
-SDK lines below are from the versions in `pnpm-lock.yaml`: `@aws-sdk/client-kms` 3.1143.0, `@aws-sdk/core` 3.978.1, `@aws-sdk/credential-provider-node` 3.972.84, `google-gax` 6.10.0, `google-auth-library` 11.1.0 and `@azure/identity` 4.13.3. Paths are relative to each package's directory in `node_modules`.
+SDK line numbers below are for the versions in `pnpm-lock.yaml`: `@aws-sdk/client-kms` 3.1143.0, `@aws-sdk/core` 3.978.1, `@aws-sdk/credential-provider-node` 3.972.84, `google-gax` 6.10.0, `google-auth-library` 11.1.0 and `@azure/identity` 4.13.3. Paths are relative to each package's directory in `node_modules`.
 
 ### AWS
 
@@ -345,14 +346,16 @@ flowchart TD
     profile{"Profile set?<br/>key profile, else AWS_PROFILE"}
     profile -->|no| env["1. Environment keys<br/>AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY"]
     profile -->|"yes: environment keys skipped"| ini
-    env -->|not set| ini["2. Shared config files, selected profile or default<br/>keys, SSO, aws login, assume role, credential_process"]
-    ini -->|no credentials| proc["3. The profile's credential_process"]
-    proc -->|no credentials| web["4. Web identity token<br/>AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN"]
+    env -->|not set| ini["2. Shared config files, selected profile or default<br/>keys, SSO, aws login, assume role"]
+    ini -->|no credentials| proc["2b. The profile's credential_process"]
+    proc -->|no credentials| web["3. Web identity token<br/>AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN"]
     web -->|not set| container{"AWS_CONTAINER_CREDENTIALS_<br/>RELATIVE_URI or FULL_URI set?"}
-    container -->|yes| ecs["5. Container credentials<br/>ECS task role, EKS Pod Identity"]
-    container -->|no| imds["5. EC2 instance role through IMDS<br/>unless AWS_EC2_METADATA_DISABLED"]
+    container -->|yes| ecs["4. Container credentials<br/>ECS task role, EKS Pod Identity"]
+    container -->|no| imds["4. EC2 instance role through IMDS<br/>unless AWS_EC2_METADATA_DISABLED"]
   end
 ```
+
+The numbers match the user page's table; 2b is the SDK's separate `credential_process` provider, which the user page counts as part of the profile.
 
 Where each step is:
 
@@ -414,7 +417,7 @@ flowchart TD
   subgraph build["Clients: one credential per runtime, Key Vault clients per signer"]
     first["First Azure key of the runtime"] --> load["kms hook handler: load once<br/>@azure/keyvault-keys, @azure/identity"]
     load --> chainBuilt["createAzureCredential(process.env)"]
-    chainBuilt -->|"throws: tenant id, username and password"| reset["Error; the next Azure key tries again"]
+    chainBuilt -->|"throws: bad tenant id, or username and password set"| reset["Error; the next Azure key tries again"]
     chainBuilt --> shared["SharedTokenCredential<br/>one token per scope and tenant"]
     shared --> keyClient["Per signer: KeyClient(vault URL, credential)<br/>then a CryptographyClient for the pinned version"]
     keyClient -.->|idle close| dropped["Clients dropped; the credential and its tokens stay"]
@@ -427,7 +430,7 @@ flowchart TD
     wi -->|yes| two["2. WorkloadIdentityCredential"]
     wi -->|no| cli["3. AzureCliCredential, then<br/>AzureDeveloperCliCredential"]
     two -->|unavailable| cli
-    cli -->|unavailable| mi{"Managed identity allowed here?<br/>not Cloud Shell or Service Fabric<br/>with AZURE_CLIENT_ID set"}
+    cli -->|unavailable| mi{"Managed identity in the chain?<br/>left out in Cloud Shell and Service Fabric<br/>when AZURE_CLIENT_ID is set"}
     mi -->|yes| four["4. ManagedIdentityCredential<br/>user-assigned with AZURE_CLIENT_ID<br/>10 s per token, 3 s per request"]
     mi -->|no| none["azure.credential.none"]
     four -->|unavailable| none

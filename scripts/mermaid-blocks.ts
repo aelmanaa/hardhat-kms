@@ -1,5 +1,6 @@
 // The Mermaid rule of `scripts/check-docs.ts`: every ```mermaid block in the docs parses with
-// Mermaid's own parser, so a diagram that GitHub would show as an error fails the check instead.
+// Mermaid's own parser, at the lockfile version, so a broken diagram fails the check rather than
+// showing as an error on GitHub. GitHub's Mermaid can differ from that version.
 // Kept apart from check-docs.ts, which runs on import, so `test/scripts/mermaid-blocks.test.ts`
 // can call it.
 //
