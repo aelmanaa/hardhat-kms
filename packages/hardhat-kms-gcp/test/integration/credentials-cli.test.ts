@@ -17,7 +17,7 @@ const ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const CREDENTIALS_ERROR =
   "the credentials file GOOGLE_APPLICATION_CREDENTIALS names could not be read";
 let project: string;
-/** The signal of the running test. */
+/** The running test's signal. */
 let signal: AbortSignal | undefined;
 
 const CONFIG = (plugin: string) => `import gcp from ${JSON.stringify(plugin)};
@@ -67,7 +67,7 @@ function assertCredentialsError({ status, output, report }: HardhatRun) {
 }
 
 describe("a Google Cloud credentials file that does not exist", () => {
-  // Stops a run when its test ends or times out.
+  // The running test's signal, which stops its run when the test ends or times out.
   beforeEach((t) => {
     signal = t.signal;
   });

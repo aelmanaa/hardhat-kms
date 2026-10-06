@@ -1,9 +1,10 @@
 // An integration test that starts the Hardhat CLI calls `runHardhat` from
-// `packages/hardhat-kms/test/helpers/hardhat-cli.ts`, never `spawnSync`: one synchronous limit for
-// startup and work timed out under load (#240), and the helper's run can be stopped by the test's
-// signal. This test parses every `packages/*/test/integration/**/*.test.ts` and fails on a
-// `spawnSync` call whose arguments name the CLI. A `spawnSync` that starts a fixture script with
-// Node is fine.
+// `packages/hardhat-kms/test/helpers/hardhat-cli.ts`, never a synchronous child process: one
+// limit for startup and work timed out under load (#240), and the helper's run can be stopped by the
+// test's signal. This test parses every `packages/*/test/integration/**/*.test.ts` and fails on a
+// `spawnSync`, `execFileSync` or `execSync` call whose arguments name the CLI, as a string, a
+// template or the helper's `HARDHAT_CLI`. A call that starts a fixture script with Node is fine,
+// and a CLI path held in a variable of the test's own is not followed.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -15,9 +16,12 @@ import { parseSync } from "oxc-parser";
 import { calleeName, field, walk } from "../../scripts/ast.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-/** The CLI's path inside the `hardhat` package, and the helper's constant for it. */
+/** The CLI's path inside the `hardhat` package. */
 const CLI_PATH = "hardhat/dist/src/cli.js";
+/** The helper's constant that holds that path. */
 const CLI_CONSTANT = "HARDHAT_CLI";
+/** The synchronous ways `node:child_process` starts a child. */
+const SYNC_CALLS = new Set(["spawnSync", "execFileSync", "execSync"]);
 
 /** Whether a subtree names the Hardhat CLI, in a string, a template or the helper's constant. */
 function namesHardhatCli(node: unknown): boolean {
@@ -40,28 +44,28 @@ function namesHardhatCli(node: unknown): boolean {
 }
 
 /**
- * The `spawnSync` calls in a test file that start the Hardhat CLI.
+ * The synchronous child-process calls in a test file that start the Hardhat CLI.
  *
  * @param file - The file's path, for the messages.
  * @param source - Its TypeScript source.
  * @returns One message per call, with its line, or one when the file does not parse.
  */
-function hardhatSpawnSyncProblems(file: string, source: string): string[] {
+function hardhatSyncCallProblems(file: string, source: string): string[] {
   const parsed = parseSync(file, source);
   if (parsed.errors.length > 0) {
     return [`${file}: cannot parse (${parsed.errors[0]?.message ?? "unknown error"})`];
   }
   const problems: string[] = [];
   walk(parsed.program, (node) => {
-    if (
-      field(node, "type") === "CallExpression" &&
-      calleeName(field(node, "callee")) === "spawnSync" &&
-      namesHardhatCli(field(node, "arguments"))
-    ) {
+    if (field(node, "type") !== "CallExpression") {
+      return;
+    }
+    const name = calleeName(field(node, "callee"));
+    if (name !== undefined && SYNC_CALLS.has(name) && namesHardhatCli(field(node, "arguments"))) {
       const start = field(node, "start");
       const line = source.slice(0, typeof start === "number" ? start : 0).split("\n").length;
       problems.push(
-        `${file}:${line}: spawnSync starts the Hardhat CLI; call runHardhat from packages/hardhat-kms/test/helpers/hardhat-cli.ts`,
+        `${file}:${line}: ${name} starts the Hardhat CLI; call runHardhat from packages/hardhat-kms/test/helpers/hardhat-cli.ts`,
       );
     }
   });
@@ -90,9 +94,9 @@ function integrationTests(): string[] {
 }
 
 const FILE = "packages/example/test/integration/example.test.ts";
-const check = (source: string): string[] => hardhatSpawnSyncProblems(FILE, source);
+const check = (source: string): string[] => hardhatSyncCallProblems(FILE, source);
 
-describe("hardhatSpawnSyncProblems", () => {
+describe("hardhatSyncCallProblems", () => {
   it("passes a spawnSync that starts a fixture script with Node", () => {
     const source = [
       'import { spawnSync } from "node:child_process";',
@@ -139,17 +143,39 @@ describe("hardhatSpawnSyncProblems", () => {
     assert.equal(check(source).length, 2);
   });
 
+  it("reports execFileSync and execSync of the CLI, by name", () => {
+    const source = [
+      'execFileSync(process.execPath, [HARDHAT_CLI, "kms", "address"], { cwd: project });',
+      "const output = execSync(`node ${HARDHAT_CLI} kms address`, { cwd: project });",
+      'child_process.execSync("node node_modules/hardhat/dist/src/cli.js kms address");',
+      "",
+    ].join("\n");
+    assert.deepEqual(
+      check(source).map((problem) => problem.split(" ")[1]),
+      ["execFileSync", "execSync", "execSync"],
+    );
+  });
+
+  it("does not follow a CLI path held in a variable of the test's own", () => {
+    const source = [
+      'const cli = path.join(repo, "node_modules/hardhat/dist/src/cli.js");',
+      "spawnSync(process.execPath, [cli]);",
+      "",
+    ].join("\n");
+    assert.deepEqual(check(source), []);
+  });
+
   it("reports a file that does not parse", () => {
     assert.equal(check("const = ;\n").length, 1);
   });
 });
 
 describe("the integration tests", () => {
-  it("start the Hardhat CLI through runHardhat, not spawnSync", () => {
+  it("start the Hardhat CLI through runHardhat, not a synchronous call", () => {
     const files = integrationTests();
     assert.ok(files.length > 0, "no integration test found");
     const problems = files.flatMap((file) =>
-      hardhatSpawnSyncProblems(file, readFileSync(path.join(root, file), "utf8")),
+      hardhatSyncCallProblems(file, readFileSync(path.join(root, file), "utf8")),
     );
     assert.deepEqual(problems, []);
   });
