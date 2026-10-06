@@ -3,11 +3,12 @@
 // rethrows a failure there into a promise that nothing awaits: unless the adapter handles that
 // failure first, the process ends with an unhandled rejection after the task has reported.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { type HardhatRun, runHardhat } from "../../../hardhat-kms/test/helpers/hardhat-cli.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 // Hardhat's first default account, pinned so that personal_sign reaches the key without
@@ -16,6 +17,8 @@ const ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const CREDENTIALS_ERROR =
   "the credentials file GOOGLE_APPLICATION_CREDENTIALS names could not be read";
 let project: string;
+/** The running test's signal. */
+let signal: AbortSignal | undefined;
 
 const CONFIG = (plugin: string) => `import gcp from ${JSON.stringify(plugin)};
 
@@ -43,37 +46,19 @@ const { provider } = await network.create();
 await provider.request({ method: "personal_sign", params: ["0x00", ${JSON.stringify(ADDRESS)}] });
 `;
 
-function hardhat(args: string[]): { status: number | null; output: string } {
-  const result = spawnSync(
-    process.execPath,
-    [path.join(repo, "node_modules/hardhat/dist/src/cli.js"), ...args],
-    {
-      cwd: project,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        // A black-box run: Hardhat loads the plugin through its own TypeScript loader, and that
-        // coverage data would clash with the native runs of the same files.
-        NODE_V8_COVERAGE: "",
-        // CI adds --import tsx on Node 22.13 for the test runner; the CLI registers tsx itself. Any
-        // other option stays, such as the deprecation preload of the Node 26 CI leg.
-        NODE_OPTIONS: (process.env["NODE_OPTIONS"] ?? "")
-          .replaceAll(/(?:^|\s)--import(?:=|\s+)tsx(?=\s|$)/g, " ")
-          .trim(),
-        GOOGLE_APPLICATION_CREDENTIALS: path.join(project, "missing-credentials.json"),
-        HARDHAT_KMS: "",
-      },
-      timeout: 60_000,
-      killSignal: "SIGKILL",
-    },
-  );
-  return { status: result.status, output: `${result.stdout}${result.stderr}` };
+/** Runs the Hardhat CLI in the project, under the helper's one limit for startup and task. */
+async function hardhat(args: string[]): Promise<HardhatRun> {
+  return await runHardhat(args, {
+    cwd: project,
+    env: { GOOGLE_APPLICATION_CREDENTIALS: path.join(project, "missing-credentials.json") },
+    signal,
+  });
 }
 
 /** Checks that the run failed with the catalogue's credentials error, and with nothing else. */
-function assertCredentialsError({ status, output }: { status: number | null; output: string }) {
-  assert.equal(status, 1, output);
-  assert.ok(output.includes(CREDENTIALS_ERROR), output);
+function assertCredentialsError({ status, output, report }: HardhatRun) {
+  assert.equal(status, 1, report);
+  assert.ok(output.includes(CREDENTIALS_ERROR), report);
   assert.doesNotMatch(output, /unhandled/i);
   assert.doesNotMatch(output, /ENOENT/);
   // google-auth-library's own message names the file's path.
@@ -82,6 +67,11 @@ function assertCredentialsError({ status, output }: { status: number | null; out
 }
 
 describe("a Google Cloud credentials file that does not exist", () => {
+  // The running test's signal, which stops its run when the test ends or times out.
+  beforeEach((t) => {
+    signal = t.signal;
+  });
+
   before(() => {
     // Inside the package, as in hardhat-kms's CLI tests: a project in os.tmpdir() needs a link to
     // node_modules, which fails on the Windows runner.
@@ -102,15 +92,15 @@ describe("a Google Cloud credentials file that does not exist", () => {
     rmSync(project, { recursive: true, force: true });
   });
 
-  it("fails kms address with the credentials error, and nothing crashes after it", () => {
-    assertCredentialsError(hardhat(["kms", "address", "deployer"]));
+  it("fails kms address with the credentials error, and nothing crashes after it", async () => {
+    assertCredentialsError(await hardhat(["kms", "address", "deployer"]));
   });
 
-  it("fails a personal_sign request with the credentials error, and nothing crashes after it", () => {
-    assertCredentialsError(hardhat(["run", "sign.ts", "--network", "remote"]));
+  it("fails a personal_sign request with the credentials error, and nothing crashes after it", async () => {
+    assertCredentialsError(await hardhat(["run", "sign.ts", "--network", "remote"]));
   });
 
-  it("fails kms history with the credentials error, and nothing crashes after it", () => {
-    assertCredentialsError(hardhat(["kms", "history", "deployer"]));
+  it("fails kms history with the credentials error, and nothing crashes after it", async () => {
+    assertCredentialsError(await hardhat(["kms", "history", "deployer"]));
   });
 });

@@ -8,6 +8,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { field } from "./ast.ts";
 import { SKIP_MARKER } from "./user-pages.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -113,11 +114,6 @@ function checkSnippet(directory: string, source: string, code: string): string[]
 /** A relative path with forward slashes, as oxlint prints it on every OS. */
 function toPosix(file: string): string {
   return file.split(path.sep).join("/");
-}
-
-/** Reads a field of a parsed JSON value. */
-function field(value: unknown, name: string): unknown {
-  return typeof value === "object" && value !== null ? Reflect.get(value, name) : undefined;
 }
 
 /**
