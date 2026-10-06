@@ -10,7 +10,7 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 
 You need:
 
-- Node.js 22.13.0 or later ([Support](../../../README.md#support)), and npm.
+- Node.js 22.13.0 or later (see [supported Node.js versions](../../../README.md#support)), and npm.
 - The Azure CLI, signed in with `az login`, with a subscription where you can create a resource group and a key vault and assign roles, such as one where you have the Owner role. The plugin finds the same sign-in as the CLI. It tries environment variables first, but only a complete set: `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` with `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE`. `AZURE_CLIENT_ID` alone only chooses a user-assigned managed identity, which the plugin tries after the CLI. See [Sign in](../guides/azure-key-vault-setup.md#3-sign-in).
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
 - About 0.01 Sepolia ETH, from a faucet or another account.
