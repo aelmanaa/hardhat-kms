@@ -89,7 +89,7 @@ describe("live test redaction", () => {
 
   it("keeps addresses and transaction hashes", () => {
     const hash = `0x${"ab".repeat(32)}`;
-    const address = "0x728743B36DE6236f6d03409563a7E2c39a00EE17";
+    const address = "0x1111111111111111111111111111111111111111";
     assert.equal(redact(`${address} sent ${hash}`, ENV), `${address} sent ${hash}`);
   });
 
@@ -115,7 +115,8 @@ describe("live test redaction", () => {
     const r = "0d".repeat(32);
     const s = "7e".repeat(32);
     const hash = `0x${"ab".repeat(32)}`;
-    const address = "0x728743B36DE6236f6d03409563a7E2c39a00EE17";
+    // Hardhat's first default account, so the digest of ones above stays the only run of ones.
+    const address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
     const text = redact(
       `r: ${r} s=${s}; args: (0x${r}, 28, 0x${s}); recoverPersonal(0x${"11".repeat(32)}, 27, 0x${r}, 0x${s}); ` +
         `raw ${"5a".repeat(110)}; transaction ${hash} from ${address}`,

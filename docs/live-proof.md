@@ -2,14 +2,14 @@
 
 Audience: contributors and reviewers who want on-chain evidence that the plugin signs with real KMS keys.
 
-Status: M9. The latest run of the live suite on Sepolia ([#44](https://github.com/aelmanaa/hardhat-kms/issues/44)), with the transaction matrix of [#144](https://github.com/aelmanaa/hardhat-kms/issues/144). `pnpm run docs:live-proof` renders this page from `test/live/proof.json`, which the run wrote; do not edit it by hand.
+Status: the latest run of the live suite on Sepolia ([#44](https://github.com/aelmanaa/hardhat-kms/issues/44)), with the transaction matrix of [#144](https://github.com/aelmanaa/hardhat-kms/issues/144). `pnpm run docs:live-proof` renders this page from `test/live/proof.json`, which the run wrote; do not edit it by hand.
 
 ## Run
 
 | Field      | Value                                                                    |
 | ---------- | ------------------------------------------------------------------------ |
 | Date       | 2026-10-01, blocks mined from 22:49:48 to 22:52:36 UTC                   |
-| Commit     | `1aeecd5` (`test: tighten the live matrix checks after review`)          |
+| Commit     | `1aeecd5`                                                                |
 | Chain id   | 11155111 (Sepolia)                                                       |
 | Blocks     | 11824906 to 11824920                                                     |
 | Command    | `HARDHAT_KMS_LIVE_NETWORK=sepolia pnpm run test:live`                    |

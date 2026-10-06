@@ -9,8 +9,8 @@ const log = coreDebug("config");
 const keysByRuntime = new WeakMap<object, readonly KmsKeyConfig[]>();
 
 /**
- * The keys selected with `--kms` for this runtime, in order. The network hook (planned for M4)
- * will add them to the selected network's accounts.
+ * The keys selected with `--kms` for this runtime, in order. The network hook adds them to the
+ * selected network's accounts.
  *
  * @param runtime - The Hardhat runtime, or the context a hook handler receives. Hardhat builds
  * hook contexts with the runtime as their prototype, so both find the same keys.

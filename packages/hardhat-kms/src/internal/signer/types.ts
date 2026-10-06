@@ -39,8 +39,7 @@ export interface KeyDescription {
  * at least one way to sign. The core prefers the structured methods when present and falls back
  * to `signDigest`; it always verifies the returned signature against the key.
  *
- * @experimental Transaction methods are added in the transaction milestone; the contract is frozen
- * at 1.0.
+ * @experimental The contract is frozen at 1.0.
  */
 export interface KmsKeyAdapter {
   /** Describes the key for messages and logs. */

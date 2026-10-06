@@ -38,9 +38,8 @@ export interface ProviderProof {
 /** A Sepolia run, as `test/live/proof.json` holds it. */
 export interface Proof {
   chainId: number;
-  /** The short hash and subject of the commit the run tested. */
+  /** The short hash of the commit the run tested. */
   commit: string;
-  subject: string;
   /** ISO timestamps of the first and last block with one of the run's transactions. */
   firstBlockTime: string;
   lastBlockTime: string;
@@ -236,7 +235,7 @@ export function renderProof(proof: Proof): string {
     "",
     "Audience: contributors and reviewers who want on-chain evidence that the plugin signs with real KMS keys.",
     "",
-    "Status: M9. The latest run of the live suite on Sepolia ([#44](https://github.com/aelmanaa/hardhat-kms/issues/44)), " +
+    "Status: the latest run of the live suite on Sepolia ([#44](https://github.com/aelmanaa/hardhat-kms/issues/44)), " +
       "with the transaction matrix of [#144](https://github.com/aelmanaa/hardhat-kms/issues/144). " +
       `${PROOF_MARKER}, which the run wrote; do not edit it by hand.`,
     "",
@@ -249,7 +248,7 @@ export function renderProof(proof: Proof): string {
           "Date",
           `${proof.firstBlockTime.slice(0, 10)}, blocks mined from ${time(proof.firstBlockTime)} to ${time(proof.lastBlockTime)} UTC`,
         ],
-        ["Commit", `\`${proof.commit}\` (\`${proof.subject}\`)`],
+        ["Commit", `\`${proof.commit}\``],
         ["Chain id", `${proof.chainId} (Sepolia)`],
         ["Blocks", `${firstBlock} to ${lastBlock}`],
         ["Command", "`HARDHAT_KMS_LIVE_NETWORK=sepolia pnpm run test:live`"],
@@ -417,7 +416,6 @@ export function parseProof(source: string): Proof {
   return {
     chainId: value.chainId,
     commit: text(value.commit, "commit"),
-    subject: text(value.subject, "subject"),
     firstBlockTime: text(value.firstBlockTime, "firstBlockTime"),
     lastBlockTime: text(value.lastBlockTime, "lastBlockTime"),
     providers: value.providers.map((item: unknown, index): ProviderProof => {

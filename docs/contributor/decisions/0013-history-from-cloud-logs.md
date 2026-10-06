@@ -22,7 +22,7 @@ So matching a log entry to a plugin request needs a server id kept from the mome
 
 ## Decision
 
-The owner decided on 2026-10-02: signing history comes only from the cloud providers' audit logs. The plugin stores nothing about the signatures it makes, and `kms history` shows nothing the log does not hold.
+Signing history comes only from the cloud providers' audit logs. The plugin stores nothing about the signatures it makes, and `kms history` shows nothing the log does not hold.
 
 - One row per log entry, copied as logged. A field the provider never records is listed in `notLogged` and never filled in. A field the provider left empty in an entry shows as empty.
 - The history covers the whole key: every version, even when the config pins one, with the version that signed in a `keyVersion` column where the provider logs it.
