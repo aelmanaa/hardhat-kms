@@ -8,6 +8,7 @@
       "ignoreDependencies": [
         "publint",
         "@arethetypeswrong/cli",
+        "verdaccio",
         "@hardhat-kms/aws",
         "@hardhat-kms/azure",
         "@hardhat-kms/gcp",

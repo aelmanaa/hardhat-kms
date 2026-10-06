@@ -52,6 +52,7 @@ catalog:
   "typedoc": "0.28.20"
   "typedoc-plugin-markdown": "4.13.1"
   "typescript": "7.0.2"
+  "verdaccio": "6.10.5"
   "viem": "^2.57.1"
 
 # TypeDoc does not run on TypeScript 7 yet (TypeStrong/typedoc#3098), so tools/api-docs gets

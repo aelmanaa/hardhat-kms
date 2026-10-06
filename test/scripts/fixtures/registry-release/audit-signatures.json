@@ -1,0 +1,60 @@
+{
+  "invalid": [],
+  "missing": [],
+  "verified": [
+    {
+      "name": "hardhat-kms",
+      "version": "1.0.1",
+      "location": "node_modules/hardhat-kms",
+      "registry": "https://registry.npmjs.org/",
+      "attestations": {
+        "url": "https://registry.npmjs.org/-/npm/v1/attestations/hardhat-kms@1.0.1",
+        "provenance": {
+          "predicateType": "https://slsa.dev/provenance/v1"
+        }
+      }
+    },
+    {
+      "name": "@hardhat-kms/aws",
+      "version": "1.0.1",
+      "location": "node_modules/@hardhat-kms/aws",
+      "registry": "https://registry.npmjs.org/",
+      "attestations": {
+        "url": "https://registry.npmjs.org/-/npm/v1/attestations/@hardhat-kms%2faws@1.0.1",
+        "provenance": {
+          "predicateType": "https://slsa.dev/provenance/v1"
+        }
+      }
+    },
+    {
+      "name": "@hardhat-kms/gcp",
+      "version": "1.0.1",
+      "location": "node_modules/@hardhat-kms/gcp",
+      "registry": "https://registry.npmjs.org/",
+      "attestations": {
+        "url": "https://registry.npmjs.org/-/npm/v1/attestations/@hardhat-kms%2fgcp@1.0.1",
+        "provenance": {
+          "predicateType": "https://slsa.dev/provenance/v1"
+        }
+      }
+    },
+    {
+      "name": "@hardhat-kms/azure",
+      "version": "1.0.1",
+      "location": "node_modules/@hardhat-kms/azure",
+      "registry": "https://registry.npmjs.org/",
+      "attestations": {
+        "url": "https://registry.npmjs.org/-/npm/v1/attestations/@hardhat-kms%2fazure@1.0.1",
+        "provenance": {
+          "predicateType": "https://slsa.dev/provenance/v1"
+        }
+      }
+    },
+    {
+      "name": "some-dependency",
+      "version": "2.0.0",
+      "location": "node_modules/some-dependency",
+      "registry": "https://registry.npmjs.org/"
+    }
+  ]
+}

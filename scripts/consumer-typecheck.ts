@@ -1,17 +1,30 @@
 // Type-check a fresh consumer project against the packed packages with a given TypeScript version.
 // Proves the published .d.ts files work for users who are not on TypeScript 7.
 //
-// Usage: node scripts/consumer-typecheck.ts <typescript-version>
+// Usage: node scripts/consumer-typecheck.ts [--from-registry <version> [--registry <url>]] <typescript-version>
+//
+// With --from-registry the consumer installs the four packages at that version from the registry,
+// with no build and no pack here, and the install is followed by a check that the project
+// resolves that version. The run without viem is unchanged.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { pack, withPackDirectory } from "./pack.ts";
+import {
+  assertInstalledVersion,
+  registryArguments,
+  registryOptionsOrExit,
+  registrySpecs,
+} from "./registry.ts";
 
-const typescriptVersion = process.argv[2];
-if (typescriptVersion === undefined) {
-  process.stderr.write("usage: node scripts/consumer-typecheck.ts <typescript-version>\n");
+const usage =
+  "usage: node scripts/consumer-typecheck.ts [--from-registry <version> [--registry <url>]] <typescript-version>";
+const options = registryOptionsOrExit(process.argv.slice(2), usage);
+const typescriptVersion = options.rest[0];
+if (typescriptVersion === undefined || options.rest.length > 1) {
+  process.stderr.write(`${usage}\n`);
   process.exit(1);
 }
 
@@ -32,11 +45,16 @@ const run = (command: string, args: string[], cwd: string): void => {
   execFileSync(command, args, { cwd, stdio: "inherit", shell });
 };
 
-run(pnpm, ["run", "build"], root);
+if (options.version === undefined) {
+  run(pnpm, ["run", "build"], root);
+}
 // The tarballs and the consumer project share one directory per run, removed when the run ends.
 withPackDirectory((work) => {
   // pnpm pack replaces workspace: ranges with real versions, as publishing does.
-  const tarballs = packages.map((directory) => pack(directory, work));
+  const specs =
+    options.version === undefined
+      ? packages.map((directory) => pack(directory, work))
+      : registrySpecs(options.version);
   const consumer = path.join(work, "consumer");
   mkdirSync(consumer);
   writeFileSync(
@@ -322,13 +340,17 @@ withPackDirectory((work) => {
       "--no-audit",
       "--no-fund",
       "--ignore-scripts",
-      ...tarballs,
+      ...registryArguments(options.registry),
+      ...specs,
       `hardhat@${hardhatVersion}`,
       `typescript@${typescriptVersion}`,
       "@types/node@22",
     ],
     consumer,
   );
+  if (options.version !== undefined) {
+    assertInstalledVersion(consumer, options.version);
+  }
   // viem is an optional peer dependency: npm does not install it, and nothing above may need it.
   if (existsSync(path.join(consumer, "node_modules", "viem"))) {
     throw new Error(
@@ -391,5 +413,7 @@ withPackDirectory((work) => {
   if (!runtime.includes("connection.kms.getAccount needs the viem package")) {
     throw new Error(`getAccount without viem did not name the package:\n${runtime}`);
   }
-  process.stdout.write(`consumer typecheck passed with TypeScript ${typescriptVersion}\n`);
+  process.stdout.write(
+    `consumer typecheck passed with TypeScript ${typescriptVersion}${options.version === undefined ? "" : ` and hardhat-kms ${options.version} from the registry`}\n`,
+  );
 });

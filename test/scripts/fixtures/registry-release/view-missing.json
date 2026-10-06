@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "E404",
+    "summary": "Not Found - GET http://127.0.0.1:4873/does-not-exist-hardhat-kms - no such package available",
+    "detail": "The requested resource 'does-not-exist-hardhat-kms@*' could not be found or you do not have permission to access it.\n\nNote that you can also install from a\ntarball, folder, http url, or git url."
+  }
+}
