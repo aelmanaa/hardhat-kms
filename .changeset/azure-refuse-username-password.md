@@ -3,7 +3,7 @@
 "hardhat-kms": minor
 ---
 
-The Azure credential chain no longer signs in with `AZURE_USERNAME` and `AZURE_PASSWORD`. That sign-in cannot do multifactor authentication, so a leaked password was enough to sign. With `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_USERNAME` and `AZURE_PASSWORD` set and no client secret or certificate, signing and `kms history` fail with the new `azure.credential.username-password` error, which names the variables but not their values. A stray `AZURE_USERNAME` or `AZURE_PASSWORD` in any other case is ignored, with a `hardhat:kms:azure` debug line that names it, so `az login` and service principal setups keep working.
+The Azure credential chain no longer signs in with `AZURE_USERNAME` and `AZURE_PASSWORD`. That sign-in cannot do multifactor authentication. With `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_USERNAME` and `AZURE_PASSWORD` set and no client secret or certificate, signing and `kms history` fail with the new `azure.credential.username-password` error, which names the variables but not their values. A stray `AZURE_USERNAME` or `AZURE_PASSWORD` in any other case is ignored, with a `hardhat:kms:azure` debug line that names it. `az login`, service principal, workload identity and managed identity setups keep working.
 
 `AZURE_ADDITIONALLY_ALLOWED_TENANTS` now takes effect for a service principal from the environment, so a vault in an allowed tenant other than `AZURE_TENANT_ID` can sign. Before, the variable had no effect. A service principal that fails for any reason, including a tenant that is not allowed, still stops the chain. An invalid `AZURE_TENANT_ID` now fails with `azure.credential.tenant-id`. Before, it failed with a generic adapter error.
 
