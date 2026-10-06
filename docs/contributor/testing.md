@@ -135,7 +135,7 @@ When the Node floor moves to a release that has the change (24.0.0, or a later 2
 
 ## Run the tests on the published floor
 
-The packages support Node >= 22.13.0 (`engines` in `packages/*/package.json`). Developing in the clone needs Node >= 22.18.0 (root `devEngines`), because the scripts and hooks run `.ts` files with plain `node`, and 22.18.0 is the first 22.x release that strips types without a flag. So on 22.13.0, `pnpm test` stops with `ERR_PNPM_BAD_RUNTIME_VERSION` before it runs anything. To run the suite there anyway, for example to reproduce a failure of the CI `Test (Linux, Node 22.13.0)` job, set two variables:
+The published packages run on the floor in `engines.node` of `packages/*/package.json` ([Support](../../README.md#support)). Developing in the clone needs Node >= 22.18.0 (root `devEngines`), because the scripts and hooks run `.ts` files with plain `node`, and 22.18.0 is the first 22.x release that strips types without a flag. So on the published floor, 22.13.0 today, `pnpm test` stops with `ERR_PNPM_BAD_RUNTIME_VERSION` before it runs anything. To run the suite there anyway, for example to reproduce a failure of the CI `Test (Linux, Node 22.13.0)` job, set two variables:
 
 ```sh
 nvm install 22.13.0   # installs it if needed and switches to it
