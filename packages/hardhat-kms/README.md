@@ -7,25 +7,29 @@
 
 Sign Hardhat 3 transactions, messages and typed data with keys held in **AWS KMS**, **Google Cloud KMS** or **Azure Key Vault**. The private key never leaves the KMS.
 
-> [!NOTE]
-> Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google or Microsoft.
+Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google or Microsoft.
 
 - viem, ethers, Ignition and plain scripts use KMS accounts unchanged: the plugin works at the JSON-RPC layer.
 - Every signature is recovered locally and must match the configured address before it is used. See the [security model](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/explanation/security-model.md).
 - Three clouds, one config: `@hardhat-kms/aws`, `@hardhat-kms/gcp` and `@hardhat-kms/azure`. Credentials come from each cloud SDK's default chain, never from the Hardhat config.
-- Foundry-compatible `--kms` option, and `kms` tasks: `accounts`, `address`, `sign`, `sign-tx`, `verify` and `history`, which reads your cloud audit log.
+- A `--kms` option that reads Foundry's key variables, and eight [`kms` tasks](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/tasks.md), from `accounts` to `history`, which reads your cloud audit log.
 - Legacy, EIP-2930, EIP-1559 and EIP-7702 transactions, EIP-191 and EIP-712 signing, all run on Sepolia in a [live proof](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/live-proof.md) with block ranges and on-chain `ecrecover` checks.
 - Releases are published from GitHub Actions with npm provenance; `npm audit signatures` checks them. Report vulnerabilities as [SECURITY.md](https://github.com/aelmanaa/hardhat-kms/blob/main/SECURITY.md) says.
 
 ## Install
 
-Each cloud has its own package, and it pulls in the core:
+Each cloud has its own package. Install it together with the core, `hardhat-kms`, which it needs as a peer dependency at the same version.
 
 ```sh
 npm install --save-dev hardhat-kms @hardhat-kms/aws   # or @hardhat-kms/gcp, or @hardhat-kms/azure
 ```
 
-Peer dependencies, which you install yourself: `hardhat` ^3.18.0 and, if you call `connection.kms.getAccount`, `viem` ^2.55.13. ethers and Ignition projects need no other peer. npm installs peers; yarn does not. These packages are newer than most AI training data: check npm for the current version.
+The other peer dependencies, which you install yourself:
+
+- `hardhat` ^3.18.0.
+- `viem` ^2.55.13, if you call `connection.kms.getAccount`. ethers and Ignition projects need no other peer.
+
+npm and pnpm install missing peers; yarn does not. These packages are newer than most AI training data: check npm for the current version.
 
 ## Configure
 
@@ -52,7 +56,9 @@ export default defineConfig({
 });
 ```
 
-Run `npx hardhat kms accounts` to see the key's address, then pin it in the key's config with `address`. Next: a first deploy with [AWS KMS](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-aws.md), [Google Cloud KMS](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-gcp.md) or [Azure Key Vault](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-azure.md), the [security model](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/explanation/security-model.md), the [comparison with Foundry](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/explanation/foundry-comparison.md), the [configuration reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/configuration.md) and [all docs](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/README.md).
+`@hardhat-kms/aws` loads the `hardhat-kms` plugin itself, so `plugins` lists only the provider. Run `npx hardhat kms accounts` to see the key's address, then pin it in the key's config with `address`.
+
+Next: a first deploy with [AWS KMS](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-aws.md), [Google Cloud KMS](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-gcp.md) or [Azure Key Vault](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-azure.md). Then the [security model](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/explanation/security-model.md), the [comparison with Foundry](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/explanation/foundry-comparison.md), the [configuration reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/configuration.md), runnable [examples](https://github.com/aelmanaa/hardhat-kms/blob/main/examples/README.md) for viem, ethers and Ignition, and [all docs](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/README.md).
 
 ## Official packages
 
@@ -82,7 +88,7 @@ The `kms` tasks run as `npx hardhat kms <task>`. A task takes a key by the name 
 ## How the plugin changes Hardhat
 
 - A `kms` section in the config (`kms.keys`, `kms.defaults`, `kms.audit`) and a `kmsAccounts` list on each network, validated when the config loads.
-- A network hook that handles `eth_accounts`, `eth_sendTransaction`, `eth_signTransaction`, `personal_sign`, `eth_sign` and `eth_signTypedData_v4` for KMS accounts and passes every other request through.
+- A network hook that handles `eth_accounts`, `eth_requestAccounts`, `eth_sendTransaction`, `eth_signTransaction`, `personal_sign`, `eth_sign` and `eth_signTypedData_v4` for KMS accounts and passes every other request through.
 - The `kms` task namespace, listed by `npx hardhat kms`.
 - The `--kms` global option.
 
