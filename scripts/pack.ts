@@ -10,6 +10,8 @@ const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
 const shell = process.platform === "win32";
 
+const PREFIX = "hardhat-kms-pack-";
+
 /**
  * Runs `use` with a new, empty directory and removes the directory afterwards, also when `use`
  * throws. `use` must finish its work before it returns: the directory does not outlive the call.
@@ -18,12 +20,32 @@ const shell = process.platform === "win32";
  * @returns What `use` returns.
  */
 export function withPackDirectory<T>(use: (directory: string) => T): T {
-  const directory = mkdtempSync(path.join(tmpdir(), "hardhat-kms-pack-"));
+  const directory = mkdtempSync(path.join(tmpdir(), PREFIX));
   try {
     return use(directory);
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    removePackDirectory(directory);
   }
+}
+
+/**
+ * Removes a directory that {@link withPackDirectory} created. The clean-up runs with
+ * `recursive: true`, so it refuses any other path: the temp directory itself, or a directory
+ * outside it, must never be removed by a wrong edit to this file.
+ *
+ * @param directory - The directory to remove.
+ */
+export function removePackDirectory(directory: string): void {
+  const resolved = path.resolve(directory);
+  if (
+    path.dirname(resolved) !== path.resolve(tmpdir()) ||
+    !path.basename(resolved).startsWith(PREFIX)
+  ) {
+    throw new Error(
+      `refusing to remove ${directory}: not a ${PREFIX}* directory under ${tmpdir()}`,
+    );
+  }
+  rmSync(resolved, { recursive: true, force: true });
 }
 
 /**
