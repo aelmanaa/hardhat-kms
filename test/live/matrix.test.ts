@@ -59,7 +59,6 @@ function syntheticProof(): Proof {
   return {
     chainId: 11_155_111,
     commit: "abc1234",
-    subject: "test: a synthetic run",
     firstBlockTime: "2026-10-02T10:00:00.000Z",
     lastBlockTime: "2026-10-02T10:05:00.000Z",
     providers: (["aws", "gcp", "azure"] as const).map((provider, index) => ({

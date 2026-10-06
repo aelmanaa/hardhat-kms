@@ -1,7 +1,6 @@
 {
   "chainId": 11155111,
   "commit": "1aeecd5",
-  "subject": "test: tighten the live matrix checks after review",
   "firstBlockTime": "2026-10-01T22:49:48.000Z",
   "lastBlockTime": "2026-10-01T22:52:36.000Z",
   "providers": [
