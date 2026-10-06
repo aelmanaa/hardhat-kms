@@ -216,7 +216,7 @@ jobs:
   changeset:
     # A pull request that changes a published package carries a changeset, or an empty one when
     # there is nothing to tell users (CONTRIBUTING.md, Changesets). The release pull request
-    # deletes every changeset and Dependabot bumps no published package, so both skip the job; a
+    # deletes every changeset and a Dependabot pull request carries none, so both skip the job; a
     # skipped required check passes. Push and merge-queue runs have no head branch, so they skip too.
     name: Changeset
     runs-on: ubuntu-26.04
@@ -243,7 +243,7 @@ jobs:
       - name: A changed package has a changeset
         run: |
           if ! pnpm changeset status --since origin/main; then
-            echo "::error::This pull request changes a package without a changeset. Run 'pnpm changeset' to write one, or 'pnpm changeset add --empty' when there is nothing to tell users. See ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/main/CONTRIBUTING.md#changesets"
+            echo "::error::This pull request changes a package without a changeset. Run 'pnpm changeset' to write one, or 'pnpm changeset add --empty' when there is nothing to tell users, then commit the file it adds under .changeset/. See ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/main/CONTRIBUTING.md#changesets"
             exit 1
           fi
 
