@@ -1,6 +1,6 @@
 {
   "name": "hardhat-kms",
-  "version": "0.0.0",
+  "version": "0.8.0",
   "description": "Hardhat 3 plugin to sign transactions, messages and typed data with keys held in AWS KMS, Google Cloud KMS and Azure Key Vault or Managed HSM. Each cloud has its own provider package, such as @hardhat-kms/aws.",
   "keywords": [
     "hardhat",
