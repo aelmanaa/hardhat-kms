@@ -47,10 +47,11 @@ Issues that affect what gets signed, keys or secrets also get `security`. New is
 
 A changeset is a release note. From 1.0.0, its text becomes the `CHANGELOG.md` entry and the GitHub Release body. The reader is an operator who signs with production keys and skims the changelog for the one entry that affects them. They read it once and know what changed for them. Reasoning, design and mechanism go in the commit body or the pull request.
 
-- Lead with what the user sees. The first sentence names the task, option, config key or behaviour that changed, and how.
-- One idea per sentence. Do not chain changes with colons, semicolons or parentheses.
-- End with the issue link. If the reader needs the old behaviour to recognise the bug, give it a past-tense sentence of its own. Do not append "instead of ..." to a sentence.
+- Lead with what the user sees. The first sentence names the task, option, config key or behaviour that changed, and how. If the mechanism matters to the user, give it a sentence of its own. If it does not, leave it out.
+- One idea per sentence. Split any sentence a reader would have to read twice. Do not chain changes with colons, semicolons or parentheses.
+- End with the issue link. If the reader needs the old behaviour to recognise the bug, give it a past-tense sentence of its own. Do not append "instead of ..." or "rather than ..." to a sentence.
 - Plain punctuation: no em or en dashes, no bold or italics for emphasis, straight quotes. Plain words. Name the actor when it matters: "`kms sign-tx` now refuses", not "is now refused".
+- No reasoning. A changeset states what the plugin does now. Design justification, "so that ..." chains, "note that" and hedging go in the commit body or the pull request.
 - A breaking or behaviour change carries a second paragraph that starts with "What should I do?" and names the config key, task or command to change.
 - A Hardhat, Node.js or SDK floor change states the new floor in the entry.
 - A security fix names the advisory and the affected version range.
@@ -66,9 +67,9 @@ An entry that follows the rules:
 "@hardhat-kms/aws": minor
 ---
 
-An AWS key's `profile` and `region` now take `configVariable(...)` as well as a literal string. The plugin reads the variable when the key is first used. An empty value leaves the field unset.
+An AWS key's `profile` and `region`, and `kms.defaults.aws.region`, now take `configVariable(...)` as well as a literal string. The plugin reads the variable when the key is first used. An empty value leaves the field unset, so `configVariable("AWS_KMS_PROFILE", { default: "" })` makes the profile optional. An unset variable without a `default` fails at first use with Hardhat's error, which names the variable. A key ARN whose region conflicts with a `region` from a variable fails at first use. Errors, `kms accounts` and `kms history` show a value from a variable as `<VARIABLE_NAME>` or `<hidden>` unless `--show-ids` is given.
 
-What should I do? Nothing changes in a config that uses literal strings. A plugin that reads `AwsKmsKeyConfig.region` from the resolved config gets a `KmsIdentifier` now. Read it with `await key.region?.get()`.
+What should I do? Nothing changes in a config that uses literal strings. In the resolved config, `AwsKmsKeyConfig.region`, `AwsKmsKeyConfig.profile` and `KmsConfig.defaults.aws.region` are now `KmsIdentifier` values. A plugin that reads one of them should call `await key.region?.get()` and print `key.region?.display`. The `kms accounts` report keeps `region` and `profile` as strings.
 
 Issue: [#243](https://github.com/aelmanaa/hardhat-kms/issues/243)
 ```
