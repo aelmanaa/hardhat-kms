@@ -100,6 +100,7 @@ Decision records:
 - [0013: Signing history comes only from the cloud audit logs](docs/contributor/decisions/0013-history-from-cloud-logs.md)
 - [0014: The library account signs bare digests only when asked](docs/contributor/decisions/0014-library-account-raw-sign.md)
 - [0015: npm names: an unscoped core and scoped providers](docs/contributor/decisions/0015-npm-names.md)
+- [0017: The docs site lives at aelmanaa.github.io/hardhat-kms](docs/contributor/decisions/0017-docs-hostname.md)
 
 Rules for every change:
 
