@@ -18,4 +18,4 @@ Every signature goes through one pipeline in `signer/`: strict parse, range chec
 
 ## Evidence
 
-A source comparison with Foundry and the most downloaded JavaScript KMS signers, made while the pipeline was in review, found unchecked recovery bits, panics when no recovery bit matched (since fixed), `s` values that lose a leading zero, lenient DER parsing and skipped integrity checks in published code. The versions, packages and details are in [Signing prior art](../research/signing-prior-art.md).
+A source comparison with Foundry and the most downloaded JavaScript KMS signers found unchecked recovery bits, panics when no recovery bit matched (since fixed), `s` values that lose a leading zero, lenient DER parsing and skipped integrity checks in published code. The versions, packages and details are in [Signing prior art](../research/signing-prior-art.md).

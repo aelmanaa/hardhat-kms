@@ -2,7 +2,7 @@
 
 hardhat-kms is a Hardhat 3 plugin that signs transactions, messages and typed data with secp256k1 keys held in AWS KMS, Google Cloud KMS and Azure Key Vault. The private key never leaves the KMS.
 
-The plugin is not released yet. Each page opens with a Status line that says what exists today and which milestone delivers the rest.
+The plugin is not released yet. Each page opens with a Status line that says what exists today and what was checked.
 
 ## Tutorials
 
@@ -54,5 +54,5 @@ Runnable projects for viem, ethers and Ignition are in [examples/](../examples/R
 | [Documentation](contributor/documentation.md)                    | How the docs are organised and the rules for them    |
 | [Decision records](contributor/decisions/README.md)              | Why the main decisions were made                     |
 | [Signing prior art](contributor/research/signing-prior-art.md)   | How other signers compare, and why each check exists |
-| [Roadmap](contributor/roadmap.md)                                | Releases and milestones                              |
+| [Roadmap](contributor/roadmap.md)                                | What ships in 1.0 and what comes after               |
 | [SECURITY.md](../SECURITY.md)                                    | Reporting vulnerabilities                            |

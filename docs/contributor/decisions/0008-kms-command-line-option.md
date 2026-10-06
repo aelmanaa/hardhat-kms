@@ -90,7 +90,7 @@ The option is `globalOption({ name: "kms", type: ArgumentType.STRING_WITHOUT_DEF
 - The selected network must be `http` or `edr-simulated`, the same rule as `kmsAccounts`. The planned warning for KMS keys on the `default` network covers command-line keys too.
 - Command-line keys come after the network's config `kmsAccounts`, in variable order, as Foundry's multi-wallet appends each source (`wallet_multi/mod.rs:255-295`). `eth_accounts` keeps its documented order: the network's own accounts, then the KMS addresses (`docs/user/reference/rpc-methods.md:11`).
 - A command-line key whose provider and identifier value equal a config key on the same network is an error that names both, for example `AWS_KMS_KEY_ID is already networks.sepolia.kmsAccounts[0] ("deployer")`. Two keys that derive to the same address are an error when addresses are first resolved.
-- Command-line keys are not written into `hre.config`, because the config is resolved before global options exist. The `kms accounts` task (M7) lists them with their source.
+- Command-line keys are not written into `hre.config`, because the config is resolved before global options exist. The `kms accounts` task lists them with their source.
 
 ### Issue #13
 
@@ -150,6 +150,6 @@ Added on 2026-09-30, while implementing the first part of [#84](https://github.c
 - **Help always works.** With `--help`, the option is not read, so a wrong `HARDHAT_KMS` cannot hide the help that explains it. Every other command, including a bare `npx hardhat`, reads and checks it.
 - **Error paths name the field**, as for config keys: `invalid value for --kms azure.keyId (<AZURE_KEY_VAULT_KEY_ID>): …`. A bad GCP value names the variable at fault, for example `--kms gcp.keyRing (<GCP_KEY_RING>)`.
 - **Typing.** `GlobalOptions.kms` is `string | undefined`, as Hardhat declares its own options without defaults.
-- **Hook contexts.** The keys are found from the runtime or from any hook context, which Hardhat builds with the runtime as its prototype. The network hook in M4 relies on this.
+- **Hook contexts.** The keys are found from the runtime or from any hook context, which Hardhat builds with the runtime as its prototype. The network hook relies on this.
 - **ARN regions.** A `--kms` AWS key id is always read from the environment, so its region is taken from the ARN when the key is first used, as for configuration variables. The AWS adapter tests this case ([#16](https://github.com/aelmanaa/hardhat-kms/issues/16)).
 - **Same key (2026-10-01, the rest of #84).** "The same identifier value" means the same KMS key. A GCP key version name and an Azure key URL are compared as read. An AWS ARN is compared alone, but an AWS key id or alias is a match only if the region, profile and endpoint are equal too, since the same alias names different keys in different regions or accounts. Config keys with an `address` pin are not read for this check: their address is known, and the address comparison still catches a command-line key that derives to it.

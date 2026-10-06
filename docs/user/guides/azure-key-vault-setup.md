@@ -90,7 +90,7 @@ az ad sp show --id <application id> --query id --output tsv
 az identity show --resource-group my-rg --name <identity name> --query principalId --output tsv
 ```
 
-The Key Vault Ethereum Signer role alone has not yet been checked against real Key Vault: the plugin's live tests ran with the developer's own identity.
+The Key Vault Ethereum Signer role alone has not yet been checked against real Key Vault: the plugin's live tests ran with an identity that has wider permissions.
 
 If you cannot create a custom role, the built-in role with the fewest permissions that still covers both is **Key Vault Crypto User** (`12338af0-0e69-4776-bea7-57ae8d297424`). Assign it the same way, with `--role "Key Vault Crypto User"`. It also holds seven data actions the plugin does not use: `encrypt`, `decrypt`, `wrap`, `unwrap`, `verify`, `update` and `backup` ([Azure built-in roles](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/security#key-vault-crypto-user)):
 
