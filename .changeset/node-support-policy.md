@@ -5,4 +5,4 @@
 "@hardhat-kms/gcp": patch
 ---
 
-README: state the Node.js support policy (floor follows Hardhat, lines dropped in a minor after end of life).
+README: add a Support section with the Node.js policy. The minimum follows Hardhat 3 (22.13.0 today); a Node.js line is dropped in a minor release only after it reaches end of life.
