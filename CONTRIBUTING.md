@@ -40,8 +40,38 @@ Issues that affect what gets signed, keys or secrets also get `security`. New is
 
 - `main` only changes through pull requests (squash merge). The pre-push hook refuses direct pushes to `main`.
 - Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org) (checked by the commit-msg hook).
-- Every user-facing change needs a changeset: `pnpm changeset`.
+- Every user-facing change needs a changeset: `pnpm changeset`. See [Changesets](#changesets) for what to write in it.
 - The pre-commit hook formats (oxfmt) and lints (oxlint) staged files and typechecks the project.
+
+### Changesets
+
+A changeset is a release note. From 1.0.0, its text becomes the `CHANGELOG.md` entry and the GitHub Release body. The reader is an operator who signs with production keys and skims the changelog for the one entry that affects them. They read it once and know what changed for them. Reasoning, design and mechanism go in the commit body or the pull request.
+
+- Lead with what the user sees. The first sentence names the task, option, config key or behaviour that changed, and how.
+- One idea per sentence. Do not chain changes with colons, semicolons or parentheses.
+- End with the issue link. If the reader needs the old behaviour to recognise the bug, give it a past-tense sentence of its own. Do not append "instead of ..." to a sentence.
+- Plain punctuation: no em or en dashes, no bold or italics for emphasis, straight quotes. Plain words. Name the actor when it matters: "`kms sign-tx` now refuses", not "is now refused".
+- A breaking or behaviour change carries a second paragraph that starts with "What should I do?" and names the config key, task or command to change.
+- A Hardhat, Node.js or SDK floor change states the new floor in the entry.
+- A security fix names the advisory and the affected version range.
+- Which bump: `patch` for a fix or a docs-only change to a published file, such as a package README; `minor` for a new task, option, config key or provider capability; `major` for a removed or renamed one, a dropped Hardhat major or an error code removed from the catalogue. The four packages are one fixed group and get the same version, so name only the packages whose changelog should carry the entry.
+- A change under `packages/` with nothing to tell users, such as tests or an internal refactor, gets an empty changeset: `pnpm changeset add --empty`. A pull request that changes `packages/` carries one or the other.
+- Before committing, reread the entry and ask what makes it read as generated. The usual answers are a dash, an "instead of" tail, and a colon-joined list of internals.
+
+An entry that follows the rules:
+
+```md
+---
+"hardhat-kms": minor
+"@hardhat-kms/aws": minor
+---
+
+An AWS key's `profile` and `region` now take `configVariable(...)` as well as a literal string. The plugin reads the variable when the key is first used. An empty value leaves the field unset.
+
+What should I do? Nothing changes in a config that uses literal strings. A plugin that reads `AwsKmsKeyConfig.region` from the resolved config gets a `KmsIdentifier` now. Read it with `await key.region?.get()`.
+
+Issue: [#243](https://github.com/aelmanaa/hardhat-kms/issues/243)
+```
 
 ## Code standards
 
