@@ -78,6 +78,7 @@ Where things are:
 | Test layers and conventions                          | [docs/contributor/testing.md](docs/contributor/testing.md)                                       |
 | Transactions of the latest live run on Sepolia       | [docs/live-proof.md](docs/live-proof.md)                                                         |
 | Quality gates, hooks, CI                             | [docs/contributor/tooling.md](docs/contributor/tooling.md)                                       |
+| Who releases, the signed tag, staging and promotion  | [docs/contributor/releasing.md](docs/contributor/releasing.md)                                   |
 | How the docs are organised                           | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
 | Why the main decisions were made                     | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
 | How other signers compare, and why each check exists | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
@@ -100,6 +101,7 @@ Decision records:
 - [0013: Signing history comes only from the cloud audit logs](docs/contributor/decisions/0013-history-from-cloud-logs.md)
 - [0014: The library account signs bare digests only when asked](docs/contributor/decisions/0014-library-account-raw-sign.md)
 - [0015: npm names: an unscoped core and scoped providers](docs/contributor/decisions/0015-npm-names.md)
+- [0016: Release from a signed tag, stage to `beta`, promote by dist-tag](docs/contributor/decisions/0016-release-process.md)
 - [0017: The docs site lives at aelmanaa.github.io/hardhat-kms](docs/contributor/decisions/0017-docs-hostname.md)
 
 Rules for every change:
@@ -107,6 +109,8 @@ Rules for every change:
 - Work from a GitHub issue, and link it from the pull request (`Closes #n`). Labels, priorities and milestones are described in [CONTRIBUTING.md](CONTRIBUTING.md#issues-first).
 - `main` changes only through squash-merged pull requests. Commit subjects follow Conventional Commits.
 - Every user-facing change carries a changeset written as a release note. The rules and an example are in [CONTRIBUTING.md](CONTRIBUTING.md#changesets).
+- Never tag, publish, approve a GitHub environment, approve a staged package on npm, or move a dist-tag. A release is a maintainer's action; the process is in [docs/contributor/releasing.md](docs/contributor/releasing.md).
+- Versions change only through `pnpm run version-packages`, on the Version Packages pull request. Never edit a manifest's `version` by hand.
 - Tests come with the change, and coverage stays at or above 95%.
 - Docs ship with the code: update the pages the change affects, and link any new page from this file and from [docs/README.md](docs/README.md).
 - Do not edit `packages/hardhat-kms/src/internal/vendor/`. It is micro-eth-signer 0.19.0 code with only import paths changed; see [decision 0001](docs/contributor/decisions/0001-vendor-eip712-encoder.md).

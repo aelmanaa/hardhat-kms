@@ -51,6 +51,7 @@ Runnable projects for viem, ethers and Ignition are in [examples/](../examples/R
 | [Testing](contributor/testing.md)                                | Test layers and conventions                          |
 | [Live proof](live-proof.md)                                      | Transactions of the latest live run on Sepolia       |
 | [Tooling](contributor/tooling.md)                                | Quality gates, hooks, CI                             |
+| [Releasing](contributor/releasing.md)                            | Who releases, the signed tag, staging and promotion  |
 | [Documentation](contributor/documentation.md)                    | How the docs are organised and the rules for them    |
 | [Decision records](contributor/decisions/README.md)              | Why the main decisions were made                     |
 | [Signing prior art](contributor/research/signing-prior-art.md)   | How other signers compare, and why each check exists |
