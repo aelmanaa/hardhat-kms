@@ -3,10 +3,11 @@
 //
 // Usage: node scripts/consumer-typecheck.ts <typescript-version>
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { pack, withPackDirectory } from "./pack.ts";
 
 const typescriptVersion = process.argv[2];
 if (typescriptVersion === undefined) {
@@ -32,34 +33,12 @@ const run = (command: string, args: string[], cwd: string): void => {
 };
 
 run(pnpm, ["run", "build"], root);
-// pnpm pack replaces workspace: ranges with real versions, as publishing does.
-const pack = (directory: string): string =>
-  execFileSync(pnpm, ["pack", "--json", "--pack-destination", tmpdir()], {
-    cwd: directory,
-    shell,
-  }).toString();
-/**
- * Extracts the tarball path from `pnpm pack --json` output.
- *
- * @param output - The raw JSON printed by `pnpm pack --json`.
- * @returns The tarball path.
- */
-function tarballPath(output: string): string {
-  const parsed: unknown = JSON.parse(output);
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "filename" in parsed &&
-    typeof parsed.filename === "string"
-  ) {
-    return parsed.filename;
-  }
-  throw new Error("pnpm pack did not report a tarball filename");
-}
-const tarballs = packages.map((directory) => tarballPath(pack(directory)));
-
-const consumer = mkdtempSync(path.join(tmpdir(), "hardhat-kms-consumer-"));
-try {
+// The tarballs and the consumer project share one directory per run, removed when the run ends.
+withPackDirectory((work) => {
+  // pnpm pack replaces workspace: ranges with real versions, as publishing does.
+  const tarballs = packages.map((directory) => pack(directory, work));
+  const consumer = path.join(work, "consumer");
+  mkdirSync(consumer);
   writeFileSync(
     path.join(consumer, "package.json"),
     JSON.stringify({ name: "consumer", private: true, type: "module" }, null, 2),
@@ -413,9 +392,4 @@ try {
     throw new Error(`getAccount without viem did not name the package:\n${runtime}`);
   }
   process.stdout.write(`consumer typecheck passed with TypeScript ${typescriptVersion}\n`);
-} finally {
-  rmSync(consumer, { recursive: true, force: true });
-  for (const tarball of tarballs) {
-    rmSync(tarball, { force: true });
-  }
-}
+});
