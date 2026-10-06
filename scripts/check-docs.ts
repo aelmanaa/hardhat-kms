@@ -97,8 +97,8 @@ function checkIndexes(pages: string[]): string[] {
     if (isDecision && !decisionsIndex.has(page)) {
       problems.push(`docs/contributor/decisions/README.md does not link ${page}`);
     }
-    // Decision records are listed in their own index; DESIGN.md only redirects to other pages.
-    if (!isDecision && page !== "docs/DESIGN.md" && !docsIndex.has(page)) {
+    // Decision records are listed in their own index.
+    if (!isDecision && !docsIndex.has(page)) {
       problems.push(`docs/README.md does not link ${page}`);
     }
   }

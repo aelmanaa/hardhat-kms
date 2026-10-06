@@ -81,8 +81,7 @@ Where things are:
 | How the docs are organised                           | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
 | Why the main decisions were made                     | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
 | How other signers compare, and why each check exists | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
-| Roadmap and milestones                               | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
-| Former design document (section redirects)           | [docs/DESIGN.md](docs/DESIGN.md)                                                                 |
+| Roadmap                                              | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
 
 Decision records:
 

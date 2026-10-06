@@ -75,7 +75,7 @@ Hardhat counts only a string `maxFeePerGas` or `maxPriorityFeePerGas` as the cal
 
 The test runs against the Hardhat version in `pnpm-lock.yaml`, which today is also the `^3.18.0` floor, so a Dependabot bump of Hardhat that changes fill behaviour fails CI. A separate run against the floor is needed once the two differ.
 
-The long-term plan is to delete the port once Hardhat exports a filler or a post-fill signing stage (see [Roadmap](roadmap.md#roadmap)).
+The long-term plan is to delete the port once Hardhat exports a filler or a post-fill signing stage (see [Roadmap](roadmap.md#after-10)).
 
 ## Nonces and the send lock
 
