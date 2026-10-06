@@ -169,7 +169,7 @@
     "eventName": "Sign",
     "awsRegion": "us-east-1",
     "sourceIPAddress": "203.0.113.7",
-    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/darwin#0.0.0 lang/js md/nodejs#24.16.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
+    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/linux#0.0.0 lang/js md/nodejs#0.0.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
     "requestParameters": {
       "keyId": "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
       "messageType": "DIGEST",
@@ -218,7 +218,7 @@
     "eventName": "Sign",
     "awsRegion": "us-east-1",
     "sourceIPAddress": "203.0.113.7",
-    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/darwin#0.0.0 lang/js md/nodejs#24.16.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
+    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/linux#0.0.0 lang/js md/nodejs#0.0.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
     "requestParameters": {
       "keyId": "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
       "messageType": "DIGEST",
@@ -267,7 +267,7 @@
     "eventName": "Sign",
     "awsRegion": "us-east-1",
     "sourceIPAddress": "203.0.113.7",
-    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/darwin#0.0.0 lang/js md/nodejs#24.16.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
+    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/linux#0.0.0 lang/js md/nodejs#0.0.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
     "requestParameters": {
       "keyId": "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
       "messageType": "DIGEST",
@@ -316,7 +316,7 @@
     "eventName": "Sign",
     "awsRegion": "us-east-1",
     "sourceIPAddress": "203.0.113.7",
-    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/darwin#0.0.0 lang/js md/nodejs#24.16.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
+    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/linux#0.0.0 lang/js md/nodejs#0.0.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
     "requestParameters": {
       "keyId": "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
       "messageType": "DIGEST",
