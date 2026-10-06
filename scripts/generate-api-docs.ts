@@ -117,7 +117,7 @@ const INTRO = [
   "",
   "Audience: anyone who imports from `hardhat-kms` in TypeScript, or writes a provider package.",
   "",
-  "These pages are generated from the documentation comments of the published type declarations, so they describe the code of this version. Anything marked `Experimental` may change before 1.0.",
+  "These pages are generated from the documentation comments of the published type declarations, so they describe the code of this version. Anything marked `Experimental` is outside the public API and may change in a minor.",
   "",
   "The plugin is configured, not called: [Configuration](../configuration.md) describes each config field. The provider packages export only their plugin, so they have no page here.",
 ].join("\n");
