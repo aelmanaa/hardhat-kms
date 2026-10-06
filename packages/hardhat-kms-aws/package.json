@@ -1,21 +1,25 @@
 {
   "name": "@hardhat-kms/aws",
   "version": "0.8.0",
-  "description": "AWS KMS provider for hardhat-kms: sign Hardhat 3 transactions, messages and typed data with secp256k1 keys held in AWS KMS.",
+  "description": "AWS KMS signer for Hardhat 3 (hardhat-kms provider): secp256k1 keys never leave KMS; signing history from CloudTrail.",
   "keywords": [
+    "hardhat-plugin",
     "hardhat",
     "hardhat3",
-    "hardhat-plugin",
+    "ethereum",
+    "smart-contracts",
+    "hardhat-kms",
     "kms",
     "signer",
-    "remote-signer",
-    "ethereum",
-    "ethers",
-    "viem",
     "aws",
-    "aws-kms"
+    "aws-kms",
+    "cloudtrail",
+    "hsm",
+    "viem",
+    "ethers",
+    "hardhat-ignition"
   ],
-  "homepage": "https://github.com/aelmanaa/hardhat-kms#readme",
+  "homepage": "https://aelmanaa.github.io/hardhat-kms/",
   "bugs": {
     "url": "https://github.com/aelmanaa/hardhat-kms/issues"
   },
@@ -25,8 +29,12 @@
     "directory": "packages/hardhat-kms-aws"
   },
   "license": "MIT",
-  "author": "Amine El Manaa",
+  "author": {
+    "name": "Amine El Manaa",
+    "url": "https://github.com/aelmanaa"
+  },
   "type": "module",
+  "types": "./dist/src/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
