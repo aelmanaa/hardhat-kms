@@ -9,19 +9,25 @@ import { removePackDirectory, withPackDirectory } from "../../scripts/pack.ts";
 
 describe("withPackDirectory", () => {
   // The helper removes directories recursively, so the tests point it at a temp directory of their
-  // own: a failing assertion or a wrong edit to the helper then cannot touch the real one.
-  const realTmpdir = process.env.TMPDIR;
+  // own: a failing assertion or a wrong edit to the helper then cannot touch the real one. Node
+  // reads TMPDIR on Unix and TEMP, then TMP, on Windows, so all three move.
+  const variables = ["TMPDIR", "TEMP", "TMP"];
+  const saved = new Map(variables.map((name) => [name, process.env[name]]));
   let sandbox = "";
   before(() => {
-    sandbox = mkdtempSync(path.join(tmpdir(), "hardhat-kms-pack-test-"));
-    process.env.TMPDIR = sandbox;
+    sandbox = mkdtempSync(path.join(tmpdir(), "hardhat-kms-test-"));
+    for (const name of variables) {
+      process.env[name] = sandbox;
+    }
     assert.equal(path.resolve(tmpdir()), path.resolve(sandbox));
   });
   after(() => {
-    if (realTmpdir === undefined) {
-      delete process.env.TMPDIR;
-    } else {
-      process.env.TMPDIR = realTmpdir;
+    for (const [name, value] of saved) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
     }
     rmSync(sandbox, { recursive: true, force: true });
   });
@@ -68,7 +74,7 @@ describe("withPackDirectory", () => {
 
 describe("removePackDirectory", () => {
   it("refuses the temp directory, a nested path and a directory with another name", () => {
-    const keep = mkdtempSync(path.join(tmpdir(), "hardhat-kms-pack-test-keep-"));
+    const keep = mkdtempSync(path.join(tmpdir(), "hardhat-kms-test-keep-"));
     const other = mkdtempSync(path.join(tmpdir(), "other-"));
     const nested = path.join(keep, "hardhat-kms-pack-nested");
     try {
