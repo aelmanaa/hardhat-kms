@@ -5,6 +5,6 @@
 "@hardhat-kms/gcp": patch
 ---
 
-The package READMEs now have a Support section with the Node.js policy. The published packages run on Node.js 22.13.0 or later, the minimum Hardhat 3 enforces. A minor release may drop a Node.js line once it reaches end of life, never earlier.
+The Node.js policy is on the Support page of the docs, which the README links. The published packages run on Node.js 22.13.0 or later, the minimum Hardhat 3 enforces. A minor release may drop a Node.js line once it reaches end of life, never earlier.
 
 Issue: [#254](https://github.com/aelmanaa/hardhat-kms/issues/254)

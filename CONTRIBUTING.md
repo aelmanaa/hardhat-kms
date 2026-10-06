@@ -2,7 +2,7 @@
 
 ## Setup
 
-Requirements: Node.js 24 (see `.nvmrc`) and pnpm. Install pnpm with `npm i -g pnpm`; it then runs the version pinned in `packageManager`. Development needs Node >= 22.18, which runs the TypeScript scripts and hooks natively; the published packages have a lower floor, stated in [Support](README.md#support). To run the tests on that floor anyway, see [Run the tests on the published floor](docs/contributor/testing.md#run-the-tests-on-the-published-floor). Installing the package from git is not supported; use the npm release. Releases are published from CI only, with npm provenance; see [Releasing](docs/contributor/releasing.md).
+Requirements: Node.js 24 (see `.nvmrc`) and pnpm. Install pnpm with `npm i -g pnpm`; it then runs the version pinned in `packageManager`. Development needs Node >= 22.18, which runs the TypeScript scripts and hooks natively; the published packages have a lower floor, stated in [Support](docs/user/reference/support.md). To run the tests on that floor anyway, see [Run the tests on the published floor](docs/contributor/testing.md#run-the-tests-on-the-published-floor). Installing the package from git is not supported; use the npm release. Releases are published from CI only, with npm provenance; see [Releasing](docs/contributor/releasing.md).
 
 The repository is a pnpm workspace ([decision 0010](docs/contributor/decisions/0010-pnpm-workspaces.md)). The core plugin is in `packages/hardhat-kms`, and each cloud provider has its own package beside it ([decision 0009](docs/contributor/decisions/0009-one-package-per-provider.md)): `packages/hardhat-kms-aws`, `packages/hardhat-kms-gcp` and `packages/hardhat-kms-azure`. Run the commands below from the repository root; they cover every package.
 

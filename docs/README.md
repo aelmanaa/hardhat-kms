@@ -21,6 +21,7 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 | [Tasks](user/reference/tasks.md)                                              | Reference   |
 | [Errors](user/reference/errors.md)                                            | Reference   |
 | [Library accounts](user/reference/library-accounts.md)                        | Reference   |
+| [Support](user/reference/support.md)                                          | Reference   |
 | [API reference](user/reference/api/README.md)                                 | Reference   |
 | [Install before the first npm release](user/guides/install-before-release.md) | How-to      |
 | [Set up an AWS KMS key](user/guides/aws-kms-setup.md)                         | How-to      |

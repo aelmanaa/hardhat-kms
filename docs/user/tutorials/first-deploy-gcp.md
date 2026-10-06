@@ -10,7 +10,7 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 
 You need:
 
-- Node.js 22.13.0 or later (see [supported Node.js versions](../../../README.md#support)), and npm.
+- Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm.
 - The gcloud CLI, signed in with an identity that can create Cloud KMS keys and grant roles on them, and a project set: `gcloud config get-value project` prints it. The project Owner role is enough, and so is Cloud KMS Admin; Cloud KMS Admin cannot read a public key or sign, so step 3 grants the two roles that can. The project needs billing and the Cloud KMS API turned on; `gcloud services enable cloudkms.googleapis.com` turns the API on.
 - Application Default Credentials: run `gcloud auth application-default login` once. The plugin signs in with these, not with the gcloud CLI's own sign-in, and the two can be different accounts; step 3 shows how to see which one the plugin uses.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
