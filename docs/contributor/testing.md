@@ -107,6 +107,10 @@ Test code follows a few conventions:
 - Test globs are quoted in scripts, so the shell does not expand them.
 - Helpers live in each package's own `test/helpers`, because `hardhat-test-utils` is private.
 - The root `test`, `test:unit` and `coverage` scripts run `pnpm run build` first, because provider packages import the core from its built `dist/`.
+- Code that removes a directory with `rmSync(..., { recursive: true })`, and its tests, stay out of the real temp directory. A mutation run once cleared a developer's temp directory: the mutant replaced the per-run directory with `tmpdir()`, and the test ran it there. `scripts/pack.ts` and `test/scripts/pack.test.ts` are the model:
+  - The code checks the path first and refuses anything outside the directories it created. `removePackDirectory` removes only a `hardhat-kms-pack-*` directory directly under `os.tmpdir()`.
+  - A test of such code runs it under a temp directory the test creates. In `before` it sets `TMPDIR`, `TEMP` and `TMP` to that directory and asserts that `os.tmpdir()` returns it; in `after` it restores the three variables and removes the directory. `TEMP` and `TMP` are for Windows, where `os.tmpdir()` reads `TEMP`, then `TMP`, and ignores `TMPDIR`.
+  - A mutation run against such code uses the same sandbox, from the shell: set the three variables before `node --test`.
 
 Coverage uses c8 on native TypeScript (Node 24), with a threshold of 95% for lines, branches, functions and statements across each package's `src/`, set in the package's `.c8rc.json`. Provider adapters are tested with fake SDK clients, so they are held to the same bar. `types.ts` and `type-extensions.ts` are excluded.
 
@@ -131,6 +135,20 @@ The file budget is sized to end a hung file, not to time a test: a file such as 
 The localstack, examples and live scripts pass one `--test-timeout` value on every version, and `coverage` passes none. CI runs the localstack, examples and coverage jobs on Node 24; the live scripts run locally, and on Node 22 their value limits each file. `test/scripts/node-test.test.ts` runs fixture files through the script with limits of a few seconds: a file whose passing tests together run longer than the per-test limit passes on every version, a slow test is cancelled at the per-test limit on Node 24 and later, and on Node 22 its file is cancelled at the budget.
 
 When the Node floor moves to a release that has the change (24.0.0, or a later 22.x release if the 22.x line ever gets it), delete the file budgets and the script, and put `--test-timeout` back in the package scripts.
+
+## Run the tests on the published floor
+
+The packages support Node >= 22.13.0 (`engines` in `packages/*/package.json`). Developing in the clone needs Node >= 22.18.0 (root `devEngines`), because the scripts and hooks run `.ts` files with plain `node`, and 22.18.0 is the first 22.x release that strips types without a flag. So on 22.13.0, `pnpm test` stops with `ERR_PNPM_BAD_RUNTIME_VERSION` before it runs anything. To run the suite there anyway, for example to reproduce a failure of the CI `Test (Linux, Node 22.13.0)` job, set two variables:
+
+```sh
+nvm use 22.13.0
+pnpm_config_runtime_on_fail=ignore NODE_OPTIONS='--import tsx' pnpm test
+```
+
+- `pnpm_config_runtime_on_fail=ignore` stops pnpm from refusing the runtime. pnpm checks `devEngines.runtime` on `pnpm run` and `pnpm exec` too, not only on `pnpm install` ([`runtimeOnFail`](https://pnpm.io/settings/cli#runtimeonfail)). It has to be the environment variable: the root scripts call `pnpm run` and `pnpm -r run` again, and the `--runtime-on-fail=ignore` flag does not reach those nested calls, while every child process inherits the variable.
+- `NODE_OPTIONS='--import tsx'` preloads [tsx](https://tsx.is), a devDependency, into every Node process, so the `.ts` scripts and test files load on a Node that does not strip types. Without it the first script fails with `ERR_UNKNOWN_FILE_EXTENSION`.
+
+The CI 22.13.0 legs of `.github/workflows/ci.yml` and `ci-all-os.yml` run `pnpm test` with the same two settings. Use `ignore` for this case only; `pnpm_config_runtime_on_fail=warn` also runs the suite and prints a reminder at each pnpm call that the Node is below the development floor, which stays at 22.18.0.
 
 ## Live transaction matrix
 
