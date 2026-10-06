@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 
 import { parseSync } from "oxc-parser";
 
+import { calleeName, field, walk } from "./ast.ts";
 import { checkSnippets, fences } from "./doc-snippets.ts";
 import { API_DOCS_COMMAND, API_DOCS_DIR, diffApiDocs, renderApiDocs } from "./generate-api-docs.ts";
 import {
@@ -205,50 +206,6 @@ const KMS_ERROR_FILES = new Set([
   "packages/hardhat-kms/src/internal/errors.ts",
   "packages/hardhat-kms/src/provider-utils.ts",
 ]);
-
-/** Reads a field of an AST node. */
-function field(node: unknown, name: string): unknown {
-  return typeof node === "object" && node !== null ? Reflect.get(node, name) : undefined;
-}
-
-/** Calls `visit` on every node of an AST, parents first. */
-function walk(node: unknown, visit: (node: object) => void): void {
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      walk(child, visit);
-    }
-    return;
-  }
-  if (typeof node !== "object" || node === null) {
-    return;
-  }
-  if (typeof field(node, "type") === "string") {
-    visit(node);
-  }
-  for (const [key, child] of Object.entries(node)) {
-    if (key !== "parent" && typeof child === "object" && child !== null) {
-      walk(child, visit);
-    }
-  }
-}
-
-/** The name a constructor or function is called by: the last segment of `a.b.C` or `this.#c`. */
-function calleeName(callee: unknown): string | undefined {
-  const type = field(callee, "type");
-  if (type === "Identifier") {
-    const name = field(callee, "name");
-    return typeof name === "string" ? name : undefined;
-  }
-  if (type === "MemberExpression" && field(callee, "computed") !== true) {
-    const property = field(callee, "property");
-    const name = field(property, "name");
-    if (typeof name !== "string") {
-      return undefined;
-    }
-    return field(property, "type") === "PrivateIdentifier" ? `#${name}` : name;
-  }
-  return undefined;
-}
 
 /** Whether a subtree calls `catalogMessage`. */
 function callsCatalogMessage(node: unknown): boolean {

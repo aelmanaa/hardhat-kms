@@ -12,49 +12,12 @@ import { fileURLToPath } from "node:url";
 
 import { parseSync } from "oxc-parser";
 
+import { calleeName, field, walk } from "../../scripts/ast.ts";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 /** The CLI's path inside the `hardhat` package, and the helper's constant for it. */
 const CLI_PATH = "hardhat/dist/src/cli.js";
 const CLI_CONSTANT = "HARDHAT_CLI";
-
-function field(node: unknown, name: string): unknown {
-  return typeof node === "object" && node !== null ? Reflect.get(node, name) : undefined;
-}
-
-/** Calls `visit` on every node of an AST, parents first. */
-function walk(node: unknown, visit: (node: object) => void): void {
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      walk(child, visit);
-    }
-    return;
-  }
-  if (typeof node !== "object" || node === null) {
-    return;
-  }
-  if (typeof field(node, "type") === "string") {
-    visit(node);
-  }
-  for (const [key, child] of Object.entries(node)) {
-    if (key !== "parent" && typeof child === "object" && child !== null) {
-      walk(child, visit);
-    }
-  }
-}
-
-/** The name a function is called by: `spawnSync` for both `spawnSync(...)` and `cp.spawnSync(...)`. */
-function calleeName(callee: unknown): string | undefined {
-  const type = field(callee, "type");
-  if (type === "Identifier") {
-    const name = field(callee, "name");
-    return typeof name === "string" ? name : undefined;
-  }
-  if (type === "MemberExpression" && field(callee, "computed") !== true) {
-    const name = field(field(callee, "property"), "name");
-    return typeof name === "string" ? name : undefined;
-  }
-  return undefined;
-}
 
 /** Whether a subtree names the Hardhat CLI, in a string, a template or the helper's constant. */
 function namesHardhatCli(node: unknown): boolean {
