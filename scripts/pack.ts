@@ -6,6 +6,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { field } from "./ast.ts";
+
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
 const shell = process.platform === "win32";
@@ -48,14 +50,23 @@ export function removePackDirectory(directory: string): void {
   rmSync(resolved, { recursive: true, force: true });
 }
 
+/** What `pnpm pack --json` reports about a tarball. */
+export interface PackReport {
+  /** The tarball path. */
+  filename: string;
+  /** The paths inside the tarball, relative to the package root, such as `dist/src/index.js`. */
+  files: string[];
+}
+
 /**
- * Packs a package as pnpm publishes it (workspace: and catalog: ranges replaced).
+ * Packs a package as pnpm publishes it (workspace: and catalog: ranges replaced) and reports the
+ * tarball and its contents.
  *
  * @param packageDirectory - The package to pack.
  * @param destination - The directory the tarball goes to, from {@link withPackDirectory}.
- * @returns The tarball path.
+ * @returns The tarball path and the files it holds.
  */
-export function pack(packageDirectory: string, destination: string): string {
+export function packReport(packageDirectory: string, destination: string): PackReport {
   const output: unknown = JSON.parse(
     execFileSync(pnpm, ["pack", "--json", "--pack-destination", destination], {
       cwd: packageDirectory,
@@ -69,7 +80,26 @@ export function pack(packageDirectory: string, destination: string): string {
     typeof output.filename === "string" &&
     output.filename !== ""
   ) {
-    return output.filename;
+    const files: string[] = [];
+    const entries: unknown = "files" in output ? output.files : undefined;
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      const file = field(entry, "path");
+      if (typeof file === "string" && file !== "") {
+        files.push(file);
+      }
+    }
+    return { filename: output.filename, files };
   }
   throw new Error(`pnpm pack did not report a tarball for ${packageDirectory}`);
+}
+
+/**
+ * Packs a package as pnpm publishes it (workspace: and catalog: ranges replaced).
+ *
+ * @param packageDirectory - The package to pack.
+ * @param destination - The directory the tarball goes to, from {@link withPackDirectory}.
+ * @returns The tarball path.
+ */
+export function pack(packageDirectory: string, destination: string): string {
+  return packReport(packageDirectory, destination).filename;
 }

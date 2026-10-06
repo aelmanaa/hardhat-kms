@@ -1,23 +1,28 @@
 {
   "name": "hardhat-kms",
   "version": "0.8.0",
-  "description": "Hardhat 3 plugin to sign transactions, messages and typed data with keys held in AWS KMS, Google Cloud KMS and Azure Key Vault or Managed HSM. Each cloud has its own provider package, such as @hardhat-kms/aws.",
+  "description": "Hardhat 3 plugin that signs transactions, messages and typed data with keys held in AWS KMS, Google Cloud KMS or Azure Key Vault; works with viem, ethers, Ignition and a Foundry-style --kms option.",
   "keywords": [
+    "hardhat-plugin",
     "hardhat",
     "hardhat3",
-    "hardhat-plugin",
+    "ethereum",
+    "smart-contracts",
     "kms",
+    "hsm",
+    "cloud-kms",
     "signer",
     "remote-signer",
-    "ethereum",
-    "ethers",
-    "viem",
-    "hsm",
     "aws-kms",
     "google-cloud-kms",
-    "azure-key-vault"
+    "azure-key-vault",
+    "viem",
+    "ethers",
+    "hardhat-ignition",
+    "foundry",
+    "secp256k1"
   ],
-  "homepage": "https://github.com/aelmanaa/hardhat-kms#readme",
+  "homepage": "https://aelmanaa.github.io/hardhat-kms/",
   "bugs": {
     "url": "https://github.com/aelmanaa/hardhat-kms/issues"
   },
@@ -27,8 +32,12 @@
     "directory": "packages/hardhat-kms"
   },
   "license": "MIT",
-  "author": "Amine El Manaa",
+  "author": {
+    "name": "Amine El Manaa",
+    "url": "https://github.com/aelmanaa"
+  },
   "type": "module",
+  "types": "./dist/src/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",

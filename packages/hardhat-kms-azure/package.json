@@ -1,23 +1,26 @@
 {
   "name": "@hardhat-kms/azure",
   "version": "0.8.0",
-  "description": "Azure Key Vault provider for hardhat-kms: sign Hardhat 3 transactions, messages and typed data with secp256k1 keys held in Azure Key Vault or Managed HSM.",
+  "description": "Azure Key Vault and Managed HSM signer for Hardhat 3 (hardhat-kms provider): keys stay in the vault; signing history from Azure Monitor for Key Vault keys.",
   "keywords": [
+    "hardhat-plugin",
     "hardhat",
     "hardhat3",
-    "hardhat-plugin",
+    "ethereum",
+    "smart-contracts",
+    "hardhat-kms",
     "kms",
     "signer",
-    "remote-signer",
-    "ethereum",
-    "ethers",
-    "viem",
     "azure",
     "azure-key-vault",
+    "key-vault",
     "managed-hsm",
-    "hsm"
+    "hsm",
+    "azure-monitor",
+    "viem",
+    "ethers"
   ],
-  "homepage": "https://github.com/aelmanaa/hardhat-kms#readme",
+  "homepage": "https://aelmanaa.github.io/hardhat-kms/",
   "bugs": {
     "url": "https://github.com/aelmanaa/hardhat-kms/issues"
   },
@@ -27,8 +30,12 @@
     "directory": "packages/hardhat-kms-azure"
   },
   "license": "MIT",
-  "author": "Amine El Manaa",
+  "author": {
+    "name": "Amine El Manaa",
+    "url": "https://github.com/aelmanaa"
+  },
   "type": "module",
+  "types": "./dist/src/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",

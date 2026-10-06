@@ -1,21 +1,26 @@
 {
   "name": "@hardhat-kms/gcp",
   "version": "0.8.0",
-  "description": "Google Cloud KMS provider for hardhat-kms: sign Hardhat 3 transactions, messages and typed data with secp256k1 keys held in Google Cloud KMS.",
+  "description": "Google Cloud KMS signer for Hardhat 3 (hardhat-kms provider): keys stay in Cloud HSM; signing history from Cloud Audit Logs.",
   "keywords": [
+    "hardhat-plugin",
     "hardhat",
     "hardhat3",
-    "hardhat-plugin",
+    "ethereum",
+    "smart-contracts",
+    "hardhat-kms",
     "kms",
     "signer",
-    "remote-signer",
-    "ethereum",
-    "ethers",
-    "viem",
     "gcp",
-    "google-cloud-kms"
+    "google-cloud",
+    "google-cloud-kms",
+    "cloud-kms",
+    "cloud-hsm",
+    "cloud-audit-logs",
+    "viem",
+    "ethers"
   ],
-  "homepage": "https://github.com/aelmanaa/hardhat-kms#readme",
+  "homepage": "https://aelmanaa.github.io/hardhat-kms/",
   "bugs": {
     "url": "https://github.com/aelmanaa/hardhat-kms/issues"
   },
@@ -25,8 +30,12 @@
     "directory": "packages/hardhat-kms-gcp"
   },
   "license": "MIT",
-  "author": "Amine El Manaa",
+  "author": {
+    "name": "Amine El Manaa",
+    "url": "https://github.com/aelmanaa"
+  },
   "type": "module",
+  "types": "./dist/src/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
