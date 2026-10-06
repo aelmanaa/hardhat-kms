@@ -106,6 +106,7 @@ Rules for every change:
 
 - Work from a GitHub issue, and link it from the pull request (`Closes #n`). Labels, priorities and milestones are described in [CONTRIBUTING.md](CONTRIBUTING.md#issues-first).
 - `main` changes only through squash-merged pull requests. Commit subjects follow Conventional Commits.
+- Every user-facing change carries a changeset written as a release note. The rules and an example are in [CONTRIBUTING.md](CONTRIBUTING.md#changesets).
 - Tests come with the change, and coverage stays at or above 95%.
 - Docs ship with the code: update the pages the change affects, and link any new page from this file and from [docs/README.md](docs/README.md).
 - Do not edit `packages/hardhat-kms/src/internal/vendor/`. It is micro-eth-signer 0.19.0 code with only import paths changed; see [decision 0001](docs/contributor/decisions/0001-vendor-eip712-encoder.md).
