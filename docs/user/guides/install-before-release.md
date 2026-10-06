@@ -15,7 +15,7 @@ You need:
 - Node.js 22.18 or later to build. The repository's scripts and hooks are TypeScript files that run with plain `node`, which works without a flag from [Node.js 22.18.0](https://nodejs.org/en/blog/release/v22.18.0). On an older Node.js, `pnpm install` stops with `ERR_PNPM_BAD_RUNTIME_VERSION`. With nvm, `nvm use` in the clone picks the version in `.nvmrc`.
 - pnpm 12, for the build only. The repository pins pnpm 12.8.1 in `packageManager`. Run `corepack enable`, which comes with Node.js 22 and 24, or `npm install -g pnpm@12.8.1`.
 
-Your Hardhat project does not need either: the installed packages run on Node.js 22.13 or later, with npm or pnpm.
+Your Hardhat project does not need either: the installed packages run with npm or pnpm on the Node.js versions in [Support](../../../README.md#support).
 
 ## 1. Build the packages
 

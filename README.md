@@ -49,6 +49,16 @@ To see the key's address, run `npx hardhat kms accounts`, then pin it in the key
 
 The official packages are `hardhat-kms` and the packages under the `@hardhat-kms` npm scope. A package with any other name, such as `hardhat-kms-aws`, does not come from this project.
 
+## Support
+
+The published packages run on Node.js 22.13.0 or later, the minimum Hardhat 3 enforces ([Node.js support](https://hardhat.org/docs/reference/nodejs-support)); `engines.node` in each package says so. The supported lines are the ones Hardhat tests that have not reached end of life in the [Node.js release schedule](https://github.com/nodejs/Release#release-schedule): today Node.js 22, 24 and 26. CI runs the test suite on the lowest version of each line (22.13.0, 24.0.0 and 26.0.0) on Linux and on 22.13.0 on macOS and Windows, the same matrix Hardhat uses. A line that has reached end of life, or is not in that list, is unsupported.
+
+Once a line reaches end of life, a minor release may drop it, never earlier. A pinned issue announces the drop when the line reaches end of life. The changeset names the dropped line and the last version that ran on it; that version gets no further fixes. The reason is that these packages sign with production keys, and an end-of-life line [receives no security fixes from the Node.js project](https://nodejs.org/en/about/eol), including to the TLS client the packages use to reach the KMS. Node.js 22 reaches end of life on 2027-04-30 (per the schedule at the time of writing).
+
+The minimum can rise without a release of these packages: Hardhat enforces its own minimum at startup in any release, including a patch, and the cloud SDKs the provider packages depend on drop end-of-life lines inside the version ranges these packages declare. When that happens, the next minor release raises `engines.node` to match and the changeset says so.
+
+On an older Node.js, `npm install` and `pnpm install` print an unsupported-engine warning (an error with `engine-strict`), and `npx hardhat` exits with an error naming the minimum version before any task runs.
+
 ## Docs
 
 - All docs, for users and contributors: [docs/README.md](docs/README.md)

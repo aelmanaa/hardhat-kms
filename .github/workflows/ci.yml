@@ -66,8 +66,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Mirrors Hardhat's own matrix: the exact supported floors. ci-all-os.yml adds macOS and
-        # Windows on the lowest one.
+        # Mirrors Hardhat's own matrix (NomicFoundation/hardhat .github/workflows/ci.yml,
+        # node: [22.13.0, 24.0.0, 26.0.0]): the exact supported floors. Add or drop a leg when
+        # Hardhat does; the policy is in README.md, Support. ci-all-os.yml adds macOS and Windows
+        # on the lowest one.
         node: ["22.13.0", "24.0.0", "26.0.0"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

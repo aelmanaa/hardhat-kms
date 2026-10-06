@@ -14,6 +14,8 @@ It depends on `@google-cloud/kms`, so there is no SDK to install separately.
 npm install --save-dev hardhat-kms @hardhat-kms/gcp
 ```
 
+Node.js support: see [Support](https://github.com/aelmanaa/hardhat-kms#support).
+
 ## Usage
 
 Add `@hardhat-kms/gcp` to `plugins`. It loads `hardhat-kms` itself.

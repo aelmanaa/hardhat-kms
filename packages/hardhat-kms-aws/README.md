@@ -14,6 +14,8 @@ It depends on `@aws-sdk/client-kms`, so there is no SDK to install separately.
 npm install --save-dev hardhat-kms @hardhat-kms/aws
 ```
 
+Node.js support: see [Support](https://github.com/aelmanaa/hardhat-kms#support).
+
 ## Usage
 
 Add `@hardhat-kms/aws` to `plugins`. It loads `hardhat-kms` itself.

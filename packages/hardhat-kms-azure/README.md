@@ -14,6 +14,8 @@ It depends on `@azure/keyvault-keys` and `@azure/identity`, so there is no SDK t
 npm install --save-dev hardhat-kms @hardhat-kms/azure
 ```
 
+Node.js support: see [Support](https://github.com/aelmanaa/hardhat-kms#support).
+
 ## Usage
 
 Add `@hardhat-kms/azure` to `plugins`. It loads `hardhat-kms` itself.
