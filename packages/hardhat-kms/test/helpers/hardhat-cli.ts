@@ -11,10 +11,10 @@
 //   startup from its work, so it gets one limit, RUN_LIMIT_MS, sized for a loaded startup.
 // The helper stops the child with SIGKILL at a limit, at a stderr line the test names, or when the
 // test's signal aborts, and the result says which and when. On Node 22, `node --test --test-timeout`
-// also limits each test file and ends a file that runs too long with SIGTERM, which skips every
-// `finally` and abort listener; a SIGTERM handler here ends the children then. The helper does not
-// end the child's own children: a grandchild that keeps stdout open delays the result until it
-// exits.
+// limits each test file, not each test, and ends a file that runs past it with SIGTERM, which skips
+// every `finally` and abort listener; a SIGTERM handler here ends the children then. The helper
+// does not end the child's own children: a grandchild that keeps stdout open delays the result
+// until it exits.
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import path from "node:path";
@@ -27,7 +27,9 @@ export const HARDHAT_CLI: string = path.join(repo, "node_modules/hardhat/dist/sr
 
 /**
  * How long a run without a READY marker may take: a loaded startup of over 40 s, the task and a
- * margin, and below the 120 s per-test timeout of `pnpm run test:integration`.
+ * margin, and below the 120 s per-test limit that `pnpm run test:integration` sets on Node 24 and
+ * later. On Node 22 `scripts/node-test.ts` sets no per-test limit, so such a run ends at this limit or
+ * at the 600 s file budget, whichever comes first.
  */
 export const RUN_LIMIT_MS: number = 100_000;
 

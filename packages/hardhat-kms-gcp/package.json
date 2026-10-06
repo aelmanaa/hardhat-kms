@@ -53,8 +53,8 @@
     "build": "tsc -b tsconfig.build.json",
     "clean": "node -e \"for (const p of ['dist','coverage']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
     "test": "pnpm run test:unit && pnpm run test:integration",
-    "test:unit": "node --test --test-timeout=30000 \"test/unit/**/*.test.ts\"",
-    "test:integration": "node --test --test-concurrency=1 --test-timeout=120000 \"test/integration/**/*.test.ts\"",
+    "test:unit": "node ../../scripts/node-test.ts unit \"test/unit/**/*.test.ts\"",
+    "test:integration": "node ../../scripts/node-test.ts integration --test-concurrency=1 \"test/integration/**/*.test.ts\"",
     "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
     "test:live:gcp": "node --test --test-concurrency=1 --test-timeout=300000 \"test/live/**/*.test.ts\""
   },
