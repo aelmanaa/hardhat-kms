@@ -10,6 +10,8 @@
 // - first-party source builds its errors only through the catalogue helpers (checkErrorSites);
 // - the user docs and the READMEs hold no milestone codes and no HTML comments other than the
 //   skip marker and the pre-release note (scripts/user-pages.ts);
+// - no tracked source, test, fixture, script, changeset, workflow or page names an internal
+//   milestone, a review round or the maintainer's machine (checkInternalWords);
 // - every ```mermaid block parses with Mermaid's own parser (scripts/mermaid-blocks.ts).
 // lychee checks the links themselves (see lychee.toml).
 //
@@ -17,6 +19,7 @@
 // `<!-- docs-check: skip -->` on its own line.
 //
 // Usage: node scripts/check-docs.ts
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,7 +37,7 @@ import {
   renderErrorsDoc,
 } from "./generate-errors-doc.ts";
 import { mermaidProblems } from "./mermaid-blocks.ts";
-import { userPageProblems } from "./user-pages.ts";
+import { internalWordProblems, userPageProblems } from "./user-pages.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -117,6 +120,51 @@ function packageReadmes(): string[] {
 function checkUserPages(files: string[]): string[] {
   return files.flatMap((file) =>
     userPageProblems(file, readFileSync(path.join(root, file), "utf8")),
+  );
+}
+
+/**
+ * The tracked files the internal-word rule covers: everything that ships, is generated or is read
+ * on GitHub, as git pathspecs from the repository root. `:(glob)` makes `*` stop at a slash and
+ * `**` match any depth.
+ */
+const INTERNAL_WORD_ROOTS = [
+  ":(glob)packages/*/src/**",
+  ":(glob)packages/*/test/**",
+  "test",
+  "scripts",
+  "examples",
+  ".changeset",
+  ".github",
+  "docs",
+  "README.md",
+  ":(glob)packages/*/README.md",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "CONTRIBUTING.md",
+  "SECURITY.md",
+];
+
+/** The files that hold the patterns and their test data, which the rule would otherwise report. */
+const INTERNAL_WORD_EXEMPT = new Set([
+  "scripts/user-pages.ts",
+  "scripts/check-docs.ts",
+  "test/scripts/user-pages.test.ts",
+]);
+
+/** The tracked files under the roots, from `git ls-files`, which resolves the pathspecs. */
+function internalWordFiles(): string[] {
+  const output = execFileSync("git", ["ls-files", "-z", "--", ...INTERNAL_WORD_ROOTS], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  return output.split("\0").filter((file) => file !== "" && !INTERNAL_WORD_EXEMPT.has(file));
+}
+
+/** Checks every tracked file for internal words; see `scripts/user-pages.ts`. */
+function checkInternalWords(): string[] {
+  return internalWordFiles().flatMap((file) =>
+    internalWordProblems(file, readFileSync(path.join(root, file), "utf8")),
   );
 }
 
@@ -340,6 +388,7 @@ const problems = [
     ...packageReadmes(),
     ...pages.filter((page) => page.startsWith("docs/user/")),
   ]),
+  ...checkInternalWords(),
   ...(await checkMermaid(["README.md", ...packageReadmes(), ...pages])),
 ];
 if (problems.length > 0) {
@@ -347,5 +396,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 process.stdout.write(
-  `docs check passed: ${pages.length} pages indexed, snippets typecheck and call no deprecated API, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes, Mermaid blocks parse\n`,
+  `docs check passed: ${pages.length} pages indexed, snippets typecheck and call no deprecated API, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes, no file names a milestone, a review or the maintainer's machine, Mermaid blocks parse\n`,
 );

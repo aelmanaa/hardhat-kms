@@ -1,9 +1,14 @@
-// The user-page rule of `scripts/check-docs.ts`: the pages a user reads (docs/user and the READMEs,
-// which npm shows) hold no milestone codes such as `M5` and no HTML comments, which GitHub hides but
-// a raw view or a docs site can show. Code (fenced, indented and inline) is not prose, so it is
-// blanked before both checks; URLs and link targets are blanked before the milestone check.
+// Two rules of `scripts/check-docs.ts`:
+// - the pages a user reads (docs/user and the READMEs, which npm shows) hold no milestone codes
+//   such as `M5` and no HTML comments, which GitHub hides but a raw view or a docs site can show
+//   (userPageProblems);
+// - no tracked page, comment, fixture, changeset or generated page talks about internal
+//   milestones, decisions or review rounds, or names the maintainer's machine
+//   (internalWordProblems).
+// Code (fenced, indented and inline) is not prose, so it is blanked before the Markdown checks;
+// URLs and link targets are blanked before the milestone check.
 // Kept apart from check-docs.ts, which runs on import, so `test/scripts/user-pages.test.ts` can
-// call it.
+// call both.
 
 /** The marker that excludes the next snippet from the typecheck. */
 export const SKIP_MARKER = "<!-- docs-check: skip -->";
@@ -90,15 +95,69 @@ export function userPageProblems(file: string, text: string): string[] {
     .replaceAll(/<!--[\s\S]*?-->/g, blank)
     .replaceAll(/\]\([^)\n]*\)/g, blank)
     .replaceAll(/<?[a-z][a-z0-9+.-]*:\/\/[^\s<>)]+>?/gi, blank);
-  for (const match of words.matchAll(/(?<![\w.-])M\d+(?![\w-])/g)) {
-    if (/\b(?:Apple|chip|Max|Pro|Ultra)\b/.test(lineContext(words, match.index))) {
-      continue;
-    }
+  for (const match of milestoneCodes(words)) {
     problems.push(
       `${file}:${lineOf(text, match.index)}: milestone code ${match[0]} in a user page; say what works instead`,
     );
   }
   return problems;
+}
+
+/** A milestone code such as `M5`: not inside a word, a version or an identifier. */
+const MILESTONE_CODE = /(?<![\w.-])M\d+(?![\w-])/g;
+
+/** The milestone codes in a text, without the Apple chip names such as "Apple M1" or "M2 Max". */
+function milestoneCodes(text: string): RegExpExecArray[] {
+  return [...text.matchAll(MILESTONE_CODE)].filter(
+    (match) => !/\b(?:Apple|chip|Max|Pro|Ultra)\b/.test(lineContext(text, match.index)),
+  );
+}
+
+/**
+ * Words that only make sense inside the project, or that identify the maintainer's machine, each
+ * with what the report says. The milestone pattern is checked apart, with the chip exception.
+ */
+const INTERNAL_WORDS: readonly (readonly [RegExp, string])[] = [
+  [/\bowner decided\b/gi, "names who decided; state the decision"],
+  [/\breview found\b/gi, "names a review round; state the finding"],
+  [/\bin review\b/gi, "names a review round; say what shipped"],
+  [/\bafter review\b/gi, "names a review round; say what shipped"],
+  [/\bfresh-reader\b/gi, "names the review process; say what the page says"],
+  [/\bDarwin\b/g, "names the recording machine's OS; zero the version and say Linux"],
+  [/\/Users\//g, "is a path on the maintainer's machine; use a relative or placeholder path"],
+  [
+    /\/private\/tmp\b/g,
+    "is a path on the maintainer's machine; use a relative or placeholder path",
+  ],
+  [/\/home\//g, "is a path on the maintainer's machine; use a relative or placeholder path"],
+];
+
+/**
+ * The internal words of one tracked file, each as `file:line: message`: milestone codes and the
+ * words of `INTERNAL_WORDS`. A Markdown file is checked as prose, with code, URLs and link targets
+ * blanked as for a user page; any other file is checked whole.
+ *
+ * @param file - The file's path from the repository root, as reported.
+ * @param text - The file's content.
+ */
+export function internalWordProblems(file: string, text: string): string[] {
+  const problems: string[] = [];
+  const prose = file.endsWith(".md")
+    ? withoutCode(text)
+        .replaceAll(/\]\([^)\n]*\)/g, blank)
+        .replaceAll(/<?[a-z][a-z0-9+.-]*:\/\/[^\s<>)]+>?/gi, blank)
+    : text;
+  for (const match of milestoneCodes(prose)) {
+    problems.push(
+      `${file}:${lineOf(text, match.index)}: milestone code ${match[0]}; say what exists instead`,
+    );
+  }
+  for (const [pattern, advice] of INTERNAL_WORDS) {
+    for (const match of prose.matchAll(pattern)) {
+      problems.push(`${file}:${lineOf(text, match.index)}: "${match[0]}" ${advice}`);
+    }
+  }
+  return problems.toSorted((a, b) => a.localeCompare(b, "en", { numeric: true }));
 }
 
 /** The words around an offset, on its line, to tell a chip name such as "Apple M1" from a code. */
