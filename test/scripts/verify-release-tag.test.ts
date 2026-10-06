@@ -248,7 +248,8 @@ describe("verify-release-tag", { skip: hasGpg ? false : "gpg is not installed" }
       () =>
         assert.deepEqual(verify("v1.2.3"), {
           ok: false,
-          reason: "tag v1.2.3 is annotated but has no OpenPGP signature",
+          reason:
+            "tag v1.2.3 is annotated but has no OpenPGP signature; re-create it with git tag -s",
         }),
     );
   });
@@ -299,7 +300,7 @@ describe("verify-release-tag", { skip: hasGpg ? false : "gpg is not installed" }
       () =>
         assert.deepEqual(verify("v1.2.3", { keysDirectory: leaked }), {
           ok: false,
-          reason: `${file} contains a private key; only public keys belong there`,
+          reason: `${file} contains a private key; remove it, revoke that key, and commit only the output of gpg --armor --export`,
         }),
     );
   });
@@ -409,7 +410,7 @@ describe("verify-release-tag", { skip: hasGpg ? false : "gpg is not installed" }
     );
   });
 
-  it("exits 0 from the command line on a good tag and 1 with the reason on a bad one", () => {
+  it("exits 0 on a good tag, 1 with the reason on a bad one, and 1 with usage when no tag is given", () => {
     // The Node 22 CI leg loads TypeScript through `NODE_OPTIONS=--import tsx`, which Node resolves
     // from the child's working directory. The temporary repository has no `node_modules`, so the
     // script's process gets the workspace's copy by URL. Any other option stays.
@@ -485,15 +486,18 @@ describe("readSignature", () => {
   it("names a bad, expired or revoked signature", () => {
     assert.deepEqual(readSignature(["NEWSIG", "BADSIG 0000AAAA0000AAAA Someone"], trusted), {
       ok: false,
-      reason: "the signature does not match the tag (key 0000AAAA0000AAAA)",
+      reason:
+        "the signature does not match the tag (key 0000AAAA0000AAAA); the tag was changed after signing, re-create it with git tag -s",
     });
     assert.deepEqual(readSignature(["EXPKEYSIG 0000AAAA0000AAAA Someone", ...valid], trusted), {
       ok: false,
-      reason: "the signing key 0000AAAA0000AAAA is expired",
+      reason:
+        "the signing key 0000AAAA0000AAAA is expired; sign with a current key that is in .github/release-keys",
     });
     assert.deepEqual(readSignature(["REVKEYSIG 0000AAAA0000AAAA Someone", ...valid], trusted), {
       ok: false,
-      reason: "the signing key 0000AAAA0000AAAA is revoked",
+      reason:
+        "the signing key 0000AAAA0000AAAA is revoked; sign with a current key that is in .github/release-keys",
     });
     assert.deepEqual(
       readSignature(
@@ -507,7 +511,8 @@ describe("readSignature", () => {
     );
     assert.deepEqual(readSignature([], trusted), {
       ok: false,
-      reason: "gpg reported no valid signature on the tag",
+      reason:
+        "gpg reported no valid signature on the tag; re-create it with git tag -s using a key in .github/release-keys",
     });
   });
 });

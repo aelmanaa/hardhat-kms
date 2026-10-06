@@ -106,9 +106,9 @@ function gpg(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): Comm
 }
 
 /**
- * Removes the throwaway GNUPGHOME. The clean-up runs with `recursive: true`, so it refuses any other
- * path: the temp directory itself, or a directory outside it, must never be removed by a wrong edit
- * to this file.
+ * Removes the throwaway GNUPGHOME. The removal is recursive, so the function accepts only a
+ * `${HOME_PREFIX}*` directory directly under the system temp directory: a wrong edit to this file
+ * must not be able to remove the temp directory itself or anything outside it.
  * @param directory The directory `verifyReleaseTag` created.
  */
 export function removeKeyHome(directory: string): void {
@@ -155,14 +155,23 @@ export function readSignature(
   for (const line of lines) {
     const kind = field(line, 0);
     if (kind === "BADSIG") {
-      return { ok: false, reason: `the signature does not match the tag (key ${field(line, 1)})` };
+      return {
+        ok: false,
+        reason: `the signature does not match the tag (key ${field(line, 1)}); the tag was changed after signing, re-create it with git tag -s`,
+      };
     }
     if (kind === "EXPKEYSIG" || kind === "REVKEYSIG") {
       const state = kind === "EXPKEYSIG" ? "expired" : "revoked";
-      return { ok: false, reason: `the signing key ${field(line, 1)} is ${state}` };
+      return {
+        ok: false,
+        reason: `the signing key ${field(line, 1)} is ${state}; sign with a current key that is in ${KEYS_DIRECTORY}`,
+      };
     }
     if (kind === "EXPSIG") {
-      return { ok: false, reason: `the signature by key ${field(line, 1)} has expired` };
+      return {
+        ok: false,
+        reason: `the signature by key ${field(line, 1)} has expired; re-create the tag with git tag -s`,
+      };
     }
     if (kind === "NO_PUBKEY") {
       return {
@@ -174,7 +183,10 @@ export function readSignature(
   const valid = lines.find((line) => field(line, 0) === "VALIDSIG");
   const good = lines.find((line) => field(line, 0) === "GOODSIG");
   if (valid === undefined || good === undefined) {
-    return { ok: false, reason: "gpg reported no valid signature on the tag" };
+    return {
+      ok: false,
+      reason: `gpg reported no valid signature on the tag; re-create it with git tag -s using a key in ${KEYS_DIRECTORY}`,
+    };
   }
   // VALIDSIG ends with the fingerprint of the primary key, also when a subkey signed.
   const fingerprint = field(valid, 10);
@@ -230,7 +242,10 @@ function importKeys(
   for (const name of names) {
     const file = path.join(keysDirectory, name);
     if (readFileSync(file, "utf8").includes(PRIVATE_KEY)) {
-      return { ok: false, reason: `${file} contains a private key; only public keys belong there` };
+      return {
+        ok: false,
+        reason: `${file} contains a private key; remove it, revoke that key, and commit only the output of gpg --armor --export`,
+      };
     }
     // The exit status says nothing useful: gpg exits 2 when it cannot reach an agent it does not
     // need. The IMPORT_OK status lines say what was imported.
@@ -238,7 +253,10 @@ function importKeys(
       statusLines(gpg(["--homedir", home, "--import", file], cwd, env)),
     );
     if (imported.size === 0) {
-      return { ok: false, reason: `${file} is not an importable OpenPGP public key` };
+      return {
+        ok: false,
+        reason: `${file} is not an importable OpenPGP public key; re-export it with gpg --armor --export <key-id>`,
+      };
     }
     for (const fingerprint of imported) {
       fingerprints.add(fingerprint);
@@ -299,7 +317,10 @@ function checkSignature(options: VerifyOptions, keysDirectory: string): Signatur
   }
   const object = git(["cat-file", "tag", `refs/tags/${tag}`], cwd, env);
   if (!object.stdout.includes(PGP_SIGNATURE)) {
-    return { ok: false, reason: `tag ${tag} is annotated but has no OpenPGP signature` };
+    return {
+      ok: false,
+      reason: `tag ${tag} is annotated but has no OpenPGP signature; re-create it with git tag -s`,
+    };
   }
   const home = mkdtempSync(path.join(tmpdir(), HOME_PREFIX));
   const homeEnv: NodeJS.ProcessEnv = { ...env, GNUPGHOME: home };
@@ -339,7 +360,7 @@ function checkSignature(options: VerifyOptions, keysDirectory: string): Signatur
 
 /**
  * Runs the four checks on a tag.
- * @param options Where to look.
+ * @param options The tag, the repository and the environment, see {@link VerifyOptions}.
  * @returns The verdict; it never throws for a failing tag, only when `git` or `gpg` cannot run.
  */
 export function verifyReleaseTag(options: VerifyOptions): Verdict {
