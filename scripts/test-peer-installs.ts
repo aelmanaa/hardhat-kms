@@ -25,10 +25,13 @@
 // an error, and the environment holds fake AWS credentials only. The installs reach the npm
 // registry. Yarn runs through corepack, which ships with Node 24 but not with Node 25 and later.
 //
-// Usage: node scripts/test-peer-installs.ts [--summary <file>] [package manager...]
+// Usage: node scripts/test-peer-installs.ts [--summary <file>] [--from-registry <version> [--registry <url>]] [package manager...]
 //   With names from MANAGERS, such as "yarn berry", measures only those. --summary appends the
-//   result table to a file, such as $GITHUB_STEP_SUMMARY. Linux and macOS only: it runs `env` and
-//   `tar`.
+//   result table to a file, such as $GITHUB_STEP_SUMMARY. --from-registry installs the packages at
+//   that version from the registry in place of the packed tarballs, with no build and no pack; each
+//   install must then resolve that version. The provider-mismatch case needs a core repacked one
+//   patch ahead, which no registry has, so registry mode skips it and the table says so. Linux and
+//   macOS only: it runs `env` and `tar`.
 import { execFileSync, spawn } from "node:child_process";
 import {
   appendFileSync,
@@ -44,6 +47,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { assertInstalledVersion, registryOptionsOrExit } from "./registry.ts";
 import { output, readJson, resolvedVersion, root, run, stringRecord } from "./temporary-install.ts";
 
 /** The package managers measured, with the exact versions, so a result names what produced it. */
@@ -181,6 +185,13 @@ const pnpm = "pnpm";
 const npm = "npm";
 const pluginDirectory = path.join(root, "packages", "hardhat-kms");
 
+const options = registryOptionsOrExit(
+  process.argv.slice(2),
+  "usage: node scripts/test-peer-installs.ts [--summary <file>] [--from-registry <version> [--registry <url>]] [package manager...]",
+);
+/** The version `--from-registry` asked for; undefined in tarball mode. */
+const fromRegistry = options.version;
+
 /** AWS settings that could point the SDK at real credentials or another endpoint. */
 const AWS_UNSET = [
   "AWS_PROFILE",
@@ -219,6 +230,10 @@ function isolated(command: string, args: string[]): [string, string[]] {
     npm_config_audit: "false",
     npm_config_fund: "false",
     npm_config_update_notifier: "false",
+    // npm, pnpm and Yarn classic read npm_config_registry; Yarn Berry has its own name.
+    ...(options.registry === undefined
+      ? {}
+      : { npm_config_registry: options.registry, YARN_NPM_REGISTRY_SERVER: options.registry }),
   };
   return [
     "env",
@@ -508,9 +523,14 @@ function writeManagerFiles(directory: string, manager: Manager, allowBuilds: boo
   }
 }
 
-interface Tarballs {
+/**
+ * The specs a scratch project's package.json gets for the plugin packages: `file:` paths of the
+ * packed tarballs, or exact versions in registry mode. `coreAhead` is the core repacked one patch
+ * ahead, for the provider-mismatch case, which registry mode has not.
+ */
+interface Specs {
   core: string;
-  coreAhead: string;
+  coreAhead: string | undefined;
   aws: string;
   gcp: string;
 }
@@ -519,7 +539,7 @@ interface Tarballs {
 async function measure(
   manager: Manager,
   testCase: Case,
-  tarballs: Tarballs,
+  specs: Specs,
   versions: { hardhat: string; viem: string },
   work: string,
   kms: Awaited<ReturnType<typeof startKmsEndpoint>>,
@@ -532,8 +552,11 @@ async function measure(
       : testCase === "viem-range"
         ? VIEM_RANGE
         : versions.viem;
-  const core = testCase === "provider-mismatch" ? tarballs.coreAhead : tarballs.core;
-  const plugins = { "@hardhat-kms/aws": `file:${tarballs.aws}`, "hardhat-kms": `file:${core}` };
+  const core = testCase === "provider-mismatch" ? specs.coreAhead : specs.core;
+  if (core === undefined) {
+    throw new Error(`${testCase} has no core spec in this mode`);
+  }
+  const plugins = { "@hardhat-kms/aws": specs.aws, "hardhat-kms": core };
   const locked = testCase === "viem-locked";
   writeManifest(directory, testCase, {
     ...(locked ? {} : plugins),
@@ -548,13 +571,16 @@ async function measure(
   if (locked && install.status === 0) {
     await lockTemplateRange(directory, manager);
     const [addCommand, addArgs] = ADD[manager];
-    const specs = Object.entries(plugins).map(([name, spec]) => `${name}@${spec}`);
-    install = await exec(addCommand, [...addArgs, ...specs], directory);
+    const added = Object.entries(plugins).map(([name, spec]) => `${name}@${spec}`);
+    install = await exec(addCommand, [...addArgs, ...added], directory);
   }
   if (install.status !== 0) {
     const tail = install.output.trim().split("\n").slice(-15).join("\n");
     rmSync(directory, { recursive: true, force: true });
     return { exitCode: install.status, viem: "-", outcome: "not run", message: tail };
+  }
+  if (fromRegistry !== undefined) {
+    assertInstalledVersion(directory, fromRegistry);
   }
   const plugin = realpathSync(path.join(directory, "node_modules", "hardhat-kms"));
   const resolved = resolvedVersion(plugin, "viem");
@@ -584,7 +610,7 @@ async function measure(
  * @returns The packages pnpm names, or an empty list when the install succeeded.
  */
 async function pnpmIgnoredBuilds(
-  tarballs: Tarballs,
+  specs: Specs,
   versions: { hardhat: string; viem: string },
   work: string,
 ): Promise<{ exitCode: number; packages: string[] }> {
@@ -597,9 +623,9 @@ async function pnpmIgnoredBuilds(
         private: true,
         type: "module",
         devDependencies: {
-          "@hardhat-kms/gcp": `file:${tarballs.gcp}`,
+          "@hardhat-kms/gcp": specs.gcp,
           hardhat: versions.hardhat,
-          "hardhat-kms": `file:${tarballs.core}`,
+          "hardhat-kms": specs.core,
           viem: versions.viem,
         },
       },
@@ -626,7 +652,7 @@ function toolVersion(command: string, args: string[]): string {
   return execFileSync(...isolated(command, args), { encoding: "utf8" }).trim();
 }
 
-const argv = process.argv.slice(2);
+const argv = options.rest;
 const summaryAt = argv.indexOf("--summary");
 const summaryFile = summaryAt === -1 ? undefined : argv[summaryAt + 1];
 const selected = argv.filter(
@@ -641,19 +667,32 @@ if (unknown.length > 0) {
 }
 const managers = MANAGERS.filter((manager) => selected.length === 0 || selected.includes(manager));
 
-run(["run", "build"]);
+if (fromRegistry === undefined) {
+  run(["run", "build"]);
+}
 const work = realpathSync(mkdtempSync(path.join(tmpdir(), "hardhat-kms-peer-installs-")));
 const kms = await startKmsEndpoint();
 let failed = false;
 try {
-  const coreVersion = String(readJson(path.join(pluginDirectory, "package.json")).version);
-  const core = pack(pluginDirectory, work);
-  const tarballs: Tarballs = {
-    core,
-    coreAhead: repack(core, nextPatch(coreVersion), work),
-    aws: pack(path.join(root, "packages", "hardhat-kms-aws"), work),
-    gcp: pack(path.join(root, "packages", "hardhat-kms-gcp"), work),
-  };
+  const coreVersion =
+    fromRegistry ?? String(readJson(path.join(pluginDirectory, "package.json")).version);
+  const specs: Specs = ((): Specs => {
+    if (fromRegistry !== undefined) {
+      return {
+        core: fromRegistry,
+        coreAhead: undefined,
+        aws: fromRegistry,
+        gcp: fromRegistry,
+      };
+    }
+    const core = pack(pluginDirectory, work);
+    return {
+      core: `file:${core}`,
+      coreAhead: `file:${repack(core, nextPatch(coreVersion), work)}`,
+      aws: `file:${pack(path.join(root, "packages", "hardhat-kms-aws"), work)}`,
+      gcp: `file:${pack(path.join(root, "packages", "hardhat-kms-gcp"), work)}`,
+    };
+  })();
   // The Hardhat and viem the workspace resolves, pinned, so only the case's change differs.
   const versions = {
     hardhat: resolvedVersion(pluginDirectory, "hardhat"),
@@ -667,7 +706,7 @@ try {
     `Yarn classic ${toolVersion("corepack", [`yarn@${YARN_CLASSIC}`, "--version"])}`,
     `Yarn Berry ${toolVersion("corepack", [`yarn@${YARN_BERRY}`, "--version"])} (nodeLinker: node-modules)`,
     `Hardhat ${versions.hardhat}`,
-    `hardhat-kms ${coreVersion}`,
+    `hardhat-kms ${coreVersion}${fromRegistry === undefined ? " (packed)" : " (from the registry)"}`,
   ];
   const rows: string[] = [];
   for (const manager of managers) {
@@ -675,8 +714,12 @@ try {
       if (!Object.hasOwn(EXPECTED[manager], testCase)) {
         continue;
       }
+      if (testCase === "provider-mismatch" && fromRegistry !== undefined) {
+        rows.push(`| ${manager} | ${testCase} | - | - | not run | skipped in registry mode |`);
+        continue;
+      }
       const started = Date.now();
-      const result = await measure(manager, testCase, tarballs, versions, work, kms, patterns);
+      const result = await measure(manager, testCase, specs, versions, work, kms, patterns);
       process.stdout.write(
         `== ${manager}, ${testCase}: ${Math.round((Date.now() - started) / 1000)} s\n`,
       );
@@ -694,7 +737,7 @@ try {
     }
   }
   const builds = managers.includes("pnpm")
-    ? await pnpmIgnoredBuilds(tarballs, versions, work)
+    ? await pnpmIgnoredBuilds(specs, versions, work)
     : undefined;
   if (
     builds !== undefined &&
@@ -717,6 +760,12 @@ try {
     builds === undefined
       ? "pnpm without `allowBuilds`: not measured."
       : `pnpm without \`allowBuilds\` (core and @hardhat-kms/gcp): exit ${builds.exitCode}, ERR_PNPM_IGNORED_BUILDS for ${builds.packages.join(", ") || "nothing"}.`,
+    ...(fromRegistry === undefined
+      ? []
+      : [
+          "",
+          "provider-mismatch: skipped in registry mode. It installs the core repacked one patch ahead of the provider package, which the registry does not have; `pnpm run test:peer-installs` without `--from-registry` measures it.",
+        ]),
     "",
   ].join("\n");
   process.stdout.write(`\n${report}`);

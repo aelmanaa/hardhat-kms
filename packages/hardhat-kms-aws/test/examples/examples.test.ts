@@ -2,6 +2,12 @@
 // AWS SDK: `pnpm run test:examples`. Needs Docker. The examples are unchanged: the standard AWS
 // variables point the SDK at LocalStack, and AWS_KMS_KEY_ID names a key created here.
 //
+// Registry mode: with HARDHAT_KMS_EXAMPLES_VERSION set to an exact version, the test copies the
+// examples to a temporary directory with hardhat-kms and @hardhat-kms/aws at that version, as a
+// user copies one, installs each copy with npm from the registry (HARDHAT_KMS_EXAMPLES_REGISTRY
+// names another registry, for a rehearsal) and runs the same checks there, with npm in place of
+// pnpm. The lint step stays with the workspace run: the copy has the same sources.
+//
 // Each example's deploy script prints `Deployer:`, `Counter:`, `Owner:` and `Count:` lines. The
 // test checks that the deployer and the contract's owner are the address of the LocalStack key,
 // computed here from its public key, and that the count read back from the contract is 7 + 5.
@@ -19,11 +25,16 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 
 import { isolateAwsEnvironment } from "../helpers/aws-env.ts";
+import { copyExamples } from "../helpers/examples-copy.ts";
 import { type LocalStack, startLocalStack } from "../helpers/localstack.ts";
 
 const REGION = "us-east-1";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
-const EXAMPLES_DIRECTORY = path.join(ROOT, "examples");
+const SOURCE_DIRECTORY = path.join(ROOT, "examples");
+/** The exact version the copies install from the registry; unset for the workspace run. */
+const REGISTRY_VERSION = process.env.HARDHAT_KMS_EXAMPLES_VERSION?.trim() ?? "";
+const REGISTRY_URL = process.env.HARDHAT_KMS_EXAMPLES_REGISTRY?.trim() ?? "";
+const fromRegistry = REGISTRY_VERSION !== "";
 const EXPECTED_COUNT = 12n;
 /** The guide whose `--kms` rehearsal command the Ignition example runs as written. */
 const IGNITION_GUIDE = path.join(ROOT, "docs", "user", "guides", "deploy-with-ignition.md");
@@ -33,11 +44,12 @@ const NODE_URL = "http://127.0.0.1:8545";
 const OWNER_SELECTOR = "0x8da5cb5b";
 const COUNT_SELECTOR = "0x06661abd";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
 const shell = process.platform === "win32";
 const run = promisify(execFile);
 
-const examples = readdirSync(EXAMPLES_DIRECTORY, { withFileTypes: true })
+const examples = readdirSync(SOURCE_DIRECTORY, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => entry.name)
   .toSorted();
@@ -46,6 +58,8 @@ let localstack: LocalStack;
 let restoreEnvironment: () => void;
 let environment: NodeJS.ProcessEnv;
 let kmsAddress: string;
+/** Where the examples run: examples/ itself, or the copies in registry mode. */
+let examplesDirectory = SOURCE_DIRECTORY;
 
 /** The Ethereum address of a KMS key, from the SPKI DER public key that GetPublicKey returns. */
 function addressOf(spki: Uint8Array): string {
@@ -56,13 +70,13 @@ function addressOf(spki: Uint8Array): string {
 }
 
 /**
- * Runs pnpm in a directory with the LocalStack environment.
+ * Runs a package manager in a directory with the LocalStack environment.
  *
  * @returns The command's standard output; a failure carries its output in the error message.
  */
-async function pnpmAt(cwd: string, args: string[]): Promise<string> {
+async function managerAt(command: string, cwd: string, args: string[]): Promise<string> {
   try {
-    const { stdout } = await run(pnpm, args, {
+    const { stdout } = await run(command, args, {
       cwd,
       env: environment,
       shell,
@@ -73,14 +87,40 @@ async function pnpmAt(cwd: string, args: string[]): Promise<string> {
     const stdout: unknown = Reflect.get(Object(error), "stdout");
     const stderr: unknown = Reflect.get(Object(error), "stderr");
     throw new Error(
-      `${path.relative(ROOT, cwd)}: pnpm ${args.join(" ")} failed\n${String(stdout)}\n${String(stderr)}`,
+      `${path.relative(ROOT, cwd)}: ${command} ${args.join(" ")} failed\n${String(stdout)}\n${String(stderr)}`,
       { cause: error },
     );
   }
 }
 
-const pnpmIn = async (example: string, args: string[]): Promise<string> =>
-  await pnpmAt(path.join(EXAMPLES_DIRECTORY, example), args);
+const pnpmAt = async (cwd: string, args: string[]): Promise<string> =>
+  await managerAt(pnpm, cwd, args);
+
+/**
+ * Runs `exec <bin> ...` or `run <script> ...` in an example: with pnpm in the workspace, with npm
+ * in a copy, which needs `--` before a script's arguments.
+ */
+async function runIn(example: string, args: string[]): Promise<string> {
+  const cwd = path.join(examplesDirectory, example);
+  if (!fromRegistry) {
+    return await pnpmAt(cwd, args);
+  }
+  const [verb, name, ...rest] = args;
+  assert.ok(name !== undefined && (verb === "exec" || verb === "run"), args.join(" "));
+  return await managerAt(
+    npm,
+    cwd,
+    verb === "exec" ? ["exec", "--", name, ...rest] : ["run", name, "--", ...rest],
+  );
+}
+
+/** The version of hardhat-kms a copy resolves, from the installed manifest. */
+function installedVersion(directory: string): string {
+  const manifest: unknown = JSON.parse(
+    readFileSync(path.join(directory, "node_modules", "hardhat-kms", "package.json"), "utf8"),
+  );
+  return String(Reflect.get(Object(manifest), "version"));
+}
 
 /** The value printed after `label:` on its own line of `output`. */
 function printed(output: string, label: string): string {
@@ -140,7 +180,7 @@ async function startNode(example: string): Promise<ChildProcess> {
   );
   assert.ok(!alreadyRunning, `something already listens on ${NODE_URL}; stop it and run again`);
   // Node runs Hardhat's CLI directly, without pnpm in between, so that kill() stops the server.
-  const directory = path.join(EXAMPLES_DIRECTORY, example);
+  const directory = path.join(examplesDirectory, example);
   const cli = path.join(directory, "node_modules", "hardhat", "dist", "src", "cli.js");
   const node = spawn(process.execPath, [cli, "node"], {
     cwd: directory,
@@ -168,6 +208,10 @@ async function startNode(example: string): Promise<ChildProcess> {
 describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
   before(async () => {
     restoreEnvironment = isolateAwsEnvironment();
+    if (fromRegistry) {
+      examplesDirectory = mkdtempSync(path.join(tmpdir(), "hhkms-examples-"));
+      copyExamples(SOURCE_DIRECTORY, examplesDirectory, REGISTRY_VERSION);
+    }
     localstack = await startLocalStack();
     const kms = new KMSClient({ region: REGION, endpoint: localstack.endpoint });
     try {
@@ -193,6 +237,14 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
   after(() => {
     localstack?.stop();
     restoreEnvironment();
+    // Only a copy is removed, never examples/: the path must be the one `before` created.
+    if (
+      fromRegistry &&
+      path.dirname(examplesDirectory) === path.resolve(tmpdir()) &&
+      path.basename(examplesDirectory).startsWith("hhkms-examples-")
+    ) {
+      rmSync(examplesDirectory, { recursive: true, force: true });
+    }
   });
 
   it("finds the viem, ethers and Ignition examples", () => {
@@ -202,27 +254,43 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
   });
 
   for (const example of examples) {
+    if (fromRegistry) {
+      it(`${example}: a copy installs ${REGISTRY_VERSION} with npm from the registry`, async () => {
+        const directory = path.join(examplesDirectory, example);
+        await managerAt(npm, directory, [
+          "install",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund",
+          ...(REGISTRY_URL === "" ? [] : ["--registry", REGISTRY_URL]),
+        ]);
+        assert.equal(installedVersion(directory), REGISTRY_VERSION);
+      });
+    }
+
     it(`${example}: builds, typechecks, lints and deploys from the KMS account`, async () => {
       // `hardhat build` writes the artifact types that the typecheck and type-aware lint need,
       // which is why the root lint skips examples/ and this test lints them instead.
-      await pnpmIn(example, ["exec", "hardhat", "build"]);
-      await pnpmIn(example, ["exec", "tsc", "-p", "."]);
-      await pnpmAt(ROOT, [
-        "exec",
-        "oxlint",
-        "--config",
-        "examples/oxlint.json",
-        `examples/${example}`,
-      ]);
+      await runIn(example, ["exec", "hardhat", "build"]);
+      await runIn(example, ["exec", "tsc", "-p", "."]);
+      if (!fromRegistry) {
+        await pnpmAt(ROOT, [
+          "exec",
+          "oxlint",
+          "--config",
+          "examples/oxlint.json",
+          `examples/${example}`,
+        ]);
+      }
 
-      const output = await pnpmIn(example, ["run", "deploy", "--network", "rehearsal"]);
+      const output = await runIn(example, ["run", "deploy", "--network", "rehearsal"]);
       assert.equal(printed(output, "Deployer").toLowerCase(), kmsAddress);
       assert.match(printed(output, "Counter"), /^0x[0-9a-fA-F]{40}$/);
       assert.equal(printed(output, "Owner").toLowerCase(), kmsAddress);
       assert.equal(BigInt(printed(output, "Count")), EXPECTED_COUNT);
     });
 
-    const modules = path.join(EXAMPLES_DIRECTORY, example, "ignition", "modules");
+    const modules = path.join(SOURCE_DIRECTORY, example, "ignition", "modules");
     if (existsSync(modules)) {
       for (const file of readdirSync(modules).filter((name) => name.endsWith(".ts"))) {
         // A simulated network keeps no state after the task exits, so this deploys to a Hardhat
@@ -232,7 +300,7 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
           const node = await startNode(example);
           try {
             await rpc("hardhat_setBalance", [kmsAddress, "0xde0b6b3a7640000"]);
-            const output = await pnpmIn(example, [
+            const output = await runIn(example, [
               "exec",
               "hardhat",
               "ignition",
@@ -253,7 +321,7 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
             assert.equal(BigInt(await callWord(address, COUNT_SELECTOR)), EXPECTED_COUNT);
           } finally {
             node.kill();
-            rmSync(path.join(EXAMPLES_DIRECTORY, example, "ignition", "deployments"), {
+            rmSync(path.join(examplesDirectory, example, "ignition", "deployments"), {
               recursive: true,
               force: true,
             });
@@ -269,7 +337,7 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
   it("ignition: the deploy-with-ignition guide's --kms command deploys as written", async () => {
     const commandArguments = guideKmsDeployArguments(kmsAddress);
     assert.ok(commandArguments.includes(kmsAddress), commandArguments.join(" "));
-    const output = await pnpmIn("ignition", ["exec", "hardhat", ...commandArguments]);
+    const output = await runIn("ignition", ["exec", "hardhat", ...commandArguments]);
     assert.match(output, /successfully deployed/);
     assert.match(output, /#Counter - 0x[0-9a-fA-F]{40}/);
   });
@@ -303,7 +371,7 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
       AWS_KMS_REGION: REGION,
     };
     try {
-      const output = await pnpmIn("viem", ["run", "deploy", "--network", "rehearsal"]);
+      const output = await runIn("viem", ["run", "deploy", "--network", "rehearsal"]);
       assert.equal(printed(output, "Deployer").toLowerCase(), kmsAddress);
       assert.equal(printed(output, "Owner").toLowerCase(), kmsAddress);
     } finally {
