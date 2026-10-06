@@ -4,4 +4,6 @@
 "@hardhat-kms/gcp": patch
 ---
 
-Build every error of the provider packages from an error catalogue, as the core does: each error has a stable id, a message template, a cause and a fix, listed in the errors reference, `docs/user/reference/errors.md`. Messages are unchanged.
+Every error of `@hardhat-kms/aws`, `@hardhat-kms/azure` and `@hardhat-kms/gcp` now has a stable id, a cause and a fix, listed in the errors reference, `docs/user/reference/errors.md`. Messages are unchanged.
+
+Issue: [#72](https://github.com/aelmanaa/hardhat-kms/issues/72)

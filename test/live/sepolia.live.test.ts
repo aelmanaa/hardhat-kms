@@ -422,7 +422,6 @@ function writeProof(): void {
   const proof: Proof = {
     chainId: SEPOLIA_CHAIN_ID,
     commit: git("rev-parse", "--short", "HEAD"),
-    subject: git("log", "-1", "--format=%s"),
     firstBlockTime: sorted.map((item) => item.firstBlockTime).toSorted()[0] ?? "",
     lastBlockTime:
       sorted

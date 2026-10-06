@@ -8,7 +8,7 @@ Issue: [#91](https://github.com/aelmanaa/hardhat-kms/issues/91)
 
 ## Context
 
-Decision 0005 kept every cloud SDK out of the plugin's dependencies: users installed the SDK for their provider, and the plugin loaded it from their project. That kept installs small, but it made the plugin declare supported SDK ranges it could not fully test. The AWS review found the cost: `@aws-sdk/client-kms` releases before 3.714.0 ignore the region of a named profile, and the declared range `^3.0.0` allowed them.
+Decision 0005 kept every cloud SDK out of the plugin's dependencies: users installed the SDK for their provider, and the plugin loaded it from their project. That kept installs small, but it made the plugin declare supported SDK ranges it could not fully test. The AWS adapter showed the cost: `@aws-sdk/client-kms` releases before 3.714.0 ignore the region of a named profile, and the declared range `^3.0.0` allowed them.
 
 Depending on all three SDKs from one package would fix the ranges but grow every project. Measured on 2026-10-01 with npm:
 

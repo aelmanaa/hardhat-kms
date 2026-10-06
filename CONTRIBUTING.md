@@ -40,8 +40,39 @@ Issues that affect what gets signed, keys or secrets also get `security`. New is
 
 - `main` only changes through pull requests (squash merge). The pre-push hook refuses direct pushes to `main`.
 - Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org) (checked by the commit-msg hook).
-- Every user-facing change needs a changeset: `pnpm changeset`.
+- Every user-facing change needs a changeset: `pnpm changeset`. See [Changesets](#changesets) for what to write in it.
 - The pre-commit hook formats (oxfmt) and lints (oxlint) staged files and typechecks the project.
+
+### Changesets
+
+A changeset is a release note. From 1.0.0, its text becomes the `CHANGELOG.md` entry and the GitHub Release body. The reader is an operator who signs with production keys and skims the changelog for the one entry that affects them. They read it once and know what changed for them. Reasoning, design and mechanism go in the commit body or the pull request.
+
+- Lead with what the user sees. The first sentence names the task, option, config key or behaviour that changed, and how. If the mechanism matters to the user, give it a sentence of its own. If it does not, leave it out.
+- One idea per sentence. Split any sentence a reader would have to read twice. Do not chain changes with colons, semicolons or parentheses.
+- End with the issue link. If the reader needs the old behaviour to recognise the bug, give it a past-tense sentence of its own. Do not append "instead of ..." or "rather than ..." to a sentence.
+- Plain punctuation: no em or en dashes, no bold or italics for emphasis, straight quotes. Plain words. Name the actor when it matters: "`kms sign-tx` now refuses", not "is now refused".
+- No reasoning. A changeset states what the plugin does now. Design justification, "so that ..." chains, "note that" and hedging go in the commit body or the pull request.
+- A breaking or behaviour change carries a second paragraph that starts with "What should I do?" and names the config key, task or command to change.
+- A Hardhat, Node.js or SDK floor change states the new floor in the entry.
+- A security fix names the advisory and the affected version range.
+- Which bump: `patch` for a fix or a docs-only change to a published file, such as a package README; `minor` for a new task, option, config key or provider capability; `major` for a removed or renamed one, a dropped Hardhat major or an error code removed from the catalogue. The four packages are one fixed group and get the same version, so name only the packages whose changelog should carry the entry.
+- A change under `packages/` with nothing to tell users, such as tests or an internal refactor, gets an empty changeset: `pnpm changeset add --empty`. A pull request that changes `packages/` carries one or the other.
+- Before committing, reread the entry and ask what makes it read as generated. The usual answers are a dash, an "instead of" tail, and a colon-joined list of internals.
+
+An entry that follows the rules:
+
+```md
+---
+"hardhat-kms": minor
+"@hardhat-kms/aws": minor
+---
+
+An AWS key's `profile` and `region`, and `kms.defaults.aws.region`, now take `configVariable(...)` as well as a literal string. The plugin reads the variable when the key is first used. An empty value leaves the field unset, so `configVariable("AWS_KMS_PROFILE", { default: "" })` makes the profile optional. An unset variable without a `default` fails at first use with Hardhat's error, which names the variable. A key ARN whose region conflicts with a `region` from a variable fails at first use. Errors, `kms accounts` and `kms history` show a value from a variable as `<VARIABLE_NAME>` or `<hidden>` unless `--show-ids` is given.
+
+What should I do? Nothing changes in a config that uses literal strings. In the resolved config, `AwsKmsKeyConfig.region`, `AwsKmsKeyConfig.profile` and `KmsConfig.defaults.aws.region` are now `KmsIdentifier` values. A plugin that reads one of them should call `await key.region?.get()` and print `key.region?.display`. The `kms accounts` report keeps `region` and `profile` as strings.
+
+Issue: [#243](https://github.com/aelmanaa/hardhat-kms/issues/243)
+```
 
 ## Code standards
 

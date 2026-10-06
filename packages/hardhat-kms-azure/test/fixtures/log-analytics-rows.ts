@@ -17,11 +17,11 @@ export const SP_OBJECT_ID = "00000000-0000-4000-8000-000000000004";
 export const ASSIGNMENT_ID = "0123456789abcdef0123456789abcd01";
 export const REQUEST_ID = "00000000-0000-4000-8000-0000000000a1";
 export const PLUGIN_USER_AGENT =
-  "hardhat-kms/0.0.0 azsdk-js-keyvault-keys/4.10.2 azsdk-js-keyvault-keys/4.10.2 azsdk-js-client azsdk-js-api azsdk-js-keyvault-keys/4.10.2 core-rest-pipeline/1.25.0 Node/24.16.0 (Darwin 22.6.0; x64)";
+  "hardhat-kms/0.0.0 azsdk-js-keyvault-keys/4.10.2 azsdk-js-keyvault-keys/4.10.2 azsdk-js-client azsdk-js-api azsdk-js-keyvault-keys/4.10.2 core-rest-pipeline/1.25.0 Node/0.0.0 (Linux 0.0.0; x64)";
 
 type Row = Record<(typeof COLUMNS)[number], unknown>;
 
-/** The token claims of `az login` with a personal Microsoft account: no `upn`. */
+/** The token claims of `az login` with a Microsoft account that has no `upn` claim. */
 const userIdentity = JSON.stringify({
   claim: {
     oid: USER_OBJECT_ID,
@@ -72,7 +72,7 @@ export const FAILED_SIGN: Row = {
   ResultDescription: `Key and signing algorithm are incompatible. Key ${KEY_URL}/${VERSION_1} uses curve 'P-256K', and algorithm 'ES256' can only be used with curve 'P-256'.`,
   HttpStatusCode: 400,
   CorrelationId: "00000000-0000-4000-8000-0000000000a2",
-  ClientInfo: "azsdk-js-keyvault-keys/4.10.2 core-rest-pipeline/1.25.0 Node/24.16.0",
+  ClientInfo: "azsdk-js-keyvault-keys/4.10.2 core-rest-pipeline/1.25.0 Node/0.0.0",
   Algorithm: "",
   DurationMs: 160,
 };

@@ -4,7 +4,7 @@ Audience: contributors and security reviewers who want to know why the signing p
 
 Status: research from 2026-09-30, done by reading source code. Nothing was run against a live KMS. Versions and commits are pinned below; later releases may differ. The hardhat-kms column describes the signing core in [#4](https://github.com/aelmanaa/hardhat-kms/pull/4).
 
-The [signing pipeline](../signing-pipeline.md) turns a KMS signature into an Ethereum signature. While the signing core was in review, we compared it with how Foundry and the most downloaded JavaScript KMS signers do the same job. This page records what we found. The decision it supports is [0004: Recover the parity against the known key and verify every signature](../decisions/0004-verify-every-signature.md).
+The [signing pipeline](../signing-pipeline.md) turns a KMS signature into an Ethereum signature. Before the signing core shipped, we compared it with how Foundry and the most downloaded JavaScript KMS signers do the same job. This page records what we found. The decision it supports is [0004: Recover the parity against the known key and verify every signature](../decisions/0004-verify-every-signature.md).
 
 ## What was compared
 

@@ -23,7 +23,7 @@ const parts =
     keyVersionName,
   );
 
-/** How long to wait for the entry: Cloud Logging took under 2 seconds on 2026-10-02. */
+/** How long to wait for the entry; Cloud Logging usually delivers it within seconds. */
 const POLL_LIMIT_MS = 180_000;
 const POLL_INTERVAL_MS = 10_000;
 

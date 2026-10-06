@@ -77,7 +77,7 @@ The second table covers a project that has only `hardhat` and `viem` installed, 
 
 To move viem into the range with pnpm or Yarn, upgrade it as the fix of [`core.account.viem-too-old`](errors.md#library-accounts) shows.
 
-The measurements ran with Hardhat 3.18.0, on macOS with Node 24.16.0 and npm 11.15.0. CI repeats them on Linux with the npm that comes with Node 24, which was npm 11.19.0 on Node 24.21.0 for the first table. `pnpm run test:peer-installs` in the repository runs these installs and fails when an install's exit code, the viem that hardhat-kms resolves or what `getAccount` reports changes. It does not check the warnings, which come from manual runs of the same installs.
+Measured with Hardhat 3.18.0, Node 24.16.0 and npm 11.15.0; CI repeats the installs on Linux with the npm that ships with Node 24 (npm 11.19.0 on Node 24.21.0 for the first table).
 
 ## Options
 

@@ -81,8 +81,7 @@ Where things are:
 | How the docs are organised                           | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
 | Why the main decisions were made                     | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
 | How other signers compare, and why each check exists | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
-| Roadmap and milestones                               | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
-| Former design document (section redirects)           | [docs/DESIGN.md](docs/DESIGN.md)                                                                 |
+| Roadmap                                              | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
 
 Decision records:
 
@@ -106,6 +105,7 @@ Rules for every change:
 
 - Work from a GitHub issue, and link it from the pull request (`Closes #n`). Labels, priorities and milestones are described in [CONTRIBUTING.md](CONTRIBUTING.md#issues-first).
 - `main` changes only through squash-merged pull requests. Commit subjects follow Conventional Commits.
+- Every user-facing change carries a changeset written as a release note. The rules and an example are in [CONTRIBUTING.md](CONTRIBUTING.md#changesets).
 - Tests come with the change, and coverage stays at or above 95%.
 - Docs ship with the code: update the pages the change affects, and link any new page from this file and from [docs/README.md](docs/README.md).
 - Do not edit `packages/hardhat-kms/src/internal/vendor/`. It is micro-eth-signer 0.19.0 code with only import paths changed; see [decision 0001](docs/contributor/decisions/0001-vendor-eip712-encoder.md).

@@ -2,7 +2,7 @@
 
 Audience: Contributors and security reviewers.
 
-Status: M1 implements the signature pipeline for digests, messages and typed data, along with the address pin check and the vendored EIP-712 encoder. M5 adds transactions ([#24](https://github.com/aelmanaa/hardhat-kms/issues/24)). Each provider's identity checks come with its adapter (M3, M6).
+Status: the pipeline below handles digests, messages, typed data and transactions, with the address pin check and the vendored EIP-712 encoder. Each provider's identity checks live in its adapter.
 
 ## Signature pipeline
 

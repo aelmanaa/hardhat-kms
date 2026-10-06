@@ -1633,8 +1633,7 @@ An adapter needs at least one way to identify the key (`getPublicKey` or `getAdd
 at least one way to sign. The core prefers the structured methods when present and falls back
 to `signDigest`; it always verifies the returned signature against the key.
 
-Transaction methods are added in the transaction milestone; the contract is frozen
-at 1.0.
+The contract is frozen at 1.0.
 
 #### Methods
 

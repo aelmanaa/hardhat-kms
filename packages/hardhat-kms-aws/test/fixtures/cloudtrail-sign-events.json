@@ -20,7 +20,7 @@
     "eventName": "Sign",
     "awsRegion": "us-east-1",
     "sourceIPAddress": "203.0.113.7",
-    "userAgent": "aws-cli/2.37.3 md/awscrt#0.37.0 ua/2.1 os/macos#0.0.0 md/arch#x86_64 lang/python#3.14.6 md/pyimpl#CPython m/AC,AN,E,b,AD,Z cfg/retry-mode#standard md/installer#script-exe sid/000000000000 md/prompt#off md/command#kms.sign",
+    "userAgent": "aws-cli/0.0.0 md/awscrt#0.0.0 ua/2.1 os/linux#0.0.0 md/arch#x86_64 lang/python#0.0.0 md/pyimpl#CPython m/AC,AN,E,b,AD,Z cfg/retry-mode#standard md/installer#script-exe sid/000000000000 md/prompt#off md/command#kms.sign",
     "errorCode": "InvalidKeyUsageException",
     "errorMessage": "Algorithm ECDSA_SHA_384 is incompatible with key spec ECC_SECG_P256K1.",
     "requestParameters": {
@@ -71,7 +71,7 @@
     "eventName": "Sign",
     "awsRegion": "us-east-1",
     "sourceIPAddress": "203.0.113.7",
-    "userAgent": "aws-cli/2.37.3 md/awscrt#0.37.0 ua/2.1 os/macos#0.0.0 md/arch#x86_64 lang/python#3.14.6 md/pyimpl#CPython m/AC,AN,E,b,AD,Z cfg/retry-mode#standard md/installer#script-exe sid/000000000000 md/prompt#off md/command#kms.sign",
+    "userAgent": "aws-cli/0.0.0 md/awscrt#0.0.0 ua/2.1 os/linux#0.0.0 md/arch#x86_64 lang/python#0.0.0 md/pyimpl#CPython m/AC,AN,E,b,AD,Z cfg/retry-mode#standard md/installer#script-exe sid/000000000000 md/prompt#off md/command#kms.sign",
     "requestParameters": {
       "signingAlgorithm": "ECDSA_SHA_256",
       "messageType": "DIGEST",
@@ -120,7 +120,7 @@
     "eventName": "Sign",
     "awsRegion": "us-east-1",
     "sourceIPAddress": "203.0.113.7",
-    "userAgent": "aws-cli/2.37.3 md/awscrt#0.37.0 ua/2.1 os/macos#0.0.0 md/arch#x86_64 lang/python#3.14.6 md/pyimpl#CPython m/AC,AN,E,b,AD,Z cfg/retry-mode#standard md/installer#script-exe sid/000000000000 md/prompt#off md/command#kms.sign",
+    "userAgent": "aws-cli/0.0.0 md/awscrt#0.0.0 ua/2.1 os/linux#0.0.0 md/arch#x86_64 lang/python#0.0.0 md/pyimpl#CPython m/AC,AN,E,b,AD,Z cfg/retry-mode#standard md/installer#script-exe sid/000000000000 md/prompt#off md/command#kms.sign",
     "requestParameters": {
       "messageType": "DIGEST",
       "keyId": "1234abcd-12ab-34cd-56ef-1234567890ab",
@@ -169,7 +169,7 @@
     "eventName": "Sign",
     "awsRegion": "us-east-1",
     "sourceIPAddress": "203.0.113.7",
-    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/darwin#0.0.0 lang/js md/nodejs#24.16.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
+    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/linux#0.0.0 lang/js md/nodejs#0.0.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
     "requestParameters": {
       "keyId": "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
       "messageType": "DIGEST",
@@ -218,7 +218,7 @@
     "eventName": "Sign",
     "awsRegion": "us-east-1",
     "sourceIPAddress": "203.0.113.7",
-    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/darwin#0.0.0 lang/js md/nodejs#24.16.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
+    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/linux#0.0.0 lang/js md/nodejs#0.0.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
     "requestParameters": {
       "keyId": "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
       "messageType": "DIGEST",
@@ -267,7 +267,7 @@
     "eventName": "Sign",
     "awsRegion": "us-east-1",
     "sourceIPAddress": "203.0.113.7",
-    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/darwin#0.0.0 lang/js md/nodejs#24.16.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
+    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/linux#0.0.0 lang/js md/nodejs#0.0.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
     "requestParameters": {
       "keyId": "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
       "messageType": "DIGEST",
@@ -316,7 +316,7 @@
     "eventName": "Sign",
     "awsRegion": "us-east-1",
     "sourceIPAddress": "203.0.113.7",
-    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/darwin#0.0.0 lang/js md/nodejs#24.16.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
+    "userAgent": "aws-sdk-js/3.1142.0 ua/2.1 os/linux#0.0.0 lang/js md/nodejs#0.0.0 api/kms#3.1142.0 m/E,T,AD,AC hardhat-kms/0.0.0",
     "requestParameters": {
       "keyId": "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
       "messageType": "DIGEST",

@@ -1,4 +1,4 @@
-// The adapter contract check and chain edge cases, found in review.
+// The adapter contract check and chain edge cases.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
