@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import {
   MANIFESTS,
   importedFingerprints,
+  isOnePublicKeyBlock,
   readSignature,
   removeKeyHome,
   verifyReleaseTag,
@@ -19,6 +20,18 @@ import {
 
 const script = fileURLToPath(new URL("../../scripts/verify-release-tag.ts", import.meta.url));
 const hasGpg = spawnSync("gpg", ["--version"]).status === 0;
+
+// Signing needs a gpg-agent, and its socket lives in the key's home. A Unix socket path is at
+// most 104 bytes on macOS (108 on Linux), and GnuPG falls back to /run/user only on Linux, so a
+// long temp directory makes key generation fail with "File name too long" rather than test the
+// script. The suite then skips and says so.
+const SOCKET_PATH_MAX = 104;
+const longestSocketPath = path.join(tmpdir(), "hardhat-kms-test-XXXXXX", "g1", "S.gpg-agent.extra");
+const skip = hasGpg
+  ? longestSocketPath.length < SOCKET_PATH_MAX
+    ? false
+    : `temp directory ${tmpdir()} is too long for gpg's agent socket path (${longestSocketPath.length} >= ${SOCKET_PATH_MAX} bytes); set TMPDIR to a shorter directory`
+  : "gpg is not installed";
 
 function run(
   file: string,
@@ -81,7 +94,7 @@ function stopAgent(home: string, env: NodeJS.ProcessEnv): void {
   spawnSync("gpgconf", ["--homedir", home, "--kill", "gpg-agent"], { env });
 }
 
-describe("verify-release-tag", { skip: hasGpg ? false : "gpg is not installed" }, () => {
+describe("verify-release-tag", { skip }, () => {
   // The script removes its throwaway GNUPGHOME with `rmSync(..., { recursive: true })`, so the
   // tests move the temp directory to one of their own. Node reads TMPDIR on Unix and TEMP, then
   // TMP, on Windows, so all three move.
@@ -305,6 +318,98 @@ describe("verify-release-tag", { skip: hasGpg ? false : "gpg is not installed" }
     );
   });
 
+  it("refuses a key file with a second key block appended to a good key", () => {
+    const appended = path.join(sandbox, "appended-keys");
+    mkdirSync(appended);
+    const file = path.join(appended, "maintainer.asc");
+    const exportKey = (home: string, key: string): string =>
+      mustRun("gpg", ["--batch", "--homedir", home, "--armor", "--export", key], sandbox, env);
+    writeFileSync(file, exportKey(trustedHome, trustedKey) + exportKey(otherHome, otherKey));
+    withTag(
+      "v1.2.3",
+      () => signWith(otherHome, otherKey, "v1.2.3"),
+      () =>
+        assert.deepEqual(verify("v1.2.3", { keysDirectory: appended }), {
+          ok: false,
+          reason: `${file} is not one armored public key block; commit only the output of gpg --armor --export <key-id>`,
+        }),
+    );
+  });
+
+  it("refuses a key file whose one block holds two keys", () => {
+    // A home with both public keys exports them as one armored block.
+    const both = path.join(sandbox, "g3");
+    mkdirSync(both, { mode: 0o700 });
+    for (const [home, key] of [
+      [trustedHome, trustedKey],
+      [otherHome, otherKey],
+    ] as const) {
+      const exported = mustRun(
+        "gpg",
+        ["--batch", "--homedir", home, "--armor", "--export", key],
+        sandbox,
+        env,
+      );
+      const keyFile = path.join(sandbox, "g3-import.asc");
+      writeFileSync(keyFile, exported);
+      mustRun(
+        "gpg",
+        ["--batch", "--no-autostart", "--homedir", both, "--import", keyFile],
+        sandbox,
+        env,
+      );
+    }
+    const twoKeys = path.join(sandbox, "two-keys");
+    mkdirSync(twoKeys);
+    const file = path.join(twoKeys, "maintainer.asc");
+    writeFileSync(
+      file,
+      mustRun("gpg", ["--batch", "--homedir", both, "--armor", "--export"], sandbox, env),
+    );
+    withTag(
+      "v1.2.3",
+      () => signWith(otherHome, otherKey, "v1.2.3"),
+      () =>
+        assert.deepEqual(verify("v1.2.3", { keysDirectory: twoKeys }), {
+          ok: false,
+          reason: `${file} holds 2 keys; one key per file, named after its maintainer`,
+        }),
+    );
+  });
+
+  it("refuses a binary secret-key export named .asc", () => {
+    const binary = path.join(sandbox, "binary-keys");
+    mkdirSync(binary);
+    const file = path.join(binary, "maintainer.asc");
+    const exported = spawnSync(
+      "gpg",
+      [
+        "--batch",
+        "--homedir",
+        trustedHome,
+        "--pinentry-mode",
+        "loopback",
+        "--passphrase",
+        "",
+        "--export-secret-keys",
+        trustedKey,
+      ],
+      { env },
+    );
+    assert.equal(exported.status, 0, exported.stderr.toString());
+    assert.notEqual(exported.stdout.length, 0);
+    writeFileSync(file, exported.stdout);
+    withTag(
+      "v1.2.3",
+      () => signWith(trustedHome, trustedKey, "v1.2.3"),
+      () =>
+        assert.deepEqual(verify("v1.2.3", { keysDirectory: binary }), {
+          ok: false,
+          reason: `${file} is not one armored public key block; commit only the output of gpg --armor --export <key-id>`,
+        }),
+    );
+  });
+
   it("fails a tag whose name is not the manifest version", () => {
     withTag(
       "v9.9.9",
@@ -349,12 +454,34 @@ describe("verify-release-tag", { skip: hasGpg ? false : "gpg is not installed" }
         () =>
           assert.deepEqual(verify("v2.0.0-next.1"), {
             ok: false,
-            reason: "version 2.0.0-next.1 is a prerelease; only stable versions release from main",
+            reason:
+              "version 2.0.0-next.1 is not a stable X.Y.Z version; only stable versions release from main",
           }),
       );
     } finally {
       git(["checkout", "--quiet", "main"]);
       git(["branch", "--quiet", "-D", "prerelease"]);
+    }
+  });
+
+  it("fails a version with build metadata", () => {
+    git(["checkout", "--quiet", "-b", "build-metadata"]);
+    try {
+      writeManifests({ "*": "1.2.3+build.7" });
+      git(["commit", "--quiet", "--all", "--no-gpg-sign", "-m", "chore: version 1.2.3+build.7"]);
+      withTag(
+        "v1.2.3+build.7",
+        () => signWith(trustedHome, trustedKey, "v1.2.3+build.7"),
+        () =>
+          assert.deepEqual(verify("v1.2.3+build.7"), {
+            ok: false,
+            reason:
+              "version 1.2.3+build.7 is not a stable X.Y.Z version; only stable versions release from main",
+          }),
+      );
+    } finally {
+      git(["checkout", "--quiet", "main"]);
+      git(["branch", "--quiet", "-D", "build-metadata"]);
     }
   });
 
@@ -514,6 +641,25 @@ describe("readSignature", () => {
       reason:
         "gpg reported no valid signature on the tag; re-create it with git tag -s using a key in .github/release-keys",
     });
+  });
+});
+
+const block = (body: string): string =>
+  `-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n${body}\n-----END PGP PUBLIC KEY BLOCK-----\n`;
+
+describe("isOnePublicKeyBlock", () => {
+  it("accepts one armored public key block and nothing else", () => {
+    assert.equal(isOnePublicKeyBlock(block("mQ==")), true);
+    assert.equal(isOnePublicKeyBlock(block("mQ==") + block("mR==")), false);
+    assert.equal(isOnePublicKeyBlock(`note\n${block("mQ==")}`), false);
+    assert.equal(
+      isOnePublicKeyBlock(
+        "-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nlQ==\n-----END PGP PRIVATE KEY BLOCK-----\n",
+      ),
+      false,
+    );
+    assert.equal(isOnePublicKeyBlock("\u0099\u0001\u0003"), false);
+    assert.equal(isOnePublicKeyBlock(""), false);
   });
 });
 

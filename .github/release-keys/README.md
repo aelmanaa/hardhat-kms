@@ -2,6 +2,8 @@
 
 This directory is the trust root of the release pipeline. Every `.asc` file in it is the armored OpenPGP public key of one maintainer, named after their GitHub login (`<login>.asc`). A release starts from a `vX.Y.Z` tag. The release workflow (#47) runs `scripts/verify-release-tag.ts` as its first job and accepts the tag only when a key from this directory signed it; a tag that is lightweight, annotated but unsigned, or signed by any other key stops the workflow before anything is built. Until that workflow exists, run the script by hand before pushing a tag (see "Check a tag locally").
 
+The trust root is for tags only: commits merged through GitHub's web flow are signed by GitHub's own key, which is not and must not be in this directory.
+
 Only public keys live here. The private half stays on the maintainer's hardware key. A pull request that adds a file containing `PRIVATE KEY` must not be merged, and the verification script refuses such a file.
 
 ## Add a maintainer

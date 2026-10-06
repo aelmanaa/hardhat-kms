@@ -5,7 +5,8 @@
 //    `git verify-tag --raw` is parsed by its status lines, never by its human output.
 // 2. The tag name is `v` + the version of `packages/hardhat-kms/package.json` at the tagged commit,
 //    and the four package manifests carry that same version.
-// 3. The version has no `-`: only the stable line releases from `main`.
+// 3. The version is a plain `X.Y.Z`, with no `-` prerelease tag and no `+` build metadata: only
+//    the stable line releases from `main`.
 // 4. The tagged commit is an ancestor of `origin/main`.
 //
 // Usage:
@@ -16,6 +17,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -36,6 +38,10 @@ export const MANIFESTS: readonly string[] = [
 const HOME_PREFIX = "hardhat-kms-release-keys-";
 const PGP_SIGNATURE = "-----BEGIN PGP SIGNATURE-----";
 const PRIVATE_KEY = "PRIVATE KEY";
+const PUBLIC_KEY_BEGIN = "-----BEGIN PGP PUBLIC KEY BLOCK-----";
+const PUBLIC_KEY_END = "-----END PGP PUBLIC KEY BLOCK-----";
+/** A stable version: three numbers, no prerelease tag, no build metadata. */
+const STABLE_VERSION = /^\d+\.\d+\.\d+$/;
 
 /** What the script needs to know about where it runs. */
 export interface VerifyOptions {
@@ -217,6 +223,21 @@ export function importedFingerprints(lines: readonly string[]): Set<string> {
 }
 
 /**
+ * Whether a key file is exactly one armored public-key block, as `gpg --armor --export` writes it.
+ * @param text The file's content.
+ * @returns True for one block with nothing before or after it.
+ */
+export function isOnePublicKeyBlock(text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    trimmed.startsWith(PUBLIC_KEY_BEGIN) &&
+    trimmed.endsWith(PUBLIC_KEY_END) &&
+    trimmed.indexOf("-----BEGIN") === trimmed.lastIndexOf("-----BEGIN") &&
+    trimmed.indexOf("-----END") === trimmed.lastIndexOf("-----END")
+  );
+}
+
+/**
  * Imports every `.asc` file of the key directory into `home`.
  * @returns The primary fingerprints imported, or the reason the import fails.
  */
@@ -241,10 +262,20 @@ function importKeys(
   const fingerprints = new Set<string>();
   for (const name of names) {
     const file = path.join(keysDirectory, name);
-    if (readFileSync(file, "utf8").includes(PRIVATE_KEY)) {
+    const text = readFileSync(file, "utf8");
+    if (text.includes(PRIVATE_KEY)) {
       return {
         ok: false,
         reason: `${file} contains a private key; remove it, revoke that key, and commit only the output of gpg --armor --export`,
+      };
+    }
+    // One armored public-key block per file, so a reviewer sees in the diff exactly what the
+    // file holds: a binary export, a secret-key export or a second block appended to a good key
+    // all fail here, whatever gpg would make of them.
+    if (!isOnePublicKeyBlock(text)) {
+      return {
+        ok: false,
+        reason: `${file} is not one armored public key block; commit only the output of gpg --armor --export <key-id>`,
       };
     }
     // The exit status says nothing useful: gpg exits 2 when it cannot reach an agent it does not
@@ -256,6 +287,12 @@ function importKeys(
       return {
         ok: false,
         reason: `${file} is not an importable OpenPGP public key; re-export it with gpg --armor --export <key-id>`,
+      };
+    }
+    if (imported.size > 1) {
+      return {
+        ok: false,
+        reason: `${file} holds ${imported.size} keys; one key per file, named after its maintainer`,
       };
     }
     for (const fingerprint of imported) {
@@ -397,10 +434,10 @@ export function verifyReleaseTag(options: VerifyOptions): Verdict {
     }
   }
 
-  if (primary.version.includes("-")) {
+  if (!STABLE_VERSION.test(primary.version)) {
     return {
       ok: false,
-      reason: `version ${primary.version} is a prerelease; only stable versions release from main`,
+      reason: `version ${primary.version} is not a stable X.Y.Z version; only stable versions release from main`,
     };
   }
 
@@ -430,7 +467,6 @@ function main(argv: readonly string[]): void {
   const verdict = verifyReleaseTag({
     tag,
     cwd,
-    // oxlint-disable-next-line node/no-process-env -- passes the environment on; the script adds GNUPGHOME to it
     env: process.env,
     ...(values.keys === undefined ? {} : { keysDirectory: path.resolve(cwd, values.keys) }),
     ...(values.main === undefined ? {} : { mainRef: values.main }),
