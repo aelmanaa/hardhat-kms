@@ -28,7 +28,8 @@ export const HARDHAT_CLI: string = path.join(repo, "node_modules/hardhat/dist/sr
 /**
  * How long a run without a READY marker may take: a loaded startup of over 40 s, the task and a
  * margin, and below the 120 s per-test limit that `pnpm run test:integration` sets on Node 24 and
- * later. On Node 22 the script sets no per-test limit, so this one is the only limit of such a run.
+ * later. On Node 22 `scripts/node-test.ts` sets no per-test limit, so such a run ends at this limit or
+ * at the 600 s file budget, whichever comes first.
  */
 export const RUN_LIMIT_MS: number = 100_000;
 

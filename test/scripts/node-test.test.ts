@@ -84,7 +84,7 @@ function isRunning(pid: number): boolean {
 describe("testTimeoutMs", () => {
   const limits: TestLimits = { perTestMs: 1, fileBudgetMs: 2 };
 
-  it("is the file budget on Node 22", () => {
+  it("is the file budget before Node 24", () => {
     assert.equal(testTimeoutMs(22, limits), 2);
     assert.equal(testTimeoutMs(23, limits), 2);
   });
@@ -100,7 +100,7 @@ describe("testTimeoutMs", () => {
     assert.equal(nodeMajor(), Number(process.versions.node.split(".")[0]));
   });
 
-  it("has a file budget above the per-test limit for each kind of test", () => {
+  it("pins the limits of each kind of test, the file budget above the per-test limit", () => {
     assert.deepEqual(LIMITS, {
       unit: { perTestMs: 30_000, fileBudgetMs: 300_000 },
       integration: { perTestMs: 120_000, fileBudgetMs: 600_000 },

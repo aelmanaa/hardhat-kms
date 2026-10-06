@@ -126,11 +126,11 @@ Node changed the flag in [nodejs/node#57672](https://github.com/nodejs/node/pull
 | `test:unit`        | 30 s                              | 300 s                    |
 | `test:integration` | 120 s                             | 600 s                    |
 
-The file budget is sized to end a hung file, not to time a test: a file such as `tasks-cli.test.ts` starts the Hardhat CLI 33 times and, on a loaded machine, can run for minutes with every test passing. So on Node 22 a hung test is reported as a cancelled file after up to 10 minutes, without the test's name. The same tests run on Node 24 and 26, where the runner cancels the hung test by name at its limit. A test's own `timeout` option and the limits of the CLI helper apply on every version. In CI the job's 15-minute timeout stays the outer limit.
+The file budget is sized to end a hung file, not to time a test: a file such as `tasks-cli.test.ts` starts the Hardhat CLI 37 times across its 33 tests and, on a loaded machine, can run for minutes with every test passing. So on Node 22 a hung test is reported as a cancelled file after up to 10 minutes (5 for a unit file), not as a failed test. The same tests run on Node 24 and 26, where the runner cancels the hung test by name at its limit. A test's own `timeout` option and the limits of the CLI helper apply on every version. In CI the job's 15-minute timeout stays the outer limit.
 
-The localstack, examples and live scripts pass one `--test-timeout` value on every version, and `coverage` passes none; CI runs them on Node 24. `test/scripts/node-test.test.ts` runs fixture files through the script with limits of a few seconds: a file whose passing tests together run longer than the per-test limit passes on every version, a slow test is cancelled at the per-test limit on Node 24 and later, and on Node 22 its file is cancelled at the budget.
+The localstack, examples and live scripts pass one `--test-timeout` value on every version, and `coverage` passes none. CI runs the localstack, examples and coverage jobs on Node 24; the live scripts run locally, and on Node 22 their value limits each file. `test/scripts/node-test.test.ts` runs fixture files through the script with limits of a few seconds: a file whose passing tests together run longer than the per-test limit passes on every version, a slow test is cancelled at the per-test limit on Node 24 and later, and on Node 22 its file is cancelled at the budget.
 
-When the Node floor moves to 24, delete the file budgets and the script, and put `--test-timeout` back in the package scripts. Do the same if a Node 22 release gets the change.
+When the Node floor moves to a release that has the change (24.0.0, or a later 22.x release if the 22.x line ever gets it), delete the file budgets and the script, and put `--test-timeout` back in the package scripts.
 
 ## Live transaction matrix
 

@@ -1,5 +1,5 @@
 // Five passing tests of 500 ms each: 2.5 s for the file, which is more than the 2 s per-test limit
-// `test/scripts/node-test.test.ts` runs it with.
+// one run in `test/scripts/node-test.test.ts` gives it.
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 

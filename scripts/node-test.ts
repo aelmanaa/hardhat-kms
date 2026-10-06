@@ -9,8 +9,9 @@
 // change. So on Node 24 and later this script passes the per-test limit, and on Node 22 a file
 // budget: large enough for a file whose tests all pass on a loaded machine, and still an end for a
 // file that hangs. On Node 22 no test has a limit from the flag; a test's own `timeout` option and
-// the limits of the Hardhat CLI helper still apply. When the Node floor moves to 24, delete the
-// file budgets and this script, and put `--test-timeout` back in the package scripts.
+// the limits of the Hardhat CLI helper still apply. When the Node floor moves to a release that has
+// the change, delete the file budgets and this script, and put `--test-timeout` back in the package
+// scripts.
 //
 // Usage: node scripts/node-test.ts unit|integration [node --test arguments and files]
 import { type ChildProcess, spawn, type StdioOptions } from "node:child_process";
