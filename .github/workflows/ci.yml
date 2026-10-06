@@ -60,7 +60,8 @@ jobs:
     timeout-minutes: 15
     env:
       # Developing needs Node >= 22.18 (root devEngines), but the published package supports 22.13;
-      # this job checks that, so pnpm must not refuse the older runtime.
+      # this job checks that, so pnpm must not refuse the older runtime. To run the same locally, see
+      # docs/contributor/testing.md#run-the-tests-on-the-published-floor.
       pnpm_config_runtime_on_fail: ${{ matrix.node == '22.13.0' && 'ignore' || 'error' }}
     strategy:
       fail-fast: false
