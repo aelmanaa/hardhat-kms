@@ -35,9 +35,14 @@ const version = String(readJson(path.join(DIRECTORIES[0] ?? "", "package.json"))
 const typescriptVersion = String(
   readJson(path.join(root, "node_modules", "typescript", "package.json")).version,
 );
-/** One script run must finish within this; the examples run, with its three installs, gets more. */
-const STEP_MS = 900_000;
-const EXAMPLES_MS = 2_400_000;
+/**
+ * One script run must finish within this; the examples run, with its three installs, gets more.
+ * The whole run takes about four minutes in CI. These limits, the suite's and `--test-timeout`
+ * in package.json stay under the CI job's 40 minutes, so a hang is reported by the test, with
+ * its `after` run, before the runner kills the job.
+ */
+const STEP_MS = 600_000;
+const EXAMPLES_MS = 1_200_000;
 
 interface Completed {
   status: number;
@@ -92,7 +97,7 @@ async function freePort(): Promise<number> {
 const reported = (output: string): string[] =>
   output.split("\n").filter((line) => /^(ok|skip|FAIL) /.test(line));
 
-describe("registry mode against a local registry", { timeout: 3_600_000 }, () => {
+describe("registry mode against a local registry", { timeout: 2_100_000 }, () => {
   // The scripts and the test remove directories under the temp directory, so the whole run uses
   // one of its own (the sandbox rule of docs/contributor/testing.md).
   const variables = ["TMPDIR", "TEMP", "TMP"];

@@ -27,7 +27,7 @@
     "test:sdk-floors": "node scripts/test-sdk-floors.ts",
     "test:hardhat-versions": "node scripts/test-hardhat-versions.ts",
     "test:peer-installs": "node scripts/test-peer-installs.ts",
-    "test:registry-mode": "node --test --test-concurrency=1 --test-timeout=3600000 test/scripts/registry-mode.test.ts",
+    "test:registry-mode": "node --test --test-concurrency=1 --test-timeout=1200000 test/scripts/registry-mode.test.ts",
     "coverage": "pnpm run build && pnpm -r run coverage",
     "pkg:check": "pnpm run build && node scripts/check-packages.ts && node scripts/check-deprecated-packages.ts && knip",
     "docs:check": "pnpm run build && node scripts/check-docs.ts",

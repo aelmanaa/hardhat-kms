@@ -1,0 +1,64 @@
+name: Registry mode
+
+# The package checks in registry mode (scripts/check-packages.ts, consumer-typecheck.ts,
+# test-peer-installs.ts, check-registry-release.ts and the examples test with --from-registry),
+# against a local registry (verdaccio) that serves the packages built from the checkout:
+# `pnpm run test:registry-mode`. docs/contributor/testing.md describes the mode. The promotion
+# workflow of #47 runs the same scripts against npm.
+# The run takes about four billable minutes and tests scripts that change rarely, so it is not on
+# every pull request: it runs when a script, its tests, an example, a published manifest or this
+# file changes, on every push to main, nightly and on manual dispatch. It is not a required check:
+# path-filtered checks would block merges that do not trigger them.
+on:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - "test/scripts/**"
+      - "examples/**"
+      - "packages/hardhat-kms-aws/test/examples/**"
+      - "packages/hardhat-kms-aws/test/helpers/examples-copy.ts"
+      - "packages/*/package.json"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/registry-mode.yml"
+  push:
+    branches: [main]
+  schedule:
+    # Every day at 03:17 UTC.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registry-mode-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  registry-mode:
+    name: Registry mode (verdaccio)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # The examples copies run `hardhat build`; the same cache as the examples job of ci.yml.
+      - name: Cache Solidity compilers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/hardhat-nodejs/compilers-v3
+          key: solc-${{ runner.os }}-${{ hashFiles('packages/*/test/**/*.sol', 'examples/**/*.sol', 'pnpm-lock.yaml') }}
+          restore-keys: solc-${{ runner.os }}-
+      # Builds and packs the four packages, publishes them to verdaccio on a free port, then runs
+      # check-packages, consumer-typecheck, test-peer-installs (npm), check-registry-release and the
+      # examples test with --from-registry against it. LocalStack and a Hardhat node on port 8545
+      # run for the examples, as in the examples job.
+      - run: pnpm run test:registry-mode

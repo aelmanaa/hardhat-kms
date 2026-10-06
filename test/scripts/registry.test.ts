@@ -41,6 +41,21 @@ describe("parseRegistryOptions", () => {
     );
   });
 
+  it("reads the --option=value spelling too", () => {
+    assert.deepEqual(
+      parseRegistryOptions(["--from-registry=1.0.0", "--registry=http://127.0.0.1:4873", "7.0.2"]),
+      { version: "1.0.0", registry: "http://127.0.0.1:4873", rest: ["7.0.2"] },
+    );
+    assert.throws(() => parseRegistryOptions(["--registry="]), {
+      message: "--registry needs a value",
+    });
+    // A script with a positional version may take --registry alone.
+    assert.deepEqual(parseRegistryOptions(["1.0.0", "--registry", "http://x"], false), {
+      registry: "http://x",
+      rest: ["1.0.0"],
+    });
+  });
+
   it("refuses a missing value, a range and --registry on its own", () => {
     assert.throws(() => parseRegistryOptions(["--from-registry"]), {
       message: "--from-registry needs a value",

@@ -7,7 +7,7 @@ import path from "node:path";
 /** The two dependencies every example takes from the registry. */
 export const EXAMPLE_DEPENDENCIES: readonly string[] = ["hardhat-kms", "@hardhat-kms/aws"];
 
-/** Directories the copy leaves behind: installs and build output of the workspace run. */
+/** Directories the copy does not take: installs and build output of the workspace run. */
 const SKIPPED = new Set(["node_modules", "artifacts", "cache", "deployments"]);
 
 /**

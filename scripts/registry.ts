@@ -27,33 +27,46 @@ export interface RegistryOptions {
 }
 
 /**
- * Reads `--from-registry <version>` and `--registry <url>` out of a script's arguments.
+ * Reads `--from-registry <version>` and `--registry <url>`, in both the `--option value` and the
+ * `--option=value` spellings, out of a script's arguments.
  *
  * @param argv - The arguments after the script's path.
+ * @param registryNeedsVersion - Whether `--registry` without `--from-registry` is an error; false
+ * for a script that takes the version as a positional argument.
  * @returns The options and the remaining arguments, in their order.
  * @throws When an option has no value, the version is not exact, or `--registry` comes without
  * `--from-registry`.
  */
-export function parseRegistryOptions(argv: readonly string[]): RegistryOptions {
+export function parseRegistryOptions(
+  argv: readonly string[],
+  registryNeedsVersion: boolean = true,
+): RegistryOptions {
   const options: RegistryOptions = { rest: [] };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === "--from-registry" || argument === "--registry") {
-      const value = argv[index + 1];
-      if (value === undefined || value.startsWith("--")) {
-        throw new Error(`${argument} needs a value`);
-      }
-      if (argument === "--from-registry") {
-        options.version = exactVersion(value);
-      } else {
-        options.registry = value;
-      }
-      index += 1;
-    } else if (argument !== undefined) {
+    if (argument === undefined) {
+      continue;
+    }
+    const equals = argument.indexOf("=");
+    const name = equals === -1 ? argument : argument.slice(0, equals);
+    if (name !== "--from-registry" && name !== "--registry") {
       options.rest.push(argument);
+      continue;
+    }
+    const value = equals === -1 ? argv[index + 1] : argument.slice(equals + 1);
+    if (value === undefined || value === "" || (equals === -1 && value.startsWith("--"))) {
+      throw new Error(`${name} needs a value`);
+    }
+    if (name === "--from-registry") {
+      options.version = exactVersion(value);
+    } else {
+      options.registry = value;
+    }
+    if (equals === -1) {
+      index += 1;
     }
   }
-  if (options.registry !== undefined && options.version === undefined) {
+  if (registryNeedsVersion && options.registry !== undefined && options.version === undefined) {
     throw new Error("--registry applies to registry mode only; add --from-registry <version>");
   }
   return options;

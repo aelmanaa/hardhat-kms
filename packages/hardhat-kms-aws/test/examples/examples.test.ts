@@ -268,7 +268,7 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
       });
     }
 
-    it(`${example}: builds, typechecks, lints and deploys from the KMS account`, async () => {
+    it(`${example}: builds, typechecks${fromRegistry ? "" : ", lints"} and deploys from the KMS account`, async () => {
       // `hardhat build` writes the artifact types that the typecheck and type-aware lint need,
       // which is why the root lint skips examples/ and this test lints them instead.
       await runIn(example, ["exec", "hardhat", "build"]);

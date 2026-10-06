@@ -33,7 +33,8 @@ function npmError(error: unknown): string {
 }
 
 /**
- * Checks that a version can go to `latest`: exact, stable and without a `-`.
+ * Checks that a version can go to `latest`: exact `major.minor.patch`, with no prerelease or build
+ * suffix.
  *
  * @param version - The version to promote.
  * @returns Its three numbers.
@@ -166,7 +167,15 @@ export function assertBetaTag(views: readonly PackageView[], version: string): v
 export function assertNotBelowLatest(views: readonly PackageView[], version: string): void {
   for (const view of views) {
     const latest = view.distTags.latest;
-    if (latest !== undefined && compareVersions(version, latest) < 0) {
+    if (latest === undefined) {
+      continue;
+    }
+    if (STABLE_VERSION.exec(latest) === null) {
+      throw new Error(
+        `${view.name} has latest at ${latest}, which is not a stable version; fix the dist-tag first`,
+      );
+    }
+    if (compareVersions(version, latest) < 0) {
       throw new Error(
         `${view.name} has latest at ${latest}; ${version} is lower and would move latest backwards`,
       );

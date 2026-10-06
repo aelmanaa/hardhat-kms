@@ -127,6 +127,18 @@ describe("the release guards", () => {
     assert.throws(() => assertNotBelowLatest(views, "0.9.0"), {
       message: "hardhat-kms has latest at 1.0.0; 0.9.0 is lower and would move latest backwards",
     });
+    // A prerelease on latest is named as the registry's problem, not the requested version's.
+    assert.throws(
+      () =>
+        assertNotBelowLatest(
+          views.map((view) => ({ ...view, distTags: { latest: "1.0.0-rc.1", beta: "1.0.0" } })),
+          "1.0.0",
+        ),
+      {
+        message:
+          "hardhat-kms has latest at 1.0.0-rc.1, which is not a stable version; fix the dist-tag first",
+      },
+    );
     assertNotBelowLatest(
       views.map((view) => ({ ...view, distTags: { beta: "0.9.0" } })),
       "0.9.0",

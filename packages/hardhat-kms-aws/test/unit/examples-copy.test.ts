@@ -1,5 +1,5 @@
 // The examples copy of registry mode (`test/helpers/examples-copy.ts`): the rewritten manifests
-// and what the copy leaves behind. Runs on a small examples directory made here, never on examples/.
+// and the directories the copy skips. Runs on a small examples directory made here, never on examples/.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

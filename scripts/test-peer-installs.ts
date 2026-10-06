@@ -526,7 +526,7 @@ function writeManagerFiles(directory: string, manager: Manager, allowBuilds: boo
 /**
  * The specs a scratch project's package.json gets for the plugin packages: `file:` paths of the
  * packed tarballs, or exact versions in registry mode. `coreAhead` is the core repacked one patch
- * ahead, for the provider-mismatch case, which registry mode has not.
+ * ahead, for the provider-mismatch case; undefined in registry mode.
  */
 interface Specs {
   core: string;
