@@ -410,11 +410,22 @@ describe("verify-release-tag", { skip: hasGpg ? false : "gpg is not installed" }
   });
 
   it("exits 0 from the command line on a good tag and 1 with the reason on a bad one", () => {
+    // The Node 22 CI leg loads TypeScript through `NODE_OPTIONS=--import tsx`, which Node resolves
+    // from the child's working directory. The temporary repository has no `node_modules`, so the
+    // script's process gets the workspace's copy by URL. Any other option stays.
+    const tsx = /(?:^|\s)--import(?:=|\s+)tsx(?=\s|$)/g;
+    const nodeOptions = env["NODE_OPTIONS"] ?? "";
+    const cliEnv: NodeJS.ProcessEnv = {
+      ...env,
+      NODE_OPTIONS: tsx.test(nodeOptions)
+        ? nodeOptions.replaceAll(tsx, ` --import ${import.meta.resolve("tsx")} `).trim()
+        : nodeOptions,
+    };
     withTag(
       "v1.2.3",
       () => signWith(trustedHome, trustedKey, "v1.2.3"),
       () => {
-        const passed = run(process.execPath, [script, "v1.2.3", "--keys", keys], repo, env);
+        const passed = run(process.execPath, [script, "v1.2.3", "--keys", keys], repo, cliEnv);
         assert.equal(passed.status, 0, passed.stderr);
         assert.match(
           passed.stdout,
@@ -424,13 +435,13 @@ describe("verify-release-tag", { skip: hasGpg ? false : "gpg is not installed" }
           process.execPath,
           [script, "v1.2.3", "--keys", path.join(sandbox, "no-keys")],
           repo,
-          env,
+          cliEnv,
         );
         assert.equal(failed.status, 1);
         assert.match(failed.stderr, /^v1\.2\.3 fails: no release keys: /);
       },
     );
-    const usage = run(process.execPath, [script], repo, env);
+    const usage = run(process.execPath, [script], repo, cliEnv);
     assert.equal(usage.status, 1);
     assert.match(usage.stderr, /^usage: /);
   });
