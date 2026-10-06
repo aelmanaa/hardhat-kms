@@ -10,7 +10,7 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 
 You need:
 
-- Node.js 22.13 or later, and npm.
+- Node.js 22.13.0 or later (see [supported Node.js versions](../../../README.md#support)), and npm.
 - The AWS CLI, signed in with an identity that can create KMS keys and aliases, and a region set: `aws configure get region` prints it, or set `AWS_REGION`. The plugin finds the same credentials and region as the CLI. `AWS_DEFAULT_REGION` is read by the CLI only, so set `AWS_REGION` if that is where your region comes from.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
 - About 0.01 Sepolia ETH, from a faucet or another account.
