@@ -6,8 +6,8 @@ import type { ErrorEntry } from "./errors.ts";
  * `pnpm run docs:check` fails on a throw that bypasses them. `pnpm run docs:errors` writes
  * docs/user/reference/errors.md from this file.
  *
- * A placeholder holds a value (a name, a number, a list). Entries that differ only in the wording
- * around a value are kept apart.
+ * A placeholder holds a value (a name, a number, a list), never wording: two messages that differ
+ * only in the words around a value are two entries.
  */
 
 /** The core package's error catalogue. */

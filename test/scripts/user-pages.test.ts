@@ -121,8 +121,16 @@ describe("internalWordProblems", () => {
     const text =
       '{\n  "userAgent": "aws-sdk-js/3.0.0 os/darwin#0.0.0 Node/24.0.0 (Darwin 22.6.0; x64)"\n}\n';
     assert.deepEqual(internalWordProblems(file, text), [
-      `${file}:2: "Darwin" names the recording machine's OS; zero the version and say Linux`,
+      `${file}:2: "Darwin" names the recording machine's OS; say Linux, and in a fixture zero the versions`,
     ]);
+  });
+
+  it("reports the os/macos user-agent token in any case, not the macOS runner name", () => {
+    const text = 'const agent = "aws-cli/0.0.0 OS/macos#0.0.0";\n';
+    assert.deepEqual(internalWordProblems(SOURCE, text), [
+      `${SOURCE}:1: "OS/macos" names the recording machine's OS; say os/linux and zero the versions`,
+    ]);
+    assert.deepEqual(internalWordProblems(SOURCE, '"name": "Test (macOS, Node 22.13.0)"\n'), []);
   });
 
   it("reports each review and decision phrase, in any case", () => {

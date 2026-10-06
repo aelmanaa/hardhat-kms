@@ -123,7 +123,12 @@ const INTERNAL_WORDS: readonly (readonly [RegExp, string])[] = [
   [/\bin review\b/gi, "names a review round; say what shipped"],
   [/\bafter review\b/gi, "names a review round; say what shipped"],
   [/\bfresh-reader\b/gi, "names the review process; say what the page says"],
-  [/\bDarwin\b/g, "names the recording machine's OS; zero the version and say Linux"],
+  [
+    /\bDarwin\b/g,
+    "names the recording machine's OS; say Linux, and in a fixture zero the versions",
+  ],
+  // The AWS SDKs' user-agent token. A bare "macOS" is the name of a CI runner, which may stay.
+  [/\bos\/macos\b/gi, "names the recording machine's OS; say os/linux and zero the versions"],
   [/\/Users\//g, "is a path on the maintainer's machine; use a relative or placeholder path"],
   [
     /\/private\/tmp\b/g,

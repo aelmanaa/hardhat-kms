@@ -72,7 +72,7 @@ export const FAILED_SIGN: Row = {
   ResultDescription: `Key and signing algorithm are incompatible. Key ${KEY_URL}/${VERSION_1} uses curve 'P-256K', and algorithm 'ES256' can only be used with curve 'P-256'.`,
   HttpStatusCode: 400,
   CorrelationId: "00000000-0000-4000-8000-0000000000a2",
-  ClientInfo: "azsdk-js-keyvault-keys/4.10.2 core-rest-pipeline/1.25.0 Node/24.16.0",
+  ClientInfo: "azsdk-js-keyvault-keys/4.10.2 core-rest-pipeline/1.25.0 Node/0.0.0",
   Algorithm: "",
   DurationMs: 160,
 };

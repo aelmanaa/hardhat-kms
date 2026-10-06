@@ -2,7 +2,7 @@
 
 Audience: Anyone who wants to know what ships in 1.0 and what comes after.
 
-Status: The [GitHub milestones](https://github.com/aelmanaa/hardhat-kms/milestones) track the work; this page gives the themes.
+Status: the [GitHub milestones](https://github.com/aelmanaa/hardhat-kms/milestones) track the work; this page gives the themes.
 
 ## 1.0
 
@@ -22,7 +22,7 @@ Status: The [GitHub milestones](https://github.com/aelmanaa/hardhat-kms/mileston
 | v1.1    | An Alchemy Wallet APIs recipe in the docs.                                                                                                                                                                                                                                                                                | [v1.1](https://github.com/aelmanaa/hardhat-kms/milestone/12)   |
 | v1.2    | Turnkey provider: an address-pinned adapter with no public-key call. It returns `{r, s, v}`, which the core re-normalizes and verifies. It can use the structured `signTransaction`/`signTypedData` so Turnkey policies see the full request. `TURNKEY_API_PRIVATE_KEY` must be a config variable and is never displayed. | [v1.2](https://github.com/aelmanaa/hardhat-kms/milestone/13)   |
 | v1.3    | Fireblocks provider, with `broadcast` and `raw` modes.                                                                                                                                                                                                                                                                    | [v1.3](https://github.com/aelmanaa/hardhat-kms/milestone/14)   |
-| Later   | A smart-account send mode; a PKCS#11 HSM provider.                                                                                                                                                                                                                                                                        | [Future](https://github.com/aelmanaa/hardhat-kms/milestone/15) |
+| Later   | An Alchemy or smart-account send mode; a PKCS#11 HSM provider.                                                                                                                                                                                                                                                            | [Future](https://github.com/aelmanaa/hardhat-kms/milestone/15) |
 
 A PKCS#11 HSM fits the adapter contract: its raw r‖s output is what the core expects. HashiCorp Vault transit is not a candidate, because it has no secp256k1 support.
 

@@ -14,4 +14,4 @@ Port Hardhat's fill logic into `rpc/transaction-filler.ts`, behind a `Transactio
 
 - A KMS account's transactions are filled the same way as a local account's, so viem, ethers and Ignition need no special handling.
 - The port can drift from Hardhat. A differential test fills the same request as a local account and through the plugin, on the minimum supported Hardhat version and on the latest, and requires the same fields and the same unsigned bytes.
-- If Hardhat exports its filler or adds a post-fill signing stage, the port is deleted. The upstream proposal was filed once the port existed.
+- If Hardhat exports its filler or adds a post-fill signing stage, the port is deleted. The upstream proposal, [NomicFoundation/hardhat#8656](https://github.com/NomicFoundation/hardhat/issues/8656), was filed once the port existed.
