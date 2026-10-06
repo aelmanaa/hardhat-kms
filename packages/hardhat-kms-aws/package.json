@@ -1,6 +1,6 @@
 {
   "name": "@hardhat-kms/aws",
-  "version": "0.0.0",
+  "version": "0.8.0",
   "description": "AWS KMS provider for hardhat-kms: sign Hardhat 3 transactions, messages and typed data with secp256k1 keys held in AWS KMS.",
   "keywords": [
     "hardhat",

@@ -35,7 +35,7 @@ Run `pnpm pack` in `packages/hardhat-kms` and in the provider's package: `packag
 (cd packages/hardhat-kms-aws && pnpm pack)
 ```
 
-Each command writes a `.tgz` file into its package directory: `packages/hardhat-kms/hardhat-kms-0.0.0.tgz` and `packages/hardhat-kms-aws/hardhat-kms-aws-0.0.0.tgz`. The `0.0.0` comes from each `package.json`. The provider's file name has no `@` or `/`, although the package inside is `@hardhat-kms/aws`.
+Each command writes a `.tgz` file into its package directory: `packages/hardhat-kms/hardhat-kms-0.8.0.tgz` and `packages/hardhat-kms-aws/hardhat-kms-aws-0.8.0.tgz`. The `0.8.0` comes from each `package.json`. The provider's file name has no `@` or `/`, although the package inside is `@hardhat-kms/aws`.
 
 ## 3. Install the packed files in your project
 
@@ -43,14 +43,14 @@ Copy the two files into your Hardhat project, then install them by path. In the 
 
 ```sh
 mkdir -p vendor
-cp <clone>/packages/hardhat-kms/hardhat-kms-0.0.0.tgz <clone>/packages/hardhat-kms-aws/hardhat-kms-aws-0.0.0.tgz vendor/
-npm install --save-dev ./vendor/hardhat-kms-0.0.0.tgz ./vendor/hardhat-kms-aws-0.0.0.tgz
+cp <clone>/packages/hardhat-kms/hardhat-kms-0.8.0.tgz <clone>/packages/hardhat-kms-aws/hardhat-kms-aws-0.8.0.tgz vendor/
+npm install --save-dev ./vendor/hardhat-kms-0.8.0.tgz ./vendor/hardhat-kms-aws-0.8.0.tgz
 ```
 
 In a pnpm project:
 
 ```sh
-pnpm add -D ./vendor/hardhat-kms-0.0.0.tgz ./vendor/hardhat-kms-aws-0.0.0.tgz
+pnpm add -D ./vendor/hardhat-kms-0.8.0.tgz ./vendor/hardhat-kms-aws-0.8.0.tgz
 ```
 
 If pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, add the packages it names to `pnpm-workspace.yaml`, next to `package.json`, and install again. `esbuild` (all providers) and `protobufjs` (Google Cloud only) do not need their scripts:
