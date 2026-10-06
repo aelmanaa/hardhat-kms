@@ -6,16 +6,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { field } from "./ast.ts";
+
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
 const shell = process.platform === "win32";
 
 const PREFIX = "hardhat-kms-pack-";
-
-/** Reads a field of a parsed JSON value. */
-function field(value: unknown, name: string): unknown {
-  return typeof value === "object" && value !== null ? Reflect.get(value, name) : undefined;
-}
 
 /**
  * Runs `use` with a new, empty directory and removes the directory afterwards, also when `use`

@@ -1,7 +1,7 @@
 {
   "name": "@hardhat-kms/azure",
   "version": "0.8.0",
-  "description": "Azure Key Vault and Managed HSM signer for Hardhat 3 (hardhat-kms provider): keys stay in the vault; signing history from Azure Monitor.",
+  "description": "Azure Key Vault and Managed HSM signer for Hardhat 3 (hardhat-kms provider): keys stay in the vault; signing history from Azure Monitor for Key Vault keys.",
   "keywords": [
     "hardhat-plugin",
     "hardhat",

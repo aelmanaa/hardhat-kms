@@ -87,7 +87,7 @@ describe("manifestProblems", () => {
   it("requires a provider, not the core, to list hardhat-kms in keywords", () => {
     assert.deepEqual(
       manifestProblems({ ...provider, keywords: ["hardhat-plugin", "aws-kms"] }, packed),
-      ['@hardhat-kms/aws: "keywords" must include "hardhat-kms" so the family surfaces together'],
+      ['@hardhat-kms/aws: "keywords" must include "hardhat-kms"'],
     );
     assert.deepEqual(manifestProblems({ ...core, keywords: ["hardhat-plugin"] }, packed), []);
   });

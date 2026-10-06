@@ -14,6 +14,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { field } from "./ast.ts";
 import { packReport, withPackDirectory } from "./pack.ts";
 import { PACKAGES, registryArguments, registryOptionsOrExit } from "./registry.ts";
 
@@ -30,13 +31,8 @@ const usage =
 const CORE = "hardhat-kms";
 /** The keyword that groups Hardhat plugins in npm search; every package lists it first. */
 const FIRST_KEYWORD = "hardhat-plugin";
-/** A `description` of this length or more is cut on the npm page. */
+/** A `description` must be shorter than this; #301 sets the limit. */
 const DESCRIPTION_LIMIT = 200;
-
-/** Reads a field of a parsed JSON value. */
-function field(value: unknown, name: string): unknown {
-  return typeof value === "object" && value !== null ? Reflect.get(value, name) : undefined;
-}
 
 /** True for a string with at least one character. */
 function filled(value: unknown): value is string {
@@ -88,7 +84,7 @@ export function manifestProblems(manifest: unknown, packedFiles: readonly string
   if (!Array.isArray(keywords) || keywords[0] !== FIRST_KEYWORD) {
     problems.push(`${label}: "keywords" must start with "${FIRST_KEYWORD}"`);
   } else if (name !== CORE && !keywords.includes(CORE)) {
-    problems.push(`${label}: "keywords" must include "${CORE}" so the family surfaces together`);
+    problems.push(`${label}: "keywords" must include "${CORE}"`);
   }
 
   return problems;

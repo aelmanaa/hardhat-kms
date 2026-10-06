@@ -1,7 +1,7 @@
 {
   "name": "@hardhat-kms/gcp",
   "version": "0.8.0",
-  "description": "Google Cloud KMS signer for Hardhat 3 (hardhat-kms provider): keys stay in Cloud KMS or Cloud HSM; signing history from Cloud Audit Logs.",
+  "description": "Google Cloud KMS signer for Hardhat 3 (hardhat-kms provider): keys stay in Cloud HSM; signing history from Cloud Audit Logs.",
   "keywords": [
     "hardhat-plugin",
     "hardhat",
