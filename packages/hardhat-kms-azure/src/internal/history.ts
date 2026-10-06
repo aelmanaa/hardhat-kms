@@ -56,8 +56,7 @@ const OPERATION = "KeySign";
 
 /**
  * Key Vault documents that audit events reach the destination "10 minutes (at most) after the key
- * vault operation". Log Analytics ingestion can add to that: on 2026-10-02, rows took up to about
- * 9.2 minutes from TimeGenerated to being queryable.
+ * vault operation". Log Analytics ingestion can add several more minutes before a row is queryable.
  */
 const DELIVERY_DELAY_MINUTES = 10;
 
