@@ -213,6 +213,40 @@ jobs:
         env:
           TYPESCRIPT_VERSION: ${{ matrix.typescript }}
 
+  changeset:
+    # A pull request that changes a published package carries a changeset, or an empty one when
+    # there is nothing to tell users (CONTRIBUTING.md, Changesets). The release pull request
+    # deletes every changeset and a Dependabot pull request carries none, so both skip the job; a
+    # skipped required check passes. Push and merge-queue runs have no head branch, so they skip too.
+    name: Changeset
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    if: >-
+      github.event_name == 'pull_request' &&
+      !startsWith(github.head_ref, 'changeset-release/') &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history, so that origin/main and its merge base with the pull request exist.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Exits 1 when a published package differs from the merge base with origin/main and no file
+      # under .changeset/ was added since it. Private workspace packages (examples, tools) do not
+      # count.
+      - name: A changed package has a changeset
+        run: |
+          if ! pnpm changeset status --since origin/main; then
+            echo "::error::This pull request changes a package without a changeset. Run 'pnpm changeset' to write one, or 'pnpm changeset add --empty' when there is nothing to tell users, then commit the file it adds under .changeset/. See ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/main/CONTRIBUTING.md#changesets"
+            exit 1
+          fi
+
   zizmor:
     name: Workflow security (zizmor)
     runs-on: ubuntu-26.04

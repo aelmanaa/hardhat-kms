@@ -11,8 +11,11 @@ jobs:
     name: Links an issue
     runs-on: ubuntu-26.04
     timeout-minutes: 5
-    # Dependabot pull requests are tracked by their own labels.
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    # Dependabot pull requests are tracked by their own labels. The release pull request, opened
+    # by the version workflow from changeset-release/*, has a generated body with no issue link.
+    if: >-
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      !startsWith(github.head_ref, 'changeset-release/')
     steps:
       - name: Require a closing keyword or issue reference
         env:
