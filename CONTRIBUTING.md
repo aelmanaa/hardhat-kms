@@ -45,7 +45,7 @@ Issues that affect what gets signed, keys or secrets also get `security`. New is
 
 ### Changesets
 
-A changeset is a release note. From 1.0.0, its text becomes the `CHANGELOG.md` entry and the GitHub Release body. The reader is an operator who signs with production keys and skims the changelog for the one entry that affects them. They read it once and know what changed for them. Reasoning, design and mechanism go in the commit body or the pull request.
+A changeset is a release note. From 0.9.0, its text becomes the `CHANGELOG.md` entry and the GitHub Release body. The reader is an operator who signs with production keys and skims the changelog for the one entry that affects them. They read it once and know what changed for them. Reasoning, design and mechanism go in the commit body or the pull request.
 
 - Lead with what the user sees. The first sentence names the task, option, config key or behaviour that changed, and how. If the mechanism matters to the user, give it a sentence of its own. If it does not, leave it out.
 - One idea per sentence. Split any sentence a reader would have to read twice. Do not chain changes with colons, semicolons or parentheses.
