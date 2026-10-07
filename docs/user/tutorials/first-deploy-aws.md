@@ -5,9 +5,9 @@ description: "Deploy a Hardhat 3 contract to Sepolia with AWS KMS: create a secp
 
 # First deploy on Sepolia with AWS KMS
 
-Audience: developers who have an AWS account and the AWS CLI signed in, and have not used AWS KMS with Hardhat.
+Audience: developers who have an AWS account and AWS CLI v2 signed in, and have not used AWS KMS with Hardhat.
 
-This tutorial was followed from an empty directory on 2026-10-01, at commit [`7c4262e`](https://github.com/aelmanaa/hardhat-kms/commit/7c4262e), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 8 minutes, without the wait for Sepolia ETH. The plugin is not on npm yet; step 4 says how to install it until then.
+This tutorial was followed from an empty directory on 2026-10-01, at commit [`7c4262e`](https://github.com/aelmanaa/hardhat-kms/commit/7c4262e), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 8 minutes, without the wait for Sepolia ETH. On 2026-10-07, at commit [`e10b7e5`](https://github.com/aelmanaa/hardhat-kms/commit/e10b7e5), with Hardhat 3.18.1, steps 1 to 4 in their current order were followed from an empty directory up to `kms accounts --check-sign`, with the packages packed from the repository and the key in LocalStack's KMS in place of AWS KMS. The plugin is not on npm yet; step 1 says how to install it until then.
 
 In this tutorial you create a Hardhat project, create a signing key in AWS KMS, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves AWS KMS: Hardhat asks KMS for a signature each time it sends a transaction.
 
@@ -15,24 +15,78 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 
 You need:
 
-- Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm.
-- The AWS CLI, signed in with an identity that can create KMS keys and aliases, and a region set: `aws configure get region` prints it, or set `AWS_REGION`. The plugin finds the same credentials and region as the CLI. `AWS_DEFAULT_REGION` is read by the CLI only, so set `AWS_REGION` if that is where your region comes from.
+- Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm, pnpm or Yarn.
+- A POSIX shell, such as bash or zsh; on Windows, use WSL. Git too, until the plugin's first npm release: [Install before the first npm release](../guides/install-before-release.md) clones the repository.
+- AWS CLI v2, signed in with an identity that can create KMS keys and aliases, and a region set: `aws configure get region` prints it, or set `AWS_REGION`. The plugin finds the same credentials and region as the CLI. `AWS_DEFAULT_REGION` is read by the CLI only, so set `AWS_REGION` if that is where your region comes from. AWS CLI v1 reaches [end of support on 2027-07-15](https://aws.amazon.com/blogs/developer/cli-v1-maintenance-mode-announcement/); `aws --version` prints `aws-cli/2.` for v2.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
 - About 0.01 Sepolia ETH, from a faucet or another account.
 
-## 1. Create a Hardhat project
+## 1. Create a Hardhat project with the plugin
 
 Create a project from Hardhat's viem template in an empty directory:
 
-```sh
+::: code-group
+
+```sh [npm]
 mkdir kms-tutorial
 cd kms-tutorial
 npx --yes hardhat@latest --init --template node-test-runner-viem
 ```
 
-`--yes` lets npx download Hardhat without asking first.
+```sh [pnpm]
+mkdir kms-tutorial
+cd kms-tutorial
+pnpm dlx hardhat@latest --init --template node-test-runner-viem
+```
+
+```sh [Yarn]
+mkdir kms-tutorial
+cd kms-tutorial
+yarn dlx hardhat@latest --init --template node-test-runner-viem
+```
+
+:::
+
+`--yes` lets npx download Hardhat without asking first; `pnpm dlx` and `yarn dlx` do not ask.
 
 The template has a `Counter` contract, the Ignition module `ignition/modules/Counter.ts` that deploys it, and a `sepolia` network. It also installs `@nomicfoundation/hardhat-verify`, which verifies contracts on block explorers.
+
+Install the core plugin, `hardhat-kms`, and the AWS provider, `@hardhat-kms/aws`, in the project with [Install before the first npm release](../guides/install-before-release.md): the packages are not on npm yet, so that page builds them from the repository. Come back here after its step 3.
+
+Register the provider: in `hardhat.config.ts`, import it and add it to `plugins`. It loads `hardhat-kms` itself. The rest of the file stays as the template made it:
+
+<!-- docs-check: skip -->
+
+```ts
+import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
+import { configVariable, defineConfig } from "hardhat/config";
+import hardhatKmsAws from "@hardhat-kms/aws";
+
+export default defineConfig({
+  plugins: [hardhatToolboxViemPlugin, hardhatKmsAws],
+  // The rest of the template's config, unchanged.
+});
+```
+
+Check that Hardhat finds the plugin:
+
+::: code-group
+
+```sh [npm]
+npx hardhat kms --help
+```
+
+```sh [pnpm]
+pnpm hardhat kms --help
+```
+
+```sh [Yarn]
+yarn hardhat kms --help
+```
+
+:::
+
+It lists the `kms` tasks, such as `kms accounts` and `kms address`. If it prints `Error HHE404: Task "kms" not found` instead, `hardhatKmsAws` is missing from `plugins`. You have created nothing in AWS yet, so an install problem costs nothing to fix.
 
 ## 2. Create a key in AWS KMS
 
@@ -111,24 +165,9 @@ aws iam simulate-custom-policy --policy-input-list "$(cat "$POLICY")" \
 
 The first prints `"findings": []` and the second `allowed`. The same simulation with another algorithm, such as `ECDSA_SHA_384`, or another action, such as `kms:Decrypt` or `kms:ScheduleKeyDeletion`, prints `implicitDeny`. [Set up an AWS KMS key](../guides/aws-kms-setup.md#2-allow-signing-and-nothing-else) explains the conditions and the key policy.
 
-## 4. Add the plugin and the key to the project
+## 4. Add the key to the project
 
-Install the core plugin and the AWS provider:
-
-```sh
-npm install --save-dev hardhat-kms @hardhat-kms/aws
-```
-
-Until the packages are published on npm, this command fails with `E404`: follow [Install before the first npm release](../guides/install-before-release.md) to build the two packages from the repository and install them with npm or pnpm, then continue at the `hardhat.config.ts` step below.
-
-In a pnpm project, install with `pnpm add -D hardhat-kms @hardhat-kms/aws`. pnpm 12 runs no install scripts of dependencies until the project decides on each. If it stops with `ERR_PNPM_IGNORED_BUILDS` for `esbuild`, which Hardhat depends on, the script is not needed: it only checks esbuild's platform binary. Add this to `pnpm-workspace.yaml`, next to `package.json`, and install again:
-
-```yaml
-allowBuilds:
-  esbuild: false
-```
-
-Replace `hardhat.config.ts` with the file below. Compared with the template, it adds `hardhatKmsAws` to `plugins`, adds a `kms` section with the key, gives the `sepolia` network `kmsAccounts` instead of `accounts`, so no private key is in the project, and turns Etherscan verification off:
+Replace `hardhat.config.ts` with the file below. Compared with the template, it keeps `hardhatKmsAws` in `plugins` from step 1, adds a `kms` section with the key, gives the `sepolia` network `kmsAccounts` instead of `accounts`, so no private key is in the project, sets the network's `chainId` and turns Etherscan verification off:
 
 ```ts
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
@@ -178,6 +217,7 @@ export default defineConfig({
     sepolia: {
       type: "http",
       chainType: "l1",
+      chainId: 11155111,
       url: configVariable("SEPOLIA_RPC_URL"),
       kmsAccounts: ["deployer"],
     },
@@ -187,13 +227,31 @@ export default defineConfig({
 
 Etherscan needs an API key, and without one its verification fails. To verify on Etherscan too, get a key from [Etherscan](https://etherscan.io/apis), store it with `npx hardhat keystore set ETHERSCAN_API_KEY` or `export ETHERSCAN_API_KEY=…`, and replace `enabled: false` with `apiKey: configVariable("ETHERSCAN_API_KEY")`.
 
+`chainId: 11155111` is Sepolia's chain id. Before the plugin signs a transaction, it asks the node for its chain; if `SEPOLIA_RPC_URL` points at another chain, it stops with [`core.chain.mismatch`](../reference/errors.md#chains) and signs nothing.
+
 Set the RPC URL, then ask KMS for the key's address:
 
-```sh
+::: code-group
+
+```sh [npm]
 export SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
 DEPLOYER_ADDRESS=$(npx hardhat kms address deployer)
 echo "$DEPLOYER_ADDRESS"
 ```
+
+```sh [pnpm]
+export SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+DEPLOYER_ADDRESS=$(pnpm hardhat kms address deployer)
+echo "$DEPLOYER_ADDRESS"
+```
+
+```sh [Yarn]
+export SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+DEPLOYER_ADDRESS=$(yarn hardhat kms address deployer)
+echo "$DEPLOYER_ADDRESS"
+```
+
+:::
 
 It prints the key's address, `0x` and 40 hex digits. Steps 5 and 6 use `DEPLOYER_ADDRESS`; in a new shell, run the same command again first. Pin the address: in `hardhat.config.ts`, add an `address` line to the `deployer` key, with the address in place of `<deployer address>`. The rest of the file stays the same:
 
@@ -215,9 +273,21 @@ With the pin, the plugin refuses to sign if the alias ever points at another key
 
 Before you send funds to the address, check that your credentials may sign with the key:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat kms accounts --check-sign
 ```
+
+```sh [pnpm]
+pnpm hardhat kms accounts --check-sign
+```
+
+```sh [Yarn]
+yarn hardhat kms accounts --check-sign
+```
+
+:::
 
 It prints a table with one row for the key, with your address in place of `<deployer address>`:
 
@@ -250,9 +320,21 @@ To try the deployment on a local fork of Sepolia before you fund the address, ad
 
 Deploy the module from the deployer address, and verify the contract, in one command:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --verify --default-sender "$DEPLOYER_ADDRESS"
 ```
+
+```sh [pnpm]
+pnpm hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --verify --default-sender "$DEPLOYER_ADDRESS"
+```
+
+```sh [Yarn]
+yarn hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --verify --default-sender "$DEPLOYER_ADDRESS"
+```
+
+:::
 
 Ignition asks you to confirm the network; answer `y`. Each transaction usually costs one KMS `Sign` call; retries can add more. Naming the sender by its address keeps the deployer the same when you add accounts or keys to the network later; [Choose the sender by address](../guides/multiple-keys.md#choose-the-sender-by-address) explains why.
 
@@ -304,9 +386,21 @@ When you are done, send the remaining Sepolia ETH back, then disable the key and
 
 Send the balance back with the script in [Return the funds from a KMS address](../guides/return-funds.md): save it as `scripts/return-funds.ts`, then run it with `RETURN_TO` set to an address with no code, such as your own wallet's:
 
-```sh
+::: code-group
+
+```sh [npm]
 RETURN_TO=<return address> npx hardhat run scripts/return-funds.ts
 ```
+
+```sh [pnpm]
+RETURN_TO=<return address> pnpm hardhat run scripts/return-funds.ts
+```
+
+```sh [Yarn]
+RETURN_TO=<return address> yarn hardhat run scripts/return-funds.ts
+```
+
+:::
 
 It ends with `sent in <transaction hash>`. If it stops with a one-line message instead, [What the script refuses](../guides/return-funds.md#what-the-script-refuses) explains each one, and nothing was sent unless the line names a transaction.
 

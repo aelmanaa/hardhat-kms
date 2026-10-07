@@ -11,6 +11,8 @@ With `@hardhat-kms/aws`, a connection lists the key's account and signs messages
 
 ## 1. Create a secp256k1 signing key
 
+The commands on this page need AWS CLI v2; v1 reaches [end of support on 2027-07-15](https://aws.amazon.com/blogs/developer/cli-v1-maintenance-mode-announcement/).
+
 Ethereum uses the secp256k1 curve, which AWS KMS calls `ECC_SECG_P256K1`:
 
 ```sh
@@ -77,9 +79,21 @@ Credentials come from the AWS SDK's default chain: access keys in the environmen
 
 ## 3. Install the plugin and configure the key
 
-```sh
+::: code-group
+
+```sh [npm]
 npm install --save-dev hardhat-kms @hardhat-kms/aws
 ```
+
+```sh [pnpm]
+pnpm add --save-dev hardhat-kms @hardhat-kms/aws
+```
+
+```sh [Yarn]
+yarn add --dev hardhat-kms @hardhat-kms/aws
+```
+
+:::
 
 Until the packages are published on npm, this command fails with `E404`; follow [Install before the first npm release](install-before-release.md) instead.
 
@@ -104,7 +118,12 @@ export default defineConfig({
     },
   },
   networks: {
-    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
+      kmsAccounts: ["deployer"],
+    },
   },
 });
 ```
@@ -185,9 +204,21 @@ In CI, leave `AWS_KMS_PROFILE` unset. Its value is then empty, the key has no pr
 
 AWS CloudTrail records every successful `Sign` call on the key, whoever makes it, and some failed ones. [`kms history`](../reference/tasks.md#kms-history) lists them for one key from CloudTrail event history:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat kms history deployer --since 7d
 ```
+
+```sh [pnpm]
+pnpm hardhat kms history deployer --since 7d
+```
+
+```sh [Yarn]
+yarn hardhat kms history deployer --since 7d
+```
+
+:::
 
 Without `--since`, the task reads the last 24 hours, and it lists at most 100 events, the newest; `--limit` takes up to 1000 ([`kms history`](../reference/tasks.md#kms-history)).
 

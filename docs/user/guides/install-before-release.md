@@ -17,6 +17,7 @@ Audience: people who try hardhat-kms before its first npm release.
 
 You need:
 
+- Git, to clone the repository.
 - Node.js 22.18 or later to build. The repository's scripts and hooks are TypeScript files that run with plain `node`, which works without a flag from [Node.js 22.18.0](https://nodejs.org/en/blog/release/v22.18.0). On an older Node.js, `pnpm install` stops with `ERR_PNPM_BAD_RUNTIME_VERSION`. With nvm, `nvm use` in the clone picks the version in `.nvmrc`.
 - pnpm 12, for the build only. The repository pins pnpm 12.8.1 in `packageManager`. Run `corepack enable`, which comes with Node.js 22 and 24, or `npm install -g pnpm@12.8.1`.
 
@@ -66,6 +67,6 @@ allowBuilds:
   protobufjs: false # Google Cloud only
 ```
 
-Step 4 of [First deploy on Sepolia with Google Cloud KMS](../tutorials/first-deploy-gcp.md#4-add-the-plugin-and-the-key-to-the-project) explains why for both.
+pnpm 12 runs no install scripts of dependencies until the project decides on each. Neither script is needed: esbuild's, which Hardhat depends on, checks its platform binary, and protobufjs's, which the Google Cloud SDK depends on, prints a warning.
 
 `npx hardhat kms --help` then lists the plugin's tasks. Go back to the page you came from and continue after its install instructions.

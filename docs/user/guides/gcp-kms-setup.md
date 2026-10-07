@@ -74,9 +74,21 @@ These two roles alone have not yet been checked against real Cloud KMS: the plug
 
 ## 3. Install the plugin and configure the key
 
-```sh
+::: code-group
+
+```sh [npm]
 npm install --save-dev hardhat-kms @hardhat-kms/gcp
 ```
+
+```sh [pnpm]
+pnpm add --save-dev hardhat-kms @hardhat-kms/gcp
+```
+
+```sh [Yarn]
+yarn add --dev hardhat-kms @hardhat-kms/gcp
+```
+
+:::
 
 Until the packages are published on npm, this command fails with `E404`; follow [Install before the first npm release](install-before-release.md) instead.
 
@@ -104,7 +116,12 @@ export default defineConfig({
     },
   },
   networks: {
-    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
+      kmsAccounts: ["deployer"],
+    },
   },
 });
 ```
@@ -154,9 +171,21 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 
 [`kms history`](../reference/tasks.md#kms-history) lists a key's sign requests from Cloud Audit Logs: every `AsymmetricSign` call on any version of the key, from the plugin or from any other client. Cloud KMS logs these calls as Data Access logs, which are off by default. The plugin stores nothing itself, so with the logs off there is no history to read.
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat kms history deployer --since 7d
 ```
+
+```sh [pnpm]
+pnpm hardhat kms history deployer --since 7d
+```
+
+```sh [Yarn]
+yarn hardhat kms history deployer --since 7d
+```
+
+:::
 
 Without `--since`, the task reads the last 24 hours, and it lists at most 100 events, the newest; `--limit` takes up to 1000 ([`kms history`](../reference/tasks.md#kms-history)).
 
