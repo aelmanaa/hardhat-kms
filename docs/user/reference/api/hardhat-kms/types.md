@@ -1,3 +1,8 @@
+---
+title: hardhat-kms/types
+description: "Public types of hardhat-kms/types: the kms config section, each provider's key config and the resolved forms Hardhat passes to plugins."
+---
+
 # hardhat-kms/types
 
 Public types of hardhat-kms: the `kms` config section, key configs and their resolved forms.

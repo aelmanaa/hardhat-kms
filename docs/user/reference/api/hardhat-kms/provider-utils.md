@@ -1,3 +1,8 @@
+---
+title: hardhat-kms/provider-utils
+description: The experimental hardhat-kms/provider-utils helpers that the first-party provider packages build on and third-party providers may use.
+---
+
 # hardhat-kms/provider-utils
 
 **`Experimental`**

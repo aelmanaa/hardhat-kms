@@ -1,3 +1,8 @@
+---
+title: Set up a Google Cloud KMS key
+description: Create a Google Cloud KMS secp256k1 HSM key for Ethereum signing, grant the IAM roles, configure @hardhat-kms/gcp and turn on audit logs.
+---
+
 # Set up a Google Cloud KMS key
 
 Audience: users who sign with a key in Google Cloud KMS.

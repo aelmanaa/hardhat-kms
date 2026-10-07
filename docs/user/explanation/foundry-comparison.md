@@ -1,3 +1,8 @@
+---
+title: Comparison with Foundry
+description: "hardhat-kms compared with Foundry's AWS and Google Cloud KMS signers: the checks it adds, and how each tool finds cloud credentials."
+---
+
 # Comparison with Foundry
 
 Audience: Users choosing between Foundry and Hardhat for KMS signing.

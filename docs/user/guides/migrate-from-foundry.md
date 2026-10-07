@@ -1,3 +1,8 @@
+---
+title: Migrate from Foundry
+description: "Foundry --aws and --gcp equivalents in Hardhat 3: the --kms option reads the same key variables, or the keys move into the config."
+---
+
 # Migrate from Foundry
 
 Audience: Foundry users moving KMS signing to Hardhat.

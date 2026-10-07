@@ -1,3 +1,8 @@
+---
+title: Release channels and versioning
+description: "What a hardhat-kms version promises: the latest and beta npm tags, the public API under semver, supported Hardhat, Node.js and viem, and security fixes."
+---
+
 # Release channels and versioning
 
 Audience: users choosing which version of hardhat-kms and a provider package to install, and plugin authors who build on its exported types. Explains what a version number promises, what the `latest` and `beta` tags mean, which Hardhat, Node.js and viem versions a release supports, and how long an old major gets security fixes.

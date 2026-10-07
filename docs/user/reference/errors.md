@@ -1,3 +1,8 @@
+---
+title: Errors
+description: Every error hardhat-kms and its provider packages can raise, with its stable id, what it means and how to fix it, searchable by message.
+---
+
 # Errors
 
 Audience: anyone who got an error from hardhat-kms or one of its provider packages.

@@ -1,3 +1,8 @@
+---
+title: Prevent and recover from losing a key
+description: Undo a deleted AWS KMS, Cloud KMS or Key Vault key, guard keys against deletion and lockout, and retire a key without stranding its funds.
+---
+
 # Prevent and recover from losing a key
 
 Audience: users who sign with a key in AWS KMS, Google Cloud KMS or Azure Key Vault and hold funds or contract roles at its address. Assumes a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).

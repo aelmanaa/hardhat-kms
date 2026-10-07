@@ -12,7 +12,9 @@
 //   skip marker and the pre-release note (scripts/user-pages.ts);
 // - no tracked source, test, fixture, script, changeset, workflow or page names an internal
 //   milestone, a review round or the maintainer's machine (checkInternalWords);
-// - every ```mermaid block parses with Mermaid's own parser (scripts/mermaid-blocks.ts).
+// - every ```mermaid block parses with Mermaid's own parser (scripts/mermaid-blocks.ts);
+// - every page under docs/user/, generated ones included, has frontmatter with a `title` equal to
+//   its H1 and a `description` of its own, within the length limits (scripts/frontmatter.ts).
 // lychee checks the links themselves (see lychee.toml).
 //
 // A snippet that is not meant to compile, such as a sketch of a planned API, is preceded by
@@ -28,6 +30,7 @@ import { parseSync } from "oxc-parser";
 
 import { calleeName, field, walk } from "./ast.ts";
 import { checkSnippets, fences } from "./doc-snippets.ts";
+import { frontmatterProblems } from "./frontmatter.ts";
 import { API_DOCS_COMMAND, API_DOCS_DIR, diffApiDocs, renderApiDocs } from "./generate-api-docs.ts";
 import {
   CATALOGUED_DIRECTORIES,
@@ -165,6 +168,13 @@ function internalWordFiles(): string[] {
 function checkInternalWords(): string[] {
   return internalWordFiles().flatMap((file) =>
     internalWordProblems(file, readFileSync(path.join(root, file), "utf8")),
+  );
+}
+
+/** Checks the frontmatter of the user pages; see `scripts/frontmatter.ts`. */
+function checkFrontmatter(files: string[]): string[] {
+  return frontmatterProblems(
+    files.map((file) => ({ file, text: readFileSync(path.join(root, file), "utf8") })),
   );
 }
 
@@ -388,6 +398,7 @@ const problems = [
     ...packageReadmes(),
     ...pages.filter((page) => page.startsWith("docs/user/")),
   ]),
+  ...checkFrontmatter(pages.filter((page) => page.startsWith("docs/user/"))),
   ...checkInternalWords(),
   ...(await checkMermaid(["README.md", ...packageReadmes(), ...pages])),
 ];
@@ -396,5 +407,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 process.stdout.write(
-  `docs check passed: ${pages.length} pages indexed, snippets typecheck and call no deprecated API, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes, no file names a milestone, a review or the maintainer's machine, Mermaid blocks parse\n`,
+  `docs check passed: ${pages.length} pages indexed, snippets typecheck and call no deprecated API, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes and carry a title and a description, no file names a milestone, a review or the maintainer's machine, Mermaid blocks parse\n`,
 );

@@ -1,3 +1,8 @@
+---
+title: hardhat-kms
+description: "The hardhat-kms entry point: the plugin as its default export, which adds the kms config section and each network's kmsAccounts."
+---
+
 # hardhat-kms
 
 The hardhat-kms plugin, as the default export. Importing it also adds the `kms` config section

@@ -1,3 +1,8 @@
+---
+title: Install before the first npm release
+description: Build, pack and install hardhat-kms and a provider package from the repository until the packages are published on npm.
+---
+
 # Install before the first npm release
 
 <!--
