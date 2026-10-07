@@ -10,12 +10,13 @@
 // the deployer, then the second run.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
+  endChild,
   endWithTestProcess,
   HARDHAT_CLI,
   type HardhatRun,
@@ -23,6 +24,7 @@ import {
   RUN_LIMIT_MS,
   runHardhat,
 } from "../helpers/hardhat-cli.ts";
+import { createTempProject, removeTempProject } from "../helpers/temp-project.ts";
 import { COW_ACCOUNT } from "../helpers/vectors.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -258,9 +260,7 @@ describe("the return-funds guide's script", { timeout: SUITE_LIMIT_MS }, () => {
   });
 
   before(async () => {
-    // Inside the package, as in library-send-cli.test.ts, so the project resolves its modules.
-    mkdirSync(path.join(repo, ".tmp"), { recursive: true });
-    project = mkdtempSync(path.join(repo, ".tmp", "tutorial-return-funds-"));
+    project = createTempProject("tutorial-return-funds-");
     writeFileSync(
       path.join(project, "package.json"),
       JSON.stringify({ name: "p", type: "module" }),
@@ -302,9 +302,11 @@ describe("the return-funds guide's script", { timeout: SUITE_LIMIT_MS }, () => {
     await rpc("hardhat_setCode", [DELEGATED, `0xef0100${EOA.slice(2).toLowerCase()}`]);
   });
 
-  after(() => {
-    node?.kill();
-    rmSync(project, { recursive: true, force: true });
+  after(async () => {
+    if (node !== undefined) {
+      await endChild(node);
+    }
+    await removeTempProject(project);
   });
 
   it("exists once: the tutorials link the guide and carry no copy", () => {

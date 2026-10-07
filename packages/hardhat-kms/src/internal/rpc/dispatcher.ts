@@ -349,7 +349,7 @@ export async function dispatch(
     return response(request, await listAccounts(accounts, request, next));
   }
   if (request.method === "eth_sign") {
-    const signed = await signFor(accounts, params[0], async (signer) => {
+    const signed = await signFor(accounts, request.method, params[0], async (signer) => {
       const [, data] = validateParams(params, rpcAddress, rpcData);
       return await signer.signPersonalMessage(data);
     });
@@ -357,7 +357,7 @@ export async function dispatch(
       return response(request, signed.result);
     }
   } else if (request.method === "personal_sign") {
-    const signed = await signFor(accounts, params[1], async (signer) => {
+    const signed = await signFor(accounts, request.method, params[1], async (signer) => {
       const [data] = validateParams(params, rpcData, rpcAddress);
       return await signer.signPersonalMessage(data);
     });
@@ -365,7 +365,7 @@ export async function dispatch(
       return response(request, signed.result);
     }
   } else if (request.method === "eth_signTypedData_v4") {
-    const signed = await signFor(accounts, params[0], async (signer) => {
+    const signed = await signFor(accounts, request.method, params[0], async (signer) => {
       const data: unknown = validateParams(params, rpcAddress, rpcAny)[1];
       return await signTypedData(signer, data, policy);
     });
@@ -607,6 +607,9 @@ type TransactionOutcome = { kms: KmsTransaction } | { params: unknown[] } | unde
  * The transaction is copied before the first `await`, so a caller that changes its object
  * meanwhile cannot change what is signed. A transaction that cannot be copied is refused only
  * when its sender is a KMS account; any other request passes on as it came (rule 1).
+ * A `from` that names a KMS account as 20 bytes rather than a hex string is refused too, before
+ * any signature or read: Hardhat's simulated network and JSON-RPC nodes refuse that form, and
+ * Hardhat's schema refuses the plain `Uint8Array` that the copy makes of a `Buffer`.
  *
  * A transaction without `from` gets the sender Hardhat would give it, and goes on with that sender
  * set even when it is not a KMS account: Hardhat's automatic sender caches its first answer per
@@ -645,6 +648,14 @@ async function kmsTransactionOf(
   const address = addressParam(from);
   if (address === undefined) {
     return passOn;
+  }
+  if (typeof from !== "string" && (await accounts.isKmsAccount(address))) {
+    // Otherwise the copy and the fill's reads carry the bytes to Hardhat's schema or the node.
+    throw catalogError(
+      ERRORS.txFromBytes,
+      { address: toChecksumAddress(address) },
+      { operation: method },
+    );
   }
   if (copy === undefined) {
     if (await accounts.isKmsAccount(address)) {
@@ -1377,17 +1388,30 @@ async function broadcastRaw(
 }
 
 /**
- * Signs with the KMS account named by an address param.
+ * Signs with the KMS account named by an address param. A KMS account named as 20 bytes rather
+ * than a hex string is refused before any signature: Hardhat's simulated network and JSON-RPC
+ * nodes refuse that form, and Hardhat's schema refuses a plain `Uint8Array`.
  *
  * @returns The result, or `undefined` when the param is not a KMS account's address.
  */
 async function signFor<T>(
   accounts: ConnectionAccounts,
+  method: string,
   value: unknown,
   sign: (signer: KmsSigner) => Promise<T>,
 ): Promise<{ result: T } | undefined> {
   const address = addressParam(value);
-  return address === undefined ? undefined : await accounts.withSigner(address, sign);
+  if (address === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string" && (await accounts.isKmsAccount(address))) {
+    throw catalogError(
+      ERRORS.addressBytes,
+      { address: toChecksumAddress(address) },
+      { operation: method },
+    );
+  }
+  return await accounts.withSigner(address, sign);
 }
 
 /**

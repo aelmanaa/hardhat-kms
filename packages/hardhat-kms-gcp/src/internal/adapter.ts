@@ -16,8 +16,10 @@ import type {
 
 import { ERRORS } from "./error-catalog.ts";
 import {
+  authFailure,
   crc32cMatches,
   credentialFailure,
+  keyProject,
   networkErrorCode,
   type StatusName,
   statusOf,
@@ -314,6 +316,24 @@ class GcpKeyAdapter implements KmsKeyAdapter {
     try {
       return await call(await this.#initialized());
     } catch (error) {
+      // Checked first: over REST the SDK turns the HTTP status of such a refusal into a gRPC
+      // status, which would read as Cloud KMS's own answer. A 5xx, 408 or 429 is not a refusal
+      // for good: it goes on to the status handling below and is retried as before.
+      const auth = authFailure(error);
+      if (auth !== undefined) {
+        switch (auth.kind) {
+          case "login":
+            // As before for an expired or revoked login, which the SDK reported as UNAUTHENTICATED.
+            throw this.#error(operation, ERRORS.unauthenticated, {});
+          case "tokenExchange":
+            throw this.#error("connect", ERRORS.tokenExchangeRefused, { code: auth.code });
+          case "endpoint":
+            throw this.#error("connect", ERRORS.authEndpointRefused, {
+              endpoint: auth.endpoint,
+              status: auth.status,
+            });
+        }
+      }
       const status = statusOf(error);
       if (status === "UNAVAILABLE") {
         // A refused connection, a failed DNS lookup or a proxy error arrives as UNAVAILABLE, with
@@ -406,8 +426,15 @@ export async function createGcpKeyAdapter(
   userAgent: string,
 ): Promise<KmsKeyAdapter> {
   const name = await key.keyVersionName.get();
+  // The key's project, so that google-auth-library does not look it up. With workload identity
+  // federation and no project in the environment, it would ask Cloud Resource Manager, which a
+  // principal with only the key's roles may not call.
+  const projectId = keyProject(name);
   // REST rather than gRPC: a gRPC channel would keep `hardhat run` alive after the script ends.
   const createClient = (): GcpKmsClient =>
-    new sdk.KeyManagementServiceClient({ fallback: true }, sdk.gax);
+    new sdk.KeyManagementServiceClient(
+      { fallback: true, ...(projectId === undefined ? {} : { projectId }) },
+      sdk.gax,
+    );
   return new GcpKeyAdapter(key, name, createClient, userAgent);
 }

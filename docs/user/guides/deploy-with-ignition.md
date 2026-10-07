@@ -17,9 +17,21 @@ Ignition sees a KMS key as one more account of the network. It sends `eth_sendTr
 
 Install Ignition and its viem helpers, as for any Hardhat 3 project. Modules import `buildModule` from `@nomicfoundation/hardhat-ignition`, so install both packages:
 
-```sh
+::: code-group
+
+```sh [npm]
 npm install --save-dev @nomicfoundation/hardhat-ignition @nomicfoundation/hardhat-ignition-viem
 ```
+
+```sh [pnpm]
+pnpm add --save-dev @nomicfoundation/hardhat-ignition @nomicfoundation/hardhat-ignition-viem
+```
+
+```sh [Yarn]
+yarn add --dev @nomicfoundation/hardhat-ignition @nomicfoundation/hardhat-ignition-viem
+```
+
+:::
 
 List the provider package and Ignition in `plugins`, and the key in the network's `kmsAccounts`:
 
@@ -37,7 +49,12 @@ export default defineConfig({
     simulatedBalance: 10n ** 18n,
   },
   networks: {
-    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
+      kmsAccounts: ["deployer"],
+    },
     rehearsal: { type: "edr-simulated", kmsAccounts: ["deployer"] },
     // A rehearsal against Sepolia's current state, read through SEPOLIA_RPC_URL.
     sepoliaFork: {
@@ -94,9 +111,21 @@ Ignition sends from its default sender, the first address of `eth_accounts`. The
 
 The KMS account's position in `eth_accounts` therefore differs between networks. On `sepolia` above it is index 0; on `rehearsal` and `sepoliaFork`, which have EDR's 20 default accounts, it is index 20. Choose the deployer by address with `--default-sender`, which works on every network the key is listed on. `npx hardhat kms accounts` prints the key's address:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --default-sender 0x…
 ```
+
+```sh [pnpm]
+pnpm hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --default-sender 0x…
+```
+
+```sh [Yarn]
+yarn hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --default-sender 0x…
+```
+
+:::
 
 `m.getAccount(index)` picks an account by its position instead, so a module that uses it only works on networks with the same accounts in the same order. Use it for a module that only ever runs on one local network. Here, index 20 is the first KMS account on an `edr-simulated` network with EDR's default accounts; the same module fails on `sepolia`, where Ignition refuses index 20 because the network lists fewer accounts:
 
@@ -135,15 +164,39 @@ Ignition refuses a `defaultSender` that is not in `eth_accounts`. If it reports 
 
 Run the deployment on the `rehearsal` network first. `kms.simulatedBalance` gives the KMS account its balance there, and the plugin signs with the real key, so the rehearsal also checks the key and its permissions:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --default-sender 0x…
 ```
 
+```sh [pnpm]
+pnpm hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --default-sender 0x…
+```
+
+```sh [Yarn]
+yarn hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --default-sender 0x…
+```
+
+:::
+
 Ignition keeps nothing from a deployment to an `edr-simulated` network. To rehearse against Sepolia's recent state, run the same command on `sepoliaFork`, which forks Sepolia through `SEPOLIA_RPC_URL`. The fork starts from a block a little behind the latest one, so a contract deployed in the last few minutes may be missing from it. The contracts are deployed only in the local fork, and `kms.simulatedBalance` funds the KMS account there too:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender 0x…
 ```
+
+```sh [pnpm]
+pnpm hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender 0x…
+```
+
+```sh [Yarn]
+yarn hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender 0x…
+```
+
+:::
 
 A config that has only the live network, such as the one the [first-deploy tutorials](../tutorials/first-deploy-aws.md) build, needs two additions for the fork: `simulatedBalance` in the `kms` section and the `sepoliaFork` network. The rest of the file stays the same:
 
@@ -171,9 +224,21 @@ Leave out `--verify` on `sepoliaFork`: the fork ends with the command, so no exp
 
 A key chosen with `--kms` instead of a config entry is added to the network selected with `--network`. Pass `--kms` with a network that does not list the same key: `rehearsal` already lists `deployer`, so `--kms aws` with `AWS_KMS_KEY_ID=alias/deployer` fails there with an error that names both. `rehearsalCli` lists no KMS keys and is `edr-simulated`, so `kms.simulatedBalance` funds the key there:
 
-```sh
+::: code-group
+
+```sh [npm]
 AWS_KMS_KEY_ID=alias/deployer npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsalCli --kms aws --default-sender 0x…
 ```
+
+```sh [pnpm]
+AWS_KMS_KEY_ID=alias/deployer pnpm hardhat ignition deploy ignition/modules/Counter.ts --network rehearsalCli --kms aws --default-sender 0x…
+```
+
+```sh [Yarn]
+AWS_KMS_KEY_ID=alias/deployer yarn hardhat ignition deploy ignition/modules/Counter.ts --network rehearsalCli --kms aws --default-sender 0x…
+```
+
+:::
 
 On a live network, `kms.simulatedBalance` does nothing: fund the key's address there yourself.
 
@@ -204,10 +269,24 @@ Check the result on Blockscout: open the `Explorer:` link under `=== Blockscout 
 
 If the page instead shows a "verified twin" or a "similar match", Blockscout is showing the source of another contract with similar code, and yours is not verified yet. Only then, verify it with `--force`:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat build --build-profile production
 npx hardhat verify blockscout --network sepolia --force <contract address>
 ```
+
+```sh [pnpm]
+pnpm hardhat build --build-profile production
+pnpm hardhat verify blockscout --network sepolia --force <contract address>
+```
+
+```sh [Yarn]
+yarn hardhat build --build-profile production
+yarn hardhat verify blockscout --network sepolia --force <contract address>
+```
+
+:::
 
 The build comes first because `verify` compares the deployed bytecode with the local build, and `ignition deploy` deployed the `production` build. Other commands, such as `npx hardhat run` or `npx hardhat test`, rebuild with the default profile, and `verify` then fails with `HHE80009`.
 

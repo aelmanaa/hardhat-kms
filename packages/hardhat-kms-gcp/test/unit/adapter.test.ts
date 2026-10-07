@@ -9,6 +9,13 @@ import { HardhatPluginError } from "hardhat/plugins";
 
 import { createGcpKeyAdapter, MAX_RETRIES } from "../../src/internal/adapter.ts";
 import {
+  gaxiosError,
+  projectLookupRefused,
+  SECRET_CLAIM,
+  SECRET_PROJECT_NUMBER,
+  tokenExchangeRefused,
+} from "../helpers/auth-errors.ts";
+import {
   fakeGcpKmsSdk,
   type FakeKmsOptions,
   googleError,
@@ -74,6 +81,17 @@ async function lookUp(adapter: Awaited<ReturnType<typeof adapterFor>>["adapter"]
   return await (adapter.getPublicKey?.(context()) ?? Promise.resolve(undefined));
 }
 
+/** Checks that a rejection names neither the project number nor the token's claims. */
+function assertNoSecrets(error: unknown): void {
+  assert.ok(error instanceof HardhatPluginError, String(error));
+  assert.doesNotMatch(error.message, new RegExp(SECRET_PROJECT_NUMBER));
+  assert.doesNotMatch(
+    error.message,
+    /acme-secret|audience does not match|cloudresourcemanager\.googleapis\.com\/v1/,
+  );
+  assert.ok(!error.message.includes(SECRET_CLAIM), error.message);
+}
+
 describe("Google Cloud KMS adapter", () => {
   it("reads the PEM public key and returns the DER signature of the digest, unchanged", async () => {
     for (const [highS, int64Form] of [
@@ -102,7 +120,8 @@ describe("Google Cloud KMS adapter", () => {
     await lookUp(adapter);
     await sign(adapter);
 
-    assert.deepEqual(clients[0]?.options, { fallback: true });
+    // The key's project, so that google-auth-library never looks it up.
+    assert.deepEqual(clients[0]?.options, { fallback: true, projectId: "p" });
     // The client runs on this package's google-gax (^6.5.0), which enforces the deadline.
     assert.equal(clients[0]?.gax, gax);
     assert.deepEqual(
@@ -409,6 +428,114 @@ describe("Google Cloud KMS adapter", () => {
         assert.ok(!error.message.includes("/secret/path"), error.message);
         return true;
       });
+    });
+
+    it("gives the client the key's project, by id, number or domain-scoped id", async () => {
+      const rest = "locations/global/keyRings/r/cryptoKeys/k/cryptoKeyVersions/3";
+      for (const project of ["my-project", "123456789012", "example.com:my-project"]) {
+        const { adapter, clients } = await adapterFor({}, gcpKey(`projects/${project}/${rest}`));
+        await lookUp(adapter).catch(() => {});
+        assert.deepEqual(clients[0]?.options, { fallback: true, projectId: project });
+      }
+      // A name the config check would refuse: no project, so the library looks it up as before.
+      const { adapter, clients } = await adapterFor({}, gcpKey("not-a-key-version-name"));
+      await lookUp(adapter).catch(() => {});
+      assert.deepEqual(clients[0]?.options, { fallback: true });
+    });
+
+    it("reports a refused token exchange by its OAuth error code only", async () => {
+      // As the SDK rejects a call when the exchange fails: a gRPC status from the HTTP status,
+      // with google-auth-library's error as the cause.
+      const wrapped = Object.assign(googleError(3, "Error code invalid_grant: …"), {
+        cause: tokenExchangeRefused(),
+      });
+      for (const options of [{ callError: wrapped }, { initializeError: tokenExchangeRefused() }]) {
+        const { adapter } = await adapterFor(options);
+        await assert.rejects(lookUp(adapter), (error: unknown) => {
+          assertNoSecrets(error);
+          assert.ok(error instanceof Error);
+          assert.match(
+            error.message,
+            /gcp, connect, .*the token exchange refused the external credentials \(invalid_grant\)/,
+          );
+          assert.doesNotMatch(error.message, /INVALID_ARGUMENT/);
+          return true;
+        });
+      }
+    });
+
+    it("reports a refused auth request by its status and endpoint, without its path", async () => {
+      const cases: Array<[Error, RegExp]> = [
+        [
+          projectLookupRefused(),
+          /gcp, connect, .*the project lookup \(cloudresourcemanager\.googleapis\.com\) answered HTTP 403\. See gcp\.connect\.auth-endpoint in the errors reference$/,
+        ],
+        [
+          gaxiosError(
+            "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/x@y.iam.gserviceaccount.com:generateAccessToken",
+            403,
+          ),
+          /service account impersonation \(iamcredentials\.googleapis\.com\) answered HTTP 403\. See gcp\.connect\.auth-endpoint in the errors reference$/,
+        ],
+      ];
+      for (const [refusal, expected] of cases) {
+        const { adapter, calls } = await adapterFor({ initializeError: refusal });
+        await assert.rejects(lookUp(adapter), (error: unknown) => {
+          assertNoSecrets(error);
+          assert.ok(error instanceof Error);
+          assert.match(error.message, expected);
+          assert.doesNotMatch(error.message, /serviceAccounts|x@y/);
+          return true;
+        });
+        assert.equal(calls.length, 0);
+      }
+    });
+
+    it("asks to log in again when the OAuth token endpoint refuses the login", async () => {
+      for (const [status, code] of [
+        [400, 3],
+        [401, 16],
+      ] as const) {
+        // As the SDK rejects a call whose token refresh failed.
+        const refusal = Object.assign(googleError(code, "invalid_grant"), {
+          cause: gaxiosError("https://oauth2.googleapis.com/token", status),
+        });
+        const { adapter } = await adapterFor({ callError: refusal });
+        await assertGcpError(lookUp(adapter), [
+          "gcp, get public key,",
+          "the Google Cloud credentials were refused (UNAUTHENTICATED). Run `gcloud auth application-default login` again",
+        ]);
+      }
+    });
+
+    it("retries an auth endpoint that is unavailable or throttling, as before", async () => {
+      // As the SDK rejects a call whose token request failed with a server error: UNAVAILABLE.
+      for (const url of [
+        "https://oauth2.googleapis.com/token",
+        "https://sts.googleapis.com/v1/token",
+      ]) {
+        const unavailable = Object.assign(googleError(14, "unavailable"), {
+          cause: gaxiosError(url, 503),
+        });
+        const { adapter, methods } = await adapterFor({ callError: unavailable });
+        await assertGcpError(lookUp(adapter), [
+          `Google Cloud KMS is unavailable (UNAVAILABLE), after ${ATTEMPTS} attempts`,
+        ]);
+        assert.equal(methods("getPublicKey"), ATTEMPTS);
+      }
+      const throttled = Object.assign(googleError(8, "throttled"), {
+        cause: gaxiosError("https://sts.googleapis.com/v1/token", 429),
+      });
+      const { adapter } = await adapterFor({ callError: throttled });
+      await assertGcpError(lookUp(adapter), ["throttling requests (RESOURCE_EXHAUSTED)"]);
+    });
+
+    it("keeps Cloud KMS's own refusal as its status", async () => {
+      const refusal = Object.assign(googleError(7, "denied"), {
+        cause: gaxiosError("https://cloudkms.googleapis.com/v1/projects/p/x/publicKey", 403),
+      });
+      const { adapter } = await adapterFor({ callError: refusal });
+      await assertGcpError(lookUp(adapter), ["permission denied (PERMISSION_DENIED)"]);
     });
 
     it("initializes the client before each call, and makes no call when that fails", async () => {

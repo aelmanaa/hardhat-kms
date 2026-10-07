@@ -18,7 +18,7 @@ import type {
 } from "hardhat-kms/types";
 
 import { ERRORS } from "./error-catalog.ts";
-import { credentialFailure, statusName } from "./wire.ts";
+import { authFailure, credentialFailure, statusName } from "./wire.ts";
 
 /** The body of an `entries.list` request. */
 export interface ListEntriesRequest {
@@ -112,7 +112,7 @@ const THROTTLE_LIMIT = "60 per minute";
 const READ_PERMISSION = "logging.privateLogEntries.list (roles/logging.privateLogViewer)";
 
 const SETUP_HINT =
-  "Check that Data Access audit logs (DATA_READ) are on for Cloud KMS (cloudkms.googleapis.com) in the key's project, that the signing identity is not an exempted principal, and that no exclusion filter or sink keeps the entries out of the _Default bucket.";
+  "Check that Data Access audit logs (DATA_READ) are on for Cloud KMS (cloudkms.googleapis.com) in the key's project, that the signing identity is not an exempted principal, and that a sink stores the entries in a log bucket this identity can read. An entry no sink stores in a log bucket, such as one an exclusion filter drops or one sent only to BigQuery, Cloud Storage or Pub/Sub, is not read, and a bucket other than _Default needs roles/logging.viewAccessor.";
 
 const SCOPE_DESCRIPTION = "Data Access audit log, every version of the key";
 
@@ -188,7 +188,9 @@ export function quote(value: string): string {
  * The Cloud Logging filter for a key's sign entries in a range. Cloud Logging compares these
  * strings without regard to case, so the reader checks each entry's `resourceName` exactly too.
  * No clause names the project, which the config may give by its id or its number: the request's
- * `resourceNames` reads the project's own logs only.
+ * `resourceNames` limits the read to the project. Google documents that a project read also
+ * returns entries a sink in another project routes into it, so a key of the same location, key
+ * ring and name in that other project would match too.
  *
  * @param parts - The key's parts.
  * @param since - The start of the range, inclusive.
@@ -285,7 +287,8 @@ function signEvent(
   }
   // The filter matches without regard to case: an entry of a key whose name differs only in case
   // belongs to another key. The project part is not compared, since it can be the id or the
-  // number; the request reads the key's project only.
+  // number. A project read also returns entries routed in from another project, so a same-named
+  // key there matches too.
   const suffix = `/${parts.keyPath}/cryptoKeyVersions/`;
   const project = PROJECT_PREFIX.exec(resourceName)?.[0];
   const version =
@@ -416,7 +419,10 @@ async function systemPause(ms: number, signal: AbortSignal): Promise<void> {
  *
  * Cloud Audit Logs logs no request id, so `requestId` is not logged and each entry's `insertId`
  * goes in `extra`. The result never claims to see every sign request: Data Access logs can be
- * off, a principal can be exempted, and an exclusion filter or a sink can keep entries out.
+ * off, a principal can be exempted, and the sinks can keep an entry out of every log bucket.
+ * A `projects/<id>` resource name reads the project's entries from whichever log buckets store
+ * them, including a bucket in another project, as `entries.list` documents, but only the buckets
+ * the identity can read.
  *
  * @param key - The key.
  * @param request - The range, the limit and the signal.
@@ -514,6 +520,18 @@ export async function readGcpSignHistory(
     code: string | undefined,
     attempts: number,
   ): unknown => {
+    // Before the status: a refusal on the way to an access token is not Cloud Logging's answer.
+    const auth = authFailure(error);
+    switch (auth?.kind) {
+      case "login":
+        return fail(ERRORS.unauthenticated, {});
+      case "tokenExchange":
+        return fail(ERRORS.tokenExchangeRefused, { code: auth.code });
+      case "endpoint":
+        return fail(ERRORS.authEndpointRefused, { endpoint: auth.endpoint, status: auth.status });
+      case undefined:
+        break;
+    }
     if (status === 401) {
       return fail(ERRORS.unauthenticated, {});
     }

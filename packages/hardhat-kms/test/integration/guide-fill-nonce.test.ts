@@ -7,7 +7,7 @@
 // (`pnpm test` does). The tests share the node's state and run in order.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -17,6 +17,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { hardhat } from "viem/chains";
 
 import {
+  endChild,
   endWithTestProcess,
   HARDHAT_CLI,
   type HardhatRun,
@@ -24,6 +25,7 @@ import {
   RUN_LIMIT_MS,
   runHardhat,
 } from "../helpers/hardhat-cli.ts";
+import { createTempProject, removeTempProject } from "../helpers/temp-project.ts";
 import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -265,8 +267,7 @@ describe("the uncertain-sends guide's fill-nonce script", { timeout: SUITE_LIMIT
   });
 
   before(async () => {
-    mkdirSync(path.join(repo, ".tmp"), { recursive: true });
-    project = mkdtempSync(path.join(repo, ".tmp", "guide-fill-nonce-"));
+    project = createTempProject("guide-fill-nonce-");
     signLog = path.join(project, "signs.log");
     writeFileSync(
       path.join(project, "package.json"),
@@ -288,9 +289,11 @@ describe("the uncertain-sends guide's fill-nonce script", { timeout: SUITE_LIMIT
     await rpc("hardhat_setCode", [DELEGATED, INDICATOR]);
   });
 
-  after(() => {
-    node?.kill();
-    rmSync(project, { recursive: true, force: true });
+  after(async () => {
+    if (node !== undefined) {
+      await endChild(node);
+    }
+    await removeTempProject(project);
   });
 
   it("fills a gap for an account with no code", async () => {
