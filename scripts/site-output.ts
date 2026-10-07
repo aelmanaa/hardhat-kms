@@ -158,6 +158,47 @@ export function pngProblems(
   return problems;
 }
 
+/**
+ * Checks the committed social preview against a fresh render of its SVG. Both renders use the same
+ * vendored fonts and renderer, so a PNG that `pnpm run docs:og` wrote has the same bytes; any
+ * other file, such as a PNG left over from an earlier SVG or one exported by another tool, fails.
+ */
+export function ogImageProblems(
+  file: string,
+  committed: Uint8Array,
+  rendered: Uint8Array,
+): string[] {
+  if (committed.length < 8 || PNG_SIGNATURE.some((byte, index) => committed[index] !== byte)) {
+    return [`${file}: not a PNG file; run pnpm run docs:og`];
+  }
+  const same =
+    committed.length === rendered.length &&
+    committed.every((byte, index) => byte === rendered[index]);
+  return same
+    ? []
+    : [`${file}: differs from a render of og-image.svg; run pnpm run docs:og and commit the PNG`];
+}
+
+/**
+ * Checks every `font-family` attribute of an SVG names one of the given families, and nothing
+ * else: no fallback list, since the renderer loads no system font.
+ */
+export function svgFontProblems(file: string, svg: string, families: readonly string[]): string[] {
+  const problems: string[] = [];
+  for (const match of svg.matchAll(/\sfont-family\s*=\s*(["'])(.*?)\1/g)) {
+    const family = match[2] ?? "";
+    if (!families.includes(family)) {
+      problems.push(
+        `${file}: font-family "${family}"; name one of ${families.map((name) => `"${name}"`).join(", ")}`,
+      );
+    }
+  }
+  if (/font-family\s*:/.test(svg)) {
+    problems.push(`${file}: sets font-family in a style; use the font-family attribute`);
+  }
+  return problems;
+}
+
 /** The `id` of every element in a page, the anchors a link can point at. */
 export function anchors(html: string): Set<string> {
   return new Set(
