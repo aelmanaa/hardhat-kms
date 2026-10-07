@@ -16,7 +16,8 @@
 #    need it.
 # 4. publish: after a maintainer approves the npm-publish environment, the same check against that
 #    output, then `npm stage publish` of the four tarballs under the beta dist-tag, over OIDC
-#    (trusted publishing, no token), with provenance. Nothing is installable until a maintainer approves the stage on npmjs.com.
+#    (trusted publishing, no token), with provenance. Nothing is installable until a maintainer
+#    approves the stage on npmjs.com.
 # 5. github-release: a draft GitHub Release with the prerelease flag, its notes from the
 #    hardhat-kms changelog.
 # A manual dispatch is always a dry run: verify-tag on the `tag` input (or, with `none`, the
