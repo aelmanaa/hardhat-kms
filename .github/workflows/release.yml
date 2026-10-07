@@ -7,7 +7,8 @@
 #    and Windows, and passing hardhat-versions.yml and sdk-floors.yml runs; for each of the last
 #    three that has no passing run on the commit, the job dispatches it on the tag and waits
 #    (scripts/release-gate-ci.ts).
-# 3. pack: build, the package checks, the publish plan, then one tarball per package with `gitHead`
+# 3. pack: build, the package checks, fresh installs checked for deprecated packages
+#    (scripts/check-fresh-install.ts), the publish plan, then one tarball per package with `gitHead`
 #    set to the tagged commit, checked by scripts/check-tarballs.ts. The SHA-256 sums leave the job
 #    as a job output, apart from the artifact they cover.
 # 4. publish: after a maintainer approves the npm-publish environment, the same check against that
@@ -167,7 +168,7 @@ jobs:
     name: Build and pack
     needs: verify-tag
     runs-on: ubuntu-26.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read # checks out the tagged commit
     outputs:
@@ -188,6 +189,11 @@ jobs:
       # Builds, then publint, arethetypeswrong, the deprecated-package check and knip.
       - name: Build and check the packages
         run: pnpm run pkg:check
+      # Installs each provider package with the core into empty projects with npm and pnpm, empty
+      # caches, and fails on a deprecated package that ALLOWED does not list. pkg:check reads the
+      # lockfile; this asks the registry about what a user's install resolves today.
+      - name: Fresh installs, checked for deprecated packages
+        run: pnpm run test:fresh-install --summary "$GITHUB_STEP_SUMMARY"
       - name: Publish plan
         run: |
           {

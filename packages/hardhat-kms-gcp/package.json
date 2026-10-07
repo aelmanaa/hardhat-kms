@@ -70,7 +70,7 @@
   "dependencies": {
     "@google-cloud/kms": "^6.2.1",
     "google-auth-library": "^11.0.0",
-    "google-gax": "^6.5.0"
+    "google-gax": "^6.5.0 <6.11.0 || ^6.11.1"
   },
   "devDependencies": {
     "@noble/curves": "^2.4.0",

@@ -80,7 +80,28 @@ npm install --save-dev hardhat-kms @hardhat-kms/gcp
 
 Until the packages are published on npm, this command fails with `E404`; follow [Install before the first npm release](install-before-release.md) instead.
 
-`@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later to run it on) with it, so there is nothing else to install. npm prints `npm warn deprecated node-domexception@1.0.0` during the install. The warning comes from Google's libraries: `gaxios` and `google-gax` depend on `node-fetch` 3, which pulls in `node-domexception` through `fetch-blob`, and the latest `gaxios`, 8.1.0, still does. It is harmless and needs no action.
+`@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later, except 6.11.0, to run it on) with it, so there is nothing else to install. npm prints `npm warn deprecated node-domexception@1.0.0` during the install. The warning comes from Google's libraries: `gaxios` and `google-gax` depend on `node-fetch` 3, which pulls in `node-domexception` through `fetch-blob`, and the latest `gaxios`, 8.1.0, still does. It is harmless and needs no action.
+
+npm marks `google-gax` 6.11.0 as deprecated "due to a known bug", so `@hardhat-kms/gcp` asks for `^6.5.0 <6.11.0 || ^6.11.1` and never runs its requests on 6.11.0. npm, pnpm and Yarn 4 install one `google-gax` for both the plugin and `@google-cloud/kms`. Yarn 1 takes the `latest` tag when it fits a range, and `latest` was 6.11.0 on 2026-10-07, so it can also install 6.11.0 under `node_modules/@google-cloud/kms/node_modules/`. The client library uses that copy only for its debug logger and to decode error details; the plugin sends its Cloud KMS requests through its own copy. To remove a 6.11.0 copy that `npm ls google-gax --all`, `pnpm why google-gax` or `yarn why google-gax` shows, override the version in your project:
+
+- pnpm, in `pnpm-workspace.yaml` (pnpm ignores the `pnpm` field of `package.json`), then `pnpm install`:
+
+  ```yaml
+  overrides:
+    google-gax: "^6.5.0 <6.11.0 || ^6.11.1"
+  ```
+
+- npm, in `package.json`, then `npm dedupe` (`npm install` keeps the copy it already installed):
+
+  ```json
+  { "overrides": { "google-gax": "^6.5.0 <6.11.0 || ^6.11.1" } }
+  ```
+
+- Yarn, in `package.json`, then `yarn install`:
+
+  ```json
+  { "resolutions": { "google-gax": "^6.5.0 <6.11.0 || ^6.11.1" } }
+  ```
 
 Add the plugin to `plugins`; it loads `hardhat-kms` itself:
 
