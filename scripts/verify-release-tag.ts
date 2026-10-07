@@ -114,8 +114,8 @@ function gpg(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): Comm
 /**
  * Whether `gpg` reads paths the POSIX way although Node runs on Windows. Git for Windows ships an
  * MSYS build of `gpg`, which takes `C:\...` for a relative path; a native Windows build reads it
- * as written. The answer comes from the home directory `gpg --version` prints: `/c/Users/...`
- * from the MSYS build, `C:\Users\...` from a native one.
+ * as written. The answer comes from the home directory `gpg --version` prints: `/c/...`
+ * from the MSYS build, `C:\...` from a native one.
  */
 function gpgReadsPosixPaths(cwd: string, env: NodeJS.ProcessEnv): boolean {
   const { GNUPGHOME: _, ...withoutHome } = env;
@@ -126,7 +126,7 @@ function gpgReadsPosixPaths(cwd: string, env: NodeJS.ProcessEnv): boolean {
 /**
  * Spells a path the way `gpg` and `gpgconf` read it. On Linux and macOS, and with a native Windows
  * build of `gpg`, that is the path itself. With the MSYS build of Git for Windows it is the POSIX
- * form `cygpath -u` gives, for example `/c/Users/...`.
+ * form `cygpath -u` gives, for example `/c/...`.
  * @param file An absolute path.
  * @param cwd The directory to run `gpg` and `cygpath` in.
  * @param env The environment for `gpg` and `cygpath`.
