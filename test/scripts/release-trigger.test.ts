@@ -129,7 +129,7 @@ describe("release-trigger.ts as the workflow runs it", () => {
     assert.equal(result.output, "");
     assert.match(
       result.stderr,
-      /^::error::tag "v0\.9\.0\\ndry-run=false\\njunk<<dry-run=true" is not none/,
+      /^::error::tag "v0\.9\.0\\ndry-run=false\\njunk<<dry-run=true" is not none/m,
     );
   });
 

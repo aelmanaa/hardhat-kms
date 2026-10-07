@@ -1,6 +1,7 @@
 // The command promote.yml runs for the live rule (`scripts/check-live-rule.ts`): its arguments,
 // its exit codes and the line it appends to --summary. The rule itself is tested in
-// registry-release.test.ts. Runs in `pnpm test`, with no network.
+// registry-release.test.ts. Runs in `pnpm test`, with no network. The stderr patterns use the m
+// flag: Node 24.0.0 prints an ExperimentalWarning for type stripping before the script's output.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -38,20 +39,20 @@ describe("check-live-rule.ts", () => {
   it("exits 1 with the rule's reason on a refused combination", () => {
     const result = run(["1.2.0", "latest", "fork"]);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /^FAIL 1\.2\.0 is a minor; moving latest needs live-run sepolia/);
+    assert.match(result.stderr, /^FAIL 1\.2\.0 is a minor; moving latest needs live-run sepolia/m);
   });
 
   it("exits 1 on a bad target, a bad live-run and a missing argument", () => {
     assert.match(
       run(["1.2.0", "promote", "fork"]).stderr,
-      /^FAIL target must be verify or latest, not promote/,
+      /^FAIL target must be verify or latest, not promote/m,
     );
     assert.match(
       run(["1.2.0", "verify", "sepolia:zz"]).stderr,
-      /^FAIL live-run "sepolia:zz" is not/,
+      /^FAIL live-run "sepolia:zz" is not/m,
     );
     const missing = run(["1.2.0", "verify"]);
     assert.equal(missing.status, 1);
-    assert.match(missing.stderr, /^FAIL usage: node scripts\/check-live-rule\.ts/);
+    assert.match(missing.stderr, /^FAIL usage: node scripts\/check-live-rule\.ts/m);
   });
 });
