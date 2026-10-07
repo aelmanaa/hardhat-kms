@@ -50,9 +50,39 @@ User docs follow the Diátaxis split: each page is a tutorial, a how-to guide, r
 docker run --rm -v "$PWD:/repo" -w /repo lycheeverse/lychee:0.24.2 --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'packages/*/README.md' 'examples/README.md' 'examples/*/README.md' 'docs/**/*.md' 'skills/**/*.md'
 ```
 
+## The docs site
+
+The pages under `docs/` are also published as a site, at <https://aelmanaa.github.io/hardhat-kms/> ([decision 0017](decisions/0017-docs-hostname.md)). The Markdown stays the source: write a page for GitHub, with relative links to `.md` files, and the site renders it as it is. `tools/docs-site` is a private package, never published, that builds the site with VitePress; `.vitepress/config.ts` holds the settings and `.vitepress/site.ts` the hostname, base path and helpers that `scripts/check-site.ts` shares.
+
+What the site contains and how it maps the Markdown:
+
+- `docs/user/`, `docs/live-proof.md` and `docs/README.md`, which becomes the landing page: the config adds the hero and three feature cards above it, so the file needs no frontmatter. A folder's `README.md` is served as its index, so `user/reference/api/README.md` is at `/user/reference/api/`.
+- Contributor pages stay on GitHub. A link that leaves the site, to `docs/contributor/`, `CONTRIBUTING.md`, `SECURITY.md` or an example project, is rewritten to the file on GitHub's `main` branch.
+- Headings get the anchors GitHub gives them, such as `#hardhat-kmsgcp` for `@hardhat-kms/gcp`, so a `#fragment` that works on GitHub works on the site.
+- ` ```mermaid ` blocks are drawn in the browser by the `mermaid` package, the same version `docs:check` parses them with, in the light or dark scheme the reader picks.
+- The sidebar follows the order of [docs/README.md](../README.md), grouped by folder; a page added to the index appears in the sidebar too.
+
+For search engines and agents:
+
+- URLs have no `.html` (`cleanUrls`). Every page has one `canonical` URL, `og:url`, `og:title`, `og:description`, `og:image` and a Twitter card. The title is the page's H1, or its frontmatter `title`, followed by `| hardhat-kms`; the meta description is the frontmatter `description`, or the site's description when the page has none.
+- `og:image` points at `og-image.png` at the site root, which does not exist yet: add the social preview image there.
+- `sitemap.xml` lists every page with its last commit date, and `robots.txt` names it. Search engines read `robots.txt` only at the root of a host, `https://aelmanaa.github.io/robots.txt`, which this repository does not serve, so the sitemap has to be submitted in Google Search Console and Bing Webmaster Tools.
+- `llms.txt`, `llms-full.txt` and a `.md` copy of each page come from `vitepress-plugin-llms`. `llms.txt` opens with a "Start here for agents" section, written in the config: the install command per cloud, `npx hardhat kms accounts`, and a reminder to check npm for the current version. Once `skills/hardhat-kms/SKILL.md` exists, the section also gives `npx skills add aelmanaa/hardhat-kms`.
+- The landing page carries a JSON-LD `SoftwareSourceCode` block, with the version read from `packages/hardhat-kms/package.json` at build time.
+
+To work on the site:
+
+```sh
+pnpm run docs:site:dev     # serve the site at http://localhost:5173/hardhat-kms/, with reload
+pnpm run docs:site:check   # build the site, then check the output
+```
+
+`pnpm run docs:site:check` runs `scripts/check-site.ts`, in the CI Docs job on every pull request. The build fails on a link to a page that does not exist. The script then reads the output directory and fails when a page under `docs/` (contributor pages aside) was not built, or its head lacks one canonical URL without `.html`, the title suffix, one meta description equal to the frontmatter `description`, or an Open Graph tag; when a link or asset does not start with `/hardhat-kms/`, which a local preview would serve but GitHub Pages would not, does not resolve to a built file, or names an `#anchor` that the target page lacks; when `sitemap.xml` misses a page, `robots.txt` does not name the sitemap or `llms.txt` or `llms-full.txt` is missing; and when the landing page's JSON-LD is missing, invalid or carries another version. `scripts/site-output.ts` holds the checks and `test/scripts/site-output.test.ts` their tests.
+
+`.github/workflows/pages.yml` runs the same build and checks on every push to `main`, and on manual dispatch, then deploys the output with `actions/deploy-pages`. Only its deploy job has `pages: write` and `id-token: write`. GitHub Pages must be set to deploy from GitHub Actions (Settings, Pages, Source: GitHub Actions) before the first deploy succeeds.
+
 ## Planned pages
 
 The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/issues/38). Pages that do not exist yet:
 
 - Guides: GitHub Actions with OIDC ([#68](https://github.com/aelmanaa/hardhat-kms/issues/68)).
-- A docs site with `llms.txt` ([#74](https://github.com/aelmanaa/hardhat-kms/issues/74)).

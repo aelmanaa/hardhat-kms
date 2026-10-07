@@ -1,0 +1,17 @@
+{
+  "name": "hardhat-kms-docs-site",
+  "private": true,
+  "description": "Builds the docs site from docs/ with VitePress. Not published.",
+  "type": "module",
+  "scripts": {
+    "site:build": "vitepress build",
+    "dev": "vitepress dev",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "mermaid": "catalog:",
+    "vitepress": "catalog:",
+    "vitepress-plugin-llms": "catalog:",
+    "vue": "catalog:"
+  }
+}

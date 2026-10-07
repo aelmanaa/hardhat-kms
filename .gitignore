@@ -22,3 +22,6 @@ packages/*/.tmp/
 # Stryker reports, incremental file and sandboxes
 packages/*/reports/
 packages/*/.stryker-tmp/
+
+# The docs site's VitePress cache (its build output is under dist/)
+tools/docs-site/.vitepress/cache/

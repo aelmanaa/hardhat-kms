@@ -6,5 +6,5 @@
     "outDir": "node_modules/.cache/tsbuild/scripts",
     "tsBuildInfoFile": "node_modules/.cache/tsbuild/scripts.tsbuildinfo"
   },
-  "include": ["scripts", "test/scripts"]
+  "include": ["scripts", "test/scripts", "tools/docs-site/.vitepress/site.ts"]
 }

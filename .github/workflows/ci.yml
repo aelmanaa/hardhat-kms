@@ -33,7 +33,7 @@ jobs:
   docs:
     name: Docs
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,6 +50,11 @@ jobs:
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
           args: --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'packages/*/README.md' 'examples/README.md' 'examples/*/README.md' 'docs/**/*.md' 'skills/**/*.md'
+      # The same build pages.yml deploys from main: dead links fail it, then the checks read the
+      # output (canonical URLs, titles, descriptions, Open Graph tags, anchors, sitemap, robots.txt,
+      # llms.txt, JSON-LD).
+      - name: Docs site builds and passes the site checks
+        run: pnpm run docs:site:check
 
   test:
     # Linux only. macOS and Windows run in ci-all-os.yml: nightly when main has a commit they have not
