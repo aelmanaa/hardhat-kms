@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { HardhatPluginError } from "hardhat/plugins";
 import { addr, Transaction } from "micro-eth-signer";
 
@@ -172,8 +173,13 @@ describe("HardhatTransactionFiller fees", () => {
   it("falls back to a legacy gas price when eth_feeHistory fails twice, for that send only", async () => {
     for (const history of [
       () => {
-        throw new Error("method not found");
+        throw new Error("upstream request failed");
       },
+      () => {
+        throw Object.assign(new Error("header not found"), { code: -32000 });
+      },
+      // A rejection that is not an error object at all.
+      async () => await Promise.reject(null),
       () => ({ baseFeePerGas: "0x1", reward: [] }),
       () => null,
       () => ({ baseFeePerGas: ["0x1"], reward: [] }),
@@ -192,7 +198,7 @@ describe("HardhatTransactionFiller fees", () => {
       () => {
         throw new Error("upstream unavailable");
       },
-      // A fork node that has not yet indexed the block it just mined answers with no reward.
+      // Anvil before 1.8.0 answered with no reward when its fee cache lagged the head (foundry#15128).
       () => ({ baseFeePerGas: ["0x40"], reward: [] }),
     ]) {
       // The answers in order: one failure, a success, two failures, then successes.
@@ -218,6 +224,55 @@ describe("HardhatTransactionFiller fees", () => {
       assert.equal(recovered.gasPrice, undefined);
       assert.equal(histories(), 5);
     }
+  });
+
+  it("remembers a node without eth_feeHistory (-32601) for the connection, as Hardhat does", async () => {
+    const { node, filler: instance } = filler({
+      ...EIP1559_NODE,
+      eth_feeHistory: () => {
+        throw Object.assign(
+          new Error("the method eth_feeHistory does not exist/is not available"),
+          { code: -32601 },
+        );
+      },
+    });
+    const first = await instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
+    const second = await instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
+    assert.equal(first.gasPrice, 100n);
+    assert.equal(second.gasPrice, 100n);
+    assert.equal(second.maxFeePerGas, undefined);
+    assert.equal(node.methods().filter((method) => method === "eth_feeHistory").length, 1);
+  });
+
+  it("does not retry a timed-out eth_feeHistory, and asks again on the next send", async () => {
+    let reads = 0;
+    const { node, filler: instance } = filler({
+      ...EIP1559_NODE,
+      eth_feeHistory: (params) => {
+        reads += 1;
+        if (reads === 1) {
+          throw new HardhatError(HardhatError.ERRORS.CORE.NETWORK.NETWORK_TIMEOUT);
+        }
+        return EIP1559_NODE.eth_feeHistory?.(params);
+      },
+    });
+    const timedOut = await instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
+    assert.equal(timedOut.gasPrice, 100n);
+    assert.equal(node.methods().filter((method) => method === "eth_feeHistory").length, 1);
+    const next = await instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
+    assert.equal(next.maxFeePerGas, 81n);
+    assert.equal(next.gasPrice, undefined);
+    // Another Hardhat network error is retried.
+    const refused = filler({
+      ...EIP1559_NODE,
+      eth_feeHistory: () => {
+        throw new HardhatError(HardhatError.ERRORS.CORE.NETWORK.CONNECTION_REFUSED, {
+          network: "test",
+        });
+      },
+    });
+    await refused.filler.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
+    assert.equal(refused.node.methods().filter((method) => method === "eth_feeHistory").length, 2);
   });
 
   it("uses the gas price for both EIP-1559 fields when eth_feeHistory fails but one is given", async () => {

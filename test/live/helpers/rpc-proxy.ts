@@ -2,7 +2,9 @@
 // it, so it sees every request the fork makes upstream. Anvil never sends a transaction to its fork
 // URL; the proxy is the second line of defence if that ever changes. It forwards only the read
 // methods anvil's fork backend uses, refuses everything else, and records what it saw. The fork run
-// then checks that nothing was refused.
+// then checks that nothing was refused. It also records what the upstream answered to each
+// `eth_feeHistory` and which forwards failed, as status codes and shapes only, so a failed fork run
+// can say whether a fee read went wrong upstream.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 /**
@@ -68,6 +70,71 @@ export interface ForwardedCall {
   params: unknown;
 }
 
+/** What the upstream answered to one forwarded `eth_feeHistory`: no value from the answer. */
+export interface FeeHistoryReply {
+  /** The upstream's HTTP status. */
+  status: number;
+  /** The JSON-RPC error code, or the result's shape: array lengths and value types. */
+  outcome: string;
+}
+
+/** A value's kind: an array's length, or its JSON type. Never the value. */
+function kindOf(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `array of ${value.length}`;
+  }
+  if (value === undefined) {
+    return "missing";
+  }
+  return value === null ? "null" : typeof value;
+}
+
+/**
+ * Describes one JSON-RPC answer to `eth_feeHistory` without any value from it, so nothing the
+ * upstream sent (a message that names its URL, for one) reaches the test output.
+ *
+ * @param answer - The parsed answer for the call, or undefined if there was none.
+ * @returns The error code, or the result's shape.
+ */
+export function describeFeeHistoryAnswer(answer: unknown): string {
+  if (typeof answer !== "object" || answer === null) {
+    return "no answer for the call";
+  }
+  const error: unknown = Reflect.get(answer, "error");
+  if (error !== undefined) {
+    const code: unknown =
+      typeof error === "object" && error !== null ? Reflect.get(error, "code") : undefined;
+    return typeof code === "number" ? `error code ${code}` : "error without a numeric code";
+  }
+  const result: unknown = Reflect.get(answer, "result");
+  if (typeof result !== "object" || result === null || Array.isArray(result)) {
+    return `result ${kindOf(result)}`;
+  }
+  const reward: unknown = Reflect.get(result, "reward");
+  const firstReward: unknown = Array.isArray(reward) ? reward[0] : undefined;
+  const oldest: unknown = Reflect.get(result, "oldestBlock");
+  return [
+    `baseFeePerGas ${kindOf(Reflect.get(result, "baseFeePerGas"))}`,
+    `reward ${kindOf(reward)}`,
+    `reward[0] ${kindOf(firstReward)}`,
+    `oldestBlock ${typeof oldest === "string" && /^0x[0-9a-f]{1,16}$/i.test(oldest) ? "quantity" : kindOf(oldest)}`,
+  ].join(", ");
+}
+
+/**
+ * Names a failed upstream fetch by the error's name and, when it has one, its cause's code (such
+ * as `ECONNRESET`), never its message, which can name the upstream URL.
+ */
+function failureOf(error: unknown): string {
+  const name = error instanceof Error ? error.name : typeof error;
+  const cause: unknown = error instanceof Error ? error.cause : undefined;
+  const code: unknown =
+    typeof cause === "object" && cause !== null ? Reflect.get(cause, "code") : undefined;
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{1,39}$/.test(code)
+    ? `${name} (${code})`
+    : name;
+}
+
 /** A running proxy. */
 export interface RecordingProxy {
   /** The URL to give anvil as `--fork-url`. */
@@ -78,6 +145,10 @@ export interface RecordingProxy {
   forwarded: () => readonly ForwardedCall[];
   /** Why each refused request was refused, in order. */
   refused: () => readonly string[];
+  /** What the upstream answered to each forwarded `eth_feeHistory`, in order. */
+  feeHistoryReplies: () => readonly FeeHistoryReply[];
+  /** Each forward whose upstream fetch failed: its methods and the error's name. */
+  upstreamFailures: () => readonly string[];
   /** Stops the proxy. */
   close: () => Promise<void>;
 }
@@ -176,6 +247,8 @@ export async function startRecordingProxy(upstream: string): Promise<RecordingPr
   const counts = new Map<string, number>();
   const forwarded: ForwardedCall[] = [];
   const refused: string[] = [];
+  const feeHistoryReplies: FeeHistoryReply[] = [];
+  const upstreamFailures: string[] = [];
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     if (request.method !== "POST") {
@@ -214,13 +287,47 @@ export async function startRecordingProxy(upstream: string): Promise<RecordingPr
       return;
     }
     forwarded.push(...calls.map((call) => ({ method: call.method, params: call.params })));
-    const upstreamResponse = await fetch(upstream, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: outgoing,
-    });
-    response.writeHead(upstreamResponse.status, { "content-type": "application/json" });
-    response.end(await upstreamResponse.text());
+    let status: number;
+    let answerText: string;
+    try {
+      const upstreamResponse = await fetch(upstream, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: outgoing,
+      });
+      status = upstreamResponse.status;
+      answerText = await upstreamResponse.text();
+    } catch (error) {
+      upstreamFailures.push(`${calls.map((call) => call.method).join(", ")}: ${failureOf(error)}`);
+      throw error;
+    }
+    recordFeeHistory(calls, status, answerText);
+    response.writeHead(status, { "content-type": "application/json" });
+    response.end(answerText);
+  };
+
+  /** Records the upstream's answer to each `eth_feeHistory` among the forwarded calls. */
+  const recordFeeHistory = (calls: Call[], status: number, text: string): void => {
+    const feeCalls = calls.filter((call) => call.method === "eth_feeHistory");
+    if (feeCalls.length === 0) {
+      return;
+    }
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      feeHistoryReplies.push(
+        ...feeCalls.map(() => ({ status, outcome: "a body that is not JSON" })),
+      );
+      return;
+    }
+    const answers: unknown[] = Array.isArray(body) ? body : [body];
+    for (const call of feeCalls) {
+      const answer = answers.find(
+        (item) => typeof item === "object" && item !== null && Reflect.get(item, "id") === call.id,
+      );
+      feeHistoryReplies.push({ status, outcome: describeFeeHistoryAnswer(answer) });
+    }
   };
 
   const server = createServer((request, response) => {
@@ -250,6 +357,8 @@ export async function startRecordingProxy(upstream: string): Promise<RecordingPr
     methods: () => new Map(counts),
     forwarded: () => [...forwarded],
     refused: () => [...refused],
+    feeHistoryReplies: () => [...feeHistoryReplies],
+    upstreamFailures: () => [...upstreamFailures],
     close: async () =>
       await new Promise<void>((resolve, reject) => {
         server.closeAllConnections();

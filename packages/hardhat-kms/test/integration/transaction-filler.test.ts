@@ -161,8 +161,12 @@ describe("transaction filling matches Hardhat's local accounts", () => {
   }
 
   /** Runs `body` while the main node fails `method` with `message`. */
-  async function withFault<T>(method: string, message: string, body: () => Promise<T>): Promise<T> {
-    main.faults.set(method, message);
+  async function withFault<T>(
+    method: string,
+    fault: string | { message: string; code: number },
+    body: () => Promise<T>,
+  ): Promise<T> {
+    main.faults.set(method, fault);
     try {
       return await body();
     } finally {
@@ -271,7 +275,7 @@ describe("transaction filling matches Hardhat's local accounts", () => {
   });
 
   it("falls back when eth_feeHistory fails", async () => {
-    await withFault("eth_feeHistory", "method not supported", async () => {
+    await withFault("eth_feeHistory", "upstream request failed", async () => {
       assert.equal(await compare("local", { from: FROM, to: TO }), "legacy");
       assert.equal(
         await compare("local", { from: FROM, to: TO, maxPriorityFeePerGas: "0x1" }),
@@ -285,7 +289,7 @@ describe("transaction filling matches Hardhat's local accounts", () => {
     const connection: NetworkConnection<string> = await hre.network.create("local");
     try {
       const filler = fillerFor(connection);
-      await withFault("eth_feeHistory", "method not supported", async () => {
+      await withFault("eth_feeHistory", "upstream request failed", async () => {
         const unsigned = await compareOn("local", connection, filler, { from: FROM, to: TO });
         assert.equal(unsigned.type, "legacy");
       });
@@ -297,6 +301,22 @@ describe("transaction filling matches Hardhat's local accounts", () => {
       assert.equal(Transaction.fromHex(main.raw[sent] ?? "", false).type, "legacy");
       const filled = await filler.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
       assert.equal(buildUnsignedTransaction(filled).type, "eip1559");
+    } finally {
+      await connection.close();
+    }
+  });
+
+  it("stays legacy after eth_feeHistory answers method not found (-32601), as Hardhat does", async () => {
+    const connection: NetworkConnection<string> = await hre.network.create("local");
+    try {
+      const filler = fillerFor(connection);
+      const missing = { code: -32601, message: "the method eth_feeHistory does not exist" };
+      await withFault("eth_feeHistory", missing, async () => {
+        const unsigned = await compareOn("local", connection, filler, { from: FROM, to: TO });
+        assert.equal(unsigned.type, "legacy");
+      });
+      const unsigned = await compareOn("local", connection, filler, { from: FROM, to: TO });
+      assert.equal(unsigned.type, "legacy");
     } finally {
       await connection.close();
     }
