@@ -155,15 +155,21 @@ describe("network hook", () => {
         vector.signature,
       );
     }
-    // Hardhat also accepts the address as 20 bytes.
-    assert.equal(
-      await provider.request({
+    // The simulated network refuses the address as 20 bytes, and so does the plugin.
+    const signatures = created.zero?.calls.signDigest;
+    await assertKmsError(
+      provider.request({
         method: "eth_sign",
         params: [Buffer.from(ACCOUNT_0.slice(2), "hex"), `0x${PERSONAL_SIGN_VECTORS[0].message}`],
       }),
-      PERSONAL_SIGN_VECTORS[0].signature,
+      [`eth_sign: pass the address as the hex string ${HARDHAT_ACCOUNT_0.address}`],
     );
-    assert.ok((created.zero?.calls.signDigest ?? 0) >= 5, "KMS signed every request");
+    assert.equal(created.zero?.calls.signDigest, signatures);
+    assert.equal(
+      created.zero?.calls.signDigest,
+      2 * PERSONAL_SIGN_VECTORS.length,
+      "KMS signed every request",
+    );
   });
 
   it("signs eth_signTypedData_v4 for a KMS account, from an object or a JSON string", async () => {
@@ -217,6 +223,27 @@ describe("network hook", () => {
         data,
       );
     }
+    assert.equal(created.cow?.calls.signDigest ?? 0, 0);
+  });
+
+  it("refuses a KMS account's transaction whose from is 20 bytes, with no KMS call", async () => {
+    const { hre, created } = await runtime(
+      { cow: vaultKey("cow", COW_ACCOUNT.address) },
+      { cow: () => fakeAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }) },
+    );
+    const { provider } = await hre.network.create("local");
+    const block = await provider.request({ method: "eth_blockNumber" });
+
+    const bytes = Buffer.from(COW_ACCOUNT.address.slice(2), "hex");
+    for (const method of ["eth_signTransaction", "eth_sendTransaction"]) {
+      for (const from of [bytes, new Uint8Array(bytes)]) {
+        await assertKmsError(provider.request({ method, params: [{ from, to: ACCOUNT_0 }] }), [
+          `${method}: pass \`from\` as the hex string ${COW_ACCOUNT.address}`,
+        ]);
+      }
+    }
+    assert.equal(await provider.request({ method: "eth_blockNumber" }), block);
+    assert.equal(created.cow?.calls.getPublicKey ?? 0, 0);
     assert.equal(created.cow?.calls.signDigest ?? 0, 0);
   });
 

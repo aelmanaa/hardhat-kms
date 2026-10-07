@@ -942,6 +942,15 @@ export const ERRORS = {
       "A `--kms` key names the same KMS key as one of the network's `kmsAccounts`. `{path}` is that entry's place, such as `networks.sepolia.kmsAccounts[0]`, and `{named}` adds its name in brackets when it has one.",
     fix: "Drop `--kms`, or remove the key from the network's `kmsAccounts`.",
   },
+  addressBytes: {
+    id: "core.accounts.address-bytes",
+    kind: "error",
+    group: "Accounts",
+    template: "pass the address as the hex string {address}, not as a byte array",
+    cause:
+      "An `eth_sign`, `personal_sign` or `eth_signTypedData_v4` request names a KMS account as 20 bytes (a `Buffer` or a `Uint8Array`). Hardhat's simulated network and JSON-RPC nodes take the address only as a hex string. Nothing was signed.",
+    fix: "Pass the address as a 0x-prefixed hex string, for example with viem's `bytesToHex`.",
+  },
 
   // Transactions.
   txNotObject: {
@@ -1014,6 +1023,15 @@ export const ERRORS = {
     cause:
       "The request holds a value that `structuredClone` cannot copy, such as a function, a symbol or a getter that throws.",
     fix: "Pass plain values: strings, numbers, bigints, byte arrays, arrays and objects.",
+  },
+  txFromBytes: {
+    id: "core.tx.from-bytes",
+    kind: "error",
+    group: "Transactions",
+    template: "pass `from` as the hex string {address}, not as a byte array",
+    cause:
+      "The transaction's `from` names a KMS account as 20 bytes (a `Buffer` or a `Uint8Array`). Hardhat's simulated network and JSON-RPC nodes take `from` only as a hex string. Nothing was signed or sent.",
+    fix: "Pass `from` as a 0x-prefixed hex string, for example with viem's `bytesToHex`.",
   },
   nodeAnswerNotString: {
     id: "core.tx.node-answer-not-string",
