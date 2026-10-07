@@ -9,6 +9,7 @@ import {
   markdownLinkProblems,
   markdownLinkTargets,
   outputCandidates,
+  pngProblems,
   robotsProblems,
   siteLinks,
   sitemapUrls,
@@ -24,6 +25,7 @@ const SITE: SiteFacts = {
   hostname: "https://example.github.io/site/",
   base: "/site/",
   titleSuffix: " | site",
+  image: { url: "https://example.github.io/site/og.png", width: 1280, height: 640, alt: "A & B" },
 };
 const URL = "https://example.github.io/site/user/page";
 
@@ -39,8 +41,22 @@ const GOOD_HEAD = [
   '<meta property="og:title" content="A page | site">',
   '<meta property="og:description" content="What the page answers &amp; why.">',
   '<meta property="og:image" content="https://example.github.io/site/og.png">',
+  '<meta property="og:image:width" content="1280">',
+  '<meta property="og:image:height" content="640">',
+  '<meta property="og:image:alt" content="A &amp; B">',
   '<meta name="twitter:card" content="summary_large_image">',
+  '<meta name="twitter:image" content="https://example.github.io/site/og.png">',
+  '<meta name="twitter:image:alt" content="A &amp; B">',
 ].join("\n");
+
+const IMAGE_KEYS = [
+  "og:image",
+  "og:image:width",
+  "og:image:height",
+  "og:image:alt",
+  "twitter:image",
+  "twitter:image:alt",
+];
 
 function check(head: string, description?: string): string[] {
   return headProblems("page.md", page(head), URL, description, SITE);
@@ -76,7 +92,7 @@ describe("headProblems", () => {
   });
 
   it("reports each missing Open Graph or Twitter tag, and a wrong og:url", () => {
-    for (const key of ["og:url", "og:title", "og:description", "og:image", "twitter:card"]) {
+    for (const key of ["og:url", "og:title", "og:description", "twitter:card", ...IMAGE_KEYS]) {
       const head = GOOD_HEAD.split("\n")
         .filter((line) => !line.includes(`"${key}"`))
         .join("\n");
@@ -86,6 +102,67 @@ describe("headProblems", () => {
       check(GOOD_HEAD.replace(`content="${URL}"`, 'content="https://x"')).join(),
       /og:url is/,
     );
+  });
+
+  it("reports an image tag that names another image, size or alt text", () => {
+    const changes: [string, string][] = [
+      ['property="og:image" content="https://example.github.io/site/og.png"', "og:image is"],
+      ['name="twitter:image" content="https://example.github.io/site/og.png"', "twitter:image is"],
+      ['content="1280"', "og:image:width is"],
+      ['content="640"', "og:image:height is"],
+      ['property="og:image:alt" content="A &amp; B"', "og:image:alt is"],
+      ['name="twitter:image:alt" content="A &amp; B"', "twitter:image:alt is"],
+    ];
+    for (const [attributes, message] of changes) {
+      const changed = attributes.replace(/content="[^"]*"/, 'content="other"');
+      assert.ok(GOOD_HEAD.includes(attributes), attributes);
+      assert.match(check(GOOD_HEAD.replace(attributes, changed)).join(), new RegExp(message));
+    }
+  });
+});
+
+/** A PNG's first 24 bytes: the signature, then an IHDR chunk with this width and height. */
+function pngHeader(width: number, height: number, length = 24): Uint8Array {
+  const bytes = new Uint8Array(length);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+  bytes.set(new TextEncoder().encode("IHDR"), 12);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return bytes;
+}
+
+describe("pngProblems", () => {
+  const EXPECTED = { width: 1280, height: 640, maxBytes: 1000 };
+
+  it("passes a PNG of the expected size", () => {
+    assert.deepEqual(pngProblems("og.png", pngHeader(1280, 640), EXPECTED), []);
+  });
+
+  it("reports a file that is not a PNG, or too short to hold the header", () => {
+    const jpeg = new Uint8Array(24);
+    jpeg.set([0xff, 0xd8, 0xff]);
+    assert.match(pngProblems("og.png", jpeg, EXPECTED).join(), /not a PNG/);
+    assert.match(
+      pngProblems("og.png", pngHeader(1280, 640).subarray(0, 20), EXPECTED).join(),
+      /not a PNG/,
+    );
+  });
+
+  it("reports a PNG whose first chunk is not IHDR", () => {
+    const bytes = pngHeader(1280, 640);
+    bytes.set(new TextEncoder().encode("IDAT"), 12);
+    assert.match(pngProblems("og.png", bytes, EXPECTED).join(), /IHDR/);
+  });
+
+  it("reports another width or height", () => {
+    assert.match(pngProblems("og.png", pngHeader(1200, 630), EXPECTED).join(), /1200x630 pixels/);
+    assert.match(pngProblems("og.png", pngHeader(1280, 641), EXPECTED).join(), /1280x641 pixels/);
+  });
+
+  it("reports a file over the byte limit, and accepts one at it", () => {
+    assert.deepEqual(pngProblems("og.png", pngHeader(1280, 640, 1000), EXPECTED), []);
+    assert.match(pngProblems("og.png", pngHeader(1280, 640, 1001), EXPECTED).join(), /1001 bytes/);
   });
 });
 

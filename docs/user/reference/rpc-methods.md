@@ -22,6 +22,8 @@ The plugin installs a network hook on every connection. On a connection whose ne
 - No RPC method signs a bare digest.
 - `connection.kms.getAccount(address)` gives library code a viem account for a KMS key, outside the JSON-RPC path. viem sends its transactions with `eth_sendRawTransaction`, or `eth_sendRawTransactionSync` for `sendTransactionSync` and `writeContractSync`; see [Library accounts](library-accounts.md#sending).
 - `eth_sendRawTransaction` and `eth_sendRawTransactionSync` ([EIP-7966](https://eips.ethereum.org/EIPS/eip-7966)) from a KMS account go to the node unchanged, in turn with that account's sends (see below). No answer is rewritten: `eth_getTransactionCount` and every other read pass through untouched.
+- `wallet_sendTransaction` from a KMS account fails with JSON-RPC error `-32601` (method not found) and never reaches the node. The plugin sends a KMS account's transactions only through `eth_sendTransaction`. viem sends `wallet_sendTransaction` once after an `eth_sendTransaction` error such as `-32000`. On `-32601` it throws the `eth_sendTransaction` error and keeps using `eth_sendTransaction` on that client, so an endpoint that answers `wallet_sendTransaction` cannot take later sends away from the KMS key. The plugin reads the sender from `from` in the first param, in any letter case of its hex digits. A `wallet_sendTransaction` without `from`, or from another address, passes through unchanged.
+- `wallet_sendCalls` ([EIP-5792](https://eips.ethereum.org/EIPS/eip-5792)) from a KMS account fails the same way, with `-32601`, and never reaches the node. The plugin does not implement EIP-5792. viem's `sendCalls` sends this method. With `experimental_fallback: true`, viem answers `-32601` by sending each call as its own transaction, so the KMS key signs each one. Without it, viem throws a `TransactionExecutionError` with the `-32601` error in its cause chain. viem does not fall back, and throws `AtomicityNotSupportedError` or `UnsupportedNonOptionalCapabilityError`, when the batch has `forceAtomic` and more than one call, or a capability without `optional: true`. A client created with `dataSuffix: { required: true }` adds such a capability to every batch. The plugin reads the sender from `from` in the first param. EIP-5792 makes `from` optional: a `wallet_sendCalls` without `from`, or from another address, passes through unchanged.
 - Every other method passes through untouched.
 
 When `from` (or the address param) is not a KMS address, the request passes through. If the sender is not a local account either, the node or Hardhat refuses it, and the plugin appends the network's checksummed KMS addresses to that error. On a simulated network with one KMS account, a request from `0x1111111111111111111111111111111111111111` fails with:
@@ -50,7 +52,7 @@ The plugin copies a KMS account's transaction when the request arrives, so chang
 
 ## Parallel sends and failed broadcasts
 
-`eth_sendTransaction` calls from one KMS account on one chain run one at a time within a process, so parallel sends get consecutive nonces. A library account's send through the connection takes its turn the same way, from its nonce to its broadcast; see [Library accounts](library-accounts.md#sending). Sends from other accounts, or to other chains, do not wait for each other. `eth_signTransaction` does not wait for sends.
+`eth_sendTransaction` calls from one KMS account on one chain run one at a time within a process, across every connection the process has to that chain. [Which nonce a send gets](#which-nonce-a-send-gets) gives the nonce rule. A library account's send through the connection takes its turn the same way, from its nonce to its broadcast; see [Library accounts](library-accounts.md#sending). Sends from other accounts, or to other chains, do not wait for each other. `eth_signTransaction` does not wait for sends.
 
 A send whose broadcast hangs keeps the account's turn until Hardhat's network timeout (the network's `timeout`, 300 seconds by default) ends it. The account's sends waiting behind it do not wait that long: each fails after 120 seconds in which none of the account's earlier sends finished. A slow RPC endpoint can trigger this.
 
@@ -64,9 +66,33 @@ The first limit also covers a send that nothing waits for. A send started from i
 
 The numbers 120 and 1024 are fixed, and cannot be configured in 1.0.
 
-On an http network, a send whose caller gives no `nonce` uses the higher of the node's pending count and one more than the highest nonce the node accepted from that account on the same connection. A node whose pending count lags behind, such as a load-balanced RPC endpoint, therefore does not get a nonce twice. A `nonce` in the request is always used, also one that was already sent, so a replacement transaction with the same nonce and higher fees goes through, as Hardhat Ignition sends for a stuck transaction. On `edr-simulated` networks the node's pending count is used as it is.
+### Which nonce a send gets
 
-Separate processes are not coordinated: two `hardhat run` commands that send from the same KMS key at the same time can choose the same nonce.
+On an http network, a send whose caller gives no `nonce` takes the highest of:
+
+- the node's pending count for the account (`eth_getTransactionCount` with `"pending"`);
+- one more than the highest nonce the node accepted from the account on the same connection;
+- one more than any nonce handed to a [library account](library-accounts.md#sending)'s client on the same connection that still counts.
+
+A `nonce` in the request is always used, even one that was already sent, so a replacement transaction with the same nonce and higher fees goes through, as Hardhat Ignition sends for a stuck transaction. On `edr-simulated` networks the plugin keeps no record of accepted nonces, because the node's pending count is always up to date there.
+
+The send lock and the nonce memory have different scopes:
+
+| Scope                              | Sends run one at a time | Nonces the plugin remembers   |
+| ---------------------------------- | ----------------------- | ----------------------------- |
+| One connection                     | Yes                     | Yes                           |
+| Several connections in one process | Yes                     | No: one memory per connection |
+| Several processes                  | No                      | No                            |
+
+What this means for nonces:
+
+- On one connection, each send gets a nonce above every nonce the node accepted from the account on that connection, even from a node whose pending count lags behind, such as a load-balanced RPC endpoint. Parallel sends on one connection therefore get distinct nonces, unless a broadcast got no answer ([Failed broadcasts](#failed-broadcasts)).
+- Each `network.create()` call opens a new connection, with its own memory. Sends on two connections to the same chain still wait for each other, but a send on the second connection knows only the node's pending count and its own connection's nonces. If the node's pending count has not caught up with a send from the first connection, the second gets the same nonce. `network.getOrCreate()` returns the same connection on each call for a network, so a script that uses it has one connection per network and avoids this.
+- Separate processes are not coordinated: two `hardhat run` commands that send from the same KMS key at the same time can choose the same nonce.
+
+When two transactions share a nonce, at most one of them is mined. While the first is still in the pool, a second with fees at least 10 % higher (Geth's default) replaces it, and neither sender gets an error. With lower fees the second send fails with `replacement transaction underpriced`, and once the first is mined, with `nonce too low`.
+
+### Failed broadcasts
 
 When the node answers a broadcast with an error, such as a revert or "nonce too low", `eth_sendTransaction` fails with that error, unchanged, as it would for a local account. A reverted transaction keeps its revert data and `transactionHash`. A rate limit that outlasts Hardhat's own retries (HTTP 429) is such an answer too.
 
@@ -74,9 +100,11 @@ When Hardhat cannot connect to the node, nothing was sent, and `eth_sendTransact
 
 When no answer comes back, because the request times out or fails with an HTTP error status, the transaction may still be on its way. `eth_sendTransaction` then fails with JSON-RPC error code `-32000`. The error's `transactionHash` and `data.hash` are the transaction hash, so you can look the transaction up; Hardhat Ignition reads `transactionHash` and follows the transaction. A gateway's answer that its backend timed out (code `-32603`, or a message saying the request timed out or a deadline was exceeded) leaves the outcome open in the same way, but it is passed on unchanged, without the hash.
 
-After either of these, if the same request, with the same params, is sent again on the same connection within 120 seconds, the plugin sends the same signed transaction again instead of signing a new one, and returns its hash. A node that answers "already known" counts as success, and so does a refusal of those bytes when the node turns out to have the transaction. Each such retry uses up the kept transaction; if the retry also gets no answer, a gateway's timeout answer or a refused connection, the transaction is kept again for another 120 seconds. If another send has used the transaction's nonce in the meantime and the node does not have it, the retry is signed afresh instead. A request that succeeded is never repeated this way, so sending the same transaction twice on purpose still sends two transactions. viem never retries a send by itself, so only a caller that repeats the request gets this.
+After either of these, if the same request, with the same params, is sent again on the same connection within 120 seconds, the plugin sends the same signed transaction again instead of signing a new one, and returns its hash. A node that answers "already known" counts as success, and so does a refusal of those bytes when the node turns out to have the transaction. Each such retry uses up the kept transaction; if the retry also gets no answer, a gateway's timeout answer or a refused connection, the transaction is kept again for another 120 seconds. If another send has used the transaction's nonce in the meantime and the node does not have it, the retry is signed afresh instead. A request that succeeded is never repeated this way, so sending the same transaction twice on purpose still sends two transactions. viem does not repeat `eth_sendTransaction` by itself, so only a caller that repeats the request gets this. The `wallet_sendTransaction` that viem sends once after a `-32000` error is refused for a KMS account (see above), so viem throws the `eth_sendTransaction` error; see [After an uncertain send](../guides/uncertain-sends.md#1-get-the-transaction-hash).
 
-Only a send without a caller-supplied `nonce` first asks the node whether it has the account's last uncertain transaction, so that the send does not reuse its nonce. A send with a `nonce` does not ask. The question is asked once; behind a load balancer it can reach a backend that does not have the transaction yet, and the node's pending count then decides as usual.
+The plugin remembers the account's last uncertain transaction on the connection that sent it. The account's next send on that connection without a caller-supplied `nonce` first asks the node about it with `eth_getTransactionByHash`, so that the send does not reuse its nonce. If the node has it, the send takes a higher nonce. If the node does not have it, or the lookup itself fails, it counts as not known: the node's pending count decides as usual, and the send can take the same nonce. If the first transaction reaches the node after all, the two then share a nonce, as described above. The question is asked once; behind a load balancer it can reach a backend that does not have the transaction yet. A send with a `nonce` does not ask, a send on another connection never learns of the transaction, and on `edr-simulated` networks nothing is remembered.
+
+To check whether such a transaction arrived, and to fill or replace a nonce, follow [After an uncertain send](../guides/uncertain-sends.md).
 
 ## Supported transaction types
 

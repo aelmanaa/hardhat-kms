@@ -19,6 +19,28 @@ export const HOSTNAME: string = `${ORIGIN}${SITE_BASE}`;
 export const SITE_DESCRIPTION =
   "Sign Hardhat 3 transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS or Azure Key Vault.";
 
+/**
+ * The social preview, `docs/public/og-image.png`, served at the site root; `docs/public/og-image.svg`
+ * is its source. The same PNG is the repository's social preview on GitHub.
+ */
+export const OG_IMAGE: {
+  readonly url: string;
+  readonly width: number;
+  readonly height: number;
+  readonly alt: string;
+} = {
+  url: `${HOSTNAME}og-image.png`,
+  width: 1280,
+  height: 640,
+  alt: "hardhat-kms, a plugin for Hardhat 3: the private key never leaves the KMS. A digest goes in and a signature comes out. Works with AWS KMS, Google Cloud KMS and Azure Key Vault.",
+};
+
+/** The largest social preview `docs:site:check` accepts, in bytes. */
+export const OG_IMAGE_MAX_BYTES: number = 1024 * 1024;
+
+/** The favicon, `docs/public/favicon.svg`, as the site serves it. */
+export const FAVICON: string = `${SITE_BASE}favicon.svg`;
+
 /** Folders under docs/ that stay on GitHub: the site leaves them out and links to them there. */
 export const EXCLUDED_FOLDERS: readonly string[] = ["contributor"];
 

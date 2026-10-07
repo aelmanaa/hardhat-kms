@@ -59,15 +59,17 @@ Pages:
 - Use several keys across networks and providers, next to local or Ledger accounts, and pick the sender: [docs/user/guides/multiple-keys.md](docs/user/guides/multiple-keys.md)
 - Turn on and read the debug output: [docs/user/guides/debug-output.md](docs/user/guides/debug-output.md)
 - Deploy with Hardhat Ignition from a KMS account (choosing the deployer, rehearsing on a simulated network): [docs/user/guides/deploy-with-ignition.md](docs/user/guides/deploy-with-ignition.md)
+- A send failed with no clear answer (`-32000`, a gateway timeout), a transaction is not mined, or a nonce gap: look it up, compare the pending and latest counts, fill or replace a nonce: [docs/user/guides/uncertain-sends.md](docs/user/guides/uncertain-sends.md)
 - Complete projects to copy, which deploy and call a contract with viem, ethers or Ignition: [examples/README.md](examples/README.md)
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - How a request goes from viem or ethers through the plugin to the KMS and the node: [docs/user/explanation/how-it-works.md](docs/user/explanation/how-it-works.md)
 - Which credentials sign on a laptop, in CI and on a server, per cloud: [docs/user/explanation/cloud-access.md](docs/user/explanation/cloud-access.md)
 - What the plugin protects against and what it does not, what to configure, and what happens when a KMS call times out: [docs/user/explanation/security-model.md](docs/user/explanation/security-model.md)
+- Check that installed packages were built from a signed release tag (`npm audit signatures`, provenance, tag signature, tarball files): [docs/user/guides/verify-a-release.md](docs/user/guides/verify-a-release.md)
 - What `latest` and `beta` mean, what a version number promises, the Hardhat and viem ranges per plugin major, and how long an old major gets security fixes: [docs/user/explanation/versioning.md](docs/user/explanation/versioning.md)
 - Pages not written yet (the remaining guides): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
 
-Never ask a user to paste credentials, private keys or API-keyed RPC URLs. Credentials come from each provider SDK's default chain, never from the Hardhat config. API-keyed RPC URLs belong in `configVariable()`, which also accepts key identifiers.
+Never ask a user to paste credentials, private keys or API-keyed RPC URLs. Credentials never come from the Hardhat config: AWS and Google Cloud keys use their SDK's credential discovery, and Azure keys use the plugin's own chain ([docs/user/guides/azure-key-vault-setup.md#3-sign-in](docs/user/guides/azure-key-vault-setup.md#3-sign-in)). API-keyed RPC URLs belong in `configVariable()`, which also accepts key identifiers.
 
 ## If you are changing the code
 
@@ -105,20 +107,21 @@ Where things are:
 - `tools/docs-site`: a private package, never published, that builds the docs site from `docs/` with VitePress; see [Documentation](docs/contributor/documentation.md#the-docs-site).
 - `examples/`: Hardhat projects that deploy and call a contract from a KMS account with viem, ethers and Ignition. They are workspace members, and `pnpm run test:examples` runs them against LocalStack.
 
-| Topic                                                | Page                                                                                             |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Module map, code map, request flows                  | [docs/contributor/architecture.md](docs/contributor/architecture.md)                             |
-| Signature checks, key pinning, threat model          | [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md)                     |
-| Adapter interface, provider packages                 | [docs/contributor/providers.md](docs/contributor/providers.md)                                   |
-| Transaction filling, nonces, send lock               | [docs/contributor/transactions.md](docs/contributor/transactions.md)                             |
-| Test layers and conventions                          | [docs/contributor/testing.md](docs/contributor/testing.md)                                       |
-| Transactions of the latest live run on Sepolia       | [docs/live-proof.md](docs/live-proof.md)                                                         |
-| Quality gates, hooks, CI                             | [docs/contributor/tooling.md](docs/contributor/tooling.md)                                       |
-| Who releases, the signed tag, staging and promotion  | [docs/contributor/releasing.md](docs/contributor/releasing.md)                                   |
-| How the docs are organised                           | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
-| Why the main decisions were made                     | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
-| How other signers compare, and why each check exists | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
-| Roadmap                                              | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
+| Topic                                                       | Page                                                                                             |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Module map, code map, request flows                         | [docs/contributor/architecture.md](docs/contributor/architecture.md)                             |
+| Signature checks, key pinning, threat model                 | [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md)                     |
+| Security checklist for signing, sending and release changes | [docs/contributor/security-review.md](docs/contributor/security-review.md)                       |
+| Adapter interface, provider packages                        | [docs/contributor/providers.md](docs/contributor/providers.md)                                   |
+| Transaction filling, nonces, send lock                      | [docs/contributor/transactions.md](docs/contributor/transactions.md)                             |
+| Test layers and conventions                                 | [docs/contributor/testing.md](docs/contributor/testing.md)                                       |
+| Transactions of the latest live run on Sepolia              | [docs/live-proof.md](docs/live-proof.md)                                                         |
+| Quality gates, hooks, CI                                    | [docs/contributor/tooling.md](docs/contributor/tooling.md)                                       |
+| Who releases, the signed tag, staging and promotion         | [docs/contributor/releasing.md](docs/contributor/releasing.md)                                   |
+| How the docs are organised                                  | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
+| Why the main decisions were made                            | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
+| How other signers compare, and why each check exists        | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
+| Roadmap                                                     | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
 
 Decision records:
 
@@ -146,11 +149,12 @@ Rules for every change:
 - `main` changes only through squash-merged pull requests. Commit subjects follow Conventional Commits.
 - Every user-facing change carries a changeset written as a release note. The rules and an example are in [CONTRIBUTING.md](CONTRIBUTING.md#changesets).
 - Never tag, publish, approve a GitHub environment, approve a staged package on npm, move a dist-tag, or dispatch `promote.yml`. A release is a maintainer's action; the process and the three workflows (`release-pr.yml`, `release.yml`, `promote.yml`) are in [docs/contributor/releasing.md](docs/contributor/releasing.md). A dry run of `release.yml` publishes nothing and may be run to check a change to the release path: `gh workflow run release.yml --ref <your branch> -f dry-run=true -f tag=none`. GitHub dispatches only a workflow whose file is on `main`, so a branch that adds or renames `release.yml` cannot be dry-run before it merges.
+- Never dispatch `live-tests.yml` and never add the `ci:live` label to a pull request. A live run signs with the real test keys, and the owner starts and approves each one; see [Live tests in GitHub Actions](docs/contributor/testing.md#live-tests-in-github-actions).
 - Versions change only through `pnpm run version-packages`, on the Version Packages pull request. Never edit a manifest's `version` by hand.
 - Tests come with the change, and coverage stays at or above 95%.
 - Docs ship with the code: update the pages the change affects, and link any new page from this file and from [docs/README.md](docs/README.md).
 - Do not edit `packages/hardhat-kms/src/internal/vendor/`. It is micro-eth-signer 0.19.0 code with only import paths changed; see [decision 0001](docs/contributor/decisions/0001-vendor-eip712-encoder.md).
-- Before changing code that decides what gets signed (`packages/hardhat-kms/src/internal/crypto/`, `packages/hardhat-kms/src/internal/signer/`), read [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md).
+- Before changing code that decides what gets signed (`packages/hardhat-kms/src/internal/crypto/`, `packages/hardhat-kms/src/internal/signer/`), read [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md). A pull request that changes a path listed in [docs/contributor/security-review.md](docs/contributor/security-review.md) carries the ticked checklist items of each list it touches; the release workflows, release scripts and package manifests have their own list there.
 - Never print or commit secrets, key ids from real accounts, or API-keyed RPC URLs, including in tests, logs and error messages.
 - After changing a TSDoc comment or a public type of `hardhat-kms`, run `pnpm run docs:api`.
 - Build every error from a catalogue entry (`src/internal/error-catalog.ts`) with `catalogError`, `catalogMessage` or `internalError`, then run `pnpm run docs:errors`. See [Errors](docs/contributor/architecture.md#errors).

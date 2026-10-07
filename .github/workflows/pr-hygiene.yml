@@ -6,16 +6,24 @@ on:
 
 permissions: {}
 
+# A newer run for the same pull request, such as after a quick edit of its description, replaces
+# the running one.
+concurrency:
+  group: pr-hygiene-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   linked-issue:
     name: Links an issue
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     # Dependabot pull requests are tracked by their own labels. The release pull request, opened
-    # by the version workflow from changeset-release/*, has a generated body with no issue link.
+    # by the version workflow from changeset-release/main, has a generated body with no issue link.
+    # It is skipped only when that branch is in this repository: a fork names its own branches.
     if: >-
       github.event.pull_request.user.login != 'dependabot[bot]' &&
-      !startsWith(github.head_ref, 'changeset-release/')
+      !(github.head_ref == 'changeset-release/main' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
     steps:
       - name: Require a closing keyword or issue reference
         env:
@@ -25,3 +33,44 @@ jobs:
             echo "::error::Link the issue this pull request addresses, for example 'Closes #12'."
             exit 1
           fi
+
+  security-checklist:
+    # A pull request that changes a path of a list in docs/contributor/security-review.md carries,
+    # ticked, the template's security checklist items for each list it touches. The script, the
+    # lists and the template come from the base branch, so a pull request cannot loosen them for its
+    # own run. This workflow file comes from the pull request, so it is on the release and supply
+    # chain list, and a change to it carries that list's items.
+    name: Security checklist
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    if: >-
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      !(github.head_ref == 'changeset-release/main' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
+    permissions:
+      contents: read # checks out the base commit
+      pull-requests: read # lists the pull request's changed files
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Require the checklist when a listed path changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ ! -f scripts/security-checklist.ts ]; then
+            echo "::notice::The base branch has no security checklist rule; nothing to check."
+            exit 0
+          fi
+          gh api --paginate --slurp "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" > "${RUNNER_TEMP}/files.json"
+          printf '%s' "$PR_BODY" > "${RUNNER_TEMP}/body.md"
+          node scripts/security-checklist.ts --files "${RUNNER_TEMP}/files.json" \
+            --changed-files "$CHANGED_FILES" --body "${RUNNER_TEMP}/body.md" --summary "$GITHUB_STEP_SUMMARY"

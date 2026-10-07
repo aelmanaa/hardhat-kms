@@ -96,9 +96,10 @@ export default defineConfig({
       deployer: {
         provider: "aws",
         keyId: "alias/deployer",
-        // Optional, recommended: the address that `npx hardhat kms accounts` prints for this key.
-        // The plugin refuses to sign if the key derives to another address.
-        address: "0x…",
+        // Optional, recommended: run `npx hardhat kms accounts` and replace the next line with
+        // the `address` line it prints for this key. The plugin then refuses to sign if the key
+        // derives to another address.
+        // address: "0x…",
       },
     },
   },
@@ -109,6 +110,8 @@ export default defineConfig({
 ```
 
 `keyId` accepts a key id, a key ARN, an alias name or an alias ARN; the [configuration reference](../reference/configuration.md) lists every option. The region comes from the ARN if `keyId` is one, then the key's `region`, then `kms.defaults.aws.region`, then the SDK's own chain (`AWS_REGION`, then the profile's region).
+
+To pin the key's address, run `npx hardhat kms accounts`. For a key without a pin it prints an `address` line; paste it into the key in place of the commented-out line ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
 `configVariable("SEPOLIA_RPC_URL")` reads the RPC URL when a network needs it: from an environment variable of that name (`export SEPOLIA_RPC_URL=https://…`), or from the Hardhat keystore (`npx hardhat keystore set SEPOLIA_RPC_URL`) when the config loads the keystore plugin. The config above does not: add `import hardhatKeystore from "@nomicfoundation/hardhat-keystore";` and put `hardhatKeystore` in `plugins`, or load a Hardhat toolbox, which includes it. The script in step 4 uses it.
 
@@ -134,7 +137,7 @@ const signature = await provider.request({
 console.log(address, signature);
 ```
 
-Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. Each run calls `GetPublicKey` once, before the first signature, then `Sign` once. An `address` pin does not save that call: the plugin checks the public key against the pin before it releases a signature, and it signs with the key ARN that `GetPublicKey` returns. A pin saves the call only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the public key ([`address`](../reference/configuration.md#configuration)).
+Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. Each run calls `GetPublicKey` once, before the first signature, then `Sign` once for the signature, or more if a request is retried ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). An `address` pin does not save that call: the plugin checks the public key against the pin before it releases a signature, and it signs with the key ARN that `GetPublicKey` returns. A pin saves the call only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the public key ([`address`](../reference/configuration.md#configuration)).
 
 ## One config for a laptop and CI
 

@@ -12,6 +12,8 @@ export interface SiteFacts {
   base: string;
   /** The suffix every title ends with, such as ` | hardhat-kms`. */
   titleSuffix: string;
+  /** The social preview every page names in its Open Graph and Twitter tags. */
+  image: { url: string; width: number; height: number; alt: string };
 }
 
 /** Decodes the entities VitePress writes in attribute values. */
@@ -70,7 +72,8 @@ export function frontmatterDescription(markdown: string): string | undefined {
 /**
  * Checks one page's head: one canonical, equal to `url`; a title ending in the site suffix; one
  * meta description, equal to `description` when the page's frontmatter sets one; the Open Graph
- * tags, with `og:url` equal to the canonical; and the Twitter card.
+ * tags, with `og:url` equal to the canonical; the Twitter card; and the social preview's URL, size
+ * and alt text in `og:image*` and `twitter:image*`.
  */
 export function headProblems(
   file: string,
@@ -99,15 +102,58 @@ export function headProblems(
   } else if (description !== undefined && descriptions[0] !== description) {
     problems.push(`${file}: the meta description differs from the frontmatter description`);
   }
-  for (const key of ["og:url", "og:title", "og:description", "og:image", "twitter:card"]) {
+  const expected = new Map<string, string | undefined>([
+    ["og:url", url],
+    ["og:title", undefined],
+    ["og:description", undefined],
+    ["og:image", site.image.url],
+    ["og:image:width", String(site.image.width)],
+    ["og:image:height", String(site.image.height)],
+    ["og:image:alt", site.image.alt],
+    ["twitter:card", undefined],
+    ["twitter:image", site.image.url],
+    ["twitter:image:alt", site.image.alt],
+  ]);
+  for (const [key, value] of expected) {
     const values = metaContents(head, key);
     if (values.length !== 1 || values[0] === "") {
       problems.push(`${file}: ${values.length} ${key} tags, expected 1 that is not empty`);
+    } else if (value !== undefined && values[0] !== value) {
+      problems.push(`${file}: ${key} is ${values[0]}, expected ${value}`);
     }
   }
-  const ogUrl = metaContents(head, "og:url")[0];
-  if (ogUrl !== undefined && ogUrl !== url) {
-    problems.push(`${file}: og:url is ${ogUrl}, expected ${url}`);
+  return problems;
+}
+
+/** The eight bytes every PNG file starts with. */
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/**
+ * Checks an image file is a PNG of the given width and height, at most `maxBytes` long. The size
+ * comes from the IHDR chunk, which the PNG format puts first, right after the signature.
+ */
+export function pngProblems(
+  file: string,
+  bytes: Uint8Array,
+  expected: { width: number; height: number; maxBytes: number },
+): string[] {
+  if (bytes.length < 24 || PNG_SIGNATURE.some((byte, index) => bytes[index] !== byte)) {
+    return [`${file}: not a PNG file`];
+  }
+  if (new TextDecoder().decode(bytes.subarray(12, 16)) !== "IHDR") {
+    return [`${file}: the PNG does not start with an IHDR chunk`];
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const problems: string[] = [];
+  const width = view.getUint32(16);
+  const height = view.getUint32(20);
+  if (width !== expected.width || height !== expected.height) {
+    problems.push(
+      `${file}: ${width}x${height} pixels, expected ${expected.width}x${expected.height}`,
+    );
+  }
+  if (bytes.length > expected.maxBytes) {
+    problems.push(`${file}: ${bytes.length} bytes, expected at most ${expected.maxBytes}`);
   }
   return problems;
 }

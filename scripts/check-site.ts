@@ -9,7 +9,7 @@
 //   and every link in them and in the pages' Markdown copies is absolute and resolves to a built
 //   file;
 // - the landing page carries one JSON-LD SoftwareSourceCode block with the core's version.
-// A missing og:image file is a warning: the owner adds the social preview.
+// - the social preview the pages name is built, and is a 1280x640 PNG under 1 MB.
 // scripts/site-output.ts holds the checks and test/scripts/site-output.test.ts their tests.
 //
 // Usage: node scripts/check-site.ts [--no-build]
@@ -21,6 +21,8 @@ import { fileURLToPath } from "node:url";
 import {
   EXCLUDED_FOLDERS,
   HOSTNAME,
+  OG_IMAGE,
+  OG_IMAGE_MAX_BYTES,
   SITE_BASE,
   SITE_NAME,
   pageUrl,
@@ -30,10 +32,10 @@ import {
   anchors,
   frontmatterDescription,
   headProblems,
-  metaContent,
   jsonLdProblems,
   markdownLinkProblems,
   outputCandidates,
+  pngProblems,
   robotsProblems,
   siteLinks,
   sitemapUrls,
@@ -43,7 +45,12 @@ import type { SiteFacts } from "./site-output.ts";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const docs = path.join(root, "docs");
 const output = path.join(root, "tools/docs-site/.vitepress/dist");
-const site: SiteFacts = { hostname: HOSTNAME, base: SITE_BASE, titleSuffix: ` | ${SITE_NAME}` };
+const site: SiteFacts = {
+  hostname: HOSTNAME,
+  base: SITE_BASE,
+  titleSuffix: ` | ${SITE_NAME}`,
+  image: OG_IMAGE,
+};
 
 /** Every file under a directory, relative to it, with forward slashes. */
 function files(directory: string): string[] {
@@ -155,20 +162,23 @@ problems.push(
     : ["index.html is missing"]),
 );
 
-// The social preview is added by the owner; until then the og:image URL 404s. Warn, do not fail.
-const ogImage = existsSync(landing)
-  ? metaContent(readFileSync(landing, "utf8"), "og:image")
-  : undefined;
-if (ogImage?.startsWith(HOSTNAME) === true && !built(ogImage.slice(HOSTNAME.length))) {
-  process.stdout.write(
-    `warning: og:image ${ogImage} is not in the build; add the image under docs/public/\n`,
-  );
-}
+// The social preview every page names (headProblems checks the URL) is built, with the size and
+// format the Open Graph tags announce.
+const ogImage = path.join(output, OG_IMAGE.url.slice(HOSTNAME.length));
+problems.push(
+  ...(existsSync(ogImage)
+    ? pngProblems(path.relative(output, ogImage), readFileSync(ogImage), {
+        width: OG_IMAGE.width,
+        height: OG_IMAGE.height,
+        maxBytes: OG_IMAGE_MAX_BYTES,
+      })
+    : [`${OG_IMAGE.url} is not in the build; add the image as docs/public/og-image.png`]),
+);
 
 if (problems.length > 0) {
   process.stderr.write(`${problems.join("\n")}\n`);
   process.exit(1);
 }
 process.stdout.write(
-  `site check passed: ${sources.length} pages built with one canonical URL, a title, a description and Open Graph tags; ${outputFiles.filter((entry) => entry.endsWith(".html")).length} HTML files whose links and anchors resolve; every URL in llms.txt, llms-full.txt and the Markdown copies resolves; sitemap.xml, robots.txt, llms.txt, llms-full.txt and the landing page's JSON-LD are in place\n`,
+  `site check passed: ${sources.length} pages built with one canonical URL, a title, a description and Open Graph tags; ${outputFiles.filter((entry) => entry.endsWith(".html")).length} HTML files whose links and anchors resolve; every URL in llms.txt, llms-full.txt and the Markdown copies resolves; sitemap.xml, robots.txt, llms.txt, llms-full.txt, the landing page's JSON-LD and the 1280x640 social preview are in place\n`,
 );

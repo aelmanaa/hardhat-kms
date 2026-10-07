@@ -20,11 +20,11 @@ Every noble `verify` call passes `prehash:false`. If trial recovery fails, the s
 
 The plugin caches a public key only after it matches the `address` pin, and it releases no signature before that check. Each provider adds its own identity checks:
 
-| Provider | Checks                                                                                                                                                                          |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AWS      | Signs with the ARN returned by `GetPublicKey`, never with the alias. Asserts KeySpec, KeyUsage and SigningAlgorithms. Requests use `MessageType: DIGEST`.                       |
-| GCP      | Signs with the configured key version. Checks `name` on both responses and that `algorithm` is `EC_SIGN_SECP256K1_SHA256`. A disabled or destroyed version gives a clear error. |
-| Azure    | Signs with the versioned id using `ES256K`, and requires each sign response's `kid` to name that version. Checks kty, crv, enabled, keyOps, nbf and exp.                        |
+| Provider | Checks                                                                                                                                                                                                                     |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AWS      | Signs with the ARN returned by `GetPublicKey`, never with the alias. Asserts KeySpec, KeyUsage and SigningAlgorithms. Requests use `MessageType: DIGEST`.                                                                  |
+| GCP      | Signs with the configured key version. Checks `name` on both responses and that `algorithm` is `EC_SIGN_SECP256K1_SHA256`. A disabled or destroyed version gives a clear error.                                            |
+| Azure    | Signs with the versioned id using `ES256K`, requires each response's `kid` to name the configured vault and key, and each sign response's `kid` to name the pinned version. Checks kty, crv, enabled, keyOps, nbf and exp. |
 
 Signing with the ARN instead of the alias means a repointed alias cannot switch keys between the address lookup and the signature. Azure pins the version of an unversioned key for the same reason.
 
@@ -55,6 +55,8 @@ The plugin does not protect against these. The user-facing [security model](../u
 - Nonce collisions between separate processes using the same key.
 - Access to the key itself, which the provider's IAM or RBAC controls. The setup guides for [AWS](../user/guides/aws-kms-setup.md), [Google Cloud](../user/guides/gcp-kms-setup.md) and [Azure](../user/guides/azure-key-vault-setup.md) give minimal permissions, including the AWS conditions `kms:SigningAlgorithm` and `kms:MessageType`.
 - Key deletion. Deleting a KMS key loses the funds at its address forever. The user guide [Prevent and recover from losing a key](../user/guides/key-loss.md) covers each provider's waiting period, the undo paths and lockout.
+
+A pull request that changes the code behind these controls carries the security checklist in [Security review of pull requests](security-review.md), which lists the paths it applies to.
 
 ## Vendored EIP-712
 

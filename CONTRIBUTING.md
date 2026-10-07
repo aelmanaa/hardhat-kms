@@ -44,6 +44,7 @@ Issues that affect what gets signed, keys or secrets also get `security`. New is
 
 - `main` only changes through pull requests (squash merge). The pre-push hook refuses direct pushes to `main`.
 - Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org) (checked by the commit-msg hook).
+- A pull request that changes how the plugin signs or sends, or what gets published and how (the two lists of paths in [Security review](docs/contributor/security-review.md)), carries the items of each list it touches from the security checklist of the pull request template, with every item ticked. A CI check enforces it.
 - Every user-facing change needs a changeset: `pnpm changeset`. See [Changesets](#changesets) for what to write in it.
 - The pre-commit hook formats (oxfmt) and lints (oxlint) staged files and typechecks the project.
 

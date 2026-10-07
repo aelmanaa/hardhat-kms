@@ -222,13 +222,15 @@ jobs:
     # A pull request that changes a published package carries a changeset, or an empty one when
     # there is nothing to tell users (CONTRIBUTING.md, Changesets). The release pull request
     # deletes every changeset and a Dependabot pull request carries none, so both skip the job; a
-    # skipped required check passes. Push and merge-queue runs have no head branch, so they skip too.
+    # skipped required check passes. The release pull request is skipped only when its branch,
+    # changeset-release/main, is in this repository, since a fork names its own branches. Push and merge-queue runs have no head branch, so they skip too.
     name: Changeset
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     if: >-
       github.event_name == 'pull_request' &&
-      !startsWith(github.head_ref, 'changeset-release/') &&
+      !(github.head_ref == 'changeset-release/main' &&
+        github.event.pull_request.head.repo.full_name == github.repository) &&
       github.event.pull_request.user.login != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

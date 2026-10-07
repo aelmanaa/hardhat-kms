@@ -61,7 +61,7 @@ Key forms for the other clouds:
 
 The key must be a secp256k1 signing key: `ECC_SECG_P256K1` on AWS, `EC_SIGN_SECP256K1_SHA256` with HSM protection on Google Cloud, an `EC` key on curve `P-256K` on Azure. The identity that runs Hardhat needs permission to read the public key and to sign, nothing more. The setup guides give the exact commands and policies.
 
-Credentials come from each cloud SDK's default chain (`AWS_PROFILE`, `gcloud auth application-default login`, `az login`, workload identity in CI), never from the Hardhat config. Never ask the user to paste credentials, private keys or API-keyed RPC URLs; RPC URLs go in `configVariable()`. A key id is not a secret: it can be a literal, but reading it with `configVariable()`, as the snippets here do, keeps it out of the repository. `configVariable("AWS_KMS_KEY_ID")` reads the environment variable of that name, or the Hardhat keystore.
+Credentials never come from the Hardhat config. AWS and Google Cloud use their SDK's default chain (`AWS_PROFILE`, `gcloud auth application-default login`, workload identity in CI); Azure uses the plugin's own chain, which includes `az login`. Never ask the user to paste credentials, private keys or API-keyed RPC URLs; RPC URLs go in `configVariable()`. A key id is not a secret: it can be a literal, but reading it with `configVariable()`, as the snippets here do, keeps it out of the repository. `configVariable("AWS_KMS_KEY_ID")` reads the environment variable of that name, or the Hardhat keystore.
 
 ## 3. Get the address and pin it
 

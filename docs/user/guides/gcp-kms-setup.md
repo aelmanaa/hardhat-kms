@@ -96,9 +96,10 @@ export default defineConfig({
         provider: "gcp",
         keyVersionName:
           "projects/my-project/locations/europe-west1/keyRings/deployer-ring/cryptoKeys/deployer/cryptoKeyVersions/1",
-        // Optional, recommended: the address that `npx hardhat kms accounts` prints for this key.
-        // The plugin refuses to sign if the key derives to another address.
-        address: "0x…",
+        // Optional, recommended: run `npx hardhat kms accounts` and replace the next line with
+        // the `address` line it prints for this key. The plugin then refuses to sign if the key
+        // derives to another address.
+        // address: "0x…",
       },
     },
   },
@@ -109,6 +110,8 @@ export default defineConfig({
 ```
 
 Instead of `keyVersionName`, a key can list its parts: `projectId`, `location`, `keyRing`, `keyName` and `keyVersion`. The version is always required. The [configuration reference](../reference/configuration.md#key-forms-per-provider) lists every option.
+
+To pin the key's address, run `npx hardhat kms accounts`. For a key without a pin it prints an `address` line; paste it into the key in place of the commented-out line ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
 To use a key without a config entry, set `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME` and `GCP_KEY_VERSION` and pass `--kms gcp`; see [Migrate from Foundry](migrate-from-foundry.md). Such a key is added to the network selected with `--network`, or to `default` without one.
 
@@ -134,7 +137,7 @@ const signature = await provider.request({
 console.log(address, signature);
 ```
 
-Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. Each run calls `GetPublicKey` once, before the first signature, then `AsymmetricSign` once. An `address` pin does not save that call: the plugin checks the public key against the pin before it releases a signature. A pin saves the call only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the public key ([`address`](../reference/configuration.md#configuration)).
+Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. Each run calls `GetPublicKey` once, before the first signature, then `AsymmetricSign` once for the signature, or more if a request is retried ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). An `address` pin does not save that call: the plugin checks the public key against the pin before it releases a signature. A pin saves the call only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the public key ([`address`](../reference/configuration.md#configuration)).
 
 ## How the plugin uses the key
 
