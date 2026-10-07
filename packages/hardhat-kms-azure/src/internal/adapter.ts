@@ -146,10 +146,10 @@ function setAttributesTarget(
  *
  * It reads the key's JWK once, checks that it is an enabled secp256k1 key that may sign, and pins
  * the key version from the response: an unversioned key id is resolved to the current version
- * once, and every signature uses that version. Each sign response must name the pinned version
- * in its `kid`, as alloy's Azure signer (alloy-rs/alloy#4267) checks. Key Vault signs the
- * 32-byte digest as given with `ES256K` and returns `r || s`; the core normalizes S, recovers the
- * parity and verifies it.
+ * once, and every signature uses that version. Each response must name the configured vault and
+ * key in its `kid`, and each sign response the pinned version. alloy's Azure signer
+ * (alloy-rs/alloy#4267) checks the version too. Key Vault signs the 32-byte digest as given with
+ * `ES256K` and returns `r || s`; the core normalizes S, recovers the parity and verifies it.
  */
 class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
   readonly #key: AzureKmsKeyConfig;
@@ -264,13 +264,17 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     return { format: "compact", bytes: signature };
   }
 
-  /** Reads the key version from a response's key id, which must name this key. */
+  /**
+   * Reads the key version from a response's key id, which must name this key in the configured
+   * vault. Both vault URLs are origins from `parseAzureKeyId`, so the host is already lower case
+   * and has no trailing slash.
+   */
   #versionOf(id: unknown, operation: string): string {
     const parsed = typeof id === "string" ? parseAzureKeyId(id) : undefined;
     if (parsed?.keyVersion === undefined) {
       throw this.#error(operation, ERRORS.noVersionedId, {});
     }
-    if (!sameId(parsed.keyName, this.#id.keyName)) {
+    if (parsed.vaultUrl !== this.#id.vaultUrl || !sameId(parsed.keyName, this.#id.keyName)) {
       throw this.#error(operation, ERRORS.responseKey, {});
     }
     return parsed.keyVersion;

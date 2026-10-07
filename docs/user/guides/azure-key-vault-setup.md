@@ -223,14 +223,14 @@ const signature = await provider.request({
 console.log(address, signature);
 ```
 
-Run it with `npx hardhat run scripts/check-kms.ts`. Each run reads the key once, before the first signature, then signs once. An `address` pin does not save the read: the plugin checks the public key against the pin before it releases a signature, and it pins the key's version from the read. A pin saves the read only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the key ([`address`](../reference/configuration.md#configuration)).
+Run it with `npx hardhat run scripts/check-kms.ts`. Each run reads the key once, before the first signature, then signs once for the signature, or more if a request is retried ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). An `address` pin does not save the read: the plugin checks the public key against the pin before it releases a signature, and it pins the key's version from the read. A pin saves the read only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the key ([`address`](../reference/configuration.md#configuration)).
 
 ## How the plugin uses the key
 
 - It reads the key once and checks that it is an `EC` or `EC-HSM` key on `P-256K`, that it is enabled and within its activation and expiry dates, and that its permitted operations include `sign`.
 - It pins the version from that read. An unversioned key id is resolved to the current version once, and every signature in the run uses that version.
 - It signs the 32-byte digest with `ES256K` against the versioned key id. Key Vault signs the digest as given and returns 64 bytes, `r || s`.
-- It checks that the `kid` of each sign response names the pinned version, and refuses the signature otherwise.
+- It checks that the `kid` of each response names the configured vault and key, and that the `kid` of each sign response names the pinned version. It refuses the key or the signature otherwise.
 - It normalizes each signature to low-S, recovers the parity and verifies it against the public key before using it; see the [security model](../explanation/security-model.md#every-signature-is-verified).
 - It puts `hardhat-kms/<version>` at the start of the user agent of every request, so the `ClientInfo` column of the `AZKVAuditLogs` table starts with `hardhat-kms/1.0.0` (with your installed version) when a diagnostic setting sends audit events to a workspace. The client reports this tag and anyone can send the same string, so it marks the plugin's calls but proves nothing.
 
