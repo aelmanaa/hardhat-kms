@@ -59,6 +59,9 @@ async function assertAzureError(promise: Promise<unknown>, includes: string[]): 
 }
 
 const digest = new Uint8Array(32).fill(9);
+/** Another Key Vault, and a Managed HSM, that hold a key with the configured name and version. */
+const OTHER_VAULT_URL = "https://other-vault.vault.azure.net";
+const HSM_URL = "https://test-hsm.managedhsm.azure.net";
 
 /** The message of the error the adapter throws when it reads a key with these attributes. */
 async function hintFor(
@@ -267,6 +270,16 @@ describe("Azure Key Vault adapter", () => {
         { keyId: `${VAULT_URL}/keys/${KEY_NAME}2/${KEY_VERSION}` },
         "the response is for another key than the one requested",
       ],
+      [
+        "the same key in another vault",
+        { keyId: `${OTHER_VAULT_URL}/keys/${KEY_NAME}/${KEY_VERSION}` },
+        "the response is for another key than the one requested",
+      ],
+      [
+        "the same key on a Managed HSM",
+        { keyId: `${HSM_URL}/keys/${KEY_NAME}/${KEY_VERSION}` },
+        "the response is for another key than the one requested",
+      ],
     ];
     for (const [name, options, message] of cases) {
       it(`on getKey: ${name}`, async () => {
@@ -308,6 +321,102 @@ describe("Azure Key Vault adapter", () => {
       await adapter.signDigest?.({ digest }, context());
     });
 
+    describe("the vault in each response's key id", () => {
+      it("refuses a lookup from another vault and pins no version", async () => {
+        const { adapter, calls } = await adapterFor(KEY_URL, {
+          keyId: `${OTHER_VAULT_URL}/keys/${KEY_NAME}/${KEY_VERSION}`,
+        });
+        await assertAzureError(adapter.getPublicKey?.(context()) ?? Promise.resolve(), [
+          "the response is for another key than the one requested",
+        ]);
+        // No version was pinned: the next signature reads the key again, and never signs.
+        await assertAzureError(adapter.signDigest?.({ digest }, context()) ?? Promise.resolve(), [
+          `azure, get public key, key azure:${KEY_URL}:`,
+          "the response is for another key than the one requested",
+        ]);
+        assert.deepEqual(
+          calls.map((call) => call.method),
+          ["getKey", "getKey"],
+        );
+      });
+
+      it("refuses a signature from another vault after a good lookup", async () => {
+        const { adapter, calls } = await adapterFor(VERSIONED_KEY_URL, {
+          signKid: `${OTHER_VAULT_URL}/keys/${KEY_NAME}/${KEY_VERSION}`,
+        });
+        await adapter.getPublicKey?.(context());
+        await assertAzureError(adapter.signDigest?.({ digest }, context()) ?? Promise.resolve(), [
+          `azure, sign, key azure:${VERSIONED_KEY_URL}: the response is for another key than the one requested`,
+        ]);
+        assert.deepEqual(
+          calls.map((call) => call.method),
+          ["getKey", "sign"],
+        );
+      });
+
+      it("names no vault, key or version in the error", async () => {
+        const { adapter } = await adapterFor("https://other-name.vault.azure.net/keys/k/abc", {
+          keyId: `${OTHER_VAULT_URL}/keys/k/abc`,
+        });
+        await assert.rejects(adapter.getPublicKey?.(context()) ?? Promise.resolve(), (error) => {
+          assert.ok(error instanceof HardhatPluginError, String(error));
+          // The key display id is the only place the configured id may appear.
+          const message = error.message.replace(
+            "azure:https://other-name.vault.azure.net/keys/k/abc",
+            "",
+          );
+          assert.ok(!message.includes(OTHER_VAULT_URL), message);
+          assert.ok(!message.includes("other-name"), message);
+          assert.ok(!message.includes("/keys/"), message);
+          return true;
+        });
+      });
+
+      const accepted: Array<[string, string, Partial<FakeKeyVaultOptions>]> = [
+        [
+          "the configured vault in upper case in both responses",
+          VERSIONED_KEY_URL,
+          {
+            keyId: `${VAULT_URL.toUpperCase().replace("HTTPS", "https")}/keys/${KEY_NAME}/${KEY_VERSION}`,
+            signKid: `https://TEST-Vault.Vault.Azure.Net/keys/${KEY_NAME}/${KEY_VERSION}`,
+          },
+        ],
+        [
+          "a configured key id in upper case with a trailing slash",
+          `https://TEST-VAULT.VAULT.AZURE.NET/keys/${KEY_NAME}/${KEY_VERSION}/`,
+          {
+            keyId: `${VAULT_URL}/keys/${KEY_NAME}/${KEY_VERSION}`,
+            signKid: `${VAULT_URL}/keys/${KEY_NAME}/${KEY_VERSION}/`,
+          },
+        ],
+        [
+          "a Managed HSM key, its host in any case",
+          `${HSM_URL}/keys/${KEY_NAME}`,
+          {
+            keyId: `https://Test-HSM.ManagedHSM.Azure.Net/keys/${KEY_NAME}/${KEY_VERSION}`,
+            signKid: `${HSM_URL.toUpperCase().replace("HTTPS", "https")}/keys/${KEY_NAME}/${KEY_VERSION}`,
+          },
+        ],
+      ];
+      for (const [name, keyId, options] of accepted) {
+        it(`accepts ${name}`, async () => {
+          const { adapter } = await adapterFor(keyId, options);
+          const output = await adapter.signDigest?.({ digest }, context());
+          assert.ok(output !== undefined && "bytes" in output);
+          assert.equal(output.bytes.length, 64);
+        });
+      }
+
+      it("refuses another Managed HSM for a Managed HSM key", async () => {
+        const { adapter } = await adapterFor(`${HSM_URL}/keys/${KEY_NAME}`, {
+          keyId: `https://other-hsm.managedhsm.azure.net/keys/${KEY_NAME}/${KEY_VERSION}`,
+        });
+        await assertAzureError(adapter.getPublicKey?.(context()) ?? Promise.resolve(), [
+          "the response is for another key than the one requested",
+        ]);
+      });
+    });
+
     const signCases: Array<[string, Partial<FakeKeyVaultOptions>, string]> = [
       [
         "a kid with another version",
@@ -327,6 +436,16 @@ describe("Azure Key Vault adapter", () => {
       [
         "a kid of another key",
         { signKid: `${VAULT_URL}/keys/other/${KEY_VERSION}` },
+        "the response is for another key than the one requested",
+      ],
+      [
+        "a kid of the same key in another vault",
+        { signKid: `${OTHER_VAULT_URL}/keys/${KEY_NAME}/${KEY_VERSION}` },
+        "the response is for another key than the one requested",
+      ],
+      [
+        "a kid of the same key on a Managed HSM",
+        { signKid: `${HSM_URL}/keys/${KEY_NAME}/${KEY_VERSION}` },
         "the response is for another key than the one requested",
       ],
       ["an unversioned kid", { signKid: KEY_URL }, "the response has no versioned key id"],
