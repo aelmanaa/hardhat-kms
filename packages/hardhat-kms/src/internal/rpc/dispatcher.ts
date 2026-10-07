@@ -402,11 +402,13 @@ export async function dispatch(
     }
   } else {
     const refusal = WALLET_SEND_METHODS.get(request.method);
-    const sender = refusal === undefined ? undefined : await kmsWalletSender(accounts, params);
-    if (refusal !== undefined && sender !== undefined) {
-      log("refused %s from KMS account %s", request.method, sender);
-      const message = catalogMessage(refusal, { address: sender });
-      return { jsonrpc: "2.0", id: request.id, error: { code: METHOD_NOT_FOUND, message } };
+    if (refusal !== undefined) {
+      const sender = await kmsWalletSender(accounts, params);
+      if (sender !== undefined) {
+        log("refused %s from KMS account %s", request.method, sender);
+        const message = catalogMessage(refusal, { address: sender });
+        return { jsonrpc: "2.0", id: request.id, error: { code: METHOD_NOT_FOUND, message } };
+      }
     }
   }
   return await passThrough(accounts, request, next);

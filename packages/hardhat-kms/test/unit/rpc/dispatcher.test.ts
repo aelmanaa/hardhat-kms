@@ -265,6 +265,9 @@ describe("dispatch: messages and typed data", () => {
     await fixture.request("eth_signTransaction", [{ from: "me", to: ZERO }]);
     fixture.answers.set("wallet_sendTransaction", () => "0xhash");
     await fixture.request("wallet_sendTransaction", [{ to: ZERO }]);
+    // Another method whose first param names a KMS account.
+    fixture.answers.set("eth_call", () => "0x");
+    await fixture.request("eth_call", [{ from: COW, to: ZERO }]);
     await fixture.request("eth_signTypedData_v4", [5, TYPED_DATA]).catch(() => undefined);
     assert.equal(fixture.adapters.length, 0);
     assert.equal(fixture.accounts.hasKnownAddresses, false);
