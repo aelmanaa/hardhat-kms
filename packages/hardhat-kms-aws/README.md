@@ -2,21 +2,23 @@
 
 Works with AWS KMS. Not affiliated with or endorsed by Amazon Web Services.
 
-> In development. Not published to npm yet.
+The AWS KMS provider for [hardhat-kms](https://github.com/aelmanaa/hardhat-kms): Hardhat 3 signs transactions, messages and typed data with secp256k1 keys held in AWS KMS. The private key never leaves KMS. The package depends on `@aws-sdk/client-kms`, so there is no SDK to install separately.
 
-The AWS KMS provider for [hardhat-kms](https://github.com/aelmanaa/hardhat-kms): Hardhat 3 signs transactions, messages and typed data with secp256k1 keys held in AWS KMS. The private key never leaves KMS.
+0.9.0 is the release candidate for 1.0.0; install it to test. Until 1.0.0 is published, use it with test keys on testnets.
 
-It depends on `@aws-sdk/client-kms`, so there is no SDK to install separately.
+## Key type
+
+An asymmetric `ECC_SECG_P256K1` key with key usage `SIGN_VERIFY`.
 
 ## Install
 
 ```sh
-npm install --save-dev hardhat-kms @hardhat-kms/aws
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
 ```
 
-Node.js support: see [Support](https://github.com/aelmanaa/hardhat-kms#support).
+`@hardhat-kms/aws` needs `hardhat-kms` at the same version. The packages run on Node.js 22.13.0 or later ([Support](https://aelmanaa.github.io/hardhat-kms/user/reference/support)).
 
-## Usage
+## Configure
 
 Add `@hardhat-kms/aws` to `plugins`. It loads `hardhat-kms` itself.
 
@@ -28,23 +30,33 @@ export default defineConfig({
   plugins: [hardhatKmsAws],
   kms: {
     keys: {
-      deployer: { provider: "aws", keyId: "alias/deployer", region: "eu-west-1" },
+      deployer: { provider: "aws", keyId: "alias/deployer" },
     },
   },
   networks: {
     sepolia: {
       type: "http",
       url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
       kmsAccounts: ["deployer"],
     },
   },
 });
 ```
 
-Credentials come from the AWS SDK's default chain: environment variables, `~/.aws` profiles and SSO, or the role of the machine or CI job. A key's `profile` option picks a named profile. The key must be an asymmetric `ECC_SECG_P256K1` key with key usage `SIGN_VERIFY`.
+`keyId` accepts a key id, a key ARN, an alias name or an alias ARN. The key's region comes from the ARN, the key's `region`, `AWS_REGION` or your AWS profile. The [configuration reference](https://aelmanaa.github.io/hardhat-kms/user/reference/configuration) lists every option.
 
-## Docs
+## Check the key
 
-- [AWS KMS setup](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/aws-kms-setup.md): create a key, grant access, configure Hardhat
-- [Configuration reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/configuration.md)
-- All docs: [docs/README.md](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/README.md)
+1. Run `npx hardhat kms accounts`. It reads the key's public key and prints its address, and below the table the `address` pin to add.
+2. Add the pin to the key's entry, for example `deployer: { provider: "aws", keyId: "alias/deployer", address: "0x…" }`. The pin is optional. Without it, the plugin still checks every signature against the address it derives from the key's public key. With it, the plugin also refuses to sign when the key id comes to name a different key.
+3. Run `npx hardhat kms accounts --check-sign`. `ok` in the `SIGN` column proves that your credentials may sign with the key, not only read it. The key signs a random message, not a transaction, so this needs no network and no funds.
+
+## Credentials and permissions
+
+The plugin passes no credentials, so the AWS SDK finds them itself: access keys in the environment, a profile in `~/.aws` (with SSO or a role to assume), a web identity token, or the role of the container or instance. A key's `profile` option names the profile to use. No credentials go in the Hardhat config. The credentials need `kms:GetPublicKey` to read the address and `kms:Sign` to sign.
+
+- [Set up an AWS KMS key](https://aelmanaa.github.io/hardhat-kms/user/guides/aws-kms-setup): create the key, grant access, configure Hardhat.
+- [Permissions](https://aelmanaa.github.io/hardhat-kms/user/guides/aws-kms-setup#2-allow-signing-and-nothing-else) and [credential sources](https://aelmanaa.github.io/hardhat-kms/user/reference/configuration#aws) in detail.
+- [Errors](https://aelmanaa.github.io/hardhat-kms/user/guides/aws-kms-setup#errors): what each failure means and how to fix it.
+- [All docs](https://aelmanaa.github.io/hardhat-kms/).
