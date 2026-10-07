@@ -102,6 +102,8 @@ The `kms` tasks run as `npx hardhat kms <task>`. A task takes a key by the name 
 
 Which Node.js versions the published packages run on, when a line is dropped and what an older Node.js does: [Support](docs/user/reference/support.md).
 
+[Release channels and versioning](docs/user/explanation/versioning.md) explains what the `latest` and `beta` tags mean, what a version number promises, the Hardhat and viem ranges, and how long a previous major gets security fixes.
+
 ## Docs
 
 - All docs, for users and contributors: [docs/README.md](docs/README.md)
