@@ -88,6 +88,7 @@ export default defineConfig({
 - Add keys, providers or networks: the [configuration reference](docs/user/reference/configuration.md) and [Use several keys across networks](docs/user/guides/multiple-keys.md).
 - Use viem, ethers or Ignition: runnable [examples](examples/README.md), [Deploy with Hardhat Ignition](docs/user/guides/deploy-with-ignition.md), and [library accounts](docs/user/reference/library-accounts.md) for a viem account from `connection.kms.getAccount`.
 - Move from Foundry: [Migrate from Foundry](docs/user/guides/migrate-from-foundry.md) and the [comparison with Foundry](docs/user/explanation/foundry-comparison.md).
+- Choose where the key lives: a KMS key compared with [a private key in .env](docs/user/explanation/kms-or-env-key.md), [a Ledger](docs/user/explanation/kms-or-ledger.md) and [other KMS signers](docs/user/explanation/other-kms-signers.md).
 - See what the plugin changes in Hardhat: [How hardhat-kms works](docs/user/explanation/how-it-works.md).
 - Browse [all docs](docs/README.md).
 
