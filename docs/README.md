@@ -28,6 +28,7 @@ Each page except the generated API reference opens with an `Audience:` line that
 | Page                                                                          | Kind        |
 | ----------------------------------------------------------------------------- | ----------- |
 | [Configuration](user/reference/configuration.md)                              | Reference   |
+| [Credentials](user/reference/credentials.md)                                  | Reference   |
 | [RPC methods](user/reference/rpc-methods.md)                                  | Reference   |
 | [Tasks](user/reference/tasks.md)                                              | Reference   |
 | [Errors](user/reference/errors.md)                                            | Reference   |
@@ -44,6 +45,7 @@ Each page except the generated API reference opens with an `Audience:` line that
 | [Debug output](user/guides/debug-output.md)                                   | How-to      |
 | [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md)           | How-to      |
 | [After an uncertain send](user/guides/uncertain-sends.md)                     | How-to      |
+| [Return the funds from a KMS address](user/guides/return-funds.md)            | How-to      |
 | [Migrate from Foundry](user/guides/migrate-from-foundry.md)                   | How-to      |
 | [Verify a release](user/guides/verify-a-release.md)                           | How-to      |
 | [Comparison with Foundry](user/explanation/foundry-comparison.md)             | Explanation |

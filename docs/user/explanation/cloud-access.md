@@ -13,7 +13,7 @@ So the identity that signs depends on where Hardhat runs and on what your enviro
 
 ## Which source wins
 
-Each table lists one cloud's sources in the order they are tried. The [configuration reference](../reference/configuration.md#credentials) lists every variable and edge case.
+Each table lists one cloud's sources in the order they are tried. The [credentials reference](../reference/credentials.md) lists every variable and edge case.
 
 **AWS**, through the AWS SDK for JavaScript:
 
@@ -44,7 +44,7 @@ Each table lists one cloud's sources in the order they are tried. The [configura
 Three rules decide which identity signs:
 
 - **A source that is set up but fails can end the search.** A `GOOGLE_APPLICATION_CREDENTIALS` that names a missing file fails the run; it does not fall back to your gcloud login. An Azure service principal with a wrong secret fails the run; it does not fall back to `az login`.
-- **An AWS profile turns off the access keys in the environment.** With the key's `profile` or `AWS_PROFILE` set, today's AWS SDK ignores `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, and prints a warning when both are set. Never set both: see [Never set a profile and environment keys together](../reference/configuration.md#aws).
+- **An AWS profile turns off the access keys in the environment.** With the key's `profile` or `AWS_PROFILE` set, today's AWS SDK ignores `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, and prints a warning when both are set. Never set both: see [Never set a profile and environment keys together](../reference/credentials.md#aws).
 - **Only AWS keys can choose their credentials.** Each AWS key can name its own `profile`. Every Google Cloud key of a run signs as the one ADC identity, and every Azure key as the first Azure source that returns a token. To sign as two identities on those clouds, run Hardhat twice with different environments.
 
 ## Common setups
@@ -113,7 +113,7 @@ flowchart LR
   azureSource --> vault["Key Vault"]
 ```
 
-- AWS: on EC2, require IMDSv2 on the instance; the [configuration reference](../reference/configuration.md#aws) explains why.
+- AWS: on EC2, require IMDSv2 on the instance; the [credentials reference](../reference/credentials.md#aws) explains why.
 - Azure: the managed identity has 10 seconds to return a token. Outside Azure it is never reached when the Azure CLI is signed in, since the CLI comes first.
 
 ### Long-lived secret in the environment
@@ -150,7 +150,7 @@ The plugin passes no credentials to the AWS and Google Cloud SDKs, so their list
 
 ## Read next
 
-- [Configuration reference: Credentials](../reference/configuration.md#credentials): every variable each source reads.
+- [Credentials reference](../reference/credentials.md): every variable each source reads.
 - The setup guides, which say which identity to grant access: [AWS KMS](../guides/aws-kms-setup.md), [Google Cloud KMS](../guides/gcp-kms-setup.md), [Azure Key Vault](../guides/azure-key-vault-setup.md).
 - [Comparison with Foundry](foundry-comparison.md#credentials): how Foundry finds credentials on each cloud.
 - Optional, for contributors: [Cloud access and credentials](../../contributor/architecture.md#cloud-access-and-credentials) in the architecture docs, with the code and SDK lines behind each step.

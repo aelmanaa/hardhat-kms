@@ -7,7 +7,7 @@ description: "Deploy a Hardhat 3 contract to Sepolia with Google Cloud KMS: crea
 
 Audience: developers who have a Google Cloud project and the gcloud CLI signed in, and have not used Cloud KMS with Hardhat.
 
-This tutorial was followed from an empty directory on 2026-10-02, at commit [`ab3ee2a`](https://github.com/aelmanaa/hardhat-kms/commit/ab3ee2a), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 6 minutes, without the wait for Sepolia ETH. The run kept the 30-day default destroy schedule; the 24-hour schedule in step 2 ran on an HSM secp256k1 key in the [key-loss check](../guides/key-loss.md#google-cloud-kms) of 2026-10-01. The plugin is not on npm yet; step 4 says how to install it until then.
+This tutorial was followed from an empty directory on 2026-10-02, at commit [`ab3ee2a`](https://github.com/aelmanaa/hardhat-kms/commit/ab3ee2a), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 6 minutes, without the wait for Sepolia ETH. The run kept the 30-day default destroy schedule; the [key-loss check](../guides/key-loss.md#google-cloud-kms) covers the 24-hour schedule of step 2. The plugin is not on npm yet; step 4 says how to install it until then.
 
 In this tutorial you create a Hardhat project, create a signing key in Google Cloud KMS, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Cloud KMS: Hardhat asks Cloud KMS for a signature each time it sends a transaction.
 
@@ -278,45 +278,7 @@ The address belongs to the key version alone. If the version is destroyed, any f
 
 To see the balance, open the address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com).
 
-To try the deployment before you fund the address, rehearse it on a local fork of Sepolia. In `hardhat.config.ts`, add `simulatedBalance` to the `kms` section and a `sepoliaFork` network:
-
-<!-- docs-check: skip -->
-
-```ts
-  kms: {
-    // The deployer's balance on simulated networks such as sepoliaFork. Sepolia ignores it.
-    simulatedBalance: 10n ** 18n,
-    keys: {
-      // The deployer key, unchanged.
-    },
-  },
-  networks: {
-    // The other networks, unchanged.
-    sepoliaFork: {
-      type: "edr-simulated",
-      forking: { url: configVariable("SEPOLIA_RPC_URL") },
-      kmsAccounts: ["deployer"],
-    },
-  },
-```
-
-Then run step 6's command with `--network sepoliaFork`, and without `--verify`:
-
-```sh
-npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender "$DEPLOYER_ADDRESS"
-```
-
-The plugin signs with the real key, so the rehearsal also checks the key and its permissions. Each transaction usually costs one Cloud KMS signing request, and retries can add more ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). Each run also reads the public key once. The rehearsal took about a minute in a test run, most of it spent fetching Sepolia's state, and ends like this, with a `Counter` address that exists only in the fork:
-
-```text
-[ CounterModule ] successfully deployed 🚀
-
-Deployed Addresses
-
-CounterModule#Counter - <contract address>
-```
-
-The fork ends with the command, so no explorer can verify the contract. [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network) has more.
+To try the deployment on a local fork of Sepolia before you fund the address, add the `sepoliaFork` network and `kms.simulatedBalance` from [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network), then run step 6's command with `--network sepoliaFork` and without `--verify`. The rehearsal signs with the real key, so it also checks the key and its permissions. Ignition does not ask you to confirm, and it starts with "You are running Hardhat Ignition against an in-process instance of Hardhat Network": that is the fork, and the results are lost when the command ends. It ends with a `Deployed Addresses` list, as in step 6.
 
 ## 6. Deploy and verify
 
@@ -358,37 +320,7 @@ If you need to verify a partially verified contract, please use the --force flag
 Explorer: https://sourcify.dev/server/repo-ui/11155111/0xEFa2D146dC54546358157D816443Cd68C31DF95A
 ```
 
-Both explorers may answer "already verified" for this contract. The template's `Counter` is a common contract, so the explorers have seen its code before:
-
-- Sourcify matches a new contract on its own when it already holds the source. In the recorded run it matched this one a minute after the deployment, before the verify step ran.
-- Blockscout matches a new contract against a database of code it has verified before, and marks it verified with no request from you.
-
-Check the result on Blockscout: open the `Explorer:` link it printed. If the page shows the contract as verified, which it may say it did through its bytecode database, you are done.
-
-If the page instead shows a "verified twin" or a "similar match", Blockscout is showing the source of another contract with similar code, and yours is not verified yet. Only then, verify it with `--force`:
-
-```sh
-npx hardhat build --build-profile production
-npx hardhat verify blockscout --network sepolia --force <contract address>
-```
-
-The build comes first because `verify` compares the deployed bytecode with the local build, and Ignition deployed the `production` build. Other commands, such as `npx hardhat run` or `npx hardhat test`, rebuild with the default profile, and `verify` then fails with `HHE80009`.
-
-When this verifies the contract, Blockscout's part of the output ends like this:
-
-```text
-📤 Submitted source code for verification on Blockscout:
-
-  contracts/Counter.sol:Counter
-  Address: <contract address>
-
-⏳ Waiting for verification result...
-
-
-✅ Contract verified successfully on Blockscout!
-```
-
-If it fails with `HHE80022` and says the contract `is already verified`, the contract is verified, and there is nothing left to do. Blockscout limits how often it answers requests without an API key. If the command fails with `Response status code 429: Too Many Requests`, wait a few minutes and run it again.
+Both explorers may answer "already verified": the template's `Counter` is a common contract, and they have seen its code before. Blockscout may instead submit the source and end with `✅ Contract verified successfully on Blockscout!`; the contract is then verified too. Open the `Explorer:` link that Blockscout printed. If the page shows the contract as verified, you are done. If it shows a "verified twin" or a "similar match" instead, your contract is not verified yet: [Verify the source on block explorers](../guides/deploy-with-ignition.md#6-verify-the-source-on-block-explorers) has the command to run.
 
 ## 7. Open the contract on the explorer
 
@@ -404,108 +336,13 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 When you are done, send the remaining Sepolia ETH back, then disable the key version and schedule its destruction. In a new shell, set `SEPOLIA_RPC_URL`, `GCP_PROJECT_ID` and `GCP_LOCATION` again first, as in steps 2 and 4: the script loads the config, which reads them.
 
-Save this script as `scripts/return-funds.ts`. It reads the deployer address from the pin, and sends the whole balance, less the fee, to the address in `RETURN_TO`. It refuses the zero address, the deployer address and any address with code. It also checks that the transfer succeeded:
-
-```ts
-// The project's hardhat.config.ts loads these plugins' types; the imports make the file stand alone.
-import "@nomicfoundation/hardhat-viem";
-import "hardhat-kms";
-import hre from "hardhat";
-import {
-  WaitForTransactionReceiptTimeoutError,
-  formatEther,
-  isAddress,
-  isAddressEqual,
-  zeroAddress,
-} from "viem";
-
-/**
- * Sends the deployer's balance, less the fee, to RETURN_TO.
- *
- * @returns Why it stopped without returning the funds, or nothing once the funds are returned.
- */
-async function returnFunds(): Promise<string | undefined> {
-  const to = process.env.RETURN_TO;
-  if (to === undefined || to === "") {
-    return "set RETURN_TO to the address that gets the funds";
-  }
-  if (!isAddress(to)) {
-    return `RETURN_TO is not a valid address, or its checksum is wrong: ${to}`;
-  }
-  if (isAddressEqual(to, zeroAddress)) {
-    return "RETURN_TO is the zero address, and funds sent there are lost";
-  }
-
-  // The address pinned on the deployer key in step 4.
-  const from = hre.config.kms.keys["deployer"]?.address;
-  if (from === undefined || !isAddress(from)) {
-    return "pin the deployer key's address in hardhat.config.ts first";
-  }
-  if (isAddressEqual(to, from)) {
-    return `RETURN_TO is the deployer address ${from}; set it to the address that gets the funds`;
-  }
-
-  const { viem } = await hre.network.create("sepolia");
-  const wallets = await viem.getWalletClients();
-  if (!wallets.some((wallet) => isAddressEqual(wallet.account.address, from))) {
-    return `${from} is not an account of the sepolia network; check its kmsAccounts`;
-  }
-  const wallet = await viem.getWalletClient(from);
-  const publicClient = await viem.getPublicClient();
-
-  // A plain transfer with 21,000 gas runs out of gas at an address with code, and the funds stay.
-  if ((await publicClient.getCode({ address: to })) !== undefined) {
-    return `${to} has code, so it is a contract or a smart account (EIP-7702); send to an address with no code`;
-  }
-
-  const balance = await publicClient.getBalance({ address: from });
-  const { maxFeePerGas, maxPriorityFeePerGas } = await publicClient.estimateFeesPerGas();
-  const value = balance - 21_000n * maxFeePerGas;
-  if (value <= 0n) {
-    return `the balance of ${from}, ${formatEther(balance)} ETH, does not cover the fee`;
-  }
-
-  console.log(`sending ${formatEther(value)} ETH from ${from} to ${to}`);
-  const hash = await wallet.sendTransaction({
-    to,
-    value,
-    gas: 21_000n,
-    maxFeePerGas,
-    maxPriorityFeePerGas,
-  });
-  // viem waits up to 3 minutes for the receipt, then throws this error.
-  const receipt = await publicClient.waitForTransactionReceipt({ hash }).catch((error: unknown) => {
-    if (error instanceof WaitForTransactionReceiptTimeoutError) {
-      return undefined;
-    }
-    throw error;
-  });
-  if (receipt === undefined) {
-    return `the transfer ${hash} is not confirmed yet and may still go through; look it up on a Sepolia explorer before you run the script again`;
-  }
-  if (receipt.status !== "success") {
-    return `the transfer reverted in ${hash}; only the fee was spent, and the rest is still at ${from}`;
-  }
-  console.log(`sent in ${hash}`);
-  return undefined;
-}
-
-const stopped = await returnFunds();
-if (stopped !== undefined) {
-  console.error(stopped);
-  process.exitCode = 1;
-}
-```
-
-Set `RETURN_TO` to an address with no code, such as your own wallet's. The script sends a plain transfer with 21,000 gas, which runs out of gas at an address with code, so the script refuses a contract. It also refuses a wallet address whose smart account setting is on, because that setting gives the address code ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)). If the script refuses your wallet address for that reason, use another account of the wallet with the setting off, or create a new account in the wallet. Then run the script:
+Send the balance back with the script in [Return the funds from a KMS address](../guides/return-funds.md): save it as `scripts/return-funds.ts`, then run it with `RETURN_TO` set to an address with no code, such as your own wallet's:
 
 ```sh
 RETURN_TO=<return address> npx hardhat run scripts/return-funds.ts
 ```
 
-A tiny amount stays behind, 0.0000045 ETH in the recorded run, because the script reserves the fee at the highest price the transaction may pay. Run it again and the script stops with `the balance of <deployer address>, … ETH, does not cover the fee` and sends nothing.
-
-When the script stops early, it prints one line and exits with code 1. If the transfer reverts, the line is `the transfer reverted in <transaction hash>; only the fee was spent, and the rest is still at <deployer address>`. Run the script again with another address that has no code. If the transfer is not mined within 3 minutes, the line is `the transfer <transaction hash> is not confirmed yet and may still go through; look it up on a Sepolia explorer before you run the script again`. The transfer was sent, and once it is mined, the funds are returned.
+It ends with `sent in <transaction hash>`. If it stops with a one-line message instead, [What the script refuses](../guides/return-funds.md#what-the-script-refuses) explains each one, and nothing was sent unless the line names a transaction.
 
 Before you remove the key, open the deployer address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com) and check that its balance is close to zero. Once the key is gone, nothing can move what is left.
 
@@ -550,7 +387,7 @@ To keep the key instead, run only the `disable` command: a disabled version cann
 
 ## Next steps
 
-- [Deploy with Hardhat Ignition](../guides/deploy-with-ignition.md): choose the deployer and rehearse on a simulated network.
+- [Deploy with Hardhat Ignition](../guides/deploy-with-ignition.md): choose the deployer, rehearse on a simulated network and verify the source on block explorers.
 - [Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md): every option of a Cloud KMS key, and the errors you can meet.
 - [Errors](../reference/errors.md#hardhat-kmsgcp): every error message, with its cause and fix.
 - [Prevent and recover from losing a key](../guides/key-loss.md) before the key holds anything of value.
