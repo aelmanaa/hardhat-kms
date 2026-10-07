@@ -75,7 +75,7 @@ npmPreapprovedPackages: ["hardhat-kms", "@hardhat-kms/*"]
 
 Yarn 4.14 and later run no install scripts by default and print `YN0004` for `esbuild` and `protobufjs`; the plugin needs neither.
 
-`@hardhat-kms/gcp`: Yarn 1 and pnpm 10 can install the deprecated `google-gax` 6.11.0; [Set up a Google Cloud KMS key](gcp-kms-setup.md#3-install-the-plugin-and-configure-the-key) says how to check and how to override it.
+`@hardhat-kms/gcp`: Yarn 1 and pnpm 10 can install the deprecated `google-gax` 6.11.0; [Keep google-gax off 6.11.0](gcp-kms-setup.md#keep-google-gax-off-6110) says how to check and how to override it.
 
 ## 2. Register the plugin
 
