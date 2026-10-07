@@ -1,31 +1,51 @@
 // The CI gate of release.yml. Before anything is published to npm, the tagged commit must have:
-// - a run of ci.yml (the Linux jobs) that concluded `success`, and
+// - a run of ci.yml (the Linux jobs) that concluded `success`,
 // - a run of ci-all-os.yml whose macOS and Windows test jobs both passed (`bothPassed` of
-//   scripts/ci-all-os-decide.ts, so a run whose test jobs were skipped never counts).
+//   scripts/ci-all-os-decide.ts, so a run whose test jobs were skipped never counts),
+// - a run of hardhat-versions.yml (the Hardhat floor and latest), and
+// - a run of sdk-floors.yml (the cloud SDK and viem floors),
+//   each concluded `success` with every job `success` (`everyJobPassed`), so a run whose jobs
+//   were skipped never counts.
 // Only runs of that exact commit count, and never pull-request runs: those test a merge commit.
 // ci.yml runs on every push to main, so the merge commit of the Version Packages pull request has
-// one; the gate waits while it is still in progress. ci-all-os.yml runs nightly and may have skipped
-// the commit; then the gate dispatches it on the tag (`--ref`) and waits for the result.
+// one; the gate waits while it is still in progress. The other three are path-filtered or
+// scheduled and may have skipped the commit; then the gate dispatches each one that has no passing
+// run on the tag (`--ref`) and waits for the result.
 // It talks to the GitHub API through `gh api`, which reads its token from GH_TOKEN.
 //
 // Usage:
 //   node scripts/release-gate-ci.ts --repo OWNER/NAME --sha SHA --ref REF
 //     [--mode enforce|report] [--wait-minutes N] [--summary FILE]
-// `enforce` (the default) dispatches and waits, and exits 1 unless both runs passed. `report` is
-// the dry run: it looks once, dispatches nothing, writes what it found and exits 0 unless the API
-// fails. `--summary` appends the result lines (GITHUB_STEP_SUMMARY).
+// `enforce` (the default) dispatches and waits, and exits 1 unless all four runs passed. `report`
+// is the dry run: it looks once, dispatches nothing, writes what it found and exits 0 unless the
+// API fails. `--summary` appends the result lines (GITHUB_STEP_SUMMARY).
 import { execFile } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
 
-import { bothPassed, parseJobs } from "./ci-all-os-decide.ts";
+import { bothPassed, type Job, parseJobs } from "./ci-all-os-decide.ts";
 
 /** The Linux workflow, which runs on every push to main. */
 export const LINUX_WORKFLOW = "ci.yml";
 /** The macOS and Windows workflow, which the gate dispatches when no run passed. */
 export const ALL_OS_WORKFLOW = "ci-all-os.yml";
+/** The Hardhat floor-and-latest workflow, which the gate dispatches when no run passed. */
+export const HARDHAT_VERSIONS_WORKFLOW = "hardhat-versions.yml";
+/** The SDK and viem floor workflow, which the gate dispatches when no run passed. */
+export const SDK_FLOORS_WORKFLOW = "sdk-floors.yml";
+/** A workflow the gate dispatches on the tag when the commit has no passing run. */
+export type DispatchedWorkflow =
+  | typeof ALL_OS_WORKFLOW
+  | typeof HARDHAT_VERSIONS_WORKFLOW
+  | typeof SDK_FLOORS_WORKFLOW;
+/** The workflows the gate dispatches, in the order it looks at them and reports them. */
+export const DISPATCHED_WORKFLOWS: readonly DispatchedWorkflow[] = [
+  ALL_OS_WORKFLOW,
+  HARDHAT_VERSIONS_WORKFLOW,
+  SDK_FLOORS_WORKFLOW,
+];
 
 /** The fields of a workflow run the gate reads. */
 export interface GateRun {
@@ -146,21 +166,63 @@ async function runsOf(
 }
 
 /**
- * Looks for a passing ci.yml run on a commit: one that completed with `success`.
+ * Whether every job of a run concluded `success`, and there is at least one. A job skipped by an
+ * `if:` or a path condition does not count, so a run that tested nothing never passes.
+ * @param jobs - The jobs of the run.
+ */
+export function everyJobPassed(jobs: readonly Job[]): boolean {
+  return jobs.length > 0 && jobs.every((job) => job.conclusion === "success");
+}
+
+/**
+ * Looks for a run of a workflow on a commit that completed with `success`.
+ * @param since - A run id. A failed run at or below it is ignored, so a failure from before a
+ * dispatch does not end the wait; a passed run counts whatever its id.
+ * @param checkJobs - Also read the run's jobs and require {@link everyJobPassed}. GitHub reports a
+ * run whose jobs were all skipped as `success`, so a workflow that gains a conditional job could
+ * otherwise pass the gate untested. ci.yml skips some jobs on push by design and is read without it.
  * @returns The newest passing run, else a run in progress, else the newest failed run, else missing.
  */
-export async function findLinux(github: GateGitHub, repo: string, sha: string): Promise<Found> {
-  const runs = await runsOf(github, repo, LINUX_WORKFLOW, sha);
-  const passed = runs.find((run) => run.status === "completed" && run.conclusion === "success");
-  if (passed !== undefined) {
-    return { state: "passed", run: passed };
+export async function findConcluded(
+  github: GateGitHub,
+  repo: string,
+  workflow: string,
+  sha: string,
+  since: number = 0,
+  checkJobs: boolean = false,
+): Promise<Found> {
+  const runs = await runsOf(github, repo, workflow, sha);
+  let failed: GateRun | undefined;
+  for (const run of runs) {
+    if (run.status !== "completed") {
+      continue;
+    }
+    if (
+      run.conclusion === "success" &&
+      (!checkJobs ||
+        everyJobPassed(
+          parseJobs(await github.get(`repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`)),
+        ))
+    ) {
+      return { state: "passed", run };
+    }
+    if (run.id > since) {
+      failed ??= run;
+    }
   }
   const pending = runs.find((run) => run.status !== "completed");
   if (pending !== undefined) {
     return { state: "pending", run: pending };
   }
-  const failed = runs[0];
   return failed === undefined ? { state: "missing" } : { state: "failed", run: failed };
+}
+
+/**
+ * Looks for a passing ci.yml run on a commit: one that completed with `success`.
+ * @returns The newest passing run, else a run in progress, else the newest failed run, else missing.
+ */
+export async function findLinux(github: GateGitHub, repo: string, sha: string): Promise<Found> {
+  return await findConcluded(github, repo, LINUX_WORKFLOW, sha);
 }
 
 /**
@@ -198,7 +260,10 @@ export async function findAllOs(
   return failed === undefined ? { state: "missing" } : { state: "failed", run: failed };
 }
 
-function describe(workflow: string, found: Found): string {
+function describe(workflow: string, found: Found, dispatchedOn?: string): string {
+  if (found.state === "missing" && dispatchedOn !== undefined) {
+    return `${workflow}: dispatched on ${dispatchedOn}; its run is not listed yet.`;
+  }
   switch (found.state) {
     case "passed":
       return `${workflow}: run [${found.run.id}](${found.run.htmlUrl}) passed on this commit.`;
@@ -213,9 +278,30 @@ function describe(workflow: string, found: Found): string {
   }
 }
 
+/**
+ * Looks for a passing run of one of the dispatched workflows on a commit.
+ * @param since - See {@link findConcluded}.
+ */
+async function findDispatched(
+  github: GateGitHub,
+  repo: string,
+  workflow: DispatchedWorkflow,
+  sha: string,
+  since: number,
+): Promise<Found> {
+  return workflow === ALL_OS_WORKFLOW
+    ? await findAllOs(github, repo, sha, since)
+    : await findConcluded(github, repo, workflow, sha, since, true);
+}
+
 /** The highest run id among the candidates, so a dispatch can tell its run from older ones. */
-async function newestRunId(github: GateGitHub, repo: string, sha: string): Promise<number> {
-  const runs = await runsOf(github, repo, ALL_OS_WORKFLOW, sha);
+async function newestRunId(
+  github: GateGitHub,
+  repo: string,
+  workflow: string,
+  sha: string,
+): Promise<number> {
+  const runs = await runsOf(github, repo, workflow, sha);
   return runs.reduce((highest, run) => Math.max(highest, run.id), 0);
 }
 
@@ -233,22 +319,38 @@ export async function gate(
 ): Promise<GateResult> {
   const { repo, sha, ref, mode } = input;
   const header = `CI gate for \`${sha}\` (${ref}):`;
+  const lookAll = async (dispatchedAfter: ReadonlyMap<string, number>) =>
+    await Promise.all(
+      DISPATCHED_WORKFLOWS.map(async (workflow) => ({
+        workflow,
+        found: await findDispatched(
+          github,
+          repo,
+          workflow,
+          sha,
+          dispatchedAfter.get(workflow) ?? 0,
+        ),
+      })),
+    );
   if (mode === "report") {
     const linux = await findLinux(github, repo, sha);
-    const allOs = await findAllOs(github, repo, sha);
+    const others = await lookAll(new Map());
     const lines = [
       `${header} dry run, nothing dispatched.`,
       describe(LINUX_WORKFLOW, linux),
-      describe(ALL_OS_WORKFLOW, allOs),
+      ...others.map(({ workflow, found }) => describe(workflow, found)),
     ];
-    if (allOs.state === "missing" || allOs.state === "failed") {
-      lines.push(`A release run would dispatch ${ALL_OS_WORKFLOW} on ${ref} and wait for it.`);
+    for (const { workflow, found } of others) {
+      if (found.state === "missing" || found.state === "failed") {
+        lines.push(`A release run would dispatch ${workflow} on ${ref} and wait for it.`);
+      }
     }
     return { ok: true, lines };
   }
 
   const deadline = clock.now() + input.waitMs;
-  let dispatchedAfter: number | undefined;
+  // The highest run id of each workflow on the commit just before the gate dispatched it.
+  const dispatchedAfter = new Map<string, number>();
   for (;;) {
     const linux = await findLinux(github, repo, sha);
     if (linux.state === "missing" || linux.state === "failed") {
@@ -261,43 +363,65 @@ export async function gate(
         ],
       };
     }
-    const allOs = await findAllOs(github, repo, sha, dispatchedAfter ?? 0);
-    if (linux.state === "passed" && allOs.state === "passed") {
-      return {
-        ok: true,
-        lines: [header, describe(LINUX_WORKFLOW, linux), describe(ALL_OS_WORKFLOW, allOs)],
-      };
+    const others = await lookAll(dispatchedAfter);
+    // A dispatched workflow whose only listed run is from before the dispatch has no run of its
+    // own to show yet.
+    const describeAll = () => [
+      describe(LINUX_WORKFLOW, linux),
+      ...others.map(({ workflow, found }) => {
+        const after = dispatchedAfter.get(workflow);
+        if (after === undefined) {
+          return describe(workflow, found);
+        }
+        return describe(
+          workflow,
+          found.state === "failed" && found.run.id <= after ? { state: "missing" } : found,
+          ref,
+        );
+      }),
+    ];
+    const status = describeAll();
+    if (linux.state === "passed" && others.every(({ found }) => found.state === "passed")) {
+      return { ok: true, lines: [header, ...status] };
     }
-    if (allOs.state === "failed" && dispatchedAfter !== undefined) {
+    const failedDispatches = others.filter(
+      ({ workflow, found }) => found.state === "failed" && dispatchedAfter.has(workflow),
+    );
+    if (failedDispatches.length > 0) {
       return {
         ok: false,
         lines: [
           header,
-          describe(LINUX_WORKFLOW, linux),
-          describe(ALL_OS_WORKFLOW, allOs),
-          `The ${ALL_OS_WORKFLOW} run dispatched on ${ref} did not pass. Open it from the link above: re-run its failed jobs if the failure is a flake, then re-run this job; otherwise fix main and release a new version.`,
+          ...status,
+          ...failedDispatches.map(
+            ({ workflow }) =>
+              `The ${workflow} run dispatched on ${ref} did not pass. Open it from the link above: re-run its failed jobs if the failure is a flake, then re-run this job; otherwise fix main and release a new version.`,
+          ),
         ],
       };
     }
-    if ((allOs.state === "missing" || allOs.state === "failed") && dispatchedAfter === undefined) {
-      dispatchedAfter = await newestRunId(github, repo, sha);
-      await github.dispatch(ALL_OS_WORKFLOW, ref);
-      process.stdout.write(`dispatched ${ALL_OS_WORKFLOW} on ${ref}\n`);
+    for (const { workflow, found } of others) {
+      if (
+        (found.state === "missing" || found.state === "failed") &&
+        !dispatchedAfter.has(workflow)
+      ) {
+        dispatchedAfter.set(workflow, await newestRunId(github, repo, workflow, sha));
+        await github.dispatch(workflow, ref);
+        process.stdout.write(`dispatched ${workflow} on ${ref}\n`);
+      }
     }
+    const waited = describeAll();
     if (clock.now() >= deadline) {
       return {
         ok: false,
         lines: [
           header,
-          describe(LINUX_WORKFLOW, linux),
-          describe(ALL_OS_WORKFLOW, allOs),
-          `Gave up after ${Math.round(input.waitMs / 60_000)} minutes. Re-run this job once the runs above have finished.`,
+          ...waited,
+          `Gave up after ${Math.round(input.waitMs / 60_000)} minutes. Re-run this job once the runs above have finished; a dispatched run that is not listed yet is on its workflow's Actions page.`,
         ],
       };
     }
-    process.stdout.write(
-      `waiting: ${describe(LINUX_WORKFLOW, linux)} ${describe(ALL_OS_WORKFLOW, allOs)}\n`,
-    );
+    process.stdout.write(`waiting: ${waited.join(" ")}\n`);
     await clock.sleep(input.pollMs);
   }
 }
