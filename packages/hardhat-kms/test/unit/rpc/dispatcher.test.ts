@@ -54,6 +54,15 @@ const TYPED_DATA = {
   message: { contents: "hello" },
 } as const;
 
+/** The requests of each signing method that name `address`. */
+function signingRequests(address: Uint8Array) {
+  return [
+    ["eth_sign", [address, MESSAGE]],
+    ["personal_sign", [MESSAGE, address]],
+    ["eth_signTypedData_v4", [address, TYPED_DATA]],
+  ] as const;
+}
+
 /** The signature in a response, checked to recover to an address. */
 async function assertSignedBy(result: unknown, address: string): Promise<void> {
   assert.ok(typeof result === "string" && result.startsWith("0x"), String(result));
@@ -216,14 +225,11 @@ describe("dispatch: keys chosen with --kms", () => {
 });
 
 describe("dispatch: messages and typed data", () => {
-  it("signs eth_sign and personal_sign for a KMS address, given as text or bytes", async () => {
+  it("signs eth_sign and personal_sign for a KMS address", async () => {
     const fixture = await dispatchFixture();
-    const bytes = Buffer.from(COW.slice(2), "hex");
     for (const [method, params] of [
       ["eth_sign", [COW, MESSAGE]],
-      ["eth_sign", [bytes, MESSAGE]],
       ["personal_sign", [MESSAGE, COW.toLowerCase()]],
-      ["personal_sign", [MESSAGE, bytes]],
     ] as const) {
       const response = await fixture.request(method, params);
       assert.equal(response.jsonrpc, "2.0");
@@ -231,6 +237,45 @@ describe("dispatch: messages and typed data", () => {
       await assertSignedBy(resultOf(response), COW);
     }
     assert.deepEqual(fixture.forwarded, []);
+  });
+
+  it("refuses a KMS address given as 20 bytes, for each signing method, before any signature", async () => {
+    const bytes = Buffer.from(COW.slice(2), "hex");
+    for (const address of [bytes, new Uint8Array(bytes)]) {
+      for (const [method, params] of signingRequests(address)) {
+        const fixture = await dispatchFixture();
+        await assert.rejects(
+          fixture.request(method, params),
+          (error: unknown) =>
+            error instanceof HardhatPluginError &&
+            error.message ===
+              `${method}: the address must be a hex string such as ${COW}, not a byte array`,
+        );
+        assert.deepEqual(fixture.forwarded, [], method);
+        assert.deepEqual(fixture.reads, [], method);
+        assert.ok(fixture.adapters.every((adapter) => adapter.calls.signDigest === 0));
+      }
+    }
+  });
+
+  it("passes an address of bytes on when it is no KMS account's address, for each signing method", async () => {
+    const other = Buffer.from(OTHER.slice(2), "hex");
+    const cow = Buffer.from(COW.slice(2), "hex");
+    for (const address of [
+      other,
+      new Uint8Array(other),
+      cow.subarray(1),
+      new Uint8Array([...cow, 0]),
+    ]) {
+      for (const [method, params] of signingRequests(address)) {
+        const fixture = await dispatchFixture();
+        fixture.answers.set(method, () => "0xsigned");
+        assert.equal(resultOf(await fixture.request(method, params)), "0xsigned");
+        assert.equal(fixture.forwarded.length, 1);
+        assert.equal(fixture.forwarded[0]?.params, params);
+        assert.ok(fixture.adapters.every((adapter) => adapter.calls.signDigest === 0));
+      }
+    }
   });
 
   it("passes eth_sign and personal_sign for other addresses on, with no KMS call", async () => {

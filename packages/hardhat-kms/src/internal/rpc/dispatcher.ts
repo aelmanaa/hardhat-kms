@@ -349,7 +349,7 @@ export async function dispatch(
     return response(request, await listAccounts(accounts, request, next));
   }
   if (request.method === "eth_sign") {
-    const signed = await signFor(accounts, params[0], async (signer) => {
+    const signed = await signFor(accounts, request.method, params[0], async (signer) => {
       const [, data] = validateParams(params, rpcAddress, rpcData);
       return await signer.signPersonalMessage(data);
     });
@@ -357,7 +357,7 @@ export async function dispatch(
       return response(request, signed.result);
     }
   } else if (request.method === "personal_sign") {
-    const signed = await signFor(accounts, params[1], async (signer) => {
+    const signed = await signFor(accounts, request.method, params[1], async (signer) => {
       const [data] = validateParams(params, rpcData, rpcAddress);
       return await signer.signPersonalMessage(data);
     });
@@ -365,7 +365,7 @@ export async function dispatch(
       return response(request, signed.result);
     }
   } else if (request.method === "eth_signTypedData_v4") {
-    const signed = await signFor(accounts, params[0], async (signer) => {
+    const signed = await signFor(accounts, request.method, params[0], async (signer) => {
       const data: unknown = validateParams(params, rpcAddress, rpcAny)[1];
       return await signTypedData(signer, data, policy);
     });
@@ -1388,17 +1388,30 @@ async function broadcastRaw(
 }
 
 /**
- * Signs with the KMS account named by an address param.
+ * Signs with the KMS account named by an address param. A KMS account named as 20 bytes rather
+ * than a hex string is refused before any signature: Hardhat's simulated network and JSON-RPC
+ * nodes refuse that form, and Hardhat's schema refuses a plain `Uint8Array`.
  *
  * @returns The result, or `undefined` when the param is not a KMS account's address.
  */
 async function signFor<T>(
   accounts: ConnectionAccounts,
+  method: string,
   value: unknown,
   sign: (signer: KmsSigner) => Promise<T>,
 ): Promise<{ result: T } | undefined> {
   const address = addressParam(value);
-  return address === undefined ? undefined : await accounts.withSigner(address, sign);
+  if (address === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string" && (await accounts.isKmsAccount(address))) {
+    throw catalogError(
+      ERRORS.addressBytes,
+      { address: toChecksumAddress(address) },
+      { operation: method },
+    );
+  }
+  return await accounts.withSigner(address, sign);
 }
 
 /**

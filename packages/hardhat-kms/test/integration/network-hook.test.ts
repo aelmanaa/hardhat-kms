@@ -155,15 +155,21 @@ describe("network hook", () => {
         vector.signature,
       );
     }
-    // Hardhat also accepts the address as 20 bytes.
-    assert.equal(
-      await provider.request({
+    // The simulated network refuses the address as 20 bytes, and so does the plugin.
+    const signatures = created.zero?.calls.signDigest;
+    await assertKmsError(
+      provider.request({
         method: "eth_sign",
         params: [Buffer.from(ACCOUNT_0.slice(2), "hex"), `0x${PERSONAL_SIGN_VECTORS[0].message}`],
       }),
-      PERSONAL_SIGN_VECTORS[0].signature,
+      [`eth_sign: the address must be a hex string such as ${HARDHAT_ACCOUNT_0.address}`],
     );
-    assert.ok((created.zero?.calls.signDigest ?? 0) >= 5, "KMS signed every request");
+    assert.equal(created.zero?.calls.signDigest, signatures);
+    assert.equal(
+      created.zero?.calls.signDigest,
+      2 * PERSONAL_SIGN_VECTORS.length,
+      "KMS signed every request",
+    );
   });
 
   it("signs eth_signTypedData_v4 for a KMS account, from an object or a JSON string", async () => {

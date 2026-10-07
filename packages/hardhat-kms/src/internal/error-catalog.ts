@@ -942,6 +942,15 @@ export const ERRORS = {
       "A `--kms` key names the same KMS key as one of the network's `kmsAccounts`. `{path}` is that entry's place, such as `networks.sepolia.kmsAccounts[0]`, and `{named}` adds its name in brackets when it has one.",
     fix: "Drop `--kms`, or remove the key from the network's `kmsAccounts`.",
   },
+  addressBytes: {
+    id: "core.accounts.address-bytes",
+    kind: "error",
+    group: "Accounts",
+    template: "the address must be a hex string such as {address}, not a byte array",
+    cause:
+      "An `eth_sign`, `personal_sign` or `eth_signTypedData_v4` request names a KMS account as 20 bytes (a `Buffer` or a `Uint8Array`). Hardhat's simulated network and JSON-RPC nodes take the address only as a hex string. Nothing was signed.",
+    fix: "Pass the address as a 0x-prefixed hex string, for example with viem's `bytesToHex`.",
+  },
 
   // Transactions.
   txNotObject: {
