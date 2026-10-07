@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, type TestContext } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { HardhatPluginError } from "hardhat/plugins";
@@ -52,9 +52,9 @@ function signWith(secretKey: string) {
 function assertMismatch(run: () => unknown): void {
   assert.throws(run, (error: unknown) => {
     assert.ok(error instanceof HardhatPluginError, String(error));
-    assert.match(
+    assert.equal(
       error.message,
-      /does not recover to 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266; nothing was sent/,
+      "eth_sendTransaction: the signed transaction does not recover to 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266; nothing was sent",
     );
     return true;
   });
@@ -155,10 +155,153 @@ describe("signTransaction", () => {
       }),
       (error: unknown) => {
         assert.ok(error instanceof HardhatPluginError, String(error));
-        assert.match(error.message, /the filled transaction is not from 0xf39Fd6/);
+        assert.equal(
+          error.message,
+          "eth_signTransaction: the filled transaction is not from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        );
         return true;
       },
     );
     assert.equal(adapter.calls.signDigest, 0);
+  });
+
+  it("hands the unsigned transaction to checkUnsigned, whose refusal stops the signature", async () => {
+    const adapter = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
+    const signer = new KmsSigner(adapter, { timeoutMs: 30_000, displayMessage: async () => {} });
+    const seen: string[] = [];
+    await assert.rejects(
+      signTransaction(signer, {
+        filler: fillerOf(filledFrom(FROM)),
+        method: "eth_signTransaction",
+        params: [{ from: FROM }],
+        from: FROM.toLowerCase(),
+        checkUnsigned: (tx) => {
+          seen.push(tx.type);
+          throw new Error("refused by the check");
+        },
+      }),
+      /refused by the check/,
+    );
+    assert.deepEqual(seen, ["eip1559"]);
+    assert.equal(adapter.calls.signDigest, 0);
+  });
+});
+
+/** A filled EIP-1559 transfer from an address, with a given authorization list. */
+function filledFrom(
+  from: string,
+  authorizationList?: FilledTransaction["authorizationList"],
+): FilledTransaction {
+  return {
+    from: hex(from.slice(2)),
+    to: hex(TO.slice(2)),
+    gas: 50_000n,
+    nonce: 0n,
+    chainId: 31337n,
+    maxFeePerGas: 2n,
+    maxPriorityFeePerGas: 1n,
+    ...(authorizationList === undefined ? {} : { authorizationList }),
+  };
+}
+
+function fillerOf(filled: FilledTransaction): TransactionFiller {
+  return { fill: async () => await Promise.resolve(filled) };
+}
+
+const bytes32 = (value: bigint) => hex(value.toString(16).padStart(64, "0"));
+
+/** An authorization of TO for chain 31337, signed by cow, with its signature fields as bytes. */
+function signedAuthorization(nonce: bigint) {
+  const request = { chainId: 31337n, address: hex(TO.slice(2)), nonce };
+  const signature = secp256k1.sign(authorizationDigest(request), hex(COW_ACCOUNT.secretKey), {
+    prehash: false,
+    lowS: true,
+    format: "recovered",
+  });
+  const parsed = secp256k1.Signature.fromBytes(signature, "recovered");
+  return { request, r: parsed.r, s: parsed.s, yParity: parsed.recovery };
+}
+
+/** Signs a transfer with an authorization list and returns the warnings it printed. */
+async function signWithList(
+  t: TestContext,
+  authorizationList: FilledTransaction["authorizationList"],
+): Promise<string[]> {
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (message: string) => {
+    warnings.push(message);
+  });
+  const adapter = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
+  const signer = new KmsSigner(adapter, { timeoutMs: 30_000, displayMessage: async () => {} });
+  const signed = await signTransaction(signer, {
+    filler: fillerOf(filledFrom(FROM, authorizationList)),
+    method: "eth_sendTransaction",
+    params: [{ from: FROM }],
+    from: FROM.toLowerCase(),
+  });
+  const type = authorizationList === undefined ? "eip1559" : "eip7702";
+  assert.equal(Transaction.fromHex(signed.raw, false).type, type);
+  return warnings;
+}
+
+describe("signTransaction's authorization warnings", () => {
+  it("warns about nothing for a transaction without an authorization list", async (t) => {
+    assert.deepEqual(await signWithList(t, undefined), []);
+  });
+
+  it("warns about nothing for low-S authorizations of either parity", async (t) => {
+    const items = [0n, 1n, 2n, 3n, 4n, 5n].map((nonce) => signedAuthorization(nonce));
+    const parities = new Set(items.map((item) => item.yParity));
+    assert.ok(parities.has(0) && parities.has(1), "the nonces give both parities");
+    const warnings = await signWithList(
+      t,
+      items.map(({ request, r, s, yParity }) => ({
+        ...request,
+        yParity: hex(yParity === 0 ? "" : "01"),
+        r: bytes32(r),
+        s: bytes32(s),
+      })),
+    );
+    assert.deepEqual(warnings, []);
+  });
+
+  it("warns about a high-S signature, by its place in the list", async (t) => {
+    const good = signedAuthorization(0n);
+    const high = signedAuthorization(1n);
+    const warnings = await signWithList(t, [
+      {
+        ...good.request,
+        yParity: hex(good.yParity === 0 ? "" : "01"),
+        r: bytes32(good.r),
+        s: bytes32(good.s),
+      },
+      {
+        ...high.request,
+        // The high-S twin recovers to the same authority with the other parity.
+        yParity: hex(high.yParity === 0 ? "01" : ""),
+        r: bytes32(high.r),
+        s: bytes32(CURVE_ORDER - high.s),
+      },
+    ]);
+    assert.deepEqual(warnings, [
+      "hardhat-kms: authorizationList[1] has a high-S signature, which EIP-7702 forbids; nodes skip this authorization. Sign it again with a low-S signer.",
+    ]);
+  });
+
+  it("warns about a signature that recovers no authority, by its place in the list", async (t) => {
+    const good = signedAuthorization(0n);
+    const warnings = await signWithList(t, [
+      {
+        ...good.request,
+        yParity: hex(good.yParity === 0 ? "" : "01"),
+        r: bytes32(good.r),
+        s: bytes32(good.s),
+      },
+      // r = 0 is no signature at all.
+      { ...good.request, yParity: hex(""), r: bytes32(0n), s: bytes32(good.s) },
+    ]);
+    assert.deepEqual(warnings, [
+      "hardhat-kms: authorizationList[1]'s signature does not recover to an authority; nodes skip this authorization. Check its chainId, address, nonce and signature.",
+    ]);
   });
 });

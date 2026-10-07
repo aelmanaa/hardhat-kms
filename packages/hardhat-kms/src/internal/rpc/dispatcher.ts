@@ -1,6 +1,6 @@
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
-import { hexStringToBigInt } from "@nomicfoundation/hardhat-utils/hex";
+import { hexStringToBigInt, isHexString } from "@nomicfoundation/hardhat-utils/hex";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import {
   rpcAddress,
@@ -374,10 +374,10 @@ export async function dispatch(
     }
   } else if (TRANSACTION_METHODS.has(request.method)) {
     const outcome = await kmsTransactionOf(accounts, request.method, params, transactions);
-    if ("kms" in outcome && request.method === "eth_sendTransaction") {
+    if (outcome !== undefined && "kms" in outcome && request.method === "eth_sendTransaction") {
       return await sendTransaction(accounts, request, outcome.kms, transactions, next);
     }
-    if ("kms" in outcome) {
+    if (outcome !== undefined && "kms" in outcome) {
       // eth_signTransaction takes no lock and leaves the high-water mark alone (rule 5).
       const { key, address, params: signParams } = outcome.kms;
       const signed = await accounts.signWith(
@@ -392,7 +392,7 @@ export async function dispatch(
       );
       return response(request, signed.raw);
     }
-    if (outcome.params !== undefined) {
+    if (outcome !== undefined) {
       return await passThrough(accounts, { ...request, params: outcome.params }, next);
     }
   } else if (RAW_SEND_METHODS.has(request.method)) {
@@ -556,28 +556,25 @@ export function withSentence(message: string, sentence: string): string {
 function appendInPlace(error: Error, sentence: string): void {
   const { message, stack } = error;
   const hardhat = HardhatError.isHardhatError(error) ? error : undefined;
-  let formattedSet = false;
-  let messageSet = false;
   try {
     if (hardhat !== undefined) {
       Object.defineProperty(hardhat, "formattedMessage", {
         value: withSentence(hardhat.formattedMessage, sentence),
         configurable: true,
       });
-      formattedSet = true;
     }
     error.message = withSentence(message, sentence);
-    messageSet = true;
     if (typeof stack === "string") {
       error.stack = stack.replace(message, () => error.message);
     }
   } catch (failure) {
     log("could not add the KMS accounts to the error (%s)", errorName(failure));
-    if (messageSet) {
-      Reflect.set(error, "message", message);
-    }
-    if (formattedSet) {
-      Reflect.deleteProperty(error, "formattedMessage");
+    // Undo both writes. Undoing one that never happened changes nothing: the message gets the
+    // value it has, and a HardhatError's formattedMessage is a getter on its class, which a
+    // delete of the own property leaves in place.
+    Reflect.set(error, "message", message);
+    if (hardhat !== undefined) {
+      Reflect.deleteProperty(hardhat, "formattedMessage");
     }
   }
 }
@@ -598,9 +595,9 @@ interface KmsTransaction {
 
 /**
  * What happens to a transaction request: a KMS account signs it, or it goes on to the rest of the
- * chain, either unchanged (`params` undefined) or with the sender the plugin chose.
+ * chain, either with the sender the plugin chose (`params`) or unchanged (`undefined`).
  */
-type TransactionOutcome = { kms: KmsTransaction } | { params: unknown[] | undefined };
+type TransactionOutcome = { kms: KmsTransaction } | { params: unknown[] } | undefined;
 
 /**
  * Finds the KMS account that signs a transaction, and copies the transaction.
@@ -624,37 +621,38 @@ async function kmsTransactionOf(
 ): Promise<TransactionOutcome> {
   const [original, ...originalRest] = params;
   if (!isObject(original)) {
-    return { params: undefined };
+    return undefined;
   }
   const requestedFrom: unknown = original.from;
   let copy: { transaction: Record<string, unknown>; rest: unknown[] } | undefined;
   try {
     copy = structuredClone({ transaction: original, rest: originalRest });
   } catch {
-    copy = undefined;
+    // Not plain data: copy stays undefined.
   }
   let from = requestedFrom;
-  let forward: unknown[] | undefined;
+  // Not for a KMS account: unchanged, or with the default sender set.
+  let passOn: TransactionOutcome;
   if (from === undefined) {
     from = await transactions.defaultSender();
     if (from === undefined) {
-      return { params: undefined };
+      return undefined;
     }
-    forward = [{ ...original, from }, ...originalRest];
+    passOn = { params: [{ ...original, from }, ...originalRest] };
   }
   const address = addressParam(from);
   if (address === undefined) {
-    return { params: forward };
+    return passOn;
   }
   if (copy === undefined) {
     if (await accounts.isKmsAccount(address)) {
       throw notPlainData(method);
     }
-    return { params: forward };
+    return passOn;
   }
   const key = await accounts.keyFor(address);
   if (key === undefined) {
-    return { params: forward };
+    return passOn;
   }
   const { transaction, rest } = copy;
   return {
@@ -685,14 +683,17 @@ async function sendTransaction(
   const sends = transactions.sends();
   const { address } = kms;
   const callerParams = canonicalJson(kms.callerParams);
-  const retryKey =
-    callerParams === undefined ? undefined : `${chainId}\0${address}\0${callerParams}`;
+  const retries =
+    callerParams === undefined
+      ? NO_RETRY
+      : retrySlot(sends, `${chainId}\0${address}\0${callerParams}`);
   const nodeHas = async (hash: string): Promise<boolean> =>
     await nodeHasTransaction(transactions, hash);
   return await withSendLock(`${chainId}:${address}`, async () => {
-    const retry = retryKey === undefined ? undefined : sends.takeRetry(retryKey);
-    const mark = sends.highWaterOf(address);
-    if (retry !== undefined && mark !== undefined && retry.nonce <= mark) {
+    const retry = retries.take();
+    // -1n: no send has used a nonce, or the mark is off.
+    const mark = sends.highWaterOf(address) ?? -1n;
+    if (retry !== undefined && retry.nonce <= mark) {
       // A later send has used this nonce, or a higher one. The old bytes go out again only if the
       // node has them already; otherwise they could replace that later send, so sign afresh.
       if (await nodeHas(retry.hash)) {
@@ -705,7 +706,7 @@ async function sendTransaction(
       return await broadcast(request, retry, {
         address,
         sends,
-        retryKey,
+        retries,
         next,
         nodeHas,
         resend: true,
@@ -728,7 +729,7 @@ async function sendTransaction(
     return await broadcast(request, signed, {
       address,
       sends,
-      retryKey,
+      retries,
       next,
       nodeHas,
       resend: false,
@@ -777,12 +778,42 @@ async function nodeHasTransaction(
   return known;
 }
 
+/** The retry entry of one request: taken before its send, kept after a send without an answer. */
+interface RetrySlot {
+  /** Takes the request's retry entry, if one is alive. */
+  take(): SentTransaction | undefined;
+  /** Keeps a transaction for the request's next retry. */
+  remember(transaction: SentTransaction): void;
+}
+
+/** The slot of a request whose params cannot be serialized for a retry key: it keeps nothing. */
+const NO_RETRY: RetrySlot = {
+  take: () => undefined,
+  remember: () => {},
+};
+
+/**
+ * The retry slot of a request in a connection's send state.
+ *
+ * @param sends - The connection's send state.
+ * @param key - The retry key: chain id, sender and the caller's params.
+ * @returns The slot.
+ */
+function retrySlot(sends: ConnectionSends, key: string): RetrySlot {
+  return {
+    take: () => sends.takeRetry(key),
+    remember: (transaction) => {
+      sends.rememberFailure(key, transaction);
+    },
+  };
+}
+
 /** What a broadcast needs besides the request and the transaction. */
 interface BroadcastContext {
   address: string;
   sends: ConnectionSends;
-  /** The retry key, or `undefined` when the params cannot be serialized for one. */
-  retryKey: string | undefined;
+  /** The request's retry entry. */
+  retries: RetrySlot;
   next: Next;
   /** Asks the node whether it has a transaction. */
   nodeHas: (hash: string) => Promise<boolean>;
@@ -794,10 +825,14 @@ interface BroadcastContext {
  * Tells whether a node refused a raw transaction because it already has it. The message must
  * start with what a client says: "already known" (Geth, Reth, Erigon), "AlreadyKnown"
  * (Nethermind) or "known transaction" (older Geth, and Hardhat's EDR as "Known transaction:
- * <hash>"). A message such as "unknown transaction type" does not match.
+ * <hash>"). A message such as "unknown transaction type" does not match, and neither does one that
+ * is not a string, which only a broken node sends.
  */
-export function isAlreadyKnown(message: string): boolean {
-  return /^\s*(?:already known\b|alreadyknown\b|known transaction\b)/i.test(message);
+export function isAlreadyKnown(message: unknown): boolean {
+  return (
+    typeof message === "string" &&
+    /^\s*(?:already known\b|alreadyknown\b|known transaction\b)/i.test(message)
+  );
 }
 
 /**
@@ -827,14 +862,18 @@ function isConnectionRefused(error: unknown): boolean {
  * (-32603), as gateways answer when the backend they forwarded to timed out, or a message that
  * says the request timed out ("timeout", "timed out", "deadline exceeded"). The backend may have
  * taken the transaction before it gave up. A message that starts with "execution reverted" or
- * "revert" is a revert, whatever its code or reason.
+ * "revert" is a revert, whatever its code or reason. The code and the message are the answer's as
+ * they came, which only a broken node sends as other types than a number and a string.
  */
-export function isUncertainAnswer(code: number, message: string): boolean {
+export function isUncertainAnswer(code: unknown, message: unknown): boolean {
   // A revert's reason can say anything, "Deadline exceeded" included; it is a definite answer.
-  if (/^\s*(?:execution reverted|revert)/i.test(message)) {
+  if (typeof message === "string" && /^\s*(?:execution reverted|revert)/i.test(message)) {
     return false;
   }
-  return code === -32603 || /\btimed? ?out\b|deadline exceeded/i.test(message);
+  return (
+    code === -32603 ||
+    (typeof message === "string" && /\btimed? ?out\b|deadline exceeded/i.test(message))
+  );
 }
 
 /**
@@ -875,17 +914,19 @@ async function broadcast(
   transaction: SentTransaction,
   context: BroadcastContext,
 ): Promise<JsonRpcResponse> {
-  const { address, sends, retryKey, next, nodeHas, resend } = context;
-  const accepted = (): JsonRpcResponse => {
+  const { address, sends, retries, next, nodeHas, resend } = context;
+  // The node has the transaction: its nonce is used.
+  const nodeHasIt = (): void => {
     sends.settleUncertain(address, transaction.hash);
     sends.recordSent(address, transaction.nonce);
     sends.releaseReservationsUpTo(address, transaction.nonce);
+  };
+  const accepted = (): JsonRpcResponse => {
+    nodeHasIt();
     return response(request, transaction.hash);
   };
   const keepUncertain = (): void => {
-    if (retryKey !== undefined) {
-      sends.rememberFailure(retryKey, transaction);
-    }
+    retries.remember(transaction);
     sends.rememberUncertain(address, transaction);
   };
   let error: Record<string, unknown>;
@@ -897,9 +938,7 @@ async function broadcast(
       params: [transaction.raw],
     });
     if (!("error" in answer)) {
-      sends.settleUncertain(address, transaction.hash);
-      sends.recordSent(address, transaction.nonce);
-      sends.releaseReservationsUpTo(address, transaction.nonce);
+      nodeHasIt();
       return answer;
     }
     error = answer.error;
@@ -907,9 +946,9 @@ async function broadcast(
   } catch (thrown) {
     if (isConnectionRefused(thrown)) {
       log("sending transaction %s: the node refused the connection", transaction.hash);
-      if (resend && retryKey !== undefined) {
+      if (resend) {
         // The first send's outcome is still unknown: keep its bytes for the next retry.
-        sends.rememberFailure(retryKey, transaction);
+        retries.remember(transaction);
       }
       throw thrown;
     }
@@ -934,14 +973,11 @@ async function broadcast(
       throw thrown;
     };
   }
-  const message = typeof error.message === "string" ? error.message : "";
-  const code = typeof error.code === "number" ? error.code : 0;
+  const { code, message } = error;
   if (minedHashOf(error) !== undefined || code === 3) {
     // Mined, or reverted when it ran: a definite answer.
     if (minedHashOf(error) !== undefined) {
-      sends.settleUncertain(address, transaction.hash);
-      sends.recordSent(address, transaction.nonce);
-      sends.releaseReservationsUpTo(address, transaction.nonce);
+      nodeHasIt();
       return passOn();
     }
     // A revert without a hash, for bytes sent again: the first send may have been mined, and
@@ -956,7 +992,11 @@ async function broadcast(
     return accepted();
   }
   if (isUncertainAnswer(code, message)) {
-    log("sending transaction %s: the node does not know the outcome (%d)", transaction.hash, code);
+    log(
+      "sending transaction %s: the node does not know the outcome (%s)",
+      transaction.hash,
+      String(code),
+    );
     keepUncertain();
     return passOn();
   }
@@ -1215,18 +1255,20 @@ export async function resetLibraryNonce(
   const sends = transactions.sends();
   const hold = libraryHoldOf(key);
   if (hold !== undefined && sends.hasReservations(address)) {
+    let count: unknown;
     try {
-      const count = await transactions.request("eth_getTransactionCount", [address, "pending"]);
-      sends.releaseReservationsBelow(
-        address,
-        hexStringToBigInt(stringResult(count, "eth_getTransactionCount", "nonceManager.reset")),
-      );
+      count = await transactions.request("eth_getTransactionCount", [address, "pending"]);
     } catch (error) {
       log(
         "%s: nonceManager.reset could not read the pending count (%s)",
         address,
         errorName(error),
       );
+    }
+    // An answer that is not a hex quantity ends no reservation, as a failed read does.
+    // isHexString does not narrow the type; String() returns the same string.
+    if (isHexString(count)) {
+      sends.releaseReservationsBelow(address, hexStringToBigInt(String(count)));
     }
   }
   if (sends.hasReservations(address)) {
@@ -1291,8 +1333,7 @@ async function broadcastRaw(
     sends.releaseReservation(address, transaction.nonce);
   };
   const learn = (error: Record<string, unknown>): void => {
-    const message = typeof error.message === "string" ? error.message : "";
-    const code = typeof error.code === "number" ? error.code : 0;
+    const { code, message } = error;
     if (
       minedHashOf(error) !== undefined ||
       isAlreadyKnown(message) ||

@@ -4,14 +4,16 @@ name: Mutation testing
 # every core unit test (docs/contributor/testing.md, layer 8). Not a required check and no pull_request
 # trigger: a full run takes far longer than the rest of CI.
 #
-# Shards. The `plan` job reads `mutate` and makes one shard per directory under src/internal/ that it
-# names (today crypto, signer, viem and rpc). Each shard is its own job on its own runner, with its own
-# incremental file and cache entries, so the slowest shard sets the wall time instead of the sum of
-# all of them, and a shard that runs long does not cancel the others. The `score` job adds up the
-# shards' reports and checks the total against `break`. Each shard also checks its own score against
-# `break`, so one weak shard fails even when the total passes. An entry of `mutate` outside
-# src/internal/<directory>/, or in a directory whose name has other characters than lowercase letters
-# and digits, fails the plan, so no file is left out of every shard.
+# Shards. The `plan` job reads `mutate` and makes one shard per entry that names a single file
+# (`rpc_dispatcher` for src/internal/rpc/dispatcher.ts), and one per directory under src/internal/
+# for the other entries (today crypto, signer and viem). The exclusions (`!` entries) go to every
+# shard of their directory. Each shard is its own job on its own runner, with its own incremental
+# file and cache entries, so the slowest shard sets the wall time instead of the sum of all of them,
+# and a shard that runs long does not cancel the others. The `score` job adds up the shards' reports
+# and checks the total against `break`. Each shard also checks its own score against `break`, so one
+# weak shard fails even when the total passes. An entry of `mutate` outside src/internal/<directory>/,
+# or in a directory or file whose name has other characters than lowercase letters, digits and `-`,
+# fails the plan, so no file is left out of every shard.
 #
 # - Weekly, Mondays: a shard is skipped before install when its last run on the same inputs passed;
 #   otherwise an incremental run that re-tests only the mutants in changed mutated files and the
@@ -24,7 +26,8 @@ name: Mutation testing
 #   set, a cron line fires on either.
 # - Monthly, and on dispatch with `force`: a full run. Incremental mode does not see changes outside
 #   the mutated and test files, such as dependency updates or unmutated source the mutated code
-#   imports (errors.ts, error-catalog.ts, the rest of rpc/), so their effect shows only in a full run.
+#   imports (errors.ts, error-catalog.ts, rpc/chain-id.ts, rpc/typed-data.ts), so their effect
+#   shows only in a full run.
 #
 # Cache design. Cache entries cannot be overwritten, so every shard that reaches Stryker saves its
 # incremental file under a new key:
@@ -64,11 +67,13 @@ jobs:
     timeout-minutes: 5
     outputs:
       shards: ${{ steps.shards.outputs.shards }}
+      names: ${{ steps.shards.outputs.names }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # One shard per directory under src/internal/ that `mutate` names, in order of first mention.
+      # One shard per entry of `mutate` that names one file, and one per directory under
+      # src/internal/ for the others, in order of first mention.
       - name: Shards from the Stryker config
         id: shards
         working-directory: packages/hardhat-kms
@@ -76,16 +81,29 @@ jobs:
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
           import json, re, sys
-          shards = []
+          shards = {}
+          exclusions = []
           for entry in json.load(open("stryker.config.json"))["mutate"]:
-              # No "-" in a shard name: the cache key prefix stryker-<os>-<shard>- must not be a
-              # prefix of another shard's keys.
-              match = re.match(r"!?src/internal/([a-z0-9]+)/", entry)
+              match = re.fullmatch(r"(!?)src/internal/([a-z0-9]+)/(.+)", entry)
               if match is None:
                   sys.exit(f"mutate entry {entry!r} is not under src/internal/<directory>/ with a name of lowercase letters and digits, so no shard runs it")
-              if not entry.startswith("!") and match.group(1) not in shards:
-                  shards.append(match.group(1))
-          print(f"shards={json.dumps(shards)}")
+              excluded, directory, rest = match.groups()
+              if excluded:
+                  exclusions.append((directory, entry))
+                  continue
+              file = re.fullmatch(r"([a-z0-9-]+)\.ts", rest)
+              # No "-" in a shard name: the cache key prefix stryker-<os>-<shard>- must not be a
+              # prefix of another shard's keys. A file's shard joins its directory and its name
+              # with "_", which no directory name has.
+              name = directory if file is None else f"{directory}_{file.group(1).replace('-', '_')}"
+              shards.setdefault(name, {"directory": directory, "mutate": []})["mutate"].append(entry)
+          for directory, entry in exclusions:
+              for shard in shards.values():
+                  if shard["directory"] == directory:
+                      shard["mutate"].append(entry)
+          matrix = [{"shard": name, "mutate": ",".join(shard["mutate"])} for name, shard in shards.items()]
+          print(f"shards={json.dumps(matrix)}")
+          print(f"names={json.dumps(list(shards))}")
           EOF
 
   mutation:
@@ -100,10 +118,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+        include: ${{ fromJSON(needs.plan.outputs.shards) }}
     env:
       FULL_RUN: ${{ github.event.schedule == '17 3 1 * *' || inputs.force == true }}
       SHARD: ${{ matrix.shard }}
+      MUTATE: ${{ matrix.mutate }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -163,8 +182,8 @@ jobs:
         run: |
           set -o pipefail
           if [ "$FULL_RUN" = "true" ]; then mode=--force; else mode=--incremental; fi
-          # The shard's entries of `mutate`, exclusions included, as Stryker's comma-separated list.
-          mutate=$(python3 -c 'import json, os, re; print(",".join(e for e in json.load(open("stryker.config.json"))["mutate"] if re.match(r"!?src/internal/" + re.escape(os.environ["SHARD"]) + "/", e)))')
+          # The shard's entries of `mutate`, exclusions included, as the plan listed them.
+          mutate="$MUTATE"
           echo "Mutating: $mutate"
           # 2 workers on the 2-vCPU runner, set explicitly: timeouts count as caught, and more workers
           # than cores turn survivors into timeouts, so the score depends on the worker count.
@@ -224,7 +243,7 @@ jobs:
       # Stryker's score: (killed + timeout) / (every mutant but the ignored ones and the errors).
       - name: Total score against break
         env:
-          SHARDS: ${{ needs.plan.outputs.shards }}
+          SHARDS: ${{ needs.plan.outputs.names }}
           MUTATION_RESULT: ${{ needs.mutation.result }}
         shell: bash
         run: |
