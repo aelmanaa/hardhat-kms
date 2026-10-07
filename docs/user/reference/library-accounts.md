@@ -7,27 +7,34 @@ description: "connection.kms.getAccount returns a viem account for a KMS key, fo
 
 Audience: Users and library authors who need a viem account object for a KMS key, for example for viem's `signAuthorization`, a smart-account SDK or a script outside a wallet client.
 
-> [!WARNING]
-> Send the account's transactions with a viem client whose transport is `custom(connection.provider)`. viem fills a local account's transaction and sends it with `eth_sendRawTransaction` itself. Through the connection, the account's sends and the plugin's own sends from the same key take turns and do not share a nonce, within the cases in [Sending](#sending). A client with its own transport, such as `http(url)`, never goes through Hardhat: its nonce is reserved for 60 s, but its broadcast is not ordered. If the same key also sends through the plugin, or through a second client, two failures can follow:
->
-> - nonce too low: the two paths pick the same nonce, and the node refuses the second transaction;
-> - on a real network, a same-nonce higher-fee replacement whose receipt viem returns as yours: the node keeps whichever transaction pays more, and viem's `waitForTransactionReceipt` follows the replacement and returns its receipt, so the code reads another transaction's receipt as the one it sent.
->
-> Such a client prints a warning the first time it asks the account for a nonce.
-
 ## `connection.kms.getAccount`
 
-Every network connection has a `kms` field. Its `getAccount` method returns a viem [`LocalAccount`](https://viem.sh/docs/accounts/local) whose key is one of the connection's KMS keys. Here the account signs an EIP-7702 authorization, and nothing is sent:
+Every network connection has a `kms` field. Its `getAccount` method returns a viem [`LocalAccount`](https://viem.sh/docs/accounts/local) whose key is one of the connection's KMS keys. Here the account signs a message, and nothing is sent:
 
 ```ts
 // Loads the types of `connection.kms`. hardhat.config.ts already does this in a project.
+import "hardhat-kms";
+import { network } from "hardhat";
+
+const connection = await network.create("sepolia");
+// The deployer key's address, from `npx hardhat kms address deployer`.
+const account = await connection.kms.getAccount("0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826");
+
+// The KMS key signs the EIP-191 message, and the plugin checks that the signature recovers to
+// account.address before it returns it.
+const signature = await account.signMessage({ message: "hello from a KMS key" });
+console.log(account.address, signature);
+```
+
+To use the account with a viem client, give the client `custom(connection.provider)` as its transport. The client's requests then go through Hardhat and the plugin, which reads the chain and the nonce through the connection and orders the account's sends with its own ([Sending](#sending)). Here a wallet client signs an EIP-7702 authorization, and nothing is sent yet:
+
+```ts
 import "hardhat-kms";
 import { network } from "hardhat";
 import { createWalletClient, custom } from "viem";
 import { sepolia } from "viem/chains";
 
 const connection = await network.create("sepolia");
-// The deployer key's address, from `npx hardhat kms address deployer`.
 const account = await connection.kms.getAccount("0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826");
 
 // The wallet client fills the chain id and the account's nonce, then the KMS key signs.
@@ -129,6 +136,14 @@ Each error is listed with its cause and fix in the [errors reference](errors.md#
 `signTransaction` signs the bytes of the plugin's own serializer, micro-eth-signer as in Hardhat's local accounts. First, though, it serializes the same transaction with viem's `serializeTransaction`, or with the serializer viem passes for a chain that has one, and refuses when the unsigned bytes differ. So a chain whose transactions carry fields the standard types lack, such as a fee currency, cannot sign through the account.
 
 ## Sending
+
+> [!WARNING]
+> Send the account's transactions with a viem client whose transport is `custom(connection.provider)`. viem fills a local account's transaction and sends it with `eth_sendRawTransaction` itself. Through the connection, the account's sends and the plugin's own sends from the same key take turns and do not share a nonce, within the cases below. A client with its own transport, such as `http(url)`, never goes through Hardhat: its nonce is reserved for 60 s, but its broadcast is not ordered. If the same key also sends through the plugin, or through a second client, two failures can follow:
+>
+> - nonce too low: the two paths pick the same nonce, and the node refuses the second transaction;
+> - on a real network, a same-nonce higher-fee replacement whose receipt viem returns as yours: the node keeps whichever transaction pays more, and viem's `waitForTransactionReceipt` follows the replacement and returns its receipt, so the code reads another transaction's receipt as the one it sent.
+>
+> Such a client prints a warning the first time it asks the account for a nonce.
 
 The account has a viem `nonceManager`. For each send that has no `nonce` of its own (`sendTransaction`, `writeContract`, `deployContract`, `sendTransactionSync`, `writeContractSync`), viem asks it for the nonce, then fills the fees, calls `signTransaction` and sends `eth_sendRawTransaction`, or `eth_sendRawTransactionSync` ([EIP-7966](https://eips.ethereum.org/EIPS/eip-7966)) for the `Sync` actions, which wait for the receipt. When the send fails, viem calls the manager's `reset`. Through the connection, the plugin orders these sends with the account's sends through the plugin in the same process, such as `connection.viem.getWalletClient(address)`, scripts and Ignition:
 

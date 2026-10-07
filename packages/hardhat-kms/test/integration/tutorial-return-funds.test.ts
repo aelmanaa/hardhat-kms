@@ -1,8 +1,8 @@
-// Runs `scripts/return-funds.ts` from step 8 of the first-deploy tutorials the way a reader runs it,
-// with `hardhat run`, against a `hardhat node` in place of Sepolia. The deployer is a KMS account
-// whose fake adapter signs with a local key, so nothing reaches a cloud or a live network. The node
-// runs with `throwOnTransactionFailures: false`, so a reverted transfer is mined and returns its
-// hash, as it does on Sepolia.
+// Runs `scripts/return-funds.ts` from the return-funds guide, which the first-deploy tutorials link
+// from their clean-up step, the way a reader runs it, with `hardhat run`, against a `hardhat node`
+// in place of Sepolia. The deployer is a KMS account whose fake adapter signs with a local key, so
+// nothing reaches a cloud or a live network. The node runs with `throwOnTransactionFailures: false`,
+// so a reverted transfer is mined and returns its hash, as it does on Sepolia.
 //
 // The script imports `hardhat-kms`, which resolves to the built package: run `pnpm run build` first
 // (`pnpm test` does). The tests share the node's state and run in order: the refusals, then the
@@ -26,6 +26,7 @@ import {
 import { COW_ACCOUNT } from "../helpers/vectors.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const GUIDE = path.resolve(repo, "../../docs/user/guides/return-funds.md");
 const TUTORIALS = ["aws", "gcp", "azure"].map((provider) =>
   path.resolve(repo, `../../docs/user/tutorials/first-deploy-${provider}.md`),
 );
@@ -39,10 +40,10 @@ const DELEGATED = "0x00000000000000000000000000000000000c0de2";
 /** An ordinary account's address with one letter's case flipped, which breaks its checksum. */
 const BAD_CHECKSUM = "0x70997970c51812dc3A010C7d01b50e0d17dc79C8";
 const ZERO = "0x0000000000000000000000000000000000000000";
-/** The receipt wait, as the tutorials print it, with viem's default timeout. */
+/** The receipt wait, as the guide prints it, with viem's default timeout. */
 const RECEIPT_WAIT = /\.waitForTransactionReceipt\(\{ hash \}\)/;
 const CODE_REFUSAL = /has code, so it is a contract or a smart account \(EIP-7702\)/;
-/** The comment and the check that refuse an address with code, as the tutorials print them. */
+/** The comment and the check that refuse an address with code, as the guide prints them. */
 const CODE_CHECK =
   /\n {2}\/\/ A plain transfer with 21,000 gas runs out of gas at an address with code[^\n]*\n {2}if \(\(await publicClient\.getCode\(\{ address: to \}\)\) !== undefined\) \{\n[^\n]*\n {2}\}\n/;
 
@@ -127,13 +128,15 @@ const SCRIPT_RUNS = refusals.length + 4;
  */
 const SUITE_LIMIT_MS = NODE_START_LIMIT_MS + SCRIPT_RUNS * RUN_LIMIT_MS;
 
-/** The `scripts/return-funds.ts` code block of a tutorial. */
-function returnFundsScript(tutorial: string): string {
-  const text = readFileSync(tutorial, "utf8");
+/** The `scripts/return-funds.ts` code block of a page, or undefined when the page has none. */
+function returnFundsScript(page: string): string | undefined {
+  const text = readFileSync(page, "utf8");
   const start = text.indexOf("Save this script as `scripts/return-funds.ts`.");
-  assert.notEqual(start, -1, `${tutorial} has no return-funds script`);
+  if (start === -1) {
+    return undefined;
+  }
   const match = /```ts\n([\s\S]*?)\n```\n/.exec(text.slice(start));
-  assert.ok(match?.[1] !== undefined, `${tutorial}: no TypeScript block after the script's intro`);
+  assert.ok(match?.[1] !== undefined, `${page}: no TypeScript block after the script's intro`);
   return `${match[1]}\n`;
 }
 
@@ -243,7 +246,7 @@ function assertStopped(run: HardhatRun, message: RegExp): void {
   assert.doesNotMatch(output, /bug in Hardhat/);
 }
 
-describe("the tutorials' return-funds script", { timeout: SUITE_LIMIT_MS }, () => {
+describe("the return-funds guide's script", { timeout: SUITE_LIMIT_MS }, () => {
   // Stops a run when its test ends or times out.
   beforeEach((t) => {
     signal = t.signal;
@@ -264,7 +267,8 @@ describe("the tutorials' return-funds script", { timeout: SUITE_LIMIT_MS }, () =
         pathToFileURL(path.join(repo, "test/helpers/fake-adapter.ts")).href,
       ),
     );
-    const script = returnFundsScript(TUTORIALS[0] ?? "");
+    const script = returnFundsScript(GUIDE);
+    assert.ok(script !== undefined, `${GUIDE} has no return-funds script`);
     assert.match(script, CODE_CHECK, "the code check is not where the test expects it");
     mkdirSync(path.join(project, "scripts"));
     writeFileSync(path.join(project, "scripts", "return-funds.ts"), script);
@@ -291,10 +295,16 @@ describe("the tutorials' return-funds script", { timeout: SUITE_LIMIT_MS }, () =
     rmSync(project, { recursive: true, force: true });
   });
 
-  it("is the same in the three tutorials", () => {
-    const [aws, ...others] = TUTORIALS.map(returnFundsScript);
-    for (const [index, other] of others.entries()) {
-      assert.equal(other, aws, `${TUTORIALS[index + 1] ?? ""} differs from ${TUTORIALS[0] ?? ""}`);
+  it("exists once: the tutorials link the guide and carry no copy", () => {
+    for (const tutorial of TUTORIALS) {
+      const text = readFileSync(tutorial, "utf8");
+      assert.match(
+        text,
+        /\]\(\.\.\/guides\/return-funds\.md\)/,
+        `${tutorial} does not link the guide`,
+      );
+      assert.equal(returnFundsScript(tutorial), undefined, `${tutorial} has its own copy`);
+      assert.doesNotMatch(text, /WaitForTransactionReceiptTimeoutError/, `${tutorial} has a copy`);
     }
   });
 
