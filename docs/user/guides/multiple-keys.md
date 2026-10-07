@@ -195,7 +195,7 @@ export default defineConfig({
 });
 ```
 
-On `sepolia`, whose node manages no accounts, `eth_accounts` lists the Ledger address, then `deployer`. Name the sender by address in every script, as in [Choose the sender by address](#choose-the-sender-by-address). A request from the Ledger address waits for approval on the device, and a request from `deployer` signs in AWS KMS without one. [A KMS key or a Ledger](../explanation/kms-or-ledger.md) compares the two.
+On `sepolia`, whose node manages no accounts, `eth_accounts` lists the Ledger address, then the address of `deployer`. Name the sender by address in every script, as in [Choose the sender by address](#choose-the-sender-by-address). A request from the Ledger address waits for approval on the device, and a request from `deployer` signs in AWS KMS without one. [A KMS key or a Ledger](../explanation/kms-or-ledger.md) compares the two.
 
 ## Add keys from the command line
 

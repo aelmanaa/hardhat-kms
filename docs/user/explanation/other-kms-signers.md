@@ -25,14 +25,14 @@ Searches of the npm registry on 2026-10-07 for "hardhat-kms", "hardhat kms", "ha
 
 Table notes:
 
-- Cloud: the cloud SDK or signer library the package depends on. The AWS packages depend on `@aws-sdk/client-kms`, `aws-sdk` or `@rumblefishdev/eth-signer-kms`; the Google Cloud ones on `@google-cloud/kms`, `ethers-gcp-kms-signer` or `@cuonghx.gu-tech/ethers-gcp-kms-signer`.
+- Cloud: the cloud whose KMS the package signs with, from its dependencies and its config field.
 - Last release: the latest version on npm and its publish date, from `npm view <package> time`.
 - Hardhat range: where the package's `package.json` names `hardhat`. "Development only" means it is only in `devDependencies`, so npm does not check it against your project.
 - Forks: on GitHub, `WhiteMatrixTech/hardhat-kms-signer` and `BonneVoyager/hardhat-signer-kms` are forks of `rumblefishdev/hardhat-kms-signer`. `ADISAKBOONMARK/hardhat-kms-signer` is a fork of `indiigo-consulting/hardhat-kms-signer`, itself a fork of the rumblefishdev repository.
-- Repository: the package's npm metadata names `0xcuonghx/ethers-kms-signer` for `@cuonghx.gu-tech/hardhat-gcp-kms-signer-plugin`; GitHub redirects it to `cuonghx-dev/evm-kms-signer`.
+- Repository: the package's npm metadata names `0xcuonghx/ethers-kms-signer` for `@cuonghx.gu-tech/hardhat-gcp-kms-signer-plugin`; GitHub redirects it to `cuonghx-dev/evm-kms-signer`. Since 2026-10-03 the default branch of that repository holds `@cuonghx/evm-kms-signer`, a signer library for viem and ethers, and no Hardhat plugin.
 - None of the seven repositories is archived, and none of the packages is marked deprecated on npm.
 
-The searches found no Hardhat 3 KMS signer other than hardhat-kms, and no Hardhat plugin for Azure Key Vault.
+The searches found no Hardhat 3 KMS signer and no Hardhat plugin for Azure Key Vault.
 
 ## How they plug into Hardhat
 

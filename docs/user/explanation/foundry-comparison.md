@@ -37,5 +37,5 @@ The AWS row with a profile and access keys is the one that changes which identit
 ## Other comparisons
 
 - [Compared with other KMS signers](other-kms-signers.md): the Hardhat 2 `hardhat-kms-signer` packages and their forks.
-- [A KMS key or a private key in .env](kms-or-env-key.md), the setup most Hardhat and Foundry projects start from.
-- [A KMS key or a Ledger](kms-or-ledger.md), and both in one project.
+- [A KMS key or a private key in .env](kms-or-env-key.md): the setup most Hardhat and Foundry projects start from.
+- [A KMS key or a Ledger](kms-or-ledger.md): a device prompt for each signature, and both in one project.
