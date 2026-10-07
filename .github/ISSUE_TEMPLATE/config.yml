@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: "Before you ask: docs and support"
+    url: https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/support.md#questions
+    about: Where to look first, and where to ask a question about using the plugin.
   - name: Security vulnerability
     url: https://github.com/aelmanaa/hardhat-kms/security/advisories/new
     about: Report vulnerabilities privately. See SECURITY.md.
