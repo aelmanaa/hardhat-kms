@@ -9,3 +9,5 @@ Once a line reaches end of life, a minor release may drop it, never earlier. A p
 The minimum can rise without a release of these packages. Hardhat checks its own minimum at startup and has raised it in a patch release before: 3.4.3 moved it from 22.10.0 to 22.13.0. The cloud SDKs the provider packages depend on can drop an end-of-life line inside the version ranges these packages declare. When either happens, the next minor release raises `engines.node` to match and the changeset says so.
 
 On an older Node.js, `npm install` prints an `EBADENGINE` warning (an error with `engine-strict`); `pnpm install` installs without a message unless `engineStrict` is set, then it fails with `ERR_PNPM_UNSUPPORTED_ENGINE`. In both cases `npx hardhat` exits with an error naming the minimum version before any task runs.
+
+The Hardhat and viem ranges, the release channels and how long a previous major gets security fixes are in [Release channels and versioning](../explanation/versioning.md).

@@ -32,6 +32,7 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 - How a request goes from viem or ethers through the plugin to the KMS and the node: [docs/user/explanation/how-it-works.md](docs/user/explanation/how-it-works.md)
 - Which credentials sign on a laptop, in CI and on a server, per cloud: [docs/user/explanation/cloud-access.md](docs/user/explanation/cloud-access.md)
 - What the plugin protects against and what it does not, what to configure, and what happens when a KMS call times out: [docs/user/explanation/security-model.md](docs/user/explanation/security-model.md)
+- What `latest` and `beta` mean, what a version number promises, the Hardhat and viem ranges per plugin major, and how long an old major gets security fixes: [docs/user/explanation/versioning.md](docs/user/explanation/versioning.md)
 - Pages not written yet (the remaining guides, a docs site): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
 
 Never ask a user to paste credentials, private keys or API-keyed RPC URLs. Credentials come from each provider SDK's default chain, never from the Hardhat config. API-keyed RPC URLs belong in `configVariable()`, which also accepts key identifiers.
