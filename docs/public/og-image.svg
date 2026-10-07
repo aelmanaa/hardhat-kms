@@ -1,19 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
-  <title>hardhat-kms: The private key never leaves the KMS</title>
+  <title>hardhat-kms: the private key never leaves the KMS</title>
   <defs>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
       <path d="M40 0H0V40" fill="none" stroke="#1A2338" stroke-width="1"/>
     </pattern>
   </defs>
 
-  <!-- tinted field + hairline frame (never pure black/white at the edge) -->
+  <!-- background and frame -->
   <rect width="1280" height="640" fill="#0E1424"/>
   <rect width="1280" height="640" fill="url(#grid)" opacity="0.55"/>
   <rect x="0.5" y="0.5" width="1279" height="639" fill="none" stroke="#2C3956" stroke-width="1"/>
   <rect x="24" y="24" width="1232" height="592" rx="6" fill="none" stroke="#24304A" stroke-width="1"/>
 
   <g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
-    <!-- eyebrow (nominative wording, neutral colour) -->
+    <!-- eyebrow -->
     <text id="eyebrow" x="80" y="100" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="28" letter-spacing="2" fill="#97A6C2">PLUGIN FOR HARDHAT 3</text>
 
     <!-- name -->
@@ -29,31 +29,31 @@
     <!-- divider -->
     <line x1="80" y1="512" x2="1200" y2="512" stroke="#2C3956" stroke-width="1"/>
 
-    <!-- provider row: plain names, sans semibold -->
+    <!-- providers -->
     <text id="prov" x="80" y="572" font-size="30" font-weight="600" fill="#D6DEEE">AWS KMS<tspan fill="#5C6B8C" dx="18">/</tspan><tspan dx="18">Google Cloud KMS</tspan><tspan fill="#5C6B8C" dx="18">/</tspan><tspan dx="18">Azure Key Vault</tspan></text>
   </g>
 
-  <!-- motif: digest goes in, signature comes out, the key stays inside the KMS boundary -->
+  <!-- motif: digest in, signature out, the key stays in the KMS -->
   <g transform="translate(900 0)" stroke-linecap="round" stroke-linejoin="round">
     <!-- inbound: digest -->
     <text x="140" y="108" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="30" font-weight="600" fill="#C9D1E0">digest</text>
     <path d="M120 70V138" fill="none" stroke="#A9B4C9" stroke-width="5"/>
     <path d="M106 124L120 140L134 124" fill="none" stroke="#A9B4C9" stroke-width="5"/>
 
-    <!-- KMS boundary: double wall -->
+    <!-- KMS boundary -->
     <rect x="0" y="150" width="240" height="230" rx="18" fill="#131C31" stroke="#5A6C95" stroke-width="4"/>
     <rect x="12" y="162" width="216" height="206" rx="10" fill="none" stroke="#2E3B5A" stroke-width="2"/>
     <!-- KMS tab -->
     <rect x="12" y="130" width="92" height="40" rx="7" fill="#C9D1E0"/>
     <text x="58" y="161" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="28" font-weight="800" letter-spacing="1" fill="#0E1424">KMS</text>
 
-    <!-- key: heavy stroke, large bow -->
+    <!-- key -->
     <g fill="none" stroke="#F3F5F9" stroke-width="12">
       <circle cx="78" cy="268" r="32"/>
       <path d="M110 268H186M162 268V296M186 268V290"/>
     </g>
 
-    <!-- outbound: signature, the only thing that crosses the wall -->
+    <!-- outbound: signature -->
     <path d="M100 380H140" fill="none" stroke="#4FE3A8" stroke-width="6"/>
     <path d="M120 380V446" fill="none" stroke="#4FE3A8" stroke-width="5"/>
     <path d="M106 432L120 448L134 432" fill="none" stroke="#4FE3A8" stroke-width="5"/>

@@ -32,7 +32,7 @@ export const OG_IMAGE: {
   url: `${HOSTNAME}og-image.png`,
   width: 1280,
   height: 640,
-  alt: "hardhat-kms: the private key never leaves the KMS. AWS KMS, Google Cloud KMS, Azure Key Vault.",
+  alt: "hardhat-kms, a plugin for Hardhat 3: the private key never leaves the KMS. A digest goes in and a signature comes out. Works with AWS KMS, Google Cloud KMS and Azure Key Vault.",
 };
 
 /** The largest social preview `docs:site:check` accepts, in bytes. */
