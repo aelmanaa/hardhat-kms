@@ -32,7 +32,7 @@ Google Cloud KMS:
 
 ```sh
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/gcp
-# add hardhatKmsGcp to plugins and a key under kms.keys
+# add hardhatKmsGcp to plugins and a key under kms.keys, as in Configure below
 npx hardhat kms accounts
 ```
 
@@ -40,11 +40,11 @@ Azure Key Vault or Managed HSM:
 
 ```sh
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/azure
-# add hardhatKmsAzure to plugins and a key under kms.keys
+# add hardhatKmsAzure to plugins and a key under kms.keys, as in Configure below
 npx hardhat kms accounts
 ```
 
-`connection.kms.getAccount` also needs `viem` ^2.55.13; ethers and Ignition projects need no other peer. npm and pnpm install missing peers on their own; with yarn, add them to the install command.
+`connection.kms.getAccount` also needs `viem` ^2.55.13, which ethers and Ignition projects can skip. yarn does not install peers, but each command above already lists the ones you need.
 
 Coding agents can install the [hardhat-kms skill](skills/hardhat-kms/SKILL.md) with `npx skills add aelmanaa/hardhat-kms`.
 

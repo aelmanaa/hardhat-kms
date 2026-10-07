@@ -1,6 +1,6 @@
 ---
 title: Support
-description: Which Node.js versions the hardhat-kms packages run on, when a release may drop a line that reached end of life, and why there is no backport.
+description: Which Node.js versions the hardhat-kms packages run on, when a release may drop a Node.js version that reached end of life, and why there is no backport.
 ---
 
 # Support

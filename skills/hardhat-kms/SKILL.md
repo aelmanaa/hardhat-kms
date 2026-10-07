@@ -26,9 +26,11 @@ The packages are published on npm from version 0.9.0. Check npm for the current 
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
 ```
 
+For Google Cloud or Azure, replace `@hardhat-kms/aws` with the package from the table. In a pnpm or yarn project, run `pnpm add -D` or `yarn add -D` with the same packages; yarn does not install peers, and the command already lists them.
+
 ## 2. Configure the key
 
-Declare each key once under `kms.keys` and attach it to networks by name with `kmsAccounts`:
+Declare each key once under `kms.keys` and attach it to networks by name with `kmsAccounts`. Merge this into the project's existing `hardhat.config.ts`: add the provider to its `plugins` and keep its other plugins and networks.
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
@@ -38,7 +40,7 @@ export default defineConfig({
   plugins: [hardhatKmsAws],
   kms: {
     keys: {
-      deployer: { provider: "aws", keyId: "alias/deployer" },
+      deployer: { provider: "aws", keyId: configVariable("AWS_KMS_KEY_ID") },
     },
   },
   networks: {
@@ -59,7 +61,7 @@ Key forms for the other clouds:
 
 The key must be a secp256k1 signing key: `ECC_SECG_P256K1` on AWS, `EC_SIGN_SECP256K1_SHA256` with HSM protection on Google Cloud, an `EC` key on curve `P-256K` on Azure. The identity that runs Hardhat needs permission to read the public key and to sign, nothing more. The setup guides give the exact commands and policies.
 
-Credentials come from each cloud SDK's default chain (`AWS_PROFILE`, `gcloud auth application-default login`, `az login`, workload identity in CI), never from the Hardhat config. Never ask the user to paste credentials, private keys or API-keyed RPC URLs; RPC URLs and key ids go in `configVariable()`.
+Credentials come from each cloud SDK's default chain (`AWS_PROFILE`, `gcloud auth application-default login`, `az login`, workload identity in CI), never from the Hardhat config. Never ask the user to paste credentials, private keys or API-keyed RPC URLs; RPC URLs go in `configVariable()`. A key id is not a secret: it can be a literal, but reading it with `configVariable()`, as the snippets here do, keeps it out of the repository. `configVariable("AWS_KMS_KEY_ID")` reads the environment variable of that name, or the Hardhat keystore.
 
 ## 3. Get the address and pin it
 
@@ -67,10 +69,10 @@ Credentials come from each cloud SDK's default chain (`AWS_PROFILE`, `gcloud aut
 npx hardhat kms accounts
 ```
 
-It lists each configured key with its provider, key id and address, and prints `address` lines to paste. Add the address to the key's config:
+It lists each configured key with its provider, key id and address, and prints `address` lines to paste. Before a first deploy, `npx hardhat --network sepolia kms accounts --check-sign` also has each key sign a test message, which proves the credentials may sign. Add the address to the key's config:
 
 ```ts
-import { defineConfig } from "hardhat/config";
+import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
@@ -79,7 +81,7 @@ export default defineConfig({
     keys: {
       deployer: {
         provider: "aws",
-        keyId: "alias/deployer",
+        keyId: configVariable("AWS_KMS_KEY_ID"),
         address: "0x1111111111111111111111111111111111111111",
       },
     },
@@ -89,11 +91,11 @@ export default defineConfig({
 
 With the pin, the plugin refuses to sign if the key derives to another address, for example after an alias was moved to another key. Fund that address before sending from it.
 
-From here, `npx hardhat run scripts/deploy.ts --network sepolia`, `npx hardhat ignition deploy … --network sepolia` and tests on that network sign with the KMS key.
+From here, `npx hardhat run scripts/deploy.ts --network sepolia`, `npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia` and tests on that network sign with the KMS key.
 
 ## 4. The `kms` tasks
 
-Run as `npx hardhat kms <task>`; a task takes a key by its name in `kms.keys`.
+Run as `npx hardhat kms <task>`. A task takes a key by its name in `kms.keys` as a positional argument, for example `npx hardhat kms address deployer`.
 
 | Task             | What it does                                                                            |
 | ---------------- | --------------------------------------------------------------------------------------- |

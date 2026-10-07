@@ -1,6 +1,6 @@
 ---
 title: API reference
-description: "The TypeScript API of hardhat-kms, generated from TSDoc: the plugin export, the config types and the helpers for provider plugins."
+description: "The TypeScript API of hardhat-kms: the plugin export, the config types and the helpers for provider plugins."
 ---
 
 # API reference

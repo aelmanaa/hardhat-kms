@@ -1,6 +1,6 @@
 ---
 title: Library accounts reference
-description: "connection.kms.getAccount returns a viem account for a KMS key, for signAuthorization, smart accounts and scripts: options, refusals, sending."
+description: "connection.kms.getAccount returns a viem account for a KMS key, for signAuthorization, smart accounts and scripts, with its options and what it refuses."
 ---
 
 # Library accounts reference

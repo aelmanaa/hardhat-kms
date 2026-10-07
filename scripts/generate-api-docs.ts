@@ -122,11 +122,11 @@ export function checkProviderExports(): void {
  */
 const API_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "README.md":
-    "The TypeScript API of hardhat-kms, generated from TSDoc: the plugin export, the config types and the helpers for provider plugins.",
+    "The TypeScript API of hardhat-kms: the plugin export, the config types and the helpers for provider plugins.",
   "hardhat-kms.md":
     "The hardhat-kms entry point: the plugin as its default export, which adds the kms config section and each network's kmsAccounts.",
   "hardhat-kms/provider-utils.md":
-    "The experimental hardhat-kms/provider-utils helpers that the first-party provider packages build on and third-party providers may use.",
+    "Helpers for writing a KMS provider plugin for hardhat-kms, the same ones the AWS, Google Cloud and Azure packages use; experimental.",
   "hardhat-kms/types.md":
     "Public types of hardhat-kms/types: the kms config section, each provider's key config and the resolved forms Hardhat passes to plugins.",
 };
