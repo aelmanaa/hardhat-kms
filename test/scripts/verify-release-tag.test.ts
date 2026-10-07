@@ -27,11 +27,17 @@ const hasGpg = spawnSync("gpg", ["--version"]).status === 0;
 // script. The suite then skips and says so.
 const SOCKET_PATH_MAX = 104;
 const longestSocketPath = path.join(tmpdir(), "hardhat-kms-test-XXXXXX", "g1", "S.gpg-agent.extra");
-const skip = hasGpg
-  ? longestSocketPath.length < SOCKET_PATH_MAX
-    ? false
-    : `temp directory ${tmpdir()} is too long for gpg's agent socket path (${longestSocketPath.length} >= ${SOCKET_PATH_MAX} bytes); set TMPDIR to a shorter directory`
-  : "gpg is not installed";
+// On Windows the `gpg` on PATH is usually Git for Windows' MSYS build, which reads a `C:\...`
+// home as a relative path. The script runs on the Linux release runner and a maintainer's macOS or
+// Linux machine, so the suite skips on Windows (#393).
+const skip =
+  process.platform === "win32"
+    ? "verify-release-tag runs on Linux and macOS only; Git for Windows' gpg reads a C: home as a relative path (#393)"
+    : hasGpg
+      ? longestSocketPath.length < SOCKET_PATH_MAX
+        ? false
+        : `temp directory ${tmpdir()} is too long for gpg's agent socket path (${longestSocketPath.length} >= ${SOCKET_PATH_MAX} bytes); set TMPDIR to a shorter directory`
+      : "gpg is not installed";
 
 function run(
   file: string,

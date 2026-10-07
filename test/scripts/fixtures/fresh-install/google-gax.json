@@ -1,0 +1,18 @@
+{
+  "name": "google-gax",
+  "dist-tags": {
+    "latest": "6.11.0"
+  },
+  "modified": "2026-10-07T00:50:19.524Z",
+  "versions": {
+    "6.10.0": {
+      "name": "google-gax",
+      "version": "6.10.0"
+    },
+    "6.11.0": {
+      "name": "google-gax",
+      "version": "6.11.0",
+      "deprecated": "Version 6.11.0 has been deprecated due to a known bug. Please use a previous patch version or the next version if available."
+    }
+  }
+}

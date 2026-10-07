@@ -29,6 +29,7 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "scripts/test-sdk-floors.ts"
+      - "scripts/version-range.ts"
       - "scripts/temporary-install.ts"
       - ".github/workflows/sdk-floors.yml"
   push:
@@ -51,6 +52,7 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "scripts/test-sdk-floors.ts"
+      - "scripts/version-range.ts"
       - "scripts/temporary-install.ts"
       - ".github/workflows/sdk-floors.yml"
   workflow_dispatch:

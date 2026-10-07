@@ -1,12 +1,13 @@
 // Runs the real Hardhat CLI, to cover what the programmatic API does not: the HARDHAT_KMS
 // environment form and help output.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { type HardhatRun, runHardhat } from "../helpers/hardhat-cli.ts";
+import { createTempProject, removeTempProject } from "../helpers/temp-project.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 let project: string;
@@ -25,12 +26,7 @@ describe("--kms from the Hardhat CLI", () => {
   });
 
   before(() => {
-    // The project sits inside the package, so Node and Hardhat find `hardhat` and `tsx` in the
-    // package's node_modules by the normal upward lookup. A project in os.tmpdir() needs a link to
-    // node_modules, and on the Windows runner (temp dir on C:, checkout on D:) lookups through that
-    // junction failed: ERR_MODULE_NOT_FOUND for tsx, then HHE22 for hardhat.
-    mkdirSync(path.join(repo, ".tmp"), { recursive: true });
-    project = mkdtempSync(path.join(repo, ".tmp", "cli-"));
+    project = createTempProject("cli-");
     const plugin = pathToFileURL(path.join(repo, "src/index.ts")).href;
     const keys = pathToFileURL(path.join(repo, "src/internal/hook-handlers/hre.ts")).href;
     writeFileSync(
@@ -47,8 +43,8 @@ describe("--kms from the Hardhat CLI", () => {
     );
   });
 
-  after(() => {
-    rmSync(project, { recursive: true, force: true });
+  after(async () => {
+    await removeTempProject(project);
   });
 
   // Each test starts its two runs in parallel, so it fits its timeout when each run takes the

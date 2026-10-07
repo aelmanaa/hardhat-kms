@@ -74,13 +74,27 @@ These two roles alone have not yet been checked against real Cloud KMS: the plug
 
 ## 3. Install the plugin and configure the key
 
-```sh
+::: code-group
+
+```sh [npm]
 npm install --save-dev hardhat-kms @hardhat-kms/gcp
 ```
 
+```sh [pnpm]
+pnpm add --save-dev hardhat-kms @hardhat-kms/gcp
+```
+
+```sh [Yarn]
+yarn add --dev hardhat-kms @hardhat-kms/gcp
+```
+
+:::
+
 Until the packages are published on npm, this command fails with `E404`; follow [Install before the first npm release](install-before-release.md) instead.
 
-`@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later to run it on) with it, so there is nothing else to install. npm prints `npm warn deprecated node-domexception@1.0.0` during the install. The warning comes from Google's libraries: `gaxios` and `google-gax` depend on `node-fetch` 3, which pulls in `node-domexception` through `fetch-blob`, and the latest `gaxios`, 8.1.0, still does. It is harmless and needs no action.
+`@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later, except 6.11.0, to run it on) with it, so there is nothing else to install. npm prints `npm warn deprecated node-domexception@1.0.0` during the install. The warning comes from Google's libraries: `gaxios` and `google-gax` depend on `node-fetch` 3, which pulls in `node-domexception` through `fetch-blob`, and the latest `gaxios`, 8.1.0, still does. It is harmless and needs no action.
+
+`@hardhat-kms/gcp` never runs its requests on `google-gax` 6.11.0, which npm marks as deprecated; if your install still shows a 6.11.0 copy, see [Keep google-gax off 6.11.0](#keep-google-gax-off-6110).
 
 Add the plugin to `plugins`; it loads `hardhat-kms` itself:
 
@@ -104,7 +118,12 @@ export default defineConfig({
     },
   },
   networks: {
-    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
+      kmsAccounts: ["deployer"],
+    },
   },
 });
 ```
@@ -139,6 +158,37 @@ console.log(address, signature);
 
 Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. Each run calls `GetPublicKey` once, before the first signature, then `AsymmetricSign` once for the signature, or more if a request is retried ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). An `address` pin does not save that call: the plugin checks the public key against the pin before it releases a signature. A pin saves the call only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the public key ([`address`](../reference/configuration.md#configuration)).
 
+## Keep google-gax off 6.11.0
+
+npm marks `google-gax` 6.11.0 as deprecated "due to a known bug". `@hardhat-kms/gcp` depends on `google-gax` `^6.5.0 <6.11.0 || ^6.11.1`, and the plugin sends its Cloud KMS requests through that copy, so they never run on 6.11.0.
+
+`@google-cloud/kms` asks for its own `google-gax` `^6.0.0`. npm, Yarn 4 and pnpm 11 and later skip a deprecated version when another one fits, so they give it the plugin's copy. Three cases can still add a 6.11.0 copy under `@google-cloud/kms`:
+
+- Yarn 1 takes the `latest` tag when it fits a range, and `latest` was 6.11.0 on 2026-10-07.
+- pnpm 10 does not skip deprecated versions: on its own, `@google-cloud/kms` resolves to 6.11.0 there, even with an empty cache.
+- pnpm 11 and later can pick 6.11.0 when their cached registry data predates the deprecation.
+
+The client library uses that second copy only for its debug logger and to decode error details. To remove a 6.11.0 copy that `npm ls google-gax --all`, `pnpm why google-gax` or `yarn why google-gax` shows, override the version in your project:
+
+- pnpm 10 and later, in `pnpm-workspace.yaml` (pnpm 12 ignores the `pnpm` field of `package.json`), then `pnpm install`:
+
+  ```yaml
+  overrides:
+    google-gax: "^6.5.0 <6.11.0 || ^6.11.1"
+  ```
+
+- npm, in `package.json`, then `npm dedupe` (`npm install` keeps the copy it already installed):
+
+  ```json
+  { "overrides": { "google-gax": "^6.5.0 <6.11.0 || ^6.11.1" } }
+  ```
+
+- Yarn, in `package.json`, then `yarn install`:
+
+  ```json
+  { "resolutions": { "google-gax": "^6.5.0 <6.11.0 || ^6.11.1" } }
+  ```
+
 ## How the plugin uses the key
 
 - It calls `GetPublicKey` once, checks that the response names the configured version and that its algorithm is `EC_SIGN_SECP256K1_SHA256`, and reads the PEM public key.
@@ -154,9 +204,21 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 
 [`kms history`](../reference/tasks.md#kms-history) lists a key's sign requests from Cloud Audit Logs: every `AsymmetricSign` call on any version of the key, from the plugin or from any other client. Cloud KMS logs these calls as Data Access logs, which are off by default. The plugin stores nothing itself, so with the logs off there is no history to read.
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat kms history deployer --since 7d
 ```
+
+```sh [pnpm]
+pnpm hardhat kms history deployer --since 7d
+```
+
+```sh [Yarn]
+yarn hardhat kms history deployer --since 7d
+```
+
+:::
 
 Without `--since`, the task reads the last 24 hours, and it lists at most 100 events, the newest; `--limit` takes up to 1000 ([`kms history`](../reference/tasks.md#kms-history)).
 

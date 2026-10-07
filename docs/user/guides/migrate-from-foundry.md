@@ -15,13 +15,33 @@ Foundry picks a KMS signer per command with `--aws` or `--gcp`, and reads the ke
 
 Add `--kms` with the providers to load, and keep your environment as it is:
 
-```sh
+::: code-group
+
+```sh [npm]
 # Foundry
 AWS_KMS_KEY_ID=alias/deployer forge script script/Deploy.s.sol --rpc-url "$SEPOLIA_RPC_URL" --aws --broadcast
 
 # Hardhat
 AWS_KMS_KEY_ID=alias/deployer npx hardhat run scripts/deploy.ts --network sepolia --kms aws
 ```
+
+```sh [pnpm]
+# Foundry
+AWS_KMS_KEY_ID=alias/deployer forge script script/Deploy.s.sol --rpc-url "$SEPOLIA_RPC_URL" --aws --broadcast
+
+# Hardhat
+AWS_KMS_KEY_ID=alias/deployer pnpm hardhat run scripts/deploy.ts --network sepolia --kms aws
+```
+
+```sh [Yarn]
+# Foundry
+AWS_KMS_KEY_ID=alias/deployer forge script script/Deploy.s.sol --rpc-url "$SEPOLIA_RPC_URL" --aws --broadcast
+
+# Hardhat
+AWS_KMS_KEY_ID=alias/deployer yarn hardhat run scripts/deploy.ts --network sepolia --kms aws
+```
+
+:::
 
 | `--kms` value | Variables read, as in Foundry                                                       |
 | ------------- | ----------------------------------------------------------------------------------- |
@@ -66,7 +86,12 @@ export default defineConfig({
     },
   },
   networks: {
-    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
+      kmsAccounts: ["deployer"],
+    },
   },
 });
 ```
