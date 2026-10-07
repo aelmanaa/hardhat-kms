@@ -7,7 +7,7 @@ description: "After a KMS send with no clear answer, or one that is not mined: l
 
 Audience: users who send transactions from a KMS account on a live network and got an error that does not say whether the transaction went out, or see a transaction that does not get mined. Assumes a working key setup and the `@nomicfoundation/hardhat-viem` plugin.
 
-Checked against hardhat-kms 0.8.0, viem 2.57.1 and a local anvil node on 2026-10-07; not run on a public network.
+Checked against hardhat-kms 0.8.0, viem 2.57.1 and a local anvil node on 2026-10-07. The repository's tests run the `fill-nonce.ts` script below against Hardhat 3.18.0's node (EDR 0.22.0). Not run on a public network.
 
 Do not send again from the account until step 2 tells you what happened to the first transaction.
 
@@ -124,7 +124,7 @@ What to do with the answer:
 
 ## 3. Compare the pending and latest counts
 
-The `latest` count is the number of the account's transactions in mined blocks, so it is the next nonce the chain expects. The `pending` count adds the transactions the node holds in its pool that can run in order after them.
+The `latest` count is the account's nonce in the latest block, so it is the next nonce the chain expects. It is not a count of the account's mined transactions. An [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) authorization that the account signed also raises it by one when a mined transaction applies it, whoever sent that transaction. The `pending` count adds the transactions the node holds in its pool that can run in order from that nonce.
 
 - `pending` equals `latest`: the node holds nothing from the account that can run next. A transaction you sent and cannot find did not reach this node, or the node dropped it.
 - `pending` is above `latest`: transactions with the nonces from `latest` up to `pending` minus one are waiting to be mined.
@@ -136,37 +136,64 @@ The plugin can leave such a gap itself. It remembers the highest nonce the node 
 
 ## 4. Fill a gap or replace a transaction
 
-Send a transaction with an explicit `nonce`. The plugin always uses a `nonce` you give, even one that was sent before, and does not look anything up first. A transfer of 0 from the account to itself fills a gap, and with higher fees it also cancels a transaction stuck in the pool. Save this as `scripts/fill-nonce.ts`:
+Send a transaction with an explicit `nonce`. The plugin always uses a `nonce` you give, even one that was sent before, and does not look anything up first. A transfer of 0 from the account to itself fills a gap, and with higher fees it also cancels a transaction stuck in the pool. The script refuses the transfer when the account has code, such as an [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) delegation: see [An account with code](#an-account-with-code). Save this as `scripts/fill-nonce.ts`:
 
 ```ts
 import "@nomicfoundation/hardhat-viem";
 import { network } from "hardhat";
-import { getAddress } from "viem";
+import { getAddress, isAddress } from "viem";
 
-const account = process.env.KMS_ADDRESS;
-const nonce = process.env.NONCE;
-if (account === undefined || nonce === undefined || !/^\d+$/.test(nonce)) {
-  throw new Error("set KMS_ADDRESS to the sender and NONCE to the nonce to fill or replace");
+/** Sends the transfer, or returns why it did not. */
+async function fillNonce(): Promise<string | undefined> {
+  const account = process.env.KMS_ADDRESS;
+  const nonce = process.env.NONCE;
+  if (account === undefined || !isAddress(account) || nonce === undefined || !/^\d+$/.test(nonce)) {
+    return "set KMS_ADDRESS to the sender and NONCE to the nonce to fill or replace";
+  }
+  const address = getAddress(account);
+  // TO is optional: the address that gets the transfer of 0, when it cannot be the account itself.
+  const target = process.env.TO;
+  if (target !== undefined && !isAddress(target)) {
+    return `TO is not a valid address, or its checksum is wrong: ${target}`;
+  }
+  const to = target === undefined ? address : getAddress(target);
+
+  const { viem, networkName } = await network.getOrCreate();
+  const publicClient = await viem.getPublicClient();
+  console.log(`network ${networkName}, chain ${await publicClient.getChainId()}`);
+
+  // A transfer to an address with code runs that code. An account with an EIP-7702 delegation has
+  // code, so a transfer to itself runs the delegate's code, which can revert or do more than this.
+  // The pending state shows a delegation in a transaction that is in this node's pool, not mined.
+  const latestCode = await publicClient.getCode({ address: to, blockTag: "latest" });
+  const pendingCode = await publicClient.getCode({ address: to, blockTag: "pending" });
+  if (latestCode !== undefined || pendingCode !== undefined) {
+    return to === address
+      ? `${address} has code, such as an EIP-7702 delegation, so a transfer to itself runs that code; set TO to an address with no code`
+      : `TO ${to} has code; set TO to an address with no code`;
+  }
+
+  const wallet = await viem.getWalletClient(address);
+  // Twice the current estimate. To replace a transaction, the fees must also be at least 10 % above
+  // the old transaction's maxFeePerGas and maxPriorityFeePerGas, which step 2 prints, on Geth's
+  // default settings.
+  const { maxFeePerGas, maxPriorityFeePerGas } = await publicClient.estimateFeesPerGas();
+  const hash = await wallet.sendTransaction({
+    to,
+    value: 0n,
+    nonce: Number(nonce),
+    maxFeePerGas: maxFeePerGas * 2n,
+    maxPriorityFeePerGas: maxPriorityFeePerGas * 2n,
+  });
+  console.log(`sent ${hash} with nonce ${nonce}`);
+  return undefined;
 }
-const address = getAddress(account);
 
-const { viem, networkName } = await network.getOrCreate();
-const publicClient = await viem.getPublicClient();
-console.log(`network ${networkName}, chain ${await publicClient.getChainId()}`);
-const wallet = await viem.getWalletClient(address);
-
-// Twice the current estimate. To replace a transaction, the fees must also be at least 10 % above
-// the old transaction's maxFeePerGas and maxPriorityFeePerGas, which step 2 prints, on Geth's
-// default settings.
-const { maxFeePerGas, maxPriorityFeePerGas } = await publicClient.estimateFeesPerGas();
-const hash = await wallet.sendTransaction({
-  to: address,
-  value: 0n,
-  nonce: Number(nonce),
-  maxFeePerGas: maxFeePerGas * 2n,
-  maxPriorityFeePerGas: maxPriorityFeePerGas * 2n,
-});
-console.log(`sent ${hash} with nonce ${nonce}`);
+const stopped = await fillNonce();
+if (stopped !== undefined) {
+  console.error(stopped);
+  process.exitCode = 1;
+}
 ```
 
 Run it the same way, with `--network`:
@@ -177,8 +204,34 @@ KMS_ADDRESS=0x… NONCE=… npx hardhat run --network <network> scripts/fill-non
 
 - To fill a gap, run it once for each missing nonce, from the `pending` count up to the waiting transaction's nonce minus one.
 - To replace a transaction in the pool, use its nonce, which step 2 prints. The node keeps the one that pays more, and drops the other. Fees too close to the old ones fail with `replacement transaction underpriced`; raise them and send again. A nonce that is already mined fails with `nonce too low`.
-- Running the script again with the same nonce and the same fee estimate signs the same transaction. The node answers that it already has it, and viem reports that as a nonce lower than the account's current nonce, although the transaction is in the pool, not mined. viem's `Details:` line shows the node's own words: `already known` (Geth) or `transaction already imported` (anvil) means the transaction is in the pool, and only `nonce too low` means the nonce is mined. Run step 2 to be sure.
+- Running the script again with the same nonce and the same fee estimate signs the same transaction again, but the signature can differ. AWS KMS picks a random value for each ECDSA signature ([AWS Database Blog](https://aws.amazon.com/blogs/database/part2-use-aws-kms-to-securely-manage-ethereum-accounts/)), and Google Cloud KMS and Azure Key Vault do not document whether theirs do. A new signature gives the transaction a new hash. viem's `Details:` line shows the node's answer:
+  - The same hash: the node already has the transaction. Geth answers `already known`, anvil `transaction already imported`, and Hardhat's node `Known transaction: 0x…`. viem reports Geth's and anvil's answers as a nonce lower than the account's current nonce, although the transaction is in the pool, not mined.
+  - A new hash: the node treats the transaction as a replacement with the same fees and refuses it. Geth answers `replacement transaction underpriced`. Hardhat's node answers `Replacement transaction underpriced.` and names the fee it needs.
+
+  In both cases the first transaction is still in the pool. Only `nonce too low` means the nonce is mined. Run step 2 to be sure.
+
 - To send the same call again instead of a 0 transfer, send that call with the same explicit `nonce`. Two transactions with one nonce can never both be mined.
+
+## An account with code
+
+An account that signed an EIP-7702 delegation, for example with [`kms sign-auth`](../reference/tasks.md#send-the-authorization), has code: a delegation indicator that points to the delegate contract. A call to the account runs the delegate's code ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)), and a transfer of 0 is a call. If that code reverts, the gas estimate fails and nothing is sent, so the gap stays. If it does not revert, it runs with the account's funds and storage. The script reads the account's code before it signs anything, and stops:
+
+```text
+0x… has code, such as an EIP-7702 delegation, so a transfer to itself runs that code; set TO to an address with no code
+```
+
+The script reads the code in the latest block and in the node's pending state, which includes the transactions in its pool. A delegation that is not mined yet shows only in the pending state, and only on a node that has the transaction; some RPC providers answer a `pending` request with the latest block. If you sent a delegation from the account and it is not mined yet, set `TO`.
+
+Any transaction from the account with that nonce fills the gap, or, with high enough fees, replaces the stuck transaction. Choose one whose effect you know:
+
+- A transfer of 0 to an address with no code, such as another account of yours. It moves no funds and runs no code. Set `TO` to that address and run the script again. The script checks `TO` the same way, and refuses an address with code.
+
+  ```sh
+  TO=0x… KMS_ADDRESS=0x… NONCE=… npx hardhat run --network <network> scripts/fill-nonce.ts
+  ```
+
+- A call the delegate contract provides for this, if it has one, such as a smart account's call that does nothing. Read the delegate's code or documentation first, because the call runs with the account's funds.
+- The stuck call itself, sent again with the same `nonce`, as the last bullet of [step 4](#4-fill-a-gap-or-replace-a-transaction) says.
 
 ## When to wait
 
