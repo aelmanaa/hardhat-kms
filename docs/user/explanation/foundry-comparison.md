@@ -33,3 +33,9 @@ Neither tool keeps secrets in its config: both hand the key to the cloud's own S
 | Azure                            | No released signer. The one proposed in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120) picks one source from the variables that are set: a client secret, else a federated token file, else `az` then `azd`, then a managed identity with 10 s for a token | The same order, as one chain that skips the sources that are not set up. It also takes a certificate instead of a secret, and refuses username and password sign-in |
 
 The AWS row with a profile and access keys is the one that changes which identity signs. A Foundry job that exports access keys and also sets `AWS_PROFILE` signs with the keys; the same environment under hardhat-kms signs with the profile. Set one or the other, never both ([Never set a profile and environment keys together](../reference/credentials.md#aws)).
+
+## Other comparisons
+
+- [Compared with other KMS signers](other-kms-signers.md): the Hardhat 2 `hardhat-kms-signer` packages and their forks.
+- [A KMS key or a private key in .env](kms-or-env-key.md): the setup most Hardhat and Foundry projects start from.
+- [A KMS key or a Ledger](kms-or-ledger.md): a device prompt for each signature, and both in one project.

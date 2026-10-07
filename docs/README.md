@@ -13,6 +13,7 @@ Each page except the generated API reference opens with an `Audience:` line that
 - I sent a transaction and do not know what happened: [After an uncertain send](user/guides/uncertain-sends.md).
 - Who signed with this key, and when: [Find who signed with a key](user/guides/who-signed.md).
 - What does the plugin protect against: [Security model](user/explanation/security-model.md).
+- Should I use a KMS key at all: compare it with [a private key in .env](user/explanation/kms-or-env-key.md), [a Ledger](user/explanation/kms-or-ledger.md) and [other KMS signers](user/explanation/other-kms-signers.md).
 - Is the package I installed the real one: [Verify a release](user/guides/verify-a-release.md).
 - I want a KMS account in my own code: [Library accounts](user/reference/library-accounts.md).
 
@@ -51,6 +52,9 @@ Each page except the generated API reference opens with an `Audience:` line that
 | [Migrate from Foundry](user/guides/migrate-from-foundry.md)                   | How-to      |
 | [Verify a release](user/guides/verify-a-release.md)                           | How-to      |
 | [Comparison with Foundry](user/explanation/foundry-comparison.md)             | Explanation |
+| [Compared with other KMS signers](user/explanation/other-kms-signers.md)      | Explanation |
+| [A KMS key or a private key in .env](user/explanation/kms-or-env-key.md)      | Explanation |
+| [A KMS key or a Ledger](user/explanation/kms-or-ledger.md)                    | Explanation |
 | [How hardhat-kms works](user/explanation/how-it-works.md)                     | Explanation |
 | [How the plugin reaches your cloud](user/explanation/cloud-access.md)         | Explanation |
 | [Security model](user/explanation/security-model.md)                          | Explanation |

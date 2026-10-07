@@ -142,4 +142,6 @@ What this means for you:
 - Optional, for contributors and security reviewers: the [threat model summary](../../contributor/signing-pipeline.md#threat-model-summary) in the contributor docs, with the code that enforces each control.
 - [Prevent and recover from losing a key](../guides/key-loss.md).
 - [Comparison with Foundry](foundry-comparison.md): the checks hardhat-kms adds over Foundry's KMS signers.
+- [A KMS key or a private key in .env](kms-or-env-key.md) and [A KMS key or a Ledger](kms-or-ledger.md): what a KMS key changes compared with the other places a key can live.
+- [Compared with other KMS signers](other-kms-signers.md): the Hardhat 2 KMS signer packages and what differs here.
 - [SECURITY.md](../../../SECURITY.md): how to report a vulnerability.
