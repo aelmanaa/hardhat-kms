@@ -1,0 +1,230 @@
+name: Live tests
+
+# The live suite (`pnpm run test:live`) with the real AWS, Google Cloud and Azure test keys, signed
+# in over OIDC: no cloud credential is stored in the repository. The job runs only in the
+# `live-tests` environment, whose required reviewer (the owner) approves every run, and the three
+# clouds trust only a token whose subject names that environment. docs/contributor/testing.md,
+# "Live tests in GitHub Actions", describes the triggers, the approval and the cost.
+# - Manual dispatch, with `network`: `fork` (the default, a local anvil fork of Sepolia, free) or
+#   `sepolia` (spends Sepolia ETH and writes test/live/proof.json, uploaded as an artifact).
+# - Adding the label ci:live to a pull request from a branch of this repository runs that pull
+#   request's code in fork mode, after approval. A new push does not run it again: remove and add
+#   the label. A pull request from a fork gets a notice instead, since its runs get no OIDC token
+#   that the clouds trust.
+# There is no schedule, and no plain pull_request, push or pull_request_target run.
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: fork (free, local anvil fork of Sepolia) or sepolia (spends Sepolia ETH, writes the proof)
+        type: choice
+        options: [fork, sepolia]
+        default: fork
+  pull_request:
+    types: [labeled]
+
+permissions: {}
+
+concurrency:
+  # One live run at a time across the repository, never cancelled: Sepolia runs share the three
+  # accounts' nonces. Any other label, and ci:live on a fork's pull request, get a group of their
+  # own, so they cannot replace a live run that waits in the queue.
+  group: >-
+    ${{ (github.event_name != 'pull_request'
+    || (github.event.label.name == 'ci:live'
+    && github.event.pull_request.head.repo.full_name == github.repository))
+    && 'live-tests' || format('live-tests-ignored-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+jobs:
+  live:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch'
+      || (github.event.label.name == 'ci:live'
+      && github.event.pull_request.head.repo.full_name == github.repository) }}
+    name: Live tests (${{ github.event_name == 'workflow_dispatch' && inputs.network || 'fork' }})
+    runs-on: ubuntu-26.04
+    environment: live-tests
+    # Counts from the start of the job, after the approval.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.network == 'sepolia' && 45 || 30 }}
+    permissions:
+      contents: read
+      id-token: write # the OIDC token that the three clouds exchange for short-lived credentials
+    env:
+      HARDHAT_KMS_LIVE_NETWORK: ${{ github.event_name == 'workflow_dispatch' && inputs.network || 'fork' }}
+    steps:
+      # Everything is installed and built before the first cloud login, so no install script and no
+      # download runs with cloud credentials.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No dependency cache: a job that can mint an OIDC token restores nothing another run saved.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run build
+      - name: Install anvil (fork mode)
+        if: env.HARDHAT_KMS_LIVE_NETWORK == 'fork'
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          version: v1.8.1 # the Foundry release of the local fork runs
+          cache: false
+
+      - name: Sign in to AWS
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.LIVE_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.LIVE_AWS_REGION }}
+          audience: sts.amazonaws.com
+          mask-aws-account-id: true
+      # Direct workload identity federation: no service account. The credentials file it writes in
+      # the workspace is deleted after the job, and no step uploads the workspace.
+      - name: Sign in to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.LIVE_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      - name: Sign in to Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.LIVE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.LIVE_AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      # Sepolia only, before anything is sent: every account must hold the run's floor
+      # (`balanceFloor` in test/live/matrix.ts) at the legacy gas price of the suite, which must be at
+      # most 20 gwei. The suite checks each account again, but its three providers run in parallel,
+      # so without this check two of them could spend ETH on a run that cannot write a proof.
+      - name: Check the balances (Sepolia)
+        if: env.HARDHAT_KMS_LIVE_NETWORK == 'sepolia'
+        env:
+          HARDHAT_KMS_LIVE_AWS_KEY_ID: ${{ secrets.HARDHAT_KMS_LIVE_AWS_KEY_ID }}
+          HARDHAT_KMS_LIVE_GCP_KEY: ${{ secrets.HARDHAT_KMS_LIVE_GCP_KEY }}
+          HARDHAT_KMS_LIVE_AZURE_KEY_ID: ${{ secrets.HARDHAT_KMS_LIVE_AZURE_KEY_ID }}
+          HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL: ${{ secrets.HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL }}
+        run: |
+          node --input-type=module <<'EOF'
+          import path from "node:path";
+
+          import { configVariable } from "hardhat/config";
+          import { createHardhatRuntimeEnvironment } from "hardhat/hre";
+          import { formatEther, formatGwei, parseGwei } from "viem";
+
+          import hardhatKmsAws from "./packages/hardhat-kms-aws/src/index.ts";
+          import hardhatKmsAzure from "./packages/hardhat-kms-azure/src/index.ts";
+          import hardhatKmsGcp from "./packages/hardhat-kms-gcp/src/index.ts";
+          import { legacyGasPrice } from "./test/live/helpers/gas.ts";
+          import { redact } from "./test/live/helpers/redact.ts";
+          import { balanceFloor } from "./test/live/matrix.ts";
+
+          // The cap and the default RPC of test/live/sepolia.live.test.ts.
+          const MAX_GAS_PRICE = parseGwei("20");
+          const DEFAULT_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
+          const RPC_VARIABLE = "HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL";
+          const PROVIDERS = [
+            { name: "aws", variable: "HARDHAT_KMS_LIVE_AWS_KEY_ID", field: "keyId" },
+            { name: "gcp", variable: "HARDHAT_KMS_LIVE_GCP_KEY", field: "keyVersionName" },
+            { name: "azure", variable: "HARDHAT_KMS_LIVE_AZURE_KEY_ID", field: "keyId" },
+          ];
+          const set = (name) => (process.env[name] ?? "").trim() !== "";
+          const fail = (message) => {
+            console.log(`::error::${redact(message, process.env)}`);
+            process.exit(1);
+          };
+
+          const missing = PROVIDERS.filter((provider) => !set(provider.variable));
+          if (missing.length > 0) {
+            fail(`not set: ${missing.map((provider) => provider.variable).join(", ")}; a Sepolia run needs all three keys`);
+          }
+          const url = set(RPC_VARIABLE) ? configVariable(RPC_VARIABLE) : DEFAULT_RPC_URL;
+          try {
+            const hre = await createHardhatRuntimeEnvironment(
+              {
+                plugins: [hardhatKmsAws, hardhatKmsGcp, hardhatKmsAzure],
+                networks: Object.fromEntries(
+                  PROVIDERS.map((provider) => [
+                    provider.name,
+                    {
+                      type: "http",
+                      chainType: "l1",
+                      url,
+                      chainId: 11155111,
+                      accounts: [],
+                      kmsAccounts: [{ provider: provider.name, [provider.field]: configVariable(provider.variable) }],
+                    },
+                  ]),
+                ),
+              },
+              {},
+              path.resolve("test/live/fixture-project"),
+            );
+            let gasPrice;
+            const short = [];
+            for (const provider of PROVIDERS) {
+              const connection = await hre.network.create(provider.name);
+              try {
+                const rpc = connection.provider;
+                if (gasPrice === undefined) {
+                  const nodeGasPrice = BigInt(await rpc.request({ method: "eth_gasPrice" }));
+                  const block = await rpc.request({ method: "eth_getBlockByNumber", params: ["latest", false] });
+                  gasPrice = legacyGasPrice(nodeGasPrice, BigInt(block.baseFeePerGas ?? 0));
+                  if (gasPrice > MAX_GAS_PRICE) {
+                    fail(`the legacy gas price would be ${formatGwei(gasPrice)} gwei, above the cap of ${formatGwei(MAX_GAS_PRICE)} gwei; run again when Sepolia is cheaper`);
+                  }
+                }
+                const floor = balanceFloor("sepolia", gasPrice);
+                const [account] = await rpc.request({ method: "eth_accounts" });
+                const balance = BigInt(await rpc.request({ method: "eth_getBalance", params: [account, "latest"] }));
+                console.log(`${provider.name}: ${account} holds ${formatEther(balance)} ETH, floor ${formatEther(floor)} ETH at ${formatGwei(gasPrice)} gwei`);
+                if (balance < floor) {
+                  short.push(`${provider.name}: ${account} is ${formatEther(floor - balance)} ETH short`);
+                }
+              } finally {
+                await connection.close();
+              }
+            }
+            if (short.length > 0) {
+              fail(`fund these accounts with Sepolia ETH; nothing was sent. ${short.join("; ")}`);
+            }
+          } catch (error) {
+            fail(error instanceof Error ? error.message : String(error));
+          }
+          EOF
+
+      # The key identifiers reach this step and the balance check only, never the job's env.
+      - name: Live tests
+        env:
+          HARDHAT_KMS_LIVE_AWS_KEY_ID: ${{ secrets.HARDHAT_KMS_LIVE_AWS_KEY_ID }}
+          HARDHAT_KMS_LIVE_GCP_KEY: ${{ secrets.HARDHAT_KMS_LIVE_GCP_KEY }}
+          HARDHAT_KMS_LIVE_AZURE_KEY_ID: ${{ secrets.HARDHAT_KMS_LIVE_AZURE_KEY_ID }}
+          HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL: ${{ secrets.HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL }}
+        run: pnpm run test:live
+
+      # The proof is never committed by the workflow: the owner downloads it, runs
+      # `pnpm run docs:live-proof` and commits both files in a pull request.
+      - name: Upload the proof (Sepolia)
+        if: success() && env.HARDHAT_KMS_LIVE_NETWORK == 'sepolia'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-proof
+          path: test/live/proof.json
+          retention-days: 7
+          if-no-files-found: error
+
+  # A pull request from a fork cannot get a token the clouds trust, so its label runs nothing.
+  fork-notice:
+    if: >-
+      ${{ github.event_name == 'pull_request'
+      && github.event.label.name == 'ci:live'
+      && github.event.pull_request.head.repo.full_name != github.repository }}
+    name: Live tests (fork pull request, skipped)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Explain the skip
+        run: |
+          message="Live tests do not run on a pull request from a fork: it gets no OIDC token that the clouds trust. A maintainer pushes the reviewed commits to a branch of this repository and dispatches the Live tests workflow on it."
+          echo "::notice::${message}"
+          echo "${message}" >> "$GITHUB_STEP_SUMMARY"
