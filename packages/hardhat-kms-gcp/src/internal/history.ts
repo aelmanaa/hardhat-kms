@@ -192,12 +192,13 @@ export function quote(value: string): string {
  * strings without regard to case, so the reader checks each entry's `resourceName` exactly too.
  *
  * A project read also returns entries a sink in another project routes into it, so a clause names
- * the key's project, or a key of the same location, key ring and name there would match too. For
- * a project id it is `resource.labels.project_id`, which Google documents as the project's id on
- * the `cloudkms_cryptokeyversion` resource. No field of an entry holds the project number, so for
- * a number it is `source("projects/<number>")`, which keeps the entries that come from the
- * project. Google documents `source()` with a project id; it took the number in a live read on
- * 2026-10-08.
+ * the key's project; otherwise a key in that other project with the same location, key ring and
+ * name would match too. For a project id it is `resource.labels.project_id`, which Google
+ * documents as the project's id on the `cloudkms_cryptokeyversion` resource. No resource label
+ * holds the project number, so for a number it is `source("projects/<number>")`, which keeps the
+ * entries that come from the project. Google documents `source()` with a project id; in a live
+ * read on 2026-10-08 the number returned the same entries, another project's number none, and a
+ * number of no project was refused with `NOT_FOUND`.
  *
  * @param parts - The key's parts.
  * @param since - The start of the range, inclusive.
@@ -313,7 +314,7 @@ function signEvent(
   }
   // For a project id, the entry's project label must name it. A project id has no capital
   // letters, so a match without regard to case is still the same project. For a project number,
-  // which no field of an entry holds, the filter's `source()` clause is the check.
+  // which no resource label holds, the filter's `source()` clause is the check.
   if (!PROJECT_NUMBER.test(parts.project)) {
     const label = text(field(field(entry, "resource"), "labels"), "project_id");
     if (label === null) {
