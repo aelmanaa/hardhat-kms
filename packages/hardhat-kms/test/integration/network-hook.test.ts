@@ -220,6 +220,27 @@ describe("network hook", () => {
     assert.equal(created.cow?.calls.signDigest ?? 0, 0);
   });
 
+  it("refuses a KMS account's transaction whose from is 20 bytes, with no KMS call", async () => {
+    const { hre, created } = await runtime(
+      { cow: vaultKey("cow", COW_ACCOUNT.address) },
+      { cow: () => fakeAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }) },
+    );
+    const { provider } = await hre.network.create("local");
+    const block = await provider.request({ method: "eth_blockNumber" });
+
+    const bytes = Buffer.from(COW_ACCOUNT.address.slice(2), "hex");
+    for (const method of ["eth_signTransaction", "eth_sendTransaction"]) {
+      for (const from of [bytes, new Uint8Array(bytes)]) {
+        await assertKmsError(provider.request({ method, params: [{ from, to: ACCOUNT_0 }] }), [
+          `${method}: \`from\` must be a hex address string such as ${COW_ACCOUNT.address}`,
+        ]);
+      }
+    }
+    assert.equal(await provider.request({ method: "eth_blockNumber" }), block);
+    assert.equal(created.cow?.calls.getPublicKey ?? 0, 0);
+    assert.equal(created.cow?.calls.signDigest ?? 0, 0);
+  });
+
   it("rejects malformed typed data before any KMS call", async () => {
     const { hre, created } = await runtime(
       { cow: vaultKey("cow", COW_ACCOUNT.address) },

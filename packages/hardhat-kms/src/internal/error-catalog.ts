@@ -1015,6 +1015,15 @@ export const ERRORS = {
       "The request holds a value that `structuredClone` cannot copy, such as a function, a symbol or a getter that throws.",
     fix: "Pass plain values: strings, numbers, bigints, byte arrays, arrays and objects.",
   },
+  txFromBytes: {
+    id: "core.tx.from-bytes",
+    kind: "error",
+    group: "Transactions",
+    template: "`from` must be a hex address string such as {address}, not a byte array",
+    cause:
+      "The transaction's `from` names a KMS account as 20 bytes (a `Buffer` or a `Uint8Array`). Hardhat's simulated network and JSON-RPC nodes take `from` only as a hex string. Nothing was signed or sent.",
+    fix: "Pass `from` as a 0x-prefixed hex string, for example with viem's `bytesToHex`.",
+  },
   nodeAnswerNotString: {
     id: "core.tx.node-answer-not-string",
     kind: "error",
