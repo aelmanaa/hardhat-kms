@@ -1,6 +1,6 @@
 ---
 title: Tasks reference
-description: "hardhat kms history: who signed, from CloudTrail, Cloud Audit Logs or Azure Monitor, and the other kms tasks that list keys, sign and verify."
+description: "Every kms task: list keys, sign messages, typed data, transactions and authorizations, verify signatures, and read a key's sign events."
 ---
 
 # Tasks reference
@@ -13,15 +13,15 @@ Run `npx hardhat kms --help` to list the commands, and `npx hardhat kms <command
 
 All tasks live in the `kms` namespace. Each command's section below gives its purpose, a basic example, its options, its output, and what it needs and how it fails, then advanced use.
 
-| Task                                                                                                    | Purpose                                                                                                                                                                      | Foundry equivalent                                      |
-| ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `kms accounts [--network n] [--json] [--show-ids]`                                                      | Each configured key with its provider, key id and address. Checks access and prints ready-to-paste `address` pins.                                                           | `cast wallet list`; exits 0 when a source fails         |
-| `kms address <key>` / `kms public-key <key>`                                                            | The address, or the uncompressed public key.                                                                                                                                 | `cast wallet address`; no equivalent for the public key |
-| `kms sign <key> <message> [--data [--from-file]] [--no-hash]`                                           | EIP-191, EIP-712, or a raw 32-byte digest. Raw digest signing requires the explicit `--no-hash` option, which only this task has.                                            | `cast wallet sign [--data [--from-file]] [--no-hash]`   |
-| `kms verify (--address a \| --key k) <message> <signature> [--data [--from-file]]`                      | Local signature verification against an address or a key. No `--no-hash`.                                                                                                    | `cast wallet verify [--data [--from-file]]`             |
-| `kms sign-tx <key> <tx.json> --network n`                                                               | Filled on the network's node and signed, never sent. Prints the raw transaction, and its hash on standard error.                                                             | `cast mktx`                                             |
-| `kms sign-auth <key> <delegate> (--chain <id> \| --network n) [--nonce n] [--self-broadcast] [--force]` | EIP-7702 authorization, as the JSON tuple `authorizationList` takes. Chain 0 requires `--force`; `--self-broadcast` signs for the pending nonce + 1. The task sends nothing. | `cast wallet sign-auth`                                 |
-| `kms history <key> [--since t] [--until t] [--limit n] [--json] [--show-ids]`                           | The key's sign events, read from the provider's audit log.                                                                                                                   | none                                                    |
+| Task                                                                                                    | Purpose                                                                                                                                                                                                       | Foundry equivalent                                      |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `kms accounts [--network n] [--json] [--show-ids]`                                                      | Each configured key with its provider, key id and address. Checks access and prints ready-to-paste `address` pins.                                                                                            | `cast wallet list`; exits 0 when a source fails         |
+| `kms address <key>` / `kms public-key <key>`                                                            | The address, or the uncompressed public key.                                                                                                                                                                  | `cast wallet address`; no equivalent for the public key |
+| `kms sign <key> <message> [--data [--from-file]] [--no-hash]`                                           | EIP-191, EIP-712, or a raw 32-byte digest. Among the tasks, raw digest signing requires the explicit `--no-hash` option, which only this task has; a library account with `rawSign: true` is the other route. | `cast wallet sign [--data [--from-file]] [--no-hash]`   |
+| `kms verify (--address a \| --key k) <message> <signature> [--data [--from-file]]`                      | Local signature verification against an address or a key. No `--no-hash`.                                                                                                                                     | `cast wallet verify [--data [--from-file]]`             |
+| `kms sign-tx <key> <tx.json> --network n`                                                               | Filled on the network's node and signed, never sent. Prints the raw transaction, and its hash on standard error.                                                                                              | `cast mktx`                                             |
+| `kms sign-auth <key> <delegate> (--chain <id> \| --network n) [--nonce n] [--self-broadcast] [--force]` | EIP-7702 authorization, as the JSON tuple `authorizationList` takes. Chain 0 requires `--force`; `--self-broadcast` signs for the pending nonce + 1. The task sends nothing.                                  | `cast wallet sign-auth`                                 |
+| `kms history <key> [--since t] [--until t] [--limit n] [--json] [--show-ids]`                           | The key's sign events, read from the provider's audit log.                                                                                                                                                    | none                                                    |
 
 ## Which commands need a network
 
@@ -250,7 +250,7 @@ Error in community plugin hardhat-kms: kms sign: the typed data is for chain 1, 
 
 ### Raw digests
 
-`--no-hash <digest>` signs a raw 32-byte digest, `0x` and 64 hex digits, as it is. Any 32 bytes are accepted, and a digest can be the hash of a transaction or a permit. No RPC method signs a bare digest. `--no-hash` is reachable only through the task, from the CLI or from code that runs the task. Sign only a digest you computed yourself. The task prints a warning to standard error each time and refuses any value that is not exactly 32 bytes:
+`--no-hash <digest>` signs a raw 32-byte digest, `0x` and 64 hex digits, as it is. Any 32 bytes are accepted, and a digest can be the hash of a transaction or a permit. No RPC method signs a bare digest. Two routes do: this option, from the CLI or from code that runs the task, and a library account created with `rawSign: true` ([Library accounts](library-accounts.md#options)). Sign only a digest you computed yourself. The task prints a warning to standard error each time and refuses any value that is not exactly 32 bytes:
 
 ```text
 [hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Sign only a digest you computed yourself: it can authorize a transaction or a permit.
@@ -322,7 +322,7 @@ The signature is 65 bytes, `r || s || v`, as `kms sign`, `personal_sign` and `et
 ### Compared with `cast wallet verify`
 
 - The message, `--data` and `--from-file`, the `v` values and the high-S handling are the same.
-- There is no `--no-hash`, on purpose. Only `kms sign` handles raw 32-byte digests, and only with the explicit `--no-hash` option.
+- There is no `--no-hash`, on purpose. Among the tasks, only `kms sign` handles raw 32-byte digests, and only with the explicit `--no-hash` option.
 - `--key` checks against a KMS key without copying its address.
 - Only EOA signatures are checked. A smart-contract wallet's EIP-1271 `isValidSignature` is not called.
 
@@ -379,7 +379,7 @@ The task fails, and the KMS signs nothing, when:
 
 ### How the task fills the transaction
 
-The task fills what the file leaves out as [`eth_signTransaction`](rpc-methods.md) does for a KMS account: fees, gas, the chain id and the nonce. For the same request, key and chain state, the bytes are the same as those `eth_signTransaction` returns. The nonce is the node's pending count, and nothing reserves it: if the key sends another transaction first, the signed one is stale.
+The task fills what the file leaves out as [`eth_signTransaction`](rpc-methods.md) does for a KMS account: fees, gas, the chain id and the nonce. For the same request, key and chain state, the task fills the same transaction as `eth_signTransaction` and signs the same digest. Both signatures recover to the key's address, but their bytes, and so the raw transactions, can differ: AWS KMS picks a new ECDSA random value `k` for each signature, and Google Cloud KMS and Azure Key Vault do not document how they choose it ([Every signature is verified](../explanation/security-model.md#every-signature-is-verified)). The nonce is the node's pending count, and nothing reserves it: if the key sends another transaction first, the signed one is stale.
 
 ### Transaction type
 
@@ -473,7 +473,7 @@ Libraries take other shapes, and a tuple passed to them as printed fails or lose
 
 ## `kms history`
 
-Lists the key's sign events from its provider's audit log, newest first. It answers "who else signed with this key?".
+Lists the key's sign events from its provider's audit log, newest first. It answers "who else signed with this key?". [Find who signed with a key](../guides/who-signed.md) walks through an investigation: turning the log on, matching events to transactions, and keeping the log long enough.
 
 ```text
 npx hardhat kms history <key> [--since <time>] [--until <time>] [--limit <n>] [--json] [--show-ids]

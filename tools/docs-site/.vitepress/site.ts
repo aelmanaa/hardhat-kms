@@ -41,6 +41,15 @@ export const OG_IMAGE_MAX_BYTES: number = 1024 * 1024;
 /** The favicon, `docs/public/favicon.svg`, as the site serves it. */
 export const FAVICON: string = `${SITE_BASE}favicon.svg`;
 
+/**
+ * The favicon for browsers without SVG favicons, `docs/public/favicon-32.png`, a 32x32 PNG of
+ * `favicon.svg`, as the site serves it.
+ */
+export const FAVICON_PNG: { readonly url: string; readonly size: number } = {
+  url: `${SITE_BASE}favicon-32.png`,
+  size: 32,
+};
+
 /** Folders under docs/ that stay on GitHub: the site leaves them out and links to them there. */
 export const EXCLUDED_FOLDERS: readonly string[] = ["contributor"];
 

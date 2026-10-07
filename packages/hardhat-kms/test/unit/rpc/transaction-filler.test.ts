@@ -7,9 +7,11 @@ import { addr, Transaction } from "micro-eth-signer";
 
 import {
   buildUnsignedTransaction,
+  checkFeeFields,
   type FilledTransaction,
   type FillSettings,
   HardhatTransactionFiller,
+  requireGas,
   signingHash,
   type UnsignedTransaction,
 } from "../../../src/internal/rpc/transaction-filler.ts";
@@ -788,5 +790,244 @@ describe("signingHash", () => {
     const r = Buffer.from(signature.subarray(0, 32)).toString("hex");
     assert.equal(BigInt(`0x${r}`), signed.raw.r);
     assert.equal(Transaction.fromHex(signed.toHex()).sender, HARDHAT_ACCOUNT_0.address);
+  });
+});
+
+describe("HardhatTransactionFiller requests", () => {
+  it("asks for the latest block without transactions, and for the priority fee without params", async () => {
+    const { node } = await fill(
+      {
+        ...EIP1559_NODE,
+        eth_feeHistory: () => ({ baseFeePerGas: ["0x8"], reward: [["0x0"]] }),
+        eth_maxPriorityFeePerGas: () => "0x5",
+      },
+      {},
+    );
+    assert.deepEqual(node.calls[0], { method: "eth_getBlockByNumber", params: ["latest", false] });
+    assert.deepEqual(node.calls[2], { method: "eth_maxPriorityFeePerGas", params: [] });
+  });
+
+  it("reads the latest and the pending block without transactions", async () => {
+    const node = {
+      ...EIP1559_NODE,
+      eth_estimateGas: () => {
+        throw outOfGas();
+      },
+    };
+    const capped = await fill(EIP1559_NODE, {}, { gasMultiplier: 2 });
+    assert.deepEqual(
+      capped.node.calls.filter((call) => call.method === "eth_getBlockByNumber"),
+      [
+        { method: "eth_getBlockByNumber", params: ["latest", false] },
+        { method: "eth_getBlockByNumber", params: ["latest", false] },
+      ],
+    );
+    const fallback = await fill(node, {}, { fallbackGas: 60000n });
+    assert.deepEqual(fallback.node.calls.at(-2), {
+      method: "eth_getBlockByNumber",
+      params: ["pending", false],
+    });
+  });
+});
+
+/** Fills twice with an eth_feeHistory answer; returns the first fill and the history calls. */
+async function fillWithHistory(answer: unknown, more: Record<string, Handler> = {}) {
+  const { node, filler: instance } = filler({
+    ...EIP1559_NODE,
+    ...more,
+    eth_feeHistory: () => answer,
+  });
+  const first = await instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
+  await instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
+  const histories = node.methods().filter((method) => method === "eth_feeHistory").length;
+  return { first, histories, methods: node.methods() };
+}
+
+describe("HardhatTransactionFiller eth_feeHistory answers", () => {
+  it("counts an answer it cannot read as no eth_feeHistory, and remembers it", async () => {
+    for (const answer of [
+      null,
+      "0x1",
+      { reward: [["0x2"]] },
+      { baseFeePerGas: ["0x8"] },
+      { baseFeePerGas: "0x8", reward: [["0x2"]] },
+      { baseFeePerGas: ["0x8"], reward: "0x2" },
+      // A flat reward list, an empty one, and a reward that is not a hex quantity.
+      { baseFeePerGas: ["0x8"], reward: ["0x5"] },
+      { baseFeePerGas: ["0x8"], reward: [[]] },
+      { baseFeePerGas: ["0x8"], reward: [[2]] },
+      { baseFeePerGas: ["0x8"], reward: [["0xzz"]] },
+      // No base fee, or one that is not a hex quantity.
+      { baseFeePerGas: [], reward: [["0x2"]] },
+      { baseFeePerGas: ["0xzz"], reward: [["0x2"]] },
+    ]) {
+      const { first, histories } = await fillWithHistory(answer);
+      assert.equal(first.gasPrice, 100n, JSON.stringify(answer));
+      assert.equal(first.maxFeePerGas, undefined, JSON.stringify(answer));
+      assert.equal(histories, 1, JSON.stringify(answer));
+    }
+  });
+
+  it("reads a zero reward, then a base fee it cannot read, as no eth_feeHistory", async () => {
+    const { first, histories, methods } = await fillWithHistory(
+      { baseFeePerGas: [7], reward: [["0x0"]] },
+      { eth_maxPriorityFeePerGas: () => "0x5" },
+    );
+    assert.equal(first.gasPrice, 100n);
+    assert.equal(histories, 1);
+    // As in Hardhat, the priority fee is asked for before the base fee is read.
+    assert.ok(methods.includes("eth_maxPriorityFeePerGas"));
+  });
+
+  it("uses the last base fee and the first reward", async () => {
+    const { first } = await fillWithHistory({
+      baseFeePerGas: ["0x1", "0x40"],
+      reward: [["0x3", "0x9"]],
+    });
+    assert.equal(first.maxFeePerGas, 81n);
+    assert.equal(first.maxPriorityFeePerGas, 3n);
+  });
+
+  it("pays 1 wei when eth_maxPriorityFeePerGas fails or answers with no hex quantity", async () => {
+    const zero = { baseFeePerGas: ["0x8"], reward: [["0x0"]] };
+    for (const suggested of [
+      () => {
+        throw new Error("method not found");
+      },
+      () => 5,
+      () => "0xzz",
+    ]) {
+      const { first, histories } = await fillWithHistory(zero, {
+        eth_maxPriorityFeePerGas: suggested,
+      });
+      assert.equal(first.maxPriorityFeePerGas, 1n);
+      assert.equal(first.maxFeePerGas, 10n);
+      assert.equal(histories, 2, "eth_feeHistory works, so the next fill asks again");
+    }
+  });
+});
+
+describe("HardhatTransactionFiller error messages", () => {
+  it("name the RPC method or the step that failed", async () => {
+    const { filler: instance } = filler(EIP1559_NODE);
+    await assertKmsError(
+      instance.fill("eth_signTransaction", ["0x"]),
+      "eth_signTransaction: the transaction must be an object",
+    );
+    await assertKmsError(
+      instance.fill("eth_signTransaction", [{ from: FROM, to: TO, data: () => "0x" }]),
+      "eth_signTransaction: the transaction must be plain data",
+    );
+    await assertKmsError(
+      instance.fill("eth_signTransaction", [{ from: FROM, to: TO, chainId: "0x1" }]),
+      "eth_signTransaction: the transaction is for chain 1, but this network is chain 31337",
+    );
+    await assertKmsError(
+      fill(
+        { ...EIP1559_NODE, eth_getBlockByNumber: () => ({ baseFeePerGas: "0x1" }) },
+        {},
+        { gasMultiplier: 2 },
+      ),
+      "eth_getBlockByNumber: the latest block has no gasLimit",
+    );
+  });
+
+  it("does not take an error with code -32000 and another reason for running out of gas", async () => {
+    const error = outOfGas({ name: "ProviderError", reason: "SomethingElse" });
+    await assert.rejects(
+      fill(throwing(error), {}, { fallbackGas: 60000n, isBlockGasLimitEnforced: () => false }),
+      (thrown: unknown) => thrown === error,
+    );
+  });
+});
+
+describe("requireGas and checkFeeFields", () => {
+  const request = { from: hex(FROM), to: hex(TO) };
+
+  it("refuse a request without gas, and give its gas", () => {
+    assert.throws(
+      () => requireGas(request, "eth_sendTransaction"),
+      (error: unknown) =>
+        error instanceof HardhatPluginError &&
+        error.message === "eth_sendTransaction: the transaction has no gas limit",
+    );
+    assert.equal(requireGas({ ...request, gas: 5n }, "eth_sendTransaction"), 5n);
+  });
+
+  it("refuse a request without any fee, which fill never builds", () => {
+    assert.throws(
+      () => checkFeeFields(request, "eth_signTransaction"),
+      (error: unknown) =>
+        error instanceof HardhatPluginError &&
+        error.message ===
+          "eth_signTransaction: the transaction has no gasPrice, maxFeePerGas or maxPriorityFeePerGas",
+    );
+    for (const fees of [{ gasPrice: 1n }, { maxFeePerGas: 2n, maxPriorityFeePerGas: 1n }]) {
+      checkFeeFields({ ...request, ...fees }, "eth_signTransaction");
+    }
+  });
+});
+
+describe("buildUnsignedTransaction refusals", () => {
+  it("name the step in their messages", () => {
+    const { to: _to, ...creation } = filledTx({ gasPrice: 1n });
+    for (const [tx, message] of [
+      [creation, "sign transaction: a contract creation (no `to`) needs `data`"],
+      [
+        filledTx({ maxFeePerGas: 1n }),
+        "sign transaction: an EIP-1559 or EIP-7702 transaction needs both maxFeePerGas fields",
+      ],
+      [
+        filledTx({ maxPriorityFeePerGas: 1n, authorizationList: [] }),
+        "sign transaction: an EIP-1559 or EIP-7702 transaction needs both maxFeePerGas fields",
+      ],
+    ] as const) {
+      assert.throws(
+        () => buildUnsignedTransaction(tx),
+        (error: unknown) => error instanceof HardhatPluginError && error.message === message,
+      );
+    }
+  });
+});
+
+/** Fills a transaction with an authorization list that must be refused; returns the message. */
+async function refusal(authorizationList: unknown): Promise<string> {
+  const { filler: instance } = filler(EIP1559_NODE);
+  const error: unknown = await instance
+    .fill("eth_sendTransaction", [{ from: FROM, to: TO, authorizationList }])
+    .then(
+      () => undefined,
+      (thrown: unknown) => thrown,
+    );
+  assert.ok(error instanceof Error, "the fill must fail");
+  return error.message;
+}
+
+describe("HardhatTransactionFiller malformed authorization lists", () => {
+  it("leave an item that is not an object to the schema", async () => {
+    assert.match(await refusal([null]), /Expected object, received null/);
+  });
+
+  it("leave an r or s that is not a string to the schema, even one that reads as a quantity", async () => {
+    // ["0x1"] reads as "0x1" when turned into a string, and BigInt reads it as 1.
+    for (const item of [
+      { ...authorizationWith(`0x${"cd".repeat(32)}`, `0x${"cd".repeat(32)}`), r: ["0x1"] },
+      { ...authorizationWith(`0x${"cd".repeat(32)}`, `0x${"cd".repeat(32)}`), s: ["0x1"] },
+    ]) {
+      assert.match(
+        await refusal([item]),
+        /Expected a Buffer with the correct length or a valid RPC hash string/,
+      );
+    }
+  });
+
+  it("leave a value with text before a quantity to the schema", async () => {
+    const full = `0x${"cd".repeat(32)}`;
+    for (const item of [authorizationWith("zz0x1", full), authorizationWith(full, "zz0x1")]) {
+      assert.match(
+        await refusal([item]),
+        /Expected a Buffer with the correct length or a valid RPC hash string/,
+      );
+    }
   });
 });

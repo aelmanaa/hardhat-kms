@@ -7,7 +7,7 @@ description: "Sign Hardhat transactions with Azure Key Vault: create a P-256K ke
 
 Audience: developers who have an Azure subscription and the Azure CLI signed in, and have not used Azure Key Vault with Hardhat.
 
-This tutorial was followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH. The run used an existing Standard vault with RBAC, so it did not run the commands that create or delete the resource group, the vault or a role assignment. The plugin is not on npm yet; step 4 says how to install it until then.
+This tutorial was followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH. That run used an existing Standard vault with RBAC. On 2026-10-07, at commit [`f822377`](https://github.com/aelmanaa/hardhat-kms/commit/f822377), with Azure CLI 2.90.0, the Azure commands of steps 2 and 8 were run in a new resource group. They created the group, the vault, a Key Vault Crypto Officer assignment and the key, and refused to reuse the group once it existed. Clean-up purged the key, deleted the group, which removed the vault and the assignment, and purged the vault; `az group exists` then printed `false`. That run skipped the Hardhat steps, step 3's role assignment for a deployer and the "Keep the resource group" route. The plugin is not on npm yet; step 4 says how to install it until then.
 
 In this tutorial you create a Hardhat project, create a signing key in Azure Key Vault, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Key Vault: Hardhat asks Key Vault for a signature each time it sends a transaction.
 
@@ -40,13 +40,17 @@ A Standard vault has no monthly fee, and an `EC` key in it has none either. Each
 
 This tutorial uses an `EC` key in a Standard vault, the cheapest kind that can sign for Ethereum. Key Vault keeps its private key in software. For production, consider an `EC-HSM` key in a Premium vault, which keeps the private key in a hardware security module and costs $5 a month per key version, less above 250 keys ([About keys](https://learn.microsoft.com/azure/key-vault/keys/about-keys)).
 
-Choose a region and a vault name. The name must be unique across Azure, 3 to 24 letters, digits and hyphens, starting with a letter. `az account list-locations --query '[].name' --output tsv` lists the regions:
+Choose a region, a resource group name and a vault name. Both names end in a random suffix, so they are unlikely to match a group or vault you already have, and the block below checks that the group is new before it creates it. The vault name must be unique across Azure, 3 to 24 letters, digits and hyphens, starting with a letter. `az account list-locations --query '[].name' --output tsv` lists the regions:
 
 ```sh
 LOCATION=<region>
+RG="hardhat-kms-tutorial-$(openssl rand -hex 4)"
 VAULT="kms-tutorial-$(openssl rand -hex 4)"
+echo "$RG"
 echo "$VAULT"
 ```
+
+Write down both names: a new shell needs them again, and step 8 deletes the group by its name.
 
 In a subscription that has never used Key Vault, register its resource provider first. Registering again does no harm:
 
@@ -54,11 +58,24 @@ In a subscription that has never used Key Vault, register its resource provider 
 az provider register --namespace Microsoft.KeyVault --wait
 ```
 
-Create a resource group and a Standard vault in it:
+Create the resource group, but only if no group has that name yet. `az group create` does not fail for a group that exists: it updates that group and returns it, as if it had just created it ([Resource Groups - Create Or Update](https://learn.microsoft.com/rest/api/resources/resource-groups/create-or-update)). So check first:
 
 ```sh
-az group create --name hardhat-kms-tutorial --location "$LOCATION"
-az keyvault create --name "$VAULT" --resource-group hardhat-kms-tutorial --location "$LOCATION" \
+if [ "$(az group exists --name "$RG")" = "false" ]; then
+  az group create --name "$RG" --location "$LOCATION" --tags created-by=hardhat-kms-tutorial
+elif [ "$(az group exists --name "$RG")" = "true" ]; then
+  echo "Resource group $RG already exists. Do not use it: set RG to a new name and run this again." >&2
+else
+  echo "Could not check whether $RG exists. Check that the Azure CLI is signed in, then run this again." >&2
+fi
+```
+
+Continue only if the command printed the new group, with `"provisioningState": "Succeeded"` and the `created-by` tag. If it printed that the group already exists, the group belongs to someone or something else: set `RG` again, with a new suffix, and rerun the block.
+
+Create a Standard vault in the group:
+
+```sh
+az keyvault create --name "$VAULT" --resource-group "$RG" --location "$LOCATION" \
   --sku standard --enable-rbac-authorization true --retention-days 7
 ```
 
@@ -76,8 +93,10 @@ VAULT_ID=$(az keyvault show --name "$VAULT" --query id --output tsv)
 az role assignment create --role "Key Vault Crypto Officer" \
   --assignee-object-id "$(az ad signed-in-user show --query id --output tsv)" \
   --assignee-principal-type User \
-  --scope "$VAULT_ID"
+  --scope "${VAULT_ID:?is empty: check that az keyvault create succeeded}"
 ```
+
+`${VAULT_ID:?…}` stops the command when `VAULT_ID` is empty. Without it, an empty `--scope` would make Azure assign the role on the whole subscription instead of on the vault. Later commands that take a scope or a name guard their variables the same way.
 
 `az ad signed-in-user` works when you signed in as a user. Passing the object id and the principal type saves a directory lookup, which a guest user may not be allowed to make. A role assignment can take a few minutes to take effect; if the next command fails with `Forbidden`, wait and run it again.
 
@@ -91,7 +110,7 @@ KEY_ID=$(az keyvault key show --vault-name "$VAULT" --name hardhat-kms-tutorial 
 echo "$KEY_ID"
 ```
 
-`KEY_ID` is the versioned id of the key, `https://<vault name>.vault.azure.net/keys/hardhat-kms-tutorial/` and 32 hex digits. Keep this shell open: the next steps use `VAULT`, `VAULT_ID` and `KEY_ID`.
+`KEY_ID` is the versioned id of the key, `https://<vault name>.vault.azure.net/keys/hardhat-kms-tutorial/` and 32 hex digits. Keep this shell open: the next steps use `RG`, `VAULT`, `VAULT_ID` and `KEY_ID`.
 
 ## 3. Allow the key to sign, and nothing else
 
@@ -108,7 +127,7 @@ It prints nine data actions on keys: `read`, which the plugin needs to get the p
 To give a deployer identity the role on the key, assign it with the key's scope, or give each deployer its own vault and assign the role on that vault. The assignee is the object id of a user, group, service principal or managed identity; its principal type is `User`, `Group` or `ServicePrincipal`, which covers managed identities:
 
 ```sh
-KEY_SCOPE="$VAULT_ID/keys/hardhat-kms-tutorial"
+KEY_SCOPE="${VAULT_ID:?is empty: set it with the az keyvault show command above}/keys/hardhat-kms-tutorial"
 
 az role assignment create --role "Key Vault Crypto User" \
   --assignee-object-id <deployer object id> \
@@ -334,14 +353,24 @@ It ends with `sent in <transaction hash>`. If it stops with a one-line message i
 
 Before you remove the key, open the deployer address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com) and check that its balance is close to zero. Once the key is gone, nothing can move what is left.
 
-Then remove the key. If you closed the shell since step 4, set `VAULT`, `VAULT_ID`, `KEY_ID` and `AZURE_KEY_ID` again first, with the vault name that step 2 printed:
+Then remove the key. If you closed the shell since step 4, set `RG`, `VAULT`, `VAULT_ID`, `KEY_ID` and `AZURE_KEY_ID` again first, with the group and vault names that step 2 printed:
 
 ```sh
+RG=<resource group name>
 VAULT=<vault name>
 VAULT_ID=$(az keyvault show --name "$VAULT" --query id --output tsv)
 KEY_ID=$(az keyvault key show --vault-name "$VAULT" --name hardhat-kms-tutorial --query key.kid --output tsv)
 export AZURE_KEY_ID="$KEY_ID"
 ```
+
+If you lost the names, list the groups this tutorial created, then the vault in the one you choose:
+
+```sh
+az group list --tag created-by=hardhat-kms-tutorial --query '[].name' --output tsv
+az keyvault list --resource-group "${RG:?set RG to a group name from the list above}" --query '[].name' --output tsv
+```
+
+More than one group means earlier runs left groups behind; pick the one whose vault name you recognise, or whose vault holds the `hardhat-kms-tutorial` key.
 
 Disable the key version your config uses, the one in `AZURE_KEY_ID`. A disabled version cannot sign, and `--enabled true` brings it back:
 
@@ -355,7 +384,7 @@ If you gave a deployer the Key Vault Crypto User role in step 3, remove that ass
 
 ```sh
 az role assignment delete --role "Key Vault Crypto User" --assignee-object-id <deployer object id> \
-  --scope "$VAULT_ID/keys/hardhat-kms-tutorial"
+  --scope "${VAULT_ID:?is empty: set it with the az keyvault show command earlier in step 8}/keys/hardhat-kms-tutorial"
 ```
 
 Delete the key:
@@ -374,14 +403,58 @@ az keyvault key purge --vault-name "$VAULT" --name hardhat-kms-tutorial
 
 After the purge, the key is gone for good, and nothing can sign for the address again. A vault with purge protection refuses the purge; Key Vault then purges the key when the retention period ends. Purge protection can never be turned off once it is on, so leave it off for a test vault like this one unless a policy requires it.
 
-Last, delete the resource group, which deletes the vault and its role assignments, then purge the vault so its name is free again:
+Last, remove the vault. If step 2 created the resource group, delete the group, which deletes the vault and its role assignments, as in [Delete the resource group](#delete-the-resource-group). If you put the vault in a group you already had, or used a vault you already had, follow [Keep the resource group](#keep-the-resource-group) instead.
+
+### Delete the resource group
+
+Check that the group is the one step 2 created, and list what is in it:
 
 ```sh
-az group delete --name hardhat-kms-tutorial --yes
-az keyvault purge --name "$VAULT"
+az group show --name "${RG:?set RG to the name step 2 printed}" --query tags
+az resource list --resource-group "${RG:?set RG to the name step 2 printed}" --output table
+```
+
+The tags include `"created-by": "hardhat-kms-tutorial"`, and the list has one row: the vault, of type `Microsoft.KeyVault/vaults`. If the tag is missing or the list has any other row, the group holds resources this tutorial did not create: do not delete it, and follow [Keep the resource group](#keep-the-resource-group) instead.
+
+The next command deletes the group and every resource in it, which is everything the list above showed, and the role assignments on them. Resource group deletion cannot be undone ([Delete resource groups](https://learn.microsoft.com/azure/azure-resource-manager/management/delete-resource-group)).
+
+It asks `Are you sure you want to perform this operation?` without naming the group. The `echo` prints the name first: answer `y` only if it is the name step 2 printed.
+
+```sh
+echo "$RG"
+az group delete --name "${RG:?set RG to the name step 2 printed}"
+```
+
+Then purge the vault so its name is free again:
+
+```sh
+az keyvault purge --name "${VAULT:?set VAULT to the name step 2 printed}"
 ```
 
 A deleted vault, like a deleted key, stays recoverable until you purge it or its retention period ends. Recovering it does not bring back its role assignments. With purge protection, `az keyvault purge` is refused too, and the vault's name stays taken until the retention period ends.
+
+To check, `az group exists --name "$RG"` prints `false`, and `az keyvault list-deleted --query "[?name=='$VAULT']"` prints `[]` once the purge has finished.
+
+### Keep the resource group
+
+If the group was not new, or holds anything other than the vault, leave the group and remove only what the tutorial added to it.
+
+Remove the Key Vault Crypto Officer role that step 2 gave you on the vault. Skip this if you had that role on the vault itself before the tutorial: `az role assignment create` in step 2 then returned your existing assignment instead of making a new one, and this command would remove the access you had before. A role you hold on the group or the subscription is a separate assignment, which this command leaves alone. Deleting by the assignment's id would not help, because step 2 returned the id of that existing assignment too.
+
+```sh
+az role assignment delete --role "Key Vault Crypto Officer" \
+  --assignee-object-id "$(az ad signed-in-user show --query id --output tsv)" \
+  --scope "${VAULT_ID:?is empty: set it with the az keyvault show command earlier in step 8; an empty scope would remove the role on the whole subscription}"
+```
+
+If step 2 created the vault, delete it and purge it. The two commands affect only the vault named in `VAULT`; skip them for a vault you had before the tutorial, whose key you already deleted and purged above:
+
+```sh
+az keyvault delete --name "${VAULT:?set VAULT to the name step 2 printed}"
+az keyvault purge --name "${VAULT:?set VAULT to the name step 2 printed}"
+```
+
+If the vault has purge protection, `az keyvault purge` is refused, and the vault's name stays taken until the retention period ends.
 
 ## Next steps
 

@@ -64,4 +64,5 @@ The plugin builds its own credential chain and uses the first source that return
 - [Set up an Azure Key Vault key](https://aelmanaa.github.io/hardhat-kms/user/guides/azure-key-vault-setup): create the key, grant access, configure Hardhat.
 - [Permissions](https://aelmanaa.github.io/hardhat-kms/user/guides/azure-key-vault-setup#2-allow-get-and-sign-and-nothing-else) and [credential sources](https://aelmanaa.github.io/hardhat-kms/user/guides/azure-key-vault-setup#3-sign-in) in detail.
 - [Errors](https://aelmanaa.github.io/hardhat-kms/user/guides/azure-key-vault-setup#errors): what each failure means and how to fix it.
+- A KMS key compared with [a private key in .env](https://aelmanaa.github.io/hardhat-kms/user/explanation/kms-or-env-key), [a Ledger](https://aelmanaa.github.io/hardhat-kms/user/explanation/kms-or-ledger) and [other KMS signers](https://aelmanaa.github.io/hardhat-kms/user/explanation/other-kms-signers).
 - [All docs](https://aelmanaa.github.io/hardhat-kms/).

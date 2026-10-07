@@ -3,6 +3,7 @@
 // (as micro-eth-signer's Transaction#signBy does).
 import { bytesToHexString } from "@nomicfoundation/hardhat-utils/hex";
 import { bytesToBigInt, bytesToNumber } from "@nomicfoundation/hardhat-utils/number";
+import type { HardhatPluginError } from "hardhat/plugins";
 import { Transaction } from "micro-eth-signer";
 
 import { sameAddress, toChecksumAddress } from "../crypto/address.ts";
@@ -40,18 +41,16 @@ export function assembleSignedTransaction(
   const { r, s, yParity } = signature;
   // Strict mode off, as in Transaction#signBy: strict mode is for user input.
   const signed = new Transaction(unsigned.type, { ...unsigned.raw, r, s, yParity }, false);
-  let sender: string | undefined;
+  const noRecovery = (): HardhatPluginError =>
+    catalogError(ERRORS.txNoRecovery, { from: toChecksumAddress(from) }, { operation: method });
+  let sender: string;
   try {
     sender = signed.recoverSender().address;
   } catch {
-    sender = undefined;
+    throw noRecovery();
   }
-  if (sender === undefined || !sameAddress(sender, from)) {
-    throw catalogError(
-      ERRORS.txNoRecovery,
-      { from: toChecksumAddress(from) },
-      { operation: method },
-    );
+  if (!sameAddress(sender, from)) {
+    throw noRecovery();
   }
   return signed;
 }
