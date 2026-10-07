@@ -57,13 +57,58 @@ Pin each key's `address` once you know it, in `kms.keys`, and every network that
 
 ## Mix providers
 
-Each provider's keys need its provider package in `plugins`: `@hardhat-kms/aws`, `@hardhat-kms/gcp` or `@hardhat-kms/azure`. The config above lists two, and each loads `hardhat-kms` itself. A key whose provider package is missing fails when it is first used, and the error names the package to install ([Provider packages](../reference/configuration.md#provider-packages)).
+Each provider's keys need its provider package in `plugins`: `@hardhat-kms/aws`, `@hardhat-kms/gcp` or `@hardhat-kms/azure`. The config in [Name each key once](#name-each-key-once) lists two, and each loads `hardhat-kms` itself. A key whose provider package is missing fails when it is first used, and the error names the package to install ([Provider packages](../reference/configuration.md#provider-packages)).
 
-Each provider takes its credentials from its own SDK's default chain, so a project that mixes providers needs a sign-in for each one, such as `gcloud auth application-default login` and `az login` ([Credentials](../reference/configuration.md#credentials)).
+With a key on each of the three clouds, all three packages go in `plugins`. Here `deployer` signs on Sepolia, on Arbitrum One and on a local fork of Sepolia, and `ops` signs on Sepolia only:
+
+```ts
+import { configVariable, defineConfig } from "hardhat/config";
+import hardhatKmsAws from "@hardhat-kms/aws";
+import hardhatKmsAzure from "@hardhat-kms/azure";
+import hardhatKmsGcp from "@hardhat-kms/gcp";
+
+export default defineConfig({
+  plugins: [hardhatKmsAws, hardhatKmsGcp, hardhatKmsAzure],
+  kms: {
+    defaults: { aws: { region: "eu-west-1" } },
+    keys: {
+      deployer: { provider: "aws", keyId: "alias/deployer" },
+      ops: { provider: "azure", keyId: "https://ops.vault.azure.net/keys/ops/0123abcd" },
+      treasury: {
+        provider: "gcp",
+        keyVersionName: "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/3",
+      },
+    },
+  },
+  networks: {
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
+      kmsAccounts: ["deployer", "ops"],
+    },
+    arbitrum: {
+      type: "http",
+      url: configVariable("ARB_RPC_URL"),
+      chainId: 42161,
+      kmsAccounts: ["deployer"],
+    },
+    fork: {
+      type: "edr-simulated",
+      forking: { url: configVariable("SEPOLIA_RPC_URL") },
+      kmsAccounts: ["deployer"],
+    },
+  },
+});
+```
+
+`treasury` is on no network yet; the `kms` tasks can still name it, for example `npx hardhat kms address treasury`.
+
+AWS and Google Cloud take their credentials from their SDK's default chain, and Azure from the plugin's own chain ([Azure credentials](../reference/configuration.md#azure)). A project that mixes providers needs a sign-in for each one, such as `gcloud auth application-default login` and `az login` ([Credentials](../reference/configuration.md#credentials)).
 
 ## Choose the sender by address
 
-`eth_accounts` lists the network's own accounts first, then the KMS addresses in `kmsAccounts` order, then the `--kms` keys. On `sepolia` above, whose node manages no accounts, the list is `treasury`, then `ops`. On an `edr-simulated` network, EDR's 20 default accounts come first, unless the network sets `accounts`.
+`eth_accounts` lists the network's own accounts first, then the KMS addresses in `kmsAccounts` order, then the `--kms` keys. On `sepolia` in [Name each key once](#name-each-key-once), whose node manages no accounts, the list is `treasury`, then `ops`. On an `edr-simulated` network, EDR's 20 default accounts come first, unless the network sets `accounts`.
 
 hardhat-viem, hardhat-ethers and Ignition send from the first address of that list unless you name another: viem's default wallet client and `deployContract`, ethers' `deployContract` and `getContractFactory`, and Ignition without `--default-sender` all take it. The network's `from` does not change their choice. It applies only to a raw `eth_sendTransaction` or `eth_signTransaction` request without `from` ([RPC methods](../reference/rpc-methods.md#rpc-behaviour)).
 
