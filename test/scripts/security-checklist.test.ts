@@ -266,6 +266,8 @@ describe("the repository's list page and template", () => {
       `${core}/rpc/send-guard.ts`,
       `${core}/rpc/transactions.ts`,
       `${core}/hook-handlers/network.ts`,
+      `${core}/config/key-common.ts`,
+      "packages/hardhat-kms-azure/src/internal/hook-handlers/kms.ts",
       `${core}/crypto/signature.ts`,
       "packages/hardhat-kms-aws/src/internal/adapter.ts",
       "packages/hardhat-kms-gcp/src/internal/adapter.ts",

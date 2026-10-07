@@ -2,7 +2,7 @@
 // docs/contributor/security-review.md must carry the "Security checklist" section of the pull
 // request template with every item ticked. A pull request that changes no listed path is not
 // asked for it. The workflow runs this script, the list and the template from the base branch, so
-// a pull request cannot loosen the rule it is checked against.
+// a pull request cannot change them for its own run.
 //
 // Usage: node scripts/security-checklist.ts --files FILE --changed-files N --body FILE
 //   [--list FILE] [--template FILE] [--summary FILE]
