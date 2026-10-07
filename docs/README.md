@@ -32,6 +32,7 @@ Each page except the generated API reference opens with an `Audience:` line that
 | [Use several keys across networks](user/guides/multiple-keys.md)              | How-to      |
 | [Debug output](user/guides/debug-output.md)                                   | How-to      |
 | [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md)           | How-to      |
+| [After an uncertain send](user/guides/uncertain-sends.md)                     | How-to      |
 | [Migrate from Foundry](user/guides/migrate-from-foundry.md)                   | How-to      |
 | [Verify a release](user/guides/verify-a-release.md)                           | How-to      |
 | [Comparison with Foundry](user/explanation/foundry-comparison.md)             | Explanation |
