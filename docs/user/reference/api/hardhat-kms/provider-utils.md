@@ -10,7 +10,7 @@ description: Helpers for writing a KMS provider plugin for hardhat-kms, the same
 Helpers for provider plugins: the first-party provider packages build on them, and third-party
 providers may too.
 
-This module may change before 1.0.
+This module may change in a minor release, before and after 1.0.
 
 ## Classes
 

@@ -696,11 +696,9 @@ Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defa
 
 ### KeyDescription
 
-**`Experimental`**
-
 What a key is, in terms that are safe to print.
 
-May gain fields before 1.0.
+Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
 
 #### Properties
 
@@ -1127,8 +1125,6 @@ The user agent the client reported. Any client can send any value.
 
 ### KmsHistoryEvent
 
-**`Experimental`**
-
 One sign event as the provider's audit log records it. Every field is copied from the log
 entry, with no value guessed or filled in. A field the provider records but left empty in this
 entry is `null`, and so is a field listed in [KmsHistoryResult.notLogged](#notlogged-1).
@@ -1138,7 +1134,7 @@ and `extra` as they are, and the error code. It shows `keyResource`, `errorMessa
 `extraIds` only with `--show-ids`. By default it replaces a key resource found in another field
 with the key's display id, and an `extraIds` value with `<hidden>`.
 
-May gain optional fields before 1.0.
+Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
 
 #### Properties
 
@@ -1237,11 +1233,9 @@ The user agent the client sent. The client chooses it, so it proves nothing.
 
 ### KmsHistoryNote
 
-**`Experimental`**
-
 A note a reader adds to the result, printed on standard error and listed in the JSON output.
 
-May gain optional fields before 1.0.
+Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
 
 #### Properties
 
@@ -1351,14 +1345,12 @@ The version of this shape.
 
 ### KmsHistoryRequest
 
-**`Experimental`**
-
 What `kms history` asks a reader for: the sign events of one key in a time range, newest first.
 
 The history covers the whole key: every version, even when the config pins one. Each event
 names its version in `keyVersion` where the provider logs it.
 
-May gain optional fields before 1.0.
+Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
 
 #### Properties
 
@@ -1402,8 +1394,6 @@ The end of the range, inclusive, on a whole second. Always after `since`.
 
 ### KmsHistoryResult
 
-**`Experimental`**
-
 What a reader returns: the events it read, newest first, and what the provider's log can and
 cannot show. A reader that cannot read the log throws instead; it never returns an empty
 result for a log it could not read.
@@ -1412,7 +1402,7 @@ Never put key ids, account ids or other identifiers in `source`, `scope.descript
 `setupHint`, note messages or the errors a reader throws: they are printed without
 `--show-ids`.
 
-May gain optional fields before 1.0.
+Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
 
 #### Properties
 
@@ -1507,11 +1497,9 @@ after scanning as many log entries as it allows itself. A result with `limit + 1
 
 ### KmsHistoryScope
 
-**`Experimental`**
-
 Which part of the log a read covered, printed in the header of `kms history`.
 
-May gain optional fields before 1.0.
+Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
 
 #### Properties
 
@@ -1534,11 +1522,9 @@ wherever it appears, except in principals, which are shown as logged. Names as i
 
 ### KmsHooks
 
-**`Experimental`**
-
 The `kms` hook category, which provider plugins use to add their adapters.
 
-The hook may change before 1.0.
+Stable from 1.0: a minor may add methods; changing or removing one needs a major.
 
 #### Methods
 
@@ -1630,15 +1616,13 @@ A resolved identifier. `get()` reads its value on demand, trimmed of surrounding
 
 ### KmsKeyAdapter
 
-**`Experimental`**
-
 The contract every KMS/HSM provider implements.
 
 An adapter needs at least one way to identify the key (`getPublicKey` or `getAddress`) and
 at least one way to sign. The core prefers the structured methods when present and falls back
 to `signDigest`; it always verifies the returned signature against the key.
 
-The contract is frozen at 1.0.
+Stable from 1.0: a minor may add optional methods; changing or removing one needs a major.
 
 #### Methods
 
@@ -2417,11 +2401,9 @@ On `edr-simulated` networks only, give each KMS address this balance, in wei.
 
 ### SignContext
 
-**`Experimental`**
-
 Per-call context passed to provider adapters.
 
-May gain fields before 1.0.
+Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
 
 #### Properties
 
@@ -2536,13 +2518,13 @@ A value a reader may put in [KmsHistoryEvent.extra](#extra-1).
 
 > **KmsHistoryField** = `"principal"` \| `"sourceIp"` \| `"userAgent"` \| `"requestId"` \| `"keyVersion"` \| `"digest"`
 
-**`Experimental`**
-
 A field of a sign event that a provider may not record. A reader lists the fields its
 provider never logs in [KmsHistoryResult.notLogged](#notlogged-1), and sets them to `null` in every
 event.
 
-May gain members before 1.0.
+Stable from 1.0: a minor may add a value, together with an optional [KmsHistoryEvent](#kmshistoryevent) field,
+so that a reader that does not know the value still returns valid events. Changing or removing a
+value needs a major.
 
 ---
 
