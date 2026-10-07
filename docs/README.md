@@ -2,7 +2,7 @@
 
 hardhat-kms is a Hardhat 3 plugin that signs transactions, messages and typed data with secp256k1 keys held in AWS KMS, Google Cloud KMS and Azure Key Vault. The private key never leaves the KMS.
 
-Each written page opens with an `Audience:` line that names who it is for and what it assumes. [Release channels and versioning](user/explanation/versioning.md#channels) says which release to install and what a version promises.
+Each page except the generated API reference opens with an `Audience:` line that names who it is for and what it assumes. [Release channels and versioning](user/explanation/versioning.md#channels) says which release to install and what a version promises.
 
 ## Tutorials
 

@@ -21,13 +21,13 @@ Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated
 
 ## Install
 
-Install the core, `hardhat-kms`, with the provider package for your cloud: `@hardhat-kms/aws` for AWS KMS, `@hardhat-kms/gcp` for Google Cloud KMS, `@hardhat-kms/azure` for Azure Key Vault or Managed HSM. All hardhat-kms packages in a project have the same version.
+In a Hardhat 3 project (`npx hardhat --init` creates one), install the core, `hardhat-kms`, with the provider package for your cloud: `@hardhat-kms/aws` for AWS KMS, `@hardhat-kms/gcp` for Google Cloud KMS, `@hardhat-kms/azure` for Azure Key Vault or Managed HSM. All hardhat-kms packages in a project have the same version.
 
 ```sh
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
 ```
 
-The command names every peer dependency, so it works with yarn, which does not install peers. `connection.kms.getAccount` also needs `viem` ^2.55.13; ethers and Ignition projects can skip it.
+The command names every required peer dependency, so the same list works with yarn, which does not install peers. `connection.kms.getAccount` also needs `viem` ^2.55.13; ethers and Ignition projects can skip it.
 
 ## Configure a key
 

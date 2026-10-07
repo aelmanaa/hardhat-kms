@@ -1,16 +1,18 @@
 # @hardhat-kms/gcp
 
-Works with Google Cloud KMS. Not affiliated with or endorsed by Google.
+The Google Cloud KMS provider for [hardhat-kms](https://github.com/aelmanaa/hardhat-kms): Hardhat 3 signs transactions, messages and typed data with secp256k1 keys held in Google Cloud KMS. The private key never leaves Cloud KMS. Every request and response is checked with CRC32C. The package depends on `@google-cloud/kms`, so there is no SDK to install separately.
 
-The Google Cloud KMS provider for [hardhat-kms](https://github.com/aelmanaa/hardhat-kms): Hardhat 3 signs transactions, messages and typed data with secp256k1 keys held in Google Cloud KMS. The private key never leaves Cloud KMS. The package depends on `@google-cloud/kms`, so there is no SDK to install separately.
+Works with Google Cloud KMS. Not affiliated with or endorsed by Google.
 
 0.9.0 is the release candidate for 1.0.0; install it to test. Until 1.0.0 is published, use it with test keys on testnets.
 
 ## Key type
 
-A key version with the algorithm `EC_SIGN_SECP256K1_SHA256`, at protection level HSM. Every request and response is checked with CRC32C.
+A key version with the algorithm `EC_SIGN_SECP256K1_SHA256`, at protection level HSM.
 
 ## Install
+
+In a Hardhat 3 project (`npx hardhat --init` creates one):
 
 ```sh
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/gcp
@@ -53,7 +55,7 @@ export default defineConfig({
 ## Check the key
 
 1. Run `npx hardhat kms accounts`. It reads the key's public key and prints its address, and below the table the `address` pin to add.
-2. Add the pin to the key's entry, for example `deployer: { provider: "gcp", keyVersionName: "projects/…/cryptoKeyVersions/1", address: "0x…" }`. The pin is optional. Without it, the plugin still checks every signature against the address it derives from the key's public key. With it, the plugin also refuses to sign when the key id comes to name a different key.
+2. Add the pin to the key's entry, for example `deployer: { provider: "gcp", keyVersionName: "projects/…/cryptoKeyVersions/1", address: "0x…" }`. The pin is optional. Without it, the plugin still checks every signature against the address it derives from the key's public key. With it, the plugin also refuses to sign when `keyVersionName` is edited to name another key.
 3. Run `npx hardhat kms accounts --check-sign`. `ok` in the `SIGN` column proves that your credentials may sign with the key, not only read it. The key signs a random message, not a transaction, so this needs no network and no funds.
 
 ## Credentials and permissions

@@ -1,8 +1,8 @@
 # @hardhat-kms/azure
 
-Works with Azure Key Vault and Azure Key Vault Managed HSM. Not affiliated with or endorsed by Microsoft.
-
 The Azure Key Vault provider for [hardhat-kms](https://github.com/aelmanaa/hardhat-kms): Hardhat 3 signs transactions, messages and typed data with secp256k1 keys held in Azure Key Vault or Azure Managed HSM. The private key never leaves the vault. The package depends on `@azure/keyvault-keys` and `@azure/identity`, so there is no SDK to install separately.
+
+Works with Azure Key Vault and Azure Key Vault Managed HSM. Not affiliated with or endorsed by Microsoft.
 
 0.9.0 is the release candidate for 1.0.0; install it to test. Until 1.0.0 is published, use it with test keys on testnets.
 
@@ -11,6 +11,8 @@ The Azure Key Vault provider for [hardhat-kms](https://github.com/aelmanaa/hardh
 An `EC` or `EC-HSM` key on the `P-256K` curve, with `sign` among its permitted operations.
 
 ## Install
+
+In a Hardhat 3 project (`npx hardhat --init` creates one):
 
 ```sh
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/azure
@@ -52,7 +54,7 @@ A `keyId` with a version names one key version. Without the version, it follows 
 ## Check the key
 
 1. Run `npx hardhat kms accounts`. It reads the key's public key and prints its address, and below the table the `address` pin to add.
-2. Add the pin to the key's entry, for example `deployer: { provider: "azure", keyId: "https://my-vault.vault.azure.net/keys/deployer/…", address: "0x…" }`. The pin is optional. Without it, the plugin still checks every signature against the address it derives from the key's public key. With it, the plugin also refuses to sign when the key id comes to name a different key.
+2. Add the pin to the key's entry, for example `deployer: { provider: "azure", keyId: "https://my-vault.vault.azure.net/keys/deployer/…", address: "0x…" }`. The pin is optional. Without it, the plugin still checks every signature against the address it derives from the key's public key. With it, the plugin also refuses to sign when the key id comes to name a different key, such as after a rotation of a key whose id has no version.
 3. Run `npx hardhat kms accounts --check-sign`. `ok` in the `SIGN` column proves that your credentials may sign with the key, not only read it. The key signs a random message, not a transaction, so this needs no network and no funds.
 
 ## Credentials and permissions
