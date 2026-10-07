@@ -19,6 +19,8 @@ import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "./vectors.ts";
 export const COW: string = COW_ACCOUNT.address;
 export const ZERO: string = HARDHAT_ACCOUNT_0.address;
 export const TO = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+/** The hash the fake node answers `wallet_sendTransaction` with; no transaction has it. */
+export const WALLET_SEND_HASH: string = `0x${"ee".repeat(32)}`;
 const SECRETS: Record<string, string> = {
   cow: COW_ACCOUNT.secretKey,
   zero: HARDHAT_ACCOUNT_0.secretKey,
@@ -43,6 +45,26 @@ export async function settle(): Promise<void> {
 export const nonceOf = (raw: string): bigint => Transaction.fromHex(raw, false).raw.nonce;
 export const hashOf = (raw: string): string =>
   `0x${Buffer.from(keccak_256(Buffer.from(raw.slice(2), "hex"))).toString("hex")}`;
+
+/** A successful receipt for a transfer mined in block 1, as the fake node answers it. */
+export function receiptOf(hash: unknown): Record<string, unknown> {
+  return {
+    transactionHash: hash,
+    transactionIndex: "0x0",
+    blockHash: `0x${"bb".repeat(32)}`,
+    blockNumber: "0x1",
+    from: COW.toLowerCase(),
+    to: TO.toLowerCase(),
+    contractAddress: null,
+    cumulativeGasUsed: "0x5208",
+    gasUsed: "0x5208",
+    effectiveGasPrice: "0x1",
+    logs: [],
+    logsBloom: `0x${"00".repeat(256)}`,
+    status: "0x1",
+    type: "0x0",
+  };
+}
 
 /** What the fake node does with a raw transaction, after recording it. */
 export type RawHandler = (raw: string, request: JsonRpcRequest) => Promise<JsonRpcResponse>;
@@ -182,6 +204,17 @@ export async function setUp(
           ? ok(hashOf(raw))
           : ok({ transactionHash: hashOf(raw), status: "0x1" });
       }
+      case "eth_blockNumber":
+        return ok("0x1");
+      case "eth_getTransactionReceipt": {
+        // A receipt for each raw transaction the node got, as if mined at once.
+        const [hash]: unknown[] = Array.isArray(request.params) ? request.params : [];
+        const mined = node.raw.some((raw) => hashOf(raw) === hash);
+        return ok(mined ? receiptOf(hash) : null);
+      }
+      case "wallet_sendTransaction":
+        // An endpoint that answers the wallet_sendTransaction viem sends after a failed send.
+        return ok(WALLET_SEND_HASH);
       default:
         throw new Error(`the fake node does not answer ${request.method}`);
     }

@@ -27,9 +27,10 @@ export const MAX_RETRY_ENTRIES = 256;
  * The error of a send whose outcome is unknown: the transaction was handed to the node, but no
  * answer came back. Its JSON-RPC code is -32000, the generic server error, so clients read it as
  * an RPC error and not as an unknown (-1) or internal (-32603) error, which some retry layers
- * repeat. viem itself never retries a send. It carries the transaction hash as `transactionHash`,
- * where Hardhat Ignition looks for the hash of a transaction that may have been sent, and in
- * `data.hash`.
+ * repeat. viem does not repeat `eth_sendTransaction`. After this error it sends the request once
+ * as `wallet_sendTransaction`, which the plugin refuses for a KMS sender, so the error viem throws
+ * has this one in its cause chain. It carries the transaction hash as `transactionHash`, where Hardhat Ignition looks for
+ * the hash of a transaction that may have been sent, and in `data.hash`.
  */
 export class SendOutcomeUnknownError extends HardhatPluginError {
   /** The JSON-RPC error code. */
