@@ -415,7 +415,7 @@ export async function dispatch(
 /**
  * The KMS account a wallet-namespace send names. Only a first param that is an object
  * whose `from` is a KMS address counts. A request without `from`, or with a `from` that is not an
- * address, passes on unchanged: Hardhat's sender handlers do not set `from` on this method, so no
+ * address, passes on unchanged: Hardhat's sender handlers do not set `from` on either method, so no
  * handler after the plugin can add a KMS address. EIP-5792 makes `from` optional on
  * `wallet_sendCalls`; without it the wallet picks the account, and the plugin is not that wallet.
  *

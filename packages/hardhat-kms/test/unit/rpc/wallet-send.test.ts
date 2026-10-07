@@ -239,9 +239,10 @@ describe("wallet_sendCalls", () => {
       );
       const error = errorOf(response);
       assert.equal(error.code, METHOD_NOT_FOUND);
+      assert.equal(response.id, 1, "the answer carries the request's id");
       assert.equal(
         error.message,
-        `wallet_sendCalls is not available for the KMS account ${COW}. Send each call with eth_sendTransaction, which the plugin signs.`,
+        `wallet_sendCalls is not available for the KMS account ${COW}. Pass experimental_fallback: true to viem's sendCalls, or send each call as its own transaction.`,
       );
       assert.equal(forwarded.length, 0);
       assert.equal(harness.state.signatures, 0);
