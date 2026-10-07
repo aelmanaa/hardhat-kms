@@ -7,7 +7,7 @@ description: "Deploy a Hardhat 3 contract to Sepolia with AWS KMS: create a secp
 
 Audience: developers who have an AWS account and AWS CLI v2 signed in, and have not used AWS KMS with Hardhat.
 
-This tutorial was followed from an empty directory on 2026-10-01, at commit [`7c4262e`](https://github.com/aelmanaa/hardhat-kms/commit/7c4262e), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 8 minutes, without the wait for Sepolia ETH. On 2026-10-07, at commit [`e10b7e5`](https://github.com/aelmanaa/hardhat-kms/commit/e10b7e5), with Hardhat 3.18.1, steps 1 to 4 in their current order were followed from an empty directory up to `kms accounts --check-sign`, with the packages packed from the repository and the key in LocalStack's KMS in place of AWS KMS. The plugin is not on npm yet; step 1 says how to install it until then.
+This tutorial was followed from an empty directory on 2026-10-01, at commit [`7c4262e`](https://github.com/aelmanaa/hardhat-kms/commit/7c4262e), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 8 minutes, without the wait for Sepolia ETH. On 2026-10-07, at commit [`e10b7e5`](https://github.com/aelmanaa/hardhat-kms/commit/e10b7e5), with Hardhat 3.18.1, steps 1 to 4 were followed again from an empty directory, up to `kms accounts --check-sign`. That run installed packages packed from the repository and used LocalStack's KMS in place of AWS KMS. The plugin is not on npm yet; step 1 says how to install it until then.
 
 In this tutorial you create a Hardhat project, create a signing key in AWS KMS, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves AWS KMS: Hardhat asks KMS for a signature each time it sends a transaction.
 
@@ -16,7 +16,7 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 You need:
 
 - Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm, pnpm or Yarn.
-- A POSIX shell, such as bash or zsh; on Windows, use WSL. Git too, until the plugin's first npm release: [Install before the first npm release](../guides/install-before-release.md) clones the repository.
+- A POSIX shell, such as bash or zsh; on Windows, use WSL. Until the plugin's first npm release you need Git too: [Install before the first npm release](../guides/install-before-release.md) clones the repository.
 - AWS CLI v2, signed in with an identity that can create KMS keys and aliases, and a region set: `aws configure get region` prints it, or set `AWS_REGION`. The plugin finds the same credentials and region as the CLI. `AWS_DEFAULT_REGION` is read by the CLI only, so set `AWS_REGION` if that is where your region comes from. AWS CLI v1 reaches [end of support on 2027-07-15](https://aws.amazon.com/blogs/developer/cli-v1-maintenance-mode-announcement/); `aws --version` prints `aws-cli/2.` for v2.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
 - About 0.01 Sepolia ETH, from a faucet or another account.
@@ -42,12 +42,16 @@ pnpm dlx hardhat@latest --init --template node-test-runner-viem
 ```sh [Yarn]
 mkdir kms-tutorial
 cd kms-tutorial
+yarn init -2
+printf 'nodeLinker: node-modules\napprovedGitRepositories:\n  - "https://github.com/foundry-rs/forge-std.git"\n' >> .yarnrc.yml
 yarn dlx hardhat@latest --init --template node-test-runner-viem
 ```
 
 :::
 
 `--yes` lets npx download Hardhat without asking first; `pnpm dlx` and `yarn dlx` do not ask.
+
+With Yarn, `yarn init -2` pins Yarn 4 in `package.json`, so the template's install runs with Yarn 4 rather than Yarn 1. Hardhat does not run under Yarn 4's default Plug'n'Play linker, and the template installs `forge-std` from GitHub, which Yarn 4 refuses unless the repository is approved.
 
 The template has a `Counter` contract, the Ignition module `ignition/modules/Counter.ts` that deploys it, and a `sepolia` network. It also installs `@nomicfoundation/hardhat-verify`, which verifies contracts on block explorers.
 

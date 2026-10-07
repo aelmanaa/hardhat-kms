@@ -16,7 +16,7 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 You need:
 
 - Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm, pnpm or Yarn.
-- A POSIX shell, such as bash or zsh; on Windows, use WSL. `curl`, which step 3 uses to see which account the plugin signs in as. Git too, until the plugin's first npm release: [Install before the first npm release](../guides/install-before-release.md) clones the repository.
+- A POSIX shell, such as bash or zsh; on Windows, use WSL. Step 3 also uses `curl` to show which account the plugin signs in as. Until the plugin's first npm release you need Git too: [Install before the first npm release](../guides/install-before-release.md) clones the repository.
 - The gcloud CLI, signed in with an identity that can create Cloud KMS keys and grant roles on them, and a project set: `gcloud config get-value project` prints it. The project Owner role is enough, and so is Cloud KMS Admin; Cloud KMS Admin cannot read a public key or sign, so step 3 grants the two roles that can. The project needs billing and the Cloud KMS API turned on; `gcloud services enable cloudkms.googleapis.com` turns the API on.
 - Application Default Credentials: run `gcloud auth application-default login` once. The plugin signs in with these, not with the gcloud CLI's own sign-in, and the two can be different accounts; step 3 shows how to see which one the plugin uses.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
@@ -43,12 +43,16 @@ pnpm dlx hardhat@latest --init --template node-test-runner-viem
 ```sh [Yarn]
 mkdir kms-tutorial
 cd kms-tutorial
+yarn init -2
+printf 'nodeLinker: node-modules\napprovedGitRepositories:\n  - "https://github.com/foundry-rs/forge-std.git"\n' >> .yarnrc.yml
 yarn dlx hardhat@latest --init --template node-test-runner-viem
 ```
 
 :::
 
 `--yes` lets npx download Hardhat without asking first; `pnpm dlx` and `yarn dlx` do not ask.
+
+With Yarn, `yarn init -2` pins Yarn 4 in `package.json`, so the template's install runs with Yarn 4 rather than Yarn 1. Hardhat does not run under Yarn 4's default Plug'n'Play linker, and the template installs `forge-std` from GitHub, which Yarn 4 refuses unless the repository is approved.
 
 The template has a `Counter` contract, the Ignition module `ignition/modules/Counter.ts` that deploys it, and a `sepolia` network. It also installs `@nomicfoundation/hardhat-verify`, which verifies contracts on block explorers.
 

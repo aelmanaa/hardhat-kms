@@ -16,8 +16,9 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 You need:
 
 - Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm, pnpm or Yarn.
-- A POSIX shell, such as bash or zsh; on Windows, use WSL. `openssl`, which step 2 uses for random names. Git too, until the plugin's first npm release: [Install before the first npm release](../guides/install-before-release.md) clones the repository.
-- The Azure CLI, signed in with `az login`, with a subscription where you can create a resource group and a key vault and assign roles, such as one where you have the Owner role. The plugin finds the same sign-in as the CLI. It tries environment variables first, but only a complete set: `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` with `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE`. `AZURE_CLIENT_ID` alone only chooses a user-assigned managed identity, which the plugin tries after the CLI. See [Sign in](../guides/azure-key-vault-setup.md#3-sign-in). Steps 2, 3 and 8 create and delete Azure resources, which Azure allows a user only after a sign-in with multifactor authentication; [Sign in](../guides/azure-key-vault-setup.md#3-sign-in) says which commands that covers.
+- A POSIX shell, such as bash or zsh; on Windows, use WSL. Step 2 also uses `openssl` to make random names. Until the plugin's first npm release you need Git too: [Install before the first npm release](../guides/install-before-release.md) clones the repository.
+- The Azure CLI, signed in with `az login`, with a subscription where you can create a resource group and a key vault and assign roles, such as one where you have the Owner role. The plugin finds the same sign-in as the CLI. It tries environment variables first, but only a complete set: `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` with `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE`. `AZURE_CLIENT_ID` alone only chooses a user-assigned managed identity, which the plugin tries after the CLI. See [Sign in](../guides/azure-key-vault-setup.md#3-sign-in).
+- A sign-in that completed multifactor authentication. Steps 2, 3 and 8 create and delete Azure resources, which Azure allows a user only after MFA; [Sign in](../guides/azure-key-vault-setup.md#3-sign-in) says which commands that covers.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
 - About 0.01 Sepolia ETH, from a faucet or another account.
 
@@ -42,12 +43,16 @@ pnpm dlx hardhat@latest --init --template node-test-runner-viem
 ```sh [Yarn]
 mkdir kms-tutorial
 cd kms-tutorial
+yarn init -2
+printf 'nodeLinker: node-modules\napprovedGitRepositories:\n  - "https://github.com/foundry-rs/forge-std.git"\n' >> .yarnrc.yml
 yarn dlx hardhat@latest --init --template node-test-runner-viem
 ```
 
 :::
 
 `--yes` lets npx download Hardhat without asking first; `pnpm dlx` and `yarn dlx` do not ask.
+
+With Yarn, `yarn init -2` pins Yarn 4 in `package.json`, so the template's install runs with Yarn 4 rather than Yarn 1. Hardhat does not run under Yarn 4's default Plug'n'Play linker, and the template installs `forge-std` from GitHub, which Yarn 4 refuses unless the repository is approved.
 
 The template has a `Counter` contract, the Ignition module `ignition/modules/Counter.ts` that deploys it, and a `sepolia` network. It also installs `@nomicfoundation/hardhat-verify`, which verifies contracts on block explorers.
 

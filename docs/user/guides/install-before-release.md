@@ -21,7 +21,7 @@ You need:
 - Node.js 22.18 or later to build. The repository's scripts and hooks are TypeScript files that run with plain `node`, which works without a flag from [Node.js 22.18.0](https://nodejs.org/en/blog/release/v22.18.0). On an older Node.js, `pnpm install` stops with `ERR_PNPM_BAD_RUNTIME_VERSION`. With nvm, `nvm use` in the clone picks the version in `.nvmrc`.
 - pnpm 12, for the build only. The repository pins pnpm 12.8.1 in `packageManager`. Run `corepack enable`, which comes with Node.js 22 and 24, or `npm install -g pnpm@12.8.1`.
 
-Your Hardhat project does not need either: the installed packages run with npm or pnpm on the Node.js versions in [Support](../reference/support.md).
+Your Hardhat project does not need either: the installed packages run with npm, pnpm or Yarn on the Node.js versions in [Support](../reference/support.md).
 
 ## 1. Build the packages
 
@@ -59,6 +59,12 @@ In a pnpm project:
 pnpm add -D ./vendor/hardhat-kms-0.8.0.tgz ./vendor/hardhat-kms-aws-0.8.0.tgz
 ```
 
+In a Yarn project:
+
+```sh
+yarn add --dev ./vendor/hardhat-kms-0.8.0.tgz ./vendor/hardhat-kms-aws-0.8.0.tgz
+```
+
 If pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, add the packages it names to `pnpm-workspace.yaml`, next to `package.json`, and install again. `esbuild` (all providers) and `protobufjs` (Google Cloud only) do not need their scripts:
 
 ```yaml
@@ -67,6 +73,6 @@ allowBuilds:
   protobufjs: false # Google Cloud only
 ```
 
-pnpm 12 runs no install scripts of dependencies until the project decides on each. Neither script is needed: esbuild's, which Hardhat depends on, checks its platform binary, and protobufjs's, which the Google Cloud SDK depends on, prints a warning.
+pnpm 12 runs a dependency's install script only after the project allows it. esbuild's script, which comes with Hardhat, only checks its platform binary, and protobufjs's, which comes with the Google Cloud SDK, only prints a warning.
 
-`npx hardhat kms --help` then lists the plugin's tasks. Go back to the page you came from and continue after its install instructions.
+Once the provider is in `plugins` in `hardhat.config.ts`, `npx hardhat kms --help` lists the plugin's tasks. Go back to the page you came from and continue after its install instructions.

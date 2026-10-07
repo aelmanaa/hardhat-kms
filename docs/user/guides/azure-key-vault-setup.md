@@ -114,7 +114,7 @@ az keyvault set-policy --name my-vault --object-id <principal object id> --key-p
 
 `az keyvault show --name my-vault --query properties.enableRbacAuthorization` prints `true` for an RBAC vault and `false` (or nothing) for an access-policy vault. A vault whose `enableRbacAuthorization` is unset keeps using access policies.
 
-The Key Vault control-plane API versions before 2026-02-01 retire on 2027-02-27, and Microsoft asks for Azure CLI 2.90.0 or later, which uses 2026-02-01 ([Plan for Azure RBAC as the default](https://learn.microsoft.com/en-us/azure/key-vault/general/access-control-default)). The retirement changes the `az keyvault` commands that create and configure vaults, not signing: the plugin calls only the vault's data plane.
+Key Vault control-plane API versions before 2026-02-01 retire on 2027-02-27. From then on, the `az keyvault` commands that create and configure vaults need Azure CLI 2.90.0 or later, the first version that supports 2026-02-01 ([Plan for Azure RBAC as the default](https://learn.microsoft.com/en-us/azure/key-vault/general/access-control-default)). Signing is not affected: the plugin calls only the vault's data plane.
 
 ### Managed HSM
 
@@ -166,7 +166,7 @@ A service principal in the environment takes precedence over every other source.
 
 The plugin does not sign in with a username and password, since that sign-in cannot do multifactor authentication. With `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_USERNAME` and `AZURE_PASSWORD` set and no secret or certificate, it fails with an error that names the variables. Sign in with a service principal, `az login`, workload identity or a managed identity instead.
 
-When you sign in as a user, commands that create, change or delete Azure resources need a sign-in that completed multifactor authentication (MFA). In Azure's public cloud, this applies to every such request to Azure Resource Manager, from the Azure CLI, Azure PowerShell, the SDKs or the REST API. Enforcement began on 2025-10-01, and a tenant could postpone it to 2026-07-01 at the latest. Reads are exempt, and so are workload identities such as service principals and managed identities ([Mandatory Microsoft Entra MFA](https://learn.microsoft.com/en-us/entra/identity/authentication/concept-mandatory-multifactor-authentication)). On this page, `az keyvault create`, `az role assignment create` and `az monitor diagnostic-settings create` are such commands. Signing and `kms history` are not: the plugin calls the vault and Log Analytics, not Azure Resource Manager.
+When you sign in as a user, commands that create, change or delete Azure resources need a sign-in that completed multifactor authentication (MFA). In Azure's public cloud, this applies to every such request to Azure Resource Manager, from the Azure CLI, Azure PowerShell, the SDKs or the REST API. Enforcement began on 2025-10-01, and a tenant could postpone it to 2026-07-01 at the latest. Reads are exempt, and so are workload identities such as service principals and managed identities ([Mandatory Microsoft Entra MFA](https://learn.microsoft.com/en-us/entra/identity/authentication/concept-mandatory-multifactor-authentication)). On this page, they include `az keyvault create`, `az role definition create`, `az role assignment create`, `az keyvault set-policy`, `az monitor log-analytics workspace create` and `az monitor diagnostic-settings create`. Signing and `kms history` are not: the plugin calls the vault and Log Analytics, not Azure Resource Manager.
 
 ## 4. Install the plugin and configure the key
 
