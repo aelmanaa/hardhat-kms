@@ -34,3 +34,7 @@ What would make us revisit it: a second maintainer, which changes who approves w
 ## Evidence
 
 The `gate-ci` job of `release.yml` keeps an untested version off npm: since [#332](https://github.com/aelmanaa/hardhat-kms/issues/332) it publishes only when the tagged commit has passing runs of four workflows, `ci.yml`, `ci-all-os.yml`, `hardhat-versions.yml` and `sdk-floors.yml`, and dispatches each of the last three on the tag when the commit has none. Pull-request runs never count. See [Releasing](../releasing.md), step 7 of section 3.
+
+0.9.0 was staged on 2026-10-08 with a one-day token, as the Consequences section expects; the token was then revoked and the token step removed from `release.yml` ([#47](https://github.com/aelmanaa/hardhat-kms/issues/47)), so from 0.9.1 on no workflow reads a secret. What the first publish taught is in [Releasing](../releasing.md#first-publish-090-2026-10-08).
+
+Choice 5's "only the version numbers and the changelog changed" was clarified by the maintainer before 0.9.0: between the passing 0.9.x and 1.0.0, nothing changes in `src/`, `dist/` or the manifests except `version`; READMEs and changelogs may change, so the README status lines can follow each 0.9.x.

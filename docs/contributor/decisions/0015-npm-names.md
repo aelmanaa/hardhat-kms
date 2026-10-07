@@ -38,3 +38,7 @@ The rest of 0009 stands: four packages, released together at the same version as
 - `pnpm --filter` with a name that matches no package exits 0. Every `--filter` in the root scripts and in `scripts/` passes `--fail-if-no-match`, so a stale name fails instead of skipping its tests.
 - Until the first publish, anyone can still publish the unscoped `hardhat-kms` before this project does.
 - If npm refuses the unscoped `hardhat-kms` at first publish, the core becomes `@hardhat-kms/core`, and the official-packages rule shrinks to the `@hardhat-kms` scope. That would be a reason to revisit this record.
+
+## Evidence
+
+npm accepted the unscoped `hardhat-kms` at the first publish, 0.9.0 on 2026-10-08, with the three `@hardhat-kms` provider packages, so the `@hardhat-kms/core` fallback was not needed.

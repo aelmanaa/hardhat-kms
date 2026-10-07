@@ -2,7 +2,7 @@
 
 Audience: A maintainer cutting a release, or reading what happened to one. Assumes the setup in [CONTRIBUTING.md](../../CONTRIBUTING.md) and a hardware key that signs git tags.
 
-Status: the trust root (`.github/release-keys/`), `scripts/verify-release-tag.ts`, the `Changeset` check on pull requests, the 0.8.0 base version, the registry mode of the package checks (`--from-registry`, `scripts/check-registry-release.ts`, rehearsed against a local verdaccio by `registry-mode.yml`), the three release workflows (`release-pr.yml`, `release.yml`, `promote.yml`) and the two GitHub environments (`npm-publish`, `npm-latest`) exist. Nothing has been published yet. Before the first release the repository owner still has to turn on "Allow GitHub Actions to create and approve pull requests" (Settings, Actions, General), without which `release-pr.yml` cannot open the Version Packages pull request, and to do the first-publish steps in [Cut a release](#3-cut-a-release). [Decision 0016](decisions/0016-release-process.md) records why the process has this shape.
+Status: the trust root (`.github/release-keys/`), `scripts/verify-release-tag.ts`, the `Changeset` check on pull requests, the 0.8.0 base version, the registry mode of the package checks (`--from-registry`, `scripts/check-registry-release.ts`, rehearsed against a local verdaccio by `registry-mode.yml`), the three release workflows (`release-pr.yml`, `release.yml`, `promote.yml`) and the two GitHub environments (`npm-publish`, `npm-latest`) exist. 0.9.0, the first version on npm, went through this process on 2026-10-08; [First publish](#first-publish-090-2026-10-08) records what it taught. [Decision 0016](decisions/0016-release-process.md) records why the process has this shape.
 
 The model in one sentence: every version is a stable semver string, built from a maintainer-signed `vX.Y.Z` tag, staged to npm under the `beta` dist-tag, approved on npmjs.com, verified from the registry, and promoted to `latest` by moving the dist-tag on that exact version. Nothing is rebuilt between `beta` and `latest`: same tarballs, same provenance. The four packages (`hardhat-kms`, `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure`) are one changesets `fixed` group and always carry the same version.
 
@@ -76,7 +76,7 @@ Why the manifests read `0.8.0` before the first release: `changeset version` app
 
 8. Read the publish plan, the four tarball file lists, their SHA-256 sums and the release notes in the step summary. Each tarball's `package.json` carries `gitHead`, the tagged commit, which `promote.yml` checks later; npm does not add it to a package published from a tarball. From the second release on, the summary also diffs each file list against the tarball on `latest`. Stop if a file list holds a surprise: nothing has reached npm yet, and [Run failed before `publish`](#run-failed-before-publish) applies.
 9. Approve the `npm-publish` environment. The `publish` job checks the tarballs against the SHA-256 sums the `pack` job passed as a job output, and their name, version and `gitHead`, then stages the four packages with `npm stage publish <tarball> --tag beta --access public --provenance`, over OIDC. Then the `github-release` job creates the GitHub Release `vX.Y.Z` as a draft with the prerelease flag, its notes taken from the `hardhat-kms` changelog entry for the version.
-10. On npmjs.com, inspect the four staged packages and approve them with WebAuthn. Only now do the packages exist on the registry, and `beta` points at the version.
+10. On npmjs.com, inspect the four staged packages and approve them with WebAuthn. npm first runs an automated review of each stage, shown as "Validating", and a stage can be approved only after it ends. Only after the approval do the packages exist on the registry, and `beta` points at the version.
 
 Three actions by a maintainer per release (sign, approve the environment, approve the stage) and none by anyone else. Pushing a tag that is already on the remote, unchanged, starts nothing.
 
@@ -89,18 +89,30 @@ gh workflow run release.yml --ref main -f dry-run=true -f tag=none
 
 A dispatch with `dry-run` set to anything but true, or with a `tag` that is not one whole `vX.Y.Z` or `none`, fails in its first step (`scripts/release-trigger.ts`): only a pushed tag publishes.
 
-First publish of a new package. A trusted-publisher configuration lives in a package's settings on npmjs.com, so it cannot exist before the package does. The first publish of a new package (the four in 0.9.0, or any package added later) therefore uses a token, once. In time order:
+### Trusted publishing
 
-1. Minutes before the tag is pushed, create a granular access token on the publishing account: read and write, stage only, limited to the `hardhat-kms` organisation scope and, if the form accepts a package that does not exist yet, `hardhat-kms`; expiry one day; two-factor bypass on, because the run is unattended.
-2. Store it as the secret `NPM_FIRST_PUBLISH_TOKEN` on the `npm-publish` environment. The `publish` job's step "Write the first-publish token to an npmrc, when set" writes it to an npmrc in the runner's temporary directory when the secret is set, and the job publishes over OIDC otherwise; `id-token: write` stays on the job in both cases, because provenance needs it even with a token, and `--provenance` is passed.
-3. Cut the release as above. Staging a package that does not exist first publishes a public placeholder version `0.0.0-stage`. If the registry refuses `hardhat-kms` as too similar to an existing name, it does so here: stop, do not approve the three scoped packages, and use the fallback name `@hardhat-kms/core` through a rename pull request and a new tag.
-4. After the approval on npmjs.com, run `npm view <pkg> versions` for the four packages. If `0.0.0-stage` is still listed, deprecate it: `npm deprecate <pkg>@0.0.0-stage "placeholder; use 0.9.0"`. What the registry did with the placeholder for 0.9.0 is recorded here after that publish.
-5. Within 48 hours of the approval, in one sitting: revoke the token and delete the environment secret.
-6. In the same sitting, create two trusted-publisher configurations per package: one for `release.yml` on the `npm-publish` environment (stage only, the default for configurations created since 2026-09-03) and one for `promote.yml` on the `npm-latest` environment (allow dist-tag, no publish).
-7. Set each package to "Require two-factor authentication and disallow tokens".
-8. Push the next tag inside 48 hours of step 6: a configuration that has not completed a publish within 48 hours expires. If that is not possible, delete the configurations and create them again on the day of that tag.
+`release.yml` and `promote.yml` publish over OIDC only: no workflow reads a token or a secret. Each of the four packages has two trusted-publisher configurations on npmjs.com: one for `release.yml` on the `npm-publish` environment (stage only, the default for configurations created since 2026-09-03) and one for `promote.yml` on the `npm-latest` environment (allow dist-tag, no publish). Each package's "Publishing access" is set to "Require two-factor authentication and disallow bypass 2fa tokens".
 
-The token step in `release.yml` is removed in the pull request that closes the 0.9.0 publish. From then on no workflow reads a secret, and the first publish of each package is the only one that ever held a token.
+A configuration shows "not yet validated" until a publish uses it, and expires 48 hours after its creation if no publish does. Check the configurations on the day of each tag, and recreate any that expired before pushing it ([Trusted-publisher configuration expired](#trusted-publisher-configuration-expired)).
+
+### First publish (0.9.0, 2026-10-08)
+
+A trusted-publisher configuration lives in a package's settings, so it cannot exist before the package does. 0.9.0 therefore staged the four packages with a granular access token: read and write, stage only, one-day expiry, two-factor bypass on. It was stored as a secret on the `npm-publish` environment for that run and read by a step in `release.yml`. After the stage was approved, the token was revoked, the secret deleted and the configurations above created, and the step was then removed from `release.yml`. What the run showed:
+
+- A token for a package that does not exist yet needs "All packages" as its scope. The first run used a token limited to the `@hardhat-kms` scope, and the unscoped `hardhat-kms` failed with `E403`. A rerun with a new token staged all four.
+- npm reviewed each stage ("Validating") before it could be approved.
+- Staging a package that does not exist publishes a placeholder version, `0.0.0-stage`, and the placeholder took `latest` on all four packages; `--tag beta` put 0.9.0 on `beta` only. The fix ran from a maintainer's machine, with 2FA, for each package:
+
+  ```sh
+  npm dist-tag add <pkg>@0.9.0 latest
+  npm deprecate <pkg>@0.0.0-stage "Placeholder created by npm staged publishing; install 0.9.0 or later."
+  ```
+
+  After it, `latest` and `beta` both point at 0.9.0.
+
+- The registry accepted the unscoped name `hardhat-kms`, so the fallback `@hardhat-kms/core` was not needed.
+
+A package added later meets the same problem: its first stage cannot run over OIDC, and `release.yml` has no token path. Plan that first publish in its own issue, starting from this record.
 
 ## 4. Verify and promote
 
@@ -135,7 +147,7 @@ The token step in `release.yml` is removed in the pull request that closes the 0
 
 Either target posts one comment on the merged Version Packages pull request with the result of the verify job, of the dist-tag move and of the release job, the `live-run` value and the run link. The run's step summary holds the full output. That comment is the record of the release.
 
-The first version of a package lands on `latest` whatever is asked, because the registry has nothing else to point at. For 0.9.0, `target: latest` is therefore not run; the release is published with `gh release edit v0.9.0 --draft=false --prerelease=false --latest` after `verify` is green. The [acceptance test](https://github.com/aelmanaa/hardhat-kms/issues/294) then runs against 0.9.0 from the registry, and only a version that passes it gets the 1.0.0 tag.
+The first version of a package lands on `latest` whatever is asked, because the registry has nothing else to point at. For 0.9.0, `latest` already points at the version after the placeholder fix in [First publish](#first-publish-090-2026-10-08), so `target: latest` is not run; the release is published with `gh release edit v0.9.0 --draft=false --prerelease=false --latest` after `verify` is green. The [acceptance test](https://github.com/aelmanaa/hardhat-kms/issues/294) then runs against 0.9.0 from the registry, and only a version that passes it gets the 1.0.0 tag. Between that 0.9.x and 1.0.0, nothing changes in `src/`, `dist/` or the manifests except `version`; READMEs and changelogs may change.
 
 ## 5. Hotfix on an older line
 
