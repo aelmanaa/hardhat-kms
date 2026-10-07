@@ -30,8 +30,9 @@
 //   result table to a file, such as $GITHUB_STEP_SUMMARY. --from-registry installs the packages at
 //   that version from the registry in place of the packed tarballs, with no build and no pack; each
 //   install must then resolve that version. The provider-mismatch case needs a core repacked one
-//   patch ahead, which no registry has, so registry mode skips it and the table says so. Linux and
-//   macOS only: it runs `env` and `tar`.
+//   patch ahead, which no registry has, so registry mode skips it and the table says so. Registry
+//   mode also exempts the plugin packages from Yarn 4's age gate, which would refuse them on the
+//   day of a release (see yarnBerrySettings). Linux and macOS only: it runs `env` and `tar`.
 import { execFileSync, spawn } from "node:child_process";
 import {
   appendFileSync,
@@ -47,12 +48,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { assertInstalledVersion, registryOptionsOrExit } from "./registry.ts";
+import {
+  assertInstalledVersion,
+  registryOptionsOrExit,
+  YARN_BERRY,
+  yarnBerrySettings,
+} from "./registry.ts";
 import { output, readJson, resolvedVersion, root, run, stringRecord } from "./temporary-install.ts";
 
-/** The package managers measured, with the exact versions, so a result names what produced it. */
+/**
+ * The package managers measured, with the exact Yarn versions (Yarn 4's is YARN_BERRY in
+ * registry.ts), so a result names what produced it.
+ */
 const YARN_CLASSIC = "1.22.22";
-const YARN_BERRY = "4.18.1";
 const MANAGERS = ["npm", "npm --legacy-peer-deps", "pnpm", "yarn classic", "yarn berry"] as const;
 type Manager = (typeof MANAGERS)[number];
 
@@ -230,10 +238,18 @@ function isolated(command: string, args: string[]): [string, string[]] {
     npm_config_audit: "false",
     npm_config_fund: "false",
     npm_config_update_notifier: "false",
-    // npm, pnpm and Yarn classic read npm_config_registry; Yarn Berry has its own name.
+    // npm, pnpm and Yarn classic read npm_config_registry; Yarn Berry has its own name, and
+    // refuses an http registry, such as a local verdaccio, whose host it is not told to trust.
     ...(options.registry === undefined
       ? {}
-      : { npm_config_registry: options.registry, YARN_NPM_REGISTRY_SERVER: options.registry }),
+      : {
+          npm_config_registry: options.registry,
+          YARN_NPM_REGISTRY_SERVER: options.registry,
+          YARN_UNSAFE_HTTP_WHITELIST: new URL(options.registry).hostname,
+          // Yarn Berry caches registry metadata by host name, not port, so another local
+          // registry on the same host would leave tarball URLs that point at its port.
+          YARN_GLOBAL_FOLDER: path.join(work, "yarn-global"),
+        }),
   };
   return [
     "env",
@@ -500,7 +516,8 @@ const INSTALL: Record<Manager, [string, string[]]> = {
     "corepack",
     [`yarn@${YARN_CLASSIC}`, "install", "--ignore-scripts", "--non-interactive"],
   ],
-  // .yarnrc.yml turns the install scripts off.
+  // .yarnrc.yml turns the install scripts off and, in registry mode, exempts the plugin packages
+  // from Yarn's age gate (yarnBerrySettings).
   "yarn berry": ["corepack", [`yarn@${YARN_BERRY}`, "install"]],
 };
 
@@ -516,7 +533,7 @@ function writeManagerFiles(directory: string, manager: Manager, allowBuilds: boo
   if (manager === "yarn berry") {
     writeFileSync(
       path.join(directory, ".yarnrc.yml"),
-      "nodeLinker: node-modules\nenableScripts: false\nenableTelemetry: false\nenableHardenedMode: false\n",
+      yarnBerrySettings(fromRegistry !== undefined),
     );
     // An empty lockfile makes the directory a project of its own, even inside another one.
     writeFileSync(path.join(directory, "yarn.lock"), "");
