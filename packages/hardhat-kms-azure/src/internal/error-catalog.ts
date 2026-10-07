@@ -159,7 +159,7 @@ export const ERRORS = {
     kind: "error",
     group: "Responses",
     template: "the response is for another key than the one requested",
-    cause: "A Key Vault answer names another key than the configured one. It is refused.",
+    cause: "A Key Vault answer names another vault or key than the configured one. It is refused.",
     fix: "Check the vault URL and any proxy; if it repeats, report it.",
   },
   noSignature: {
