@@ -15,12 +15,13 @@
 // limit and the 120 s stall limit, so a stuck send fails before either limit. Each failure shows
 // the output.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { runHardhat } from "../helpers/hardhat-cli.ts";
+import { createTempProject, removeTempProject } from "../helpers/temp-project.ts";
 import { COW_ACCOUNT } from "../helpers/vectors.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -96,9 +97,7 @@ await connection.close();
 
 describe("a library account in a hardhat run script", () => {
   before(() => {
-    // Inside the package, as in tasks-cli.test.ts, so the project resolves the package's modules.
-    mkdirSync(path.join(repo, ".tmp"), { recursive: true });
-    project = mkdtempSync(path.join(repo, ".tmp", "library-send-cli-"));
+    project = createTempProject("library-send-cli-");
     writeFileSync(
       path.join(project, "package.json"),
       JSON.stringify({ name: "p", type: "module" }),
@@ -114,8 +113,8 @@ describe("a library account in a hardhat run script", () => {
     writeFileSync(path.join(project, "scripts", "send.ts"), SCRIPT);
   });
 
-  after(() => {
-    rmSync(project, { recursive: true, force: true });
+  after(async () => {
+    await removeTempProject(project);
   });
 
   it(
