@@ -53,6 +53,34 @@ export function endWithTestProcess(child: ChildProcess): void {
   child.once("exit", () => running.delete(child));
 }
 
+/**
+ * Ends `child` and resolves once it has exited. `kill()` only sends the signal: a test that removes
+ * the child's project right after it races the exit, and on Windows, where a running process locks
+ * its working directory and its open files, the removal fails with EBUSY (#326). On Windows
+ * `taskkill /T` ends the child with every process it started; elsewhere SIGKILL ends the child,
+ * and a process that outlives it does not lock the directory.
+ *
+ * @param child - A child the test started, such as `hardhat node`.
+ */
+export async function endChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  const exited = once(child, "exit");
+  if (process.platform === "win32" && child.pid !== undefined) {
+    const taskkill = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    // A failed taskkill, for example on a child that exited meanwhile, falls back to kill().
+    await once(taskkill, "close").catch(() => undefined);
+  }
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGKILL");
+  }
+  await exited;
+}
+
 /** How long a run may take. */
 export type RunLimits =
   | {
