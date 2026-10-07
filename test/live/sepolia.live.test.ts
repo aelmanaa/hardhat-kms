@@ -138,6 +138,24 @@ const ACCOUNT_READS = new Set([
 ]);
 
 /**
+ * What the fork's upstream answered to each `eth_feeHistory`, and which forwards failed, as the
+ * proxy recorded them: status codes, error codes and shapes, never a value from an answer.
+ *
+ * @param proxy - The fork's proxy.
+ * @returns One line for each.
+ */
+function upstreamSummary(proxy: RecordingProxy): string[] {
+  const replies = proxy
+    .feeHistoryReplies()
+    .map((reply) => `HTTP ${reply.status}, ${reply.outcome}`);
+  const failures = proxy.upstreamFailures();
+  return [
+    `upstream eth_feeHistory answers: ${replies.length === 0 ? "none" : replies.join("; ")}`,
+    `failed upstream forwards: ${failures.length === 0 ? "none" : failures.join("; ")}`,
+  ];
+}
+
+/**
  * Runs `step` and fails with any error's name and message redacted. The original error is not
  * passed on, since node:test would print it.
  */
@@ -474,9 +492,17 @@ describe(onFork ? "live on a Sepolia fork" : "live on Sepolia", () => {
         `${provider.name}: runs every ${onFork ? "live and fork" : "live"} case of the matrix`,
         { skip },
         async (t) => {
-          await redacted(async () => {
-            await runProvider(hre, provider, t, fork?.url);
-          });
+          try {
+            await redacted(async () => {
+              await runProvider(hre, provider, t, fork?.url);
+            });
+          } catch (error) {
+            // A failed fork case may come from the upstream: say what it answered.
+            for (const line of proxy === undefined ? [] : upstreamSummary(proxy)) {
+              t.diagnostic(redact(line, process.env));
+            }
+            throw error;
+          }
         },
       );
     }
