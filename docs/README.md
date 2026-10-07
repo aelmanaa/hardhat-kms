@@ -4,6 +4,17 @@ hardhat-kms is a Hardhat 3 plugin that signs transactions, messages and typed da
 
 Each page except the generated API reference opens with an `Audience:` line that names who it is for and what it assumes. [Release channels and versioning](user/explanation/versioning.md#channels) says which release to install and what a version promises.
 
+## Start here
+
+- **I need a key and want a first deploy.** [First deploy on Sepolia with AWS KMS](user/tutorials/first-deploy-aws.md). The Google Cloud and Azure versions are under Tutorials.
+- **I already have a KMS key.** [Configuration](user/reference/configuration.md) shows how to add it to a project.
+- **I want to deploy my contracts.** [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md).
+- **A command failed.** [Errors](user/reference/errors.md) lists every error by message, with the fix.
+- **I sent a transaction and don't know what happened.** [After an uncertain send](user/guides/uncertain-sends.md).
+- **What does the plugin protect against?** [Security model](user/explanation/security-model.md).
+- **Is the package I installed the real one?** [Verify a release](user/guides/verify-a-release.md).
+- **I want a KMS account in my own code.** [Library accounts](user/reference/library-accounts.md).
+
 ## Tutorials
 
 | Page                                                                                 | Kind     |
