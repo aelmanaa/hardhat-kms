@@ -12,6 +12,7 @@ import llmstxt from "vitepress-plugin-llms";
 import {
   EXCLUDED_FOLDERS,
   FAVICON,
+  FAVICON_PNG,
   GITHUB_REPOSITORY,
   HOSTNAME,
   OG_IMAGE,
@@ -275,11 +276,21 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
   srcDir: docsDirectory,
   srcExclude: EXCLUDED,
   rewrites: sitePage,
-  // VitePress does not add the base path to head tags, so the favicon's href carries it.
+  // VitePress does not add the base path to head tags, so the favicons' hrefs carry it.
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: FAVICON }],
-    // Space between the landing page's feature cards and the docs index below them.
-    ["style", {}, ".VPHome .vp-doc { margin-top: 48px; }"],
+    [
+      "link",
+      {
+        rel: "icon",
+        type: "image/png",
+        sizes: `${FAVICON_PNG.size}x${FAVICON_PNG.size}`,
+        href: FAVICON_PNG.url,
+      },
+    ],
+    // Space between the landing page's feature cards and the docs index below them. The nav logo
+    // is 34 px tall: the mark files pad the drawing, so the drawing is 24 px, the mark's minimum size.
+    ["style", {}, ".VPHome .vp-doc { margin-top: 48px; } :root { --vp-nav-logo-height: 34px; }"],
   ],
   cleanUrls: true,
   lastUpdated: true,
@@ -402,6 +413,8 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
     await rewriteLlmsLinks(siteConfig.outDir);
   },
   themeConfig: {
+    // The site title next to it names the project, so the image needs no alt text.
+    logo: { light: "/logo/mark-on-light.svg", dark: "/logo/mark-on-dark.svg", alt: "" },
     nav: [
       {
         text: "Tutorials",

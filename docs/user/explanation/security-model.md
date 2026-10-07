@@ -108,7 +108,7 @@ Any of these requests can reach the KMS and produce a signature the plugin never
 
 ## Audit logs
 
-Each cloud provider records sign requests in its own audit log, whoever makes them. [`kms history`](../reference/tasks.md#kms-history) reads that log for one key. It shows only what the log holds: the plugin keeps no record of its own signatures, and it fills in nothing. So the history can show who signed with a key, when, from where and with which tool, including signatures made outside the plugin. It cannot show what was signed: no provider logs the message, the typed data, the transaction or the signature. Google Cloud logs the digest; AWS and Azure do not.
+Each cloud provider records sign requests in its own audit log, whoever makes them. [`kms history`](../reference/tasks.md#kms-history) reads that log for one key. It shows only what the log holds: the plugin keeps no record of its own signatures, and it fills in nothing. So the history can show who signed with a key, when, from where and with which tool, including signatures made outside the plugin. It cannot show what was signed: no provider logs the message, the typed data, the transaction or the signature. Google Cloud logs the digest; AWS and Azure do not. [Find who signed with a key](../guides/who-signed.md) shows how to read the log after an incident and match its events to transactions.
 
 What each provider records for a sign request, from the providers' documentation on 2026-10-02. Each reader's live test checked its column against real log entries the same day. On AWS, `requestID` is the `$metadata.requestId` the SDK returns. On Azure, `CorrelationId` is the `x-ms-request-id` that Key Vault returns, and the client's `x-ms-client-request-id` is not logged.
 

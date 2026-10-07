@@ -125,6 +125,30 @@ export function headProblems(
   return problems;
 }
 
+/**
+ * Checks one page's head names each favicon in exactly one `<link rel="icon">` with its href and
+ * type, so a browser finds the favicon. `siteLinks` checks the hrefs resolve to built files.
+ */
+export function iconProblems(
+  file: string,
+  html: string,
+  icons: readonly { href: string; type: string }[],
+): string[] {
+  const links = tags(headOf(html), "link").filter((link) => link.get("rel") === "icon");
+  const problems: string[] = [];
+  for (const icon of icons) {
+    const found = links.filter((link) => link.get("href") === icon.href);
+    if (found.length !== 1) {
+      problems.push(`${file}: ${found.length} icon links to ${icon.href}, expected 1`);
+    } else if (found[0]?.get("type") !== icon.type) {
+      problems.push(
+        `${file}: the icon link to ${icon.href} has type ${found[0]?.get("type")}, expected ${icon.type}`,
+      );
+    }
+  }
+  return problems;
+}
+
 /** The eight bytes every PNG file starts with. */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 

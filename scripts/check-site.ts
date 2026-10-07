@@ -2,7 +2,7 @@
 // - every page under docs/ (contributor pages aside) is built, under a clean URL;
 // - each page's head has one canonical URL without `.html`, a title ending in "| hardhat-kms", one
 //   meta description (equal to the frontmatter description when the page sets one), the Open Graph
-//   tags and the Twitter card;
+//   tags, the Twitter card and a link to each favicon;
 // - every link and asset on the site starts with the base path and resolves to a built file, and
 //   every #anchor to an element of that page;
 // - sitemap.xml lists every page, robots.txt names the sitemap, llms.txt and llms-full.txt exist,
@@ -10,6 +10,7 @@
 //   file;
 // - the landing page carries one JSON-LD SoftwareSourceCode block with the core's version.
 // - the social preview the pages name is built, and is a 1280x640 PNG under 1 MB;
+// - the PNG favicon is built, and is a 32x32 PNG;
 // - docs/public/og-image.svg names only the vendored font families, and docs/public/og-image.png
 //   has the same bytes as a fresh render of it (scripts/og-image.ts).
 // scripts/site-output.ts holds the checks and test/scripts/site-output.test.ts their tests.
@@ -22,6 +23,8 @@ import { fileURLToPath } from "node:url";
 
 import {
   EXCLUDED_FOLDERS,
+  FAVICON,
+  FAVICON_PNG,
   HOSTNAME,
   OG_IMAGE,
   OG_IMAGE_MAX_BYTES,
@@ -41,6 +44,7 @@ import {
   anchors,
   frontmatterDescription,
   headProblems,
+  iconProblems,
   jsonLdProblems,
   markdownLinkProblems,
   ogImageProblems,
@@ -98,6 +102,12 @@ for (const source of sources) {
   const description = frontmatterDescription(readFileSync(path.join(docs, source), "utf8"));
   problems.push(
     ...headProblems(`docs/${source}`, readFileSync(built, "utf8"), url, description, site),
+  );
+  problems.push(
+    ...iconProblems(`docs/${source}`, readFileSync(built, "utf8"), [
+      { href: FAVICON, type: "image/svg+xml" },
+      { href: FAVICON_PNG.url, type: "image/png" },
+    ]),
   );
   if (url.endsWith(".html")) {
     problems.push(`docs/${source}: the canonical URL ends in .html`);
@@ -186,6 +196,19 @@ problems.push(
     : [`${OG_IMAGE.url} is not in the build; add the image as docs/public/og-image.png`]),
 );
 
+// The PNG favicon the pages name (siteLinks checks that it resolves) has the size its link
+// announces. The SVG favicon has no size to check.
+const faviconPng = path.join(output, FAVICON_PNG.url.slice(SITE_BASE.length));
+problems.push(
+  ...(existsSync(faviconPng)
+    ? pngProblems(path.relative(output, faviconPng), readFileSync(faviconPng), {
+        width: FAVICON_PNG.size,
+        height: FAVICON_PNG.size,
+        maxBytes: 64 * 1024,
+      })
+    : [`${FAVICON_PNG.url} is not in the build; add the image as docs/public/favicon-32.png`]),
+);
+
 // The committed PNG is what scripts/render-og-image.ts draws from the SVG with the vendored fonts.
 const ogSvg = readFileSync(OG_IMAGE_SVG, "utf8");
 problems.push(
@@ -202,5 +225,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 process.stdout.write(
-  `site check passed: ${sources.length} pages built with one canonical URL, a title, a description and Open Graph tags; ${outputFiles.filter((entry) => entry.endsWith(".html")).length} HTML files whose links and anchors resolve; every URL in llms.txt, llms-full.txt and the Markdown copies resolves; sitemap.xml, robots.txt, llms.txt, llms-full.txt, the landing page's JSON-LD and the 1280x640 social preview are in place, and the preview matches a render of its SVG\n`,
+  `site check passed: ${sources.length} pages built with one canonical URL, a title, a description, Open Graph tags and the favicon links; ${outputFiles.filter((entry) => entry.endsWith(".html")).length} HTML files whose links and anchors resolve; every URL in llms.txt, llms-full.txt and the Markdown copies resolves; sitemap.xml, robots.txt, llms.txt, llms-full.txt, the landing page's JSON-LD, the 1280x640 social preview and the 32x32 PNG favicon are in place, and the preview matches a render of its SVG\n`,
 );
