@@ -97,7 +97,7 @@ flowchart LR
 
 ### Server, VM or container
 
-Code that runs in the cloud uses the identity the cloud attaches to the machine, container or pod. Nothing is stored on the machine.
+Code that runs in the cloud uses the identity the cloud attaches to the machine, container or pod, so no long-lived credential file is needed. Some sources still read a short-lived token from a file: EKS web identity reads the token file that EKS mounts in the pod.
 
 ```mermaid
 flowchart LR

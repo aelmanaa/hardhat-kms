@@ -178,7 +178,7 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
       .addFlag({
         name: "selfBroadcast",
         description:
-          "The key also sends the transaction that carries the authorization: sign for the pending nonce + 1",
+          "Sign for the pending nonce + 1, for when this key will send the transaction that carries the authorization. The task sends nothing",
       })
       .addFlag({
         name: "force",

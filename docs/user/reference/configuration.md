@@ -9,7 +9,7 @@ Audience: Users configuring the plugin.
 
 ## Configuration
 
-Keys are declared once under `kms.keys` and referenced by name from any network. Each provider's keys need its [provider package](#provider-packages) in `plugins`; the example lists `@hardhat-kms/aws`, which loads `hardhat-kms` itself:
+Keys are declared once under `kms.keys` and referenced by name from any network. Each provider's keys need its [provider package](#provider-packages) in `plugins`. This example uses one AWS KMS key, so it lists `@hardhat-kms/aws`, which loads `hardhat-kms` itself:
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
@@ -20,12 +20,7 @@ export default defineConfig({
   kms: {
     defaults: { aws: { region: "eu-west-1" }, timeoutMs: 30_000 },
     keys: {
-      deployer: { provider: "aws", keyId: "alias/deployer", address: "0x1234…" }, // address pin: optional, recommended
-      ops: { provider: "azure", keyId: "https://ops.vault.azure.net/keys/ops/0123abcd" },
-      treasury: {
-        provider: "gcp",
-        keyVersionName: "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/3",
-      },
+      deployer: { provider: "aws", keyId: "alias/deployer" },
     },
   },
   networks: {
@@ -33,22 +28,25 @@ export default defineConfig({
       type: "http",
       url: configVariable("SEPOLIA_RPC_URL"),
       chainId: 11155111,
-      kmsAccounts: ["deployer", "ops"],
-    },
-    arbitrum: {
-      type: "http",
-      url: configVariable("ARB_RPC_URL"),
-      chainId: 42161,
-      kmsAccounts: ["deployer"],
-    },
-    fork: {
-      type: "edr-simulated",
-      forking: { url: configVariable("SEPOLIA_RPC_URL") },
       kmsAccounts: ["deployer"],
     },
   },
 });
 ```
+
+Next, run `npx hardhat kms accounts`. It asks the KMS for the key's address and, for a key without a pin, prints a line to paste, such as `kms.keys.deployer: address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",` ([`kms accounts`](tasks.md#kms-accounts)). Add that `address` to the key, with the address the command printed for your key:
+
+<!-- docs-check: skip -->
+
+```ts
+deployer: {
+  provider: "aws",
+  keyId: "alias/deployer",
+  address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", // the address `kms accounts` printed
+},
+```
+
+The pin is optional and recommended: with it, the plugin refuses to sign if the key id ever names another key. For keys from several providers, see [Use several keys across networks](../guides/multiple-keys.md#mix-providers).
 
 A network's `kmsAccounts` lists key names or inline key objects. [Use several keys across networks](../guides/multiple-keys.md) shows how to combine keys, providers and networks, and how to pick the sender. The full set of plugin config fields:
 

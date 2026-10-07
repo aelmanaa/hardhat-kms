@@ -255,6 +255,14 @@ It prints the key's address, `0x` and 40 hex digits. Steps 5 and 6 use `DEPLOYER
 
 With the pin, the plugin refuses to sign if the variables ever name another project, location or key with the same names. [Rotate a key and pin its address](../guides/key-rotation.md#what-a-pin-does) explains why.
 
+Before you send funds to the address, check that your credentials may sign with the key:
+
+```sh
+npx hardhat kms accounts --check-sign
+```
+
+Look for `matches` under `PIN` and `ok` under `SIGN` in the `deployer` row: together they prove that your credentials may sign with the key and that its signatures recover to the pinned address. The check signs a random message, not a transaction, so it needs no funds. On `FAILED`, read the reason on the line under the row and fix it before step 5.
+
 ## 5. Fund the address
 
 Send about 0.01 Sepolia ETH to the deployer address, from a Sepolia faucet or from another account. Deploying the `Counter` contract and calling it costs much less than that on Sepolia.
@@ -291,7 +299,7 @@ Then run step 6's command with `--network sepoliaFork`, and without `--verify`:
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender "$DEPLOYER_ADDRESS"
 ```
 
-The plugin signs with the real key, so the rehearsal also checks the key and its permissions. Each transaction costs one Cloud KMS signing call, plus one public key read per run. The rehearsal took about a minute in a test run, most of it spent fetching Sepolia's state, and ends like this, with a `Counter` address that exists only in the fork:
+The plugin signs with the real key, so the rehearsal also checks the key and its permissions. Each transaction usually costs one Cloud KMS signing request, and retries can add more ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). Each run also reads the public key once. The rehearsal took about a minute in a test run, most of it spent fetching Sepolia's state, and ends like this, with a `Counter` address that exists only in the fork:
 
 ```text
 [ CounterModule ] successfully deployed 🚀
@@ -311,7 +319,7 @@ Deploy the module from the deployer address, and verify the contract, in one com
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --verify --default-sender "$DEPLOYER_ADDRESS"
 ```
 
-Ignition asks you to confirm the network; answer `y`. Each transaction costs one Cloud KMS `AsymmetricSign` call. Naming the sender by its address keeps the deployer the same when you add accounts or keys to the network later; [Choose the sender by address](../guides/multiple-keys.md#choose-the-sender-by-address) explains why.
+Ignition asks you to confirm the network; answer `y`. Each transaction usually costs one Cloud KMS `AsymmetricSign` call; retries can add more. Naming the sender by its address keeps the deployer the same when you add accounts or keys to the network later; [Choose the sender by address](../guides/multiple-keys.md#choose-the-sender-by-address) explains why.
 
 Ignition deploys `Counter`, calls `incBy(5)`, then verifies the contract on Blockscout and Sourcify. The end of the output looks like this:
 
