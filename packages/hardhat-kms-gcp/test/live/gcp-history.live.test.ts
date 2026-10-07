@@ -4,16 +4,15 @@
 // Default Credentials, which need roles/logging.privateLogViewer on the project as well as the
 // signing roles. It signs one random digest through the plugin, then reads the key's history
 // until that signature's entry appears. A second test signs nothing: it reads the last 7 days with
-// the key named by its project id and by its project number, which it looks up through Cloud
-// Resource Manager (resourcemanager.projects.get, in roles/logging.privateLogViewer), and checks
-// that both reads list the same entries. Nothing it prints names the project, its number, the key
+// the key named by its project id and by its project number, and checks that both reads list the
+// same entries. It is skipped unless HARDHAT_KMS_LIVE_GCP_PROJECT_NUMBER holds the key's project
+// number. Nothing it prints names the project, its number, the key
 // ring, the key or a principal.
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { describe, it, mock } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { GoogleAuth } from "google-auth-library";
 import type { KmsHistoryReport, KmsKeyConfig } from "hardhat-kms/types";
 import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
@@ -35,8 +34,9 @@ const POLL_INTERVAL_MS = 10_000;
 /** The range the read by project number compares: the key signs in every live run. */
 const NUMBER_RANGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** The key's project number, once the test has looked it up. */
-let projectNumber = "";
+/** The key's project number, for the read by number; that test is skipped without it. */
+const NUMBER_SOURCE = "HARDHAT_KMS_LIVE_GCP_PROJECT_NUMBER";
+const projectNumber = process.env[NUMBER_SOURCE]?.trim() ?? "";
 
 /** Removes the project, its number, key ring, key names and email addresses from a text. */
 function redact(text: string): string {
@@ -65,36 +65,6 @@ async function runtime(variable: string = VARIABLE) {
     // From a variable, so that `kms history` masks the key's name without --show-ids.
     kms: { keys: { deployer: { provider: "gcp", keyVersionName: configVariable(variable) } } },
   });
-}
-
-/**
- * Looks up the project's number through Cloud Resource Manager: a read, billed to the key's
- * project, where the API must be on. A failure reports only its HTTP status: the server's message
- * can name the credentials' quota project.
- */
-async function lookUpProjectNumber(project: string): Promise<string> {
-  const auth = new GoogleAuth({
-    scopes: ["https://www.googleapis.com/auth/cloud-platform.read-only"],
-    projectId: project,
-  });
-  const client = await auth.getClient();
-  // Billed to the key's project rather than to the quota project of the credentials file.
-  client.quotaProjectId = project;
-  // Every status resolves, so that a refusal is reported by its status alone.
-  const response = await client.request({
-    url: `https://cloudresourcemanager.googleapis.com/v3/projects/${encodeURIComponent(project)}`,
-    validateStatus: () => true,
-  });
-  assert.equal(
-    response.status,
-    200,
-    "looking up the project number failed: the identity needs resourcemanager.projects.get and serviceusage.services.use on the project",
-  );
-  const data: unknown = response.data;
-  const name: unknown = Reflect.get(Object(data), "name");
-  const number = typeof name === "string" ? /^projects\/(\d+)$/.exec(name)?.[1] : undefined;
-  assert.ok(number !== undefined, "Cloud Resource Manager returned no project number");
-  return number;
 }
 
 /** Signs a digest with the key through the plugin's adapter, as a signer would. */
@@ -215,37 +185,49 @@ describe(
       }
     });
 
-    it("lists the same entries when the key names its project by number", async () => {
-      // Read only: it signs nothing, and reads a range that ended a minute ago, so that both reads
-      // see the same delivered entries.
-      assert.ok(parts !== null, `${VARIABLE} must be a full key version name`);
-      const [, project = ""] = parts;
-      projectNumber = await redacted(async () => await lookUpProjectNumber(project));
-      process.env[NUMBER_VARIABLE] = keyVersionName.replace(
-        `projects/${project}/`,
-        `projects/${projectNumber}/`,
-      );
-      try {
-        const now = Math.floor(Date.now() / 1000) * 1000;
-        const since = new Date(now - NUMBER_RANGE_MS).toISOString();
-        const until = new Date(now - 60_000).toISOString();
-        const byId = await redacted(async () => await history(since, until));
-        const byNumber = await redacted(async () => await history(since, until, NUMBER_VARIABLE));
-        assert.ok(
-          byId.report.events.length > 0,
-          "the key has no sign entries in the last 7 days to compare",
+    it(
+      "lists the same entries when the key names its project by number",
+      {
+        skip:
+          projectNumber === ""
+            ? `${NUMBER_SOURCE} is not set: set it to the key's project number to read by number`
+            : false,
+      },
+      async () => {
+        // Read only: it signs nothing, and reads a range that ended a minute ago, so that both reads
+        // see the same delivered entries.
+        assert.ok(parts !== null, `${VARIABLE} must be a full key version name`);
+        const [, project = ""] = parts;
+        assert.match(projectNumber, /^\d+$/, `${NUMBER_SOURCE} must be a project number`);
+        process.env[NUMBER_VARIABLE] = keyVersionName.replace(
+          `projects/${project}/`,
+          `projects/${projectNumber}/`,
         );
-        assert.deepEqual(insertIds(byNumber.report), insertIds(byId.report));
-        assert.equal(byNumber.report.truncated, byId.report.truncated);
-        // A federated principal's subject can hold a project number; principals show as logged.
-        const outsidePrincipals = byNumber.stdout.replaceAll(/"principal(Subject)?": "[^"]*"/g, "");
-        assert.ok(
-          !outsidePrincipals.includes(projectNumber),
-          "the project number reached the output",
-        );
-      } finally {
-        Reflect.deleteProperty(process.env, NUMBER_VARIABLE);
-      }
-    });
+        try {
+          const now = Math.floor(Date.now() / 1000) * 1000;
+          const since = new Date(now - NUMBER_RANGE_MS).toISOString();
+          const until = new Date(now - 60_000).toISOString();
+          const byId = await redacted(async () => await history(since, until));
+          const byNumber = await redacted(async () => await history(since, until, NUMBER_VARIABLE));
+          assert.ok(
+            byId.report.events.length > 0,
+            "the key has no sign entries in the last 7 days to compare",
+          );
+          assert.deepEqual(insertIds(byNumber.report), insertIds(byId.report));
+          assert.equal(byNumber.report.truncated, byId.report.truncated);
+          // A federated principal's subject can hold a project number; principals show as logged.
+          const outsidePrincipals = byNumber.stdout.replaceAll(
+            /"principal(Subject)?": "[^"]*"/g,
+            "",
+          );
+          assert.ok(
+            !outsidePrincipals.includes(projectNumber),
+            "the project number reached the output",
+          );
+        } finally {
+          Reflect.deleteProperty(process.env, NUMBER_VARIABLE);
+        }
+      },
+    );
   },
 );
