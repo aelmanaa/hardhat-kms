@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import {
   frontmatterDescription,
   headProblems,
+  iconProblems,
   jsonLdProblems,
   markdownLinkProblems,
   markdownLinkTargets,
@@ -163,6 +164,49 @@ describe("pngProblems", () => {
   it("reports a file over the byte limit, and accepts one at it", () => {
     assert.deepEqual(pngProblems("og.png", pngHeader(1280, 640, 1000), EXPECTED), []);
     assert.match(pngProblems("og.png", pngHeader(1280, 640, 1001), EXPECTED).join(), /1001 bytes/);
+  });
+});
+
+describe("iconProblems", () => {
+  const ICONS = [
+    { href: "/site/favicon.svg", type: "image/svg+xml" },
+    { href: "/site/favicon-32.png", type: "image/png" },
+  ];
+  const HEAD =
+    '<html><head><link rel="icon" type="image/svg+xml" href="/site/favicon.svg">' +
+    '<link rel="icon" type="image/png" sizes="32x32" href="/site/favicon-32.png"></head>' +
+    '<body><link rel="icon" href="/site/body.svg"></body></html>';
+
+  it("passes a head that links each favicon once with its type", () => {
+    assert.deepEqual(iconProblems("p.html", HEAD, ICONS), []);
+  });
+
+  it("reports a missing or repeated favicon link", () => {
+    const missing = HEAD.replace(/<link rel="icon" type="image\/png"[^>]*>/, "");
+    assert.match(
+      iconProblems("p.html", missing, ICONS).join(),
+      /0 icon links to \/site\/favicon-32\.png/,
+    );
+    const twice = HEAD.replace(
+      "</head>",
+      '<link rel="icon" type="image/svg+xml" href="/site/favicon.svg"></head>',
+    );
+    assert.match(
+      iconProblems("p.html", twice, ICONS).join(),
+      /2 icon links to \/site\/favicon\.svg/,
+    );
+  });
+
+  it("reports a favicon link with another type, and ignores links outside the head", () => {
+    const wrong = HEAD.replace('type="image/png"', 'type="image/x-icon"');
+    assert.match(
+      iconProblems("p.html", wrong, ICONS).join(),
+      /type image\/x-icon, expected image\/png/,
+    );
+    assert.match(
+      iconProblems("p.html", HEAD, [{ href: "/site/body.svg", type: "image/svg+xml" }]).join(),
+      /0 icon links/,
+    );
   });
 });
 

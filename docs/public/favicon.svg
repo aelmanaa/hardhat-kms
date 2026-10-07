@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#0E1424"/>
-  <rect x="7" y="7" width="50" height="40" rx="8" fill="#131C31" stroke="#8091B8" stroke-width="4"/>
-  <g fill="none" stroke="#F3F5F9" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="20" cy="27" r="7"/>
-    <path d="M27 27H46M40 27V34"/>
-  </g>
-  <path d="M32 47V58" stroke="#4FE3A8" stroke-width="5" stroke-linecap="round"/>
-  <path d="M26 53L32 59L38 53" fill="none" stroke="#4FE3A8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 16 16">
+  <title>hardhat-kms</title>
+  <!-- Hand-tuned 16 px grid: 2 px frame with r1 corners, 4 px opening (rows 6-9) in the right wall,
+       5x6 block (taller than the opening), 1 px gap, then a 2 px signature through the opening with
+       1 px clearance above and below that thins to 1 px and climbs two pixels to the edge. -->
+  <rect width="16" height="16" rx="3" fill="#0E1424"/>
+  <path d="M12 10v2a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v2" fill="none" stroke="#8091B8" stroke-width="2"/>
+  <rect x="4" y="5" width="5" height="6" rx="1" fill="#F3F5F9"/>
+  <path d="M10 7h4v1h-4zM10 8h3v1h-3zM14 6h1v1h-1zM15 5h1v1h-1z" fill="#4FE3A8"/>
 </svg>
