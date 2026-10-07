@@ -103,7 +103,7 @@ jobs:
     needs: verify-tag
     if: github.event_name == 'push'
     runs-on: ubuntu-26.04
-    # The dispatched runs get 90 minutes, queueing included; the macOS and Windows run is the longest.
+    # The gate waits up to 90 minutes in all, queueing included; the macOS and Windows run is the longest.
     timeout-minutes: 100
     permissions:
       contents: read # checks out the scripts

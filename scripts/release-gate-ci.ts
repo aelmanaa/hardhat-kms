@@ -2,8 +2,10 @@
 // - a run of ci.yml (the Linux jobs) that concluded `success`,
 // - a run of ci-all-os.yml whose macOS and Windows test jobs both passed (`bothPassed` of
 //   scripts/ci-all-os-decide.ts, so a run whose test jobs were skipped never counts),
-// - a run of hardhat-versions.yml (the Hardhat floor and latest) that concluded `success`, and
-// - a run of sdk-floors.yml (the cloud SDK and viem floors) that concluded `success`.
+// - a run of hardhat-versions.yml (the Hardhat floor and latest), and
+// - a run of sdk-floors.yml (the cloud SDK and viem floors),
+//   each concluded `success` with every job `success` (`everyJobPassed`), so a run whose jobs
+//   were skipped never counts.
 // Only runs of that exact commit count, and never pull-request runs: those test a merge commit.
 // ci.yml runs on every push to main, so the merge commit of the Version Packages pull request has
 // one; the gate waits while it is still in progress. The other three are path-filtered or
@@ -23,7 +25,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
 
-import { bothPassed, parseJobs } from "./ci-all-os-decide.ts";
+import { bothPassed, type Job, parseJobs } from "./ci-all-os-decide.ts";
 
 /** The Linux workflow, which runs on every push to main. */
 export const LINUX_WORKFLOW = "ci.yml";
@@ -164,9 +166,21 @@ async function runsOf(
 }
 
 /**
+ * Whether every job of a run concluded `success`, and there is at least one. A job skipped by an
+ * `if:` or a path condition does not count, so a run that tested nothing never passes.
+ * @param jobs - The jobs of the run.
+ */
+export function everyJobPassed(jobs: readonly Job[]): boolean {
+  return jobs.length > 0 && jobs.every((job) => job.conclusion === "success");
+}
+
+/**
  * Looks for a run of a workflow on a commit that completed with `success`.
  * @param since - A run id. A failed run at or below it is ignored, so a failure from before a
  * dispatch does not end the wait; a passed run counts whatever its id.
+ * @param checkJobs - Also read the run's jobs and require {@link everyJobPassed}. GitHub reports a
+ * run whose jobs were all skipped as `success`, so a workflow that gains a conditional job could
+ * otherwise pass the gate untested. ci.yml skips some jobs on push by design and is read without it.
  * @returns The newest passing run, else a run in progress, else the newest failed run, else missing.
  */
 export async function findConcluded(
@@ -175,17 +189,31 @@ export async function findConcluded(
   workflow: string,
   sha: string,
   since: number = 0,
+  checkJobs: boolean = false,
 ): Promise<Found> {
   const runs = await runsOf(github, repo, workflow, sha);
-  const passed = runs.find((run) => run.status === "completed" && run.conclusion === "success");
-  if (passed !== undefined) {
-    return { state: "passed", run: passed };
+  let failed: GateRun | undefined;
+  for (const run of runs) {
+    if (run.status !== "completed") {
+      continue;
+    }
+    if (
+      run.conclusion === "success" &&
+      (!checkJobs ||
+        everyJobPassed(
+          parseJobs(await github.get(`repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`)),
+        ))
+    ) {
+      return { state: "passed", run };
+    }
+    if (run.id > since) {
+      failed ??= run;
+    }
   }
   const pending = runs.find((run) => run.status !== "completed");
   if (pending !== undefined) {
     return { state: "pending", run: pending };
   }
-  const failed = runs.find((run) => run.id > since);
   return failed === undefined ? { state: "missing" } : { state: "failed", run: failed };
 }
 
@@ -232,7 +260,10 @@ export async function findAllOs(
   return failed === undefined ? { state: "missing" } : { state: "failed", run: failed };
 }
 
-function describe(workflow: string, found: Found): string {
+function describe(workflow: string, found: Found, dispatchedOn?: string): string {
+  if (found.state === "missing" && dispatchedOn !== undefined) {
+    return `${workflow}: dispatched on ${dispatchedOn}; its run is not listed yet.`;
+  }
   switch (found.state) {
     case "passed":
       return `${workflow}: run [${found.run.id}](${found.run.htmlUrl}) passed on this commit.`;
@@ -260,7 +291,7 @@ async function findDispatched(
 ): Promise<Found> {
   return workflow === ALL_OS_WORKFLOW
     ? await findAllOs(github, repo, sha, since)
-    : await findConcluded(github, repo, workflow, sha, since);
+    : await findConcluded(github, repo, workflow, sha, since, true);
 }
 
 /** The highest run id among the candidates, so a dispatch can tell its run from older ones. */
@@ -333,10 +364,23 @@ export async function gate(
       };
     }
     const others = await lookAll(dispatchedAfter);
-    const status = [
+    // A dispatched workflow whose only listed run is from before the dispatch has no run of its
+    // own to show yet.
+    const describeAll = () => [
       describe(LINUX_WORKFLOW, linux),
-      ...others.map(({ workflow, found }) => describe(workflow, found)),
+      ...others.map(({ workflow, found }) => {
+        const after = dispatchedAfter.get(workflow);
+        if (after === undefined) {
+          return describe(workflow, found);
+        }
+        return describe(
+          workflow,
+          found.state === "failed" && found.run.id <= after ? { state: "missing" } : found,
+          ref,
+        );
+      }),
     ];
+    const status = describeAll();
     if (linux.state === "passed" && others.every(({ found }) => found.state === "passed")) {
       return { ok: true, lines: [header, ...status] };
     }
@@ -366,17 +410,18 @@ export async function gate(
         process.stdout.write(`dispatched ${workflow} on ${ref}\n`);
       }
     }
+    const waited = describeAll();
     if (clock.now() >= deadline) {
       return {
         ok: false,
         lines: [
           header,
-          ...status,
-          `Gave up after ${Math.round(input.waitMs / 60_000)} minutes. Re-run this job once the runs above have finished.`,
+          ...waited,
+          `Gave up after ${Math.round(input.waitMs / 60_000)} minutes. Re-run this job once the runs above have finished; a dispatched run that is not listed yet is on its workflow's Actions page.`,
         ],
       };
     }
-    process.stdout.write(`waiting: ${status.join(" ")}\n`);
+    process.stdout.write(`waiting: ${waited.join(" ")}\n`);
     await clock.sleep(input.pollMs);
   }
 }

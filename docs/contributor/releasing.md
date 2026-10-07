@@ -33,7 +33,7 @@ Merging the Version Packages pull request publishes nothing. Only the signed tag
 
 Before merging the Version Packages pull request:
 
-- `main` is green, and the commit the tag will point at has passing runs of the four workflows the release gate requires: `ci.yml`, `ci-all-os.yml`, `hardhat-versions.yml` and `sdk-floors.yml`. Not every commit on `main` gets the macOS and Windows run, the Hardhat floor-and-latest run or the SDK floors run; the release workflow dispatches each one the commit lacks, so this is a check, not a task.
+- `main` is green, and the commit the tag will point at has passing runs of the four workflows the release gate requires: `ci.yml`, `ci-all-os.yml`, `hardhat-versions.yml` and `sdk-floors.yml`. `hardhat-versions.yml` runs on `main` only on its Monday schedule, and `ci-all-os.yml` and `sdk-floors.yml` skip some commits; the release workflow dispatches each one the commit lacks, so this is a check, not a task.
 - The deprecation audit, on the release commit, one issue per finding. The automated checks do not cover: deprecated paths inside SDK defaults (credential chains, retries, endpoints); vendor notices from AWS, Google Cloud, Azure and Node.js (replaced endpoints, legacy models, changed recommendations); packages deprecated on npm since the lockfile was last resolved (`npm view <pkg>@<version> deprecated`); the `aws`, `gcloud` and `az` flags the docs use, against each CLI's `--help`; the Node.js lines in the [Support page](../user/reference/support.md), against the Node.js release schedule.
 - For a minor or a major: someone who did not write the changes follows every tutorial and guide from scratch and files one issue per gap. A fork rehearsal is enough before 1.0; a live run from then on.
 - The live suite at the release commit, in the mode the live rule of [Verify and promote](#4-verify-and-promote) requires: on Sepolia (`HARDHAT_KMS_LIVE_NETWORK=sepolia pnpm run test:live`) with `test/live/proof.json` committed through a pull request so that [docs/live-proof.md](../live-proof.md) is current, or in fork mode (`pnpm run test:live`).
@@ -66,10 +66,10 @@ Why the manifests read `0.8.0` before the first release: `changeset version` app
 
 6. Push the tag: `git push origin v1.2.0`. The push starts `release.yml` (tag pattern `v[0-9]*.[0-9]*.[0-9]*`).
 7. Wait for `verify-tag`, `gate-ci` and `pack` to go green. `gate-ci` needs four passing runs on the tagged commit, pull-request runs aside:
-   - `ci.yml`, the Linux jobs. The job never dispatches it; it waits while the run is in progress and fails when there is none.
+   - `ci.yml`, the Linux jobs. The job never dispatches it: it waits while a run is in progress and fails when the commit has no passing run.
    - `ci-all-os.yml`, whose macOS and Windows test jobs both passed.
-   - `hardhat-versions.yml`, the Hardhat floor and latest.
-   - `sdk-floors.yml`, the cloud SDK and viem floors.
+   - `hardhat-versions.yml`, the Hardhat floor and latest, with every job passed.
+   - `sdk-floors.yml`, the cloud SDK and viem floors, with every job passed.
 
    For each of the last three that has no passing run on the commit, the job dispatches it on the tag and waits up to 90 minutes in all (`scripts/release-gate-ci.ts`); a run that failed before the dispatch does not end the wait. If it gives up after 90 minutes, re-run the job once the dispatched runs finish. If a run failed, the summary links it; fix the cause and follow [Run failed before `publish`](#run-failed-before-publish).
 

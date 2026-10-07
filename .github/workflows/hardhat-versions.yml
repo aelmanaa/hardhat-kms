@@ -5,9 +5,9 @@ name: Hardhat versions
 # version only. It runs when a manifest, the lockfile, the pnpm settings, the plugin entry, hook
 # handlers or RPC code, the two tests or their helpers, or the scripts change, and weekly, so a
 # new Hardhat release is caught without a repository change.
-# It is not a required check: path-filtered checks would block merges that do not trigger them.
-# The release gate (scripts/release-gate-ci.ts) requires a passing run on the tagged commit, and
-# dispatches this workflow on the tag when there is none.
+# It is not a required check on pull requests: path-filtered checks would block merges that do not
+# trigger them. The release gate (scripts/release-gate-ci.ts) requires a run on the tagged commit
+# in which every job passed, and dispatches this workflow on the tag when there is none.
 on:
   pull_request:
     paths:

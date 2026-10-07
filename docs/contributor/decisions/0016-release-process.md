@@ -33,4 +33,4 @@ What would make us revisit it: a second maintainer, which changes who approves w
 
 ## Evidence
 
-The `gate-ci` job of `release.yml` enforces "never an untested version": since [#332](https://github.com/aelmanaa/hardhat-kms/issues/332) it publishes only when the tagged commit has passing runs of four workflows, `ci.yml`, `ci-all-os.yml`, `hardhat-versions.yml` and `sdk-floors.yml`, and dispatches each of the last three on the tag when the commit has none. Pull-request runs never count. See [Releasing](../releasing.md), step 7 of section 3.
+The `gate-ci` job of `release.yml` keeps an untested version off npm: since [#332](https://github.com/aelmanaa/hardhat-kms/issues/332) it publishes only when the tagged commit has passing runs of four workflows, `ci.yml`, `ci-all-os.yml`, `hardhat-versions.yml` and `sdk-floors.yml`, and dispatches each of the last three on the tag when the commit has none. Pull-request runs never count. See [Releasing](../releasing.md), step 7 of section 3.

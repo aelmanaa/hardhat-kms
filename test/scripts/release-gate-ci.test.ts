@@ -52,6 +52,8 @@ const failedJobs = {
   ],
 };
 
+const onePassedJob = { jobs: [{ name: "Floors", conclusion: "success" }] };
+
 interface World {
   linux: Run[];
   allOs: Run[];
@@ -70,6 +72,11 @@ function fake(world: World, onDispatch: (world: World, workflow: string) => void
   const dispatched: string[] = [];
   world.hardhat ??= [{ id: 40 }];
   world.floors ??= [{ id: 50 }];
+  // Runs 40 to 69 belong to hardhat-versions.yml and sdk-floors.yml: one passed job unless a test
+  // sets their jobs.
+  for (let id = 40; id < 70; id += 1) {
+    world.jobs[id] ??= onePassedJob;
+  }
   const github: GateGitHub = {
     get: async (apiPath) => {
       const runs = apiPath.includes("/ci.yml/")
@@ -364,6 +371,65 @@ for (const workflow of ["hardhat-versions.yml", "sdk-floors.yml"] as const) {
       assert.equal(result.ok, true, result.lines.join("\n"));
       assert.deepEqual(dispatched, [`${workflow}@${TAG}`]);
       assert.match(result.lines.join("\n"), new RegExp(`${workflow}: run \\[61\\]`));
+    });
+
+    for (const conclusion of ["cancelled", "skipped"]) {
+      it(`does not count a ${conclusion} run, and dispatches`, async () => {
+        const world = worldWith([{ id: 60, conclusion }]);
+        const { github, dispatched } = fake(world, (changed) => {
+          changed[field] = [{ id: 61, event: "workflow_dispatch" }, ...(changed[field] ?? [])];
+        });
+        const result = await gate(input(), github, clock());
+        assert.equal(result.ok, true, result.lines.join("\n"));
+        assert.deepEqual(dispatched, [`${workflow}@${TAG}`]);
+        assert.match(
+          result.lines.join("\n"),
+          new RegExp(`${workflow}: run \\[61\\]\\(.+\\) passed`),
+        );
+      });
+    }
+
+    it("does not count a successful run with a skipped job or with no job", async () => {
+      for (const jobs of [
+        { jobs: [{ name: "Floors", conclusion: "skipped" }] },
+        {
+          jobs: [
+            { name: "Floors", conclusion: "success" },
+            { name: "Floors, later", conclusion: "skipped" },
+          ],
+        },
+        { jobs: [] },
+      ]) {
+        const world = worldWith([{ id: 60 }]);
+        world.jobs[60] = jobs;
+        const { github, dispatched } = fake(world, (changed) => {
+          changed[field] = [{ id: 61, event: "workflow_dispatch" }, ...(changed[field] ?? [])];
+        });
+        const result = await gate(input(), github, clock());
+        assert.equal(result.ok, true, result.lines.join("\n"));
+        assert.deepEqual(dispatched, [`${workflow}@${TAG}`]);
+        assert.match(
+          result.lines.join("\n"),
+          new RegExp(`${workflow}: run \\[61\\]\\(.+\\) passed`),
+        );
+      }
+    });
+
+    it("says a dispatched run is not listed yet when it gives up before the run shows", async () => {
+      // With no wait it gives up on the look that dispatched; with two minutes, two looks later.
+      for (const minutes of [0, 2]) {
+        const world = worldWith([{ id: 60, conclusion: "failure" }]);
+        const { github, dispatched } = fake(world);
+        const result = await gate(input({ waitMs: minutes * 60_000 }), github, clock());
+        assert.equal(result.ok, false);
+        assert.deepEqual(dispatched, [`${workflow}@${TAG}`]);
+        const text = result.lines.join("\n");
+        assert.match(
+          text,
+          new RegExp(`${workflow}: dispatched on ${TAG}; its run is not listed yet\\.`),
+        );
+        assert.match(text, new RegExp(`Gave up after ${minutes} minutes`));
+      }
     });
 
     it("waits for a run in progress without dispatching", async () => {
