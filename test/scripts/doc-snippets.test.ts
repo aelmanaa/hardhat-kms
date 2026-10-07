@@ -1,6 +1,7 @@
 // The snippet checks of `pnpm run docs:check` (`scripts/doc-snippets.ts`) on fixture pages: a call
-// of an API marked `@deprecated` fails with the Markdown file and line, a skipped snippet is not
-// checked, and current APIs pass.
+// of an API marked `@deprecated` fails with the Markdown file and line, a config that typechecks but
+// fails Hardhat's validation fails with the line of its fence, a skipped snippet is not checked,
+// and current APIs and valid configs pass.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -28,6 +29,35 @@ describe("checkSnippets", () => {
 
   it("passes snippets that call no deprecated API", () => {
     assert.deepEqual(checkSnippets([`${FIXTURES}/current.md`], directory), []);
+  });
+
+  it("reports a config that typechecks but does not load in Hardhat, and skips a marked one", () => {
+    const problems = checkSnippets([`${FIXTURES}/config-invalid.md`], directory);
+    assert.equal(problems.length, 2, problems.join("\n"));
+    assert.match(
+      problems[0] ?? "",
+      /^test\/scripts\/fixtures\/doc-snippets\/config-invalid\.md:5: the config does not load in Hardhat: HHE15: Invalid config:\n\t\* Config error in config\.kms\.keys\.deployer\.address: Expected a 0x-prefixed 20-byte address/,
+    );
+    assert.match(
+      problems[1] ?? "",
+      /^test\/scripts\/fixtures\/doc-snippets\/config-invalid\.md:24: the config does not load in Hardhat: HHE15: Invalid config:\n\t\* Config error in config\.networks\.sepolia\.kmsAccounts\.0: .*deploer/,
+    );
+    assert.equal(existsSync(directory), false);
+  });
+
+  it("loads a valid config, ignoring Hardhat's environment variables", () => {
+    const previous = process.env.HARDHAT_KMS;
+    // A value that would fail the runtime's creation if the check passed it on.
+    process.env.HARDHAT_KMS = "not-a-provider";
+    try {
+      assert.deepEqual(checkSnippets([`${FIXTURES}/config-valid.md`], directory), []);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.HARDHAT_KMS;
+      } else {
+        process.env.HARDHAT_KMS = previous;
+      }
+    }
   });
 
   it("passes when there is no snippet", () => {

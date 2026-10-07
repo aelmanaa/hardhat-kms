@@ -1,7 +1,8 @@
 // Keeps the docs in step with the code:
 // - every TypeScript snippet in the READMEs and docs/ typechecks against the built package, the way
-//   a user's project imports it (run `pnpm run build` first; `pnpm run docs:check` does), and calls
-//   no API marked `@deprecated` (scripts/doc-snippets.ts);
+//   a user's project imports it (run `pnpm run build` first; `pnpm run docs:check` does), calls
+//   no API marked `@deprecated`, and, when it default-exports `defineConfig(...)`, loads in Hardhat
+//   with every plugin's validation (scripts/doc-snippets.ts);
 // - every page under docs/ is linked from AGENTS.md and docs/README.md, and every decision record
 //   from the decision index, with the exceptions listed in checkIndexes;
 // - docs/user/reference/errors.md matches the error catalogues (scripts/generate-errors-doc.ts);
@@ -429,5 +430,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 process.stdout.write(
-  `docs check passed: ${pages.length} pages indexed, snippets typecheck and call no deprecated API, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes and carry a title and a description, skills are valid and link to existing files, no file names a milestone, a review or the maintainer's machine, Mermaid blocks parse\n`,
+  `docs check passed: ${pages.length} pages indexed, snippets typecheck, call no deprecated API and configs load in Hardhat, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes and carry a title and a description, skills are valid and link to existing files, no file names a milestone, a review or the maintainer's machine, Mermaid blocks parse\n`,
 );
