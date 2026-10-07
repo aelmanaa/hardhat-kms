@@ -178,6 +178,27 @@ describe("Google Cloud KMS wire formats", () => {
     assert.equal(authFailure(responseOnly)?.kind, "endpoint");
   });
 
+  it("reads an OAuth error code only from the token exchange", () => {
+    // Another endpoint, or another service, whose message happens to start like an OAuth error.
+    for (const url of [
+      "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/a:generateAccessToken",
+      "https://cloudkms.googleapis.com/v1/projects/p/x:asymmetricSign",
+      "http://127.0.0.1:8080/v1/token",
+    ]) {
+      const other = Object.assign(gaxiosError(url, 400), { message: "Error code foo: bar" });
+      assert.notEqual(authFailure(other)?.kind, "tokenExchange", url);
+      // Nor under the SDK's wrapper, which copies the message but not the URL.
+      const wrapped = Object.assign(new Error("Error code foo: bar"), { code: 3, cause: other });
+      assert.notEqual(authFailure(wrapped)?.kind, "tokenExchange", url);
+    }
+    // Regional Security Token Service endpoints count.
+    const regional = Object.assign(
+      gaxiosError("https://sts.europe-west1.rep.googleapis.com/v1/token", 400),
+      { message: "Error code invalid_grant: x" },
+    );
+    assert.deepEqual(authFailure(regional), { kind: "tokenExchange", code: "invalid_grant" });
+  });
+
   it("takes only a 4xx other than 408 and 429 as a refusal for good", () => {
     const sts = "https://sts.googleapis.com/v1/token";
     for (const status of [400, 401, 403, 404]) {

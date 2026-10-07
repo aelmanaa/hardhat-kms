@@ -210,6 +210,11 @@ function httpStatusOf(error: Error): number | undefined {
   return typeof status === "number" && Number.isInteger(status) ? status : undefined;
 }
 
+/** The first label of a `googleapis.com` host, such as `sts`, or `undefined` for another host. */
+function googleLabel(host: string | undefined): string | undefined {
+  return host?.endsWith(".googleapis.com") === true ? host.split(".")[0] : undefined;
+}
+
 /**
  * Whether an HTTP status refuses the request for good: a 4xx other than 408 (timeout) and 429
  * (throttled). A 5xx, 408 or 429 may pass on a retry, so it keeps the handling it had before.
@@ -243,13 +248,16 @@ export function authFailure(error: unknown): AuthFailure | undefined {
   if (status !== undefined && !refusedForGood(status)) {
     return undefined;
   }
+  // The OAuth error code is read only from a token exchange: the request went to the Security
+  // Token Service, or the chain names no request at all.
+  const firstHost = chain.map(requestHost).find((found) => found !== undefined);
+  const fromExchange = firstHost === undefined || googleLabel(firstHost) === "sts";
   for (const current of chain) {
-    const host = requestHost(current);
-    const label = host?.endsWith(".googleapis.com") === true ? host.split(".")[0] : undefined;
+    const label = googleLabel(requestHost(current));
     if (label === "oauth2" && status !== undefined) {
       return { kind: "login" };
     }
-    const code = OAUTH_ERROR_CODE.exec(current.message)?.[1];
+    const code = fromExchange ? OAUTH_ERROR_CODE.exec(current.message)?.[1] : undefined;
     if (code !== undefined && code !== "undefined") {
       return { kind: "tokenExchange", code };
     }

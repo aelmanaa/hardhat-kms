@@ -65,7 +65,8 @@ async function startAuthServer(): Promise<AuthServer> {
     request.resume();
     request.on("end", () => {
       response.setHeader("content-type", "application/json");
-      if (request.url === "/v1/token") {
+      // The token exchange, through the tunnel below.
+      if (request.url === "/v1/token" && request.headers.host === "sts.googleapis.com") {
         state.exchanges++;
         if (state.refuse !== undefined) {
           response.statusCode = state.refuseStatus;
@@ -88,6 +89,15 @@ async function startAuthServer(): Promise<AuthServer> {
       state.lookups++;
       response.end(JSON.stringify({ projectId: "looked-up" }));
     });
+  });
+  // As a proxy, it tunnels only to the token exchange, and back into itself.
+  server.on("connect", (request, socket) => {
+    if (request.url !== "sts.googleapis.com:80") {
+      socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+      return;
+    }
+    socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+    server.emit("connection", socket);
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -182,7 +192,9 @@ describe("workload identity federation with no project in the environment", () =
         type: "external_account",
         audience: `//iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/pool/providers/github`,
         subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
-        token_url: `${auth.url}/v1/token`,
+        // The real host, so that errors read as the token exchange's; the proxy below sends the
+        // request to the local server.
+        token_url: "http://sts.googleapis.com/v1/token",
         cloud_resource_manager_url: `${auth.url}/v1/projects/`,
         credential_source: { file: subjectToken },
       }),
@@ -195,6 +207,10 @@ describe("workload identity federation with no project in the environment", () =
     // plugin's project, the library's last resort is the project lookup, which the tests then see.
     process.env.PATH = scratch;
     process.env.METADATA_SERVER_DETECTION = "none";
+    // Only the token exchange goes through the proxy, the local server; the local Cloud KMS,
+    // Cloud Logging and project lookup do not.
+    process.env.HTTP_PROXY = auth.url;
+    process.env.NO_PROXY = "127.0.0.1";
     process.env.GCE_METADATA_HOST = "127.0.0.1:9";
     auth.reset();
   });
