@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   MANIFESTS,
-  gpgPath,
+  gpgPathFor,
   importedFingerprints,
   isOnePublicKeyBlock,
   readSignature,
@@ -60,7 +60,7 @@ function mustRun(
 
 /**
  * A key pair in its own GNUPGHOME; the home's path is short so the agent socket fits.
- * @returns The home as `gpg` spells it (see `gpgPath`), and the key's fingerprint.
+ * @returns The home as `gpg` spells it (see `gpgPathFor`), and the key's fingerprint.
  */
 function generateKey(
   directory: string,
@@ -68,7 +68,7 @@ function generateKey(
   env: NodeJS.ProcessEnv,
 ): { home: string; fingerprint: string } {
   mkdirSync(directory, { mode: 0o700 });
-  const home = gpgPath(directory, directory, env);
+  const home = gpgPathFor(directory, env)(directory);
   mustRun(
     "gpg",
     [
@@ -356,7 +356,8 @@ describe("verify-release-tag", { skip }, () => {
     // A home with both public keys exports them as one armored block.
     const bothDirectory = path.join(sandbox, "g3");
     mkdirSync(bothDirectory, { mode: 0o700 });
-    const both = gpgPath(bothDirectory, sandbox, env);
+    const gpgPath = gpgPathFor(sandbox, env);
+    const both = gpgPath(bothDirectory);
     for (const [home, key] of [
       [trustedHome, trustedKey],
       [otherHome, otherKey],
@@ -371,14 +372,7 @@ describe("verify-release-tag", { skip }, () => {
       writeFileSync(keyFile, exported);
       mustRun(
         "gpg",
-        [
-          "--batch",
-          "--no-autostart",
-          "--homedir",
-          both,
-          "--import",
-          gpgPath(keyFile, sandbox, env),
-        ],
+        ["--batch", "--no-autostart", "--homedir", both, "--import", gpgPath(keyFile)],
         sandbox,
         env,
       );
@@ -704,6 +698,74 @@ describe("importedFingerprints", () => {
       [...importedFingerprints(["NODATA 1", "IMPORT_RES 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])],
       [],
     );
+  });
+});
+
+describe("gpgPathFor", () => {
+  type Call = { file: string; args: readonly string[]; env: NodeJS.ProcessEnv };
+  /** A stub that records each call and answers `gpg --version` and `cygpath -u`. */
+  const stub = (home: string, cygpath: { status: number; stdout: string; stderr: string }) => {
+    const calls: Call[] = [];
+    const runCommand = (
+      file: string,
+      args: readonly string[],
+      _cwd: string,
+      env: NodeJS.ProcessEnv,
+    ) => {
+      calls.push({ file, args, env });
+      return file === "gpg"
+        ? { status: 0, stdout: `gpg (GnuPG) 2.4.8\nHome: ${home}\n`, stderr: "" }
+        : cygpath;
+    };
+    return { calls, runCommand };
+  };
+  const env: NodeJS.ProcessEnv = { GNUPGHOME: "C:\\caller-home" };
+  const file = "C:\\tmp\\hardhat-kms-release-keys-x";
+
+  it("returns the path and runs nothing on Linux and macOS", () => {
+    const { calls, runCommand } = stub("/c/x", { status: 0, stdout: "/c/y\n", stderr: "" });
+    for (const platform of ["linux", "darwin"] as const) {
+      assert.equal(gpgPathFor("cwd", env, runCommand, platform)(file), file);
+    }
+    assert.deepEqual(calls, []);
+  });
+
+  it("returns the path unchanged with a native Windows gpg", () => {
+    const { calls, runCommand } = stub("C:\\gnupg", { status: 0, stdout: "/c/y\n", stderr: "" });
+    const gpgPath = gpgPathFor("cwd", env, runCommand, "win32");
+    assert.equal(gpgPath(file), file);
+    assert.equal(gpgPath(`${file}\\key.asc`), `${file}\\key.asc`);
+    assert.deepEqual(
+      calls.map((call) => call.file),
+      ["gpg"],
+    );
+  });
+
+  it("converts with cygpath for the MSYS gpg and asks gpg once, without the caller's GNUPGHOME", () => {
+    const { calls, runCommand } = stub("/c/gnupg", {
+      status: 0,
+      stdout: "/c/tmp/hardhat-kms-release-keys-x\n",
+      stderr: "",
+    });
+    const gpgPath = gpgPathFor("cwd", env, runCommand, "win32");
+    assert.equal(gpgPath(file), "/c/tmp/hardhat-kms-release-keys-x");
+    gpgPath(file);
+    assert.deepEqual(
+      calls.map((call) => [call.file, ...call.args]),
+      [
+        ["gpg", "--version"],
+        ["cygpath", "-u", file],
+        ["cygpath", "-u", file],
+      ],
+    );
+    assert.equal(calls[0]?.env.GNUPGHOME, undefined);
+  });
+
+  it("throws with cygpath's message when cygpath fails", () => {
+    const { runCommand } = stub("/c/gnupg", { status: 1, stdout: "", stderr: "bad path\n" });
+    assert.throws(() => gpgPathFor("cwd", env, runCommand, "win32")(file), {
+      message: `cygpath cannot convert ${file}: bad path`,
+    });
   });
 });
 
