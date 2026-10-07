@@ -36,8 +36,7 @@
     "docs:live-proof": "node test/live/render-proof.ts",
     "prepare": "lefthook install && node scripts/install-git-hooks.ts",
     "changeset": "changeset",
-    "version-packages": "changeset version && pnpm install --lockfile-only --ignore-scripts",
-    "release": "pnpm run clean && pnpm run build && changeset publish"
+    "version-packages": "changeset version && pnpm install --lockfile-only --ignore-scripts"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",
