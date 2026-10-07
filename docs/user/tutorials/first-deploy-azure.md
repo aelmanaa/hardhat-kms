@@ -266,7 +266,7 @@ The address belongs to the Key Vault key alone. If the key is purged, any funds 
 
 To see the balance, open the address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com).
 
-To try the deployment on a local fork of Sepolia before you fund the address, see [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network). The rehearsal signs with the real key, so it also checks the key and its permissions.
+To try the deployment on a local fork of Sepolia before you fund the address, add the `sepoliaFork` network and `kms.simulatedBalance` from [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network), then run step 6's command with `--network sepoliaFork` and without `--verify`. The rehearsal signs with the real key, so it also checks the key and its permissions.
 
 ## 6. Deploy and verify
 

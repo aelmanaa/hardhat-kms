@@ -26,7 +26,7 @@ const signature = await account.signMessage({ message: "hello from a KMS key" })
 console.log(account.address, signature);
 ```
 
-To use the account with a viem client, give the client `custom(connection.provider)` as its transport. The client's requests then go through Hardhat and the plugin, which reads the chain and the nonce through the connection and orders the account's sends with its own ([Sending](#sending)). Here a wallet client signs an EIP-7702 authorization, and nothing is sent yet:
+To use the account with a viem client, give the client `custom(connection.provider)` as its transport. The client's requests then go through Hardhat and the plugin, which reads the chain and the nonce through the connection and orders the account's sends with the plugin's own sends from the same key ([Sending](#sending)). Here a wallet client signs an EIP-7702 authorization, and nothing is sent:
 
 ```ts
 import "hardhat-kms";
@@ -43,6 +43,7 @@ const authorization = await createWalletClient({
   chain: sepolia,
   transport: custom(connection.provider),
 }).signAuthorization({ contractAddress: "0x5FbDB2315678afecb367f032d93F642f64180aa3" });
+console.log(authorization);
 ```
 
 | Signature                                                    | Returns                      |

@@ -167,7 +167,7 @@ A config that has only the live network, such as the one the [first-deploy tutor
   },
 ```
 
-Run the live deploy command with `--network sepoliaFork` and without `--verify`: the fork ends with the command, so no explorer can see the contract. Each transaction usually costs one KMS signing request, and each run also reads the public key once. A rehearsal of the tutorials' `Counter` module took about a minute, most of it spent fetching Sepolia's state, and ended with a `Deployed Addresses` list whose contract address exists only in the fork.
+Leave out `--verify` on `sepoliaFork`: the fork ends with the command, so no explorer can see the contract. Each transaction usually costs one KMS signing request, and retries can add more ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). Each run also reads the public key once. A rehearsal of the tutorials' `Counter` module took about a minute, most of it spent fetching Sepolia's state, and ended with a `Deployed Addresses` list whose contract address exists only in the fork.
 
 A key chosen with `--kms` instead of a config entry is added to the network selected with `--network`. Pass `--kms` with a network that does not list the same key: `rehearsal` already lists `deployer`, so `--kms aws` with `AWS_KMS_KEY_ID=alias/deployer` fails there with an error that names both. `rehearsalCli` lists no KMS keys and is `edr-simulated`, so `kms.simulatedBalance` funds the key there:
 
@@ -200,7 +200,7 @@ An explorer can answer that the contract "has already been verified" for a contr
 - Sourcify matches a new contract on its own when it already holds the source. In a recorded run of the tutorials, it matched the contract a minute after the deployment, before the verify step ran.
 - Blockscout matches a new contract against a database of code it has verified before, and marks it verified with no request from you.
 
-Check the result on Blockscout: open the `Explorer:` link it printed. If the page shows the contract as verified, which it may say it did through its bytecode database, you are done.
+Check the result on Blockscout: open the `Explorer:` link under `=== Blockscout ===` in the `--verify` output. If the page shows the contract as verified, which it may say it did through its bytecode database, you are done.
 
 If the page instead shows a "verified twin" or a "similar match", Blockscout is showing the source of another contract with similar code, and yours is not verified yet. Only then, verify it with `--force`:
 
