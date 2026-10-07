@@ -57,13 +57,17 @@ export function endWithTestProcess(child: ChildProcess): void {
  * Ends `child` and resolves once it has exited. `kill()` only sends the signal: a test that removes
  * the child's project right after it races the exit, and on Windows, where a running process locks
  * its working directory and its open files, the removal fails with EBUSY (#326). On Windows
- * `taskkill /T` ends the child with every process it started; elsewhere SIGKILL ends the child,
- * and a process that outlives it does not lock the directory.
+ * `taskkill /T` ends the child with every process it started; elsewhere SIGKILL ends the child
+ * only, and a grandchild that outlives it does not block the removal, because POSIX lets a
+ * directory be removed while a process uses it.
+ *
+ * A child without a pid never started: there is nothing to end and no exit to wait for. It returns
+ * at once, so it never signals pid 0, which on POSIX is the whole process group of the test.
  *
  * @param child - A child the test started, such as `hardhat node`.
  */
 export async function endChild(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
     return;
   }
   const exited = once(child, "exit");

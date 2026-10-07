@@ -1,5 +1,5 @@
 // Creates and removes the throwaway Hardhat projects of the CLI integration tests. A project sits in
-// the package's `.tmp` directory, not in os.tmpdir(): there Node and Hardhat find `hardhat` and `tsx`
+// its package's `.tmp` directory, not in os.tmpdir(): there Node and Hardhat find `hardhat` and `tsx`
 // in the package's node_modules by the normal upward lookup. A project in os.tmpdir() needs a link to
 // node_modules, and on the Windows runner (temp dir on C:, checkout on D:) lookups through that
 // junction failed: ERR_MODULE_NOT_FOUND for tsx, then HHE22 for hardhat.
@@ -13,21 +13,23 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const root = path.join(repo, ".tmp");
 
 /** The projects this module created and has not removed yet. */
 const created = new Set<string>();
 
 /**
- * Creates an empty project directory under the package's `.tmp` directory.
+ * Creates an empty project directory under a package's `.tmp` directory.
  *
  * @param prefix - The start of the directory's name, such as `"tasks-cli-"`.
+ * @param packageDirectory - The package whose node_modules the project resolves from; hardhat-kms
+ *   unless another package's test passes its own directory.
  * @returns The project's absolute path.
  */
-export function createTempProject(prefix: string): string {
+export function createTempProject(prefix: string, packageDirectory: string = repo): string {
   if (!/^[a-z][a-z-]*-$/.test(prefix)) {
     throw new Error(`a project prefix is lowercase words joined and ended by "-": ${prefix}`);
   }
+  const root = path.join(packageDirectory, ".tmp");
   mkdirSync(root, { recursive: true });
   const project = mkdtempSync(path.join(root, prefix));
   created.add(project);

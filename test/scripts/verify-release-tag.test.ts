@@ -29,10 +29,10 @@ const SOCKET_PATH_MAX = 104;
 const longestSocketPath = path.join(tmpdir(), "hardhat-kms-test-XXXXXX", "g1", "S.gpg-agent.extra");
 // On Windows the `gpg` on PATH is usually Git for Windows' MSYS build, which reads a `C:\...`
 // home as a relative path. The script runs on the Linux release runner and a maintainer's macOS or
-// Linux machine, so the suite skips on Windows (#326).
+// Linux machine, so the suite skips on Windows (#393).
 const skip =
   process.platform === "win32"
-    ? "verify-release-tag runs on Linux and macOS only; gpg on Windows cannot use a C:\\ home"
+    ? "verify-release-tag runs on Linux and macOS only; Git for Windows' gpg reads a C: home as a relative path (#393)"
     : hasGpg
       ? longestSocketPath.length < SOCKET_PATH_MAX
         ? false
