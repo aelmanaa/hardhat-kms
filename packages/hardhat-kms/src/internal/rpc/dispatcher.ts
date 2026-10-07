@@ -61,6 +61,17 @@ const TRANSACTION_METHODS = new Set(["eth_sendTransaction", "eth_signTransaction
  */
 const RAW_SEND_METHODS = new Set(["eth_sendRawTransaction", "eth_sendRawTransactionSync"]);
 
+/**
+ * The wallet-namespace form of `eth_sendTransaction`. viem sends it once after `eth_sendTransaction` fails with an error
+ * such as -32000, and uses it for every later send on the client if it gets a hash back. For a KMS
+ * sender the plugin answers it with -32601, so viem throws the first error and keeps sending
+ * `eth_sendTransaction`, which the plugin signs.
+ */
+const WALLET_SEND_METHOD = "wallet_sendTransaction";
+
+/** JSON-RPC's "method not found" error code. */
+const METHOD_NOT_FOUND = -32601;
+
 /** The methods that name an account; a node or Hardhat refuses them for an account it lacks. */
 const SENDER_METHODS = new Set([
   "eth_sendTransaction",
@@ -374,8 +385,36 @@ export async function dispatch(
     if (raw !== undefined) {
       return await sendRawTransaction(request, raw, transactions, next);
     }
+  } else if (request.method === WALLET_SEND_METHOD) {
+    const sender = await kmsWalletSender(accounts, params);
+    if (sender !== undefined) {
+      log("refused %s from KMS account %s", WALLET_SEND_METHOD, sender);
+      const message = catalogMessage(ERRORS.walletSendRefused, { address: sender });
+      return { jsonrpc: "2.0", id: request.id, error: { code: METHOD_NOT_FOUND, message } };
+    }
   }
   return await passThrough(accounts, request, next);
+}
+
+/**
+ * The KMS account a `wallet_sendTransaction` sends from. Only a first param that is an object
+ * whose `from` is a KMS address counts. A request without `from`, or with a `from` that is not an
+ * address, passes on unchanged: Hardhat's sender handlers do not set `from` on this method, so no
+ * handler after the plugin can add a KMS address.
+ *
+ * @param accounts - The connection's KMS accounts.
+ * @param params - The request's params.
+ * @returns The checksummed address, or `undefined` when the sender is not a KMS account.
+ */
+async function kmsWalletSender(
+  accounts: ConnectionAccounts,
+  params: unknown[],
+): Promise<string | undefined> {
+  const [transaction] = params;
+  const address = isObject(transaction) ? addressParam(transaction.from) : undefined;
+  return address !== undefined && (await accounts.isKmsAccount(address))
+    ? toChecksumAddress(address)
+    : undefined;
 }
 
 /**
