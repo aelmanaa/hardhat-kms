@@ -69,7 +69,7 @@ Credentials come from each cloud SDK's default chain (`AWS_PROFILE`, `gcloud aut
 npx hardhat kms accounts
 ```
 
-It lists each configured key with its provider, key id and address, and prints `address` lines to paste. Before a first deploy, `npx hardhat --network sepolia kms accounts --check-sign` also has each key sign a test message, which proves the credentials may sign. Add the address to the key's config:
+It lists each configured key with its provider, key id and address, and prints `address` lines to paste. Before a first deploy, `npx hardhat --network sepolia kms accounts --check-sign` also has each key sign a test message, which proves the credentials may sign. Add the address to the key's entry in `kms.keys`. Merge this into your existing config: only the `address` line is new, and the plugins and networks stay as they are:
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
@@ -84,6 +84,13 @@ export default defineConfig({
         keyId: configVariable("AWS_KMS_KEY_ID"),
         address: "0x1111111111111111111111111111111111111111",
       },
+    },
+  },
+  networks: {
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      kmsAccounts: ["deployer"],
     },
   },
 });
