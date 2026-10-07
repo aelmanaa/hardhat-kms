@@ -35,10 +35,11 @@ jobs:
           fi
 
   security-checklist:
-    # A pull request that changes a path listed in docs/contributor/security-review.md carries the
-    # ticked security checklist of the pull request template. The script, the list and the template
-    # come from the base branch, so a pull request cannot loosen them for its own run. This workflow
-    # file comes from the pull request, so a change to it needs a reviewer's eye.
+    # A pull request that changes a path of a list in docs/contributor/security-review.md carries
+    # that list's items of the pull request template's security checklist, ticked. The script, the
+    # lists and the template come from the base branch, so a pull request cannot loosen them for its
+    # own run. This workflow file comes from the pull request, so it is on the release and supply
+    # chain list, and a change to it carries that list's items.
     name: Security checklist
     runs-on: ubuntu-26.04
     timeout-minutes: 5

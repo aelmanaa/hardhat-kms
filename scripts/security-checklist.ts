@@ -1,7 +1,9 @@
-// The security checklist rule of pr-hygiene.yml. A pull request that changes a path listed in
-// docs/contributor/security-review.md must carry the "Security checklist" section of the pull
-// request template with every item ticked. A pull request that changes no listed path is not
-// asked for it. The workflow runs this script, the list and the template from the base branch, so
+// The security checklist rule of pr-hygiene.yml. docs/contributor/security-review.md holds the
+// lists of paths, one `##` section per list, and the "Security checklist" section of the pull
+// request template holds each list's items under a `###` heading of the same name. A pull request
+// that changes a path of a list must carry that list's items, every one ticked. A pull request that
+// changes paths of both lists carries both sets of items, and one that changes no listed path is not
+// asked for any. The workflow runs this script, the lists and the template from the base branch, so
 // a pull request cannot change them for its own run.
 //
 // Usage: node scripts/security-checklist.ts --files FILE --changed-files N --body FILE
@@ -15,12 +17,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-/** The page that holds the list of paths, relative to the repository root. */
+/** The page that holds the lists of paths, relative to the repository root. */
 export const LIST_PAGE = "docs/contributor/security-review.md";
 /** The pull request template, relative to the repository root. */
 export const TEMPLATE = ".github/pull_request_template.md";
-/** The heading of the list on {@link LIST_PAGE}. */
-export const LIST_HEADING = "## Listed paths";
 /** The heading of the checklist in the template and in a pull request body. */
 export const CHECKLIST_HEADING = "## Security checklist";
 
@@ -50,34 +50,36 @@ export function patternToRegExp(pattern: string): RegExp {
 }
 
 /**
- * Reads the patterns of the list page: the lines of the first fenced code block under
- * {@link LIST_HEADING}, without blank lines.
+ * Reads the patterns of one list: the lines of the first fenced code block in the `## <name>`
+ * section of the list page, without blank lines.
  *
  * @param markdown - The list page.
+ * @param name - The list's name, such as `Signing and sending`.
  * @returns The patterns, in page order.
- * @throws {Error} If the heading, the block or any pattern is missing.
+ * @throws {Error} If the section, its block or any pattern is missing.
  */
-export function parseListedPaths(markdown: string): string[] {
+export function parseListedPaths(markdown: string, name: string): string[] {
+  const heading = `## ${name}`;
   const lines = markdown.split(/\r?\n/);
-  const heading = lines.indexOf(LIST_HEADING);
-  if (heading === -1) {
-    throw new Error(`${LIST_PAGE} has no "${LIST_HEADING}" heading`);
+  const start = lines.findIndex((line) => line.trim() === heading);
+  if (start === -1) {
+    throw new Error(`${LIST_PAGE} has no "${heading}" heading`);
   }
-  const open = lines.findIndex((line, index) => index > heading && line.startsWith("```"));
-  const nextHeading = lines.findIndex((line, index) => index > heading && line.startsWith("## "));
+  const open = lines.findIndex((line, index) => index > start && line.startsWith("```"));
+  const nextHeading = lines.findIndex((line, index) => index > start && line.startsWith("## "));
   if (open === -1 || (nextHeading !== -1 && open > nextHeading)) {
-    throw new Error(`"${LIST_HEADING}" in ${LIST_PAGE} has no code block`);
+    throw new Error(`"${heading}" in ${LIST_PAGE} has no code block`);
   }
   const close = lines.findIndex((line, index) => index > open && line.startsWith("```"));
   if (close === -1) {
-    throw new Error(`the code block under "${LIST_HEADING}" in ${LIST_PAGE} is not closed`);
+    throw new Error(`the code block under "${heading}" in ${LIST_PAGE} is not closed`);
   }
   const patterns = lines
     .slice(open + 1, close)
     .map((line) => line.trim())
     .filter((line) => line !== "");
   if (patterns.length === 0) {
-    throw new Error(`the code block under "${LIST_HEADING}" in ${LIST_PAGE} is empty`);
+    throw new Error(`the code block under "${heading}" in ${LIST_PAGE} is empty`);
   }
   return patterns;
 }
@@ -149,16 +151,19 @@ export function parseChangedFiles(json: string, changedFiles: number): string[] 
   );
 }
 
-/** A checklist item: its label and whether its box is ticked. */
+/** A checklist item: its label, whether its box is ticked, and the `###` heading above it. */
 export interface ChecklistItem {
   label: string;
   ticked: boolean;
+  /** The text of the closest `###` heading above the item in the section, if any. */
+  list: string | undefined;
 }
 
 /**
- * Reads the items of the {@link CHECKLIST_HEADING} section, up to the next `##` heading. HTML
- * comments are ignored, so an example inside one does not count. An item is a task-list line
- * whose text starts with a bold label, `- [x] **Key.** ...`; its label is the bold text.
+ * Reads the items of the {@link CHECKLIST_HEADING} section, up to the next `#` or `##` heading.
+ * HTML comments are ignored, so an example inside one does not count. An item is a task-list line
+ * whose text starts with a bold label, `- [x] **Key.** ...`; its label is the bold text. A `###`
+ * heading inside the section names the list of the items below it.
  *
  * @param markdown - A pull request body or the template.
  * @returns The items in order, or `undefined` if the section is missing.
@@ -170,24 +175,72 @@ export function parseChecklist(markdown: string): ChecklistItem[] | undefined {
     return undefined;
   }
   const items: ChecklistItem[] = [];
+  let list: string | undefined;
   for (const line of lines.slice(start + 1)) {
     if (/^#{1,2} /.test(line)) {
       break;
     }
+    const heading = /^### (.+)$/.exec(line);
+    if (heading !== null) {
+      list = (heading[1] ?? "").trim();
+      continue;
+    }
     const match = /^\s*[-*] \[([ xX])\] \*\*([^*]+)\*\*/.exec(line);
     if (match !== null) {
-      items.push({ label: (match[2] ?? "").trim(), ticked: match[1] !== " " });
+      items.push({ label: (match[2] ?? "").trim(), ticked: match[1] !== " ", list });
     }
   }
   return items;
 }
 
+/** One list of the template's checklist: its name and the labels of its items. */
+export interface ChecklistList {
+  name: string;
+  labels: string[];
+}
+
+/**
+ * Groups the template's checklist items by the `###` heading above them. Each heading names a
+ * list, which must have a section of the same name on the list page.
+ *
+ * @param template - The pull request template.
+ * @returns The lists, in template order.
+ * @throws {Error} If the section has no items, an item has no `###` heading above it, or a label
+ *   appears twice.
+ */
+export function templateLists(template: string): ChecklistList[] {
+  const items = parseChecklist(template) ?? [];
+  if (items.length === 0) {
+    throw new Error(`${TEMPLATE} has no items under "${CHECKLIST_HEADING}"`);
+  }
+  const lists: ChecklistList[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (item.list === undefined) {
+      throw new Error(`the item "${item.label}" in ${TEMPLATE} has no "###" list heading above it`);
+    }
+    if (seen.has(item.label)) {
+      throw new Error(`the item "${item.label}" appears twice in ${TEMPLATE}`);
+    }
+    seen.add(item.label);
+    const name = item.list;
+    const list = lists.find((candidate) => candidate.name === name);
+    if (list === undefined) {
+      lists.push({ name, labels: [item.label] });
+    } else {
+      list.labels.push(item.label);
+    }
+  }
+  return lists;
+}
+
 /**
  * Lists what keeps a pull request body's checklist from being complete: a missing section, and
- * each required item that is missing or not ticked.
+ * each required item that is missing or not ticked. Items are matched by label anywhere in the
+ * section, so the body may keep or drop the `###` headings.
  *
  * @param body - The pull request body.
- * @param required - The labels the template's checklist holds.
+ * @param required - The labels of the items the change needs.
  * @returns One line per problem; empty when the checklist is complete.
  */
 export function checklistProblems(body: string, required: readonly string[]): string[] {
@@ -211,7 +264,8 @@ export interface CheckResult {
 }
 
 /**
- * Applies the rule: no listed path changed, or the checklist is complete.
+ * Applies the rule to each list of the template: no path of the list changed, or each of the
+ * list's items is ticked.
  *
  * @param input - The changed paths, the list page, the template and the pull request body.
  * @returns Whether the pull request passes, and what to report.
@@ -223,31 +277,39 @@ export function checkSecurityChecklist(input: {
   template: string;
   body: string;
 }): CheckResult {
-  const required = parseChecklist(input.template)?.map((item) => item.label) ?? [];
-  if (required.length === 0) {
-    throw new Error(`${TEMPLATE} has no items under "${CHECKLIST_HEADING}"`);
-  }
-  const changed = listedChanges(input.files, parseListedPaths(input.listPage));
-  if (changed.length === 0) {
+  const touched = templateLists(input.template)
+    .map((list) => ({
+      ...list,
+      changed: listedChanges(input.files, parseListedPaths(input.listPage, list.name)),
+    }))
+    .filter((list) => list.changed.length > 0);
+  if (touched.length === 0) {
     return {
       passed: true,
       lines: [`No path listed in ${LIST_PAGE} changed. The security checklist is not required.`],
     };
   }
-  const header = [
-    `This pull request changes ${String(changed.length)} path(s) listed in ${LIST_PAGE}:`,
-    ...changed.map((file) => `  ${file}`),
-  ];
-  const problems = checklistProblems(input.body, required);
+  const header = touched.flatMap((list) => [
+    `This pull request changes ${String(list.changed.length)} path(s) of the "${list.name}" list in ${LIST_PAGE}:`,
+    ...list.changed.map((file) => `  ${file}`),
+  ]);
+  const names = touched.map((list) => `"${list.name}"`).join(" and ");
+  const problems = checklistProblems(
+    input.body,
+    touched.flatMap((list) => list.labels),
+  );
   if (problems.length === 0) {
-    return { passed: true, lines: [...header, "Every item of the security checklist is ticked."] };
+    return {
+      passed: true,
+      lines: [...header, `Every item of the ${names} checklist is ticked.`],
+    };
   }
   return {
     passed: false,
     lines: [
       ...header,
       ...problems.map((problem) => `Security checklist: ${problem}.`),
-      `Copy the "${CHECKLIST_HEADING}" section of ${TEMPLATE} into the description and tick each item once it holds.`,
+      `Copy the ${names} items of the "${CHECKLIST_HEADING}" section of ${TEMPLATE} into the description and tick each item once it holds.`,
     ],
   };
 }

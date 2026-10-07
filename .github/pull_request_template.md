@@ -12,7 +12,9 @@ Closes #
 
 ## Security checklist
 
-<!-- Fill this in if the pull request changes a path listed in docs/contributor/security-review.md; a CI check requires it. Otherwise delete this section. Tick an item when your change keeps it true or does not touch it, and add a short note when that is not obvious. docs/contributor/security-review.md explains each item. -->
+<!-- docs/contributor/security-review.md has two lists of paths. Keep the items of each list whose paths the pull request changes; a CI check requires them. Delete the rest, and the whole section if no listed path changed. Tick an item when your change keeps it true or does not touch it, and add a short note when that is not obvious. docs/contributor/security-review.md explains each item. -->
+
+### Signing and sending
 
 - [ ] **Key.** The configured key signs, and no other: the identity checks and the `address` pin still run before a signature or address is returned.
 - [ ] **Signed bytes.** The plugin signs the digest it built from its own copy of the request, every signature still recovers to the account address, and the chain-id checks still apply.
@@ -22,3 +24,9 @@ Closes #
 - [ ] **Lifecycle.** Closing a connection drops its sends and timers, and the signer cache closes a client only after signing in flight ends.
 - [ ] **Errors and logs.** No credential, raw SDK error, node URL or the value behind a masked identifier reaches an error, the `debug` output or a warning.
 - [ ] **Tests.** Tests cover the changed behaviour, including its failure path.
+
+### Release and supply chain
+
+- [ ] **What gets published.** The tarballs hold only the files each manifest allows, built from the tagged commit and checked by `check-tarballs.ts`; a new dependency, lifecycle script or `bin` entry is named in the description.
+- [ ] **Who can publish.** Only a signed tag that a repository admin pushes starts a release, the environment and npm stage approvals still stand, no job gains a token, secret or permission it does not need, and every action stays pinned by SHA.
+- [ ] **What the release gate checks.** Every check before publishing or moving `latest` still runs and fails when it cannot decide, and the security checklist still reads its lists from the base branch.
