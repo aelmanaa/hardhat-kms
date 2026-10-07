@@ -67,7 +67,14 @@ describe("checkManifest", () => {
   });
 });
 
-describe("checkTarballs on real tarballs", () => {
+// On Windows the `tar` on PATH can be Git for Windows' GNU tar, which reads `C:\...` as a remote
+// host. The script runs on the Linux release runner only, so this suite skips on Windows (#393).
+const skipOnWindows =
+  process.platform === "win32"
+    ? "check-tarballs runs on the Linux release runner only (#393)"
+    : false;
+
+describe("checkTarballs on real tarballs", { skip: skipOnWindows }, () => {
   let work = "";
   let tarballs = "";
   let sums = "";

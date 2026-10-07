@@ -3,12 +3,16 @@
 // rethrows a failure there into a promise that nothing awaits: unless the adapter handles that
 // failure first, the process ends with an unhandled rejection after the task has reported.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { type HardhatRun, runHardhat } from "../../../hardhat-kms/test/helpers/hardhat-cli.ts";
+import {
+  createTempProject,
+  removeTempProject,
+} from "../../../hardhat-kms/test/helpers/temp-project.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 // Hardhat's first default account, pinned so that personal_sign reaches the key without
@@ -73,10 +77,8 @@ describe("a Google Cloud credentials file that does not exist", () => {
   });
 
   before(() => {
-    // Inside the package, as in hardhat-kms's CLI tests: a project in os.tmpdir() needs a link to
-    // node_modules, which fails on the Windows runner.
-    mkdirSync(path.join(repo, ".tmp"), { recursive: true });
-    project = mkdtempSync(path.join(repo, ".tmp", "credentials-cli-"));
+    // Inside this package, so the project resolves its node_modules.
+    project = createTempProject("credentials-cli-", repo);
     writeFileSync(
       path.join(project, "package.json"),
       JSON.stringify({ name: "p", type: "module" }),
@@ -88,8 +90,8 @@ describe("a Google Cloud credentials file that does not exist", () => {
     writeFileSync(path.join(project, "sign.ts"), SIGN_SCRIPT);
   });
 
-  after(() => {
-    rmSync(project, { recursive: true, force: true });
+  after(async () => {
+    await removeTempProject(project);
   });
 
   it("fails kms address with the credentials error, and nothing crashes after it", async () => {
