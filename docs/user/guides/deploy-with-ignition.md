@@ -159,7 +159,7 @@ Run `ignition deploy` with the live network. Ignition asks you to confirm the ne
 
 What changes with a KMS account:
 
-- Each transaction costs one KMS signing call, such as one `Sign` request to AWS KMS, plus one per fee bump. With its default settings, Ignition resends a transaction that is still unconfirmed after 3 minutes, with the same nonce and higher fees, up to 4 times. Each resend is a new `eth_sendTransaction`, so the key signs again.
+- Each transaction usually costs one KMS signing request, such as one `Sign` request to AWS KMS, plus one per fee bump. Retries can add more ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). With its default settings, Ignition resends a transaction that is still unconfirmed after 3 minutes, with the same nonce and higher fees, up to 4 times. Each resend is a new `eth_sendTransaction`, so the key signs again.
 - Ignition sets the nonce, gas limit and fees of each transaction, and sends them one at a time. The plugin fills nothing that Ignition already set.
 - The account pays for gas, so fund the KMS address on the live network before you deploy.
 

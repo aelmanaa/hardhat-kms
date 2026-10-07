@@ -134,7 +134,7 @@ const signature = await provider.request({
 console.log(address, signature);
 ```
 
-Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. Each run calls `GetPublicKey` once, before the first signature, then `Sign` once. An `address` pin does not save that call: the plugin checks the public key against the pin before it releases a signature, and it signs with the key ARN that `GetPublicKey` returns. A pin saves the call only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the public key ([`address`](../reference/configuration.md#configuration)).
+Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. Each run calls `GetPublicKey` once, before the first signature, then `Sign` once for the signature, or more if a request is retried ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). An `address` pin does not save that call: the plugin checks the public key against the pin before it releases a signature, and it signs with the key ARN that `GetPublicKey` returns. A pin saves the call only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the public key ([`address`](../reference/configuration.md#configuration)).
 
 ## One config for a laptop and CI
 
