@@ -28,6 +28,11 @@ export default defineConfig({
   networks: {
     // A local rehearsal. `accounts: []` leaves the KMS account as the only account.
     rehearsal: { type: "edr-simulated", accounts: [], kmsAccounts: ["deployer"] },
-    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
+      kmsAccounts: ["deployer"],
+    },
   },
 });

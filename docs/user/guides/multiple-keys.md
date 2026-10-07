@@ -40,11 +40,13 @@ export default defineConfig({
     sepolia: {
       type: "http",
       url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
       kmsAccounts: ["treasury", "ops"],
     },
     baseSepolia: {
       type: "http",
       url: configVariable("BASE_SEPOLIA_RPC_URL"),
+      chainId: 84532,
       kmsAccounts: ["treasury"],
     },
   },
@@ -156,6 +158,7 @@ export default defineConfig({
     sepolia: {
       type: "http",
       url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
       // The local account is first in eth_accounts: scripts must name the treasury address.
       accounts: [configVariable("TEST_PRIVATE_KEY")],
       kmsAccounts: ["treasury"],
@@ -201,10 +204,24 @@ On `sepolia`, whose node manages no accounts, `eth_accounts` lists the Ledger ad
 
 `--kms` reads keys from Foundry's environment variables, without a config entry ([Migrate from Foundry](migrate-from-foundry.md#from-the-command-line-as-in-foundry)). For Azure, these are the names proposed in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120), since Foundry has not released an Azure signer. These keys join the selected network only: the `--network` value, or `default` when there is none. They come last in `eth_accounts`, after the network's own accounts and its `kmsAccounts`, so on a network with other accounts the libraries do not pick a `--kms` key by default. Name it by address. Other networks do not get these keys.
 
-```sh
+::: code-group
+
+```sh [npm]
 AZURE_KEY_VAULT_KEY_ID=https://<vault>.vault.azure.net/keys/<name>/<version> \
   npx hardhat run scripts/deploy.ts --network baseSepolia --kms azure
 ```
+
+```sh [pnpm]
+AZURE_KEY_VAULT_KEY_ID=https://<vault>.vault.azure.net/keys/<name>/<version> \
+  pnpm hardhat run scripts/deploy.ts --network baseSepolia --kms azure
+```
+
+```sh [Yarn]
+AZURE_KEY_VAULT_KEY_ID=https://<vault>.vault.azure.net/keys/<name>/<version> \
+  yarn hardhat run scripts/deploy.ts --network baseSepolia --kms azure
+```
+
+:::
 
 Always pass `--network` with `--kms`. Without it, the keys join the `default` network, and the plugin prints a warning when something connects to it.
 
@@ -224,9 +241,21 @@ Two entries for one key are the same account, so keep the one you want and remov
 
 `kms accounts` asks each KMS for each key's address, checks it against the key's pin, and prints the pins to add ([`kms accounts`](../reference/tasks.md#kms-accounts)). It signs nothing and sends nothing. With `--network`, it lists that network's keys in the order the network uses them:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat --network baseSepolia kms accounts
 ```
+
+```sh [pnpm]
+pnpm hardhat --network baseSepolia kms accounts
+```
+
+```sh [Yarn]
+yarn hardhat --network baseSepolia kms accounts
+```
+
+:::
 
 ```text
 NAME      PROVIDER  SOURCE    ADDRESS                                     PIN   KEY ID
@@ -244,9 +273,21 @@ Two rows with the same address in a `--network` listing mean that connections to
 
 Without `--network`, the task lists every key in the project. Entries for the same KMS key with the same pin share one row, with the other names on an `also:` line. Here `ops` in `kms.keys` and the same key from `--kms azure` share a row:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat --kms azure kms accounts
 ```
+
+```sh [pnpm]
+pnpm hardhat --kms azure kms accounts
+```
+
+```sh [Yarn]
+yarn hardhat --kms azure kms accounts
+```
+
+:::
 
 ```text
 NAME      PROVIDER  SOURCE    ADDRESS                                     PIN   KEY ID
