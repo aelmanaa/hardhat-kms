@@ -40,7 +40,6 @@ export interface KeyDescription {
  * to `signDigest`; it always verifies the returned signature against the key.
  *
  * Stable from 1.0: a minor may add optional methods; changing or removing one needs a major.
- * The Turnkey and Fireblocks providers add `signTransaction` and `sendTransaction` this way.
  */
 export interface KmsKeyAdapter {
   /** Describes the key for messages and logs. */

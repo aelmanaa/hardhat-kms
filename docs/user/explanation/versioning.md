@@ -19,9 +19,9 @@ Versions follow [semantic versioning](https://semver.org). The public API, which
 - The account that `connection.kms.getAccount` returns, described in [Library accounts](../reference/library-accounts.md).
 - The provider interface for plugin authors, as the [API reference](../reference/api/README.md) documents it.
 
-From 1.0, the provider contract in `hardhat-kms/types` is stable: `KmsKeyAdapter`, `SignContext`, `KeyDescription`, the `kms` hook and the history reader types. A minor release may add optional members to them, as the Turnkey and Fireblocks providers will add `signTransaction` and `sendTransaction`; changing or removing a member needs a major. `hardhat-kms/provider-utils` stays experimental.
+From 1.0, everything a provider implements, receives or augments in `hardhat-kms/types` is stable: `KmsKeyAdapter`, `SignContext`, `KeyDescription`, `SignatureOutput`, `TypedData`, the resolved key types (`KmsKeyConfig`, `KmsKeyCommonConfig`, `ExternalKmsKeyConfig`, `KmsIdentifier`), the `KmsProviderUserConfigs` and `KmsProviderConfigs` interfaces with `KmsKeyCommonUserConfig`, the `kms.audit` config (`KmsAuditConfig`), the `kms` hook and the history reader types. A minor release may add optional members to them, a method to the `kms` hook, or a built-in provider to the two provider config interfaces; this is how the Turnkey and Fireblocks providers will add `signTransaction`, `sendTransaction` and their key types. Changing or removing a member needs a major. `hardhat-kms/provider-utils` stays experimental.
 
-Anything the API reference marks `Experimental`, such as the `hardhat-kms/provider-utils` module, is outside the public API and may change in a minor.
+Anything else the API reference marks `Experimental` is outside the public API and may change in a minor.
 
 A major release removes or renames any of these, or drops a Hardhat major. A minor adds to the API, raises a floor as the rules below allow, or deprecates something. A patch fixes a bug without changing the API.
 

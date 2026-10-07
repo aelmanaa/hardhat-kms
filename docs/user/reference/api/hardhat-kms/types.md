@@ -1524,7 +1524,7 @@ wherever it appears, except in principals, which are shown as logged. Names as i
 
 The `kms` hook category, which provider plugins use to add their adapters.
 
-Stable from 1.0: a minor may add optional methods; changing or removing one needs a major.
+Stable from 1.0: a minor may add methods; changing or removing one needs a major.
 
 #### Methods
 
@@ -1623,7 +1623,6 @@ at least one way to sign. The core prefers the structured methods when present a
 to `signDigest`; it always verifies the returned signature against the key.
 
 Stable from 1.0: a minor may add optional methods; changing or removing one needs a major.
-The Turnkey and Fireblocks providers add `signTransaction` and `sendTransaction` this way.
 
 #### Methods
 
@@ -2523,7 +2522,9 @@ A field of a sign event that a provider may not record. A reader lists the field
 provider never logs in [KmsHistoryResult.notLogged](#notlogged-1), and sets them to `null` in every
 event.
 
-Stable from 1.0: a minor may add a value; changing or removing one needs a major.
+Stable from 1.0: a minor may add a value, together with an optional [KmsHistoryEvent](#kmshistoryevent) field,
+so that a reader that does not know the value still returns valid events. Changing or removing a
+value needs a major.
 
 ---
 

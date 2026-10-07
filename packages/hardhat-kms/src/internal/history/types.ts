@@ -5,7 +5,9 @@ import type { KmsKeyConfig } from "../../types.ts";
  * provider never logs in {@link KmsHistoryResult.notLogged}, and sets them to `null` in every
  * event.
  *
- * Stable from 1.0: a minor may add a value; changing or removing one needs a major.
+ * Stable from 1.0: a minor may add a value, together with an optional {@link KmsHistoryEvent} field,
+ * so that a reader that does not know the value still returns valid events. Changing or removing a
+ * value needs a major.
  */
 export type KmsHistoryField =
   | "principal"
