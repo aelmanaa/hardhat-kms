@@ -266,7 +266,7 @@ The address belongs to the Key Vault key alone. If the key is purged, any funds 
 
 To see the balance, open the address on [Sepolia Etherscan](https://sepolia.etherscan.io) or [Sepolia Blockscout](https://eth-sepolia.blockscout.com).
 
-To try the deployment on a local fork of Sepolia before you fund the address, add the `sepoliaFork` network and `kms.simulatedBalance` from [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network), then run step 6's command with `--network sepoliaFork` and without `--verify`. The rehearsal signs with the real key, so it also checks the key and its permissions.
+To try the deployment on a local fork of Sepolia before you fund the address, add the `sepoliaFork` network and `kms.simulatedBalance` from [Rehearse on a simulated network](../guides/deploy-with-ignition.md#3-rehearse-on-a-simulated-network), then run step 6's command with `--network sepoliaFork` and without `--verify`. The rehearsal signs with the real key, so it also checks the key and its permissions. Ignition does not ask you to confirm, and it starts with "You are running Hardhat Ignition against an in-process instance of Hardhat Network": that is the fork, and the results are lost when the command ends. It ends with a `Deployed Addresses` list, as in step 6.
 
 ## 6. Deploy and verify
 
@@ -308,7 +308,7 @@ If you need to verify a partially verified contract, please use the --force flag
 Explorer: https://sourcify.dev/server/repo-ui/11155111/0xd25929560B4189a13092Fc8A685C63a68EFEf6fF
 ```
 
-Both explorers may answer "already verified": the template's `Counter` is a common contract, and they have seen its code before. Open the `Explorer:` link that Blockscout printed. If the page shows the contract as verified, you are done. If it shows a "verified twin" or a "similar match" instead, your contract is not verified yet: [Verify the source on block explorers](../guides/deploy-with-ignition.md#6-verify-the-source-on-block-explorers) has the command to run.
+Both explorers may answer "already verified": the template's `Counter` is a common contract, and they have seen its code before. Blockscout may instead submit the source and end with `✅ Contract verified successfully on Blockscout!`; the contract is then verified too. Open the `Explorer:` link that Blockscout printed. If the page shows the contract as verified, you are done. If it shows a "verified twin" or a "similar match" instead, your contract is not verified yet: [Verify the source on block explorers](../guides/deploy-with-ignition.md#6-verify-the-source-on-block-explorers) has the command to run.
 
 ## 7. Open the contract on the explorer
 

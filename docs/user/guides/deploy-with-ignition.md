@@ -139,7 +139,7 @@ Run the deployment on the `rehearsal` network first. `kms.simulatedBalance` give
 npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --default-sender 0x…
 ```
 
-Ignition keeps nothing from a deployment to an `edr-simulated` network. To rehearse against Sepolia's current state, run the same command on `sepoliaFork`, which forks Sepolia through `SEPOLIA_RPC_URL`. The contracts are deployed only in the local fork, and `kms.simulatedBalance` funds the KMS account there too:
+Ignition keeps nothing from a deployment to an `edr-simulated` network. To rehearse against Sepolia's recent state, run the same command on `sepoliaFork`, which forks Sepolia through `SEPOLIA_RPC_URL`. The fork starts from a block a little behind the latest one, so a contract deployed in the last few minutes may be missing from it. The contracts are deployed only in the local fork, and `kms.simulatedBalance` funds the KMS account there too:
 
 ```sh
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender 0x…

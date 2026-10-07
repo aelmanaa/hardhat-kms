@@ -42,6 +42,8 @@ const BAD_CHECKSUM = "0x70997970c51812dc3A010C7d01b50e0d17dc79C8";
 const ZERO = "0x0000000000000000000000000000000000000000";
 /** The receipt wait, as the guide prints it, with viem's default timeout. */
 const RECEIPT_WAIT = /\.waitForTransactionReceipt\(\{ hash \}\)/;
+/** The network the script connects to, as the guide prints it. */
+const NETWORK_NAME = /\n {2}const networkName = "sepolia";\n/;
 const CODE_REFUSAL = /has code, so it is a contract or a smart account \(EIP-7702\)/;
 /** The comment and the check that refuse an address with code, as the guide prints them. */
 const CODE_CHECK =
@@ -117,8 +119,11 @@ const refusals: [name: string, returnTo: string | undefined, message: RegExp][] 
 
 /** How long `hardhat node` may take to start. */
 const NODE_START_LIMIT_MS = 60_000;
-/** The script runs in the suite: one per refusal, then the four that reach a transfer. */
-const SCRIPT_RUNS = refusals.length + 4;
+/**
+ * The script runs in the suite: one per refusal, the network without the key, then the four that
+ * reach a transfer.
+ */
+const SCRIPT_RUNS = refusals.length + 5;
 /**
  * The tests share the node and run one after another. Under load a run takes over 50 s, so the
  * suite's limit gives the node's start and every run its whole limit: 1160 s. That applies to local
@@ -283,6 +288,13 @@ describe("the return-funds guide's script", { timeout: SUITE_LIMIT_MS }, () => {
       path.join(project, "scripts", "return-funds-short-wait.ts"),
       script.replace(RECEIPT_WAIT, ".waitForTransactionReceipt({ hash, timeout: 2_000 })"),
     );
+    // A copy for another network, `node`, which does not list the deployer key, as a reader who
+    // changes networkName to a network without the key gets.
+    assert.match(script, NETWORK_NAME, "networkName is not where the test expects it");
+    writeFileSync(
+      path.join(project, "scripts", "return-funds-other-network.ts"),
+      script.replace(NETWORK_NAME, '\n  const networkName = "node";\n'),
+    );
 
     nodeUrl = await startNode();
     await rpc("hardhat_setBalance", [COW_ACCOUNT.address, `0x${ONE_ETH.toString(16)}`]);
@@ -319,6 +331,18 @@ describe("the return-funds guide's script", { timeout: SUITE_LIMIT_MS }, () => {
       assert.equal(await nonceOf(COW_ACCOUNT.address), nonce);
     });
   }
+
+  it("names the network in use when it does not list the key, and sends nothing", async () => {
+    const balance = await balanceOf(COW_ACCOUNT.address);
+    const nonce = await nonceOf(COW_ACCOUNT.address);
+    const run = await runScript("scripts/return-funds-other-network.ts", EOA);
+    assertStopped(
+      run,
+      /^0x[0-9a-fA-F]{40} is not an account of the node network; check its kmsAccounts$/,
+    );
+    assert.equal(await balanceOf(COW_ACCOUNT.address), balance);
+    assert.equal(await nonceOf(COW_ACCOUNT.address), nonce);
+  });
 
   it("reports a reverted transfer with its hash, and exits 1", async () => {
     const balance = await balanceOf(COW_ACCOUNT.address);

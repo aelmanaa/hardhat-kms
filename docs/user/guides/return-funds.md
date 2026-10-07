@@ -17,7 +17,7 @@ The script expects the project the tutorials build:
 - a `sepolia` network that lists `deployer` in `kmsAccounts`;
 - `@nomicfoundation/hardhat-viem`, which Hardhat's viem template installs.
 
-For another key or network, change `"deployer"` and `"sepolia"` in the script. In a new shell, set the variables the config reads, such as `SEPOLIA_RPC_URL`, before you run it: the script loads the config.
+For another key or network, change `"deployer"` and `networkName` in the script. In a new shell, set the variables the config reads, such as `SEPOLIA_RPC_URL`, before you run it: the script loads the config.
 
 ## 2. Save the script
 
@@ -62,10 +62,11 @@ async function returnFunds(): Promise<string | undefined> {
     return `RETURN_TO is the deployer address ${from}; set it to the address that gets the funds`;
   }
 
-  const { viem } = await hre.network.create("sepolia");
+  const networkName = "sepolia";
+  const { viem } = await hre.network.create(networkName);
   const wallets = await viem.getWalletClients();
   if (!wallets.some((wallet) => isAddressEqual(wallet.account.address, from))) {
-    return `${from} is not an account of the sepolia network; check its kmsAccounts`;
+    return `${from} is not an account of the ${networkName} network; check its kmsAccounts`;
   }
   const wallet = await viem.getWalletClient(from);
   const publicClient = await viem.getPublicClient();
@@ -137,16 +138,16 @@ Before you remove the key, open the deployer address on [Sepolia Etherscan](http
 
 When the script stops, it prints one line and exits with code 1. It checks everything in this table before it sends anything:
 
-| Message                                                                                          | Cause                                                                                                     |
-| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `set RETURN_TO to the address that gets the funds`                                               | `RETURN_TO` is not set, or is empty.                                                                      |
-| `RETURN_TO is not a valid address, or its checksum is wrong: …`                                  | Not `0x` followed by 40 hex digits, or a mixed-case address whose checksum does not match.                |
-| `RETURN_TO is the zero address, and funds sent there are lost`                                   | `RETURN_TO` is `0x0000000000000000000000000000000000000000`.                                              |
-| `pin the deployer key's address in hardhat.config.ts first`                                      | The config has no `deployer` key, or its `address` is missing or not a valid address.                     |
-| `RETURN_TO is the deployer address …; set it to the address that gets the funds`                 | `RETURN_TO` is the address the funds come from.                                                           |
-| `… is not an account of the sepolia network; check its kmsAccounts`                              | The `sepolia` network has no account at the pinned address: it does not list `deployer` in `kmsAccounts`. |
-| `… has code, so it is a contract or a smart account (EIP-7702); send to an address with no code` | `RETURN_TO` is a contract, or a wallet address whose smart account setting is on.                         |
-| `the balance of …, … ETH, does not cover the fee`                                                | The balance is at most the fee, as after a first run.                                                     |
+| Message                                                                                          | Cause                                                                                                            |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `set RETURN_TO to the address that gets the funds`                                               | `RETURN_TO` is not set, or is empty.                                                                             |
+| `RETURN_TO is not a valid address, or its checksum is wrong: …`                                  | Not `0x` followed by 40 hex digits, or a mixed-case address whose checksum does not match.                       |
+| `RETURN_TO is the zero address, and funds sent there are lost`                                   | `RETURN_TO` is `0x0000000000000000000000000000000000000000`.                                                     |
+| `pin the deployer key's address in hardhat.config.ts first`                                      | The config has no `deployer` key, or its `address` is missing or not a valid address.                            |
+| `RETURN_TO is the deployer address …; set it to the address that gets the funds`                 | `RETURN_TO` is the address the funds come from.                                                                  |
+| `… is not an account of the … network; check its kmsAccounts`                                    | The network in `networkName` has no account at the pinned address: it does not list `deployer` in `kmsAccounts`. |
+| `… has code, so it is a contract or a smart account (EIP-7702); send to an address with no code` | `RETURN_TO` is a contract, or a wallet address whose smart account setting is on.                                |
+| `the balance of …, … ETH, does not cover the fee`                                                | The balance is at most the fee, as after a first run.                                                            |
 
 The script sends a plain transfer with 21,000 gas, which runs out of gas at an address with code, so it refuses a contract. A wallet address whose smart account setting is on has code too ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)). If the script refuses your wallet address for that reason, use another account of the wallet with the setting off, or create a new account in the wallet.
 
@@ -155,4 +156,4 @@ After it sends, two more lines can stop it:
 - `the transfer reverted in <transaction hash>; only the fee was spent, and the rest is still at <deployer address>`. Run the script again with another address that has no code.
 - `the transfer <transaction hash> is not confirmed yet and may still go through; look it up on a Sepolia explorer before you run the script again`. The transfer was not mined within 3 minutes, viem's limit for the receipt. It was sent, and once it is mined, the funds are returned.
 
-An integration test runs this script, as it appears on this page, with `hardhat run` against a local `hardhat node`: each refusal of `RETURN_TO`, a reverted transfer, a transfer that is not mined in time, a full transfer and a second run.
+An integration test runs this script, as it appears on this page, with `hardhat run` against a local `hardhat node`: each refusal of `RETURN_TO`, a network that does not list the key, a reverted transfer, a transfer that is not mined in time, a full transfer and a second run.
