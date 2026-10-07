@@ -64,5 +64,7 @@ repository; `gh workflow enable ci-all-os.yml` turns it back on.
 
 The required checks in `.github/ruleset-protect-main.json` are the jobs that run on every pull request.
 That file and `.github/ruleset-protect-tags.json` are the rulesets applied to the repository; to change one, merge a pull request that edits the file, then the repository owner applies it.
+The `main` ruleset does not require signed commits, because that rule checks every commit on a pull request branch and agent commits are unsigned; `main` is still signed in practice, since every merge is a squash that GitHub signs, and each release starts from a `v*` tag the owner signs.
+It also sets `require_extra_approval_for_unattributed_changes` to `false`: GitHub's default of `true` counts a commit with an AI `Co-Authored-By` trailer as unattributed and asks for an approval the owner cannot give on his own pull requests.
 The macOS and Windows checks are not required: a required check that never reports stays pending and
 blocks the merge.
