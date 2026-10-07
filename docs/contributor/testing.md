@@ -194,13 +194,18 @@ A Sepolia run sends 15 transactions per provider. In a fork run on 2026-10-02 th
 
 - Manual dispatch, from the Actions tab or with `gh workflow run live-tests.yml -f network=fork`. The `network` input is `fork` (the default: a local anvil fork of Sepolia, which spends nothing) or `sepolia` (spends Sepolia ETH and writes `test/live/proof.json`).
 - The label `ci:live` on a pull request whose branch is in this repository. Adding it runs that pull request's code, always in fork mode. A later push does not run the tests again: remove the label and add it again, which asks for a new approval of the new code. Any other label starts nothing.
-- On a pull request from a fork, the label runs nothing: GitHub gives such a run no OIDC token the clouds accept, so a small job writes a notice in the run's summary instead. To test it, a maintainer pushes the reviewed commits to a branch of this repository and dispatches the workflow on that branch.
+- On a pull request from a fork, the label runs nothing: GitHub gives such a run no OIDC token and no environment secrets, so a small job writes a notice in the run's summary instead. To test it, a maintainer pushes the reviewed commits to a branch of this repository and dispatches the workflow on that branch.
 
 There is no schedule, and no `push`, plain `pull_request` or `pull_request_target` run.
 
 ### Who approves
 
-The job runs in the `live-tests` environment, whose required reviewer is the owner. Every run, dispatched or labelled, waits for that approval before it starts. An approved run executes the code of its branch with the right to sign with the three test keys, so before approving a label run, read the pull request's diff, including any change to the workflow itself, to the test helpers and to the dependencies. Agents never dispatch the workflow, never add `ci:live` and never approve the environment.
+The job runs in the `live-tests` environment, whose required reviewer is the owner. Every run, dispatched or labelled, waits for that approval before it starts. An approved run executes the code of its branch with the right to sign with the three test keys, so before approving a label run, read the pull request's diff, including any change to the workflow itself, to the test helpers and to the dependencies. A dependency update changes code the diff does not show, since its diff is mostly the lockfile. Then check the run itself:
+
+- Its commit, on the run page, must be the pull request head you read. A run is pinned to the commit it was started on: if the branch moved after that, the page shows code the run will not execute. Reject such a run, then remove the label and add it again.
+- It must be a `Live tests` run that you started, with the label or a dispatch. Any workflow on any branch that names `environment: live-tests` asks for the same approval; reject every other request.
+
+Agents never dispatch the workflow, never add `ci:live` and never approve the environment.
 
 ### Trust
 
@@ -212,21 +217,23 @@ Only the `live` job has `id-token: write`; the workflow's default is `permission
 | Google Cloud | The subject itself, as a principal of a workload identity pool, with no service account | Sign with the test key and read its public key    |
 | Azure        | A user-assigned managed identity with a federated credential for that subject           | Read the test key and sign with it                |
 
-A run outside the environment gets a token with another subject, which the three clouds refuse. This holds even when a pull request removes `environment: live-tests` from the workflow: its run then needs no approval, but it gets no credentials either. The three test keys hold only Sepolia ETH.
+A run outside the environment gets a token with another subject, which the three clouds refuse. This holds even when a pull request removes `environment: live-tests` from the workflow: its run then needs no approval, but it gets no credentials either. The three test keys hold only Sepolia ETH. The `azure/login` step prints the token's subject in the public log; both ids in it are public (`gh api repos/aelmanaa/hardhat-kms` shows them) and the subject grants nothing by itself.
 
-The `live-tests` environment stores identifiers, not credentials. Its secrets are `LIVE_AWS_ROLE_ARN`, `LIVE_GCP_WORKLOAD_IDENTITY_PROVIDER`, `LIVE_AZURE_CLIENT_ID`, `LIVE_AZURE_TENANT_ID` and the three key variables the suite reads (`HARDHAT_KMS_LIVE_AWS_KEY_ID`, `HARDHAT_KMS_LIVE_GCP_KEY`, `HARDHAT_KMS_LIVE_AZURE_KEY_ID`); its variable `LIVE_AWS_REGION` gives the AWS region. A `HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL` secret is optional; without it the suite uses its public RPC. The key variables reach only the balance check and the test step, and the suite's redaction removes them from every failure.
+The `live-tests` environment stores identifiers, not credentials. Its secrets are `LIVE_AWS_ROLE_ARN`, `LIVE_GCP_WORKLOAD_IDENTITY_PROVIDER`, `LIVE_AZURE_CLIENT_ID`, `LIVE_AZURE_TENANT_ID` and the three key variables the suite reads (`HARDHAT_KMS_LIVE_AWS_KEY_ID`, `HARDHAT_KMS_LIVE_GCP_KEY`, `HARDHAT_KMS_LIVE_AZURE_KEY_ID`); its variable `LIVE_AWS_REGION` gives the AWS region. A `HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL` secret is optional; without it the suite uses its public RPC. The key variables reach only the step that checks they are set, the balance check and the test step, and the suite's redaction removes them from every failure.
 
 ### What a run does
 
-1. Checks out the branch, installs with `pnpm install --frozen-lockfile --ignore-scripts` and builds, with no dependency cache. Everything is installed before the first cloud login, so no install script runs with credentials.
+1. Checks out the branch, installs with `pnpm install --frozen-lockfile --ignore-scripts` and builds, with no dependency cache.
 2. In fork mode, installs anvil from Foundry v1.8.1 with `foundry-rs/foundry-toolchain`.
-3. Signs in with `aws-actions/configure-aws-credentials`, `google-github-actions/auth` and `azure/login` (with `allow-no-subscriptions`, since the identity has a role on one key and none on a subscription).
-4. In Sepolia mode, checks the balances before anything is sent: each of the three accounts must hold the run's floor (`balanceFloor` in `test/live/matrix.ts`) at the suite's legacy gas price, and that price must be at most 20 gwei. Otherwise the run fails, naming the provider, the address and how much ETH is missing. The suite checks each account again, but its providers run in parallel, so without this check two of them could spend ETH on a run that cannot write a proof.
-5. Runs `pnpm run test:live`.
-6. In Sepolia mode, after a passing run, uploads `test/live/proof.json` as the `live-proof` artifact, kept 7 days. The workflow never commits it: download it to `test/live/proof.json`, run `pnpm run docs:live-proof` and commit both files in a pull request.
+3. Builds `test/live/fixture-project`, which downloads Solidity 0.8.24 into Hardhat's compiler cache; the suite's own build then finds it there. Steps 1 to 3 are everything the run installs or downloads, and all of it happens before the first cloud login, so no install script and no download runs with credentials.
+4. Fails unless the three key variables are set. The suite skips a provider whose key is empty and still passes, so without this check a missing secret would give a green run that tested fewer providers.
+5. Signs in with `aws-actions/configure-aws-credentials`, `google-github-actions/auth` and `azure/login` (with `allow-no-subscriptions`, since the identity has a role on one key and none on a subscription).
+6. In Sepolia mode, checks the balances before anything is sent: each of the three accounts must hold the run's floor (`balanceFloor` in `test/live/matrix.ts`) at the suite's legacy gas price, and that price must be at most 20 gwei. Otherwise the run fails, naming the provider, the address and how much ETH is missing. The suite checks each account again, but its providers run in parallel, so without this check two of them could spend ETH on a run that cannot write a proof.
+7. Runs `pnpm run test:live`.
+8. In Sepolia mode, after a passing run, uploads `test/live/proof.json` as the `live-proof` artifact, kept 7 days. The workflow never commits it: download it to `test/live/proof.json`, run `pnpm run docs:live-proof` and commit both files in a pull request.
 
 ### Time, concurrency and cost
 
 - The job's limit is 30 minutes in fork mode and 45 on Sepolia, counted from when the job starts, after the approval.
-- One live run at a time across the repository (concurrency group `live-tests`, never cancelled), so two Sepolia runs never race on the accounts' nonces. GitHub keeps one more run pending in the group; a newer run replaces a pending one, never the one that runs.
-- Standard GitHub-hosted runners are free for public repositories. A fork run spends no ETH; a Sepolia run spends about 0.0034 ETH (see [Cost per run](#cost-per-run)). Each run makes a few dozen signing calls per key: AWS KMS charges about $0.15 per 10,000 of them, so a run costs well under a cent there. The Google Cloud HSM and Azure prices per operation were not checked.
+- One live run at a time across the repository (concurrency group `live-tests`; a running job is never cancelled), so two Sepolia runs never race on the accounts' nonces. GitHub keeps one more run pending in the group; a newer run replaces a pending one, never the one that runs.
+- Standard GitHub-hosted runners are free for public repositories. A fork run spends no ETH; a Sepolia run spends about 0.0034 ETH at 1 gwei, and up to about twenty times that at the 20 gwei cap (see [Cost per run](#cost-per-run)). Each run makes a few dozen signing calls per key: AWS KMS charges about $0.15 per 10,000 of them, so a run costs well under a cent there. The Google Cloud HSM and Azure prices per operation were not checked.

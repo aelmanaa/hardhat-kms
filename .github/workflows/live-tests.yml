@@ -26,8 +26,8 @@ on:
 permissions: {}
 
 concurrency:
-  # One live run at a time across the repository, never cancelled: Sepolia runs share the three
-  # accounts' nonces. Any other label, and ci:live on a fork's pull request, get a group of their
+  # One live run at a time across the repository; a running job is never cancelled: Sepolia runs
+  # share the three accounts' nonces. Any other label, and ci:live on a fork's pull request, get a group of their
   # own, so they cannot replace a live run that waits in the queue.
   group: >-
     ${{ (github.event_name != 'pull_request'
@@ -53,8 +53,9 @@ jobs:
     env:
       HARDHAT_KMS_LIVE_NETWORK: ${{ github.event_name == 'workflow_dispatch' && inputs.network || 'fork' }}
     steps:
-      # Everything is installed and built before the first cloud login, so no install script and no
-      # download runs with cloud credentials.
+      # Everything is installed, built and downloaded before the first cloud login (the compiler of
+      # the suite's fixture included), so no install script and no download runs with cloud
+      # credentials.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -71,6 +72,37 @@ jobs:
         with:
           version: v1.8.1 # the Foundry release of the local fork runs
           cache: false
+      # The suite builds test/live/fixture-project with solc 0.8.24. Building it here downloads the
+      # compiler into Hardhat's cache, so the suite's build finds it and fetches nothing.
+      - name: Build the fixture project
+        run: |
+          node --input-type=module <<'EOF'
+          import path from "node:path";
+
+          import { createHardhatRuntimeEnvironment } from "hardhat/hre";
+
+          const root = path.resolve("test/live/fixture-project");
+          const hre = await createHardhatRuntimeEnvironment({ solidity: "0.8.24" }, {}, root);
+          await hre.tasks.getTask("build").run({ quiet: true });
+          EOF
+      # Dispatch and label runs expect all three providers; the suite would skip one whose key is
+      # empty and still pass.
+      - name: Check that the three keys are set
+        env:
+          HARDHAT_KMS_LIVE_AWS_KEY_ID: ${{ secrets.HARDHAT_KMS_LIVE_AWS_KEY_ID }}
+          HARDHAT_KMS_LIVE_GCP_KEY: ${{ secrets.HARDHAT_KMS_LIVE_GCP_KEY }}
+          HARDHAT_KMS_LIVE_AZURE_KEY_ID: ${{ secrets.HARDHAT_KMS_LIVE_AZURE_KEY_ID }}
+        run: |
+          missing=""
+          for name in HARDHAT_KMS_LIVE_AWS_KEY_ID HARDHAT_KMS_LIVE_GCP_KEY HARDHAT_KMS_LIVE_AZURE_KEY_ID; do
+            if [ -z "$(printenv "$name" | tr -d '[:space:]')" ]; then
+              missing="${missing} ${name}"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::not set in the live-tests environment:${missing}; a live run needs all three keys"
+            exit 1
+          fi
 
       - name: Sign in to AWS
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
@@ -128,15 +160,13 @@ jobs:
             { name: "azure", variable: "HARDHAT_KMS_LIVE_AZURE_KEY_ID", field: "keyId" },
           ];
           const set = (name) => (process.env[name] ?? "").trim() !== "";
+          // Escaped as @actions/core does, so a line break in an RPC error cannot start a new command.
+          const escape = (text) => text.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
           const fail = (message) => {
-            console.log(`::error::${redact(message, process.env)}`);
+            console.log(`::error::${escape(redact(message, process.env))}`);
             process.exit(1);
           };
 
-          const missing = PROVIDERS.filter((provider) => !set(provider.variable));
-          if (missing.length > 0) {
-            fail(`not set: ${missing.map((provider) => provider.variable).join(", ")}; a Sepolia run needs all three keys`);
-          }
           const url = set(RPC_VARIABLE) ? configVariable(RPC_VARIABLE) : DEFAULT_RPC_URL;
           try {
             const hre = await createHardhatRuntimeEnvironment(
