@@ -1152,6 +1152,16 @@ export const ERRORS = {
       "Code that runs during a send, such as a network hook, sent a transaction that the same account signed outside the plugin, for example with a connection.kms.getAccount account.",
     fix: "Send the second transaction after the first one returns.",
   },
+  walletSendRefused: {
+    id: "core.tx.wallet-send-refused",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "wallet_sendTransaction is not available for the KMS account {address}. Send with eth_sendTransaction, which the plugin signs.",
+    cause:
+      "A `wallet_sendTransaction` request named a KMS account as `from`. The plugin sends a KMS account's transactions through `eth_sendTransaction` only, so it answers this method with JSON-RPC error -32601 (method not found) and does not pass it to the node. viem sends it once after an `eth_sendTransaction` error such as -32000, and then throws the first error.",
+    fix: "If viem sent it, nothing: viem throws the `eth_sendTransaction` error instead. If your code sends it, send `eth_sendTransaction`.",
+  },
   sendOutcomeUnknown: {
     id: "core.tx.outcome-unknown",
     kind: "error",

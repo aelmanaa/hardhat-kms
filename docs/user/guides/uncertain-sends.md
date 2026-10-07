@@ -47,7 +47,7 @@ export function sentHashOf(error: unknown): string | undefined {
 }
 ```
 
-After a `-32000` error, viem can send the request once more as `wallet_sendTransaction`, which the plugin passes on unsigned; [#350](https://github.com/aelmanaa/hardhat-kms/issues/350) tracks refusing that request. Until then, if the send ends with another error, or returns a hash, take the hash from the debug output: run with `DEBUG=hardhat:kms:*` ([Debug output](debug-output.md)) and look for `sending transaction 0x… got no answer` in the `hardhat:kms:rpc` lines. A hash the send returned in that case is not the transaction the plugin signed.
+After a `-32000` error, viem sends the request once more as `wallet_sendTransaction`. The plugin refuses it for a KMS account with `-32601`, so viem throws the error above, with the hash in its `cause` chain. The hash is also in the debug output: run with `DEBUG=hardhat:kms:*` ([Debug output](debug-output.md)) and look for `sending transaction 0x… got no answer` in the `hardhat:kms:rpc` lines.
 
 A gateway's timeout answer has no hash. Skip to [step 3](#3-compare-the-pending-and-latest-counts).
 
