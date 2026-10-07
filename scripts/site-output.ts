@@ -1,5 +1,7 @@
 // Checks on the built docs site, as text in and problems out, so the tests can feed them fixtures.
 // scripts/check-site.ts builds the site and runs them on the output directory.
+import { parse } from "yaml";
+
 import { rewriteMarkdownLinks } from "../tools/docs-site/.vitepress/site.ts";
 
 /** What the checks need to know about the site. */
@@ -53,28 +55,16 @@ function metaContents(head: string, key: string): string[] {
     .map((meta) => meta.get("content") ?? "");
 }
 
-/**
- * The `description` of a Markdown page's YAML frontmatter, or undefined when it has none. Plain
- * and quoted one-line values are read; any other form throws, so a value the check cannot read
- * fails instead of passing unchecked.
- */
+/** The `description` of a Markdown page's YAML frontmatter, or undefined when it has none. */
 export function frontmatterDescription(markdown: string): string | undefined {
   const block = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(markdown)?.[1];
-  const line = block?.split(/\r?\n/).find((entry) => entry.startsWith("description:"));
-  if (line === undefined) {
+  if (block === undefined) {
     return undefined;
   }
-  const value = line.slice("description:".length).trim();
-  if (/^".*"$/.test(value)) {
-    return String(JSON.parse(value));
-  }
-  if (/^'.*'$/.test(value)) {
-    return value.slice(1, -1).replaceAll("''", "'");
-  }
-  if (value === "" || /^[>|&*!]/.test(value)) {
-    throw new Error(`cannot read the frontmatter description "${value}": write it on one line`);
-  }
-  return value;
+  const data: unknown = parse(block);
+  const description: unknown =
+    typeof data === "object" && data !== null ? Reflect.get(data, "description") : undefined;
+  return typeof description === "string" ? description : undefined;
 }
 
 /**

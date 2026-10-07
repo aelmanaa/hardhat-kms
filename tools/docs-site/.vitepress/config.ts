@@ -219,16 +219,17 @@ async function rewriteLlmsLinks(outDir: string): Promise<void> {
       rewriteMarkdownLinks(text, (href) => markdownCopyLink(href, sourceFile)),
     );
   }
-  // llms-full.txt joins the copies, each after a `---` block with its `url:`, which the plugin
-  // folds onto the next line (`url: >-`) when it is long.
+  // llms-full.txt joins the copies, each after a `---` block that starts with its `url:`, which
+  // the plugin folds onto the next line (`url: >-`) when it is long, and holds the page's other
+  // frontmatter.
   const full = path.join(outDir, "llms-full.txt");
   if (!existsSync(full)) {
     return;
   }
-  const parts = (await readFile(full, "utf8")).split(/(^---\nurl: (?:>-\n +)?\S+\n---$)/m);
+  const parts = (await readFile(full, "utf8")).split(/(^---\nurl: [\s\S]*?\n---$)/m);
   let sourceFile: string | undefined;
   const rewritten = parts.map((part) => {
-    const url = /^---\nurl: (?:>-\n +)?(\S+)\n---$/.exec(part)?.[1];
+    const url = /^---\nurl: (?:>-\n +)?(\S+)$/m.exec(part)?.[1];
     if (url !== undefined) {
       const source = url.startsWith(HOSTNAME) ? copySource(url.slice(HOSTNAME.length)) : undefined;
       sourceFile = source === undefined ? undefined : path.join(docsDirectory, source);

@@ -97,8 +97,11 @@ describe("frontmatterDescription", () => {
     assert.equal(frontmatterDescription("# No frontmatter\n"), undefined);
   });
 
-  it("refuses a block scalar instead of passing it unchecked", () => {
-    assert.throws(() => frontmatterDescription("---\ndescription: >\n  folded\n---\n"));
+  it("reads a folded value", () => {
+    assert.equal(
+      frontmatterDescription("---\ndescription: >-\n  folded\n  text\n---\n"),
+      "folded text",
+    );
   });
 });
 
