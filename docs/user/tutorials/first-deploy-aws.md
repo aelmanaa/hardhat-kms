@@ -7,7 +7,7 @@ description: "Deploy a Hardhat 3 contract to Sepolia with AWS KMS: create a secp
 
 Audience: developers who have an AWS account and AWS CLI v2 signed in, and have not used AWS KMS with Hardhat.
 
-This tutorial was followed from an empty directory on 2026-10-01, at commit [`7c4262e`](https://github.com/aelmanaa/hardhat-kms/commit/7c4262e), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 8 minutes, without the wait for Sepolia ETH. On 2026-10-07, at commit [`e10b7e5`](https://github.com/aelmanaa/hardhat-kms/commit/e10b7e5), with Hardhat 3.18.1, steps 1 to 4 were followed again from an empty directory, up to `kms accounts --check-sign`. That run installed packages packed from the repository and used LocalStack's KMS in place of AWS KMS. The plugin is not on npm yet; step 1 says how to install it until then.
+This tutorial was followed from an empty directory on 2026-10-01, at commit [`7c4262e`](https://github.com/aelmanaa/hardhat-kms/commit/7c4262e), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 8 minutes, without the wait for Sepolia ETH. On 2026-10-07, at commit [`e10b7e5`](https://github.com/aelmanaa/hardhat-kms/commit/e10b7e5), with Hardhat 3.18.1, steps 1 to 4 were followed again from an empty directory, up to `kms accounts --check-sign`. That run installed packages packed from the repository and used LocalStack's KMS in place of AWS KMS.
 
 In this tutorial you create a Hardhat project, create a signing key in AWS KMS, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves AWS KMS: Hardhat asks KMS for a signature each time it sends a transaction.
 
@@ -16,7 +16,7 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 You need:
 
 - Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm, pnpm or Yarn.
-- A POSIX shell, such as bash or zsh; on Windows, use WSL. Until the plugin's first npm release you need Git too: [Install before the first npm release](../guides/install-before-release.md) clones the repository.
+- A POSIX shell, such as bash or zsh; on Windows, use WSL.
 - AWS CLI v2, signed in with an identity that can create KMS keys and aliases, and a region set: `aws configure get region` prints it, or set `AWS_REGION`. The plugin finds the same credentials and region as the CLI. `AWS_DEFAULT_REGION` is read by the CLI only, so set `AWS_REGION` if that is where your region comes from. AWS CLI v1 reaches [end of support on 2027-07-15](https://aws.amazon.com/blogs/developer/cli-v1-maintenance-mode-announcement/); `aws --version` prints `aws-cli/2.` for v2.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
 - About 0.01 Sepolia ETH, from a faucet or another account.
@@ -55,7 +55,25 @@ With Yarn, `yarn init -2` pins Yarn 4 in `package.json`, so the template's insta
 
 The template has a `Counter` contract, the Ignition module `ignition/modules/Counter.ts` that deploys it, and a `sepolia` network. It also installs `@nomicfoundation/hardhat-verify`, which verifies contracts on block explorers.
 
-Install the core plugin, `hardhat-kms`, and the AWS provider, `@hardhat-kms/aws`, in the project with [Install before the first npm release](../guides/install-before-release.md): the packages are not on npm yet, so that page builds them from the repository. Come back here after its step 3.
+Install the core plugin, `hardhat-kms`, and the AWS provider, `@hardhat-kms/aws`, with the package manager you created the project with:
+
+::: code-group
+
+```sh [npm]
+npm install --save-dev hardhat-kms @hardhat-kms/aws
+```
+
+```sh [pnpm]
+pnpm add --save-dev hardhat-kms @hardhat-kms/aws
+```
+
+```sh [Yarn]
+yarn add --dev hardhat-kms @hardhat-kms/aws
+```
+
+:::
+
+If pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, add the packages it names under `allowBuilds` in `pnpm-workspace.yaml` with the value `false`, then run `pnpm install`; the plugin needs none of their install scripts. With Yarn 4.15 or later on the day of a release, the install stops with `YN0016` until `.yarnrc.yml` approves the new versions. [Install hardhat-kms](../guides/install-before-release.md) gives the settings for each package manager.
 
 Register the provider: in `hardhat.config.ts`, import it and add it to `plugins`. It loads `hardhat-kms` itself. The rest of the file stays as the template made it:
 

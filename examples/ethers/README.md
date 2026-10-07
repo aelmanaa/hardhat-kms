@@ -2,7 +2,7 @@
 
 Audience: Hardhat 3 users who deploy with `@nomicfoundation/hardhat-ethers` and want an AWS KMS key to sign.
 
-Status: runs in CI against LocalStack's KMS emulator. The packages are not on npm yet; see [Use an example in your own project](../README.md#use-an-example-in-your-own-project).
+Status: runs in CI against LocalStack's KMS emulator. To copy it out of this repository, see [Use an example in your own project](../README.md#use-an-example-in-your-own-project).
 
 This project deploys `contracts/Counter.sol` from a KMS account, calls `add(5)`, and reads the contract's owner and count back. Every transaction is signed by the key in AWS KMS. `hardhat-typechain` generates the contract's types when Hardhat compiles, so `counter.add` and `counter.count` are typed.
 

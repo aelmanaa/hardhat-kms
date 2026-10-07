@@ -2,14 +2,15 @@
 // of an API marked `@deprecated` fails with the Markdown file and line, a config that typechecks but
 // fails Hardhat's validation fails with the line of its fence, even when configs print while they
 // load, a config that fails the typecheck or is skipped is not loaded, and current APIs and valid
-// configs pass.
+// configs pass. Each labelled fence of a `::: code-group` block (the site's tabs) is a snippet of
+// its own.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { checkSnippets } from "../../scripts/doc-snippets.ts";
+import { checkSnippets, fences } from "../../scripts/doc-snippets.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const FIXTURES = "test/scripts/fixtures/doc-snippets";
@@ -77,6 +78,25 @@ describe("checkSnippets", () => {
       problems[0] ?? "",
       /^test\/scripts\/fixtures\/doc-snippets\/config-type-error\.md:\d+: error TS2322: /,
     );
+  });
+
+  it("reads each tab of a code group as its own snippet, with the fence's language", () => {
+    const found = fences(`${FIXTURES}/code-group.md`);
+    assert.deepEqual(
+      found.map(({ language, line }) => [language, line]),
+      [
+        ["ts", 8],
+        ["ts", 17],
+        ["sh", 27],
+      ],
+    );
+    const problems = checkSnippets([`${FIXTURES}/code-group.md`], directory);
+    assert.equal(problems.length, 1, problems.join("\n"));
+    assert.match(
+      problems[0] ?? "",
+      /^test\/scripts\/fixtures\/doc-snippets\/code-group\.md:\d+: error TS2322: /,
+    );
+    assert.equal(existsSync(directory), false);
   });
 
   it("passes when there is no snippet", () => {

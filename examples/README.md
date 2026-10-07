@@ -2,7 +2,7 @@
 
 Audience: Hardhat 3 users who want a working project to copy, with a contract deployed and called from an AWS KMS key.
 
-Status: the packages are not on npm yet, so a copied example installs only once they are released. CI runs every example on each pull request.
+Status: CI runs every example on each pull request.
 
 Each folder is a small Hardhat 3 project with one contract, `Counter`, and a script that deploys it from a KMS account, calls it once and reads its state back:
 

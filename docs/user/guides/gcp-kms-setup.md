@@ -90,7 +90,7 @@ yarn add --dev hardhat-kms @hardhat-kms/gcp
 
 :::
 
-Until the packages are published on npm, this command fails with `E404`; follow [Install before the first npm release](install-before-release.md) instead.
+pnpm 11 and later need an `allowBuilds` entry, and Yarn 4 needs `nodeLinker: node-modules`: [Install hardhat-kms](install-before-release.md) gives the settings for each package manager.
 
 `@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later, except 6.11.0, to run it on) with it, so there is nothing else to install. npm prints `npm warn deprecated node-domexception@1.0.0` during the install. The warning comes from Google's libraries: `gaxios` and `google-gax` depend on `node-fetch` 3, which pulls in `node-domexception` through `fetch-blob`, and the latest `gaxios`, 8.1.0, still does. It is harmless and needs no action.
 
