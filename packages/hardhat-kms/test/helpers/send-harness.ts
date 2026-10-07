@@ -21,6 +21,8 @@ export const ZERO: string = HARDHAT_ACCOUNT_0.address;
 export const TO = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 /** The hash the fake node answers `wallet_sendTransaction` with; no transaction has it. */
 export const WALLET_SEND_HASH: string = `0x${"ee".repeat(32)}`;
+/** The call batch id the fake node answers `wallet_sendCalls` with (EIP-5792). */
+export const CALLS_ID: string = `0x${"cc".repeat(32)}`;
 const SECRETS: Record<string, string> = {
   cow: COW_ACCOUNT.secretKey,
   zero: HARDHAT_ACCOUNT_0.secretKey,
@@ -215,6 +217,9 @@ export async function setUp(
       case "wallet_sendTransaction":
         // An endpoint that answers the wallet_sendTransaction viem sends after a failed send.
         return ok(WALLET_SEND_HASH);
+      case "wallet_sendCalls":
+        // An endpoint that implements EIP-5792 and answers with a call batch id.
+        return ok({ id: CALLS_ID });
       default:
         throw new Error(`the fake node does not answer ${request.method}`);
     }
