@@ -137,21 +137,33 @@ const INTERNAL_WORDS: readonly (readonly [RegExp, string])[] = [
   [/\/home\//g, "is a path on the maintainer's machine; use a relative or placeholder path"],
 ];
 
+/** Binary images, which hold no words to check. */
+const BINARY_IMAGE = /\.(?:png|jpe?g|gif|webp|ico)$/i;
+
+/** SVG attributes whose values are drawing data, where `M40 0` is a path command. */
+const SVG_DRAWING = /\b(?:d|points|viewBox|transform)="[^"]*"/g;
+
 /**
  * The internal words of one tracked file, each as `file:line: message`: milestone codes and the
  * words of `INTERNAL_WORDS`. A Markdown file is checked as prose, with code, URLs and link targets
- * blanked as for a user page; any other file is checked whole.
+ * blanked as for a user page; an SVG file without its drawing data; a binary image not at all; any
+ * other file whole.
  *
  * @param file - The file's path from the repository root, as reported.
  * @param text - The file's content.
  */
 export function internalWordProblems(file: string, text: string): string[] {
   const problems: string[] = [];
+  if (BINARY_IMAGE.test(file)) {
+    return problems;
+  }
   const prose = file.endsWith(".md")
     ? withoutCode(text)
         .replaceAll(/\]\([^)\n]*\)/g, blank)
         .replaceAll(/<?[a-z][a-z0-9+.-]*:\/\/[^\s<>)]+>?/gi, blank)
-    : text;
+    : file.endsWith(".svg")
+      ? text.replaceAll(SVG_DRAWING, blank)
+      : text;
   for (const match of milestoneCodes(prose)) {
     problems.push(
       `${file}:${lineOf(text, match.index)}: milestone code ${match[0]}; say what exists instead`,
