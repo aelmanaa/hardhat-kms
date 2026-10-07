@@ -2,7 +2,7 @@
 
 Audience: Hardhat 3 users who deploy with Hardhat Ignition and want an AWS KMS key to sign.
 
-Status: runs in CI against LocalStack's KMS emulator. The packages are not on npm yet; see [Use an example in your own project](../README.md#use-an-example-in-your-own-project).
+Status: runs in CI against LocalStack's KMS emulator. To copy it out of this repository, see [Use an example in your own project](../README.md#use-an-example-in-your-own-project).
 
 This project's Ignition module deploys `contracts/Counter.sol` and calls `add(5)`. Ignition sends both transactions from the KMS account, and the key in AWS KMS signs them. The module is unchanged from one you would write for a local account. [Deploy with Hardhat Ignition](../../docs/user/guides/deploy-with-ignition.md) explains how to choose the deployer and how to resume a deployment.
 

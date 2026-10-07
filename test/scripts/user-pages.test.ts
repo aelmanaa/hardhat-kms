@@ -4,12 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import {
-  internalWordProblems,
-  PRE_RELEASE_PAGE,
-  SKIP_MARKER,
-  userPageProblems,
-} from "../../scripts/user-pages.ts";
+import { internalWordProblems, SKIP_MARKER, userPageProblems } from "../../scripts/user-pages.ts";
 
 const PAGE = "docs/user/guides/example.md";
 const check = (text: string, file = PAGE): string[] => userPageProblems(file, text);
@@ -84,10 +79,9 @@ describe("userPageProblems", () => {
     assert.deepEqual(check(`${SKIP_MARKER}\n\n\`\`\`ts\nconst x = 1;\n\`\`\`\n`), []);
   });
 
-  it("allows the pre-release note only on the pre-release page", () => {
+  it("reports a maintainer note on the install page, which no longer has an exemption", () => {
     const note = "<!--\nPre-release only. The release PR deletes this page.\n-->\n";
-    assert.deepEqual(check(note, PRE_RELEASE_PAGE), []);
-    assert.equal(check(note).length, 1);
+    assert.equal(check(note, "docs/user/guides/install-before-release.md").length, 1);
   });
 });
 
