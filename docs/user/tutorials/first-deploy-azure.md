@@ -127,7 +127,7 @@ It prints nine data actions on keys: `read`, which the plugin needs to get the p
 To give a deployer identity the role on the key, assign it with the key's scope, or give each deployer its own vault and assign the role on that vault. The assignee is the object id of a user, group, service principal or managed identity; its principal type is `User`, `Group` or `ServicePrincipal`, which covers managed identities:
 
 ```sh
-KEY_SCOPE="$VAULT_ID/keys/hardhat-kms-tutorial"
+KEY_SCOPE="${VAULT_ID:?is empty: set it with the az keyvault show command above}/keys/hardhat-kms-tutorial"
 
 az role assignment create --role "Key Vault Crypto User" \
   --assignee-object-id <deployer object id> \
