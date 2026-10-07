@@ -11,6 +11,12 @@ Checked against hardhat-kms 0.8.0 on 2026-10-07: `kms history` read the logs of 
 
 [`kms history`](../reference/tasks.md#kms-history) lists a key's sign requests from the cloud's own audit log: AWS CloudTrail, Google Cloud Audit Logs, or Azure Key Vault's audit events in a Log Analytics workspace. The list includes requests from any client, not only the plugin. The plugin keeps no record of its own signatures, so the log is the only history there is.
 
+The log shows sign requests, not which request signed which transaction. Each event this guide finds is a candidate signing event, and the evidence comes in three strengths:
+
+- **A nearby event.** On AWS and Azure the log holds no digest. An event shortly before a transaction's block may have signed it, but the log cannot say which of several such events did, or whether any of them did.
+- **An event whose logged digest matches.** On Google Cloud the log holds the digest. An event whose digest equals the transaction's signing hash signed that transaction ([step 3](#confirm-the-digest-on-google-cloud)). This match rests on the plugin's code and has not yet been checked against a logged event.
+- **Evidence of a specific attempt.** No provider logs an id the plugin sends, so the log cannot tie an event to one script run. That needs a record from outside the log, such as the hash your script got back from the send or Ignition's deployment journal ([step 4](#4-know-what-the-log-does-not-show)).
+
 ## 1. Turn on the audit log
 
 Each cloud records a sign request only if its log is on when the request is made. Turning a log on later does not recover earlier requests.
@@ -231,7 +237,7 @@ Run it on the network the transactions went to:
 HISTORY=history.json TX_HASHES=0x…,0x… KMS_ADDRESS=0x… npx hardhat run --network sepolia scripts/who-signed.ts
 ```
 
-It prints, for each transaction, the sign events from two minutes before its block to five seconds after, newest first. The first is the most likely one. An event can show under two transactions, as `09:06:36` does here. It most likely belongs to nonce 17, mined at 09:06:48, since nonce 18 has a closer event at 09:07:42. Output for two transactions from an AWS key, with identifiers and times replaced:
+It prints, for each transaction, the candidate signing events: the successful sign events from two minutes before its block to five seconds after, newest first. On AWS and Azure these are nearby events only, and the closest one is not necessarily the one that signed. The key can also have signed a message or another transaction in the window, a retried request is logged once per try, and an event can show under two transactions, as `09:06:36` does here. Output for two transactions from an AWS key, with identifiers and times replaced:
 
 ```text
 chain 11155111, history from cloudtrail-event-history, 2026-10-05T09:00:00.000Z to 2026-10-05T09:15:00.000Z
@@ -247,7 +253,7 @@ chain 11155111, history from cloudtrail-event-history, 2026-10-05T09:00:00.000Z 
   2026-10-05T09:05:21.000Z  principal arn:aws:iam::111122223333:user/deployer  agent aws-sdk-js/3.1146.0 … hardhat-kms/0.8.0
 ```
 
-A transaction that waited in the pool was signed earlier than its block suggests: raise `WINDOW_SECONDS`. On AWS and Azure the script narrows the events down, and the principal, IP address and user agent of the closest one answer "who" in most cases. It cannot prove which event signed which transaction, because those logs hold no digest.
+A transaction that waited in the pool was signed earlier than its block suggests: raise `WINDOW_SECONDS`. On AWS and Azure the script narrows the events down to a short list. When every candidate has the same principal, IP address and user agent, the log names one identity for the window, though not the event that signed. When they differ, the log cannot choose between them, because it holds no digest.
 
 ### Confirm the digest on Google Cloud
 

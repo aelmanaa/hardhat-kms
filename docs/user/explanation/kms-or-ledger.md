@@ -24,7 +24,7 @@ The facts about hardhat-ledger below come from its npm page and its README in th
 | Record of what was signed     | Sent transactions show on chain. The README describes no log of signatures.                                                                                                               | The cloud's audit log; `kms history` lists a key's sign events ([`kms history`](../reference/tasks.md#kms-history)).                                           |
 | Cost                          | The device.                                                                                                                                                                               | A fee per sign call, and on AWS and Google Cloud a monthly fee per key ([Cost and latency per signature](kms-or-env-key.md#cost-and-latency-per-signature)).   |
 
-With a Ledger, the person at the device reviews each request and approves or declines it (README). Nobody reviews a KMS sign request: hardhat-kms checks the request's shape, such as the chain, and refuses a bare digest. It signs every request that passes those checks ([Security model](security-model.md)).
+With a Ledger, the person at the device reviews each request and approves or declines it (README). Nobody reviews a KMS sign request: hardhat-kms checks the request's shape, such as the chain, and refuses a bare digest over JSON-RPC. It signs every request that passes those checks ([Security model](security-model.md)). Explicit raw signing is available through the task ([`kms sign --no-hash`](../reference/tasks.md#raw-digests)) or an opted-in library account ([`rawSign: true`](../reference/library-accounts.md#options)), and neither asks anyone to approve.
 
 ## Both in one project
 
