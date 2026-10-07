@@ -110,7 +110,7 @@ Rules for every change:
 - Work from a GitHub issue, and link it from the pull request (`Closes #n`). Labels, priorities and milestones are described in [CONTRIBUTING.md](CONTRIBUTING.md#issues-first).
 - `main` changes only through squash-merged pull requests. Commit subjects follow Conventional Commits.
 - Every user-facing change carries a changeset written as a release note. The rules and an example are in [CONTRIBUTING.md](CONTRIBUTING.md#changesets).
-- Never tag, publish, approve a GitHub environment, approve a staged package on npm, or move a dist-tag. A release is a maintainer's action; the process is in [docs/contributor/releasing.md](docs/contributor/releasing.md).
+- Never tag, publish, approve a GitHub environment, approve a staged package on npm, move a dist-tag, or dispatch `promote.yml`. A release is a maintainer's action; the process and the three workflows (`release-pr.yml`, `release.yml`, `promote.yml`) are in [docs/contributor/releasing.md](docs/contributor/releasing.md). A dry run of `release.yml` (`gh workflow run release.yml -f dry-run=true -f tag=none`) publishes nothing and may be run to check a change to the release path.
 - Versions change only through `pnpm run version-packages`, on the Version Packages pull request. Never edit a manifest's `version` by hand.
 - Tests come with the change, and coverage stays at or above 95%.
 - Docs ship with the code: update the pages the change affects, and link any new page from this file and from [docs/README.md](docs/README.md).
