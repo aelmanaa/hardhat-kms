@@ -14,3 +14,4 @@ body:
     attributes:
       label: Versions
       description: hardhat-kms, the provider package, Hardhat and Node.js.
+      placeholder: hardhat-kms 1.0.0, hardhat 3.18.0, Node.js 24.16.0
