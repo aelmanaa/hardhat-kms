@@ -1,5 +1,7 @@
 // Renders the social preview, docs/public/og-image.svg, to a PNG with the fonts under
-// tools/docs-site/fonts and no system font, so every machine draws the same card.
+// tools/docs-site/fonts and no system font, so the render does not depend on the machine's fonts.
+// Renders on macOS x64 and Linux (x64 and arm64, glibc and musl) give the same bytes; Apple Silicon
+// and Windows are not tested.
 // scripts/render-og-image.ts (`pnpm run docs:og`) writes docs/public/og-image.png, and
 // scripts/check-site.ts renders the SVG again and compares the result with that file.
 import path from "node:path";
@@ -29,8 +31,8 @@ export const OG_FONT_FILES: readonly string[] = [
 
 /**
  * Renders an SVG to PNG bytes at the SVG's own size, with the given font files and no system font.
- * A family the files do not hold falls back to Inter, so a missing font changes the pixels and the
- * site check reports it instead of picking up whatever the machine has.
+ * A family the files do not hold falls back to Inter on every machine, so the render never uses the
+ * machine's fonts; `svgFontProblems` in scripts/site-output.ts reports such a family.
  *
  * @param svg - The SVG source.
  * @param fontFiles - The font files to load.

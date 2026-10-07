@@ -180,8 +180,8 @@ export function ogImageProblems(
 }
 
 /**
- * Checks every `font-family` attribute of an SVG names one of the given families, and nothing
- * else: no fallback list, since the renderer loads no system font.
+ * Checks that every `font-family` attribute of an SVG names exactly one of the given families: no
+ * fallback list, since the renderer loads no system font.
  */
 export function svgFontProblems(file: string, svg: string, families: readonly string[]): string[] {
   const problems: string[] = [];
