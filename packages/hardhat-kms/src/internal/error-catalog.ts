@@ -1162,6 +1162,16 @@ export const ERRORS = {
       "A `wallet_sendTransaction` request named a KMS account as `from`. The plugin sends a KMS account's transactions through `eth_sendTransaction` only, so it answers this method with JSON-RPC error -32601 (method not found) and does not pass it to the node. viem sends it once after an `eth_sendTransaction` error such as -32000, and then throws the first error.",
     fix: "If viem sent it, nothing: viem throws the `eth_sendTransaction` error instead. If your code sends it, send `eth_sendTransaction`.",
   },
+  walletSendCallsRefused: {
+    id: "core.tx.wallet-send-calls-refused",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "wallet_sendCalls is not available for the KMS account {address}. Pass experimental_fallback: true to viem's sendCalls, or send each call as its own transaction.",
+    cause:
+      "A `wallet_sendCalls` (EIP-5792) request named a KMS account as `from`. The plugin sends a KMS account's transactions through `eth_sendTransaction` only, so it answers this method with JSON-RPC error -32601 (method not found) and does not pass it to the node. viem's `sendCalls` sends it.",
+    fix: "Pass `experimental_fallback: true` to viem's `sendCalls`: on -32601 viem sends each call with `eth_sendTransaction`, and the KMS key signs each one. Or send each call yourself with `sendTransaction`.",
+  },
   sendOutcomeUnknown: {
     id: "core.tx.outcome-unknown",
     kind: "error",

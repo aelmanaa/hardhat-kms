@@ -1,14 +1,16 @@
-// wallet_sendTransaction through the network hook's handlers with a fake node: refused for a KMS
-// sender, so the wallet_sendTransaction viem sends after a failed send never moves a client's
-// sends away from the plugin.
+// wallet_sendTransaction and wallet_sendCalls through the network hook's handlers with a fake
+// node: refused for a KMS sender, so the wallet_sendTransaction viem sends after a failed send
+// never moves a client's sends away from the plugin, and a sendCalls batch from a KMS account is
+// never reported as sent without a KMS signature.
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 import type { NetworkConnection } from "hardhat/types/network";
-import { BaseError, createWalletClient, custom, getAddress } from "viem";
+import { BaseError, createWalletClient, custom, defineChain, getAddress } from "viem";
 
 import { SendOutcomeUnknownError, sendLocksInUse } from "../../../src/internal/rpc/send-guard.ts";
 import {
+  CALLS_ID,
   COW,
   errorOf,
   failOnce,
@@ -25,6 +27,14 @@ import {
 const OTHER = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
 
 const METHOD_NOT_FOUND = -32601;
+
+/** The fake node's chain, for viem's sendCalls, which needs one. */
+const CHAIN = defineChain({
+  id: 31337,
+  name: "remote",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["http://127.0.0.1:1"] } },
+});
 
 /** Sends wallet_sendTransaction through the hook, and returns what reached the node. */
 async function walletSend(harness: SendHarness, params: unknown[]) {
@@ -198,5 +208,114 @@ describe("wallet_sendTransaction", () => {
     assert.equal(node.raw.length, 2);
     assert.equal(hash, hashOf(node.raw[1] ?? ""));
     assert.ok(!node.methods.includes("wallet_sendTransaction"));
+  });
+});
+
+/** An EIP-5792 request from `from`, as viem's sendCalls sends it. */
+function batch(from: string | undefined): unknown[] {
+  return [
+    {
+      atomicRequired: false,
+      calls: [{ to: TO, value: "0x1" }],
+      chainId: "0x7a69",
+      from,
+      version: "2.0.0",
+    },
+  ];
+}
+
+describe("wallet_sendCalls", () => {
+  for (const [label, from] of [
+    ["checksummed", COW],
+    ["lowercase", COW.toLowerCase()],
+  ] as const) {
+    it(`is refused with -32601 for a KMS sender (${label}), and nothing reaches the node`, async () => {
+      const harness = await setUp();
+      const connection = await harness.open();
+      const { response, forwarded } = await harness.call(
+        connection,
+        "wallet_sendCalls",
+        batch(from),
+      );
+      const error = errorOf(response);
+      assert.equal(error.code, METHOD_NOT_FOUND);
+      assert.equal(response.id, 1, "the answer carries the request's id");
+      assert.equal(
+        error.message,
+        `wallet_sendCalls is not available for the KMS account ${COW}. Pass experimental_fallback: true to viem's sendCalls, or send each call as its own transaction.`,
+      );
+      assert.equal(forwarded.length, 0);
+      assert.equal(harness.state.signatures, 0);
+      assert.ok(!harness.node.methods.includes("wallet_sendCalls"));
+    });
+  }
+
+  for (const [label, from] of [
+    ["a sender that is not a KMS account", OTHER],
+    ["a batch without from", undefined],
+  ] as const) {
+    it(`passes ${label} to the node unchanged`, async () => {
+      const harness = await setUp();
+      const connection = await harness.open();
+      const params = batch(from);
+      const { response, forwarded } = await harness.call(connection, "wallet_sendCalls", params);
+      assert.deepEqual(resultOf(response), { id: CALLS_ID });
+      assert.equal(forwarded.length, 1);
+      assert.equal(forwarded[0]?.params, params, "the params go on as they came");
+      assert.equal(harness.state.signatures, 0);
+    });
+  }
+
+  it("makes viem's sendCalls fallback sign each call with the KMS key", async () => {
+    const harness = await setUp();
+    const { node, state } = harness;
+    const connection = await harness.open();
+    const client = createWalletClient({
+      account: getAddress(COW),
+      chain: CHAIN,
+      transport: custom(providerOf(harness, connection)),
+    });
+
+    const { id } = await client.sendCalls({
+      calls: [
+        { to: TO, value: 1n },
+        { to: TO, value: 2n },
+        { to: TO, value: 3n },
+      ],
+      experimental_fallback: true,
+      experimental_fallbackDelay: 0,
+    });
+    assert.notEqual(id, CALLS_ID);
+    assert.equal(state.signatures, 3, "one KMS signature per call");
+    assert.equal(node.raw.length, 3, "each call reaches the node as a raw transaction");
+    // viem's fallback id is the calls' hashes, the chain id and a magic suffix.
+    for (const raw of node.raw) {
+      assert.ok(id.includes(hashOf(raw).slice(2)), "the id carries each call's hash");
+    }
+    assert.ok(!node.methods.includes("wallet_sendCalls"));
+  });
+
+  it("gives viem's sendCalls the refusal without experimental_fallback", async () => {
+    const harness = await setUp();
+    const { node, state } = harness;
+    const connection = await harness.open();
+    const client = createWalletClient({
+      account: getAddress(COW),
+      chain: CHAIN,
+      transport: custom(providerOf(harness, connection)),
+    });
+
+    await assert.rejects(client.sendCalls({ calls: [{ to: TO, value: 1n }] }), (error) => {
+      assert.ok(error instanceof BaseError);
+      assert.match(error.message, /wallet_sendCalls is not available for the KMS account/);
+      const notFound = error.walk(
+        (cause) => cause instanceof BaseError && cause.name === "MethodNotFoundRpcError",
+      );
+      assert.ok(notFound !== null, "viem reads the answer as method not found");
+      return true;
+    });
+    assert.equal(state.signatures, 0);
+    assert.equal(node.raw.length, 0);
+    assert.ok(!node.methods.includes("wallet_sendCalls"));
   });
 });
