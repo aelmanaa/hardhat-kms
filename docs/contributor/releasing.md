@@ -164,7 +164,7 @@ Some of the four packages were approved and some were not. Either approve the re
 
 ### Run failed before `publish`
 
-Nothing reached npm, so the tag can move. Fix through a pull request, merge, delete the remote tag (the `protect-tags` ruleset lets only a repository admin delete one), re-sign at the new commit, verify, push:
+Nothing reached npm, so the tag can move. Fix through a pull request, merge, delete the remote tag (the `protect-tags` ruleset, `.github/ruleset-protect-tags.json`, lets only a repository admin delete one), re-sign at the new commit, verify, push:
 
 ```sh
 git push origin :refs/tags/v1.2.0

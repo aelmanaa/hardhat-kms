@@ -1,5 +1,7 @@
 # Contributing
 
+Everyone taking part in the project follows the [code of conduct](CODE_OF_CONDUCT.md).
+
 ## Setup
 
 Requirements: Node.js 24 (see `.nvmrc`) and pnpm. Install pnpm with `npm i -g pnpm`; it then runs the version pinned in `packageManager`. Development needs Node >= 22.18, which runs the TypeScript scripts and hooks natively; the published packages have a lower floor, stated in [Support](docs/user/reference/support.md). To run the tests on that floor anyway, see [Run the tests on the published floor](docs/contributor/testing.md#run-the-tests-on-the-published-floor). Installing the package from git is not supported; use the npm release. Releases are published from CI only, with npm provenance; see [Releasing](docs/contributor/releasing.md).
@@ -84,3 +86,7 @@ Issue: [#243](https://github.com/aelmanaa/hardhat-kms/issues/243)
 - Tests: each package has `test/unit` (pure, fast) and `test/integration` (real Hardhat runtime; for a provider package, also its real SDK against a local endpoint). `@hardhat-kms/aws` also has `test/localstack`, run with `pnpm run test:localstack` (needs Docker), and `test/examples`, which runs the projects in [examples/](examples/) against LocalStack with `pnpm run test:examples`. It also has `test/live`, a smoke test against real KMS, run with `pnpm run test:live:aws` and skipped unless `HARDHAT_KMS_LIVE_AWS_KEY_ID` is set. `@hardhat-kms/azure` has the same, run with `pnpm run test:live:azure` and skipped unless `HARDHAT_KMS_LIVE_AZURE_KEY_ID` holds a versioned key URL. `@hardhat-kms/gcp` has the same for Google Cloud KMS, run with `pnpm run test:live:gcp` and skipped unless `HARDHAT_KMS_LIVE_GCP_KEY` names a key version. The live tests are in `test/live` at the repository root, run with `pnpm run test:live`. They read the same three key variables and skip each provider whose variable is not set. By default they run on a local anvil fork of Sepolia, which funds each key's address and spends nothing; `HARDHAT_KMS_LIVE_NETWORK=sepolia` runs them on Sepolia itself, which needs Sepolia ETH on each address and is for before a release and after changes to signing or sending. [Testing](docs/contributor/testing.md) lists what they check and what each mode proves, and [docs/live-proof.md](docs/live-proof.md) records the latest Sepolia run.
 
 See [docs/contributor/architecture.md](docs/contributor/architecture.md) for how the code fits together, and [docs/README.md](docs/README.md) for all docs. [AGENTS.md](AGENTS.md) is the same index for coding agents. To add a KMS or HSM provider, see [docs/contributor/providers.md](docs/contributor/providers.md).
+
+## Maintainers
+
+hardhat-kms is maintained by [@aelmanaa](https://github.com/aelmanaa) in a personal capacity. It is not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google or Microsoft. Contributions are welcome under the MIT license and the process in this guide. Issues and pull requests are answered on a best-effort basis, with no promised response time. Vulnerability reports follow [SECURITY.md](SECURITY.md), which promises an acknowledgement within 3 business days.

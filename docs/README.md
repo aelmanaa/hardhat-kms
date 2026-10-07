@@ -37,6 +37,7 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 | [How hardhat-kms works](user/explanation/how-it-works.md)                     | Explanation |
 | [How the plugin reaches your cloud](user/explanation/cloud-access.md)         | Explanation |
 | [Security model](user/explanation/security-model.md)                          | Explanation |
+| [Release channels and versioning](user/explanation/versioning.md)             | Explanation |
 
 Runnable projects for viem, ethers and Ignition are in [examples/](../examples/README.md). The remaining guides are listed under [Planned pages](contributor/documentation.md#planned-pages).
 
@@ -58,3 +59,4 @@ Runnable projects for viem, ethers and Ignition are in [examples/](../examples/R
 | [Signing prior art](contributor/research/signing-prior-art.md)   | How other signers compare, and why each check exists |
 | [Roadmap](contributor/roadmap.md)                                | What ships in 1.0 and what comes after               |
 | [SECURITY.md](../SECURITY.md)                                    | Reporting vulnerabilities                            |
+| [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md)                      | Contributor Covenant 2.1 and how to report a breach  |
