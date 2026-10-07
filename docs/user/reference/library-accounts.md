@@ -1,3 +1,8 @@
+---
+title: Library accounts reference
+description: "connection.kms.getAccount returns a viem account for a KMS key, for signAuthorization, smart accounts and scripts, with its options and what it refuses."
+---
+
 # Library accounts reference
 
 Audience: Users and library authors who need a viem account object for a KMS key, for example for viem's `signAuthorization`, a smart-account SDK or a script outside a wallet client.

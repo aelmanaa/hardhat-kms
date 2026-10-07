@@ -1,3 +1,8 @@
+---
+title: Rotate a key and pin its address
+description: What rotating an AWS KMS, Cloud KMS or Key Vault key does to your Ethereum address, how an address pin catches it, and how to move to a new key.
+---
+
 # Rotate a key and pin its address
 
 Audience: users who sign with a key in AWS KMS, Google Cloud KMS or Azure Key Vault and want to rotate it, or want a rotation to fail loudly rather than change their address. Assumes a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).

@@ -1,3 +1,8 @@
+---
+title: Tasks reference
+description: "hardhat kms history: who signed, from CloudTrail, Cloud Audit Logs or Azure Monitor, and the other kms tasks that list keys, sign and verify."
+---
+
 # Tasks reference
 
 Audience: Users running the `kms` tasks.

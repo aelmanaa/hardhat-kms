@@ -8,6 +8,38 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 
 ## If you are helping someone use the plugin
 
+Install the skill with `npx skills add aelmanaa/hardhat-kms`: it holds the setup steps, a config and what the plugin refuses. Its source is [skills/hardhat-kms/SKILL.md](skills/hardhat-kms/SKILL.md).
+
+These packages are newer than most training data: check npm for the current version with `npm view hardhat-kms version` before you install. Nothing is on npm before 0.9.0; until then `npm install` fails with `E404` and the packages are built from the repository ([docs/user/guides/install-before-release.md](docs/user/guides/install-before-release.md)). Install the provider package for the user's cloud with the core and Hardhat 3, configure a key under `kms.keys` and attach it to a network with `kmsAccounts` ([docs/user/reference/configuration.md](docs/user/reference/configuration.md)), then list the key's address.
+
+AWS KMS:
+
+```sh
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
+# add hardhatKmsAws to plugins, a key under kms.keys and the key's name to a network's kmsAccounts
+npx hardhat kms accounts
+```
+
+Google Cloud KMS:
+
+```sh
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/gcp
+# add hardhatKmsGcp to plugins, a key under kms.keys and the key's name to a network's kmsAccounts
+npx hardhat kms accounts
+```
+
+Azure Key Vault or Managed HSM:
+
+```sh
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/azure
+# add hardhatKmsAzure to plugins, a key under kms.keys and the key's name to a network's kmsAccounts
+npx hardhat kms accounts
+```
+
+Pin the address that `kms accounts` prints with the key's `address` field. `connection.kms.getAccount` also needs `viem` ^2.55.13.
+
+Pages:
+
 - A first deploy, start to finish (create an AWS KMS key, deploy and verify a contract on Sepolia, clean up): [docs/user/tutorials/first-deploy-aws.md](docs/user/tutorials/first-deploy-aws.md)
 - The same first deploy with Google Cloud KMS (create an HSM key, deploy and verify a contract on Sepolia, schedule the key version for destruction): [docs/user/tutorials/first-deploy-gcp.md](docs/user/tutorials/first-deploy-gcp.md)
 - The same first deploy with Azure Key Vault (create a vault and an `EC` key on `P-256K`, deploy and verify a contract on Sepolia, delete and purge the key): [docs/user/tutorials/first-deploy-azure.md](docs/user/tutorials/first-deploy-azure.md)
@@ -18,7 +50,7 @@ Status: not on npm yet. Unless a page marks something as planned, everything the
 - A viem account for a KMS key in library code (`connection.kms.getAccount`, for viem's `signAuthorization`, smart-account owners and scripts), what it refuses, and why its sends bypass the send lock: [docs/user/reference/library-accounts.md](docs/user/reference/library-accounts.md)
 - The TypeScript API of `hardhat-kms`, `hardhat-kms/types` and `hardhat-kms/provider-utils`, generated from TSDoc: [docs/user/reference/api/README.md](docs/user/reference/api/README.md)
 - Which Node.js versions the published packages run on, and when a line is dropped: [docs/user/reference/support.md](docs/user/reference/support.md)
-- Install the packages before the first npm release (build from the private repository, pack, install the tarballs; deleted at the release): [docs/user/guides/install-before-release.md](docs/user/guides/install-before-release.md)
+- Install the packages before the first npm release (build from the repository, pack, install the tarballs; deleted at the release): [docs/user/guides/install-before-release.md](docs/user/guides/install-before-release.md)
 - Set up an AWS KMS key (key spec, IAM policy, the `@hardhat-kms/aws` package, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
 - Set up an Azure Key Vault key (key type and curve, RBAC role or access policy, credential order, the `@hardhat-kms/azure` package): [docs/user/guides/azure-key-vault-setup.md](docs/user/guides/azure-key-vault-setup.md)
 - Set up a Google Cloud KMS key (algorithm, HSM protection level, IAM roles, the `@hardhat-kms/gcp` package, config, errors): [docs/user/guides/gcp-kms-setup.md](docs/user/guides/gcp-kms-setup.md)
@@ -57,7 +89,7 @@ pnpm run test:live              # deploys, sends and signs with each configured 
 pnpm run test:live:aws          # AWS adapter against real KMS (needs HARDHAT_KMS_LIVE_AWS_KEY_ID)
 pnpm run coverage               # tests with the 95% coverage threshold
 pnpm run pkg:check              # build, publint, arethetypeswrong, knip
-pnpm run docs:check             # doc snippets typecheck, every page is indexed, generated pages are current, Mermaid blocks parse
+pnpm run docs:check             # doc snippets typecheck, every page is indexed, generated pages are current, frontmatter and skills are valid, Mermaid blocks parse
 pnpm run docs:errors            # regenerate docs/user/reference/errors.md from the error catalogues
 pnpm run docs:api               # build, then regenerate docs/user/reference/api/ from TSDoc
 ```

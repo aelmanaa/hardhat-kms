@@ -1,3 +1,8 @@
+---
+title: Debug output
+description: Turn on hardhat-kms debug output with DEBUG=hardhat:kms:*, what each namespace logs, and why the output is safe to paste into an issue.
+---
+
 # Debug output
 
 Audience: users who want to see what the plugin does, for example when a key is slow or fails.

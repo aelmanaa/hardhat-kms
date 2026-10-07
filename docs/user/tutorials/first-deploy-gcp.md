@@ -1,3 +1,8 @@
+---
+title: First deploy on Sepolia with Google Cloud KMS
+description: "Deploy a Hardhat 3 contract to Sepolia with Google Cloud KMS: create an HSM secp256k1 key, deploy from it, verify the source and destroy it."
+---
+
 # First deploy on Sepolia with Google Cloud KMS
 
 Audience: developers who have a Google Cloud project and the gcloud CLI signed in, and have not used Cloud KMS with Hardhat.

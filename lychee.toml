@@ -5,8 +5,6 @@ include_fragments = "anchor-only"
 no_progress = true
 
 exclude = [
-  # The repository is private until release, so links into it need a login.
-  '^https://github\.com/aelmanaa/hardhat-kms',
   # Example hosts used in the docs, not real sites.
   '^https://ops\.vault\.azure\.net',
   '^https://<vault',

@@ -12,7 +12,12 @@
 //   skip marker and the pre-release note (scripts/user-pages.ts);
 // - no tracked source, test, fixture, script, changeset, workflow or page names an internal
 //   milestone, a review round or the maintainer's machine (checkInternalWords);
-// - every ```mermaid block parses with Mermaid's own parser (scripts/mermaid-blocks.ts).
+// - every ```mermaid block parses with Mermaid's own parser (scripts/mermaid-blocks.ts);
+// - every page under docs/user/, generated ones included, has frontmatter with a `title` equal to
+//   its H1 and a `description` of its own, within the length limits (scripts/frontmatter.ts);
+// - the agent skills under skills/ get the snippet, user-page, internal-word and Mermaid checks
+//   of the docs, a `SKILL.md` frontmatter check, and their links into the repository's `main`
+//   branch must point at files that exist (scripts/skills.ts).
 // lychee checks the links themselves (see lychee.toml).
 //
 // A snippet that is not meant to compile, such as a sketch of a planned API, is preceded by
@@ -28,6 +33,7 @@ import { parseSync } from "oxc-parser";
 
 import { calleeName, field, walk } from "./ast.ts";
 import { checkSnippets, fences } from "./doc-snippets.ts";
+import { frontmatterProblems } from "./frontmatter.ts";
 import { API_DOCS_COMMAND, API_DOCS_DIR, diffApiDocs, renderApiDocs } from "./generate-api-docs.ts";
 import {
   CATALOGUED_DIRECTORIES,
@@ -37,6 +43,7 @@ import {
   renderErrorsDoc,
 } from "./generate-errors-doc.ts";
 import { mermaidProblems } from "./mermaid-blocks.ts";
+import { repositoryLinkProblems, skillProblems } from "./skills.ts";
 import { internalWordProblems, userPageProblems } from "./user-pages.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -143,6 +150,8 @@ const INTERNAL_WORD_ROOTS = [
   "CLAUDE.md",
   "CONTRIBUTING.md",
   "SECURITY.md",
+  "skills",
+  "context7.json",
 ];
 
 /** The files that hold the patterns and their test data, which the rule would otherwise report. */
@@ -165,6 +174,13 @@ function internalWordFiles(): string[] {
 function checkInternalWords(): string[] {
   return internalWordFiles().flatMap((file) =>
     internalWordProblems(file, readFileSync(path.join(root, file), "utf8")),
+  );
+}
+
+/** Checks the frontmatter of the user pages; see `scripts/frontmatter.ts`. */
+function checkFrontmatter(files: string[]): string[] {
+  return frontmatterProblems(
+    files.map((file) => ({ file, text: readFileSync(path.join(root, file), "utf8") })),
   );
 }
 
@@ -371,7 +387,20 @@ function checkErrorSites(): string[] {
   return problems.toSorted((a, b) => a.localeCompare(b, "en", { numeric: true }));
 }
 
+/** Checks each skill's frontmatter and its links into the repository; see `scripts/skills.ts`. */
+function checkSkills(files: string[]): string[] {
+  return files.flatMap((file) => {
+    const text = readFileSync(path.join(root, file), "utf8");
+    return [
+      ...(path.posix.basename(file) === "SKILL.md" ? skillProblems(file, text) : []),
+      ...repositoryLinkProblems(file, text, (target) => existsSync(path.join(root, target))),
+    ];
+  });
+}
+
 const pages = markdownFiles("docs");
+// An installed skill is copied without the repository, so it is read like a user page.
+const skillPages = existsSync(path.join(root, "skills")) ? markdownFiles("skills") : [];
 const problems = [
   ...checkIndexes(pages),
   // The API pages' code blocks are signatures and examples from TSDoc, not programs.
@@ -379,6 +408,7 @@ const problems = [
     "README.md",
     ...packageReadmes(),
     ...pages.filter((page) => !page.startsWith(`${API_DOCS_DIR}/`)),
+    ...skillPages,
   ]),
   ...(await checkErrorsDoc()),
   ...checkApiDocs(),
@@ -387,14 +417,17 @@ const problems = [
     "README.md",
     ...packageReadmes(),
     ...pages.filter((page) => page.startsWith("docs/user/")),
+    ...skillPages,
   ]),
+  ...checkFrontmatter(pages.filter((page) => page.startsWith("docs/user/"))),
+  ...checkSkills(skillPages),
   ...checkInternalWords(),
-  ...(await checkMermaid(["README.md", ...packageReadmes(), ...pages])),
+  ...(await checkMermaid(["README.md", ...packageReadmes(), ...pages, ...skillPages])),
 ];
 if (problems.length > 0) {
   process.stderr.write(`${problems.join("\n")}\n`);
   process.exit(1);
 }
 process.stdout.write(
-  `docs check passed: ${pages.length} pages indexed, snippets typecheck and call no deprecated API, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes, no file names a milestone, a review or the maintainer's machine, Mermaid blocks parse\n`,
+  `docs check passed: ${pages.length} pages indexed, snippets typecheck and call no deprecated API, ${ERRORS_DOC} and ${API_DOCS_DIR}/ are current, every error comes from a catalogue, user pages hold no maintainer notes and carry a title and a description, skills are valid and link to existing files, no file names a milestone, a review or the maintainer's machine, Mermaid blocks parse\n`,
 );

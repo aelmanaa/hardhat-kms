@@ -15,7 +15,7 @@
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && node scripts/check-type-escapes.ts",
-    "test": "pnpm run build && pnpm -r run test && node --test test/live/redact.test.ts test/live/gas.test.ts test/live/retry.test.ts test/live/mode.test.ts test/live/rpc-proxy.test.ts test/live/anvil.test.ts test/live/matrix.test.ts test/live/lock.test.ts test/scripts/ci-all-os-decide.test.ts test/scripts/user-pages.test.ts test/scripts/doc-snippets.test.ts test/scripts/check-deprecated-packages.test.ts test/scripts/deprecation-hook.test.ts test/scripts/mermaid-blocks.test.ts test/scripts/node-test.test.ts test/scripts/pack.test.ts test/scripts/hardhat-cli-spawns.test.ts test/scripts/verify-release-tag.test.ts test/scripts/check-packages.test.ts test/scripts/registry.test.ts test/scripts/registry-release.test.ts test/scripts/release-gate-ci.test.ts test/scripts/release-trigger.test.ts test/scripts/check-tarballs.test.ts test/scripts/check-live-rule.test.ts",
+    "test": "pnpm run build && pnpm -r run test && node --test test/live/redact.test.ts test/live/gas.test.ts test/live/retry.test.ts test/live/mode.test.ts test/live/rpc-proxy.test.ts test/live/anvil.test.ts test/live/matrix.test.ts test/live/lock.test.ts test/scripts/ci-all-os-decide.test.ts test/scripts/user-pages.test.ts test/scripts/frontmatter.test.ts test/scripts/skills.test.ts test/scripts/doc-snippets.test.ts test/scripts/check-deprecated-packages.test.ts test/scripts/deprecation-hook.test.ts test/scripts/mermaid-blocks.test.ts test/scripts/node-test.test.ts test/scripts/pack.test.ts test/scripts/hardhat-cli-spawns.test.ts test/scripts/verify-release-tag.test.ts test/scripts/check-packages.test.ts test/scripts/registry.test.ts test/scripts/registry-release.test.ts test/scripts/release-gate-ci.test.ts test/scripts/release-trigger.test.ts test/scripts/check-tarballs.test.ts test/scripts/check-live-rule.test.ts",
     "test:unit": "pnpm run build && pnpm -r run test:unit",
     "test:localstack": "pnpm run build && pnpm --fail-if-no-match --filter @hardhat-kms/aws run test:localstack",
     "test:examples": "pnpm run build && pnpm --fail-if-no-match --filter @hardhat-kms/aws run test:examples",
@@ -67,7 +67,8 @@
     "tsx": "catalog:",
     "typescript": "catalog:",
     "verdaccio": "catalog:",
-    "viem": "catalog:"
+    "viem": "catalog:",
+    "yaml": "catalog:"
   },
   "devEngines": {
     "runtime": {

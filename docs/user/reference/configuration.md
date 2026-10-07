@@ -1,3 +1,8 @@
+---
+title: Configuration reference
+description: "Every hardhat-kms config field: kms.keys, kms.defaults, kms.audit and kmsAccounts, the key forms per provider, validation and credentials."
+---
+
 # Configuration reference
 
 Audience: Users configuring the plugin.

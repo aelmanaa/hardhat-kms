@@ -2,13 +2,15 @@
 // (packages/*/src/internal/error-catalog.ts, which Node runs as TypeScript: a catalogue has only
 // type imports): one table per package and group, one row per entry. Run it with
 // `pnpm run docs:errors`. scripts/check-docs.ts calls renderErrorsDoc() and fails when the page
-// differs.
+// differs. The page starts with frontmatter (scripts/frontmatter.ts) from ERRORS_DOC_FRONTMATTER.
 //
 // Usage: node scripts/generate-errors-doc.ts
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { renderFrontmatter } from "./frontmatter.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -159,6 +161,13 @@ function code(text: string): string {
   return `${fence}${cell(padded)}${fence}`;
 }
 
+/** The page's frontmatter: its H1 as `title`, and the description for the docs site. */
+const ERRORS_DOC_FRONTMATTER = {
+  title: "Errors",
+  description:
+    "Every error hardhat-kms and its provider packages can raise, with its stable id, what it means and how to fix it, searchable by message.",
+};
+
 /**
  * Renders the page from the catalogues and formats it as `pnpm run format` would.
  *
@@ -167,7 +176,9 @@ function code(text: string): string {
  */
 export function renderErrorsDoc(catalogues: Catalogue[]): string {
   const lines = [
-    "# Errors",
+    renderFrontmatter(ERRORS_DOC_FRONTMATTER).trimEnd(),
+    "",
+    `# ${ERRORS_DOC_FRONTMATTER.title}`,
     "",
     "Audience: anyone who got an error from hardhat-kms or one of its provider packages.",
     "",

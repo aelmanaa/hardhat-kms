@@ -7,6 +7,9 @@
 // The provider packages are not documented here: each exports only its plugin, a `HardhatPlugin`,
 // and checkProviderExports() fails if one starts to export anything else.
 //
+// Each page starts with frontmatter (scripts/frontmatter.ts): its H1 as `title`, and the
+// description from API_DESCRIPTIONS, which a new module's page needs before it can be generated.
+//
 // Usage: node scripts/generate-api-docs.ts
 import { spawnSync } from "node:child_process";
 import {
@@ -24,6 +27,8 @@ import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 
 import { parseSync } from "oxc-parser";
+
+import { firstHeading, renderFrontmatter } from "./frontmatter.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const shell = process.platform === "win32";
@@ -109,6 +114,33 @@ export function checkProviderExports(): void {
       `${problems.join("\n")}\nDocument the provider package's exports in scripts/generate-api-docs.ts`,
     );
   }
+}
+
+/**
+ * The frontmatter description of each page, by its path relative to {@link API_DOCS_DIR}: one
+ * sentence for the docs site's meta description and search index.
+ */
+const API_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  "README.md":
+    "The TypeScript API of hardhat-kms: the plugin export, the config types and the helpers for provider plugins.",
+  "hardhat-kms.md":
+    "The hardhat-kms entry point: the plugin as its default export, which adds the kms config section and each network's kmsAccounts.",
+  "hardhat-kms/provider-utils.md":
+    "Helpers for writing a KMS provider plugin for hardhat-kms, the same ones the AWS, Google Cloud and Azure packages use; experimental.",
+  "hardhat-kms/types.md":
+    "Public types of hardhat-kms/types: the kms config section, each provider's key config and the resolved forms Hardhat passes to plugins.",
+};
+
+/** Puts a page's frontmatter before its H1; fails for a page without a description. */
+function withFrontmatter(file: string, markdown: string): string {
+  const description = API_DESCRIPTIONS[file];
+  const title = firstHeading(markdown);
+  if (description === undefined || title === undefined) {
+    throw new Error(
+      `${path.posix.join(API_DOCS_DIR, file)} has ${title === undefined ? "no H1" : "no description"}; add one to API_DESCRIPTIONS in scripts/generate-api-docs.ts`,
+    );
+  }
+  return `${renderFrontmatter({ title, description })}${markdown}`;
 }
 
 /** The top of the index page, above TypeDoc's list of modules. */
@@ -201,7 +233,10 @@ export function renderApiDocs(): Map<string, string> {
       if (file === "README.md") {
         markdown = markdown.replace(/^# .*\n/, `${INTRO}\n`);
       }
-      pages.set(file, formatMarkdown(path.posix.join(API_DOCS_DIR, file), markdown));
+      pages.set(
+        file,
+        formatMarkdown(path.posix.join(API_DOCS_DIR, file), withFrontmatter(file, markdown)),
+      );
     }
     return pages;
   } finally {

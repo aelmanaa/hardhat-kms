@@ -1,3 +1,8 @@
+---
+title: Set up an AWS KMS key
+description: Create an AWS KMS secp256k1 key for Ethereum signing, allow signing and nothing else, configure @hardhat-kms/aws and read the key's CloudTrail history.
+---
+
 # Set up an AWS KMS key
 
 Audience: users who sign with a key in AWS KMS.
