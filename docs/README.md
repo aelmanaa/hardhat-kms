@@ -4,6 +4,17 @@ hardhat-kms is a Hardhat 3 plugin that signs transactions, messages and typed da
 
 Each page except the generated API reference opens with an `Audience:` line that names who it is for and what it assumes. [Release channels and versioning](user/explanation/versioning.md#channels) says which release to install and what a version promises.
 
+## Start here
+
+- I need a key and want a first deploy: First deploy on Sepolia with [AWS KMS](user/tutorials/first-deploy-aws.md), [Google Cloud KMS](user/tutorials/first-deploy-gcp.md) or [Azure Key Vault](user/tutorials/first-deploy-azure.md).
+- I already have a secp256k1 key in a KMS: start at step 2 of the setup guide for [AWS KMS](user/guides/aws-kms-setup.md#2-allow-signing-and-nothing-else), [Google Cloud KMS](user/guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) or [Azure Key Vault](user/guides/azure-key-vault-setup.md#2-allow-get-and-sign-and-nothing-else).
+- I want to deploy my contracts: [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md).
+- A command or script failed: [Errors](user/reference/errors.md) has every error with its cause and fix. Search the page for a fixed part of the message.
+- I sent a transaction and do not know what happened: [After an uncertain send](user/guides/uncertain-sends.md).
+- What does the plugin protect against: [Security model](user/explanation/security-model.md).
+- Is the package I installed the real one: [Verify a release](user/guides/verify-a-release.md).
+- I want a KMS account in my own code: [Library accounts](user/reference/library-accounts.md).
+
 ## Tutorials
 
 | Page                                                                                 | Kind     |
