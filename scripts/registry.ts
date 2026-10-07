@@ -115,6 +115,30 @@ export function registrySpecs(version: string): string[] {
 }
 
 /**
+ * The `.yarnrc.yml` of a Yarn 4 test project. Yarn 4.15 and later skip versions published less
+ * than a day ago (`npmMinimalAgeGate`), so on the day of a release every registry-mode install
+ * would stop with `YN0016`. Registry mode therefore adds the line the install page tells users to
+ * add on release day, `npmPreapprovedPackages`, for the four packages only: every other package
+ * stays under the age gate. Tarball mode installs the packages from `file:` paths, which the age
+ * gate does not apply to, and gets no such line.
+ *
+ * @param registryMode - Whether the project installs the packages from a registry.
+ * @returns The file's text.
+ */
+export function yarnBerrySettings(registryMode: boolean): string {
+  const lines = [
+    "nodeLinker: node-modules",
+    "enableScripts: false",
+    "enableTelemetry: false",
+    "enableHardenedMode: false",
+  ];
+  if (registryMode) {
+    lines.push('npmPreapprovedPackages: ["hardhat-kms", "@hardhat-kms/*"]');
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/**
  * The npm arguments that select the registry.
  *
  * @param registry - The registry URL, or undefined for npm's default.

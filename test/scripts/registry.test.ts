@@ -1,10 +1,13 @@
 // The shared registry-mode helper of the package checks (`scripts/registry.ts`): the option
-// parsing, the four specs and the check of the installed version. Runs in `pnpm test`.
+// parsing, the four specs, the check of the installed version and the Yarn 4 settings. Runs in `pnpm test`.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+
+import { parse } from "yaml";
 
 import {
   assertInstalledVersion,
@@ -13,6 +16,7 @@ import {
   parseRegistryOptions,
   registryArguments,
   registrySpecs,
+  yarnBerrySettings,
 } from "../../scripts/registry.ts";
 
 describe("parseRegistryOptions", () => {
@@ -152,5 +156,40 @@ describe("assertInstalledVersion", () => {
     assert.throws(() => assertInstalledVersion(directory, "1.0.0"), {
       message: `hardhat-kms is not installed for ${directory}`,
     });
+  });
+});
+
+describe("yarnBerrySettings", () => {
+  const installPage = readFileSync(
+    fileURLToPath(new URL("../../docs/user/guides/install-before-release.md", import.meta.url)),
+    "utf8",
+  );
+  const PREAPPROVED_LINE = 'npmPreapprovedPackages: ["hardhat-kms", "@hardhat-kms/*"]';
+
+  it("keeps the tarball-mode settings, with no age-gate exemption", () => {
+    assert.deepEqual(parse(yarnBerrySettings(false)), {
+      nodeLinker: "node-modules",
+      enableScripts: false,
+      enableTelemetry: false,
+      enableHardenedMode: false,
+    });
+  });
+
+  it("exempts the four packages, and nothing else, from the age gate in registry mode", () => {
+    assert.deepEqual(parse(yarnBerrySettings(true)), {
+      nodeLinker: "node-modules",
+      enableScripts: false,
+      enableTelemetry: false,
+      enableHardenedMode: false,
+      npmPreapprovedPackages: ["hardhat-kms", "@hardhat-kms/*"],
+    });
+    for (const name of PACKAGES) {
+      assert.ok(name === "hardhat-kms" || name.startsWith("@hardhat-kms/"), name);
+    }
+  });
+
+  it("writes the line the install page tells users to add", () => {
+    assert.ok(yarnBerrySettings(true).split("\n").includes(PREAPPROVED_LINE));
+    assert.ok(installPage.includes(`\n${PREAPPROVED_LINE}\n`));
   });
 });
