@@ -78,6 +78,9 @@
           },
           {
             "context": "LocalStack (AWS KMS)"
+          },
+          {
+            "context": "Security checklist"
           }
         ]
       }
