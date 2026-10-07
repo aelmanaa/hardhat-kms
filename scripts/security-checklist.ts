@@ -1,9 +1,9 @@
 // The security checklist rule of pr-hygiene.yml. docs/contributor/security-review.md holds the
-// lists of paths, one `##` section per list, and the "Security checklist" section of the pull
-// request template holds each list's items under a `###` heading of the same name. A pull request
-// that changes a path of a list must carry that list's items, every one ticked. A pull request that
-// changes paths of both lists carries both sets of items, and one that changes no listed path is not
-// asked for any. The workflow runs this script, the lists and the template from the base branch, so
+// lists of paths, one `##` section with a ```text block per list, and the "Security checklist"
+// section of the pull request template holds each list's items under a `###` heading of the same
+// name; the two sets of lists must match. A pull request that changes a path of a list must carry
+// that list's items, every one ticked. A pull request that changes paths of several lists carries
+// each list's items, and one that changes no listed path is not asked for any. The workflow runs this script, the lists and the template from the base branch, so
 // a pull request cannot change them for its own run.
 //
 // Usage: node scripts/security-checklist.ts --files FILE --changed-files N --body FILE
@@ -49,14 +49,38 @@ export function patternToRegExp(pattern: string): RegExp {
   return new RegExp(`^${source}$`);
 }
 
+/** The opening fence of a list's code block on the list page. */
+const LIST_FENCE = "```text";
+
+/**
+ * Names the lists of the list page: each `##` section that holds a {@link LIST_FENCE} code block.
+ *
+ * @param markdown - The list page.
+ * @returns The section names, in page order.
+ */
+export function pageListNames(markdown: string): string[] {
+  const names: string[] = [];
+  let section: string | undefined;
+  for (const line of markdown.split(/\r?\n/)) {
+    if (line.startsWith("## ")) {
+      section = line.slice(3).trim();
+    } else if (line.trim() === LIST_FENCE && section !== undefined && !names.includes(section)) {
+      names.push(section);
+    }
+  }
+  return names;
+}
+
 /**
  * Reads the patterns of one list: the lines of the first fenced code block in the `## <name>`
- * section of the list page, without blank lines.
+ * section of the list page, without blank lines. The heading must match the name exactly, and the
+ * block must open with {@link LIST_FENCE}.
  *
  * @param markdown - The list page.
  * @param name - The list's name, such as `Signing and sending`.
  * @returns The patterns, in page order.
- * @throws {Error} If the section, its block or any pattern is missing.
+ * @throws {Error} If the section, its block or any pattern is missing, or the section's first
+ *   block is not a {@link LIST_FENCE} block.
  */
 export function parseListedPaths(markdown: string, name: string): string[] {
   const heading = `## ${name}`;
@@ -69,6 +93,11 @@ export function parseListedPaths(markdown: string, name: string): string[] {
   const nextHeading = lines.findIndex((line, index) => index > start && line.startsWith("## "));
   if (open === -1 || (nextHeading !== -1 && open > nextHeading)) {
     throw new Error(`"${heading}" in ${LIST_PAGE} has no code block`);
+  }
+  if (lines[open]?.trim() !== LIST_FENCE) {
+    throw new Error(
+      `the first code block under "${heading}" in ${LIST_PAGE} does not open with ${LIST_FENCE}`,
+    );
   }
   const close = lines.findIndex((line, index) => index > open && line.startsWith("```"));
   if (close === -1) {
@@ -193,6 +222,28 @@ export function parseChecklist(markdown: string): ChecklistItem[] | undefined {
   return items;
 }
 
+/**
+ * Reads the `###` headings of the {@link CHECKLIST_HEADING} section, outside HTML comments.
+ *
+ * @param markdown - The template.
+ * @returns The heading texts, in order.
+ */
+function checklistHeadings(markdown: string): string[] {
+  const lines = markdown.replaceAll(/<!--[\s\S]*?-->/g, "").split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === CHECKLIST_HEADING);
+  const headings: string[] = [];
+  for (const line of start === -1 ? [] : lines.slice(start + 1)) {
+    if (/^#{1,2} /.test(line)) {
+      break;
+    }
+    const heading = /^### (.+)$/.exec(line);
+    if (heading !== null) {
+      headings.push((heading[1] ?? "").trim());
+    }
+  }
+  return headings;
+}
+
 /** One list of the template's checklist: its name and the labels of its items. */
 export interface ChecklistList {
   name: string;
@@ -205,13 +256,18 @@ export interface ChecklistList {
  *
  * @param template - The pull request template.
  * @returns The lists, in template order.
- * @throws {Error} If the section has no items, an item has no `###` heading above it, or a label
- *   appears twice.
+ * @throws {Error} If the section has no items, an item has no `###` heading above it, a `###`
+ *   heading has no items, or a label appears twice.
  */
 export function templateLists(template: string): ChecklistList[] {
   const items = parseChecklist(template) ?? [];
   if (items.length === 0) {
     throw new Error(`${TEMPLATE} has no items under "${CHECKLIST_HEADING}"`);
+  }
+  for (const heading of checklistHeadings(template)) {
+    if (!items.some((item) => item.list === heading)) {
+      throw new Error(`the list "${heading}" in ${TEMPLATE} has no items`);
+    }
   }
   const lists: ChecklistList[] = [];
   const seen = new Set<string>();
@@ -265,11 +321,13 @@ export interface CheckResult {
 
 /**
  * Applies the rule to each list of the template: no path of the list changed, or each of the
- * list's items is ticked.
+ * list's items is ticked. The lists of the page and of the template must match one to one, so a
+ * list cannot drop out of the check by losing its template heading or its items.
  *
  * @param input - The changed paths, the list page, the template and the pull request body.
  * @returns Whether the pull request passes, and what to report.
- * @throws {Error} If the list page or the template cannot be read as expected.
+ * @throws {Error} If the list page or the template cannot be read as expected, or a list of one has
+ *   no counterpart in the other.
  */
 export function checkSecurityChecklist(input: {
   files: readonly string[];
@@ -277,7 +335,16 @@ export function checkSecurityChecklist(input: {
   template: string;
   body: string;
 }): CheckResult {
-  const touched = templateLists(input.template)
+  const lists = templateLists(input.template);
+  const unmatched = pageListNames(input.listPage).filter(
+    (name) => !lists.some((list) => list.name === name),
+  );
+  if (unmatched.length > 0) {
+    throw new Error(
+      `${LIST_PAGE} has the list(s) ${unmatched.map((name) => `"${name}"`).join(", ")} with no "###" heading and items under "${CHECKLIST_HEADING}" in ${TEMPLATE}`,
+    );
+  }
+  const touched = lists
     .map((list) => ({
       ...list,
       changed: listedChanges(input.files, parseListedPaths(input.listPage, list.name)),

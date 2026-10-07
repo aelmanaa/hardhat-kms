@@ -11,6 +11,8 @@ This page holds two lists of paths, each with its own checklist items:
 
 A pull request that changes a path of a list carries that list's items from the security checklist of the [pull request template](../../.github/pull_request_template.md), with every one ticked. A pull request that changes paths of both lists carries both sets of items. Each item states one property the change must keep. The author ticks it before asking for review, and the reviewer checks it against the diff. The checklist does not prove that a second person read the change. It records which questions were asked and answered, so a later reader can see how a change to these paths was reviewed.
 
+Tick an item when the change keeps that property, or when it does not touch it; say which in the description when it is not obvious from the diff. Each item names the property to check and where the design states it.
+
 The paths are glob patterns relative to the repository root: `*` matches within one directory, `**` matches any number of directories. A renamed file counts under its old and its new path.
 
 ## Signing and sending
@@ -57,8 +59,6 @@ Tests and docs are not listed; they do not run when the plugin signs or sends.
 
 ### Signing and sending items
 
-Each item names the property to check and where the design states it. Tick an item when the change keeps that property, or when it does not touch it; say which in the description when it is not obvious from the diff.
-
 | Item                   | The change keeps this true                                                                                                                                                                                                                            | Design                                                                                                                                             |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Key                    | The configured key signs, and no other. Each provider's identity checks still run on every response, and the `address` pin is checked before a public key is cached or a signature released.                                                          | [Key identity and pinning](signing-pipeline.md#key-identity-and-pinning)                                                                           |
@@ -94,20 +94,30 @@ scripts/ci-all-os-decide.ts
 scripts/registry-release.ts
 scripts/check-registry-release.ts
 scripts/check-live-rule.ts
+scripts/consumer-typecheck.ts
+scripts/test-peer-installs.ts
+scripts/pack.ts
+scripts/ast.ts
+scripts/temporary-install.ts
+package.json
+pnpm-workspace.yaml
 scripts/security-checklist.ts
+test/scripts/security-checklist.test.ts
+docs/contributor/security-review.md
+.github/pull_request_template.md
 ```
 
 What each group decides:
 
-| Area                                 | Paths                                                                                                                                                                |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| What gets published                  | the package manifests (`files`, `exports`, `bin`, lifecycle scripts, dependencies), `registry.ts`, `check-packages.ts`, `check-tarballs.ts`                          |
-| Who can publish                      | `release.yml` and `promote.yml` (their environments and `id-token: write`), `release-keys/`, the rulesets, `CODEOWNERS`                                              |
-| What the release gate checks         | `verify-release-tag.ts`, `release-trigger.ts`, `release-gate-ci.ts`, `ci-all-os-decide.ts`, `check-registry-release.ts`, `registry-release.ts`, `check-live-rule.ts` |
-| Workflows with write or cloud access | `release-pr.yml` (writes the Version Packages pull request), `live-tests.yml` (OIDC tokens for the three clouds)                                                     |
-| This check                           | `pr-hygiene.yml`, `security-checklist.ts`                                                                                                                            |
+| Area                                 | Paths                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| What gets published                  | the package manifests (`files`, `exports`, `bin`, lifecycle scripts, dependencies), the root `package.json` (`pkg:check`, `version-packages`), `pnpm-workspace.yaml` (which dependency install scripts run, the build tool versions), `registry.ts`, `check-packages.ts`, `check-tarballs.ts`, and the helpers they import (`pack.ts`, `ast.ts`, `temporary-install.ts`) |
+| Who can publish                      | `release.yml` and `promote.yml` (their environments and `id-token: write`), `release-keys/`, the rulesets, `CODEOWNERS`                                                                                                                                                                                                                                                  |
+| What the release gate checks         | `verify-release-tag.ts`, `release-trigger.ts`, `release-gate-ci.ts`, `ci-all-os-decide.ts`, `check-registry-release.ts`, `registry-release.ts`, `check-live-rule.ts`, and the checks `promote.yml` runs before `latest` moves (`consumer-typecheck.ts`, `test-peer-installs.ts`)                                                                                         |
+| Workflows with write or cloud access | `release-pr.yml` (writes the Version Packages pull request), `live-tests.yml` (OIDC tokens for the three clouds)                                                                                                                                                                                                                                                         |
+| The security checklist itself        | `pr-hygiene.yml`, `security-checklist.ts` and its test, this page, the pull request template                                                                                                                                                                                                                                                                             |
 
-The release pull request (`changeset-release/main`) changes the manifests on every release; the job skips it when its branch is in this repository.
+The CI workflows whose runs `release-gate-ci.ts` counts (`ci.yml`, `ci-all-os.yml`, `hardhat-versions.yml`, `sdk-floors.yml`) and the lockfile are not listed: most pull requests change them, and a reviewer reads those changes as CI changes. The release pull request (`changeset-release/main`) changes the manifests on every release; the job skips it when its branch is in this repository.
 
 ### Release and supply chain items
 
@@ -115,7 +125,7 @@ The release pull request (`changeset-release/main`) changes the manifests on eve
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | What gets published          | The four tarballs hold only the files each manifest's `files` field allows, built from the tagged commit, and `check-tarballs.ts` still checks each name, version, `gitHead` and SHA-256 sum before publishing. A new dependency, lifecycle script or `bin` entry is named in the description.                   | [Cut a release](releasing.md#3-cut-a-release)                                                          |
 | Who can publish              | Only a signed `vX.Y.Z` tag that a repository admin pushes starts a release, and the `npm-publish` and `npm-latest` environment approvals and the stage approval on npmjs.com still stand. No job gains `id-token: write`, a secret or a write permission it does not need, and every action stays pinned by SHA. | [Who can release](releasing.md#1-who-can-release)                                                      |
-| What the release gate checks | Every check that `release.yml` and `promote.yml` run before publishing or moving `latest` still runs, and still fails when it cannot decide. This list, the template and `security-checklist.ts` are still read from the base branch.                                                                            | [Cut a release](releasing.md#3-cut-a-release), [Verify and promote](releasing.md#4-verify-and-promote) |
+| What the release gate checks | Every check that `release.yml` and `promote.yml` run before publishing or moving `latest` still runs, and still fails when it cannot get an answer (a missing run, an API error). The lists on this page, the template and `security-checklist.ts` are still read from the base branch.                          | [Cut a release](releasing.md#3-cut-a-release), [Verify and promote](releasing.md#4-verify-and-promote) |
 
 ## How the check works
 
@@ -126,6 +136,9 @@ The template's `## Security checklist` section has one `###` heading per list, n
 - No path of any list changed: the job passes and asks for nothing.
 - Paths of one or both lists changed: the job passes when the description has the `## Security checklist` section with every item of those lists ticked. Items of a list whose paths did not change are not required, so delete them or leave them unticked. A missing section, a missing item or an unticked box fails the job, and the log names the changed paths of each list and each item that is missing or unticked.
 - The API answers with fewer files than the pull request changed (it lists at most 3000): the job fails, because an unlisted file could be on a list.
+- The lists on this page and the `###` headings of the template do not match one to one, or a heading has no items: the job fails, so a list cannot drop out of the check unnoticed. A list on this page is a `##` section whose first code block opens with ` ```text `.
+
+The job skips Dependabot's pull requests, including commits a maintainer pushes onto a Dependabot branch; review those as you would a release change when they touch a listed path.
 
 Items are matched by their bold label anywhere in the section, so the `###` headings may stay or go, and a note after the label is fine: `- [x] **Key.** Not touched: the change only renames a log line.`
 
@@ -133,4 +146,4 @@ Items are matched by their bold label anywhere in the section, so the `###` head
 
 ## Change the lists
 
-Add a path to the signing and sending list when a new file decides which key signs, what bytes it signs, what reaches the node, or what an error or log line can contain. Add one to the release and supply chain list when a new file decides what gets published, who can publish, or what the release gate checks. Remove a path only together with the code it named. Changes go through a pull request like any other, and a new list applies once it is on `main`. A new list takes a `##` section on this page with its code block and a `###` heading of the same name in the template.
+Add a path to the signing and sending list when a new file decides which key signs, what bytes it signs, what reaches the node, or what an error or log line can contain. Add one to the release and supply chain list when a new file decides what gets published, who can publish, or what the release gate checks. Remove a path only together with the code it named. Changes go through a pull request like any other, and a new list applies once it is on `main`. A new list takes a `##` section on this page with its ` ```text ` block, a `###` heading of the same name with its items in the template, and its name in the real-repository test of `test/scripts/security-checklist.test.ts`, which pins the list names.

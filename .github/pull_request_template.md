@@ -12,7 +12,7 @@ Closes #
 
 ## Security checklist
 
-<!-- docs/contributor/security-review.md has two lists of paths. Keep the items of each list whose paths the pull request changes; a CI check requires them. Delete the rest, and the whole section if no listed path changed. Tick an item when your change keeps it true or does not touch it, and add a short note when that is not obvious. docs/contributor/security-review.md explains each item. -->
+<!-- Each ### heading below is a list of paths in docs/contributor/security-review.md. Keep the items of each list whose paths the pull request changes; a CI check requires them. Delete the rest, and the whole section if no listed path changed. Tick an item when your change keeps it true or does not touch it, and add a short note when that is not obvious. docs/contributor/security-review.md explains each item. -->
 
 ### Signing and sending
 
@@ -28,5 +28,5 @@ Closes #
 ### Release and supply chain
 
 - [ ] **What gets published.** The tarballs hold only the files each manifest allows, built from the tagged commit and checked by `check-tarballs.ts`; a new dependency, lifecycle script or `bin` entry is named in the description.
-- [ ] **Who can publish.** Only a signed tag that a repository admin pushes starts a release, the environment and npm stage approvals still stand, no job gains a token, secret or permission it does not need, and every action stays pinned by SHA.
-- [ ] **What the release gate checks.** Every check before publishing or moving `latest` still runs and fails when it cannot decide, and the security checklist still reads its lists from the base branch.
+- [ ] **Who can publish.** Only a signed tag pushed by a repository admin starts a release, and the `npm-publish` and `npm-latest` approvals still apply. No job gains a token, secret or permission it does not need, and every action stays pinned by SHA.
+- [ ] **What the release gate checks.** Every check before publishing or moving `latest` still runs, and still fails when it cannot get an answer (a missing run, an API error). The security checklist still reads its script, lists and template from the base branch.

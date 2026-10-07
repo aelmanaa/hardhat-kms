@@ -35,8 +35,8 @@ jobs:
           fi
 
   security-checklist:
-    # A pull request that changes a path of a list in docs/contributor/security-review.md carries
-    # that list's items of the pull request template's security checklist, ticked. The script, the
+    # A pull request that changes a path of a list in docs/contributor/security-review.md carries,
+    # ticked, the template's security checklist items for each list it touches. The script, the
     # lists and the template come from the base branch, so a pull request cannot loosen them for its
     # own run. This workflow file comes from the pull request, so it is on the release and supply
     # chain list, and a change to it carries that list's items.

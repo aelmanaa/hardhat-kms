@@ -18,6 +18,7 @@ import {
   listedChanges,
   parseChangedFiles,
   parseChecklist,
+  pageListNames,
   parseListedPaths,
   patternToRegExp,
   TEMPLATE,
@@ -116,11 +117,30 @@ describe("parseListedPaths", () => {
   it("fails without the section, without a block in the section, or with an empty block", () => {
     assert.throws(() => parseListedPaths("# Page\n", "Signing"), /has no "## Signing" heading/);
     assert.throws(
+      () => parseListedPaths("## Release and supply chain\n\n```text\na\n```\n", "Release"),
+      /has no "## Release" heading/,
+    );
+    assert.throws(
+      () =>
+        parseListedPaths(
+          "## Signing\n\n```mermaid\nflowchart\n```\n\n```text\na\n```\n",
+          "Signing",
+        ),
+      /the first code block under "## Signing" .* does not open with ```text/,
+    );
+    assert.throws(
       () => parseListedPaths("## Signing\n\ntext\n\n## Next\n\n```text\na\n```\n", "Signing"),
       /"## Signing" in .* has no code block/,
     );
     assert.throws(() => parseListedPaths("## Signing\n\n```text\na\n", "Signing"), /is not closed/);
     assert.throws(() => parseListedPaths("## Signing\n\n```text\n\n```\n", "Signing"), /is empty/);
+  });
+});
+
+describe("pageListNames", () => {
+  it("names each ## section that holds a text block, and no other", () => {
+    assert.deepEqual(pageListNames(LIST_PAGE_TEXT), ["Signing", "Release"]);
+    assert.deepEqual(pageListNames("## A\n\n```sh\nx\n```\n\n## B\n\ntext\n"), []);
   });
 });
 
@@ -326,6 +346,36 @@ describe("checkSecurityChecklist", () => {
     assert.match(both.lines.at(-1) ?? "", /Every item of the "Signing" and "Release" checklist/);
   });
 
+  it("fails closed when a page list loses its template heading or items", () => {
+    const releaseHeading = "### Release\n\n";
+    const drifts: [string, string][] = [
+      ["heading deleted", TEMPLATE_TEXT.replace(releaseHeading, "")],
+      ["items deleted", TEMPLATE_TEXT.replace("- [ ] **Published.** Only the built files.\n", "")],
+      ["heading at ####", TEMPLATE_TEXT.replace(releaseHeading, "#### Release\n\n")],
+      ["heading at ##", TEMPLATE_TEXT.replace(releaseHeading, "## Release\n\n")],
+    ];
+    for (const [drift, template] of drifts) {
+      assert.throws(
+        () =>
+          checkSecurityChecklist({
+            files: [".github/workflows/release.yml"],
+            listPage: LIST_PAGE_TEXT,
+            template,
+            body: "Closes #1",
+          }),
+        /"Release" with no "###" heading and items|the list "Release" in .* has no items/,
+        drift,
+      );
+    }
+  });
+
+  it("fails when a template heading has no items", () => {
+    assert.throws(
+      () => templateLists(`${TEMPLATE_TEXT}\n### Empty\n`),
+      /the list "Empty" in .* has no items/,
+    );
+  });
+
   it("fails when the template has no checklist or names a list the page lacks", () => {
     assert.throws(
       () =>
@@ -342,7 +392,7 @@ describe("checkSecurityChecklist", () => {
         checkSecurityChecklist({
           files: signing,
           listPage: LIST_PAGE_TEXT,
-          template: "## Security checklist\n\n### Other\n\n- [ ] **Key.** a\n",
+          template: `${TEMPLATE_TEXT}\n### Other\n\n- [ ] **Other.** a\n`,
           body: body("x", "x"),
         }),
       /has no "## Other" heading/,
@@ -363,6 +413,11 @@ describe("the repository's list page and template", () => {
       lists.map((list) => list.name),
       ["Signing and sending", "Release and supply chain"],
     );
+    assert.deepEqual(
+      lists.map((list) => list.labels.length),
+      [8, 3],
+    );
+    assert.deepEqual(pageListNames(listPage), ["Signing and sending", "Release and supply chain"]);
     for (const list of lists) {
       assert.ok(parseListedPaths(listPage, list.name).length > 0, list.name);
     }
@@ -412,9 +467,30 @@ describe("the repository's list page and template", () => {
       "scripts/release-gate-ci.ts",
       "scripts/check-tarballs.ts",
       "scripts/security-checklist.ts",
+      "scripts/temporary-install.ts",
+      "scripts/consumer-typecheck.ts",
+      "package.json",
+      "pnpm-workspace.yaml",
+      "docs/contributor/security-review.md",
+      ".github/pull_request_template.md",
+      "test/scripts/security-checklist.test.ts",
     ];
     assert.deepEqual(listedChanges(releasePaths, patterns), releasePaths.toSorted());
     assert.deepEqual(listedChanges(["packages/hardhat-kms/src/index.ts"], patterns), []);
+  });
+
+  it("lists every script that a listed script imports", () => {
+    const patterns = lists.flatMap((list) => parseListedPaths(listPage, list.name));
+    const scripts = patterns.filter(
+      (pattern) => pattern.startsWith("scripts/") && !pattern.includes("*"),
+    );
+    const unlisted = scripts.flatMap((file) =>
+      [...readFileSync(path.join(ROOT, file), "utf8").matchAll(/from "\.\/([^"]+\.ts)"/g)]
+        .map((match) => `scripts/${match[1] ?? ""}`)
+        .filter((imported) => listedChanges([imported], patterns).length === 0)
+        .map((imported) => `${imported} (imported by ${file})`),
+    );
+    assert.deepEqual(unlisted, []);
   });
 
   it("has a template checklist whose every item is unticked", () => {
