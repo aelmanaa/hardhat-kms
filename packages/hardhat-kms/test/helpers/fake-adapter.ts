@@ -26,6 +26,11 @@ export interface FakeAdapterOptions {
   throwError?: Error;
   /** Awaited before each signature, so a test can hold or slow down signing. */
   beforeSign?: () => Promise<void>;
+  /**
+   * Add fresh randomness to each signature, so that signing one digest twice gives two different
+   * signatures, as a KMS that picks a random `k` does.
+   */
+  randomK?: boolean;
 }
 
 /** A fake adapter plus counters for assertions. */
@@ -35,7 +40,7 @@ export interface FakeAdapter extends KmsKeyAdapter {
 
 /**
  * Builds an adapter that signs with a local key and returns real provider wire formats.
- * Signatures are deterministic (RFC 6979), like Hardhat's own local accounts.
+ * Signatures are deterministic (RFC 6979), like Hardhat's own local accounts, unless `randomK` is set.
  */
 export function fakeAdapter(options: FakeAdapterOptions): FakeAdapter {
   const calls = { getPublicKey: 0, getAddress: 0, signDigest: 0 };
@@ -72,6 +77,7 @@ export function fakeAdapter(options: FakeAdapterOptions): FakeAdapter {
         prehash: false,
         lowS: true,
         format: "compact",
+        extraEntropy: options.randomK === true,
       });
       let { r, s } = secp256k1.Signature.fromBytes(compact, "compact");
       if (options.highS === true) {
