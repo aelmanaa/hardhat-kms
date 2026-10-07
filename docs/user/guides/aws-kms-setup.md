@@ -96,9 +96,10 @@ export default defineConfig({
       deployer: {
         provider: "aws",
         keyId: "alias/deployer",
-        // Optional, recommended: the address that `npx hardhat kms accounts` prints for this key.
-        // The plugin refuses to sign if the key derives to another address.
-        address: "0x…",
+        // Optional, recommended: run `npx hardhat kms accounts` and replace the next line with
+        // the `address` line it prints for this key. The plugin then refuses to sign if the key
+        // derives to another address.
+        // address: "0x…",
       },
     },
   },
@@ -109,6 +110,8 @@ export default defineConfig({
 ```
 
 `keyId` accepts a key id, a key ARN, an alias name or an alias ARN; the [configuration reference](../reference/configuration.md) lists every option. The region comes from the ARN if `keyId` is one, then the key's `region`, then `kms.defaults.aws.region`, then the SDK's own chain (`AWS_REGION`, then the profile's region).
+
+To pin the key's address, run `npx hardhat kms accounts`. For a key without a pin it prints an `address` line; paste it into the key in place of the commented-out line ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
 `configVariable("SEPOLIA_RPC_URL")` reads the RPC URL when a network needs it: from an environment variable of that name (`export SEPOLIA_RPC_URL=https://…`), or from the Hardhat keystore (`npx hardhat keystore set SEPOLIA_RPC_URL`) when the config loads the keystore plugin. The config above does not: add `import hardhatKeystore from "@nomicfoundation/hardhat-keystore";` and put `hardhatKeystore` in `plugins`, or load a Hardhat toolbox, which includes it. The script in step 4 uses it.
 
