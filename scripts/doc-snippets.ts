@@ -1,11 +1,13 @@
 // The snippet checks of `scripts/check-docs.ts`: every TypeScript snippet in the given Markdown files
-// typechecks against the built packages, and calls no API marked `@deprecated`.
+// typechecks against the built packages and calls no API marked `@deprecated`, and every snippet
+// that default-exports `defineConfig(...)` loads the way Hardhat loads a config.
 //
 // Kept apart from check-docs.ts, which runs on import, so `test/scripts/doc-snippets.test.ts` can
 // run the checks on fixture pages.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { field } from "./ast.ts";
@@ -185,11 +187,98 @@ function lintDeprecated(directory: string, snippets: Map<string, string>): strin
   return problems;
 }
 
+/** How long the child that loads the configs may run. */
+const LOAD_TIMEOUT_MS = 120_000;
+/** A snippet that default-exports `defineConfig(...)`: a whole `hardhat.config.ts`. */
+const CONFIG_EXPORT = /^\s*export\s+default\s+defineConfig\s*\(/m;
+/** The name of each `configVariable("NAME")` call, with any quote style. */
+const CONFIG_VARIABLE = /\bconfigVariable\(\s*(["'`])([^"'`]+)\1/g;
+
+/**
+ * The value each configuration variable gets while a config loads. Hardhat resolves a variable only
+ * when its value is used, such as an RPC URL on connecting, so loading a config resolves none. A
+ * plugin that resolved one early would get this placeholder, not the value set in the shell that
+ * runs the check. Other environment variables pass through unchanged. The URL names port 1, so an
+ * accidental connection fails at once instead of reaching a local node.
+ */
+function placeholder(name: string): string {
+  return name.endsWith("URL") ? "http://127.0.0.1:1" : `placeholder-${name.toLowerCase()}`;
+}
+
+/**
+ * Loads each config snippet the way `npx hardhat` loads `hardhat.config.ts`, with Hardhat's own
+ * loader and every plugin's validation, in one child process (`scripts/load-config-snippets.ts`).
+ * `configs` maps each `snippet.ts`, relative to the root, to the `file:line` of its opening fence
+ * and its code. The child gets the parent's environment without Hardhat's own variables, which
+ * would set global options such as `--kms`, and with a placeholder for every configuration
+ * variable the snippets name. The child writes its results to `results.json` in `directory`, not to
+ * stdout, so a config or plugin that prints on load cannot hide them.
+ */
+function loadConfigs(
+  directory: string,
+  configs: Map<string, { source: string; code: string }>,
+): string[] {
+  if (configs.size === 0) {
+    return [];
+  }
+  const environment: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    if (!name.startsWith("HARDHAT_")) {
+      environment[name] = value;
+    }
+  }
+  for (const { code } of configs.values()) {
+    for (const [, , name = ""] of code.matchAll(CONFIG_VARIABLE)) {
+      environment[name] = placeholder(name);
+    }
+  }
+  const files = [...configs.keys()];
+  const resultsFile = path.join(directory, "results.json");
+  const result = spawnSync(
+    process.execPath,
+    [
+      path.join(root, "scripts/load-config-snippets.ts"),
+      resultsFile,
+      ...files.map((file) => path.join(root, file)),
+    ],
+    // A plugin that leaves a handle open would keep the child alive: fail instead of hanging.
+    { cwd: root, encoding: "utf8", env: environment, timeout: LOAD_TIMEOUT_MS },
+  );
+  let results: unknown;
+  try {
+    results = JSON.parse(readFileSync(resultsFile, "utf8"));
+  } catch {
+    results = undefined;
+  }
+  if (result.status !== 0 || !Array.isArray(results) || results.length !== files.length) {
+    const reason =
+      result.error !== undefined
+        ? result.error.message
+        : result.status === 0
+          ? "no result list"
+          : `exit ${String(result.status)}`;
+    return [
+      `loading the config snippets failed (${reason}): ${`${result.stdout}${result.stderr}`.trim()}`,
+    ];
+  }
+  const problems: string[] = [];
+  files.forEach((file, index) => {
+    const message: unknown = results[index];
+    if (message !== null) {
+      const source = configs.get(file)?.source ?? file;
+      const text = typeof message === "string" ? message : JSON.stringify(message);
+      problems.push(`${source}: the config does not load in Hardhat: ${text}`);
+    }
+  });
+  return problems;
+}
+
 /**
  * Checks every TypeScript snippet of `files` (paths relative to the root) that is not preceded by
- * the skip marker: it typechecks, and calls no API marked `@deprecated`. Each snippet is written
- * to its own directory under `directory`, which must be inside the root, so the snippets resolve
- * the root's dependencies; the directory is removed before and after.
+ * the skip marker: it typechecks, and calls no API marked `@deprecated`; a snippet that typechecks
+ * and default-exports `defineConfig(...)` must also load in Hardhat (`loadConfigs`). Each snippet
+ * is written to its own directory under `directory`, which must be inside the root, so the
+ * snippets resolve the root's dependencies; the directory is removed before and after.
  */
 export function checkSnippets(
   files: string[],
@@ -199,6 +288,7 @@ export function checkSnippets(
   try {
     const problems: string[] = [];
     const snippets = new Map<string, string>();
+    const configs = new Map<string, { source: string; code: string }>();
     for (const file of files) {
       for (const fence of fences(file)) {
         if (!TYPESCRIPT_LANGUAGES.has(fence.language) || fence.skipped) {
@@ -206,14 +296,21 @@ export function checkSnippets(
         }
         const snippetDirectory = path.join(directory, `snippet-${snippets.size + 1}`);
         const source = `${file}:${fence.line}`;
-        problems.push(...checkSnippet(snippetDirectory, source, fence.code));
-        snippets.set(
-          toPosix(path.relative(root, path.join(snippetDirectory, "snippet.ts"))),
-          source,
-        );
+        const snippet = toPosix(path.relative(root, path.join(snippetDirectory, "snippet.ts")));
+        const errors = checkSnippet(snippetDirectory, source, fence.code);
+        problems.push(...errors);
+        snippets.set(snippet, source);
+        // A config that does not typecheck has already failed; loading it would repeat the error.
+        if (errors.length === 0 && CONFIG_EXPORT.test(fence.code)) {
+          configs.set(snippet, { source, code: fence.code });
+        }
       }
     }
-    return [...problems, ...lintDeprecated(directory, snippets)];
+    return [
+      ...problems,
+      ...lintDeprecated(directory, snippets),
+      ...loadConfigs(directory, configs),
+    ];
   } catch (error) {
     return [error instanceof Error ? error.message : String(error)];
   } finally {

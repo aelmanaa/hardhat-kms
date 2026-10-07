@@ -185,9 +185,10 @@ export default defineConfig({
       deployer: {
         provider: "azure",
         keyId: "https://my-vault.vault.azure.net/keys/deployer/0123456789abcdef0123456789abcdef",
-        // Optional, recommended: the address that `npx hardhat kms accounts` prints for this key.
-        // The plugin refuses to sign if the key derives to another address.
-        address: "0x…",
+        // Optional, recommended: run `npx hardhat kms accounts` and replace the next line with
+        // the `address` line it prints for this key. The plugin then refuses to sign if the key
+        // derives to another address.
+        // address: "0x…",
       },
     },
   },
@@ -198,6 +199,8 @@ export default defineConfig({
 ```
 
 `keyId` can also leave out the version, or the key can be given as `vaultUrl`, `keyName` and an optional `keyVersion`; the [configuration reference](../reference/configuration.md#key-forms-per-provider) lists the forms and the accepted hosts. Prefer the versioned id: without a version, the plugin uses the version that is current when it first reads the key, so rotating the key changes the address on the next run.
+
+To pin the key's address, run `npx hardhat kms accounts`. For a key without a pin it prints an `address` line; paste it into the key in place of the commented-out line ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
 To use a key without a config entry, set `AZURE_KEY_VAULT_KEY_ID` (or `AZURE_KEY_VAULT_KEY_IDS` for several) and pass `--kms azure`; see [Migrate from Foundry](migrate-from-foundry.md). Such keys are added to the network selected with `--network`, or to `default` without one.
 
