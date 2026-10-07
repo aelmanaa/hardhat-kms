@@ -40,15 +40,15 @@ Errors are `HardhatPluginError("hardhat-kms", …)` built from an allow-list of 
 
 ## Threat model summary
 
-| Risk                                                                       | Control                                                                                                            |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| A script or dependency asks the key to sign an arbitrary 32-byte digest    | No RPC method signs a bare digest. `--no-hash` exists only in the `kms sign` task.                                 |
-| A signature intended for one chain is used on another                      | Chain-id check per connection, explicit `chainId` on every transaction, and the typed-data `domain.chainId` check. |
-| The configured key changes underneath the user (rotation, repointed alias) | Address pin, AWS signing with the ARN from `GetPublicKey`, pinned GCP and Azure versions.                          |
-| An adapter or KMS returns a malformed signature, or one from the wrong key | The signature pipeline: nothing is released unless it recovers to the account address.                             |
-| Corruption of the digest or signature between the plugin and GCP           | CRC32C in both directions.                                                                                         |
-| Credentials or identifiers leak through errors and logs                    | No secrets in config, allow-listed errors, restricted `debug` output, `<VAR_NAME>` masking.                        |
-| A client retry broadcasts a transaction twice                              | Error code -32000 plus the local hash after broadcast, and the post-broadcast retry cache.                         |
+| Risk                                                                       | Control                                                                                                                                                     |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A script or dependency asks the key to sign an arbitrary 32-byte digest    | No RPC method signs a bare digest. Only `kms sign --no-hash` and a `rawSign: true` library account ([0014](decisions/0014-library-account-raw-sign.md)) do. |
+| A signature intended for one chain is used on another                      | Chain-id check per connection, explicit `chainId` on every transaction, and the typed-data `domain.chainId` check.                                          |
+| The configured key changes underneath the user (rotation, repointed alias) | Address pin, AWS signing with the ARN from `GetPublicKey`, pinned GCP and Azure versions.                                                                   |
+| An adapter or KMS returns a malformed signature, or one from the wrong key | The signature pipeline: nothing is released unless it recovers to the account address.                                                                      |
+| Corruption of the digest or signature between the plugin and GCP           | CRC32C in both directions.                                                                                                                                  |
+| Credentials or identifiers leak through errors and logs                    | No secrets in config, allow-listed errors, restricted `debug` output, `<VAR_NAME>` masking.                                                                 |
+| A client retry broadcasts a transaction twice                              | Error code -32000 plus the local hash after broadcast, and the post-broadcast retry cache.                                                                  |
 
 The plugin does not protect against these. The user-facing [security model](../user/explanation/security-model.md) explains each row above and these limits, and what happens when a KMS call times out:
 
