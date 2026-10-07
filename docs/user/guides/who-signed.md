@@ -294,7 +294,7 @@ When `signed by` is the key's address, look for the printed digest in the histor
 - **What was signed.** No provider logs the message, the typed data, the transaction or the signature. The transaction itself is on chain; step 3 links it to an event.
 - **The digest, on AWS and Azure.** CloudTrail and Key Vault do not log it, so an event cannot be tied to one transaction for certain. Google Cloud logs it.
 - **The plugin's own request.** The plugin sends no id that the providers log: AWS and Azure log their own request id, and Google Cloud none. An event cannot be traced to one script run.
-- **Requests the log never received.** On Google Cloud, a principal exempted from Data Access logs is never logged, and an entry no sink stores in a log bucket is not read. A sink to another log bucket does not hide entries: the reader reads every log bucket that stores the project's entries. On Azure, `kms history` reads one workspace; a second diagnostic setting can send events elsewhere. On AWS, a request recorded in another account or Region does not show. [What it cannot show](gcp-kms-setup.md#what-it-cannot-show) and [Calls from other accounts and Regions](aws-kms-setup.md#calls-from-other-accounts-and-regions) have the details.
+- **Requests the log never received.** On Google Cloud, a principal exempted from Data Access logs is never logged, and an entry no sink stores in a log bucket is not read. An entry a sink stores in another log bucket is read only when the identity can read that bucket. On Azure, `kms history` reads one workspace; a second diagnostic setting can send events elsewhere. On AWS, a request recorded in another account or Region does not show. [What it cannot show](gcp-kms-setup.md#what-it-cannot-show) and [Calls from other accounts and Regions](aws-kms-setup.md#calls-from-other-accounts-and-regions) have the details.
 
 The plugin writes no local journal to fill these gaps. What does exist outside the log: the transactions on chain, the hash each send returned to your script, and Ignition's deployment journal, which holds the hash of every transaction a deployment sent. [Audit logs](../explanation/security-model.md#audit-logs) in the security model compares the providers field by field.
 
@@ -302,11 +302,11 @@ The plugin writes no local journal to fill these gaps. What does exist outside t
 
 Decide how far back an investigation must reach, and set each log to keep at least that much. `kms history` reads only the log in the table below; a copy kept elsewhere, such as an S3 bucket, a BigQuery dataset or a second Azure workspace, needs the cloud's own tools.
 
-| Provider         | Kept by default                                               | What `kms history` reads                                   |
-| ---------------- | ------------------------------------------------------------- | ---------------------------------------------------------- |
-| AWS KMS          | 90 days of event history, which cannot be changed             | Event history only                                         |
-| Google Cloud KMS | 30 days in the `_Default` bucket                              | Every log bucket that stores the project's entries         |
-| Azure Key Vault  | 30 days in the workspace, unless the workspace says otherwise | The workspace's analytics retention, through its query API |
+| Provider         | Kept by default                                               | What `kms history` reads                                                                |
+| ---------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| AWS KMS          | 90 days of event history, which cannot be changed             | Event history only                                                                      |
+| Google Cloud KMS | 30 days in the `_Default` bucket                              | `_Default`, and other log buckets with the project's entries that the identity can read |
+| Azure Key Vault  | 30 days in the workspace, unless the workspace says otherwise | The workspace's analytics retention, through its query API                              |
 
 **AWS KMS.** Event history keeps 90 days, and reading it is free ([Working with CloudTrail event history](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/view-cloudtrail-events.html)). For a longer record, create a trail that delivers events to an S3 bucket ([Creating a trail with the AWS CLI](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-create-and-update-a-trail-by-using-the-aws-cli-create-trail.html)); a bucket not created by CloudTrail needs the [bucket policy for CloudTrail](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/create-s3-bucket-policy-for-cloudtrail.html). The commands need `cloudtrail:CreateTrail` and `cloudtrail:StartLogging`:
 

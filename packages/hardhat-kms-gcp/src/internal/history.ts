@@ -112,7 +112,7 @@ const THROTTLE_LIMIT = "60 per minute";
 const READ_PERMISSION = "logging.privateLogEntries.list (roles/logging.privateLogViewer)";
 
 const SETUP_HINT =
-  "Check that Data Access audit logs (DATA_READ) are on for Cloud KMS (cloudkms.googleapis.com) in the key's project, that the signing identity is not an exempted principal, and that a sink stores the entries in a log bucket: an entry that every sink excludes, or that goes only to BigQuery, Cloud Storage or Pub/Sub, is not read.";
+  "Check that Data Access audit logs (DATA_READ) are on for Cloud KMS (cloudkms.googleapis.com) in the key's project, that the signing identity is not an exempted principal, and that a sink stores the entries in a log bucket this identity can read. An entry no sink stores in a log bucket, such as one an exclusion filter drops or one sent only to BigQuery, Cloud Storage or Pub/Sub, is not read, and a bucket other than _Default needs roles/logging.viewAccessor.";
 
 const SCOPE_DESCRIPTION = "Data Access audit log, every version of the key";
 
@@ -287,7 +287,8 @@ function signEvent(
   }
   // The filter matches without regard to case: an entry of a key whose name differs only in case
   // belongs to another key. The project part is not compared, since it can be the id or the
-  // number; the request reads the key's project only.
+  // number. A project read also returns entries routed in from another project, so a same-named
+  // key there matches too.
   const suffix = `/${parts.keyPath}/cryptoKeyVersions/`;
   const project = PROJECT_PREFIX.exec(resourceName)?.[0];
   const version =
@@ -419,8 +420,9 @@ async function systemPause(ms: number, signal: AbortSignal): Promise<void> {
  * Cloud Audit Logs logs no request id, so `requestId` is not logged and each entry's `insertId`
  * goes in `extra`. The result never claims to see every sign request: Data Access logs can be
  * off, a principal can be exempted, and the sinks can keep an entry out of every log bucket.
- * A `projects/<id>` resource name reads the entries that originate in the project from whichever
- * log buckets store them, including a bucket in another project, as `entries.list` documents.
+ * A `projects/<id>` resource name reads the project's entries from whichever log buckets store
+ * them, including a bucket in another project, as `entries.list` documents, but only the buckets
+ * the identity can read.
  *
  * @param key - The key.
  * @param request - The range, the limit and the signal.

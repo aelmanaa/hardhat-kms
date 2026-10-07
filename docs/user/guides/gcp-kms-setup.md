@@ -192,6 +192,8 @@ gcloud projects add-iam-policy-binding my-project \
 
 The reader uses Application Default Credentials, as signing does, with the `logging.read` scope. It calls Cloud Logging's `entries.list` over REST through `google-auth-library`, which comes with the Cloud KMS SDK, so it installs nothing more. The Cloud Logging API must be enabled in the quota project of the credentials. Reading signs nothing and makes no Cloud KMS call.
 
+This role reads the `_Required` and `_Default` buckets only. If a sink stores the sign entries in another log bucket, see [Entries in other log buckets](#entries-in-other-log-buckets).
+
 ### What the history shows
 
 Each row comes from one log entry:
@@ -224,20 +226,20 @@ An empty history does not mean the key signed nothing, so the task says so inste
 - the project's sinks may store an entry in no log bucket: an exclusion filter can keep it out of `_Default` while no other sink stores it, and a sink to BigQuery, Cloud Storage or Pub/Sub is not a log bucket, so the reader does not search it;
 - the `_Default` bucket keeps the entries for 30 days, unless its retention was changed. For a range that starts earlier, the task adds a note. A copy in another log bucket follows that bucket's retention.
 
-#### Entries in other log buckets
-
-The reader calls `entries.list` with the resource name `projects/<id>`, the key's project. For such a name, Google documents that "all logs ingested into that container will be returned regardless of which LogBuckets they are actually stored in" ([`entries.list`](https://docs.cloud.google.com/logging/docs/reference/v2/rest/v2/entries/list)). A project read also returns the entries that a sink in another project routes into the project ([Logs Explorer overview](https://docs.cloud.google.com/logging/docs/view/logs-explorer-interface)), and entries kept out of `_Default` by an exclusion filter still show when another sink stores them ([Configure log buckets](https://docs.cloud.google.com/logging/docs/buckets#viewing-excluded-logs)).
-
-So a sink that routes the sign entries to another log bucket, in the key's project or in another project, does not hide them from `kms history`. Two consequences follow from the same documentation:
-
-- such a read can reach buckets in other regions, and `entries.list` can fail while one of them is unavailable;
-- the filter does not name the project. If another project's sink routes its logs into the key's project, and that project has a key with the same location, key ring and name, its sign entries show in the history too. Check `keyResource` with `--show-ids` when that could apply.
-
-None of this has been tested with a sink to a second bucket, and Google does not say which role the read needs on a bucket in another project.
-
 Google documents no delivery delay for audit logs. In the live test on 2026-10-02 each entry reached the log about one second after its call, and `kms history` found the test's signature on its second read, 10 seconds after signing. When the range ends less than 15 minutes ago, the task still notes that recent events may be missing.
 
 Each run reads at most 10 pages of up to 1000 entries each, with up to 30 `entries.list` calls with retries. Cloud Logging allows 60 such calls a minute per project. A throttled call, a server error or a network error is retried twice, after 1 and 2 seconds, before the task fails. These pauses rarely outlast a per-minute quota. A call gets 30 seconds, and one that gets no answer in time is retried once. The reader also stops after 90 seconds. When it stops after 10 pages or 90 seconds, the task shows what it read and says that the range was not read in full.
+
+### Entries in other log buckets
+
+The reader calls `entries.list` with the resource name `projects/<id>`, the key's project. For such a name, Google documents that "all logs ingested into that container will be returned regardless of which LogBuckets they are actually stored in" ([`entries.list`](https://docs.cloud.google.com/logging/docs/reference/v2/rest/v2/entries/list)). A project read also returns the entries that a sink in another project routes into the project ([Logs Explorer overview](https://docs.cloud.google.com/logging/docs/view/logs-explorer-interface)). Google's FAQ on excluded logs gives the same reason for entries excluded from `_Default` that still show at project level ([Configure log buckets](https://docs.cloud.google.com/logging/docs/buckets#viewing-excluded-logs)).
+
+So a sink that routes the sign entries to another log bucket, in the key's project or in another project, does not by itself keep them out of `kms history`. The identity still needs to read that bucket: `roles/logging.privateLogViewer` covers only the `_Required` and `_Default` buckets, and a user-defined bucket needs Logs View Accessor (`roles/logging.viewAccessor`) on its project or on one of its log views ([Access control with IAM](https://docs.cloud.google.com/logging/docs/access-control), [Configure log views](https://docs.cloud.google.com/logging/docs/logs-views)). Google does not say whether a read without it fails or leaves those entries out. Two more consequences follow from the same documentation:
+
+- such a read can reach buckets in other regions; when one is unavailable, Google suggests naming log views that leave it out, which the reader does not do;
+- the filter does not name the project. If another project's sink routes its logs into the key's project, and that project has a key with the same location, key ring and name, its sign entries show in the history too. Check `keyResource` with `--show-ids` when that could apply.
+
+None of this has been tested with a sink to a second bucket.
 
 ### Cost
 
