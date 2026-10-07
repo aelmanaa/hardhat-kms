@@ -61,13 +61,28 @@ const TRANSACTION_METHODS = new Set(["eth_sendTransaction", "eth_signTransaction
  */
 const RAW_SEND_METHODS = new Set(["eth_sendRawTransaction", "eth_sendRawTransactionSync"]);
 
+/** The catalogue entries that refuse a wallet-namespace send. */
+type WalletSendRefusal = typeof ERRORS.walletSendRefused | typeof ERRORS.walletSendCallsRefused;
+
 /**
- * The wallet-namespace form of `eth_sendTransaction`. viem sends it once after `eth_sendTransaction` fails with an error
- * such as -32000, and uses it for every later send on the client if it gets a hash back. For a KMS
- * sender the plugin answers it with -32601, so viem throws the first error and keeps sending
- * `eth_sendTransaction`, which the plugin signs.
+ * The wallet-namespace send methods, with the error that refuses each for a KMS sender. Both name
+ * the sender in `from` of their first param, and the plugin signs neither: it answers them with
+ * -32601 and never passes them to the node.
+ *
+ * - `wallet_sendTransaction`, the wallet-namespace form of `eth_sendTransaction`. viem sends it
+ *   once after `eth_sendTransaction` fails with an error such as -32000, and uses it for every
+ *   later send on the client if it gets a hash back. On -32601 viem throws the first error and
+ *   keeps sending `eth_sendTransaction`, which the plugin signs.
+ * - `wallet_sendCalls` (EIP-5792), which viem's `sendCalls` sends. With `experimental_fallback`,
+ *   viem answers -32601 by sending each call with `eth_sendTransaction`, which the plugin signs.
  */
-const WALLET_SEND_METHOD = "wallet_sendTransaction";
+const WALLET_SEND_METHODS: ReadonlyMap<string, WalletSendRefusal> = new Map<
+  string,
+  WalletSendRefusal
+>([
+  ["wallet_sendTransaction", ERRORS.walletSendRefused],
+  ["wallet_sendCalls", ERRORS.walletSendCallsRefused],
+]);
 
 /** JSON-RPC's "method not found" error code. */
 const METHOD_NOT_FOUND = -32601;
@@ -385,11 +400,12 @@ export async function dispatch(
     if (raw !== undefined) {
       return await sendRawTransaction(request, raw, transactions, next);
     }
-  } else if (request.method === WALLET_SEND_METHOD) {
-    const sender = await kmsWalletSender(accounts, params);
-    if (sender !== undefined) {
-      log("refused %s from KMS account %s", WALLET_SEND_METHOD, sender);
-      const message = catalogMessage(ERRORS.walletSendRefused, { address: sender });
+  } else {
+    const refusal = WALLET_SEND_METHODS.get(request.method);
+    const sender = refusal === undefined ? undefined : await kmsWalletSender(accounts, params);
+    if (refusal !== undefined && sender !== undefined) {
+      log("refused %s from KMS account %s", request.method, sender);
+      const message = catalogMessage(refusal, { address: sender });
       return { jsonrpc: "2.0", id: request.id, error: { code: METHOD_NOT_FOUND, message } };
     }
   }
@@ -397,10 +413,11 @@ export async function dispatch(
 }
 
 /**
- * The KMS account a `wallet_sendTransaction` sends from. Only a first param that is an object
+ * The KMS account a wallet-namespace send names. Only a first param that is an object
  * whose `from` is a KMS address counts. A request without `from`, or with a `from` that is not an
  * address, passes on unchanged: Hardhat's sender handlers do not set `from` on this method, so no
- * handler after the plugin can add a KMS address.
+ * handler after the plugin can add a KMS address. EIP-5792 makes `from` optional on
+ * `wallet_sendCalls`; without it the wallet picks the account, and the plugin is not that wallet.
  *
  * @param accounts - The connection's KMS accounts.
  * @param params - The request's params.
