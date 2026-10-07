@@ -31,7 +31,7 @@ npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
 pnpm add --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
 ```
 
-```sh [yarn]
+```sh [Yarn]
 yarn add --dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
 ```
 
@@ -41,11 +41,11 @@ The command names `hardhat` because the plugin packages list it as a peer depend
 
 ### npm
 
-npm needs no settings. npm 11 warns that `esbuild` has install scripts "not yet covered by allowScripts". npm 12 blocks those scripts and lists the packages: `esbuild`, `protobufjs` with Google Cloud, and `fsevents` on macOS. The plugin needs none of them, so leave them blocked.
+npm needs no settings. npm 11 warns that `esbuild`, and `protobufjs` with Google Cloud, have install scripts "not yet covered by allowScripts". npm 12 blocks those scripts and lists the packages: `esbuild`, `protobufjs` with Google Cloud, and `fsevents` on macOS. The plugin needs none of them, so leave them blocked.
 
 ### pnpm
 
-pnpm 11 and later stop with `ERR_PNPM_IGNORED_BUILDS` because two dependencies have install scripts: `esbuild`, which Hardhat depends on, and `protobufjs`, which the Google Cloud SDK depends on. The packages are installed, but the command exits with an error. Neither script is needed: esbuild's checks its platform binary, and protobufjs's prints a warning. Add this to `pnpm-workspace.yaml`, next to `package.json`, then run `pnpm install`:
+pnpm 11 and later stop with `ERR_PNPM_IGNORED_BUILDS` because two dependencies have install scripts: `esbuild`, which Hardhat depends on, and `protobufjs`, which the Google Cloud SDK depends on. The packages are installed, but the command exits with an error. Neither script is needed: esbuild's script checks its platform binary, and protobufjs's script prints a warning. Add this to `pnpm-workspace.yaml`, next to `package.json`, then run `pnpm install`:
 
 ```yaml
 allowBuilds:
@@ -61,48 +61,21 @@ pnpm 11 and later also write the new packages into `minimumReleaseAgeExclude` in
 
 Yarn 1 needs no settings.
 
-Yarn 4 needs two settings in `.yarnrc.yml`, next to `package.json`, before the install:
+Yarn 4 needs `nodeLinker: node-modules` in `.yarnrc.yml`, next to `package.json`, before the install. Hardhat does not run under Plug'n'Play, Yarn 4's default linker: under it, `yarn hardhat` stops with `HHE22` ("Trying to use a non-local installation of Hardhat").
 
 ```yaml
 nodeLinker: node-modules
+```
+
+From Yarn 4.15, Yarn skips versions published less than a day ago (`npmMinimalAgeGate`, 1440 minutes by default). On the day of a release, the install then fails with `YN0016` ("The version for tag "latest" is quarantined"). Add this line to `.yarnrc.yml` too, and delete it after a day. Yarn 4.10 to 4.14 accept it but do not need it; Yarn 4.9 and earlier refuse it as an unknown setting.
+
+```yaml
 npmPreapprovedPackages: ["hardhat-kms", "@hardhat-kms/*"]
 ```
 
-- `nodeLinker: node-modules`: Hardhat does not run under Plug'n'Play, Yarn 4's default linker. Under it, `yarn hardhat` stops with `HHE22` ("Trying to use a non-local installation of Hardhat").
-- `npmPreapprovedPackages`: Yarn 4 skips versions published less than a day ago (`npmMinimalAgeGate`, 1440 minutes by default). Without this line, an install on the day of a release fails with `YN0016` ("The version for tag "latest" is quarantined"). After a day you can delete it.
+Yarn 4.14 and later run no install scripts by default and print `YN0004` for `esbuild` and `protobufjs`; the plugin needs neither.
 
-Yarn 4 runs no install scripts by default and prints `YN0004` for `esbuild` and `protobufjs`; the plugin needs neither.
-
-### Google Cloud: keep google-gax off 6.11.0
-
-npm marks `google-gax` 6.11.0 as deprecated "due to a known bug". npm and Yarn 4 skip it when another version fits. Yarn 1 picks it, and so can pnpm when its cached registry data predates the deprecation. To check, run `npm ls google-gax`, `pnpm why google-gax` or `yarn why google-gax`. If 6.11.0 is listed, keep the whole project off that version:
-
-::: code-group
-
-```json [npm: package.json]
-{
-  "overrides": {
-    "google-gax": ">=6.5.0 <6.11.0 || ^6.11.1"
-  }
-}
-```
-
-```yaml [pnpm: pnpm-workspace.yaml]
-overrides:
-  google-gax: ">=6.5.0 <6.11.0 || ^6.11.1"
-```
-
-```json [yarn: package.json]
-{
-  "resolutions": {
-    "google-gax": ">=6.5.0 <6.11.0 || ^6.11.1"
-  }
-}
-```
-
-:::
-
-Merge the field into your existing file, then install again.
+`@hardhat-kms/gcp`: Yarn 1 and pnpm 10 can install the deprecated `google-gax` 6.11.0; [Set up a Google Cloud KMS key](gcp-kms-setup.md#3-install-the-plugin-and-configure-the-key) says how to check and how to override it.
 
 ## 2. Register the plugin
 
@@ -153,7 +126,7 @@ npx hardhat kms --help
 pnpm hardhat kms --help
 ```
 
-```sh [yarn]
+```sh [Yarn]
 yarn hardhat kms --help
 ```
 
@@ -167,7 +140,13 @@ Next, create a key and add it to the config: [Set up an AWS KMS key](aws-kms-set
 
 To try a commit that is not on npm, such as a fix on `main`, build the packages from a clone, pack them and install the packed files. For anything else, install from npm.
 
-Building needs Node.js 22.18 or later, because the repository's scripts are TypeScript files that run with plain `node`, and pnpm 12, which the repository pins in `packageManager` (`corepack enable`, or `npm install -g pnpm@12.8.1`). Your Hardhat project needs neither.
+Building needs:
+
+- Git, to clone the repository.
+- Node.js 22.18 or later. The repository's scripts are TypeScript files that run with plain `node`.
+- pnpm 12, which the repository pins in `packageManager`. Run `corepack enable`, or `npm install -g pnpm@12.8.1`.
+
+Your Hardhat project needs none of them: it uses the packed files with npm, pnpm or Yarn on the Node.js versions in [Support](../reference/support.md).
 
 ```sh
 git clone https://github.com/aelmanaa/hardhat-kms.git
@@ -196,6 +175,12 @@ cp <clone>/packages/hardhat-kms/hardhat-kms-<version>.tgz <clone>/packages/hardh
 pnpm add --save-dev ./vendor/hardhat-kms-<version>.tgz ./vendor/hardhat-kms-aws-<version>.tgz
 ```
 
+```sh [Yarn]
+mkdir -p vendor
+cp <clone>/packages/hardhat-kms/hardhat-kms-<version>.tgz <clone>/packages/hardhat-kms-aws/hardhat-kms-aws-<version>.tgz vendor/
+yarn add --dev ./vendor/hardhat-kms-<version>.tgz ./vendor/hardhat-kms-aws-<version>.tgz
+```
+
 :::
 
-The [pnpm](#pnpm) notes above apply here too. Then continue at [step 2](#2-register-the-plugin).
+The [pnpm](#pnpm) and [Yarn](#yarn) notes above apply here too. Then continue at [step 2](#2-register-the-plugin).
