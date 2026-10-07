@@ -13,6 +13,7 @@ import gax from "google-gax";
 import hardhatKms from "hardhat-kms";
 import { crc32c } from "hardhat-kms/provider-utils";
 import type { KmsKeyAdapter, KmsKeyConfig } from "hardhat-kms/types";
+import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatPlugin } from "hardhat/types/plugins";
 
@@ -23,7 +24,7 @@ import {
   type GcpClientOptions,
 } from "../../src/internal/adapter.ts";
 import { kmsHandlers } from "../../src/internal/hook-handlers/kms.ts";
-import { KEY_VERSION_NAME } from "../helpers/fake-gcp-kms.ts";
+import { fakeGcpKmsSdk, KEY_VERSION_NAME } from "../helpers/fake-gcp-kms.ts";
 import {
   isolateGcpEnvironment,
   type KmsServer,
@@ -195,6 +196,59 @@ describe("@hardhat-kms/gcp plugin", () => {
     await adapter.close?.();
     await assert.rejects(createAdapter(hre, "amazon", unclaimed), /unclaimed/);
     assert.deepEqual(unclaimed, ["aws:alias/deployer"]);
+  });
+
+  it("gives the client the key's project in every config form", async () => {
+    process.env.HHKMS_GCP_FORM_NAME =
+      "projects/123456789012/locations/global/keyRings/r/cryptoKeys/k/cryptoKeyVersions/2";
+    process.env.HHKMS_GCP_FORM_PROJECT = "example.com:scoped";
+    try {
+      const hre = await createHardhatRuntimeEnvironment({
+        plugins: [hardhatKmsGcp],
+        kms: {
+          keys: {
+            name: { provider: "gcp", keyVersionName: KEY_VERSION_NAME },
+            nameVariable: {
+              provider: "gcp",
+              keyVersionName: configVariable("HHKMS_GCP_FORM_NAME"),
+            },
+            parts: {
+              provider: "gcp",
+              projectId: "parts-project",
+              location: "global",
+              keyRing: "r",
+              keyName: "k",
+              keyVersion: 1,
+            },
+            partsVariable: {
+              provider: "gcp",
+              projectId: configVariable("HHKMS_GCP_FORM_PROJECT"),
+              location: "global",
+              keyRing: "r",
+              keyName: "k",
+              keyVersion: "1",
+            },
+          },
+        },
+      });
+      const fake = fakeGcpKmsSdk({ secretKey });
+      hre.hooks.registerHandlers(
+        "kms",
+        kmsHandlers(ownVersion, async () => await Promise.resolve(fake.sdk)),
+      );
+      const projects: unknown[] = [];
+      for (const name of ["name", "nameVariable", "parts", "partsVariable"]) {
+        const adapter = await createAdapter(hre, name);
+        // The fake answers with its own key version name, so only the client's options count.
+        await adapter.getPublicKey?.(signContext()).catch(() => {});
+        await adapter.close?.();
+        projects.push(fake.clients.at(-1)?.options.projectId);
+      }
+      assert.deepEqual(projects, ["p", "123456789012", "parts-project", "example.com:scoped"]);
+    } finally {
+      Reflect.deleteProperty(process.env, "HHKMS_GCP_FORM_NAME");
+      Reflect.deleteProperty(process.env, "HHKMS_GCP_FORM_PROJECT");
+    }
   });
 
   it("signs through the real SDK over REST, with the version name and CRC32C", async () => {

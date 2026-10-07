@@ -7,6 +7,7 @@
 // test/integration/transaction-filler.test.ts fails when the two drift apart.
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { min } from "@nomicfoundation/hardhat-utils/bigint";
 import {
   bytesToHexString,
@@ -57,6 +58,12 @@ export type FilledTransaction = RpcTransactionRequest & {
 /** A micro-eth-signer transaction. The filler builds legacy, EIP-2930, EIP-1559 and EIP-7702 ones. */
 export type UnsignedTransaction = ReturnType<typeof Transaction.fromHex>;
 
+/** EIP-1559 fees suggested from the node's `eth_feeHistory`. */
+interface Eip1559Fees {
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+}
+
 /** Fills a KMS account's transaction the way Hardhat fills a local account's. */
 export interface TransactionFiller {
   /**
@@ -73,6 +80,8 @@ export interface TransactionFiller {
 // block raises it by 1/8), and ask eth_feeHistory for the median priority fee.
 const BASE_FEE_FULL_BLOCKS = 3n;
 const REWARD_PERCENTILE = 50;
+// The JSON-RPC error code of a method the node does not have.
+const METHOD_NOT_FOUND = -32601;
 // MultipliedGasEstimation: the share of the latest block's gas limit that is cached as the cap.
 const BLOCK_GAS_LIMIT_SAFETY_FACTOR = 0.95;
 
@@ -97,7 +106,8 @@ function isInternalCallOutOfGas(error: Error): boolean {
 /**
  * Fills transactions for one network connection. It keeps what Hardhat's handlers keep per
  * connection: whether the node supports EIP-1559 and `eth_feeHistory`, and the capped block gas
- * limit.
+ * limit. Unlike Hardhat, it remembers only a node's "method not found" for `eth_feeHistory`: see
+ * #suggestEip1559Fees.
  */
 export class HardhatTransactionFiller implements TransactionFiller {
   readonly #request: RequestFunction;
@@ -231,10 +241,15 @@ export class HardhatTransactionFiller implements TransactionFiller {
     return hexStringToBigInt(stringResult(price, "eth_gasPrice", "eth_gasPrice"));
   }
 
-  /** AutomaticGasPriceHandler#suggestEip1559FeePriceValues. */
-  async #suggestEip1559Fees(): Promise<
-    { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } | undefined
-  > {
+  /**
+   * AutomaticGasPriceHandler#suggestEip1559FeePriceValues, with one difference. Hardhat remembers
+   * any failed or unreadable `eth_feeHistory` for the rest of the connection and sends every later
+   * transaction as legacy, so one transient failure would downgrade every send on the connection.
+   * The filler remembers only a "method not found" (-32601). After any other failure or an answer
+   * it cannot read, it asks once more, then falls back to a legacy gas price for this transaction
+   * only. A timeout is not asked again: the send already waited the network's whole timeout.
+   */
+  async #suggestEip1559Fees(): Promise<Eip1559Fees | undefined> {
     if (this.#nodeSupportsEip1559 === undefined) {
       const block = await this.#request("eth_getBlockByNumber", ["latest", false]);
       if (!isObject(block)) {
@@ -245,22 +260,38 @@ export class HardhatTransactionFiller implements TransactionFiller {
     if (this.#nodeHasFeeHistory === false || !this.#nodeSupportsEip1559) {
       return undefined;
     }
-    // As in Hardhat, a failed request and an answer it cannot read both count as no
-    // eth_feeHistory: a failed request reads as no answer. The answer is read outside the catch,
-    // so a malformed answer is handled by the check that reads it.
-    const history: unknown = await this.#request("eth_feeHistory", [
-      "0x1",
-      "latest",
-      [REWARD_PERCENTILE],
-    ]).catch(() => undefined);
+    const first = await this.#feesFromHistory();
+    const fees = first === "retry" ? await this.#feesFromHistory() : first;
+    return fees === "retry" ? undefined : fees;
+  }
+
+  /**
+   * One `eth_feeHistory` read: the suggested fees, `"retry"` after a failure that may be
+   * transient or an answer it cannot read, or undefined when asking again would not help.
+   */
+  async #feesFromHistory(): Promise<Eip1559Fees | "retry" | undefined> {
+    let history: unknown;
+    try {
+      history = await this.#request("eth_feeHistory", ["0x1", "latest", [REWARD_PERCENTILE]]);
+    } catch (error) {
+      if (isObject(error) && error.code === METHOD_NOT_FOUND) {
+        this.#nodeHasFeeHistory = false;
+        return undefined;
+      }
+      return HardhatError.isHardhatError(error, HardhatError.ERRORS.CORE.NETWORK.NETWORK_TIMEOUT)
+        ? undefined
+        : "retry";
+    }
+    // The answer is read outside the catch, so a malformed answer is handled by the check that
+    // reads it.
     const baseFees: unknown = isObject(history) ? history.baseFeePerGas : undefined;
     const rewards: unknown = isObject(history) ? history.reward : undefined;
     if (!Array.isArray(baseFees) || !Array.isArray(rewards)) {
-      return this.#withoutFeeHistory();
+      return "retry";
     }
     let maxPriorityFeePerGas = quantityOf(Array.isArray(rewards[0]) ? rewards[0][0] : undefined);
     if (maxPriorityFeePerGas === undefined) {
-      return this.#withoutFeeHistory();
+      return "retry";
     }
     if (maxPriorityFeePerGas === 0n) {
       maxPriorityFeePerGas = await this.#suggestedPriorityFee();
@@ -272,19 +303,13 @@ export class HardhatTransactionFiller implements TransactionFiller {
     }
     const lastBaseFee = quantityOf(baseFees.at(-1));
     if (lastBaseFee === undefined) {
-      return this.#withoutFeeHistory();
+      return "retry";
     }
     return {
       maxFeePerGas:
         (lastBaseFee * 9n ** (BASE_FEE_FULL_BLOCKS - 1n)) / 8n ** (BASE_FEE_FULL_BLOCKS - 1n),
       maxPriorityFeePerGas,
     };
-  }
-
-  /** Remembers that the node has no usable eth_feeHistory, so fills use a legacy gas price. */
-  #withoutFeeHistory(): undefined {
-    this.#nodeHasFeeHistory = false;
-    return undefined;
   }
 
   /**

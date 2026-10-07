@@ -16,8 +16,8 @@ export interface RecordingNode {
   requests: { method: string; params: unknown }[];
   /** The node's `eth_accounts` answer; empty, like a remote node's, unless a test changes it. */
   accounts: unknown;
-  /** Methods the node answers with an error, and the error message. */
-  faults: Map<string, string>;
+  /** Methods the node answers with an error: its message, or its message and code (-32000 by default). */
+  faults: Map<string, string | { message: string; code: number }>;
   /**
    * What the node does after it has recorded a raw transaction: answer with an error that has
    * this message (and code, -32000 by default), or wait this many milliseconds before it answers
@@ -40,7 +40,7 @@ export async function startRecordingNode(
   const raw: string[] = [];
   const methods: string[] = [];
   const requests: { method: string; params: unknown }[] = [];
-  const faults = new Map<string, string>();
+  const faults = new Map<string, string | { message: string; code: number }>();
   const hre = await createHardhatRuntimeEnvironment({
     networks: { node: { type: "edr-simulated", chainId: 31337, ...config } },
   });
@@ -52,7 +52,8 @@ export async function startRecordingNode(
       requests.push({ method: request.method, params: structuredClone(request.params) });
       const fault = faults.get(request.method);
       if (fault !== undefined) {
-        return { jsonrpc: "2.0", id: request.id, error: { code: -32000, message: fault } };
+        const error = typeof fault === "string" ? { code: -32000, message: fault } : fault;
+        return { jsonrpc: "2.0", id: request.id, error };
       }
       if (request.method === "eth_accounts") {
         return { jsonrpc: "2.0", id: request.id, result: node?.accounts ?? [] };
