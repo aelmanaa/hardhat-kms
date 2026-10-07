@@ -91,4 +91,4 @@ A published version that must not be used, such as a beta that failed the regist
 
 ## Verify what you installed
 
-Every version is published with a provenance attestation that links it to the GitHub Actions run and the commit it was built from. In a project, `npm audit signatures` reports the four packages with verified attestations. Do not use a version that fails that check; report it as described in [SECURITY.md](../../../SECURITY.md).
+Every version is published with a provenance attestation that links it to the GitHub Actions run and the commit it was built from. In a project, `npm audit signatures` reports the four packages with verified attestations. Do not use a version that fails that check; report it as described in [SECURITY.md](../../../SECURITY.md). The README's [Verify a release](../../../README.md#verify-a-release) section has the same check.
