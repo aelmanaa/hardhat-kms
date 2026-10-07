@@ -100,6 +100,29 @@ describe("validateKmsUserConfig", () => {
     );
   });
 
+  it("rejects the reserved turnkey and fireblocks ids and names their tracking issues", () => {
+    for (const [provider, name, issue] of [
+      ["turnkey", "Turnkey", 54],
+      ["fireblocks", "Fireblocks", 55],
+      ["Turnkey", "Turnkey", 54],
+      ["FIREBLOCKS", "Fireblocks", 55],
+    ] as const) {
+      const config = { kms: { keys: { a: { provider, vaultId: "v" } } } };
+      assertError(
+        config,
+        "kms.keys.a.provider",
+        `Provider "${provider}" is reserved for the planned ${name} provider, which is not released yet (https://github.com/aelmanaa/hardhat-kms/issues/${issue})`,
+        1,
+      );
+      assertError(
+        { networks: { sepolia: { kmsAccounts: [{ provider }] } } },
+        "networks.sepolia.kmsAccounts.0.provider",
+        `issues/${issue}`,
+        1,
+      );
+    }
+  });
+
   it("rejects a misspelled built-in provider instead of treating it as a third-party one", () => {
     assertError(
       { kms: { keys: { a: { provider: "AWS", keyId: "alias/a" } } } },

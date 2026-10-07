@@ -27,13 +27,15 @@ describe("the core error catalogue", () => {
     }
   });
 
-  it("puts no URL in a message, apart from two that always had one", () => {
+  it("puts no URL in a message, apart from the issue links and the AWS endpoint example", () => {
     const withUrl = ENTRIES.filter((entry) => /https?:\/\//.test(entry.template)).map(
       (entry) => entry.id,
     );
-    // The issue link of a planned provider, and the LocalStack example of an AWS endpoint.
+    // The issue link of a planned provider, in the config check and when an adapter is built, and
+    // the LocalStack example of an AWS endpoint.
     assert.deepEqual(withUrl.toSorted(), [
       "core.config.aws-endpoint",
+      "core.config.provider-reserved",
       "core.provider.not-available",
     ]);
   });
