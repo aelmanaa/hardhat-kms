@@ -63,5 +63,6 @@ In a public repository it disables a scheduled workflow after 60 days without ac
 repository; `gh workflow enable ci-all-os.yml` turns it back on.
 
 The required checks in `.github/ruleset-protect-main.json` are the jobs that run on every pull request.
+That file and `.github/ruleset-protect-tags.json` are the rulesets applied to the repository; to change one, merge a pull request that edits the file, then the repository owner applies it.
 The macOS and Windows checks are not required: a required check that never reports stays pending and
 blocks the merge.
