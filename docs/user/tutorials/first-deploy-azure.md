@@ -7,7 +7,7 @@ description: "Sign Hardhat transactions with Azure Key Vault: create a P-256K ke
 
 Audience: developers who have an Azure subscription and the Azure CLI signed in, and have not used Azure Key Vault with Hardhat.
 
-This tutorial was followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH. That run used an existing Standard vault with RBAC. On 2026-10-07, at commit [`f822377`](https://github.com/aelmanaa/hardhat-kms/commit/f822377), with Azure CLI 2.90.0, the Azure commands of steps 2 and 8 were run in a new resource group. They created the group, the vault, a Key Vault Crypto Officer assignment and the key, and refused to reuse the group once it existed. Clean-up purged the key, deleted the group, which removed the vault and the assignment, and purged the vault; `az group exists` then printed `false`. That run skipped the Hardhat steps, step 3's role assignment for a deployer and the "Keep the resource group" route. The plugin is not on npm yet; step 4 says how to install it until then.
+This tutorial was followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH. That run used an existing Standard vault with RBAC. On 2026-10-07, at commit [`f822377`](https://github.com/aelmanaa/hardhat-kms/commit/f822377), with Azure CLI 2.90.0, the Azure commands of steps 2 and 8 were run in a new resource group. They created the group, the vault, a Key Vault Crypto Officer assignment and the key, and refused to reuse the group once it existed. Clean-up purged the key, deleted the group, which removed the vault and the assignment, and purged the vault; `az group exists` then printed `false`. That run skipped the Hardhat steps, step 3's role assignment for a deployer and the "Keep the resource group" route. The plugin is not on npm yet; step 1 says how to install it until then.
 
 In this tutorial you create a Hardhat project, create a signing key in Azure Key Vault, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Key Vault: Hardhat asks Key Vault for a signature each time it sends a transaction.
 
@@ -15,24 +15,83 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 
 You need:
 
-- Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm.
+- Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm, pnpm or Yarn.
+- A POSIX shell, such as bash or zsh; on Windows, use WSL. Step 2 also uses `openssl` to make random names. Until the plugin's first npm release you need Git too: [Install before the first npm release](../guides/install-before-release.md) clones the repository.
 - The Azure CLI, signed in with `az login`, with a subscription where you can create a resource group and a key vault and assign roles, such as one where you have the Owner role. The plugin finds the same sign-in as the CLI. It tries environment variables first, but only a complete set: `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` with `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE`. `AZURE_CLIENT_ID` alone only chooses a user-assigned managed identity, which the plugin tries after the CLI. See [Sign in](../guides/azure-key-vault-setup.md#3-sign-in).
+- A sign-in that completed multifactor authentication. Steps 2, 3 and 8 create and delete Azure resources, which Azure allows a user only after MFA; [Sign in](../guides/azure-key-vault-setup.md#3-sign-in) says which commands that covers.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
 - About 0.01 Sepolia ETH, from a faucet or another account.
 
-## 1. Create a Hardhat project
+## 1. Create a Hardhat project with the plugin
 
 Create a project from Hardhat's viem template in an empty directory:
 
-```sh
+::: code-group
+
+```sh [npm]
 mkdir kms-tutorial
 cd kms-tutorial
 npx --yes hardhat@latest --init --template node-test-runner-viem
 ```
 
-`--yes` lets npx download Hardhat without asking first.
+```sh [pnpm]
+mkdir kms-tutorial
+cd kms-tutorial
+pnpm dlx hardhat@latest --init --template node-test-runner-viem
+```
+
+```sh [Yarn]
+mkdir kms-tutorial
+cd kms-tutorial
+yarn init -2
+printf 'nodeLinker: node-modules\napprovedGitRepositories:\n  - "https://github.com/foundry-rs/forge-std.git"\n' >> .yarnrc.yml
+yarn dlx hardhat@latest --init --template node-test-runner-viem
+```
+
+:::
+
+`--yes` lets npx download Hardhat without asking first; `pnpm dlx` and `yarn dlx` do not ask.
+
+With Yarn, `yarn init -2` pins Yarn 4 in `package.json`, so the template's install runs with Yarn 4 rather than Yarn 1. Hardhat does not run under Yarn 4's default Plug'n'Play linker, and the template installs `forge-std` from GitHub, which Yarn 4 refuses unless the repository is approved.
 
 The template has a `Counter` contract, the Ignition module `ignition/modules/Counter.ts` that deploys it, and a `sepolia` network. It also installs `@nomicfoundation/hardhat-verify`, which verifies contracts on block explorers.
+
+Install the core plugin, `hardhat-kms`, and the Azure provider, `@hardhat-kms/azure`, in the project with [Install before the first npm release](../guides/install-before-release.md): the packages are not on npm yet, so that page builds them from the repository. Come back here after its step 3.
+
+Register the provider: in `hardhat.config.ts`, import it and add it to `plugins`. It loads `hardhat-kms` itself. The rest of the file stays as the template made it:
+
+<!-- docs-check: skip -->
+
+```ts
+import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
+import { configVariable, defineConfig } from "hardhat/config";
+import hardhatKmsAzure from "@hardhat-kms/azure";
+
+export default defineConfig({
+  plugins: [hardhatToolboxViemPlugin, hardhatKmsAzure],
+  // The rest of the template's config, unchanged.
+});
+```
+
+Check that Hardhat finds the plugin:
+
+::: code-group
+
+```sh [npm]
+npx hardhat kms --help
+```
+
+```sh [pnpm]
+pnpm hardhat kms --help
+```
+
+```sh [Yarn]
+yarn hardhat kms --help
+```
+
+:::
+
+It lists the `kms` tasks, such as `kms accounts` and `kms address`. If it prints `Error HHE404: Task "kms" not found` instead, `hardhatKmsAzure` is missing from `plugins`. You have created nothing in Azure yet, so an install problem costs nothing to fix.
 
 ## 2. Create a vault and a key
 
@@ -144,24 +203,9 @@ az role assignment list --scope "$KEY_SCOPE" --include-inherited \
   --query '[].[roleDefinitionName,principalName]' --output tsv
 ```
 
-## 4. Add the plugin and the key to the project
+## 4. Add the key to the project
 
-Install the core plugin and the Azure provider:
-
-```sh
-npm install --save-dev hardhat-kms @hardhat-kms/azure
-```
-
-Until the packages are published on npm, this command fails with `E404`: follow [Install before the first npm release](../guides/install-before-release.md) to build the two packages from the repository and install them with npm or pnpm, then continue at the `hardhat.config.ts` step below.
-
-In a pnpm project, install with `pnpm add -D hardhat-kms @hardhat-kms/azure`. pnpm 12 runs no install scripts of dependencies until the project decides on each. If it stops with `ERR_PNPM_IGNORED_BUILDS` for `esbuild`, which Hardhat depends on, the script is not needed: it only checks esbuild's platform binary. Add this to `pnpm-workspace.yaml`, next to `package.json`, and install again:
-
-```yaml
-allowBuilds:
-  esbuild: false
-```
-
-Replace `hardhat.config.ts` with the file below. Compared with the template, it adds `hardhatKmsAzure` to `plugins`, adds a `kms` section with the key, gives the `sepolia` network `kmsAccounts` instead of `accounts`, so no private key is in the project, and turns Etherscan verification off. The key id comes from the variable `AZURE_KEY_ID`, so the vault name stays out of the file:
+Replace `hardhat.config.ts` with the file below. Compared with the template, it keeps `hardhatKmsAzure` in `plugins` from step 1, adds a `kms` section with the key, gives the `sepolia` network `kmsAccounts` instead of `accounts`, so no private key is in the project, sets the network's `chainId` and turns Etherscan verification off. The key id comes from the variable `AZURE_KEY_ID`, so the vault name stays out of the file:
 
 ```ts
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
@@ -211,6 +255,7 @@ export default defineConfig({
     sepolia: {
       type: "http",
       chainType: "l1",
+      chainId: 11155111,
       url: configVariable("SEPOLIA_RPC_URL"),
       kmsAccounts: ["deployer"],
     },
@@ -219,6 +264,8 @@ export default defineConfig({
 ```
 
 Etherscan needs an API key, and without one its verification fails. To verify on Etherscan too, get a key from [Etherscan](https://etherscan.io/apis), store it with `npx hardhat keystore set ETHERSCAN_API_KEY` or `export ETHERSCAN_API_KEY=…`, and replace `enabled: false` with `apiKey: configVariable("ETHERSCAN_API_KEY")`.
+
+`chainId: 11155111` is Sepolia's chain id. Before the plugin signs a transaction, it asks the node for its chain; if `SEPOLIA_RPC_URL` points at another chain, it stops with [`core.chain.mismatch`](../reference/errors.md#chains) and signs nothing.
 
 Every command that uses the key needs `AZURE_KEY_ID`. Set it from step 2's `KEY_ID`:
 
@@ -238,11 +285,27 @@ export AZURE_KEY_ID="$KEY_ID"
 
 Set the RPC URL, then ask Key Vault for the key's address:
 
-```sh
+::: code-group
+
+```sh [npm]
 export SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
 DEPLOYER_ADDRESS=$(npx hardhat kms address deployer)
 echo "$DEPLOYER_ADDRESS"
 ```
+
+```sh [pnpm]
+export SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+DEPLOYER_ADDRESS=$(pnpm hardhat kms address deployer)
+echo "$DEPLOYER_ADDRESS"
+```
+
+```sh [Yarn]
+export SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+DEPLOYER_ADDRESS=$(yarn hardhat kms address deployer)
+echo "$DEPLOYER_ADDRESS"
+```
+
+:::
 
 It prints the key's address, `0x` and 40 hex digits. Steps 5 and 6 use `DEPLOYER_ADDRESS`; in a new shell, run the same command again first. Pin the address: in `hardhat.config.ts`, add an `address` line to the `deployer` key, with the address in place of `<deployer address>`. The rest of the file stays the same:
 
@@ -264,9 +327,21 @@ The versioned id keeps the project on this version of the key if someone rotates
 
 Before you send funds to the address, check that your credentials may sign with the key:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat kms accounts --check-sign
 ```
+
+```sh [pnpm]
+pnpm hardhat kms accounts --check-sign
+```
+
+```sh [Yarn]
+yarn hardhat kms accounts --check-sign
+```
+
+:::
 
 It prints a table with one row for the key, with your address in place of `<deployer address>`:
 
@@ -291,9 +366,21 @@ To try the deployment on a local fork of Sepolia before you fund the address, ad
 
 Deploy the module from the deployer address, and verify the contract, in one command:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --verify --default-sender "$DEPLOYER_ADDRESS"
 ```
+
+```sh [pnpm]
+pnpm hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --verify --default-sender "$DEPLOYER_ADDRESS"
+```
+
+```sh [Yarn]
+yarn hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --verify --default-sender "$DEPLOYER_ADDRESS"
+```
+
+:::
 
 Ignition asks you to confirm the network; answer `y`. Each transaction usually costs one Key Vault `sign` operation; retries can add more. Naming the sender by its address keeps the deployer the same when you add accounts or keys to the network later; [Choose the sender by address](../guides/multiple-keys.md#choose-the-sender-by-address) explains why.
 
@@ -345,9 +432,21 @@ When you are done, send the remaining Sepolia ETH back, then disable the key, de
 
 Send the balance back with the script in [Return the funds from a KMS address](../guides/return-funds.md): save it as `scripts/return-funds.ts`, then run it with `RETURN_TO` set to an address with no code, such as your own wallet's:
 
-```sh
+::: code-group
+
+```sh [npm]
 RETURN_TO=<return address> npx hardhat run scripts/return-funds.ts
 ```
+
+```sh [pnpm]
+RETURN_TO=<return address> pnpm hardhat run scripts/return-funds.ts
+```
+
+```sh [Yarn]
+RETURN_TO=<return address> yarn hardhat run scripts/return-funds.ts
+```
+
+:::
 
 It ends with `sent in <transaction hash>`. If it stops with a one-line message instead, [What the script refuses](../guides/return-funds.md#what-the-script-refuses) explains each one, and nothing was sent unless the line names a transaction.
 
