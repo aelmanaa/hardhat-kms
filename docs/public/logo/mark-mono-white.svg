@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="-1.25 -3 68 68">
+  <title>hardhat-kms</title>
+  <!-- hardhat-kms mark. The frame is the KMS boundary; its only opening is a 16-unit slot in the right wall.
+       The key (20-unit block) is wider than the slot, so it cannot leave. Only the signature (green ink
+       stroke) passes through. Ink bounds x 2..63.5, y 7..55 on the 64-unit grid. -->
+  <g>
+    <path d="M53 39V46a6 6 0 0 1-6 6H11a6 6 0 0 1-6-6V16a6 6 0 0 1 6-6H47a6 6 0 0 1 6 6V23" fill="none" stroke="#FFFFFF" stroke-width="6"/>
+    <rect x="12" y="21" width="20" height="20" rx="4" fill="#FFFFFF"/>
+    <path d="M39 28H47C54 28 59 25.5 63.5 20.5C61 30 55 34 47 34H39a3 3 0 0 1 0-6z" fill="#FFFFFF"/>
+  </g>
+</svg>
