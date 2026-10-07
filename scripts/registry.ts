@@ -115,6 +115,12 @@ export function registrySpecs(version: string): string[] {
 }
 
 /**
+ * The Yarn 4 version scripts/test-peer-installs.ts measures, through corepack; the registry-mode
+ * test runs the same one.
+ */
+export const YARN_BERRY = "4.18.1";
+
+/**
  * The `.yarnrc.yml` of a Yarn 4 test project. Yarn 4.15 and later skip versions published less
  * than a day ago (`npmMinimalAgeGate`), so on the day of a release every registry-mode install
  * would stop with `YN0016`. Registry mode therefore adds the line the install page tells users to

@@ -48,12 +48,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { assertInstalledVersion, registryOptionsOrExit, yarnBerrySettings } from "./registry.ts";
+import {
+  assertInstalledVersion,
+  registryOptionsOrExit,
+  YARN_BERRY,
+  yarnBerrySettings,
+} from "./registry.ts";
 import { output, readJson, resolvedVersion, root, run, stringRecord } from "./temporary-install.ts";
 
-/** The package managers measured, with the exact versions, so a result names what produced it. */
+/**
+ * The package managers measured, with the exact Yarn versions (Yarn 4's is YARN_BERRY in
+ * registry.ts), so a result names what produced it.
+ */
 const YARN_CLASSIC = "1.22.22";
-const YARN_BERRY = "4.18.1";
 const MANAGERS = ["npm", "npm --legacy-peer-deps", "pnpm", "yarn classic", "yarn berry"] as const;
 type Manager = (typeof MANAGERS)[number];
 
@@ -231,10 +238,18 @@ function isolated(command: string, args: string[]): [string, string[]] {
     npm_config_audit: "false",
     npm_config_fund: "false",
     npm_config_update_notifier: "false",
-    // npm, pnpm and Yarn classic read npm_config_registry; Yarn Berry has its own name.
+    // npm, pnpm and Yarn classic read npm_config_registry; Yarn Berry has its own name, and
+    // refuses an http registry, such as a local verdaccio, whose host it is not told to trust.
     ...(options.registry === undefined
       ? {}
-      : { npm_config_registry: options.registry, YARN_NPM_REGISTRY_SERVER: options.registry }),
+      : {
+          npm_config_registry: options.registry,
+          YARN_NPM_REGISTRY_SERVER: options.registry,
+          YARN_UNSAFE_HTTP_WHITELIST: new URL(options.registry).hostname,
+          // Yarn Berry caches registry metadata by host name, not port, so another local
+          // registry on the same host would leave tarball URLs that point at its port.
+          YARN_GLOBAL_FOLDER: path.join(work, "yarn-global"),
+        }),
   };
   return [
     "env",
