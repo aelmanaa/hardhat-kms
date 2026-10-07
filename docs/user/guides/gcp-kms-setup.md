@@ -221,8 +221,19 @@ An empty history does not mean the key signed nothing, so the task says so inste
 
 - the Data Access logs may be off for Cloud KMS, or may have been turned on after the signature;
 - a principal listed in `exemptedMembers` is never logged;
-- an exclusion filter can drop the entries, and a sink can send them to another bucket or project, which the reader does not search;
-- the `_Default` bucket keeps the entries for 30 days, unless its retention was changed. For a range that starts earlier, the task adds a note.
+- the project's sinks may store an entry in no log bucket: an exclusion filter can keep it out of `_Default` while no other sink stores it, and a sink to BigQuery, Cloud Storage or Pub/Sub is not a log bucket, so the reader does not search it;
+- the `_Default` bucket keeps the entries for 30 days, unless its retention was changed. For a range that starts earlier, the task adds a note. A copy in another log bucket follows that bucket's retention.
+
+#### Entries in other log buckets
+
+The reader calls `entries.list` with the resource name `projects/<id>`, the key's project. For such a name, Google documents that "all logs ingested into that container will be returned regardless of which LogBuckets they are actually stored in" ([`entries.list`](https://docs.cloud.google.com/logging/docs/reference/v2/rest/v2/entries/list)). A project read also returns the entries that a sink in another project routes into the project ([Logs Explorer overview](https://docs.cloud.google.com/logging/docs/view/logs-explorer-interface)), and entries kept out of `_Default` by an exclusion filter still show when another sink stores them ([Configure log buckets](https://docs.cloud.google.com/logging/docs/buckets#viewing-excluded-logs)).
+
+So a sink that routes the sign entries to another log bucket, in the key's project or in another project, does not hide them from `kms history`. Two consequences follow from the same documentation:
+
+- such a read can reach buckets in other regions, and `entries.list` can fail while one of them is unavailable;
+- the filter does not name the project. If another project's sink routes its logs into the key's project, and that project has a key with the same location, key ring and name, its sign entries show in the history too. Check `keyResource` with `--show-ids` when that could apply.
+
+None of this has been tested with a sink to a second bucket, and Google does not say which role the read needs on a bucket in another project.
 
 Google documents no delivery delay for audit logs. In the live test on 2026-10-02 each entry reached the log about one second after its call, and `kms history` found the test's signature on its second read, 10 seconds after signing. When the range ends less than 15 minutes ago, the task still notes that recent events may be missing.
 
