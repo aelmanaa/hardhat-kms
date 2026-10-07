@@ -32,6 +32,7 @@ The plugin is not released yet. Each page opens with a Status line that says wha
 | [Use several keys across networks](user/guides/multiple-keys.md)              | How-to      |
 | [Debug output](user/guides/debug-output.md)                                   | How-to      |
 | [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md)           | How-to      |
+| [After an uncertain send](user/guides/uncertain-sends.md)                     | How-to      |
 | [Migrate from Foundry](user/guides/migrate-from-foundry.md)                   | How-to      |
 | [Comparison with Foundry](user/explanation/foundry-comparison.md)             | Explanation |
 | [How hardhat-kms works](user/explanation/how-it-works.md)                     | Explanation |

@@ -59,6 +59,7 @@ Pages:
 - Use several keys across networks and providers, next to local or Ledger accounts, and pick the sender: [docs/user/guides/multiple-keys.md](docs/user/guides/multiple-keys.md)
 - Turn on and read the debug output: [docs/user/guides/debug-output.md](docs/user/guides/debug-output.md)
 - Deploy with Hardhat Ignition from a KMS account (choosing the deployer, rehearsing on a simulated network): [docs/user/guides/deploy-with-ignition.md](docs/user/guides/deploy-with-ignition.md)
+- A send failed with no clear answer (`-32000`, a gateway timeout), a transaction is not mined, or a nonce gap: look it up, compare the pending and latest counts, fill or replace a nonce: [docs/user/guides/uncertain-sends.md](docs/user/guides/uncertain-sends.md)
 - Complete projects to copy, which deploy and call a contract with viem, ethers or Ignition: [examples/README.md](examples/README.md)
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - How a request goes from viem or ethers through the plugin to the KMS and the node: [docs/user/explanation/how-it-works.md](docs/user/explanation/how-it-works.md)
