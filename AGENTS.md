@@ -107,21 +107,21 @@ Where things are:
 - `tools/docs-site`: a private package, never published, that builds the docs site from `docs/` with VitePress; see [Documentation](docs/contributor/documentation.md#the-docs-site).
 - `examples/`: Hardhat projects that deploy and call a contract from a KMS account with viem, ethers and Ignition. They are workspace members, and `pnpm run test:examples` runs them against LocalStack.
 
-| Topic                                                | Page                                                                                             |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Module map, code map, request flows                  | [docs/contributor/architecture.md](docs/contributor/architecture.md)                             |
-| Signature checks, key pinning, threat model          | [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md)                     |
-| Security checklist for signing and sending changes   | [docs/contributor/security-review.md](docs/contributor/security-review.md)                       |
-| Adapter interface, provider packages                 | [docs/contributor/providers.md](docs/contributor/providers.md)                                   |
-| Transaction filling, nonces, send lock               | [docs/contributor/transactions.md](docs/contributor/transactions.md)                             |
-| Test layers and conventions                          | [docs/contributor/testing.md](docs/contributor/testing.md)                                       |
-| Transactions of the latest live run on Sepolia       | [docs/live-proof.md](docs/live-proof.md)                                                         |
-| Quality gates, hooks, CI                             | [docs/contributor/tooling.md](docs/contributor/tooling.md)                                       |
-| Who releases, the signed tag, staging and promotion  | [docs/contributor/releasing.md](docs/contributor/releasing.md)                                   |
-| How the docs are organised                           | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
-| Why the main decisions were made                     | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
-| How other signers compare, and why each check exists | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
-| Roadmap                                              | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
+| Topic                                                       | Page                                                                                             |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Module map, code map, request flows                         | [docs/contributor/architecture.md](docs/contributor/architecture.md)                             |
+| Signature checks, key pinning, threat model                 | [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md)                     |
+| Security checklist for signing, sending and release changes | [docs/contributor/security-review.md](docs/contributor/security-review.md)                       |
+| Adapter interface, provider packages                        | [docs/contributor/providers.md](docs/contributor/providers.md)                                   |
+| Transaction filling, nonces, send lock                      | [docs/contributor/transactions.md](docs/contributor/transactions.md)                             |
+| Test layers and conventions                                 | [docs/contributor/testing.md](docs/contributor/testing.md)                                       |
+| Transactions of the latest live run on Sepolia              | [docs/live-proof.md](docs/live-proof.md)                                                         |
+| Quality gates, hooks, CI                                    | [docs/contributor/tooling.md](docs/contributor/tooling.md)                                       |
+| Who releases, the signed tag, staging and promotion         | [docs/contributor/releasing.md](docs/contributor/releasing.md)                                   |
+| How the docs are organised                                  | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
+| Why the main decisions were made                            | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
+| How other signers compare, and why each check exists        | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
+| Roadmap                                                     | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
 
 Decision records:
 
@@ -154,7 +154,7 @@ Rules for every change:
 - Tests come with the change, and coverage stays at or above 95%.
 - Docs ship with the code: update the pages the change affects, and link any new page from this file and from [docs/README.md](docs/README.md).
 - Do not edit `packages/hardhat-kms/src/internal/vendor/`. It is micro-eth-signer 0.19.0 code with only import paths changed; see [decision 0001](docs/contributor/decisions/0001-vendor-eip712-encoder.md).
-- Before changing code that decides what gets signed (`packages/hardhat-kms/src/internal/crypto/`, `packages/hardhat-kms/src/internal/signer/`), read [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md). A pull request that changes a path listed in [docs/contributor/security-review.md](docs/contributor/security-review.md) carries its ticked security checklist.
+- Before changing code that decides what gets signed (`packages/hardhat-kms/src/internal/crypto/`, `packages/hardhat-kms/src/internal/signer/`), read [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md). A pull request that changes a path listed in [docs/contributor/security-review.md](docs/contributor/security-review.md) carries the ticked checklist items of each list it touches; the release workflows, release scripts and package manifests have their own list there.
 - Never print or commit secrets, key ids from real accounts, or API-keyed RPC URLs, including in tests, logs and error messages.
 - After changing a TSDoc comment or a public type of `hardhat-kms`, run `pnpm run docs:api`.
 - Build every error from a catalogue entry (`src/internal/error-catalog.ts`) with `catalogError`, `catalogMessage` or `internalError`, then run `pnpm run docs:errors`. See [Errors](docs/contributor/architecture.md#errors).
