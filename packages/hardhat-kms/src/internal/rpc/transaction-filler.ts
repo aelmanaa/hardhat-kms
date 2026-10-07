@@ -12,6 +12,7 @@ import {
   bytesToHexString,
   hexStringToBigInt,
   hexStringToNumber,
+  isHexString,
   numberToHexString,
 } from "@nomicfoundation/hardhat-utils/hex";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
@@ -162,11 +163,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
       [withPaddedAuthorizationSignatures(tx), ...rest],
       rpcTransactionRequest,
     );
-    const { gas } = request;
-    // The gas step always sets gas; this narrows the type and keeps Hardhat's check.
-    if (gas === undefined) {
-      throw catalogError(ERRORS.txNoGas, {}, { operation: method });
-    }
+    const gas = requireGas(request, method);
     checkFeeFields(request, method);
     const chainId = await this.#checkChain(request.chainId, method);
     const nonce = request.nonce ?? (await this.#pendingNonce(request.from, method));
@@ -248,45 +245,57 @@ export class HardhatTransactionFiller implements TransactionFiller {
     if (this.#nodeHasFeeHistory === false || !this.#nodeSupportsEip1559) {
       return undefined;
     }
+    // As in Hardhat, a failed request and an answer it cannot read both count as no
+    // eth_feeHistory: a failed request reads as no answer. The answer is read outside the catch,
+    // so a malformed answer is handled by the check that reads it.
+    const history: unknown = await this.#request("eth_feeHistory", [
+      "0x1",
+      "latest",
+      [REWARD_PERCENTILE],
+    ]).catch(() => undefined);
+    const baseFees: unknown = isObject(history) ? history.baseFeePerGas : undefined;
+    const rewards: unknown = isObject(history) ? history.reward : undefined;
+    if (!Array.isArray(baseFees) || !Array.isArray(rewards)) {
+      return this.#withoutFeeHistory();
+    }
+    let maxPriorityFeePerGas = quantityOf(Array.isArray(rewards[0]) ? rewards[0][0] : undefined);
+    if (maxPriorityFeePerGas === undefined) {
+      return this.#withoutFeeHistory();
+    }
+    if (maxPriorityFeePerGas === 0n) {
+      maxPriorityFeePerGas = await this.#suggestedPriorityFee();
+    }
+    // Still 0 on a nearly empty chain, such as a local test network, or without
+    // eth_maxPriorityFeePerGas: pay 1 wei.
+    if (maxPriorityFeePerGas === 0n) {
+      maxPriorityFeePerGas = 1n;
+    }
+    const lastBaseFee = quantityOf(baseFees.at(-1));
+    if (lastBaseFee === undefined) {
+      return this.#withoutFeeHistory();
+    }
+    return {
+      maxFeePerGas:
+        (lastBaseFee * 9n ** (BASE_FEE_FULL_BLOCKS - 1n)) / 8n ** (BASE_FEE_FULL_BLOCKS - 1n),
+      maxPriorityFeePerGas,
+    };
+  }
+
+  /** Remembers that the node has no usable eth_feeHistory, so fills use a legacy gas price. */
+  #withoutFeeHistory(): undefined {
+    this.#nodeHasFeeHistory = false;
+    return undefined;
+  }
+
+  /**
+   * The node's eth_maxPriorityFeePerGas, or 0 when it has none or answers with something other
+   * than a hex quantity, as Hardhat's catch does.
+   */
+  async #suggestedPriorityFee(): Promise<bigint> {
     try {
-      const history = await this.#request("eth_feeHistory", ["0x1", "latest", [REWARD_PERCENTILE]]);
-      const baseFees: unknown = isObject(history) ? history.baseFeePerGas : undefined;
-      const rewards: unknown = isObject(history) ? history.reward : undefined;
-      if (!Array.isArray(baseFees) || !Array.isArray(rewards)) {
-        // eth_feeHistory returned no baseFeePerGas or reward: treat it as missing, as below.
-        this.#nodeHasFeeHistory = false;
-        return undefined;
-      }
-      const firstReward: unknown = Array.isArray(rewards[0]) ? rewards[0][0] : undefined;
-      let maxPriorityFeePerGas = hexStringToBigInt(
-        stringResult(firstReward, "reward", "eth_feeHistory"),
-      );
-      if (maxPriorityFeePerGas === 0n) {
-        try {
-          const suggested = await this.#request("eth_maxPriorityFeePerGas", []);
-          maxPriorityFeePerGas = hexStringToBigInt(
-            stringResult(suggested, "eth_maxPriorityFeePerGas", "eth_maxPriorityFeePerGas"),
-          );
-        } catch {
-          // The node has no eth_maxPriorityFeePerGas.
-          maxPriorityFeePerGas = 1n;
-        }
-      }
-      // Still 0 on a nearly empty chain, such as a local test network: pay 1 wei.
-      if (maxPriorityFeePerGas === 0n) {
-        maxPriorityFeePerGas = 1n;
-      }
-      const lastBaseFee: unknown = baseFees.at(-1);
-      return {
-        maxFeePerGas:
-          (hexStringToBigInt(stringResult(lastBaseFee, "baseFeePerGas", "eth_feeHistory")) *
-            9n ** (BASE_FEE_FULL_BLOCKS - 1n)) /
-          8n ** (BASE_FEE_FULL_BLOCKS - 1n),
-        maxPriorityFeePerGas,
-      };
+      return quantityOf(await this.#request("eth_maxPriorityFeePerGas", [])) ?? 0n;
     } catch {
-      this.#nodeHasFeeHistory = false;
-      return undefined;
+      return 0n;
     }
   }
 
@@ -441,6 +450,17 @@ export function notPlainData(method: string): HardhatPluginError {
 }
 
 /**
+ * Reads a hex quantity from a node's answer, as `hexStringToBigInt` does, without throwing.
+ *
+ * @param value - The answer.
+ * @returns The number, or `undefined` when the answer is not a hex string.
+ */
+function quantityOf(value: unknown): bigint | undefined {
+  // isHexString does not narrow the type; String() returns the same string.
+  return isHexString(value) ? hexStringToBigInt(String(value)) : undefined;
+}
+
+/**
  * Reads a string from a node's answer.
  *
  * @param value - The answer.
@@ -455,13 +475,33 @@ export function stringResult(value: unknown, what: string, operation: string): s
   return value;
 }
 
-/** The fee checks of LocalAccountsHandler#modifyRequest, in its order. */
-function checkFeeFields(request: RpcTransactionRequest, method: string): void {
+/**
+ * The gas of a filled request. The gas step of {@link HardhatTransactionFiller.fill} always sets
+ * it; this keeps Hardhat's check and narrows the type.
+ *
+ * @param request - The validated request.
+ * @param method - The RPC method, for the error message.
+ * @returns The gas.
+ */
+export function requireGas(request: RpcTransactionRequest, method: string): bigint {
+  if (request.gas === undefined) {
+    throw catalogError(ERRORS.txNoGas, {}, { operation: method });
+  }
+  return request.gas;
+}
+
+/**
+ * The fee checks of LocalAccountsHandler#modifyRequest, in its order.
+ *
+ * @param request - The validated request.
+ * @param method - The RPC method, for error messages.
+ */
+export function checkFeeFields(request: RpcTransactionRequest, method: string): void {
   const hasGasPrice = request.gasPrice !== undefined;
   const hasEip1559Fields =
     request.maxFeePerGas !== undefined || request.maxPriorityFeePerGas !== undefined;
   const details = { operation: method };
-  // Unreachable through fill, which always sets a fee; kept as Hardhat's defensive check.
+  // Unreachable through fill, which always sets a fee; kept as Hardhat's check.
   if (!hasGasPrice && !hasEip1559Fields) {
     throw catalogError(ERRORS.txNoFee, {}, details);
   }
