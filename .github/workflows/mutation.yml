@@ -6,14 +6,16 @@ name: Mutation testing
 #
 # Shards. The `plan` job reads `mutate` and makes one shard per entry that names a single file
 # (`rpc_dispatcher` for src/internal/rpc/dispatcher.ts), and one per directory under src/internal/
-# for the other entries (today crypto, signer and viem). The exclusions (`!` entries) go to every
-# shard of their directory. Each shard is its own job on its own runner, with its own incremental
+# for the other entries (today crypto, signer and viem). A file entry whose name has other
+# characters than lowercase letters, digits and `-`, or a line range, runs in its directory's shard.
+# The exclusions (`!` entries) go to every shard of their directory, and a directory shard excludes
+# the files that have shards of their own, so no mutant is tested, or counted, twice. Each shard is its own job on its own runner, with its own incremental
 # file and cache entries, so the slowest shard sets the wall time instead of the sum of all of them,
 # and a shard that runs long does not cancel the others. The `score` job adds up the shards' reports
 # and checks the total against `break`. Each shard also checks its own score against `break`, so one
 # weak shard fails even when the total passes. An entry of `mutate` outside src/internal/<directory>/,
-# or in a directory or file whose name has other characters than lowercase letters, digits and `-`,
-# fails the plan, so no file is left out of every shard.
+# or in a directory whose name has other characters than lowercase letters and digits, fails the
+# plan, so no file is left out of every shard.
 #
 # - Weekly, Mondays: a shard is skipped before install when its last run on the same inputs passed;
 #   otherwise an incremental run that re-tests only the mutants in changed mutated files and the
@@ -101,6 +103,13 @@ jobs:
               for shard in shards.values():
                   if shard["directory"] == directory:
                       shard["mutate"].append(entry)
+          # A directory shard leaves out the files that have shards of their own, so a glob such as
+          # src/internal/rpc/**/*.ts next to src/internal/rpc/dispatcher.ts tests that file once.
+          for name, shard in shards.items():
+              if name == shard["directory"]:
+                  for other, own in shards.items():
+                      if other != name and own["directory"] == name:
+                          shard["mutate"].extend(f"!{entry}" for entry in own["mutate"] if not entry.startswith("!"))
           matrix = [{"shard": name, "mutate": ",".join(shard["mutate"])} for name, shard in shards.items()]
           print(f"shards={json.dumps(matrix)}")
           print(f"names={json.dumps(list(shards))}")

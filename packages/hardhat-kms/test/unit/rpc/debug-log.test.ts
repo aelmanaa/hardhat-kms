@@ -277,6 +277,49 @@ describe("rpc debug lines", () => {
     ]);
   });
 
+  it("logs nothing for a raw transaction request whose params are not a list", async () => {
+    const fixture = await knownFixture();
+    fixture.answers.set("eth_sendRawTransaction", () => "0xhash");
+    await fixture.request("eth_sendRawTransaction", { 0: cowRaw(fixture.chainId, 0n) });
+    await fixture.request("eth_sendRawTransaction");
+    assert.deepEqual(lines(), []);
+    assert.equal(fixture.forwarded.length, 2);
+  });
+
+  it("logs the type of an uncertain answer's code that is not a number", async () => {
+    const fixture = await knownFixture();
+    const answer = new ErrorAnswer(-32000, "request timed out");
+    Object.assign(answer.error, { code: "late" });
+    const hashes: string[] = [];
+    fixture.answers.set("eth_sendRawTransaction", (request) => {
+      hashes.push(hashOf(rawOf(request)));
+      return answer;
+    });
+    await fixture.request("eth_sendTransaction", [{ from: COW, to: ZERO }]);
+    assert.deepEqual(lines(), [
+      `sending transaction ${hashes[0]}: the node does not know the outcome (string)`,
+    ]);
+  });
+
+  it("logs a reset whose pending count is not a hex quantity", async () => {
+    nextChainId++;
+    const fixture = await dispatchFixture({ chainId: nextChainId });
+    const request = (ownTransport: boolean) => ({
+      address: cow,
+      chainId: fixture.chainId,
+      reserve: true,
+      ownTransport,
+    });
+    await libraryNonce(fixture.transactions, request(true));
+    await libraryNonce(fixture.transactions, request(false));
+    lines();
+    fixture.answers.set("eth_getTransactionCount", () => "0xzz");
+    await resetLibraryNonce(fixture.transactions, cow, fixture.chainId);
+    assert.deepEqual(lines(), [
+      `${cow}: nonceManager.reset got a pending count that is not a hex quantity`,
+    ]);
+  });
+
   it("logs the nonces it gives library accounts, and a reset that cannot read the count", async () => {
     nextChainId++;
     const fixture = await dispatchFixture({ chainId: nextChainId });

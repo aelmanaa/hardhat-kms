@@ -246,8 +246,8 @@ export class HardhatTransactionFiller implements TransactionFiller {
       return undefined;
     }
     // As in Hardhat, a failed request and an answer it cannot read both count as no
-    // eth_feeHistory: a failed request reads as no answer. The answer is read outside a catch,
-    // so each check below decides.
+    // eth_feeHistory: a failed request reads as no answer. The answer is read outside the catch,
+    // so a malformed answer is handled by the check that reads it.
     const history: unknown = await this.#request("eth_feeHistory", [
       "0x1",
       "latest",

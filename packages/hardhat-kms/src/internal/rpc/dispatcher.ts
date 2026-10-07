@@ -693,7 +693,7 @@ async function sendTransaction(
     await nodeHasTransaction(transactions, hash);
   return await withSendLock(`${chainId}:${address}`, async () => {
     const retry = retries.take();
-    // -1n: no send has used a nonce, or the mark is off.
+    // -1n when the sender has no mark yet, so no retry nonce is at or below it.
     const mark = sends.highWaterOf(address) ?? -1n;
     if (retry !== undefined && retry.nonce <= mark) {
       // A later send has used this nonce, or a higher one. The old bytes go out again only if the
@@ -994,10 +994,11 @@ async function broadcast(
     return accepted();
   }
   if (isUncertainAnswer(code, message)) {
+    // The code as the node sent it; only a number is printed, so formatting cannot throw.
     log(
       "sending transaction %s: the node does not know the outcome (%s)",
       transaction.hash,
-      String(code),
+      typeof code === "number" ? code : typeof code,
     );
     keepUncertain();
     return passOn();
@@ -1271,6 +1272,8 @@ export async function resetLibraryNonce(
     // isHexString does not narrow the type; String() returns the same string.
     if (isHexString(count)) {
       sends.releaseReservationsBelow(address, hexStringToBigInt(String(count)));
+    } else if (count !== undefined) {
+      log("%s: nonceManager.reset got a pending count that is not a hex quantity", address);
     }
   }
   if (sends.hasReservations(address)) {

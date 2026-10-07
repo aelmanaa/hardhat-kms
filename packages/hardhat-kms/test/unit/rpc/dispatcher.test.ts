@@ -386,7 +386,7 @@ describe("dispatch: transaction requests that pass on", () => {
     assert.deepEqual(fixture.forwarded.at(-1)?.params, [{ ...noFrom, from: OTHER }]);
   });
 
-  it("takes a sender given as 20 bytes for the KMS account, and never passes it on", async () => {
+  it("takes a sender given as 20 bytes for the KMS account, and never forwards the request", async () => {
     const fixture = await dispatchFixture();
     const from = Buffer.from(COW.slice(2), "hex");
     // The copy turns the Buffer into a plain Uint8Array, which Hardhat's schema refuses.
