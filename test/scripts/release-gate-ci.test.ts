@@ -1,5 +1,6 @@
 // The CI gate of release.yml (`scripts/release-gate-ci.ts`) against a fake GitHub client and a fake
-// clock: which runs count, when the gate dispatches ci-all-os.yml, and when it gives up. Runs in
+// clock: which runs count, when the gate dispatches ci-all-os.yml, hardhat-versions.yml and
+// sdk-floors.yml, and when it gives up. Runs in
 // `pnpm test`, with no token and no network.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -54,19 +55,32 @@ const failedJobs = {
 interface World {
   linux: Run[];
   allOs: Run[];
+  /** hardhat-versions.yml; a passed run 40 unless a test sets it. */
+  hardhat?: Run[];
+  /** sdk-floors.yml; a passed run 50 unless a test sets it. */
+  floors?: Run[];
   jobs: Record<number, unknown>;
 }
 
+/** The World field that holds the runs of a workflow the gate dispatches without job checks. */
+const FIELD = { "hardhat-versions.yml": "hardhat", "sdk-floors.yml": "floors" } as const;
+
 /** A fake client over a world that `onDispatch` and `onSleep` may change between looks. */
-function fake(world: World, onDispatch: (world: World) => void = () => {}) {
+function fake(world: World, onDispatch: (world: World, workflow: string) => void = () => {}) {
   const dispatched: string[] = [];
+  world.hardhat ??= [{ id: 40 }];
+  world.floors ??= [{ id: 50 }];
   const github: GateGitHub = {
     get: async (apiPath) => {
       const runs = apiPath.includes("/ci.yml/")
         ? world.linux
         : apiPath.includes("/ci-all-os.yml/")
           ? world.allOs
-          : undefined;
+          : apiPath.includes("/hardhat-versions.yml/")
+            ? world.hardhat
+            : apiPath.includes("/sdk-floors.yml/")
+              ? world.floors
+              : undefined;
       if (runs !== undefined) {
         assert.ok(apiPath.includes(`head_sha=${SHA}`), apiPath);
         return { workflow_runs: runs.map(run) };
@@ -78,7 +92,7 @@ function fake(world: World, onDispatch: (world: World) => void = () => {}) {
     },
     dispatch: async (workflow, ref) => {
       dispatched.push(`${workflow}@${ref}`);
-      onDispatch(world);
+      onDispatch(world, workflow);
     },
   };
   return { github, dispatched };
@@ -135,7 +149,7 @@ describe("parseGateRuns and gateCandidates", () => {
 });
 
 describe("gate", () => {
-  it("passes when ci.yml and ci-all-os.yml both passed on the commit, without dispatching", async () => {
+  it("passes when all four workflows passed on the commit, without dispatching", async () => {
     const { github, dispatched } = fake({
       linux: [{ id: 10 }],
       allOs: [{ id: 20 }],
@@ -145,6 +159,8 @@ describe("gate", () => {
     assert.equal(result.ok, true, result.lines.join("\n"));
     assert.deepEqual(dispatched, []);
     assert.match(result.lines.join("\n"), /ci-all-os\.yml: run \[20\]\(.+\) passed/);
+    assert.match(result.lines.join("\n"), /hardhat-versions\.yml: run \[40\]\(.+\) passed/);
+    assert.match(result.lines.join("\n"), /sdk-floors\.yml: run \[50\]\(.+\) passed/);
   });
 
   it("does not count an all-OS run whose test jobs were skipped", async () => {
@@ -274,7 +290,13 @@ describe("gate", () => {
   });
 
   it("in report mode looks once, dispatches nothing and passes, saying what a release would do", async () => {
-    const { github, dispatched } = fake({ linux: [], allOs: [], jobs: {} });
+    const { github, dispatched } = fake({
+      linux: [],
+      allOs: [],
+      hardhat: [{ id: 40, conclusion: "failure" }],
+      floors: [],
+      jobs: {},
+    });
     const time = clock();
     const result = await gate(input({ mode: "report" }), github, time);
     assert.equal(result.ok, true);
@@ -283,8 +305,151 @@ describe("gate", () => {
     assert.deepEqual(result.lines.slice(1), [
       "ci.yml: no run on this commit, pull-request runs aside.",
       "ci-all-os.yml: no run on this commit, pull-request runs aside.",
+      "hardhat-versions.yml: the newest run on this commit, [40](https://github.com/owner/repo/actions/runs/40), did not pass (failure).",
+      "sdk-floors.yml: no run on this commit, pull-request runs aside.",
       `A release run would dispatch ci-all-os.yml on ${TAG} and wait for it.`,
+      `A release run would dispatch hardhat-versions.yml on ${TAG} and wait for it.`,
+      `A release run would dispatch sdk-floors.yml on ${TAG} and wait for it.`,
     ]);
+  });
+});
+
+// hardhat-versions.yml and sdk-floors.yml count a run that concluded `success`, with no job checks.
+for (const workflow of ["hardhat-versions.yml", "sdk-floors.yml"] as const) {
+  const field = FIELD[workflow];
+  const other = workflow === "hardhat-versions.yml" ? "sdk-floors.yml" : "hardhat-versions.yml";
+  /** A world where every workflow but `workflow` passed, and `workflow` has the given runs. */
+  const worldWith = (runs: Run[]): World => ({
+    linux: [{ id: 10 }],
+    allOs: [{ id: 20 }],
+    jobs: { 20: passedJobs },
+    [field]: runs,
+  });
+
+  describe(`gate and ${workflow}`, () => {
+    it("passes on a passed run, without dispatching", async () => {
+      const { github, dispatched } = fake(worldWith([{ id: 60, event: "schedule" }]));
+      const result = await gate(input(), github, clock());
+      assert.equal(result.ok, true, result.lines.join("\n"));
+      assert.deepEqual(dispatched, []);
+      assert.match(result.lines.join("\n"), new RegExp(`${workflow}: run \\[60\\]\\(.+\\) passed`));
+    });
+
+    it("dispatches it on the tag when no run exists, then waits for the dispatched run", async () => {
+      let step = 0;
+      const world = worldWith([]);
+      const { github, dispatched } = fake(world);
+      const time = clock(() => {
+        step += 1;
+        if (step === 1) {
+          world[field] = [
+            { id: 61, event: "workflow_dispatch", status: "queued", conclusion: null },
+          ];
+        } else if (step === 2) {
+          world[field] = [{ id: 61, event: "workflow_dispatch" }];
+        }
+      });
+      const result = await gate(input(), github, time);
+      assert.equal(result.ok, true, result.lines.join("\n"));
+      assert.deepEqual(dispatched, [`${workflow}@${TAG}`]);
+      assert.equal(time.slept, 2);
+    });
+
+    it("does not count a pull-request run on the same commit, and dispatches", async () => {
+      const world = worldWith([{ id: 60, event: "pull_request" }]);
+      const { github, dispatched } = fake(world, (changed) => {
+        changed[field] = [{ id: 61, event: "workflow_dispatch" }, ...(changed[field] ?? [])];
+      });
+      const result = await gate(input(), github, clock());
+      assert.equal(result.ok, true, result.lines.join("\n"));
+      assert.deepEqual(dispatched, [`${workflow}@${TAG}`]);
+      assert.match(result.lines.join("\n"), new RegExp(`${workflow}: run \\[61\\]`));
+    });
+
+    it("waits for a run in progress without dispatching", async () => {
+      const world = worldWith([{ id: 60, status: "in_progress", conclusion: null }]);
+      const { github, dispatched } = fake(world);
+      const time = clock(() => {
+        world[field] = [{ id: 60 }];
+      });
+      const result = await gate(input(), github, time);
+      assert.equal(result.ok, true, result.lines.join("\n"));
+      assert.deepEqual(dispatched, []);
+      assert.equal(time.slept, 1);
+    });
+
+    it("dispatches once after a failed run, and fails when the dispatched run fails too", async () => {
+      const world = worldWith([{ id: 60, conclusion: "failure" }]);
+      const { github, dispatched } = fake(world, (changed) => {
+        changed[field] = [
+          { id: 61, event: "workflow_dispatch", conclusion: "failure" },
+          ...(changed[field] ?? []),
+        ];
+      });
+      const time = clock();
+      const result = await gate(input(), github, time);
+      assert.equal(result.ok, false);
+      assert.deepEqual(dispatched, [`${workflow}@${TAG}`]);
+      assert.equal(time.slept, 1);
+      const text = result.lines.join("\n");
+      assert.match(text, new RegExp(`${workflow}: the newest run on this commit, \\[61\\]`));
+      assert.match(text, new RegExp(`The ${workflow} run dispatched on ${TAG} did not pass`));
+      assert.doesNotMatch(text, new RegExp(`The ${other} run dispatched`));
+    });
+
+    it("after a dispatch, an older failed run does not end the wait for the dispatched run", async () => {
+      let step = 0;
+      const world = worldWith([{ id: 60, event: "schedule", conclusion: "failure" }]);
+      const { github, dispatched } = fake(world);
+      const time = clock(() => {
+        step += 1;
+        // The dispatched run is not listed on the first look after the dispatch, is queued on the
+        // second, and has passed on the third. The failed run 60 stays listed throughout.
+        if (step === 2) {
+          world[field] = [
+            { id: 61, event: "workflow_dispatch", status: "queued", conclusion: null },
+            { id: 60, event: "schedule", conclusion: "failure" },
+          ];
+        } else if (step === 3) {
+          world[field] = [
+            { id: 61, event: "workflow_dispatch" },
+            { id: 60, event: "schedule", conclusion: "failure" },
+          ];
+        }
+      });
+      const result = await gate(input(), github, time);
+      assert.equal(result.ok, true, result.lines.join("\n"));
+      assert.deepEqual(dispatched, [`${workflow}@${TAG}`]);
+      assert.equal(time.slept, 3);
+    });
+  });
+}
+
+describe("gate with several workflows missing", () => {
+  it("dispatches each missing workflow once and passes when all dispatched runs pass", async () => {
+    const world: World = {
+      linux: [{ id: 10 }],
+      allOs: [],
+      hardhat: [],
+      floors: [],
+      jobs: { 21: passedJobs },
+    };
+    const { github, dispatched } = fake(world, (changed, workflow) => {
+      if (workflow === "hardhat-versions.yml" || workflow === "sdk-floors.yml") {
+        changed[FIELD[workflow]] = [{ id: 61, event: "workflow_dispatch" }];
+      } else {
+        changed.allOs = [{ id: 21, event: "workflow_dispatch" }];
+      }
+    });
+    const time = clock();
+    const result = await gate(input(), github, time);
+    assert.equal(result.ok, true, result.lines.join("\n"));
+    assert.deepEqual(dispatched, [
+      `ci-all-os.yml@${TAG}`,
+      `hardhat-versions.yml@${TAG}`,
+      `sdk-floors.yml@${TAG}`,
+    ]);
+    assert.equal(time.slept, 1);
   });
 });
 

@@ -30,3 +30,7 @@ Every beta costs a maintainer three actions (sign the tag, approve the environme
 Harder: a second maintainer must own a hardware key and have an npm account that can approve stages. The four packages are published together or not at all, so a provider-only fix still bumps the core. Versions are immutable on npm, so every failed release ends in a new version number, and a rejected stage is treated the same way: the registry does not document whether a rejection frees the number, so the next release takes the next patch.
 
 What would make us revisit it: a second maintainer, which changes who approves what; npm changing the stage or trusted-publishing defaults; a first-publish token that cannot be scoped tightly enough; or the pipeline's cost on a private repository, should the repository become private again.
+
+## Evidence
+
+The `gate-ci` job of `release.yml` enforces "never an untested version": since [#332](https://github.com/aelmanaa/hardhat-kms/issues/332) it publishes only when the tagged commit has passing runs of four workflows, `ci.yml`, `ci-all-os.yml`, `hardhat-versions.yml` and `sdk-floors.yml`, and dispatches each of the last three on the tag when the commit has none. Pull-request runs never count. See [Releasing](../releasing.md), step 7 of section 3.

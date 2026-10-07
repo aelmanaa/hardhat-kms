@@ -3,9 +3,10 @@
 # 1. verify-tag: scripts/release-trigger.ts checks the trigger and its inputs as whole strings,
 #    then scripts/verify-release-tag.ts checks the tag: signed by a key in .github/release-keys/,
 #    the version of the four manifests, no prerelease part, its commit on main.
-# 2. gate-ci: the tagged commit has a passing ci.yml run and a ci-all-os.yml run that passed on
-#    macOS and Windows; when the nightly skipped the commit, the job dispatches ci-all-os.yml on the
-#    tag and waits (scripts/release-gate-ci.ts).
+# 2. gate-ci: the tagged commit has a passing ci.yml run, a ci-all-os.yml run that passed on macOS
+#    and Windows, and passing hardhat-versions.yml and sdk-floors.yml runs; for each of the last
+#    three that has no passing run on the commit, the job dispatches it on the tag and waits
+#    (scripts/release-gate-ci.ts).
 # 3. pack: build, the package checks, the publish plan, then one tarball per package with `gitHead`
 #    set to the tagged commit, checked by scripts/check-tarballs.ts. The SHA-256 sums leave the job
 #    as a job output, apart from the artifact they cover.
@@ -102,11 +103,11 @@ jobs:
     needs: verify-tag
     if: github.event_name == 'push'
     runs-on: ubuntu-26.04
-    # The dispatched macOS and Windows run gets 90 minutes, queueing included.
+    # The dispatched runs get 90 minutes, queueing included; the macOS and Windows run is the longest.
     timeout-minutes: 100
     permissions:
       contents: read # checks out the scripts
-      actions: write # reads the runs of ci.yml and ci-all-os.yml, and dispatches ci-all-os.yml
+      actions: write # reads the runs of the four workflows, and dispatches all but ci.yml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -119,7 +120,7 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - name: Require a passing ci.yml and ci-all-os.yml run, dispatching ci-all-os.yml if needed
+      - name: Require passing runs of the four CI workflows, dispatching any that has none
         env:
           GH_TOKEN: ${{ github.token }}
           COMMIT: ${{ needs.verify-tag.outputs.commit }}
@@ -137,7 +138,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read # checks out the scripts
-      actions: read # reads the runs of ci.yml and ci-all-os.yml
+      actions: read # reads the runs of ci.yml, ci-all-os.yml, hardhat-versions.yml and sdk-floors.yml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -150,7 +151,7 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - name: Report the ci.yml and ci-all-os.yml runs
+      - name: Report the ci.yml, ci-all-os.yml, hardhat-versions.yml and sdk-floors.yml runs
         env:
           GH_TOKEN: ${{ github.token }}
           COMMIT: ${{ needs.verify-tag.outputs.commit }}
