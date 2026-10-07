@@ -1,13 +1,13 @@
 ---
 title: How the plugin reaches your cloud
-description: Which identity signs when Hardhat uses a KMS key on a laptop, in CI with OIDC or on a server, and how each cloud SDK's credential chain picks it.
+description: Which identity signs when Hardhat uses a KMS key on a laptop, in CI with OIDC or on a server, and how each cloud's credential chain picks it.
 ---
 
 # How the plugin reaches your cloud
 
 Audience: users who want to know which identity signs when they run Hardhat with a KMS key, on a laptop, in CI or on a server. Assumes a key created with one of the setup guides; no experience with cloud credentials and no knowledge of the plugin's code.
 
-Your Hardhat config holds no secrets. It names keys, not credentials. When a key is first used, the provider package for its cloud asks that cloud's own SDK for credentials, and the SDK tries a fixed list of sources in order. The first source that is set up wins. A source is set up when the variables or files it reads exist, such as `AWS_PROFILE` or the file that `gcloud auth application-default login` writes. Your config can change that list in one place only: an AWS key's `profile`.
+Your Hardhat config holds no secrets. It names keys, not credentials. When a key is first used, the provider package for its cloud looks up credentials by trying a fixed list of sources in order. On AWS and Google Cloud the list is the cloud SDK's own. On Azure the plugin builds the list itself from `@azure/identity` credentials, instead of the SDK's `DefaultAzureCredential` ([What the plugin adds to the SDKs](#what-the-plugin-adds-to-the-sdks)). The first source that is set up wins. A source is set up when the variables or files it reads exist, such as `AWS_PROFILE` or the file that `gcloud auth application-default login` writes. Your config can change that list in one place only: an AWS key's `profile`.
 
 So the identity that signs depends on where Hardhat runs and on what your environment holds. The same config can sign as you on a laptop, as a CI job's role in CI, and as a machine's identity on a server.
 
