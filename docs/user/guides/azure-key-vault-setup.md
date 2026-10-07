@@ -223,7 +223,7 @@ const signature = await provider.request({
 console.log(address, signature);
 ```
 
-Run it with `npx hardhat run scripts/check-kms.ts`. Each run reads the key once, before the first signature, then signs once. An `address` pin does not save the read: the plugin checks the public key against the pin before it releases a signature, and it pins the key's version from the read. A pin saves the read only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the key ([`address`](../reference/configuration.md#configuration)).
+Run it with `npx hardhat run scripts/check-kms.ts`. Each run reads the key once, before the first signature, then signs once for the signature, or more if a request is retried ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). An `address` pin does not save the read: the plugin checks the public key against the pin before it releases a signature, and it pins the key's version from the read. A pin saves the read only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the key ([`address`](../reference/configuration.md#configuration)).
 
 ## How the plugin uses the key
 

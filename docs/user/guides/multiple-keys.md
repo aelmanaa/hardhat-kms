@@ -104,7 +104,7 @@ export default defineConfig({
 
 `treasury` is on no network yet; the `kms` tasks can still name it, for example `npx hardhat kms address treasury`.
 
-AWS and Google Cloud take their credentials from their SDK's default chain, and Azure from the plugin's own chain ([Azure credentials](../reference/configuration.md#azure)). A project that mixes providers therefore needs a sign-in for each one, such as `gcloud auth application-default login` and `az login` ([Credentials](../reference/configuration.md#credentials)).
+AWS and Google Cloud take their credentials from their SDK's default chain, and Azure from the plugin's own chain ([Azure credentials](../reference/configuration.md#azure)). A project that mixes providers needs a sign-in for each one, such as `gcloud auth application-default login` and `az login` ([Credentials](../reference/configuration.md#credentials)).
 
 ## Choose the sender by address
 

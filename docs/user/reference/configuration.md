@@ -34,7 +34,7 @@ export default defineConfig({
 });
 ```
 
-Next, run `npx hardhat kms accounts`. It asks the KMS for the key's address and, for a key without a pin, prints a line to paste, such as `kms.keys.deployer: address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",` ([`kms accounts`](tasks.md#kms-accounts)). Add that `address` to the key, with the address the command printed for your key:
+Next, run `npx hardhat kms accounts`. It asks the KMS for the key's address and, for a key without a pin, prints a line to paste, such as `kms.keys.deployer: address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",` ([`kms accounts`](tasks.md#kms-accounts)). Add that `address` line to the key:
 
 <!-- docs-check: skip -->
 

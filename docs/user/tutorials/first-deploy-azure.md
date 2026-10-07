@@ -249,7 +249,14 @@ Before you send funds to the address, check that your credentials may sign with 
 npx hardhat kms accounts --check-sign
 ```
 
-Look for `matches` under `PIN` and `ok` under `SIGN` in the `deployer` row: together they prove that your credentials may sign with the key and that its signatures recover to the pinned address. The check signs a random message, not a transaction, so it needs no funds. On `FAILED`, read the reason on the line under the row and fix it before step 5.
+It prints a table with one row for the key, with your address in place of `<deployer address>`:
+
+```text
+NAME      PROVIDER  SOURCE    ADDRESS                                     PIN      SIGN  KEY ID
+deployer  azure     kms.keys  <deployer address>                          matches  ok    azure:<AZURE_KEY_ID>
+```
+
+`matches` under `PIN` and `ok` under `SIGN` prove that your credentials may sign with the key and that its signatures recover to the pinned address. The check signs a random message, not a transaction, so it needs no funds. On `FAILED`, read the `error:` line under the row and fix the cause before step 5.
 
 ## 5. Fund the address
 
