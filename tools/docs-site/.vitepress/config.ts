@@ -289,7 +289,7 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
       },
     ],
     // Space between the landing page's feature cards and the docs index below them. The nav logo
-    // is 34 px tall: the mark files pad the drawing, so its ink is 24 px, the mark's minimum size.
+    // is 34 px tall: the mark files pad the drawing, so the drawing is 24 px, the mark's minimum size.
     ["style", {}, ".VPHome .vp-doc { margin-top: 48px; } :root { --vp-nav-logo-height: 34px; }"],
   ],
   cleanUrls: true,
