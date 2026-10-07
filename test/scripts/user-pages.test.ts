@@ -116,6 +116,23 @@ describe("internalWordProblems", () => {
     ]);
   });
 
+  it("skips SVG drawing data and binary images, not the words of an SVG", () => {
+    const svg = [
+      '<svg viewBox="0 0 64 64">',
+      '  <path d="M27 27H46M40 27V34" transform="translate(900 0)"/>',
+      '  <polyline points="M1 2"/>',
+      "  <!-- planned for M7 -->",
+      "  <text>/Users/someone</text>",
+      "</svg>",
+      "",
+    ].join("\n");
+    assert.deepEqual(internalWordProblems("docs/public/icon.svg", svg), [
+      "docs/public/icon.svg:4: milestone code M7; say what exists instead",
+      `docs/public/icon.svg:5: "/Users/" is a path on the maintainer's machine; use a relative or placeholder path`,
+    ]);
+    assert.deepEqual(internalWordProblems("docs/public/og.png", "\u0089PNG M8 /Users/"), []);
+  });
+
   it("reports a Darwin token inside a JSON string", () => {
     const file = "packages/hardhat-kms-aws/test/fixtures/events.json";
     const text =

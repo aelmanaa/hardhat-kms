@@ -11,8 +11,10 @@ import llmstxt from "vitepress-plugin-llms";
 
 import {
   EXCLUDED_FOLDERS,
+  FAVICON,
   GITHUB_REPOSITORY,
   HOSTNAME,
+  OG_IMAGE,
   ORIGIN,
   SITE_BASE,
   SITE_DESCRIPTION,
@@ -30,12 +32,6 @@ const repositoryRoot = path.resolve(configDirectory, "../../..");
 const docsDirectory = path.join(repositoryRoot, "docs");
 
 const EXCLUDED = EXCLUDED_FOLDERS.map((folder) => `${folder}/**`);
-
-/**
- * The social preview, served from docs/public/og-image.png. The image is not in the repository
- * yet, so the URL 404s until it is added; scripts/check-site.ts warns about that.
- */
-const OG_IMAGE = `${HOSTNAME}og-image.png`;
 
 const coreManifest: unknown = JSON.parse(
   readFileSync(path.join(repositoryRoot, "packages/hardhat-kms/package.json"), "utf8"),
@@ -279,8 +275,12 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
   srcDir: docsDirectory,
   srcExclude: EXCLUDED,
   rewrites: sitePage,
-  // Space between the landing page's feature cards and the docs index below them.
-  head: [["style", {}, ".VPHome .vp-doc { margin-top: 48px; }"]],
+  // VitePress does not add the base path to head tags, so the favicon's href carries it.
+  head: [
+    ["link", { rel: "icon", type: "image/svg+xml", href: FAVICON }],
+    // Space between the landing page's feature cards and the docs index below them.
+    ["style", {}, ".VPHome .vp-doc { margin-top: 48px; }"],
+  ],
   cleanUrls: true,
   lastUpdated: true,
   sitemap: { hostname: HOSTNAME },
@@ -371,8 +371,13 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
       ["meta", { property: "og:url", content: url }],
       ["meta", { property: "og:title", content: title }],
       ["meta", { property: "og:description", content: description }],
-      ["meta", { property: "og:image", content: OG_IMAGE }],
+      ["meta", { property: "og:image", content: OG_IMAGE.url }],
+      ["meta", { property: "og:image:width", content: String(OG_IMAGE.width) }],
+      ["meta", { property: "og:image:height", content: String(OG_IMAGE.height) }],
+      ["meta", { property: "og:image:alt", content: OG_IMAGE.alt }],
       ["meta", { name: "twitter:card", content: "summary_large_image" }],
+      ["meta", { name: "twitter:image", content: OG_IMAGE.url }],
+      ["meta", { name: "twitter:image:alt", content: OG_IMAGE.alt }],
     ];
     if (page === "index.md") {
       const jsonLd = {
