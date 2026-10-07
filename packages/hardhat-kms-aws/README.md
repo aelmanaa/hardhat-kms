@@ -61,4 +61,5 @@ The plugin passes no credentials, so the AWS SDK finds them itself: access keys 
 - [Set up an AWS KMS key](https://aelmanaa.github.io/hardhat-kms/user/guides/aws-kms-setup): create the key, grant access, configure Hardhat.
 - [Permissions](https://aelmanaa.github.io/hardhat-kms/user/guides/aws-kms-setup#2-allow-signing-and-nothing-else) and [credential sources](https://aelmanaa.github.io/hardhat-kms/user/reference/configuration#aws) in detail.
 - [Errors](https://aelmanaa.github.io/hardhat-kms/user/guides/aws-kms-setup#errors): what each failure means and how to fix it.
+- A KMS key compared with [a private key in .env](https://aelmanaa.github.io/hardhat-kms/user/explanation/kms-or-env-key), [a Ledger](https://aelmanaa.github.io/hardhat-kms/user/explanation/kms-or-ledger) and [other KMS signers](https://aelmanaa.github.io/hardhat-kms/user/explanation/other-kms-signers).
 - [All docs](https://aelmanaa.github.io/hardhat-kms/).

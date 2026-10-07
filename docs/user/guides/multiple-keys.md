@@ -168,6 +168,35 @@ The plugin signs only for KMS addresses. Requests from a local account go on to 
 
 hardhat-kms also works next to `@nomicfoundation/hardhat-ledger`. List hardhat-ledger first in `plugins`, before the provider packages. In that order, `eth_accounts` lists the network's own accounts, then the Ledger addresses, then the KMS addresses. In the other order, hardhat-ledger rejects every raw transaction request without `from` on a network with `ledgerAccounts` ([Other signing plugins](../reference/configuration.md#other-signing-plugins)).
 
+Here a KMS key deploys from CI, and a Ledger address holds the roles a person approves on the device:
+
+```ts
+import hardhatLedger from "@nomicfoundation/hardhat-ledger";
+import { configVariable, defineConfig } from "hardhat/config";
+import hardhatKmsAws from "@hardhat-kms/aws";
+
+export default defineConfig({
+  plugins: [hardhatLedger, hardhatKmsAws],
+  kms: {
+    keys: {
+      deployer: { provider: "aws", keyId: "alias/deployer" },
+    },
+  },
+  networks: {
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
+      // The Ledger address, as the Ethereum app on the device shows it.
+      ledgerAccounts: ["0x1111111111111111111111111111111111111111"],
+      kmsAccounts: ["deployer"],
+    },
+  },
+});
+```
+
+On `sepolia`, whose node manages no accounts, `eth_accounts` lists the Ledger address, then the address of `deployer`. Name the sender by address in every script, as in [Choose the sender by address](#choose-the-sender-by-address). A request from the Ledger address waits for approval on the device, and a request from `deployer` signs in AWS KMS without one. [A KMS key or a Ledger](../explanation/kms-or-ledger.md) compares the two.
+
 ## Add keys from the command line
 
 `--kms` reads keys from Foundry's environment variables, without a config entry ([Migrate from Foundry](migrate-from-foundry.md#from-the-command-line-as-in-foundry)). For Azure, these are the names proposed in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120), since Foundry has not released an Azure signer. These keys join the selected network only: the `--network` value, or `default` when there is none. They come last in `eth_accounts`, after the network's own accounts and its `kmsAccounts`, so on a network with other accounts the libraries do not pick a `--kms` key by default. Name it by address. Other networks do not get these keys.
