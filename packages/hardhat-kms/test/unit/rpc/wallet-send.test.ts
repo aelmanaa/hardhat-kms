@@ -28,6 +28,9 @@ const OTHER = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
 
 const METHOD_NOT_FOUND = -32601;
 
+/** The KMS address as 20 bytes, which the refusal reads as the address. */
+const COW_BYTES = Buffer.from(COW.slice(2), "hex");
+
 /** The fake node's chain, for viem's sendCalls, which needs one. */
 const CHAIN = defineChain({
   id: 31337,
@@ -79,6 +82,8 @@ describe("wallet_sendTransaction", () => {
     ["checksummed", COW],
     ["lowercase", COW.toLowerCase()],
     ["uppercase hex", `0x${COW.slice(2).toUpperCase()}`],
+    ["a Buffer", COW_BYTES],
+    ["a Uint8Array", new Uint8Array(COW_BYTES)],
   ] as const) {
     it(`is refused with -32601 for a KMS sender (${label}), and nothing reaches the node`, async () => {
       const harness = await setUp();
@@ -212,7 +217,7 @@ describe("wallet_sendTransaction", () => {
 });
 
 /** An EIP-5792 request from `from`, as viem's sendCalls sends it. */
-function batch(from: string | undefined): unknown[] {
+function batch(from: string | Uint8Array | undefined): unknown[] {
   return [
     {
       atomicRequired: false,
@@ -228,6 +233,8 @@ describe("wallet_sendCalls", () => {
   for (const [label, from] of [
     ["checksummed", COW],
     ["lowercase", COW.toLowerCase()],
+    ["a Buffer", COW_BYTES],
+    ["a Uint8Array", new Uint8Array(COW_BYTES)],
   ] as const) {
     it(`is refused with -32601 for a KMS sender (${label}), and nothing reaches the node`, async () => {
       const harness = await setUp();

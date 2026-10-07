@@ -162,7 +162,7 @@ describe("network hook", () => {
         method: "eth_sign",
         params: [Buffer.from(ACCOUNT_0.slice(2), "hex"), `0x${PERSONAL_SIGN_VECTORS[0].message}`],
       }),
-      [`eth_sign: the address must be a hex string such as ${HARDHAT_ACCOUNT_0.address}`],
+      [`eth_sign: pass the address as the hex string ${HARDHAT_ACCOUNT_0.address}`],
     );
     assert.equal(created.zero?.calls.signDigest, signatures);
     assert.equal(
@@ -238,7 +238,7 @@ describe("network hook", () => {
     for (const method of ["eth_signTransaction", "eth_sendTransaction"]) {
       for (const from of [bytes, new Uint8Array(bytes)]) {
         await assertKmsError(provider.request({ method, params: [{ from, to: ACCOUNT_0 }] }), [
-          `${method}: \`from\` must be a hex address string such as ${COW_ACCOUNT.address}`,
+          `${method}: pass \`from\` as the hex string ${COW_ACCOUNT.address}`,
         ]);
       }
     }

@@ -249,11 +249,16 @@ describe("dispatch: messages and typed data", () => {
           (error: unknown) =>
             error instanceof HardhatPluginError &&
             error.message ===
-              `${method}: the address must be a hex string such as ${COW}, not a byte array`,
+              `${method}: pass the address as the hex string ${COW}, not as a byte array`,
         );
         assert.deepEqual(fixture.forwarded, [], method);
         assert.deepEqual(fixture.reads, [], method);
-        assert.ok(fixture.adapters.every((adapter) => adapter.calls.signDigest === 0));
+        // The fixture's keys have no address pin, so each is looked up once, and none signs.
+        assert.ok(fixture.adapters.length > 0);
+        for (const adapter of fixture.adapters) {
+          assert.equal(adapter.calls.getPublicKey, 1);
+          assert.equal(adapter.calls.signDigest, 0);
+        }
       }
     }
   });
@@ -441,11 +446,16 @@ describe("dispatch: transaction requests that pass on", () => {
           (error: unknown) =>
             error instanceof HardhatPluginError &&
             error.message ===
-              `${method}: \`from\` must be a hex address string such as ${COW}, not a byte array`,
+              `${method}: pass \`from\` as the hex string ${COW}, not as a byte array`,
         );
         assert.deepEqual(fixture.forwarded, [], method);
         assert.deepEqual(fixture.reads, [], method);
-        assert.ok(fixture.adapters.every((adapter) => adapter.calls.signDigest === 0));
+        // The fixture's keys have no address pin, so each is looked up once, and none signs.
+        assert.ok(fixture.adapters.length > 0);
+        for (const adapter of fixture.adapters) {
+          assert.equal(adapter.calls.getPublicKey, 1);
+          assert.equal(adapter.calls.signDigest, 0);
+        }
       }
     }
   });

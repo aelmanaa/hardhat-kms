@@ -946,7 +946,7 @@ export const ERRORS = {
     id: "core.accounts.address-bytes",
     kind: "error",
     group: "Accounts",
-    template: "the address must be a hex string such as {address}, not a byte array",
+    template: "pass the address as the hex string {address}, not as a byte array",
     cause:
       "An `eth_sign`, `personal_sign` or `eth_signTypedData_v4` request names a KMS account as 20 bytes (a `Buffer` or a `Uint8Array`). Hardhat's simulated network and JSON-RPC nodes take the address only as a hex string. Nothing was signed.",
     fix: "Pass the address as a 0x-prefixed hex string, for example with viem's `bytesToHex`.",
@@ -1028,7 +1028,7 @@ export const ERRORS = {
     id: "core.tx.from-bytes",
     kind: "error",
     group: "Transactions",
-    template: "`from` must be a hex address string such as {address}, not a byte array",
+    template: "pass `from` as the hex string {address}, not as a byte array",
     cause:
       "The transaction's `from` names a KMS account as 20 bytes (a `Buffer` or a `Uint8Array`). Hardhat's simulated network and JSON-RPC nodes take `from` only as a hex string. Nothing was signed or sent.",
     fix: "Pass `from` as a 0x-prefixed hex string, for example with viem's `bytesToHex`.",

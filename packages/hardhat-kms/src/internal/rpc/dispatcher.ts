@@ -606,10 +606,10 @@ type TransactionOutcome = { kms: KmsTransaction } | { params: unknown[] } | unde
  *
  * The transaction is copied before the first `await`, so a caller that changes its object
  * meanwhile cannot change what is signed. A transaction that cannot be copied is refused only
- * when its sender is a KMS account; any other request passes on as it came (rule 1). So is a
- * `from` that names a KMS account as 20 bytes rather than a hex string, before any signature or
- * read: Hardhat's simulated network and JSON-RPC nodes refuse that form, and Hardhat's schema
- * refuses the plain `Uint8Array` that the copy makes of a `Buffer`.
+ * when its sender is a KMS account; any other request passes on as it came (rule 1).
+ * A `from` that names a KMS account as 20 bytes rather than a hex string is refused too, before
+ * any signature or read: Hardhat's simulated network and JSON-RPC nodes refuse that form, and
+ * Hardhat's schema refuses the plain `Uint8Array` that the copy makes of a `Buffer`.
  *
  * A transaction without `from` gets the sender Hardhat would give it, and goes on with that sender
  * set even when it is not a KMS account: Hardhat's automatic sender caches its first answer per
