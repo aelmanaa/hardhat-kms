@@ -17,6 +17,8 @@ Status: the [GitHub milestones](https://github.com/aelmanaa/hardhat-kms/mileston
 
 ## After 1.0
 
+From 1.0, the provider contract in `hardhat-kms/types` is stable: `KmsKeyAdapter`, `SignContext`, `KeyDescription`, the `kms` hook and the history reader types. A minor release may add optional members to them, as the Turnkey and Fireblocks providers will add `signTransaction` and `sendTransaction`; changing or removing a member needs a major. `hardhat-kms/provider-utils` stays experimental. The [provider contract](providers.md#provider-contract) has the details.
+
 | Release | Theme                                                                                                                                                                                                                                                                                                                     | Milestone                                                      |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | v1.1    | An Alchemy Wallet APIs recipe in the docs.                                                                                                                                                                                                                                                                                | [v1.1](https://github.com/aelmanaa/hardhat-kms/milestone/12)   |

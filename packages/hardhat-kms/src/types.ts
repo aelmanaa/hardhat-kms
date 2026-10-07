@@ -272,7 +272,7 @@ export type { KmsHistoryEntry, KmsHistoryReport } from "./internal/history/repor
 /**
  * The `kms` hook category, which provider plugins use to add their adapters.
  *
- * @experimental The hook may change before 1.0.
+ * Stable from 1.0: a minor may add optional methods; changing or removing one needs a major.
  */
 export interface KmsHooks {
   /**

@@ -5,7 +5,7 @@ import type { KmsKeyConfig } from "../../types.ts";
  * provider never logs in {@link KmsHistoryResult.notLogged}, and sets them to `null` in every
  * event.
  *
- * @experimental May gain members before 1.0.
+ * Stable from 1.0: a minor may add a value; changing or removing one needs a major.
  */
 export type KmsHistoryField =
   | "principal"
@@ -24,7 +24,7 @@ export type KmsHistoryExtraValue = string | number | boolean | null;
  * The history covers the whole key: every version, even when the config pins one. Each event
  * names its version in `keyVersion` where the provider logs it.
  *
- * @experimental May gain optional fields before 1.0.
+ * Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
  */
 export interface KmsHistoryRequest {
   /** The resolved key, as `kms.createKeyAdapter` receives it. */
@@ -61,7 +61,7 @@ export interface KmsHistoryRequest {
  * `extraIds` only with `--show-ids`. By default it replaces a key resource found in another field
  * with the key's display id, and an `extraIds` value with `<hidden>`.
  *
- * @experimental May gain optional fields before 1.0.
+ * Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
  */
 export interface KmsHistoryEvent {
   /**
@@ -114,7 +114,7 @@ export interface KmsHistoryEvent {
 /**
  * A note a reader adds to the result, printed on standard error and listed in the JSON output.
  *
- * @experimental May gain optional fields before 1.0.
+ * Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
  */
 export interface KmsHistoryNote {
   /** A stable code in lowercase letters, digits and `-`, such as `other-account`. */
@@ -126,7 +126,7 @@ export interface KmsHistoryNote {
 /**
  * Which part of the log a read covered, printed in the header of `kms history`.
  *
- * @experimental May gain optional fields before 1.0.
+ * Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
  */
 export interface KmsHistoryScope {
   /** What the read covered, free of ids, such as `us-east-1`. */
@@ -149,7 +149,7 @@ export interface KmsHistoryScope {
  * `setupHint`, note messages or the errors a reader throws: they are printed without
  * `--show-ids`.
  *
- * @experimental May gain optional fields before 1.0.
+ * Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
  */
 export interface KmsHistoryResult {
   /**

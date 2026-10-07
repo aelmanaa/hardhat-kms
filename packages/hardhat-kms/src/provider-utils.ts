@@ -2,7 +2,7 @@
  * Helpers for provider plugins: the first-party provider packages build on them, and third-party
  * providers may too.
  *
- * @experimental This module may change before 1.0.
+ * @experimental This module may change in a minor release, before and after 1.0.
  * @module hardhat-kms/provider-utils
  */
 

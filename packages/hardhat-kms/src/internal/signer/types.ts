@@ -4,7 +4,7 @@ import type { SignatureOutput } from "../crypto/signature.ts";
 /**
  * Per-call context passed to provider adapters.
  *
- * @experimental May gain fields before 1.0.
+ * Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
  */
 export interface SignContext {
   /** Aborted when the call times out or the caller gives up; adapters should pass it to their SDK. */
@@ -18,7 +18,7 @@ export interface SignContext {
 /**
  * What a key is, in terms that are safe to print.
  *
- * @experimental May gain fields before 1.0.
+ * Stable from 1.0: a minor may add optional fields; changing or removing one needs a major.
  */
 export interface KeyDescription {
   /** Provider id, for example `aws`. */
@@ -39,7 +39,8 @@ export interface KeyDescription {
  * at least one way to sign. The core prefers the structured methods when present and falls back
  * to `signDigest`; it always verifies the returned signature against the key.
  *
- * @experimental The contract is frozen at 1.0.
+ * Stable from 1.0: a minor may add optional methods; changing or removing one needs a major.
+ * The Turnkey and Fireblocks providers add `signTransaction` and `sendTransaction` this way.
  */
 export interface KmsKeyAdapter {
   /** Describes the key for messages and logs. */
