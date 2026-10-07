@@ -60,6 +60,7 @@ Pages:
 - Use several keys across networks and providers, next to local or Ledger accounts, and pick the sender: [docs/user/guides/multiple-keys.md](docs/user/guides/multiple-keys.md)
 - Turn on and read the debug output: [docs/user/guides/debug-output.md](docs/user/guides/debug-output.md)
 - Deploy with Hardhat Ignition from a KMS account (choosing the deployer, rehearsing on a simulated network or a Sepolia fork, verifying the source on Blockscout and Sourcify when an explorer shows a "verified twin"): [docs/user/guides/deploy-with-ignition.md](docs/user/guides/deploy-with-ignition.md)
+- Find who signed with a key after an incident or for an audit (turn on each cloud's audit log, read it with `kms history`, match sign events to transactions by sender, time and, on Google Cloud, digest, keep the log long enough): [docs/user/guides/who-signed.md](docs/user/guides/who-signed.md)
 - Send a KMS address's balance back before deleting the key (the `scripts/return-funds.ts` script the tutorials run, and what it refuses): [docs/user/guides/return-funds.md](docs/user/guides/return-funds.md)
 - A send failed with no clear answer (`-32000`, a gateway timeout), a transaction is not mined, or a nonce gap: look it up, compare the pending and latest counts, fill or replace a nonce: [docs/user/guides/uncertain-sends.md](docs/user/guides/uncertain-sends.md)
 - Complete projects to copy, which deploy and call a contract with viem, ethers or Ignition: [examples/README.md](examples/README.md)
