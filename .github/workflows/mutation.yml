@@ -110,10 +110,10 @@ jobs:
     name: Mutation testing, ${{ matrix.shard }} (Linux)
     needs: plan
     runs-on: ubuntu-26.04
-    # In the first full CI run (run 37131684354), the Stryker step took 14 min 10 s for crypto, the
-    # slowest shard, 12 min 35 s for rpc, 11 min 28 s for signer and 9 min 37 s for viem. The limit is
-    # far above that, since a cancelled shard saves no incremental file and would start from scratch
-    # the next week.
+    # In the first full CI run with a shard per rpc file (run 37657034427), the Stryker step took
+    # 21 min 25 s for rpc_dispatcher, the slowest shard, and 15 min 13 s for crypto. The limit is far
+    # above that, since a cancelled shard saves no incremental file and would start from scratch the
+    # next week.
     timeout-minutes: 120
     strategy:
       fail-fast: false
