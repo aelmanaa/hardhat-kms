@@ -522,10 +522,15 @@ export async function readGcpSignHistory(
   ): unknown => {
     // Before the status: a refusal on the way to an access token is not Cloud Logging's answer.
     const auth = authFailure(error);
-    if (auth !== undefined) {
-      return auth.kind === "tokenExchange"
-        ? fail(ERRORS.tokenExchangeRefused, { code: auth.code })
-        : fail(ERRORS.authEndpointRefused, { endpoint: auth.endpoint, status: auth.status });
+    switch (auth?.kind) {
+      case "login":
+        return fail(ERRORS.unauthenticated, {});
+      case "tokenExchange":
+        return fail(ERRORS.tokenExchangeRefused, { code: auth.code });
+      case "endpoint":
+        return fail(ERRORS.authEndpointRefused, { endpoint: auth.endpoint, status: auth.status });
+      case undefined:
+        break;
     }
     if (status === 401) {
       return fail(ERRORS.unauthenticated, {});

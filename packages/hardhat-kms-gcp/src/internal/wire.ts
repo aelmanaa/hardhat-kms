@@ -158,15 +158,15 @@ export function keyProject(name: string): string | undefined {
 }
 
 /**
- * The Google endpoints google-auth-library calls to get an access token, by the first label of
- * their `googleapis.com` host, with the fixed name an error shows for each. A request path is never
+ * The Google endpoints google-auth-library calls to get an access token, other than the OAuth
+ * token endpoint, by the first label of their `googleapis.com` host, with the fixed name an error
+ * shows for each. A request path is never
  * shown: it can hold the project number.
  */
 const AUTH_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   ["sts", "the token exchange (sts.googleapis.com)"],
   ["cloudresourcemanager", "the project lookup (cloudresourcemanager.googleapis.com)"],
   ["iamcredentials", "service account impersonation (iamcredentials.googleapis.com)"],
-  ["oauth2", "the OAuth token endpoint (oauth2.googleapis.com)"],
 ]);
 
 /**
@@ -178,9 +178,10 @@ const OAUTH_ERROR_CODE = /^Error code ([a-z][a-z_]{0,39})(?=:|\s|$)/;
 /** How many errors of a `cause` chain are read: the SDK wraps an auth failure once. */
 const MAX_CAUSES = 4;
 
-/** Why getting an access token failed. */
+/** Why getting an access token failed for good. */
 export type AuthFailure =
   | { kind: "tokenExchange"; code: string }
+  | { kind: "login" }
   | { kind: "endpoint"; endpoint: string; status: number };
 
 /** The host of a gaxios error's request URL, a string or a `URL`. */
@@ -194,43 +195,68 @@ function requestHost(error: Error): string | undefined {
   return typeof url === "string" && URL.canParse(url) ? new URL(url).hostname : undefined;
 }
 
-/** The HTTP status of a gaxios error, on the error or on its response. */
+/**
+ * The HTTP status of an error: a gaxios error's, on the error or on its response, or the one
+ * google-gax keeps as `httpStatusCode` on the error it wraps a failed request in.
+ */
 function httpStatusOf(error: Error): number | undefined {
   const response: unknown = Reflect.get(error, "response");
   const status: unknown =
     Reflect.get(error, "status") ??
     (typeof response === "object" && response !== null
       ? Reflect.get(response, "status")
-      : undefined);
+      : undefined) ??
+    Reflect.get(error, "httpStatusCode");
   return typeof status === "number" && Number.isInteger(status) ? status : undefined;
+}
+
+/**
+ * Whether an HTTP status refuses the request for good: a 4xx other than 408 (timeout) and 429
+ * (throttled). A 5xx, 408 or 429 may pass on a retry, so it keeps the handling it had before.
+ */
+function refusedForGood(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
 /**
  * Recognises a refusal from an endpoint google-auth-library calls to get an access token, on the
  * error or on the errors in its `cause` chain: over REST the SDK wraps it in an error with a gRPC
- * status that would otherwise read as Cloud KMS's own answer.
+ * status that would otherwise read as Cloud KMS's own answer. Only a refusal for good counts: a
+ * 5xx, 408 or 429 is left to the caller, which retries it as before.
  *
- * A refused token exchange gives only its OAuth error code. Any other refusal gives only the
- * HTTP status and the endpoint's fixed name, never the request path or the server's message.
+ * The OAuth token endpoint refusing a refresh means the login expired or was revoked. A refused
+ * token exchange gives only its OAuth error code. Any other refusal gives only the HTTP status and
+ * the endpoint's fixed name, never the request path or the server's message.
  *
  * @param error - Anything thrown.
- * @returns The failure, or `undefined` for an error that is neither.
+ * @returns The failure, or `undefined` for an error that is none of these.
  */
 export function authFailure(error: unknown): AuthFailure | undefined {
-  let current: unknown = error;
-  for (let depth = 0; depth < MAX_CAUSES && current instanceof Error; depth++) {
+  const chain: Error[] = [];
+  for (let current: unknown = error; chain.length < MAX_CAUSES && current instanceof Error;) {
+    chain.push(current);
+    current = Reflect.get(current, "cause");
+  }
+  // The SDK's wrapper copies the message of the error under it but not its HTTP status, so the
+  // status is read from the first error in the chain that has one.
+  const status = chain.map(httpStatusOf).find((found) => found !== undefined);
+  if (status !== undefined && !refusedForGood(status)) {
+    return undefined;
+  }
+  for (const current of chain) {
+    const host = requestHost(current);
+    const label = host?.endsWith(".googleapis.com") === true ? host.split(".")[0] : undefined;
+    if (label === "oauth2" && status !== undefined) {
+      return { kind: "login" };
+    }
     const code = OAUTH_ERROR_CODE.exec(current.message)?.[1];
     if (code !== undefined && code !== "undefined") {
       return { kind: "tokenExchange", code };
     }
-    const host = requestHost(current);
-    const label = host?.endsWith(".googleapis.com") === true ? host.split(".")[0] : undefined;
     const endpoint = label === undefined ? undefined : AUTH_ENDPOINTS.get(label);
-    const status = httpStatusOf(current);
     if (endpoint !== undefined && status !== undefined) {
       return { kind: "endpoint", endpoint, status };
     }
-    current = Reflect.get(current, "cause");
   }
   return undefined;
 }

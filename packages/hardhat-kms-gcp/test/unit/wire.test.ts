@@ -160,7 +160,6 @@ describe("Google Cloud KMS wire formats", () => {
         "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/a@b.iam.gserviceaccount.com:generateAccessToken",
         "service account impersonation (iamcredentials.googleapis.com)",
       ],
-      ["https://oauth2.googleapis.com/token", "the OAuth token endpoint (oauth2.googleapis.com)"],
     ];
     for (const [url, endpoint] of cases) {
       for (const asString of [false, true]) {
@@ -174,9 +173,42 @@ describe("Google Cloud KMS wire formats", () => {
     // The status on the response only, as some gaxios errors carry it.
     const responseOnly = Object.assign(new Error("x"), {
       config: { url: "https://sts.googleapis.com/v1/token" },
-      response: { status: 503 },
+      response: { status: 403 },
     });
     assert.equal(authFailure(responseOnly)?.kind, "endpoint");
+  });
+
+  it("takes only a 4xx other than 408 and 429 as a refusal for good", () => {
+    const sts = "https://sts.googleapis.com/v1/token";
+    for (const status of [400, 401, 403, 404]) {
+      assert.equal(authFailure(gaxiosError(sts, status))?.kind, "endpoint", String(status));
+    }
+    // A timeout, throttling or a server error is left to the caller, which retries it as before,
+    // bare or under the SDK's wrapper.
+    for (const status of [408, 429, 500, 502, 503, 504]) {
+      for (const refusal of [
+        gaxiosError(sts, status),
+        projectLookupRefused(status),
+        gaxiosError("https://oauth2.googleapis.com/token", status),
+        Object.assign(tokenExchangeRefused(), { status, response: { status } }),
+      ]) {
+        assert.equal(authFailure(refusal), undefined, String(status));
+        assert.equal(
+          authFailure(Object.assign(new Error("x"), { code: 14, cause: refusal })),
+          undefined,
+        );
+      }
+    }
+  });
+
+  it("takes a refusal from the OAuth token endpoint as an expired or revoked login", () => {
+    for (const status of [400, 401, 403]) {
+      const refresh = gaxiosError("https://oauth2.googleapis.com/token", status);
+      assert.deepEqual(authFailure(refresh), { kind: "login" });
+      assert.deepEqual(authFailure(Object.assign(new Error("x"), { code: 16, cause: refresh })), {
+        kind: "login",
+      });
+    }
   });
 
   it("leaves every other error to the caller", () => {

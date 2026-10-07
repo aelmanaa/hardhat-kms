@@ -468,14 +468,14 @@ describe("Google Cloud KMS adapter", () => {
       const cases: Array<[Error, RegExp]> = [
         [
           projectLookupRefused(),
-          /gcp, connect, .*the project lookup \(cloudresourcemanager\.googleapis\.com\) answered HTTP 403$/,
+          /gcp, connect, .*the project lookup \(cloudresourcemanager\.googleapis\.com\) answered HTTP 403\. See gcp\.connect\.auth-endpoint in the errors reference$/,
         ],
         [
           gaxiosError(
             "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/x@y.iam.gserviceaccount.com:generateAccessToken",
             403,
           ),
-          /service account impersonation \(iamcredentials\.googleapis\.com\) answered HTTP 403$/,
+          /service account impersonation \(iamcredentials\.googleapis\.com\) answered HTTP 403\. See gcp\.connect\.auth-endpoint in the errors reference$/,
         ],
       ];
       for (const [refusal, expected] of cases) {
@@ -489,6 +489,45 @@ describe("Google Cloud KMS adapter", () => {
         });
         assert.equal(calls.length, 0);
       }
+    });
+
+    it("asks to log in again when the OAuth token endpoint refuses the login", async () => {
+      for (const [status, code] of [
+        [400, 3],
+        [401, 16],
+      ] as const) {
+        // As the SDK rejects a call whose token refresh failed.
+        const refusal = Object.assign(googleError(code, "invalid_grant"), {
+          cause: gaxiosError("https://oauth2.googleapis.com/token", status),
+        });
+        const { adapter } = await adapterFor({ callError: refusal });
+        await assertGcpError(lookUp(adapter), [
+          "gcp, get public key,",
+          "the Google Cloud credentials were refused (UNAUTHENTICATED). Run `gcloud auth application-default login` again",
+        ]);
+      }
+    });
+
+    it("retries an auth endpoint that is unavailable or throttling, as before", async () => {
+      // As the SDK rejects a call whose token request failed with a server error: UNAVAILABLE.
+      for (const url of [
+        "https://oauth2.googleapis.com/token",
+        "https://sts.googleapis.com/v1/token",
+      ]) {
+        const unavailable = Object.assign(googleError(14, "unavailable"), {
+          cause: gaxiosError(url, 503),
+        });
+        const { adapter, methods } = await adapterFor({ callError: unavailable });
+        await assertGcpError(lookUp(adapter), [
+          `Google Cloud KMS is unavailable (UNAVAILABLE), after ${ATTEMPTS} attempts`,
+        ]);
+        assert.equal(methods("getPublicKey"), ATTEMPTS);
+      }
+      const throttled = Object.assign(googleError(8, "throttled"), {
+        cause: gaxiosError("https://sts.googleapis.com/v1/token", 429),
+      });
+      const { adapter } = await adapterFor({ callError: throttled });
+      await assertGcpError(lookUp(adapter), ["throttling requests (RESOURCE_EXHAUSTED)"]);
     });
 
     it("keeps Cloud KMS's own refusal as its status", async () => {

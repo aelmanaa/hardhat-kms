@@ -693,7 +693,7 @@ describe("the Google Cloud history reader", () => {
       assert.equal(lookup.requests.length, 1);
       assert.match(
         lookup.message,
-        /the project lookup \(cloudresourcemanager\.googleapis\.com\) answered HTTP 403$/,
+        /the project lookup \(cloudresourcemanager\.googleapis\.com\) answered HTTP 403\. See gcp\.connect\.auth-endpoint in the errors reference$/,
       );
       assert.doesNotMatch(lookup.message, /privateLogViewer/);
       for (const { message } of [exchange, lookup]) {
@@ -703,11 +703,24 @@ describe("the Google Cloud history reader", () => {
       }
     });
 
-    it("retries an auth endpoint that is unavailable, then names it", async () => {
+    it("retries an auth endpoint that is unavailable, as any other server error", async () => {
       const unavailable = gaxiosError("https://sts.googleapis.com/v1/token", 503);
       const { message, requests } = await failure([unavailable, unavailable, unavailable]);
       assert.equal(requests.length, 3);
-      assert.match(message, /the token exchange \(sts\.googleapis\.com\) answered HTTP 503$/);
+      assert.match(message, /entries failed \(503\)$/);
+    });
+
+    it("asks to log in again when the OAuth token endpoint refuses the login", async () => {
+      for (const status of [400, 401]) {
+        const { message, requests } = await failure([
+          gaxiosError("https://oauth2.googleapis.com/token", status),
+        ]);
+        assert.equal(requests.length, 1);
+        assert.match(
+          message,
+          /credentials were refused \(UNAUTHENTICATED\)\. Run `gcloud auth application-default login` again/,
+        );
+      }
     });
 
     it("gives the HTTP status and its name for other answers, without the server's message", async () => {

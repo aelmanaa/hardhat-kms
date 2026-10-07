@@ -30,7 +30,7 @@ Application Default Credentials (ADC):
 2. `application_default_credentials.json`, which `gcloud auth application-default login` writes, in the directory named by `CLOUDSDK_CONFIG`, else `~/.config/gcloud` (`%APPDATA%\gcloud` on Windows). Signing in with `--impersonate-service-account` makes it an impersonated service account.
 3. The metadata server, on Google Cloud: the service account attached to the VM, GKE workload or Cloud Run service.
 
-Either file can hold a user, an impersonated service account, an `external_account` config or a service account key. Prefer the first three: [Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) says which to use where. `GOOGLE_CLOUD_QUOTA_PROJECT` sets the quota project. The plugin passes the project named in the key's `keyVersionName` to the client libraries, so `GOOGLE_CLOUD_PROJECT` is not needed, and a federated identity needs no permission on the project itself. The plugin does not use the account of `gcloud auth login`, nor gcloud settings such as `auth/impersonate_service_account`.
+Either file can hold a user, an impersonated service account, an `external_account` config or a service account key. Prefer the first three: [Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) says which to use where. `GOOGLE_CLOUD_QUOTA_PROJECT` sets the quota project. The plugin passes the project named in the key's `keyVersionName` to the client libraries, so `GOOGLE_CLOUD_PROJECT` is not needed, and a federated identity needs no permission to look the project up. The plugin does not use the account of `gcloud auth login`, nor gcloud settings such as `auth/impersonate_service_account`.
 
 ## Azure
 

@@ -317,15 +317,22 @@ class GcpKeyAdapter implements KmsKeyAdapter {
       return await call(await this.#initialized());
     } catch (error) {
       // Checked first: over REST the SDK turns the HTTP status of such a refusal into a gRPC
-      // status, which would read as Cloud KMS's own answer.
+      // status, which would read as Cloud KMS's own answer. A 5xx, 408 or 429 is not a refusal
+      // for good: it goes on to the status handling below and is retried as before.
       const auth = authFailure(error);
       if (auth !== undefined) {
-        throw auth.kind === "tokenExchange"
-          ? this.#error("connect", ERRORS.tokenExchangeRefused, { code: auth.code })
-          : this.#error("connect", ERRORS.authEndpointRefused, {
+        switch (auth.kind) {
+          case "login":
+            // As before for an expired or revoked login, which the SDK reported as UNAUTHENTICATED.
+            throw this.#error(operation, ERRORS.unauthenticated, {});
+          case "tokenExchange":
+            throw this.#error("connect", ERRORS.tokenExchangeRefused, { code: auth.code });
+          case "endpoint":
+            throw this.#error("connect", ERRORS.authEndpointRefused, {
               endpoint: auth.endpoint,
               status: auth.status,
             });
+        }
       }
       const status = statusOf(error);
       if (status === "UNAVAILABLE") {

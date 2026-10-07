@@ -165,7 +165,8 @@ export const ERRORS = {
     group: "Google Cloud KMS answers",
     template:
       "the Google Cloud credentials were refused (UNAUTHENTICATED). Run `gcloud auth application-default login` again, or check GOOGLE_APPLICATION_CREDENTIALS",
-    cause: "The credentials expired or were revoked.",
+    cause:
+      "The credentials expired or were revoked: Cloud KMS or Cloud Logging refused them, or the OAuth token endpoint refused to refresh the login.",
     fix: "Run `gcloud auth application-default login` again, or check the file `GOOGLE_APPLICATION_CREDENTIALS` names.",
   },
   resourceExhausted: {
@@ -227,10 +228,11 @@ export const ERRORS = {
     id: "gcp.connect.auth-endpoint",
     kind: "error",
     group: "Connecting",
-    template: "getting a Google Cloud access token failed: {endpoint} answered HTTP {status}",
+    template:
+      "getting a Google Cloud access token failed: {endpoint} answered HTTP {status}. See gcp.connect.auth-endpoint in the errors reference",
     cause:
-      "google-auth-library called another Google endpoint while getting an access token, and it refused the request. Only the HTTP status and the endpoint's name are shown: the request path can hold the project number.",
-    fix: "For service account impersonation, grant the federated identity `roles/iam.workloadIdentityUser` on the service account. For the OAuth token endpoint, run `gcloud auth application-default login` again. The plugin passes the key's project, so the project lookup should not happen; if it does, set `GOOGLE_CLOUD_PROJECT` and report it.",
+      "While getting an access token, google-auth-library called a Google endpoint other than Cloud KMS or Cloud Logging, and that endpoint refused the call with a 4xx status. Only the HTTP status and the endpoint's name are shown: the request path can hold the project number. A 5xx, 408 or 429 is retried and reported as before.",
+    fix: "For the token exchange, check the workload identity pool provider and the credentials file. For service account impersonation, grant the federated identity `roles/iam.workloadIdentityUser` on the service account. The plugin passes the key's project, so the project lookup should not happen; if it does, set `GOOGLE_CLOUD_PROJECT` and open an issue at https://github.com/aelmanaa/hardhat-kms/issues.",
   },
   historyKeyName: {
     id: "gcp.history.key-name",

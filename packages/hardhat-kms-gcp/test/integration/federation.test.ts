@@ -47,13 +47,20 @@ interface AuthServer {
   lookups: number;
   /** Answer the token exchange with this OAuth error instead of a token. */
   refuse: string | undefined;
+  /** The HTTP status of that refusal; 400 unless set. */
+  refuseStatus: number;
   /** Clears the counts and the refusal. */
   reset(): void;
   close(): Promise<void>;
 }
 
 async function startAuthServer(): Promise<AuthServer> {
-  const state = { exchanges: 0, lookups: 0, refuse: undefined as string | undefined };
+  const state = {
+    exchanges: 0,
+    lookups: 0,
+    refuse: undefined as string | undefined,
+    refuseStatus: 400,
+  };
   const server: Server = createServer((request, response) => {
     request.resume();
     request.on("end", () => {
@@ -61,7 +68,7 @@ async function startAuthServer(): Promise<AuthServer> {
       if (request.url === "/v1/token") {
         state.exchanges++;
         if (state.refuse !== undefined) {
-          response.statusCode = 400;
+          response.statusCode = state.refuseStatus;
           response.end(
             JSON.stringify({ error: state.refuse, error_description: `subject ${SECRET_CLAIM}` }),
           );
@@ -100,10 +107,17 @@ async function startAuthServer(): Promise<AuthServer> {
     set refuse(code) {
       state.refuse = code;
     },
+    get refuseStatus() {
+      return state.refuseStatus;
+    },
+    set refuseStatus(status) {
+      state.refuseStatus = status;
+    },
     reset: () => {
       state.exchanges = 0;
       state.lookups = 0;
       state.refuse = undefined;
+      state.refuseStatus = 400;
     },
     close: async () => {
       server.closeAllConnections();
@@ -278,6 +292,29 @@ describe("workload identity federation with no project in the environment", () =
       await signer.close?.();
     }
     assert.equal(kmsServer.requests.length, sentBefore);
+    assert.equal(auth.lookups, 0);
+  });
+
+  it("retries a token exchange that is unavailable, as before", async () => {
+    auth.refuse = "temporarily_unavailable";
+    auth.refuseStatus = 503;
+    const signer = await adapter();
+    try {
+      await assert.rejects(
+        signer.getPublicKey?.(context()) ?? Promise.resolve(),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.match(
+            error.message,
+            /Google Cloud KMS is unavailable \(UNAVAILABLE\), after 4 attempts/,
+          );
+          return true;
+        },
+      );
+    } finally {
+      await signer.close?.();
+    }
+    assert.ok(auth.exchanges >= 4, String(auth.exchanges));
     assert.equal(auth.lookups, 0);
   });
 });
