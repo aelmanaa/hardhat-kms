@@ -2,7 +2,7 @@
 // process alive, as an SDK client's sockets do, until the adapter is closed; so a task that does
 // not close its signers never exits, and the run times out.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -12,6 +12,7 @@ import { privateKeyToAccount } from "viem/accounts";
 
 import { type HardhatRun, runHardhat } from "../helpers/hardhat-cli.ts";
 import { startRecordingNode } from "../helpers/recording-node.ts";
+import { createTempProject, removeTempProject } from "../helpers/temp-project.ts";
 import {
   COW_ACCOUNT,
   EIP712_MAIL,
@@ -127,10 +128,7 @@ describe("kms tasks from the Hardhat CLI", () => {
   });
 
   before(() => {
-    // Inside the package, as in kms-option-cli.test.ts: a project in os.tmpdir() needs a link to
-    // node_modules, which fails on the Windows runner.
-    mkdirSync(path.join(repo, ".tmp"), { recursive: true });
-    project = mkdtempSync(path.join(repo, ".tmp", "tasks-cli-"));
+    project = createTempProject("tasks-cli-");
     writeFileSync(
       path.join(project, "package.json"),
       JSON.stringify({ name: "p", type: "module" }),
@@ -145,8 +143,8 @@ describe("kms tasks from the Hardhat CLI", () => {
     );
   });
 
-  after(() => {
-    rmSync(project, { recursive: true, force: true });
+  after(async () => {
+    await removeTempProject(project);
   });
 
   it("prints the address and exits on its own", async () => {

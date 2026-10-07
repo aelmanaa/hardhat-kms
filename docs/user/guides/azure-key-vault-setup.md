@@ -112,7 +112,9 @@ Older vaults grant access with access policies, which apply to every key in the 
 az keyvault set-policy --name my-vault --object-id <principal object id> --key-permissions get sign
 ```
 
-`az keyvault show --name my-vault --query properties.enableRbacAuthorization` prints `true` for an RBAC vault and `false` (or nothing) for an access-policy vault.
+`az keyvault show --name my-vault --query properties.enableRbacAuthorization` prints `true` for an RBAC vault and `false` (or nothing) for an access-policy vault. A vault whose `enableRbacAuthorization` is unset keeps using access policies.
+
+Key Vault control-plane API versions before 2026-02-01 retire on 2027-02-27. From then on, the `az keyvault` commands that create and configure vaults need Azure CLI 2.90.0 or later, the first version that supports 2026-02-01 ([Plan for Azure RBAC as the default](https://learn.microsoft.com/en-us/azure/key-vault/general/access-control-default)). Signing is not affected: the plugin calls only the vault's data plane.
 
 ### Managed HSM
 
@@ -164,11 +166,25 @@ A service principal in the environment takes precedence over every other source.
 
 The plugin does not sign in with a username and password, since that sign-in cannot do multifactor authentication. With `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_USERNAME` and `AZURE_PASSWORD` set and no secret or certificate, it fails with an error that names the variables. Sign in with a service principal, `az login`, workload identity or a managed identity instead.
 
+When you sign in as a user, commands that create, change or delete Azure resources need a sign-in that completed multifactor authentication (MFA). In Azure's public cloud, this applies to every such request to Azure Resource Manager, from the Azure CLI, Azure PowerShell, the SDKs or the REST API. Enforcement began on 2025-10-01, and a tenant could postpone it to 2026-07-01 at the latest. Reads are exempt, and so are workload identities such as service principals and managed identities ([Mandatory Microsoft Entra MFA](https://learn.microsoft.com/en-us/entra/identity/authentication/concept-mandatory-multifactor-authentication)). On this page, they include `az keyvault create`, `az role definition create`, `az role assignment create`, `az keyvault set-policy`, `az monitor log-analytics workspace create` and `az monitor diagnostic-settings create`. Signing and `kms history` are not: the plugin calls the vault and Log Analytics, not Azure Resource Manager.
+
 ## 4. Install the plugin and configure the key
 
-```sh
+::: code-group
+
+```sh [npm]
 npm install --save-dev hardhat-kms @hardhat-kms/azure
 ```
+
+```sh [pnpm]
+pnpm add --save-dev hardhat-kms @hardhat-kms/azure
+```
+
+```sh [Yarn]
+yarn add --dev hardhat-kms @hardhat-kms/azure
+```
+
+:::
 
 Until the packages are published on npm, this command fails with `E404`; follow [Install before the first npm release](install-before-release.md) instead.
 
@@ -193,7 +209,12 @@ export default defineConfig({
     },
   },
   networks: {
-    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["deployer"] },
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
+      kmsAccounts: ["deployer"],
+    },
   },
 });
 ```
@@ -241,9 +262,21 @@ Run it with `npx hardhat run scripts/check-kms.ts`. Each run reads the key once,
 
 Key Vault records each sign request in its audit log, whoever makes it, as a `KeySign` event. [`kms history`](../reference/tasks.md#kms-history) lists them for one key:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx hardhat kms history deployer --since 7d
 ```
+
+```sh [pnpm]
+pnpm hardhat kms history deployer --since 7d
+```
+
+```sh [Yarn]
+yarn hardhat kms history deployer --since 7d
+```
+
+:::
 
 Without `--since`, the task reads the last 24 hours, and it lists at most 100 events, the newest; `--limit` takes up to 1000 ([`kms history`](../reference/tasks.md#kms-history)).
 
