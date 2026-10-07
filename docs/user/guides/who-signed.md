@@ -14,7 +14,7 @@ Checked against hardhat-kms 0.8.0 on 2026-10-07: `kms history` read the logs of 
 The log shows sign requests, not which request signed which transaction. Each event this guide finds is a candidate signing event, and the evidence comes in three strengths:
 
 - **A nearby event.** On AWS and Azure the log holds no digest. An event shortly before a transaction's block may have signed it, but the log cannot say which of several such events did, or whether any of them did.
-- **An event whose logged digest matches.** On Google Cloud the log holds the digest. An event whose digest equals the transaction's signing hash signed that transaction ([step 3](#confirm-the-digest-on-google-cloud)).
+- **An event whose logged digest matches.** On Google Cloud the log holds the digest. An event whose digest equals the transaction's signing hash signed that transaction ([step 3](#confirm-the-digest-on-google-cloud)). This match rests on the plugin's code and has not yet been checked against a logged event.
 - **Evidence of a specific attempt.** No provider logs an id the plugin sends, so the log cannot tie an event to one script run. That needs a record from outside the log, such as the hash your script got back from the send or Ignition's deployment journal ([step 4](#4-know-what-the-log-does-not-show)).
 
 ## 1. Turn on the audit log
