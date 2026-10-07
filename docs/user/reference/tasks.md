@@ -1,6 +1,6 @@
 ---
 title: Tasks reference
-description: "hardhat kms history: who signed, from CloudTrail, Cloud Audit Logs or Azure Monitor, and the other kms tasks that list keys, sign and verify."
+description: "Every kms task: list keys, sign messages, typed data, transactions and authorizations, verify signatures, and read a key's sign events."
 ---
 
 # Tasks reference
@@ -473,7 +473,7 @@ Libraries take other shapes, and a tuple passed to them as printed fails or lose
 
 ## `kms history`
 
-Lists the key's sign events from its provider's audit log, newest first. It answers "who else signed with this key?".
+Lists the key's sign events from its provider's audit log, newest first. It answers "who else signed with this key?". [Find who signed with a key](../guides/who-signed.md) walks through an investigation: turning the log on, matching events to transactions, and keeping the log long enough.
 
 ```text
 npx hardhat kms history <key> [--since <time>] [--until <time>] [--limit <n>] [--json] [--show-ids]
