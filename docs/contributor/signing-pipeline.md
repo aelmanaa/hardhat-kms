@@ -56,6 +56,8 @@ The plugin does not protect against these. The user-facing [security model](../u
 - Access to the key itself, which the provider's IAM or RBAC controls. The setup guides for [AWS](../user/guides/aws-kms-setup.md), [Google Cloud](../user/guides/gcp-kms-setup.md) and [Azure](../user/guides/azure-key-vault-setup.md) give minimal permissions, including the AWS conditions `kms:SigningAlgorithm` and `kms:MessageType`.
 - Key deletion. Deleting a KMS key loses the funds at its address forever. The user guide [Prevent and recover from losing a key](../user/guides/key-loss.md) covers each provider's waiting period, the undo paths and lockout.
 
+A pull request that changes the code behind these controls carries the security checklist in [Security review of pull requests](security-review.md), which lists the paths it applies to.
+
 ## Vendored EIP-712
 
 EIP-712 hashing comes from micro-eth-signer 0.19, vendored: `core/typed-data` plus `advanced/abi-mapper`, about 500 lines. micro-eth-signer 0.19 does not export typed-data hashing, and this is the exact code Hardhat core uses, with the same strictness. A test re-checks the vendored code against the package's `verifyTyped`.

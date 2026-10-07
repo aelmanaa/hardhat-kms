@@ -50,6 +50,7 @@ Runnable projects for viem, ethers and Ignition are in [examples/](../examples/R
 | [CONTRIBUTING.md](../CONTRIBUTING.md)                            | Setup, commands, workflow, issue-first rule          |
 | [Architecture](contributor/architecture.md)                      | Module map, code map, request flows, cloud access    |
 | [Signing pipeline and security](contributor/signing-pipeline.md) | Signature checks, key pinning, threat model          |
+| [Security review](contributor/security-review.md)                | The checklist for signing and sending changes        |
 | [Provider contract](contributor/providers.md)                    | The adapter interface for KMS and HSM providers      |
 | [Transactions](contributor/transactions.md)                      | Filling, nonces, the send lock, chain-id checks      |
 | [Testing](contributor/testing.md)                                | Test layers and conventions                          |
