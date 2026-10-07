@@ -28,6 +28,7 @@ Each page except the generated API reference opens with an `Audience:` line that
 | Page                                                                          | Kind        |
 | ----------------------------------------------------------------------------- | ----------- |
 | [Configuration](user/reference/configuration.md)                              | Reference   |
+| [Credentials](user/reference/credentials.md)                                  | Reference   |
 | [RPC methods](user/reference/rpc-methods.md)                                  | Reference   |
 | [Tasks](user/reference/tasks.md)                                              | Reference   |
 | [Errors](user/reference/errors.md)                                            | Reference   |
