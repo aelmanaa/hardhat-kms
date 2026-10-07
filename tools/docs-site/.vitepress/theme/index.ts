@@ -17,23 +17,47 @@ async function drawDiagrams(dark: boolean): Promise<void> {
     block.removeAttribute("data-processed");
     block.textContent = block.dataset["source"];
   }
-  const { default: mermaid } = await import("mermaid");
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "strict",
-    theme: dark ? "dark" : "default",
+  try {
+    const { default: mermaid } = await import("mermaid");
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: dark ? "dark" : "default",
+    });
+    await mermaid.run({ nodes: blocks });
+  } catch {
+    // A diagram that fails to draw, or a page left mid-draw, shows its source instead.
+    for (const block of blocks) {
+      block.textContent = block.dataset["source"] ?? "";
+    }
+  }
+}
+
+// Draws run one at a time: a page load and a scheme switch, or two quick switches, would
+// otherwise draw the same blocks at once. A request that a newer one replaced while it waited
+// is skipped.
+let queue: Promise<void> = Promise.resolve();
+let latest = 0;
+
+function scheduleDraw(dark: boolean): void {
+  latest += 1;
+  const request = latest;
+  queue = queue.then(async () => {
+    if (request === latest) {
+      await drawDiagrams(dark);
+    }
+    return undefined;
   });
-  await mermaid.run({ nodes: blocks });
 }
 
 const Layout = defineComponent({
   setup() {
     const { isDark } = useData();
     onContentUpdated(() => {
-      void drawDiagrams(isDark.value);
+      scheduleDraw(isDark.value);
     });
     watch(isDark, (dark) => {
-      void drawDiagrams(dark);
+      scheduleDraw(dark);
     });
     return () => h(DefaultTheme.Layout);
   },

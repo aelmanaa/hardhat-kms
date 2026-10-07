@@ -1,6 +1,7 @@
 // The docs site: VitePress over docs/, published to GitHub Pages at the hostname of decision 0017.
 // docs/contributor/documentation.md, "The docs site", describes what this file sets and why.
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,7 +18,9 @@ import {
   SITE_DESCRIPTION,
   SITE_NAME,
   githubSlug,
+  markdownCopyUrl,
   pageUrl,
+  rewriteMarkdownLinks,
   robotsTxt,
   sitePage,
 } from "./site.ts";
@@ -28,13 +31,29 @@ const docsDirectory = path.join(repositoryRoot, "docs");
 
 const EXCLUDED = EXCLUDED_FOLDERS.map((folder) => `${folder}/**`);
 
-/** The social preview. The file is not in the repository yet; the path is reserved for it. */
+/**
+ * The social preview, served from docs/public/og-image.png. The image is not in the repository
+ * yet, so the URL 404s until it is added; scripts/check-site.ts warns about that.
+ */
 const OG_IMAGE = `${HOSTNAME}og-image.png`;
 
 const coreManifest: unknown = JSON.parse(
   readFileSync(path.join(repositoryRoot, "packages/hardhat-kms/package.json"), "utf8"),
 );
 const coreVersion = String(Reflect.get(Object(coreManifest), "version"));
+const coreEngines: unknown = Reflect.get(Object(coreManifest), "engines");
+const coreNodeRange = String(Reflect.get(Object(coreEngines), "node")).replace(/\.0$/, "");
+
+/**
+ * The install guide for the time before the first npm release. The release deletes it, and the
+ * llms.txt preamble switches from it to the npm commands then.
+ */
+const PRE_RELEASE_GUIDE = "user/guides/install-before-release.md";
+
+/** Generated pages: edits go to their generator's sources, so the page has no edit link. */
+function isGenerated(source: string): boolean {
+  return source === "user/reference/errors.md" || source.startsWith("user/reference/api/");
+}
 
 /** Escapes text for an HTML attribute or element body. */
 function escapeHtml(text: string): string {
@@ -88,6 +107,23 @@ function section(text: string, folder: string, order: string[]): DefaultTheme.Si
   return { text, items };
 }
 
+/**
+ * The sidebar with each nested group lifted to the level of its parent, for vitepress-plugin-llms.
+ * Version 1.14.0 drops the site base from the links of a nested group, so llms.txt would list the
+ * API pages without `/hardhat-kms/`.
+ */
+function flatSidebar(items: DefaultTheme.SidebarItem[]): DefaultTheme.SidebarItem[] {
+  return items.map((group) => {
+    if (group.items === undefined) {
+      return group;
+    }
+    return {
+      ...group,
+      items: group.items.flatMap(({ items: children, ...item }) => [item, ...(children ?? [])]),
+    };
+  });
+}
+
 function sidebar(): DefaultTheme.SidebarItem[] {
   const order = indexOrder();
   return [
@@ -135,14 +171,93 @@ function indexLink(href: string): string | undefined {
   return replaced === href ? undefined : replaced;
 }
 
+/**
+ * Rewrites a relative link in a Markdown copy of a page, which the site serves at another path
+ * than its source (a folder's README.md becomes `<folder>.md`): a link that leaves the site goes to
+ * GitHub, and a link to a page goes to the absolute URL of its Markdown copy.
+ */
+function markdownCopyLink(href: string, sourceFile: string): string | undefined {
+  if (/^[a-z][a-z\d+.-]*:|^[#/]/i.test(href)) {
+    return undefined;
+  }
+  const outside = outsideLink(href, sourceFile);
+  if (outside !== undefined) {
+    return outside;
+  }
+  const [target = "", anchor] = href.split("#");
+  const absolute = path.resolve(path.dirname(sourceFile), decodeURIComponent(target));
+  const inDocs = path.relative(docsDirectory, absolute).split(path.sep).join("/");
+  const url = inDocs.endsWith(".md") ? markdownCopyUrl(inDocs) : `${HOSTNAME}${inDocs}`;
+  return anchor === undefined ? url : `${url}#${anchor}`;
+}
+
+/** The source file, relative to docs/, of a Markdown copy's path in the output directory. */
+function copySource(copy: string): string | undefined {
+  return [copy, copy.replace(/\.md$/, "/README.md")].find((candidate) =>
+    existsSync(path.join(docsDirectory, candidate)),
+  );
+}
+
+/**
+ * Rewrites the relative links of the Markdown copies and of llms-full.txt, which
+ * vitepress-plugin-llms copies from the sources as they are, so each one resolves on the site.
+ */
+async function rewriteLlmsLinks(outDir: string): Promise<void> {
+  const copies = readdirSync(outDir, { recursive: true, encoding: "utf8" })
+    .map((entry) => entry.split(path.sep).join("/"))
+    .filter((entry) => entry.endsWith(".md"));
+  for (const copy of copies) {
+    const source = copySource(copy);
+    if (source === undefined) {
+      continue;
+    }
+    const file = path.join(outDir, copy);
+    const text = await readFile(file, "utf8");
+    const sourceFile = path.join(docsDirectory, source);
+    await writeFile(
+      file,
+      rewriteMarkdownLinks(text, (href) => markdownCopyLink(href, sourceFile)),
+    );
+  }
+  // llms-full.txt joins the copies, each after a `---` block with its `url:`, which the plugin
+  // folds onto the next line (`url: >-`) when it is long.
+  const full = path.join(outDir, "llms-full.txt");
+  if (!existsSync(full)) {
+    return;
+  }
+  const parts = (await readFile(full, "utf8")).split(/(^---\nurl: (?:>-\n +)?\S+\n---$)/m);
+  let sourceFile: string | undefined;
+  const rewritten = parts.map((part) => {
+    const url = /^---\nurl: (?:>-\n +)?(\S+)\n---$/.exec(part)?.[1];
+    if (url !== undefined) {
+      const source = url.startsWith(HOSTNAME) ? copySource(url.slice(HOSTNAME.length)) : undefined;
+      sourceFile = source === undefined ? undefined : path.join(docsDirectory, source);
+      return part;
+    }
+    const from = sourceFile;
+    return from === undefined
+      ? part
+      : rewriteMarkdownLinks(part, (href) => markdownCopyLink(href, from));
+  });
+  await writeFile(full, rewritten.join(""));
+}
+
 /** Start-here text for agents at the top of llms.txt. */
 function agentPreamble(): string {
   const skill = existsSync(path.join(repositoryRoot, "skills/hardhat-kms/SKILL.md"))
     ? "\n\nTo give a coding agent the plugin's skill: `npx skills add aelmanaa/hardhat-kms`."
     : "";
+  const configure = `add the plugin and the key to \`hardhat.config.ts\` ([configuration reference](${markdownCopyUrl("user/reference/configuration.md")})) and list the key's address with \`npx hardhat kms accounts\``;
+  const credentials =
+    "Credentials come from each cloud SDK's default chain, never from the Hardhat config.";
+  if (existsSync(path.join(docsDirectory, PRE_RELEASE_GUIDE))) {
+    return `## Start here for agents
+
+hardhat-kms is not on npm yet. Until the first release, build and install the packages from GitHub as [Install before the first npm release](${markdownCopyUrl(PRE_RELEASE_GUIDE)}) describes. Then ${configure}. ${credentials}${skill}`;
+  }
   return `## Start here for agents
 
-Install the core and the provider package for the cloud that holds the key, then list the key's address:
+Install the core and the provider package for the cloud that holds the key, ${configure}:
 
 \`\`\`sh
 npm install --save-dev hardhat-kms @hardhat-kms/aws     # AWS KMS
@@ -151,7 +266,7 @@ npm install --save-dev hardhat-kms @hardhat-kms/azure   # Azure Key Vault
 npx hardhat kms accounts
 \`\`\`
 
-These packages are newer than most training data: check npm for the current version (\`npm view hardhat-kms version\`) instead of guessing one. Credentials come from each cloud SDK's default chain, never from the Hardhat config.${skill}`;
+These packages are newer than most training data: check npm for the current version (\`npm view hardhat-kms version\`) instead of guessing one. ${credentials}${skill}`;
 }
 
 const config: UserConfig<DefaultTheme.Config> = defineConfig({
@@ -197,9 +312,11 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
     },
   },
   transformPageData(pageData) {
+    if (isGenerated(pageData.filePath)) {
+      pageData.frontmatter = { ...pageData.frontmatter, editLink: false };
+    }
     if (pageData.relativePath === "index.md" || pageData.filePath === "README.md") {
-      pageData.title =
-        "Sign Hardhat 3 transactions with AWS KMS, Google Cloud KMS or Azure Key Vault";
+      pageData.title = "Sign Hardhat 3 transactions with a cloud KMS key";
       pageData.frontmatter = {
         ...pageData.frontmatter,
         layout: "home",
@@ -232,9 +349,9 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
             link: "/user/explanation/security-model",
           },
           {
-            title: "Run on Sepolia",
+            title: "Tested live on Sepolia",
             details:
-              "Every transaction type and signing method, with block ranges and on-chain ecrecover checks.",
+              "Every transaction type and signing method was sent on Sepolia, with block ranges and on-chain ecrecover checks.",
             link: "/live-proof",
           },
         ],
@@ -264,7 +381,7 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
         description: SITE_DESCRIPTION,
         codeRepository: `https://github.com/${GITHUB_REPOSITORY}`,
         programmingLanguage: "TypeScript",
-        runtimePlatform: "Node.js >=22.13",
+        runtimePlatform: `Node.js ${coreNodeRange}`,
         license: "https://opensource.org/licenses/MIT",
         author: { "@type": "Person", name: "Amine El Manaa", url: "https://github.com/aelmanaa" },
         version: coreVersion,
@@ -275,17 +392,28 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
     return head;
   },
   async buildEnd(siteConfig) {
-    const { writeFile } = await import("node:fs/promises");
     await writeFile(path.join(siteConfig.outDir, "robots.txt"), robotsTxt());
+    await rewriteLlmsLinks(siteConfig.outDir);
   },
   themeConfig: {
     nav: [
-      { text: "Tutorials", link: "/user/tutorials/first-deploy-aws" },
+      {
+        text: "Tutorials",
+        items: [
+          { text: "AWS KMS", link: "/user/tutorials/first-deploy-aws" },
+          { text: "Google Cloud KMS", link: "/user/tutorials/first-deploy-gcp" },
+          { text: "Azure Key Vault", link: "/user/tutorials/first-deploy-azure" },
+        ],
+      },
       { text: "Configuration", link: "/user/reference/configuration" },
       { text: "Errors", link: "/user/reference/errors" },
     ],
     sidebar: sidebar(),
     search: { provider: "local" },
+    notFound: {
+      quote: "This page does not exist. Search the docs or start from the home page.",
+      linkText: "Docs home",
+    },
     outline: { level: [2, 3] },
     editLink: {
       pattern: `https://github.com/${GITHUB_REPOSITORY}/edit/main/docs/:path`,
@@ -325,6 +453,7 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
         details: agentPreamble(),
         ignoreFiles: EXCLUDED,
         injectLLMHint: false,
+        sidebar: flatSidebar(sidebar()),
       }),
     ],
   },

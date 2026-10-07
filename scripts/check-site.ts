@@ -5,8 +5,11 @@
 //   tags and the Twitter card;
 // - every link and asset on the site starts with the base path and resolves to a built file, and
 //   every #anchor to an element of that page;
-// - sitemap.xml lists every page, robots.txt names the sitemap, llms.txt and llms-full.txt exist;
+// - sitemap.xml lists every page, robots.txt names the sitemap, llms.txt and llms-full.txt exist,
+//   and every link in them and in the pages' Markdown copies is absolute and resolves to a built
+//   file;
 // - the landing page carries one JSON-LD SoftwareSourceCode block with the core's version.
+// A missing og:image file is a warning: the owner adds the social preview.
 // scripts/site-output.ts holds the checks and test/scripts/site-output.test.ts their tests.
 //
 // Usage: node scripts/check-site.ts [--no-build]
@@ -27,7 +30,9 @@ import {
   anchors,
   frontmatterDescription,
   headProblems,
+  metaContent,
   jsonLdProblems,
+  markdownLinkProblems,
   outputCandidates,
   robotsProblems,
   siteLinks,
@@ -129,6 +134,16 @@ for (const name of ["llms.txt", "llms-full.txt"]) {
     problems.push(`${name} is missing or empty`);
   }
 }
+// Every URL in llms.txt, llms-full.txt and the pages' Markdown copies resolves on the site.
+const built = (sitePath: string): boolean =>
+  outputCandidates(sitePath).some((candidate) => existsSync(path.join(output, candidate)));
+for (const file of outputFiles.filter(
+  (entry) => entry.endsWith(".md") || entry === "llms.txt" || entry === "llms-full.txt",
+)) {
+  problems.push(
+    ...markdownLinkProblems(file, readFileSync(path.join(output, file), "utf8"), site, built),
+  );
+}
 const manifest: unknown = JSON.parse(
   readFileSync(path.join(root, "packages/hardhat-kms/package.json"), "utf8"),
 );
@@ -140,10 +155,20 @@ problems.push(
     : ["index.html is missing"]),
 );
 
+// The social preview is added by the owner; until then the og:image URL 404s. Warn, do not fail.
+const ogImage = existsSync(landing)
+  ? metaContent(readFileSync(landing, "utf8"), "og:image")
+  : undefined;
+if (ogImage?.startsWith(HOSTNAME) === true && !built(ogImage.slice(HOSTNAME.length))) {
+  process.stdout.write(
+    `warning: og:image ${ogImage} is not in the build; add the image under docs/public/\n`,
+  );
+}
+
 if (problems.length > 0) {
   process.stderr.write(`${problems.join("\n")}\n`);
   process.exit(1);
 }
 process.stdout.write(
-  `site check passed: ${sources.length} pages built with one canonical URL, a title, a description and Open Graph tags; ${outputFiles.filter((entry) => entry.endsWith(".html")).length} HTML files whose links and anchors resolve; sitemap.xml, robots.txt, llms.txt, llms-full.txt and the landing page's JSON-LD are in place\n`,
+  `site check passed: ${sources.length} pages built with one canonical URL, a title, a description and Open Graph tags; ${outputFiles.filter((entry) => entry.endsWith(".html")).length} HTML files whose links and anchors resolve; every URL in llms.txt, llms-full.txt and the Markdown copies resolves; sitemap.xml, robots.txt, llms.txt, llms-full.txt and the landing page's JSON-LD are in place\n`,
 );

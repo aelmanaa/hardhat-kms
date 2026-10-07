@@ -75,3 +75,53 @@ Allow: /
 Sitemap: ${HOSTNAME}sitemap.xml
 `;
 }
+
+/**
+ * The URL of the Markdown copy of a page that `vitepress-plugin-llms` writes, from the source path
+ * relative to docs/: `user/guides/key-loss.md` is `<hostname>user/guides/key-loss.md`, a folder's
+ * README.md is `<hostname><folder>.md`. The landing page has no copy, so its HTML URL is returned.
+ */
+export function markdownCopyUrl(source: string): string {
+  const page = sitePage(source);
+  return page === "index.md" ? HOSTNAME : `${HOSTNAME}${page.replace(/\/index\.md$/, ".md")}`;
+}
+
+/**
+ * Replaces the target of each inline Markdown link `[text](target)` for which `rewrite` returns a
+ * value. Fenced code blocks and inline code are left as they are.
+ */
+export function rewriteMarkdownLinks(
+  markdown: string,
+  rewrite: (target: string) => string | undefined,
+): string {
+  let fence: string | undefined;
+  return markdown
+    .split("\n")
+    .map((line) => {
+      const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+      if (marker !== undefined) {
+        if (fence === undefined) {
+          fence = marker;
+        } else if (marker.startsWith(fence)) {
+          fence = undefined;
+        }
+        return line;
+      }
+      if (fence !== undefined) {
+        return line;
+      }
+      // Odd segments are inline code.
+      return line
+        .split(/(`[^`]*`)/)
+        .map((segment, index) =>
+          index % 2 === 1
+            ? segment
+            : segment.replaceAll(/\]\(([^)\s]+)\)/g, (whole, target: string) => {
+                const replacement = rewrite(target);
+                return replacement === undefined ? whole : `](${replacement})`;
+              }),
+        )
+        .join("");
+    })
+    .join("\n");
+}

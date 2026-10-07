@@ -1,5 +1,6 @@
 // Checks on the built docs site, as text in and problems out, so the tests can feed them fixtures.
 // scripts/check-site.ts builds the site and runs them on the output directory.
+import { rewriteMarkdownLinks } from "../tools/docs-site/.vitepress/site.ts";
 
 /** What the checks need to know about the site. */
 export interface SiteFacts {
@@ -38,6 +39,11 @@ export function tags(html: string, name: string): Map<string, string>[] {
     found.push(attributes);
   }
   return found;
+}
+
+/** The `content` of the first `<meta>` in a page's head whose `name` or `property` is `key`. */
+export function metaContent(html: string, key: string): string | undefined {
+  return metaContents(headOf(html), key)[0];
 }
 
 /** The `content` of each `<meta>` in the head whose `name` or `property` is `key`. */
@@ -247,6 +253,62 @@ export function jsonLdProblems(html: string, version: string, site: SiteFacts): 
   if (get("url") !== site.hostname) {
     problems.push(
       `index.html: the JSON-LD url is ${String(get("url"))}, expected ${site.hostname}`,
+    );
+  }
+  return problems;
+}
+
+/**
+ * The link targets of a Markdown file the site serves to agents (`llms.txt`, `llms-full.txt`, a
+ * page's `.md` copy): inline links outside code, and the `url:` line that heads each page in
+ * `llms-full.txt`, also when folded onto the next line (`url: >-`).
+ */
+export function markdownLinkTargets(text: string): string[] {
+  const targets: string[] = [];
+  rewriteMarkdownLinks(text, (target) => {
+    targets.push(target);
+    return undefined;
+  });
+  for (const match of text.matchAll(/^url: (?:>-\n +)?(\S+)$/gm)) {
+    targets.push(match[1] ?? "");
+  }
+  return targets;
+}
+
+/**
+ * Checks the links of a Markdown file the site serves to agents. A link to the site's host must
+ * keep the base path and resolve to a built file, as `exists` reports for a path relative to the
+ * output directory; a relative or root-relative link fails, since an agent that fetched the file
+ * cannot know which page it came from once the copies are joined in `llms-full.txt`.
+ */
+export function markdownLinkProblems(
+  file: string,
+  text: string,
+  site: SiteFacts,
+  exists: (path: string) => boolean,
+): string[] {
+  const origin = new URL(site.hostname).origin;
+  const problems: string[] = [];
+  for (const target of markdownLinkTargets(text)) {
+    if (target.startsWith("#") || target.startsWith("mailto:")) {
+      continue;
+    }
+    if (/^[a-z][a-z\d+.-]*:/i.test(target)) {
+      if (!target.startsWith(`${origin}/`)) {
+        continue;
+      }
+      if (!target.startsWith(site.hostname)) {
+        problems.push(`${file}: the link ${target} does not start with ${site.hostname}`);
+        continue;
+      }
+      const path = decodeURIComponent(target.slice(site.hostname.length).split("#")[0] ?? "");
+      if (!exists(path)) {
+        problems.push(`${file}: the link ${target} resolves to no built file`);
+      }
+      continue;
+    }
+    problems.push(
+      `${file}: the link ${target} is relative; write the absolute URL on ${site.hostname}`,
     );
   }
   return problems;

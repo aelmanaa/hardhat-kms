@@ -6,12 +6,19 @@ import {
   frontmatterDescription,
   headProblems,
   jsonLdProblems,
+  markdownLinkProblems,
+  markdownLinkTargets,
   outputCandidates,
   robotsProblems,
   siteLinks,
   sitemapUrls,
 } from "../../scripts/site-output.ts";
 import type { SiteFacts } from "../../scripts/site-output.ts";
+import {
+  HOSTNAME,
+  markdownCopyUrl,
+  rewriteMarkdownLinks,
+} from "../../tools/docs-site/.vitepress/site.ts";
 
 const SITE: SiteFacts = {
   hostname: "https://example.github.io/site/",
@@ -191,5 +198,81 @@ describe("jsonLdProblems", () => {
       jsonLdProblems(landing(JSON.stringify(data)), "2.0.0", SITE).join(),
       /expected 2\.0\.0/,
     );
+  });
+});
+
+describe("markdownLinkProblems", () => {
+  const built = new Set(["user/page.md", "user/reference/api/types.md", "index.html"]);
+  const exists = (path: string): boolean => built.has(path) || built.has(`${path}index.html`);
+  const checkLinks = (text: string): string[] =>
+    markdownLinkProblems("llms.txt", text, SITE, exists);
+
+  it("passes absolute links to built files, anchors, other hosts and code", () => {
+    const text = [
+      "- [Page](https://example.github.io/site/user/page.md)",
+      "- [Types](https://example.github.io/site/user/reference/api/types.md#kmsconfig)",
+      "- [Home](https://example.github.io/site/)",
+      "[npm](https://www.npmjs.com/package/x) [here](#section)",
+      "```md",
+      "[not a link](../somewhere.md)",
+      "```",
+      "`[inline](../code.md)`",
+    ].join("\n");
+    assert.deepEqual(checkLinks(text), []);
+  });
+
+  it("reports a link on the host without the base path, as nested sidebar groups produced", () => {
+    assert.deepEqual(
+      checkLinks("- [Types](https://example.github.io/user/reference/api/types.md)"),
+      [
+        "llms.txt: the link https://example.github.io/user/reference/api/types.md does not start with https://example.github.io/site/",
+      ],
+    );
+  });
+
+  it("reports a link to a file that was not built, and a url: line", () => {
+    assert.match(
+      checkLinks("[x](https://example.github.io/site/user/nope.md)").join(),
+      /no built file/,
+    );
+    assert.match(
+      checkLinks("---\nurl: https://example.github.io/site/user/gone.md\n---\n").join(),
+      /gone\.md resolves to no built file/,
+    );
+    assert.match(
+      checkLinks("---\nurl: >-\n  https://example.github.io/user/folded.md\n---\n").join(),
+      /folded\.md does not start with/,
+    );
+  });
+
+  it("reports relative links, which break once the copies are joined", () => {
+    assert.match(checkLinks("[c](../../contributor/transactions.md)").join(), /is relative/);
+    assert.match(checkLinks("[r](/user/page.md)").join(), /is relative/);
+  });
+
+  it("reads inline links and url: lines", () => {
+    assert.deepEqual(markdownLinkTargets("a [b](c.md) `[d](e.md)`\nurl: https://x/y.md\n"), [
+      "c.md",
+      "https://x/y.md",
+    ]);
+  });
+});
+
+describe("rewriteMarkdownLinks and markdownCopyUrl", () => {
+  it("rewrites links outside code only", () => {
+    const text = "[a](x.md) `[b](x.md)`\n```\n[c](x.md)\n```\n[d](y.md#z)";
+    assert.equal(
+      rewriteMarkdownLinks(text, (target) => (target.startsWith("x") ? "X" : undefined)),
+      "[a](X) `[b](x.md)`\n```\n[c](x.md)\n```\n[d](y.md#z)",
+    );
+  });
+
+  it("names the Markdown copy of a page, of a folder index and of the landing page", () => {
+    assert.equal(markdownCopyUrl("user/guides/key-loss.md"), `${HOSTNAME}user/guides/key-loss.md`);
+    assert.equal(
+      markdownCopyUrl("user/reference/api/README.md"),
+      `${HOSTNAME}user/reference/api.md`,
+    );
+    assert.equal(markdownCopyUrl("README.md"), HOSTNAME);
   });
 });
