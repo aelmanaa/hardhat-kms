@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   MANIFESTS,
+  gpgPath,
   importedFingerprints,
   isOnePublicKeyBlock,
   readSignature,
@@ -27,17 +28,11 @@ const hasGpg = spawnSync("gpg", ["--version"]).status === 0;
 // script. The suite then skips and says so.
 const SOCKET_PATH_MAX = 104;
 const longestSocketPath = path.join(tmpdir(), "hardhat-kms-test-XXXXXX", "g1", "S.gpg-agent.extra");
-// On Windows the `gpg` on PATH is usually Git for Windows' MSYS build, which reads a `C:\...`
-// home as a relative path. The script runs on the Linux release runner and a maintainer's macOS or
-// Linux machine, so the suite skips on Windows (#393).
-const skip =
-  process.platform === "win32"
-    ? "verify-release-tag runs on Linux and macOS only; Git for Windows' gpg reads a C: home as a relative path (#393)"
-    : hasGpg
-      ? longestSocketPath.length < SOCKET_PATH_MAX
-        ? false
-        : `temp directory ${tmpdir()} is too long for gpg's agent socket path (${longestSocketPath.length} >= ${SOCKET_PATH_MAX} bytes); set TMPDIR to a shorter directory`
-      : "gpg is not installed";
+const skip = hasGpg
+  ? longestSocketPath.length < SOCKET_PATH_MAX
+    ? false
+    : `temp directory ${tmpdir()} is too long for gpg's agent socket path (${longestSocketPath.length} >= ${SOCKET_PATH_MAX} bytes); set TMPDIR to a shorter directory`
+  : "gpg is not installed";
 
 function run(
   file: string,
@@ -63,9 +58,17 @@ function mustRun(
   return result.stdout;
 }
 
-/** A key pair in its own GNUPGHOME; the home's path is short so the agent socket fits. */
-function generateKey(home: string, name: string, env: NodeJS.ProcessEnv): string {
-  mkdirSync(home, { mode: 0o700 });
+/**
+ * A key pair in its own GNUPGHOME; the home's path is short so the agent socket fits.
+ * @returns The home as `gpg` spells it (see `gpgPath`), and the key's fingerprint.
+ */
+function generateKey(
+  directory: string,
+  name: string,
+  env: NodeJS.ProcessEnv,
+): { home: string; fingerprint: string } {
+  mkdirSync(directory, { mode: 0o700 });
+  const home = gpgPath(directory, directory, env);
   mustRun(
     "gpg",
     [
@@ -82,18 +85,18 @@ function generateKey(home: string, name: string, env: NodeJS.ProcessEnv): string
       "sign",
       "0",
     ],
-    home,
+    directory,
     env,
   );
   const listed = mustRun(
     "gpg",
     ["--batch", "--homedir", home, "--with-colons", "--list-keys"],
-    home,
+    directory,
     env,
   );
   const fingerprint = /^fpr:+([0-9A-F]+):/m.exec(listed)?.[1];
   assert.notEqual(fingerprint, undefined);
-  return fingerprint ?? "";
+  return { home, fingerprint: fingerprint ?? "" };
 }
 
 function stopAgent(home: string, env: NodeJS.ProcessEnv): void {
@@ -152,10 +155,17 @@ describe("verify-release-tag", { skip }, () => {
     };
     delete env.GNUPGHOME;
 
-    trustedHome = path.join(sandbox, "g1");
-    otherHome = path.join(sandbox, "g2");
-    trustedKey = generateKey(trustedHome, "Release Maintainer", env);
-    otherKey = generateKey(otherHome, "Someone Else", env);
+    // The homes are kept as `gpg` spells them: every later use passes them to `gpg` or `git`.
+    ({ home: trustedHome, fingerprint: trustedKey } = generateKey(
+      path.join(sandbox, "g1"),
+      "Release Maintainer",
+      env,
+    ));
+    ({ home: otherHome, fingerprint: otherKey } = generateKey(
+      path.join(sandbox, "g2"),
+      "Someone Else",
+      env,
+    ));
     keys = path.join(sandbox, "keys");
     mkdirSync(keys);
     writeFileSync(
@@ -344,8 +354,9 @@ describe("verify-release-tag", { skip }, () => {
 
   it("refuses a key file whose one block holds two keys", () => {
     // A home with both public keys exports them as one armored block.
-    const both = path.join(sandbox, "g3");
-    mkdirSync(both, { mode: 0o700 });
+    const bothDirectory = path.join(sandbox, "g3");
+    mkdirSync(bothDirectory, { mode: 0o700 });
+    const both = gpgPath(bothDirectory, sandbox, env);
     for (const [home, key] of [
       [trustedHome, trustedKey],
       [otherHome, otherKey],
@@ -360,7 +371,14 @@ describe("verify-release-tag", { skip }, () => {
       writeFileSync(keyFile, exported);
       mustRun(
         "gpg",
-        ["--batch", "--no-autostart", "--homedir", both, "--import", keyFile],
+        [
+          "--batch",
+          "--no-autostart",
+          "--homedir",
+          both,
+          "--import",
+          gpgPath(keyFile, sandbox, env),
+        ],
         sandbox,
         env,
       );

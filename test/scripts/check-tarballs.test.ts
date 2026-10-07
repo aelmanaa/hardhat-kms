@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -67,24 +67,23 @@ describe("checkManifest", () => {
   });
 });
 
-// On Windows the `tar` on PATH can be Git for Windows' GNU tar, which reads `C:\...` as a remote
-// host. The script runs on the Linux release runner only, so this suite skips on Windows (#393).
-const skipOnWindows =
-  process.platform === "win32"
-    ? "check-tarballs runs on the Linux release runner only (#393)"
-    : false;
-
-describe("checkTarballs on real tarballs", { skip: skipOnWindows }, () => {
+describe("checkTarballs on real tarballs", () => {
   let work = "";
   let tarballs = "";
   let sums = "";
 
-  /** Packs `package/package.json` with the given manifest into `<tarballs>/<file>`. */
+  /**
+   * Packs `package/package.json` with the given manifest into `<tarballs>/<file>`. `tar` runs in
+   * `work` and gets relative paths, as the script does: Git for Windows' GNU tar reads a `C:\...`
+   * archive path as a remote host.
+   */
   function packTarball(file: string, manifest: object): void {
     const source = mkdtempSync(path.join(work, "src-"));
     mkdirSync(path.join(source, "package"));
     writeFileSync(path.join(source, "package", "package.json"), JSON.stringify(manifest));
-    execFileSync("tar", ["-czf", path.join(tarballs, file), "-C", source, "package"]);
+    execFileSync("tar", ["-czf", `tarballs/${file}`, "-C", path.basename(source), "package"], {
+      cwd: work,
+    });
   }
 
   const sha = (file: string): string =>
@@ -152,4 +151,22 @@ describe("checkTarballs on real tarballs", { skip: skipOnWindows }, () => {
       rmSync(path.join(tarballs, "extra-1.2.0.tgz"));
     }
   });
+
+  // GNU tar reads an archive path with a colon before its first slash as `host:path`, which is
+  // how a `C:\...` path broke on Windows. The relative directory `host:dir` shows the same on
+  // Linux. Windows allows no colon in a file name, so there the suite's other tests cover it.
+  it(
+    "reads tarballs in a relative directory whose name holds a colon",
+    { skip: process.platform === "win32" ? "Windows allows no colon in a file name" : false },
+    () => {
+      cpSync(tarballs, path.join(work, "host:dir"), { recursive: true });
+      const saved = process.cwd();
+      process.chdir(work);
+      try {
+        assert.equal(checkTarballs("host:dir", sums, VERSION, COMMIT).length, 4);
+      } finally {
+        process.chdir(saved);
+      }
+    },
+  );
 });

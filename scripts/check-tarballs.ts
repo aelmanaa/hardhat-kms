@@ -118,7 +118,10 @@ export function checkTarballs(
       throw new Error(`${sum.file}: SHA-256 is ${actual}, the pack job recorded ${sum.sha256}`);
     }
     const name = PACKAGES[index] ?? "";
-    const manifest = execFileSync("tar", ["-xOzf", tarball, "package/package.json"], {
+    // tar runs in the directory and gets the plain file name: Git for Windows' GNU tar reads a
+    // `C:\...` path as a remote host, and a name from the sums never holds a colon or a slash.
+    const manifest = execFileSync("tar", ["-xOzf", sum.file, "package/package.json"], {
+      cwd: directory,
       encoding: "utf8",
     });
     checkManifest(sum.file, manifest, { name, version, commit });

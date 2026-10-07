@@ -112,6 +112,39 @@ function gpg(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): Comm
 }
 
 /**
+ * Whether `gpg` reads paths the POSIX way although Node runs on Windows. Git for Windows ships an
+ * MSYS build of `gpg`, which takes `C:\...` for a relative path; a native Windows build reads it
+ * as written. The answer comes from the home directory `gpg --version` prints: `/c/Users/...`
+ * from the MSYS build, `C:\Users\...` from a native one.
+ */
+function gpgReadsPosixPaths(cwd: string, env: NodeJS.ProcessEnv): boolean {
+  const { GNUPGHOME: _, ...withoutHome } = env;
+  const home = /^Home: (.*)$/m.exec(run("gpg", ["--version"], cwd, withoutHome).stdout)?.[1];
+  return home?.startsWith("/") ?? false;
+}
+
+/**
+ * Spells a path the way `gpg` and `gpgconf` read it. On Linux and macOS, and with a native Windows
+ * build of `gpg`, that is the path itself. With the MSYS build of Git for Windows it is the POSIX
+ * form `cygpath -u` gives, for example `/c/Users/...`.
+ * @param file An absolute path.
+ * @param cwd The directory to run `gpg` and `cygpath` in.
+ * @param env The environment for `gpg` and `cygpath`.
+ * @returns The path to pass to `gpg`, in its arguments or in `GNUPGHOME`.
+ * @throws When `gpg` is the MSYS build and `cygpath` cannot convert the path.
+ */
+export function gpgPath(file: string, cwd: string, env: NodeJS.ProcessEnv): string {
+  if (process.platform !== "win32" || !gpgReadsPosixPaths(cwd, env)) {
+    return file;
+  }
+  const converted = run("cygpath", ["-u", file], cwd, env);
+  if (converted.status !== 0) {
+    throw new Error(`cygpath cannot convert ${file}: ${converted.stderr.trim()}`);
+  }
+  return converted.stdout.trim();
+}
+
+/**
  * Removes the throwaway GNUPGHOME. The removal is recursive, so the function accepts only a
  * `${HOME_PREFIX}*` directory directly under the system temp directory: a wrong edit to this file
  * must not be able to remove the temp directory itself or anything outside it.
@@ -281,7 +314,7 @@ function importKeys(
     // The exit status says nothing useful: gpg exits 2 when it cannot reach an agent it does not
     // need. The IMPORT_OK status lines say what was imported.
     const imported = importedFingerprints(
-      statusLines(gpg(["--homedir", home, "--import", file], cwd, env)),
+      statusLines(gpg(["--homedir", home, "--import", gpgPath(file, cwd, env)], cwd, env)),
     );
     if (imported.size === 0) {
       return {
@@ -360,9 +393,11 @@ function checkSignature(options: VerifyOptions, keysDirectory: string): Signatur
     };
   }
   const home = mkdtempSync(path.join(tmpdir(), HOME_PREFIX));
-  const homeEnv: NodeJS.ProcessEnv = { ...env, GNUPGHOME: home };
+  // `home` itself is what removeKeyHome checks and removes; `gpg` gets it in its own spelling.
+  const gpgHome = gpgPath(home, cwd, env);
+  const homeEnv: NodeJS.ProcessEnv = { ...env, GNUPGHOME: gpgHome };
   try {
-    const keys = importKeys(keysDirectory, home, cwd, homeEnv);
+    const keys = importKeys(keysDirectory, gpgHome, cwd, homeEnv);
     if (!keys.ok) {
       return keys;
     }
@@ -390,7 +425,7 @@ function checkSignature(options: VerifyOptions, keysDirectory: string): Signatur
   } finally {
     // gpg may have started an agent for this home; stop it before the directory goes. A missing
     // gpgconf is not an error: there is then no agent to stop.
-    spawnSync("gpgconf", ["--homedir", home, "--kill", "gpg-agent"], { cwd, env: homeEnv });
+    spawnSync("gpgconf", ["--homedir", gpgHome, "--kill", "gpg-agent"], { cwd, env: homeEnv });
     removeKeyHome(home);
   }
 }
