@@ -18,6 +18,9 @@
       "path": "./tsconfig.scripts.json"
     },
     {
+      "path": "./tools/docs-site"
+    },
+    {
       "path": "./tsconfig.live.json"
     }
   ]

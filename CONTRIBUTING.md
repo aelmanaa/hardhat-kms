@@ -23,6 +23,8 @@ pnpm run coverage               # tests with coverage thresholds
 pnpm run pkg:check              # build + publint + arethetypeswrong + knip
 pnpm run docs:check             # doc snippets typecheck, every page is indexed, generated pages are current, Mermaid blocks parse
 pnpm run docs:api               # regenerate the API reference after changing TSDoc or a public type
+pnpm run docs:site:dev          # serve the docs site locally, with reload
+pnpm run docs:site:check        # build the docs site and check its output
 ```
 
 ## Issues first

@@ -65,7 +65,7 @@ Pages:
 - Which credentials sign on a laptop, in CI and on a server, per cloud: [docs/user/explanation/cloud-access.md](docs/user/explanation/cloud-access.md)
 - What the plugin protects against and what it does not, what to configure, and what happens when a KMS call times out: [docs/user/explanation/security-model.md](docs/user/explanation/security-model.md)
 - What `latest` and `beta` mean, what a version number promises, the Hardhat and viem ranges per plugin major, and how long an old major gets security fixes: [docs/user/explanation/versioning.md](docs/user/explanation/versioning.md)
-- Pages not written yet (the remaining guides, a docs site): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
+- Pages not written yet (the remaining guides): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
 
 Never ask a user to paste credentials, private keys or API-keyed RPC URLs. Credentials come from each provider SDK's default chain, never from the Hardhat config. API-keyed RPC URLs belong in `configVariable()`, which also accepts key identifiers.
 
@@ -92,6 +92,7 @@ pnpm run pkg:check              # build, publint, arethetypeswrong, knip
 pnpm run docs:check             # doc snippets typecheck, every page is indexed, generated pages are current, frontmatter and skills are valid, Mermaid blocks parse
 pnpm run docs:errors            # regenerate docs/user/reference/errors.md from the error catalogues
 pnpm run docs:api               # build, then regenerate docs/user/reference/api/ from TSDoc
+pnpm run docs:site:check        # build the docs site from docs/ and check its output
 ```
 
 Where things are:
@@ -101,6 +102,7 @@ Where things are:
 - `packages/hardhat-kms-azure`: the Azure Key Vault provider plugin, which depends on `@azure/keyvault-keys` and `@azure/identity`.
 - `packages/hardhat-kms-gcp`: the Google Cloud KMS provider plugin, which depends on `@google-cloud/kms`.
 - `tools/api-docs`: a private package, never published, that runs TypeDoc on TypeScript 6 for the API reference ([decision 0012](docs/contributor/decisions/0012-api-reference-generator.md)).
+- `tools/docs-site`: a private package, never published, that builds the docs site from `docs/` with VitePress; see [Documentation](docs/contributor/documentation.md#the-docs-site).
 - `examples/`: Hardhat projects that deploy and call a contract from a KMS account with viem, ethers and Ignition. They are workspace members, and `pnpm run test:examples` runs them against LocalStack.
 
 | Topic                                                | Page                                                                                             |
