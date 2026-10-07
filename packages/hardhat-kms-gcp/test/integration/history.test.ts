@@ -37,6 +37,8 @@ const RANGE = { since: "2026-10-01T10:00:00Z", until: "2026-10-02T09:10:00Z" };
 
 let server: LoggingServer;
 let restoreEnvironment: () => void;
+/** The project each Cloud Logging call was built with. */
+const projects: Array<string | undefined> = [];
 
 interface HistoryRun {
   report: KmsHistoryReport | undefined;
@@ -67,7 +69,14 @@ async function history(
     },
   });
   // Run-time handlers run first: the plugin's own handler, with Cloud Logging on the server.
-  hre.hooks.registerHandlers("kms", kmsHandlers(version, undefined, localLogging(server.endpoint)));
+  const logging = localLogging(server.endpoint);
+  hre.hooks.registerHandlers(
+    "kms",
+    kmsHandlers(version, undefined, async (userAgent, projectId) => {
+      projects.push(projectId);
+      return await logging(userAgent);
+    }),
+  );
   let stdout = "";
   let stderr = "";
   const write = mock.method(process.stdout, "write", (chunk: unknown) => {
@@ -126,6 +135,7 @@ describe("kms history on a Google Cloud key", () => {
   beforeEach(() => {
     server.requests.length = 0;
     server.answers.length = 0;
+    projects.length = 0;
   });
 
   it("reads the key's sign entries from Cloud Logging and shows them masked", async () => {
@@ -171,6 +181,13 @@ describe("kms history on a Google Cloud key", () => {
     }
     assert.match(stdout, /"insertId": "insert-1"/);
     assert.match(stdout, /"userAgent": "hardhat-kms\/0\.0\.0 google-api-nodejs-client/);
+  });
+
+  it("builds the Cloud Logging call with the key's project, read from its variable", async () => {
+    server.answers.push(page([]));
+    await history();
+    // So that google-auth-library does not look the project up through Cloud Resource Manager.
+    assert.deepEqual(projects, [PROJECT]);
   });
 
   it("shows the ids with --show-ids", async () => {

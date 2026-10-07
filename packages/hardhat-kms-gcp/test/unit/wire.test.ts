@@ -2,12 +2,20 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  authFailure,
   crc32cMatches,
   credentialFailure,
   int64Value,
+  keyProject,
   networkErrorCode,
   statusOf,
 } from "../../src/internal/wire.ts";
+import {
+  gaxiosError,
+  projectLookupRefused,
+  SECRET_PROJECT_NUMBER,
+  tokenExchangeRefused,
+} from "../helpers/auth-errors.ts";
 
 const withCode = (code: unknown) => Object.assign(new Error("x"), { code });
 const withCause = (cause: unknown) => Object.assign(new Error("x"), { cause });
@@ -92,5 +100,168 @@ describe("Google Cloud KMS wire formats", () => {
     ]) {
       assert.equal(credentialFailure(other), undefined);
     }
+  });
+
+  it("reads the project from a key version name, by id, number or domain-scoped id", () => {
+    const rest = "locations/global/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1";
+    for (const project of ["my-project", "123456789012", "example.com:my-project"]) {
+      assert.equal(keyProject(`projects/${project}/${rest}`), project);
+    }
+    for (const bad of [
+      "",
+      `projects//${rest}`,
+      `projects/./${rest}`,
+      `projects/../${rest}`,
+      `projects/a b/${rest}`,
+      `folders/f/${rest}`,
+      "projects/p",
+    ]) {
+      assert.equal(keyProject(bad), undefined, bad);
+    }
+  });
+
+  it("recognises a refused token exchange by its OAuth error code only", () => {
+    assert.deepEqual(authFailure(tokenExchangeRefused()), {
+      kind: "tokenExchange",
+      code: "invalid_grant",
+    });
+    assert.deepEqual(authFailure(tokenExchangeRefused("unauthorized_client")), {
+      kind: "tokenExchange",
+      code: "unauthorized_client",
+    });
+    // Over REST the SDK wraps it, with a gRPC status taken from the HTTP status.
+    const wrapped = Object.assign(new Error("Error code invalid_grant: …"), {
+      code: 3,
+      cause: tokenExchangeRefused(),
+    });
+    assert.deepEqual(authFailure(Object.assign(new Error("x"), { code: 3, cause: wrapped })), {
+      kind: "tokenExchange",
+      code: "invalid_grant",
+    });
+    // An answer without an OAuth error gives "Error code undefined": the status and endpoint then.
+    assert.deepEqual(authFailure(tokenExchangeRefused("undefined")), {
+      kind: "endpoint",
+      endpoint: "the token exchange (sts.googleapis.com)",
+      status: 400,
+    });
+  });
+
+  it("names the endpoint and the status of a refused auth request, never its path", () => {
+    const lookup = authFailure(projectLookupRefused());
+    assert.deepEqual(lookup, {
+      kind: "endpoint",
+      endpoint: "the project lookup (cloudresourcemanager.googleapis.com)",
+      status: 403,
+    });
+    assert.doesNotMatch(JSON.stringify(lookup), new RegExp(SECRET_PROJECT_NUMBER));
+    const cases: Array<[string, string]> = [
+      ["https://sts.googleapis.com/v1/token", "the token exchange (sts.googleapis.com)"],
+      [
+        "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/a@b.iam.gserviceaccount.com:generateAccessToken",
+        "service account impersonation (iamcredentials.googleapis.com)",
+      ],
+    ];
+    for (const [url, endpoint] of cases) {
+      for (const asString of [false, true]) {
+        assert.deepEqual(authFailure(gaxiosError(url, 401, asString)), {
+          kind: "endpoint",
+          endpoint,
+          status: 401,
+        });
+      }
+    }
+    // The status on the response only, as some gaxios errors carry it.
+    const responseOnly = Object.assign(new Error("x"), {
+      config: { url: "https://sts.googleapis.com/v1/token" },
+      response: { status: 403 },
+    });
+    assert.equal(authFailure(responseOnly)?.kind, "endpoint");
+  });
+
+  it("reads an OAuth error code only from the token exchange", () => {
+    // Another endpoint, or another service, whose message happens to start like an OAuth error.
+    for (const url of [
+      "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/a:generateAccessToken",
+      "https://cloudkms.googleapis.com/v1/projects/p/x:asymmetricSign",
+      "http://127.0.0.1:8080/v1/token",
+    ]) {
+      const other = Object.assign(gaxiosError(url, 400), { message: "Error code foo: bar" });
+      assert.notEqual(authFailure(other)?.kind, "tokenExchange", url);
+      // Nor under the SDK's wrapper, which copies the message but not the URL.
+      const wrapped = Object.assign(new Error("Error code foo: bar"), { code: 3, cause: other });
+      assert.notEqual(authFailure(wrapped)?.kind, "tokenExchange", url);
+    }
+    // Regional Security Token Service endpoints count.
+    const regional = Object.assign(
+      gaxiosError("https://sts.europe-west1.rep.googleapis.com/v1/token", 400),
+      { message: "Error code invalid_grant: x" },
+    );
+    assert.deepEqual(authFailure(regional), { kind: "tokenExchange", code: "invalid_grant" });
+  });
+
+  it("takes only a 4xx other than 408 and 429 as a refusal for good", () => {
+    const sts = "https://sts.googleapis.com/v1/token";
+    for (const status of [400, 401, 403, 404]) {
+      assert.equal(authFailure(gaxiosError(sts, status))?.kind, "endpoint", String(status));
+    }
+    // A timeout, throttling or a server error is left to the caller, which retries it as before,
+    // bare or under the SDK's wrapper.
+    for (const status of [408, 429, 500, 502, 503, 504]) {
+      for (const refusal of [
+        gaxiosError(sts, status),
+        projectLookupRefused(status),
+        gaxiosError("https://oauth2.googleapis.com/token", status),
+        Object.assign(tokenExchangeRefused(), { status, response: { status } }),
+      ]) {
+        assert.equal(authFailure(refusal), undefined, String(status));
+        assert.equal(
+          authFailure(Object.assign(new Error("x"), { code: 14, cause: refusal })),
+          undefined,
+        );
+      }
+    }
+  });
+
+  it("takes a refusal from the OAuth token endpoint as an expired or revoked login", () => {
+    for (const status of [400, 401, 403]) {
+      const refresh = gaxiosError("https://oauth2.googleapis.com/token", status);
+      assert.deepEqual(authFailure(refresh), { kind: "login" });
+      assert.deepEqual(authFailure(Object.assign(new Error("x"), { code: 16, cause: refresh })), {
+        kind: "login",
+      });
+    }
+  });
+
+  it("leaves every other error to the caller", () => {
+    for (const other of [
+      // Cloud KMS's and Cloud Logging's own answers keep their usual handling.
+      gaxiosError("https://cloudkms.googleapis.com/v1/projects/p/x:asymmetricSign", 403),
+      gaxiosError("https://logging.googleapis.com/v2/entries:list", 403),
+      gaxiosError("http://127.0.0.1:8080/v1/token", 403),
+      // A label that names an object's inherited property, not an endpoint.
+      gaxiosError("https://constructor.googleapis.com/x", 403),
+      // No status, or no URL.
+      Object.assign(new Error("x"), { config: { url: "https://sts.googleapis.com/v1/token" } }),
+      Object.assign(new Error("x"), { config: { url: "not a url" }, status: 403 }),
+      Object.assign(new Error("x"), { config: null, status: 403 }),
+      Object.assign(new Error("x"), { status: 403 }),
+      new Error("Error code Invalid_Grant: upper case is not an OAuth code"),
+      new Error("an error code invalid_grant that does not start the message"),
+      "Error code invalid_grant",
+      { message: "Error code invalid_grant" },
+      undefined,
+    ]) {
+      assert.equal(
+        authFailure(other),
+        undefined,
+        other instanceof Error ? other.message : typeof other,
+      );
+    }
+    // A cause chain is followed only so far.
+    let deep: Error = tokenExchangeRefused();
+    for (let depth = 0; depth < 4; depth++) {
+      deep = Object.assign(new Error("x"), { cause: deep });
+    }
+    assert.equal(authFailure(deep), undefined);
   });
 });

@@ -141,3 +141,130 @@ export function credentialFailure(error: unknown): "noCredentials" | "credential
   }
   return undefined;
 }
+
+/** A project segment of a key version name, as the config check takes it. */
+const KEY_PROJECT = /^projects\/([A-Za-z0-9_.:-]+)\/locations\//;
+
+/**
+ * Reads the project from a key version name, the id or number the name was configured with.
+ * Both config forms, a full `keyVersionName` and its parts, resolve to such a name.
+ *
+ * @param name - `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<v>`.
+ * @returns The project, or `undefined` if the name does not start with a valid project.
+ */
+export function keyProject(name: string): string | undefined {
+  const project = KEY_PROJECT.exec(name)?.[1];
+  return project === undefined || project === "." || project === ".." ? undefined : project;
+}
+
+/**
+ * The Google endpoints google-auth-library calls to get an access token, other than the OAuth
+ * token endpoint, by the first label of their `googleapis.com` host, with the fixed name an error
+ * shows for each. A request path is never
+ * shown: it can hold the project number.
+ */
+const AUTH_ENDPOINTS: ReadonlyMap<string, string> = new Map([
+  ["sts", "the token exchange (sts.googleapis.com)"],
+  ["cloudresourcemanager", "the project lookup (cloudresourcemanager.googleapis.com)"],
+  ["iamcredentials", "service account impersonation (iamcredentials.googleapis.com)"],
+]);
+
+/**
+ * The OAuth error code google-auth-library puts first in the message of a refused token exchange,
+ * such as `invalid_grant`. The description after it can repeat claims of the external token.
+ */
+const OAUTH_ERROR_CODE = /^Error code ([a-z][a-z_]{0,39})(?=:|\s|$)/;
+
+/** How many errors of a `cause` chain are read: the SDK wraps an auth failure once. */
+const MAX_CAUSES = 4;
+
+/** Why getting an access token failed for good. */
+export type AuthFailure =
+  | { kind: "tokenExchange"; code: string }
+  | { kind: "login" }
+  | { kind: "endpoint"; endpoint: string; status: number };
+
+/** The host of a gaxios error's request URL, a string or a `URL`. */
+function requestHost(error: Error): string | undefined {
+  const config: unknown = Reflect.get(error, "config");
+  const url: unknown =
+    typeof config === "object" && config !== null ? Reflect.get(config, "url") : undefined;
+  if (url instanceof URL) {
+    return url.hostname;
+  }
+  return typeof url === "string" && URL.canParse(url) ? new URL(url).hostname : undefined;
+}
+
+/**
+ * The HTTP status of an error: a gaxios error's, on the error or on its response, or the one
+ * google-gax keeps as `httpStatusCode` on the error it wraps a failed request in.
+ */
+function httpStatusOf(error: Error): number | undefined {
+  const response: unknown = Reflect.get(error, "response");
+  const status: unknown =
+    Reflect.get(error, "status") ??
+    (typeof response === "object" && response !== null
+      ? Reflect.get(response, "status")
+      : undefined) ??
+    Reflect.get(error, "httpStatusCode");
+  return typeof status === "number" && Number.isInteger(status) ? status : undefined;
+}
+
+/** The first label of a `googleapis.com` host, such as `sts`, or `undefined` for another host. */
+function googleLabel(host: string | undefined): string | undefined {
+  return host?.endsWith(".googleapis.com") === true ? host.split(".")[0] : undefined;
+}
+
+/**
+ * Whether an HTTP status refuses the request for good: a 4xx other than 408 (timeout) and 429
+ * (throttled). A 5xx, 408 or 429 may pass on a retry, so it keeps the handling it had before.
+ */
+function refusedForGood(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
+/**
+ * Recognises a refusal from an endpoint google-auth-library calls to get an access token, on the
+ * error or on the errors in its `cause` chain: over REST the SDK wraps it in an error with a gRPC
+ * status that would otherwise read as Cloud KMS's own answer. Only a refusal for good counts: a
+ * 5xx, 408 or 429 is left to the caller, which retries it as before.
+ *
+ * The OAuth token endpoint refusing a refresh means the login expired or was revoked. A refused
+ * token exchange gives only its OAuth error code. Any other refusal gives only the HTTP status and
+ * the endpoint's fixed name, never the request path or the server's message.
+ *
+ * @param error - Anything thrown.
+ * @returns The failure, or `undefined` for an error that is none of these.
+ */
+export function authFailure(error: unknown): AuthFailure | undefined {
+  const chain: Error[] = [];
+  for (let current: unknown = error; chain.length < MAX_CAUSES && current instanceof Error;) {
+    chain.push(current);
+    current = Reflect.get(current, "cause");
+  }
+  // The SDK's wrapper copies the message of the error under it but not its HTTP status, so the
+  // status is read from the first error in the chain that has one.
+  const status = chain.map(httpStatusOf).find((found) => found !== undefined);
+  if (status !== undefined && !refusedForGood(status)) {
+    return undefined;
+  }
+  // The OAuth error code is read only from a token exchange: the request went to the Security
+  // Token Service, or the chain names no request at all.
+  const firstHost = chain.map(requestHost).find((found) => found !== undefined);
+  const fromExchange = firstHost === undefined || googleLabel(firstHost) === "sts";
+  for (const current of chain) {
+    const label = googleLabel(requestHost(current));
+    if (label === "oauth2" && status !== undefined) {
+      return { kind: "login" };
+    }
+    const code = fromExchange ? OAUTH_ERROR_CODE.exec(current.message)?.[1] : undefined;
+    if (code !== undefined && code !== "undefined") {
+      return { kind: "tokenExchange", code };
+    }
+    const endpoint = label === undefined ? undefined : AUTH_ENDPOINTS.get(label);
+    if (endpoint !== undefined && status !== undefined) {
+      return { kind: "endpoint", endpoint, status };
+    }
+  }
+  return undefined;
+}
