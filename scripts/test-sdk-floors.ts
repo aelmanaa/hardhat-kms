@@ -10,7 +10,8 @@
 // getAccount refuses it.
 //
 // For each package in packages/ whose dependencies include a cloud SDK, it installs the floor of
-// each SDK range (`^3.1143.0` gives 3.1143.0), also as a workspace override so other SDKs that
+// each SDK range (`^3.1143.0` gives 3.1143.0, and `^6.5.0 <6.11.0 || ^6.11.1` gives 6.5.0; see
+// scripts/version-range.ts for the forms allowed), also as a workspace override so other SDKs that
 // depend on it load the floor too, checks that this version is the one the package
 // resolves, typechecks the package against it and runs the package's tests. package.json files,
 // pnpm-workspace.yaml and the lockfile are restored afterwards, even on Ctrl-C, and the install is
@@ -30,6 +31,7 @@ import {
   wasInterrupted,
   withRestoredFiles,
 } from "./temporary-install.ts";
+import { floorOf } from "./version-range.ts";
 
 /**
  * Package names of cloud SDKs: the dependencies whose floor matters. google-gax is the transport
@@ -69,15 +71,16 @@ interface Floor {
   kind: "dependency" | "peer";
 }
 
-/** The floor of a caret range, which is the only form allowed for a tested dependency. */
-function floorOf(packageName: string, sdk: string, range: string): string {
-  const match = /^\^(\d+\.\d+\.\d+)$/.exec(range);
-  if (match?.[1] === undefined) {
+/** The floor of a tested range, with the package and dependency in the error. */
+function floorFor(packageName: string, sdk: string, range: string): string {
+  try {
+    return floorOf(range);
+  } catch (error) {
     throw new Error(
-      `${packageName}: ${sdk} must use a caret range on a tested version, such as ^1.2.3 (got ${range})`,
+      `${packageName}: ${sdk} ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
-  return match[1];
 }
 
 /** Finds the cloud SDK and optional peer floors of every package. */
@@ -95,7 +98,7 @@ function floors(): Floor[] {
           packageName,
           directory,
           sdk,
-          version: floorOf(packageName, sdk, range),
+          version: floorFor(packageName, sdk, range),
           kind: "dependency" as const,
         }));
       const peers = Object.entries(stringRecord(manifest.peerDependencies))
@@ -104,7 +107,7 @@ function floors(): Floor[] {
           packageName,
           directory,
           sdk,
-          version: floorOf(packageName, sdk, range),
+          version: floorFor(packageName, sdk, range),
           kind: "peer" as const,
         }));
       return [...dependencies, ...peers];

@@ -68,6 +68,9 @@ updates:
       # micro-packed must match the version micro-eth-signer 0.19 pins (vendored EIP-712 code).
       - dependency-name: micro-packed
         versions: [">=0.10"]
+      # npm marks google-gax 6.11.0 as deprecated; @hardhat-kms/gcp's range excludes it.
+      - dependency-name: google-gax
+        versions: ["6.11.0"]
 
   - package-ecosystem: github-actions
     directory: /

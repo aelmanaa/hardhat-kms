@@ -10,6 +10,10 @@
 # 3. pack: build, the package checks, the publish plan, then one tarball per package with `gitHead`
 #    set to the tagged commit, checked by scripts/check-tarballs.ts. The SHA-256 sums leave the job
 #    as a job output, apart from the artifact they cover.
+#    fresh-install, in parallel and on its own runner: installs the packed packages into empty
+#    projects with npm and pnpm, outside the lockfile, and fails on a deprecated package that
+#    ALLOWED does not list (scripts/check-fresh-install.ts). It uploads nothing; both publish jobs
+#    need it.
 # 4. publish: after a maintainer approves the npm-publish environment, the same check against that
 #    output, then `npm stage publish` of the four tarballs under the beta dist-tag, with
 #    provenance. Nothing is installable until a maintainer approves the stage on npmjs.com.
@@ -295,9 +299,32 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # Its own job, so the runner that builds and packs the tarballs never extracts a package outside
+  # the lockfile. It installs the latest in-range versions from the registry, with install scripts
+  # off, and asks the registry whether any is deprecated. No artifact goes in or out.
+  fresh-install:
+    name: Fresh installs, checked for deprecated packages
+    needs: verify-tag
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read # checks out the tagged commit
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.verify-tag.outputs.commit }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run test:fresh-install --summary "$GITHUB_STEP_SUMMARY"
+
   publish:
     name: Stage to npm under beta
-    needs: [verify-tag, gate-ci, pack]
+    needs: [verify-tag, gate-ci, pack, fresh-install]
     if: github.event_name == 'push' && needs.verify-tag.outputs.dry-run == 'false'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
@@ -375,7 +402,7 @@ jobs:
 
   publish-dry-run:
     name: Stage to npm (dry run)
-    needs: [verify-tag, gate-ci-report, pack]
+    needs: [verify-tag, gate-ci-report, pack, fresh-install]
     if: github.event_name == 'workflow_dispatch' && needs.verify-tag.outputs.dry-run == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 10
