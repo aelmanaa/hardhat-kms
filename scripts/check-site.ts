@@ -9,7 +9,9 @@
 //   and every link in them and in the pages' Markdown copies is absolute and resolves to a built
 //   file;
 // - the landing page carries one JSON-LD SoftwareSourceCode block with the core's version.
-// - the social preview the pages name is built, and is a 1280x640 PNG under 1 MB.
+// - the social preview the pages name is built, and is a 1280x640 PNG under 1 MB;
+// - docs/public/og-image.svg names only the vendored font families, and docs/public/og-image.png
+//   has the same bytes as a fresh render of it (scripts/og-image.ts).
 // scripts/site-output.ts holds the checks and test/scripts/site-output.test.ts their tests.
 //
 // Usage: node scripts/check-site.ts [--no-build]
@@ -29,16 +31,25 @@ import {
   sitePage,
 } from "../tools/docs-site/.vitepress/site.ts";
 import {
+  OG_FONT_FAMILIES,
+  OG_FONT_FILES,
+  OG_IMAGE_PNG,
+  OG_IMAGE_SVG,
+  renderOgImage,
+} from "./og-image.ts";
+import {
   anchors,
   frontmatterDescription,
   headProblems,
   jsonLdProblems,
   markdownLinkProblems,
+  ogImageProblems,
   outputCandidates,
   pngProblems,
   robotsProblems,
   siteLinks,
   sitemapUrls,
+  svgFontProblems,
 } from "./site-output.ts";
 import type { SiteFacts } from "./site-output.ts";
 
@@ -175,10 +186,21 @@ problems.push(
     : [`${OG_IMAGE.url} is not in the build; add the image as docs/public/og-image.png`]),
 );
 
+// The committed PNG is what scripts/render-og-image.ts draws from the SVG with the vendored fonts.
+const ogSvg = readFileSync(OG_IMAGE_SVG, "utf8");
+problems.push(
+  ...svgFontProblems(path.relative(root, OG_IMAGE_SVG), ogSvg, OG_FONT_FAMILIES),
+  ...ogImageProblems(
+    path.relative(root, OG_IMAGE_PNG),
+    readFileSync(OG_IMAGE_PNG),
+    renderOgImage(ogSvg, OG_FONT_FILES),
+  ),
+);
+
 if (problems.length > 0) {
   process.stderr.write(`${problems.join("\n")}\n`);
   process.exit(1);
 }
 process.stdout.write(
-  `site check passed: ${sources.length} pages built with one canonical URL, a title, a description and Open Graph tags; ${outputFiles.filter((entry) => entry.endsWith(".html")).length} HTML files whose links and anchors resolve; every URL in llms.txt, llms-full.txt and the Markdown copies resolves; sitemap.xml, robots.txt, llms.txt, llms-full.txt, the landing page's JSON-LD and the 1280x640 social preview are in place\n`,
+  `site check passed: ${sources.length} pages built with one canonical URL, a title, a description and Open Graph tags; ${outputFiles.filter((entry) => entry.endsWith(".html")).length} HTML files whose links and anchors resolve; every URL in llms.txt, llms-full.txt and the Markdown copies resolves; sitemap.xml, robots.txt, llms.txt, llms-full.txt, the landing page's JSON-LD and the 1280x640 social preview are in place, and the preview matches a render of its SVG\n`,
 );

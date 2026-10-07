@@ -2,17 +2,20 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { OG_FONT_FILES, renderOgImage } from "../../scripts/og-image.ts";
 import {
   frontmatterDescription,
   headProblems,
   jsonLdProblems,
   markdownLinkProblems,
   markdownLinkTargets,
+  ogImageProblems,
   outputCandidates,
   pngProblems,
   robotsProblems,
   siteLinks,
   sitemapUrls,
+  svgFontProblems,
 } from "../../scripts/site-output.ts";
 import type { SiteFacts } from "../../scripts/site-output.ts";
 import {
@@ -163,6 +166,76 @@ describe("pngProblems", () => {
   it("reports a file over the byte limit, and accepts one at it", () => {
     assert.deepEqual(pngProblems("og.png", pngHeader(1280, 640, 1000), EXPECTED), []);
     assert.match(pngProblems("og.png", pngHeader(1280, 640, 1001), EXPECTED).join(), /1001 bytes/);
+  });
+});
+
+/** A small card in the vendored families, rendered as the site check renders the real one. */
+function card(text: string): string {
+  return [
+    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160" viewBox="0 0 320 160">',
+    '<rect width="320" height="160" fill="#0E1424"/>',
+    `<text x="16" y="60" font-family="Inter" font-size="32" font-weight="700" fill="#F3F5F9">${text}</text>`,
+    '<text x="16" y="120" font-family="JetBrains Mono" font-size="20" font-weight="600" fill="#4FE3A8">digest</text>',
+    "</svg>",
+  ].join("");
+}
+
+describe("ogImageProblems", () => {
+  const rendered = renderOgImage(card("hardhat-kms"), OG_FONT_FILES);
+
+  it("passes a PNG rendered from the same SVG", () => {
+    assert.deepEqual(
+      pngProblems("og.png", rendered, { width: 320, height: 160, maxBytes: 1e6 }),
+      [],
+    );
+    assert.deepEqual(
+      ogImageProblems("og.png", renderOgImage(card("hardhat-kms"), OG_FONT_FILES), rendered),
+      [],
+    );
+  });
+
+  it("reports a PNG of the same size rendered from an older SVG", () => {
+    const stale = renderOgImage(card("hardhat-kns"), OG_FONT_FILES);
+    assert.deepEqual(pngProblems("og.png", stale, { width: 320, height: 160, maxBytes: 1e6 }), []);
+    assert.match(ogImageProblems("og.png", stale, rendered).join(), /differs from a render/);
+  });
+
+  it("reports a render that did not use the vendored fonts", () => {
+    assert.match(
+      ogImageProblems("og.png", renderOgImage(card("hardhat-kms"), []), rendered).join(),
+      /differs from a render/,
+    );
+  });
+
+  it("reports a file that is not a PNG", () => {
+    const jpeg = new Uint8Array(rendered.length);
+    jpeg.set([0xff, 0xd8, 0xff]);
+    assert.match(ogImageProblems("og.png", jpeg, rendered).join(), /not a PNG/);
+    assert.match(ogImageProblems("og.png", new Uint8Array(0), rendered).join(), /not a PNG/);
+  });
+});
+
+describe("svgFontProblems", () => {
+  const FAMILIES = ["Inter", "JetBrains Mono"];
+
+  it("passes attributes that name a vendored family", () => {
+    const svg = `<g font-family="Inter"><text font-family='JetBrains Mono'>x</text></g>`;
+    assert.deepEqual(svgFontProblems("og.svg", svg, FAMILIES), []);
+  });
+
+  it("reports a system font, a fallback list and a style", () => {
+    assert.match(
+      svgFontProblems("og.svg", '<text font-family="Inter, system-ui">x</text>', FAMILIES).join(),
+      /font-family "Inter, system-ui"/,
+    );
+    assert.match(
+      svgFontProblems("og.svg", '<text font-family="ui-monospace">x</text>', FAMILIES).join(),
+      /font-family "ui-monospace"/,
+    );
+    assert.match(
+      svgFontProblems("og.svg", '<text style="font-family: Arial">x</text>', FAMILIES).join(),
+      /in a style/,
+    );
   });
 });
 
