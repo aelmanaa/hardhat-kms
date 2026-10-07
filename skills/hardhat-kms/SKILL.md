@@ -47,6 +47,7 @@ export default defineConfig({
     sepolia: {
       type: "http",
       url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
       kmsAccounts: ["deployer"],
     },
   },
@@ -90,6 +91,7 @@ export default defineConfig({
     sepolia: {
       type: "http",
       url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
       kmsAccounts: ["deployer"],
     },
   },
