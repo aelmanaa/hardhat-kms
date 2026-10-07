@@ -7,7 +7,7 @@ name: Fresh install
 # deprecates after it was locked, or a range that resolves differently in a new project.
 # It runs weekly, on pull requests that change a published manifest, the script or the allowlist,
 # and on manual dispatch; a dispatch with a version checks that published version instead of the
-# workspace. The release workflow's pack job runs the same check before publishing.
+# workspace. The release workflow runs the same check in its own job, which both publish jobs need.
 # It is not a required check: a deprecation on the registry would block pull requests that changed
 # nothing, and path-filtered checks would block merges that do not trigger them.
 on:
@@ -17,6 +17,9 @@ on:
       - "pnpm-workspace.yaml"
       - "scripts/check-fresh-install.ts"
       - "scripts/check-deprecated-packages.ts"
+      - "scripts/registry.ts"
+      - "scripts/temporary-install.ts"
+      - "scripts/ast.ts"
       - ".github/workflows/fresh-install.yml"
   schedule:
     # Every Monday at 05:43 UTC.

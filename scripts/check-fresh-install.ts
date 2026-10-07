@@ -5,16 +5,18 @@
 //
 // For each provider package and each of npm and pnpm, the script installs the packed provider
 // package and the packed core into an empty project with an empty npm cache, pnpm store and pnpm
-// metadata cache, so the package manager reads the registry's current metadata. It then walks the
+// metadata cache, so the package manager reads the registry's current metadata. Other npm and pnpm
+// settings, such as a mirror registry or a minimum release age in the caller's user config, still
+// apply. It then walks the
 // production tree the way Node resolves it, from the two packages through `dependencies` and
 // `optionalDependencies` (not the peers Hardhat and viem, which the user's project chooses), and
 // asks the registry whether each version it finds is deprecated. A nested second copy counts as
 // well as a hoisted one.
 //
 // The installs and the registry questions need the network; each registry request is tried three
-// times. Runs weekly, in the release workflow's pack job and on pull requests that change a
-// published package.json (fresh-install.yml). Not a required check: a deprecation on the registry
-// would fail pull requests that changed nothing.
+// times. Runs weekly and on pull requests that change a published package.json (fresh-install.yml),
+// where it is not a required check: a deprecation on the registry would fail pull requests that
+// changed nothing. The release workflow runs it in a job of its own, which both publish jobs need.
 //
 // Usage: node scripts/check-fresh-install.ts [--summary <file>] [--from-registry <version> [--registry <url>]]
 //   --summary appends the result table to a file, such as $GITHUB_STEP_SUMMARY. --from-registry
@@ -55,14 +57,17 @@ const INSTALL_TIMEOUT_MS = 600_000;
 const CONCURRENCY = 8;
 const ATTEMPTS = 3;
 
-/** The real directory of `name` as Node resolves it from `from`, or undefined. */
-function locate(from: string, name: string): string | undefined {
+/**
+ * The real directory of `name` as Node resolves it from `from`, or undefined. The search stops at
+ * `project`, so a node_modules above the scratch project cannot change the result.
+ */
+function locate(project: string, from: string, name: string): string | undefined {
   for (let folder = from; ; folder = path.dirname(folder)) {
     const candidate = path.join(folder, "node_modules", ...name.split("/"));
     if (existsSync(path.join(candidate, "package.json"))) {
       return realpathSync(candidate);
     }
-    if (path.dirname(folder) === folder) {
+    if (folder === project || path.dirname(folder) === folder) {
       return undefined;
     }
   }
@@ -84,8 +89,9 @@ export function productionTree(project: string, roots: readonly string[]): Map<s
   const chains = new Map<string, string>();
   const visited = new Set<string>();
   const queue: { directory: string; chain: string }[] = [];
+  const base = realpathSync(project);
   for (const name of roots) {
-    const directory = locate(realpathSync(project), name);
+    const directory = locate(base, base, name);
     if (directory === undefined) {
       throw new Error(`${name} is not installed in ${project}`);
     }
@@ -97,7 +103,7 @@ export function productionTree(project: string, roots: readonly string[]): Map<s
     const required = Object.keys(stringRecord(manifest.dependencies));
     const optional = Object.keys(stringRecord(manifest.optionalDependencies));
     for (const name of new Set([...required, ...optional])) {
-      const directory = locate(next.directory, name);
+      const directory = locate(base, next.directory, name);
       if (directory === undefined) {
         if (optional.includes(name)) {
           continue;

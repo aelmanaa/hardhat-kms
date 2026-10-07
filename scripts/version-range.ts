@@ -60,9 +60,10 @@ export function floorOf(range: string): string {
     }
     const previous = alternatives[index - 1];
     if (previous !== undefined) {
-      if (previous.high === undefined || compare(low, previous.high) < 0) {
+      // Starting at the previous bound would skip nothing: `<6.11.0 || ^6.11.0` allows 6.11.0.
+      if (previous.high === undefined || compare(low, previous.high) <= 0) {
         throw new Error(
-          `each alternative must start at or above the previous one's upper bound (got ${range})`,
+          `each alternative must start above the previous one's upper bound (got ${range})`,
         );
       }
     }

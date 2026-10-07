@@ -153,6 +153,19 @@ describe("productionTree", () => {
     assert.deepEqual(tree, new Map([["google-gax@6.10.0", "@hardhat-kms/gcp > google-gax"]]));
   });
 
+  it("does not look for a package above the project", () => {
+    const project = hoistedProject("6.10.0", "6.10.0");
+    rmSync(path.join(project, "node_modules", "left-pad"), { recursive: true });
+    // A copy one level up, where Node would still find it.
+    writePackage(path.join(path.dirname(project), "node_modules", "left-pad"), "left-pad", "1.3.0");
+    const nested = path.join(project, "node_modules", "@hardhat-kms", "gcp");
+    writePackage(nested, "@hardhat-kms/gcp", "1.0.0", { dependencies: { "left-pad": "^1.3.0" } });
+    assert.throws(
+      () => productionTree(project, ["@hardhat-kms/gcp"]),
+      /@hardhat-kms\/gcp depends on left-pad, which is not installed/,
+    );
+  });
+
   it("throws when a regular dependency or a root is not installed", () => {
     const project = hoistedProject("6.10.0", "6.10.0");
     rmSync(path.join(project, "node_modules", "node-domexception"), { recursive: true });

@@ -82,26 +82,7 @@ Until the packages are published on npm, this command fails with `E404`; follow 
 
 `@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later, except 6.11.0, to run it on) with it, so there is nothing else to install. npm prints `npm warn deprecated node-domexception@1.0.0` during the install. The warning comes from Google's libraries: `gaxios` and `google-gax` depend on `node-fetch` 3, which pulls in `node-domexception` through `fetch-blob`, and the latest `gaxios`, 8.1.0, still does. It is harmless and needs no action.
 
-npm marks `google-gax` 6.11.0 as deprecated "due to a known bug", so `@hardhat-kms/gcp` asks for `^6.5.0 <6.11.0 || ^6.11.1` and never runs its requests on 6.11.0. npm, pnpm and Yarn 4 install one `google-gax` for both the plugin and `@google-cloud/kms`. Yarn 1 takes the `latest` tag when it fits a range, and `latest` was 6.11.0 on 2026-10-07, so it can also install 6.11.0 under `node_modules/@google-cloud/kms/node_modules/`. The client library uses that copy only for its debug logger and to decode error details; the plugin sends its Cloud KMS requests through its own copy. To remove a 6.11.0 copy that `npm ls google-gax --all`, `pnpm why google-gax` or `yarn why google-gax` shows, override the version in your project:
-
-- pnpm, in `pnpm-workspace.yaml` (pnpm ignores the `pnpm` field of `package.json`), then `pnpm install`:
-
-  ```yaml
-  overrides:
-    google-gax: "^6.5.0 <6.11.0 || ^6.11.1"
-  ```
-
-- npm, in `package.json`, then `npm dedupe` (`npm install` keeps the copy it already installed):
-
-  ```json
-  { "overrides": { "google-gax": "^6.5.0 <6.11.0 || ^6.11.1" } }
-  ```
-
-- Yarn, in `package.json`, then `yarn install`:
-
-  ```json
-  { "resolutions": { "google-gax": "^6.5.0 <6.11.0 || ^6.11.1" } }
-  ```
+`@hardhat-kms/gcp` never runs its requests on `google-gax` 6.11.0, which npm marks as deprecated; if your install still shows a 6.11.0 copy, see [Keep google-gax off 6.11.0](#keep-google-gax-off-6110).
 
 Add the plugin to `plugins`; it loads `hardhat-kms` itself:
 
@@ -159,6 +140,37 @@ console.log(address, signature);
 ```
 
 Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last in `eth_accounts`, after any accounts of the node. Each run calls `GetPublicKey` once, before the first signature, then `AsymmetricSign` once for the signature, or more if a request is retried ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). An `address` pin does not save that call: the plugin checks the public key against the pin before it releases a signature. A pin saves the call only where the plugin needs just the address, such as listing accounts with `eth_accounts`; the first signature and the `kms` tasks still read the public key ([`address`](../reference/configuration.md#configuration)).
+
+## Keep google-gax off 6.11.0
+
+npm marks `google-gax` 6.11.0 as deprecated "due to a known bug". `@hardhat-kms/gcp` depends on `google-gax` `^6.5.0 <6.11.0 || ^6.11.1`, and the plugin sends its Cloud KMS requests through that copy, so they never run on 6.11.0.
+
+`@google-cloud/kms` asks for its own `google-gax` `^6.0.0`. npm, Yarn 4 and pnpm 11 and later skip a deprecated version when another one fits, so they give it the plugin's copy. Three cases can still add a 6.11.0 copy under `@google-cloud/kms`:
+
+- Yarn 1 takes the `latest` tag when it fits a range, and `latest` was 6.11.0 on 2026-10-07.
+- pnpm 10 does not skip deprecated versions: on its own, `@google-cloud/kms` resolves to 6.11.0 there, even with an empty cache.
+- pnpm 11 and later can pick 6.11.0 when their cached registry data predates the deprecation.
+
+The client library uses that second copy only for its debug logger and to decode error details. To remove a 6.11.0 copy that `npm ls google-gax --all`, `pnpm why google-gax` or `yarn why google-gax` shows, override the version in your project:
+
+- pnpm 10 and later, in `pnpm-workspace.yaml` (pnpm 12 ignores the `pnpm` field of `package.json`), then `pnpm install`:
+
+  ```yaml
+  overrides:
+    google-gax: "^6.5.0 <6.11.0 || ^6.11.1"
+  ```
+
+- npm, in `package.json`, then `npm dedupe` (`npm install` keeps the copy it already installed):
+
+  ```json
+  { "overrides": { "google-gax": "^6.5.0 <6.11.0 || ^6.11.1" } }
+  ```
+
+- Yarn, in `package.json`, then `yarn install`:
+
+  ```json
+  { "resolutions": { "google-gax": "^6.5.0 <6.11.0 || ^6.11.1" } }
+  ```
 
 ## How the plugin uses the key
 
