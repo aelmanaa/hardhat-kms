@@ -250,7 +250,7 @@ function agentPreamble(): string {
     : "";
   const configure = `add the plugin and the key to \`hardhat.config.ts\` ([configuration reference](${markdownCopyUrl("user/reference/configuration.md")})) and list the key's address with \`npx hardhat kms accounts\``;
   const credentials =
-    "Credentials come from each cloud SDK's default chain, never from the Hardhat config.";
+    "Credentials never come from the Hardhat config: AWS and Google Cloud use their SDK's credential discovery, and Azure uses the plugin's own chain.";
   if (existsSync(path.join(docsDirectory, PRE_RELEASE_GUIDE))) {
     return `## Start here for agents
 
@@ -346,7 +346,7 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
           {
             title: "Every signature is checked",
             details:
-              "Each signature is recovered locally and must match the configured address before it is used.",
+              "Each signature is recovered locally and checked against the key's address before it is used. An optional address pin also refuses a key that changed.",
             link: "/user/explanation/security-model",
           },
           {

@@ -7,7 +7,7 @@
   "excludeFiles": ["CHANGELOG.md", "THIRD_PARTY_NOTICES.md"],
   "rules": [
     "Install the provider package for your cloud together with the core: hardhat-kms with @hardhat-kms/aws, @hardhat-kms/gcp or @hardhat-kms/azure, and list only the provider in plugins.",
-    "Credentials come from the cloud SDK's default credential chain, never from the Hardhat config. Never put credentials, private keys or API-keyed RPC URLs in the config.",
-    "Run npx hardhat kms accounts to see each key's address, then pin it with the key's address field so a changed key fails loudly."
+    "Credentials never come from the Hardhat config: AWS and Google Cloud use their SDK's credential discovery, and Azure uses the plugin's own credential chain. Never put credentials, private keys or API-keyed RPC URLs in the config.",
+    "Run npx hardhat kms accounts to see each key's address, then pin it with the key's address field so a changed key fails loudly, and run npx hardhat kms accounts --check-sign to prove the credentials may sign."
   ]
 }

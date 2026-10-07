@@ -383,7 +383,7 @@ Errors never include credentials or the text of an SDK error, which can carry re
 | `azure.response.key-version`     | error | `the response is for another key version`                | Key Vault returned another version than the one configured or pinned.                        | Check that `keyId` names the version you mean.               |
 | `azure.response.no-public-key`   | error | `the response has no public key`                         | The key read from Key Vault has no JSON Web Key.                                             | Run again; if it repeats, report it.                         |
 | `azure.response.no-versioned-id` | error | `the response has no versioned key id`                   | A Key Vault answer has no key id with a version, which the adapter needs to pin the version. | Run again; if it repeats, report it.                         |
-| `azure.response.key`             | error | `the response is for another key than the one requested` | A Key Vault answer names another key than the configured one. It is refused.                 | Check the vault URL and any proxy; if it repeats, report it. |
+| `azure.response.key`             | error | `the response is for another key than the one requested` | A Key Vault answer names another vault or key than the configured one. It is refused.        | Check the vault URL and any proxy; if it repeats, report it. |
 | `azure.response.no-signature`    | error | `the response has no signature`                          | The sign answer has no signature.                                                            | Run again; if it repeats, report it.                         |
 
 ### Keys
