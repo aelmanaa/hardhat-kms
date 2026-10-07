@@ -1,7 +1,8 @@
 // The snippet checks of `pnpm run docs:check` (`scripts/doc-snippets.ts`) on fixture pages: a call
 // of an API marked `@deprecated` fails with the Markdown file and line, a config that typechecks but
-// fails Hardhat's validation fails with the line of its fence, a skipped snippet is not checked,
-// and current APIs and valid configs pass.
+// fails Hardhat's validation fails with the line of its fence, even when configs print while they
+// load, a config that fails the typecheck or is skipped is not loaded, and current APIs and valid
+// configs pass.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -58,6 +59,24 @@ describe("checkSnippets", () => {
         process.env.HARDHAT_KMS = previous;
       }
     }
+  });
+
+  it("reports a config's own line when configs print to stdout while they load", () => {
+    const problems = checkSnippets([`${FIXTURES}/config-prints.md`], directory);
+    assert.equal(problems.length, 1, problems.join("\n"));
+    assert.match(
+      problems[0] ?? "",
+      /^test\/scripts\/fixtures\/doc-snippets\/config-prints\.md:19: the config does not load in Hardhat: HHE15: Invalid config:\n\t\* Config error in config\.kms\.keys\.deployer\.address:/,
+    );
+  });
+
+  it("does not load a config that fails the typecheck", () => {
+    const problems = checkSnippets([`${FIXTURES}/config-type-error.md`], directory);
+    assert.equal(problems.length, 1, problems.join("\n"));
+    assert.match(
+      problems[0] ?? "",
+      /^test\/scripts\/fixtures\/doc-snippets\/config-type-error\.md:\d+: error TS2322: /,
+    );
   });
 
   it("passes when there is no snippet", () => {

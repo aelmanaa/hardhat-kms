@@ -187,19 +187,22 @@ function lintDeprecated(directory: string, snippets: Map<string, string>): strin
   return problems;
 }
 
+/** How long the child that loads the configs may run. */
+const LOAD_TIMEOUT_MS = 120_000;
 /** A snippet that default-exports `defineConfig(...)`: a whole `hardhat.config.ts`. */
 const CONFIG_EXPORT = /^\s*export\s+default\s+defineConfig\s*\(/m;
 /** The name of each `configVariable("NAME")` call, with any quote style. */
 const CONFIG_VARIABLE = /\bconfigVariable\(\s*(["'`])([^"'`]+)\1/g;
 
 /**
- * The value each configuration variable gets while a config loads. Hardhat resolves the variables
- * only when a value is used, such as an RPC URL on connecting, so loading reads none of them; the
- * placeholders keep it that way for a plugin that reads one early, and keep the maintainer's own
- * values out of the check.
+ * The value each configuration variable gets while a config loads. Hardhat resolves a variable only
+ * when its value is used, such as an RPC URL on connecting, so loading a config resolves none. A
+ * plugin that resolved one early would get this placeholder, not the value set in the shell that
+ * runs the check. Other environment variables pass through unchanged. The URL names port 1, so an
+ * accidental connection fails at once instead of reaching a local node.
  */
 function placeholder(name: string): string {
-  return name.endsWith("URL") ? "http://127.0.0.1:8545" : `placeholder-${name.toLowerCase()}`;
+  return name.endsWith("URL") ? "http://127.0.0.1:1" : `placeholder-${name.toLowerCase()}`;
 }
 
 /**
@@ -208,9 +211,13 @@ function placeholder(name: string): string {
  * `configs` maps each `snippet.ts`, relative to the root, to the `file:line` of its opening fence
  * and its code. The child gets the parent's environment without Hardhat's own variables, which
  * would set global options such as `--kms`, and with a placeholder for every configuration
- * variable the snippets name.
+ * variable the snippets name. The child writes its results to `results.json` in `directory`, not to
+ * stdout, so a config or plugin that prints on load cannot hide them.
  */
-function loadConfigs(configs: Map<string, { source: string; code: string }>): string[] {
+function loadConfigs(
+  directory: string,
+  configs: Map<string, { source: string; code: string }>,
+): string[] {
   if (configs.size === 0) {
     return [];
   }
@@ -226,23 +233,32 @@ function loadConfigs(configs: Map<string, { source: string; code: string }>): st
     }
   }
   const files = [...configs.keys()];
+  const resultsFile = path.join(directory, "results.json");
   const result = spawnSync(
     process.execPath,
     [
       path.join(root, "scripts/load-config-snippets.ts"),
+      resultsFile,
       ...files.map((file) => path.join(root, file)),
     ],
-    { cwd: root, encoding: "utf8", env: environment },
+    // A plugin that leaves a handle open would keep the child alive: fail instead of hanging.
+    { cwd: root, encoding: "utf8", env: environment, timeout: LOAD_TIMEOUT_MS },
   );
   let results: unknown;
   try {
-    results = JSON.parse(result.stdout);
+    results = JSON.parse(readFileSync(resultsFile, "utf8"));
   } catch {
     results = undefined;
   }
   if (result.status !== 0 || !Array.isArray(results) || results.length !== files.length) {
+    const reason =
+      result.error !== undefined
+        ? result.error.message
+        : result.status === 0
+          ? "no result list"
+          : `exit ${String(result.status)}`;
     return [
-      `loading the config snippets failed (exit ${String(result.status)}): ${`${result.stdout}${result.stderr}`.trim()}`,
+      `loading the config snippets failed (${reason}): ${`${result.stdout}${result.stderr}`.trim()}`,
     ];
   }
   const problems: string[] = [];
@@ -290,7 +306,11 @@ export function checkSnippets(
         }
       }
     }
-    return [...problems, ...lintDeprecated(directory, snippets), ...loadConfigs(configs)];
+    return [
+      ...problems,
+      ...lintDeprecated(directory, snippets),
+      ...loadConfigs(directory, configs),
+    ];
   } catch (error) {
     return [error instanceof Error ? error.message : String(error)];
   } finally {

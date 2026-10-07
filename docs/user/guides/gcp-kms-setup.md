@@ -96,9 +96,9 @@ export default defineConfig({
         provider: "gcp",
         keyVersionName:
           "projects/my-project/locations/europe-west1/keyRings/deployer-ring/cryptoKeys/deployer/cryptoKeyVersions/1",
-        // Optional, recommended: once `npx hardhat kms accounts` prints this key's address,
-        // uncomment the line and paste it. The plugin then refuses to sign if the key derives
-        // to another address.
+        // Optional, recommended: run `npx hardhat kms accounts` and replace the next line with
+        // the `address` line it prints for this key. The plugin then refuses to sign if the key
+        // derives to another address.
         // address: "0x…",
       },
     },
@@ -110,6 +110,8 @@ export default defineConfig({
 ```
 
 Instead of `keyVersionName`, a key can list its parts: `projectId`, `location`, `keyRing`, `keyName` and `keyVersion`. The version is always required. The [configuration reference](../reference/configuration.md#key-forms-per-provider) lists every option.
+
+To pin the key's address, run `npx hardhat kms accounts`. For a key without a pin it prints an `address` line; paste it into the key in place of the commented-out line ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
 To use a key without a config entry, set `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME` and `GCP_KEY_VERSION` and pass `--kms gcp`; see [Migrate from Foundry](migrate-from-foundry.md). Such a key is added to the network selected with `--network`, or to `default` without one.
 
