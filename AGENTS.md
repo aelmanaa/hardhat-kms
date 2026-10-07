@@ -111,6 +111,7 @@ Where things are:
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Module map, code map, request flows                  | [docs/contributor/architecture.md](docs/contributor/architecture.md)                             |
 | Signature checks, key pinning, threat model          | [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md)                     |
+| Security checklist for signing and sending changes   | [docs/contributor/security-review.md](docs/contributor/security-review.md)                       |
 | Adapter interface, provider packages                 | [docs/contributor/providers.md](docs/contributor/providers.md)                                   |
 | Transaction filling, nonces, send lock               | [docs/contributor/transactions.md](docs/contributor/transactions.md)                             |
 | Test layers and conventions                          | [docs/contributor/testing.md](docs/contributor/testing.md)                                       |
@@ -153,7 +154,7 @@ Rules for every change:
 - Tests come with the change, and coverage stays at or above 95%.
 - Docs ship with the code: update the pages the change affects, and link any new page from this file and from [docs/README.md](docs/README.md).
 - Do not edit `packages/hardhat-kms/src/internal/vendor/`. It is micro-eth-signer 0.19.0 code with only import paths changed; see [decision 0001](docs/contributor/decisions/0001-vendor-eip712-encoder.md).
-- Before changing code that decides what gets signed (`packages/hardhat-kms/src/internal/crypto/`, `packages/hardhat-kms/src/internal/signer/`), read [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md).
+- Before changing code that decides what gets signed (`packages/hardhat-kms/src/internal/crypto/`, `packages/hardhat-kms/src/internal/signer/`), read [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md). A pull request that changes a path listed in [docs/contributor/security-review.md](docs/contributor/security-review.md) carries its ticked security checklist.
 - Never print or commit secrets, key ids from real accounts, or API-keyed RPC URLs, including in tests, logs and error messages.
 - After changing a TSDoc comment or a public type of `hardhat-kms`, run `pnpm run docs:api`.
 - Build every error from a catalogue entry (`src/internal/error-catalog.ts`) with `catalogError`, `catalogMessage` or `internalError`, then run `pnpm run docs:errors`. See [Errors](docs/contributor/architecture.md#errors).
