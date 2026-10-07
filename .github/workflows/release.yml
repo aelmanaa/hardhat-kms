@@ -15,8 +15,9 @@
 #    ALLOWED does not list (scripts/check-fresh-install.ts). It uploads nothing; both publish jobs
 #    need it.
 # 4. publish: after a maintainer approves the npm-publish environment, the same check against that
-#    output, then `npm stage publish` of the four tarballs under the beta dist-tag, with
-#    provenance. Nothing is installable until a maintainer approves the stage on npmjs.com.
+#    output, then `npm stage publish` of the four tarballs under the beta dist-tag, over OIDC
+#    (trusted publishing, no token), with provenance. Nothing is installable until a maintainer
+#    approves the stage on npmjs.com.
 # 5. github-release: a draft GitHub Release with the prerelease flag, its notes from the
 #    hardhat-kms changelog.
 # A manual dispatch is always a dry run: verify-tag on the `tag` input (or, with `none`, the
@@ -371,22 +372,6 @@ jobs:
           npm install --global --ignore-scripts npm@12.2.0
           npm --version
           node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
-      # First publish only. A trusted-publisher configuration cannot exist before its package, so
-      # 0.9.0 stages with a one-day token stored on the npm-publish environment. Without the secret
-      # the step does nothing and the publish runs over OIDC. Remove this step, and the secret, in
-      # the pull request that closes the 0.9.0 publish.
-      - name: Write the first-publish token to an npmrc, when set
-        env:
-          NPM_FIRST_PUBLISH_TOKEN: ${{ secrets.NPM_FIRST_PUBLISH_TOKEN }}
-        run: |
-          if [ -z "$NPM_FIRST_PUBLISH_TOKEN" ]; then
-            echo "No first-publish token on the environment; publishing over OIDC."
-            exit 0
-          fi
-          umask 077
-          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_FIRST_PUBLISH_TOKEN" > "$RUNNER_TEMP/first-publish.npmrc"
-          echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/first-publish.npmrc" >> "$GITHUB_ENV"
-          echo "The first-publish token is set; staging with it, with provenance from OIDC."
       - name: Stage the four packages under beta
         env:
           DIST_TAG: beta

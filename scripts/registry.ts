@@ -2,7 +2,7 @@
 // scripts/consumer-typecheck.ts and scripts/test-peer-installs.ts install the four published
 // packages at that exact version instead of the tarballs they pack, and
 // scripts/check-registry-release.ts runs only in this mode. `--registry <url>` points every npm
-// call at another registry, for a rehearsal against a local one before the first release.
+// call at another registry, for a rehearsal against a local one before a release.
 import { resolvedVersion } from "./temporary-install.ts";
 
 /** The published packages, in the order the scripts install and report them. */
