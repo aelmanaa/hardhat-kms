@@ -1,3 +1,8 @@
+---
+title: Deploy with Hardhat Ignition
+description: "Hardhat Ignition with a KMS signer: choose the deployer, rehearse on a simulated network, deploy, and resume after a KMS failure."
+---
+
 # Deploy with Hardhat Ignition
 
 Audience: users who deploy contracts with Hardhat Ignition and want a KMS key to sign the deployment. Assumes a working key setup, such as [Set up an AWS KMS key](aws-kms-setup.md), and an Ignition module.

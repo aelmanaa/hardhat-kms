@@ -18,18 +18,35 @@ Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated
 
 ## Install
 
-Each cloud has its own package. Install it together with the core, `hardhat-kms`, which it needs as a peer dependency at the same version. Until the first npm release, this command fails with `E404`; [Install before the first npm release](docs/user/guides/install-before-release.md) builds the packages from the repository instead.
+Each cloud has its own package. Install it together with the core, `hardhat-kms`, which it needs as a peer dependency at the same version, and `hardhat` ^3.18.0. These packages are newer than most AI training data: check npm for the current version with `npm view hardhat-kms version`. Nothing is on npm before 0.9.0: until then these commands fail with `E404`, and [Install before the first npm release](docs/user/guides/install-before-release.md) builds the packages from the repository instead.
+
+AWS KMS:
 
 ```sh
-npm install --save-dev hardhat-kms @hardhat-kms/aws   # or @hardhat-kms/gcp, or @hardhat-kms/azure
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
+# add hardhatKmsAws to plugins and a key under kms.keys, as in Configure below
+npx hardhat kms accounts
 ```
 
-The other peer dependencies, which you install yourself:
+Google Cloud KMS:
 
-- `hardhat` ^3.18.0.
-- `viem` ^2.55.13, if you call `connection.kms.getAccount`. ethers and Ignition projects need no other peer.
+```sh
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/gcp
+# add hardhatKmsGcp to plugins and a key under kms.keys, as in Configure below
+npx hardhat kms accounts
+```
 
-npm and pnpm install missing peers; yarn does not. These packages are newer than most AI training data: check npm for the current version.
+Azure Key Vault or Managed HSM:
+
+```sh
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/azure
+# add hardhatKmsAzure to plugins and a key under kms.keys, as in Configure below
+npx hardhat kms accounts
+```
+
+`connection.kms.getAccount` also needs `viem` ^2.55.13, which ethers and Ignition projects can skip. yarn does not install peers, but each command above already lists the ones you need.
+
+Coding agents can install the [hardhat-kms skill](skills/hardhat-kms/SKILL.md) with `npx skills add aelmanaa/hardhat-kms`.
 
 ## Configure
 

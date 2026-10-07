@@ -1,3 +1,8 @@
+---
+title: Security model
+description: What hardhat-kms guarantees when a cloud KMS key signs, what it leaves to your cloud's access control, and what happens when a KMS call times out.
+---
+
 # Security model
 
 Audience: users who hold funds or contract roles at a KMS key's address and want to know what the plugin guarantees, what it leaves to them, and what can still go wrong. Assumes you have read [How hardhat-kms works](how-it-works.md) or know the path of a request.

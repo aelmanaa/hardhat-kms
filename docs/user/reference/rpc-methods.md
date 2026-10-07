@@ -1,3 +1,8 @@
+---
+title: RPC methods reference
+description: Which JSON-RPC methods hardhat-kms answers for KMS accounts, which it passes to the node, and which transaction types it signs.
+---
+
 # RPC methods reference
 
 Audience: Users and library authors who want to know which JSON-RPC calls the plugin handles.

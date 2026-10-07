@@ -1,0 +1,13 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "hardhat-kms",
+  "description": "Hardhat 3 plugin that signs transactions, messages and typed data with secp256k1 keys in AWS KMS, Google Cloud KMS or Azure Key Vault.",
+  "folders": ["docs/user", "examples", "packages"],
+  "excludeFolders": ["docs/contributor", "test", "dist"],
+  "excludeFiles": ["CHANGELOG.md", "THIRD_PARTY_NOTICES.md"],
+  "rules": [
+    "Install the provider package for your cloud together with the core: hardhat-kms with @hardhat-kms/aws, @hardhat-kms/gcp or @hardhat-kms/azure, and list only the provider in plugins.",
+    "Credentials come from the cloud SDK's default credential chain, never from the Hardhat config. Never put credentials, private keys or API-keyed RPC URLs in the config.",
+    "Run npx hardhat kms accounts to see each key's address, then pin it with the key's address field so a changed key fails loudly."
+  ]
+}

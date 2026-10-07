@@ -1,3 +1,8 @@
+---
+title: Support
+description: Which Node.js versions the hardhat-kms packages run on, when a release may drop a Node.js version that reached end of life, and why there is no backport.
+---
+
 # Support
 
 Audience: Users choosing a Node.js version for a project that uses the published packages, deciding when to upgrade it, or looking for where to ask a question.

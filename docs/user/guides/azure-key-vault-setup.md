@@ -1,3 +1,8 @@
+---
+title: Set up an Azure Key Vault key
+description: "Azure Key Vault and Managed HSM setup for Ethereum signing: a P-256K key, get and sign rights only, sign-in, config and audit logs."
+---
+
 # Set up an Azure Key Vault key
 
 Audience: users who sign with a key in Azure Key Vault or Azure Managed HSM, and who have the `az` CLI.

@@ -1,3 +1,8 @@
+---
+title: How hardhat-kms works
+description: "How hardhat-kms signs at Hardhat's JSON-RPC layer: one transaction from viem or ethers through the network hook, the KMS and the node."
+---
+
 # How hardhat-kms works
 
 Audience: users who send transactions or sign messages from a KMS account with viem, ethers or Ignition, and want to know what happens between their call and the chain. Assumes a configured key; no knowledge of the plugin's code.
