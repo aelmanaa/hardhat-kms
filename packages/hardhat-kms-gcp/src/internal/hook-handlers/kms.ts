@@ -6,6 +6,7 @@ import type { KmsHooks } from "hardhat-kms/types";
 import type { GcpKmsSdk } from "../adapter.ts";
 import { ERRORS } from "../error-catalog.ts";
 import type { ListEntries } from "../history.ts";
+import { keyProject } from "../wire.ts";
 
 /** The npm name this handler checks its version under; it must equal the manifest name. */
 export const PACKAGE_NAME = "@hardhat-kms/gcp";
@@ -47,14 +48,25 @@ async function loadSdk(): Promise<GcpKmsSdk> {
  * Application Default Credentials, found as the Cloud KMS client finds them.
  *
  * @param userAgent - The plugin's user-agent tag.
+ * @param projectId - The key's project, so that google-auth-library does not look it up through
+ * Cloud Resource Manager; `undefined` lets it.
+ * @param endpoint - Cloud Logging's endpoint; tests pass a local server.
  * @returns The call.
  */
-async function loadLogging(userAgent: string): Promise<ListEntries> {
+export async function loadLogging(
+  userAgent: string,
+  projectId: string | undefined,
+  endpoint?: string,
+): Promise<ListEntries> {
   const [{ GoogleAuth }, { LOGGING_READ_SCOPE, loggingTransport }] = await Promise.all([
     import("google-auth-library"),
     import("../logging-client.ts"),
   ]);
-  return loggingTransport(new GoogleAuth({ scopes: [LOGGING_READ_SCOPE] }), userAgent);
+  const auth = new GoogleAuth({
+    scopes: [LOGGING_READ_SCOPE],
+    ...(projectId === undefined ? {} : { projectId }),
+  });
+  return loggingTransport(auth, userAgent, endpoint);
 }
 
 /**
@@ -72,7 +84,7 @@ async function loadLogging(userAgent: string): Promise<ListEntries> {
 export function kmsHandlers(
   version: string = ownVersion(),
   sdk: () => Promise<GcpKmsSdk> = loadSdk,
-  logging: (userAgent: string) => Promise<ListEntries> = loadLogging,
+  logging: (userAgent: string, projectId: string | undefined) => Promise<ListEntries> = loadLogging,
 ): Partial<KmsHooks> {
   return {
     readSignHistory: async (context, request, next) => {
@@ -85,9 +97,10 @@ export function kmsHandlers(
         operation: "history",
         key: key.displayId,
       });
+      const projectId = keyProject(await key.keyVersionName.get());
       const [{ readGcpSignHistory }, listEntries] = await Promise.all([
         import("../history.ts"),
-        logging(pluginUserAgent(version)),
+        logging(pluginUserAgent(version), projectId),
       ]);
       return await readGcpSignHistory(key, request, listEntries);
     },

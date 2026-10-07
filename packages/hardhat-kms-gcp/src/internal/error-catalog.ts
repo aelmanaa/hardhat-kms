@@ -213,6 +213,25 @@ export const ERRORS = {
       "google-auth-library could not load the file `GOOGLE_APPLICATION_CREDENTIALS` points at: it does not exist, is not a file, or does not hold credentials it can parse. The message leaves out the path.",
     fix: "Point `GOOGLE_APPLICATION_CREDENTIALS` at a credentials file, or unset it and run `gcloud auth application-default login`.",
   },
+  tokenExchangeRefused: {
+    id: "gcp.connect.token-exchange",
+    kind: "error",
+    group: "Connecting",
+    template:
+      "the token exchange refused the external credentials ({code}). Check the workload identity pool provider's audience and attribute condition, and that the external token has not expired",
+    cause:
+      "With workload identity federation, google-auth-library swaps the external token, such as a GitHub Actions OIDC token, for a Google Cloud access token at the Security Token Service, which refused it. Only the OAuth error code is shown: the error's description can repeat claims from the token.",
+    fix: "For `invalid_grant`, check that the provider's audience matches the credentials file, that the attribute condition accepts the token's claims, and that the token is current. For `invalid_request` or `unauthorized_client`, recreate the credentials file from the provider.",
+  },
+  authEndpointRefused: {
+    id: "gcp.connect.auth-endpoint",
+    kind: "error",
+    group: "Connecting",
+    template: "getting a Google Cloud access token failed: {endpoint} answered HTTP {status}",
+    cause:
+      "google-auth-library called another Google endpoint while getting an access token, and it refused the request. Only the HTTP status and the endpoint's name are shown: the request path can hold the project number.",
+    fix: "For service account impersonation, grant the federated identity `roles/iam.workloadIdentityUser` on the service account. For the OAuth token endpoint, run `gcloud auth application-default login` again. The plugin passes the key's project, so the project lookup should not happen; if it does, set `GOOGLE_CLOUD_PROJECT` and report it.",
+  },
   historyKeyName: {
     id: "gcp.history.key-name",
     kind: "error",

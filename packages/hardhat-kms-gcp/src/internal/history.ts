@@ -18,7 +18,7 @@ import type {
 } from "hardhat-kms/types";
 
 import { ERRORS } from "./error-catalog.ts";
-import { credentialFailure, statusName } from "./wire.ts";
+import { authFailure, credentialFailure, statusName } from "./wire.ts";
 
 /** The body of an `entries.list` request. */
 export interface ListEntriesRequest {
@@ -520,6 +520,13 @@ export async function readGcpSignHistory(
     code: string | undefined,
     attempts: number,
   ): unknown => {
+    // Before the status: a refusal on the way to an access token is not Cloud Logging's answer.
+    const auth = authFailure(error);
+    if (auth !== undefined) {
+      return auth.kind === "tokenExchange"
+        ? fail(ERRORS.tokenExchangeRefused, { code: auth.code })
+        : fail(ERRORS.authEndpointRefused, { endpoint: auth.endpoint, status: auth.status });
+    }
     if (status === 401) {
       return fail(ERRORS.unauthenticated, {});
     }

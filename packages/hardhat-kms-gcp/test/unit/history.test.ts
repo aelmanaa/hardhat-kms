@@ -35,6 +35,13 @@ import {
   SERVICE_ACCOUNT_SIGN,
   USER,
 } from "../fixtures/logging-entries.ts";
+import {
+  gaxiosError,
+  projectLookupRefused,
+  SECRET_CLAIM,
+  SECRET_PROJECT_NUMBER,
+  tokenExchangeRefused,
+} from "../helpers/auth-errors.ts";
 
 const SINCE = new Date("2026-10-01T10:00:00Z");
 const UNTIL = new Date("2026-10-02T10:00:00Z");
@@ -673,6 +680,34 @@ describe("the Google Cloud history reader", () => {
         /credentials file GOOGLE_APPLICATION_CREDENTIALS names could not be read/,
       );
       assert.doesNotMatch(message, /secret/);
+    });
+
+    it("reports a refused token exchange or auth request, not as Cloud Logging's answer", async () => {
+      const exchange = await failure([tokenExchangeRefused()]);
+      assert.equal(exchange.requests.length, 1);
+      assert.match(
+        exchange.message,
+        /gcp, history, .*the token exchange refused the external credentials \(invalid_grant\)/,
+      );
+      const lookup = await failure([projectLookupRefused()]);
+      assert.equal(lookup.requests.length, 1);
+      assert.match(
+        lookup.message,
+        /the project lookup \(cloudresourcemanager\.googleapis\.com\) answered HTTP 403$/,
+      );
+      assert.doesNotMatch(lookup.message, /privateLogViewer/);
+      for (const { message } of [exchange, lookup]) {
+        assert.doesNotMatch(message, new RegExp(SECRET_PROJECT_NUMBER));
+        assert.ok(!message.includes(SECRET_CLAIM), message);
+        assert.doesNotMatch(message, /audience does not match/);
+      }
+    });
+
+    it("retries an auth endpoint that is unavailable, then names it", async () => {
+      const unavailable = gaxiosError("https://sts.googleapis.com/v1/token", 503);
+      const { message, requests } = await failure([unavailable, unavailable, unavailable]);
+      assert.equal(requests.length, 3);
+      assert.match(message, /the token exchange \(sts\.googleapis\.com\) answered HTTP 503$/);
     });
 
     it("gives the HTTP status and its name for other answers, without the server's message", async () => {
