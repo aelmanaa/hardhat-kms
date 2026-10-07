@@ -1,4 +1,4 @@
-// The CI gate of release.yml. Before anything is packed for npm, the tagged commit must have:
+// The CI gate of release.yml. Before anything is published to npm, the tagged commit must have:
 // - a run of ci.yml (the Linux jobs) that concluded `success`, and
 // - a run of ci-all-os.yml whose macOS and Windows test jobs both passed (`bothPassed` of
 //   scripts/ci-all-os-decide.ts, so a run whose test jobs were skipped never counts).
@@ -90,7 +90,7 @@ function text(value: unknown, name: string, where: string): string {
 
 /**
  * Reads the response of "List workflow runs for a workflow".
- * @param response The parsed JSON body.
+ * @param response - The parsed JSON body.
  * @returns The runs, newest first.
  */
 export function parseGateRuns(response: unknown): GateRun[] {
@@ -122,8 +122,8 @@ export function parseGateRuns(response: unknown): GateRun[] {
 /**
  * The runs that may prove a commit passed: that exact commit, and not a pull-request run, which
  * tests a merge of the pull request into its base rather than the commit itself.
- * @param runs The runs, newest first.
- * @param sha The commit.
+ * @param runs - The runs, newest first.
+ * @param sha - The commit.
  * @returns The candidates, newest first.
  */
 export function gateCandidates(runs: readonly GateRun[], sha: string): GateRun[] {
@@ -165,8 +165,8 @@ export async function findLinux(github: GateGitHub, repo: string, sha: string): 
 
 /**
  * Looks for a ci-all-os.yml run on a commit whose macOS and Windows test jobs both passed.
- * @param since Only runs with an id above this count, so that a failure before a dispatch does
- * not end the wait for the dispatched run.
+ * @param since - A run id. A failed run at or below it is ignored, so a failure from before the
+ * dispatch does not end the wait; a passed run counts whatever its id.
  * @returns The newest passing run, else a run in progress, else the newest failed run, else missing.
  */
 export async function findAllOs(
@@ -207,7 +207,7 @@ function describe(workflow: string, found: Found): string {
     case "failed":
       return `${workflow}: the newest run on this commit, [${found.run.id}](${found.run.htmlUrl}), did not pass (${found.run.conclusion ?? "no conclusion"}).`;
     case "missing":
-      return `${workflow}: no push or dispatch run on this commit.`;
+      return `${workflow}: no run on this commit, pull-request runs aside.`;
     default:
       return found satisfies never;
   }
@@ -221,9 +221,9 @@ async function newestRunId(github: GateGitHub, repo: string, sha: string): Promi
 
 /**
  * Runs the gate.
- * @param input The commit, the tag and the mode.
- * @param github The API client.
- * @param clock The clock; tests pass a fake one.
+ * @param input - The commit, the tag and the mode.
+ * @param github - The API client.
+ * @param clock - The clock; tests pass a fake one.
  * @returns The verdict and the summary lines.
  */
 export async function gate(
@@ -257,7 +257,7 @@ export async function gate(
         lines: [
           header,
           describe(LINUX_WORKFLOW, linux),
-          `Without a passing ${LINUX_WORKFLOW} run on the tagged commit nothing is published. Re-run the failed run, or tag a commit of main that passed.`,
+          `Without a passing ${LINUX_WORKFLOW} run on the tagged commit nothing is published. Re-run the failed ${LINUX_WORKFLOW} run, or, if the commit has none, tag a commit of main that passed.`,
         ],
       };
     }
@@ -271,7 +271,12 @@ export async function gate(
     if (allOs.state === "failed" && dispatchedAfter !== undefined) {
       return {
         ok: false,
-        lines: [header, describe(LINUX_WORKFLOW, linux), describe(ALL_OS_WORKFLOW, allOs)],
+        lines: [
+          header,
+          describe(LINUX_WORKFLOW, linux),
+          describe(ALL_OS_WORKFLOW, allOs),
+          `The ${ALL_OS_WORKFLOW} run dispatched on ${ref} did not pass. Open it from the link above: re-run its failed jobs if the failure is a flake, then re-run this job; otherwise fix main and release a new version.`,
+        ],
       };
     }
     if ((allOs.state === "missing" || allOs.state === "failed") && dispatchedAfter === undefined) {
@@ -306,8 +311,8 @@ const defaultExec: Exec = async (file, args) =>
 
 /**
  * A {@link GateGitHub} on `gh api`, which reads its token from GH_TOKEN.
- * @param repo The repository, `owner/name`.
- * @param exec Runs `gh`; tests pass a fake.
+ * @param repo - The repository, `owner/name`.
+ * @param exec - Runs `gh`; tests pass a fake.
  * @returns The client.
  */
 export function gateClient(repo: string, exec: Exec = defaultExec): GateGitHub {
@@ -369,7 +374,9 @@ async function main(argv: readonly string[]): Promise<void> {
   }
   const minutes = Number(values["wait-minutes"]);
   if (!Number.isInteger(minutes) || minutes < 0) {
-    throw new Error(`--wait-minutes must be a whole number, not ${values["wait-minutes"]}`);
+    throw new Error(
+      `--wait-minutes must be a whole number of minutes, 0 or more, not ${values["wait-minutes"]}`,
+    );
   }
   const result = await gate(
     {

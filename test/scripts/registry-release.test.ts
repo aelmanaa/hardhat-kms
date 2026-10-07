@@ -201,7 +201,17 @@ describe("the live rule of promote.yml", () => {
     assert.deepEqual(sepolia, { kind: "sepolia", commit: "0123abc" });
     assert.deepEqual(parseLiveRun("fork"), { kind: "fork" });
     assert.deepEqual(parseLiveRun("none"), { kind: "none" });
-    for (const value of ["sepolia:", "sepolia:XYZ1234", "sepolia:abc", "Sepolia:0123abc", ""]) {
+    for (const value of [
+      "sepolia:",
+      "sepolia:XYZ1234",
+      "sepolia:abc",
+      "Sepolia:0123abc",
+      "sepolia:xyz0123abc",
+      "sepolia:0123abc/",
+      "sepolia:0123abc\nfork",
+      "fork\n",
+      "",
+    ]) {
       assert.throws(() => parseLiveRun(value), {
         message: `live-run ${JSON.stringify(value)} is not sepolia:<commit>, fork or none; the commit is the one that added test/live/proof.json`,
       });
@@ -228,17 +238,20 @@ describe("the live rule of promote.yml", () => {
   it("refuses none on a minor or a major, for both targets", () => {
     for (const target of ["verify", "latest"] as const) {
       assert.throws(() => checkLiveRule("1.2.0", target, { kind: "none" }), {
-        message: "1.2.0 is a minor; live-run none is refused for a minor or a major",
+        message:
+          /^1\.2\.0 is a minor; live-run none is refused for a minor or a major\. Run the live suite/,
       });
       assert.throws(() => checkLiveRule("2.0.0", target, { kind: "none" }), {
-        message: "2.0.0 is a major; live-run none is refused for a minor or a major",
+        message:
+          /^2\.0\.0 is a major; live-run none is refused for a minor or a major\. Run the live suite/,
       });
     }
   });
 
   it("moves latest on a minor or a major only with a Sepolia run", () => {
     assert.throws(() => checkLiveRule("1.2.0", "latest", { kind: "fork" }), {
-      message: "1.2.0 is a minor; moving latest needs live-run sepolia:<commit>, not fork",
+      message:
+        /^1\.2\.0 is a minor; moving latest needs live-run sepolia:<commit>, not fork\. Run the Sepolia suite/,
     });
     assert.equal(
       checkLiveRule("1.2.0", "verify", { kind: "fork" }),

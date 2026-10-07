@@ -197,10 +197,44 @@ describe("gate", () => {
     const { github, dispatched } = fake(world, (changed) => {
       changed.allOs.unshift({ id: 21, event: "workflow_dispatch" });
     });
-    const result = await gate(input(), github, clock());
+    const time = clock();
+    const result = await gate(input(), github, time);
     assert.equal(result.ok, false);
     assert.deepEqual(dispatched, [`ci-all-os.yml@${TAG}`]);
+    // It fails on the first look after the dispatched run failed, not at the deadline.
+    assert.equal(time.slept, 1);
     assert.match(result.lines.join("\n"), /the newest run on this commit, \[21\]/);
+    assert.match(result.lines.join("\n"), /re-run its failed jobs if the failure is a flake/);
+  });
+
+  it("after a dispatch, an older failed run does not end the wait for the dispatched run", async () => {
+    let step = 0;
+    const world: World = {
+      linux: [{ id: 10 }],
+      allOs: [{ id: 20, event: "schedule" }],
+      jobs: { 20: failedJobs, 21: passedJobs },
+    };
+    const { github, dispatched } = fake(world);
+    const time = clock(() => {
+      step += 1;
+      // The dispatched run is not listed yet on the first look after the dispatch, is queued on
+      // the second, and has passed on the third. The failed run 20 stays listed throughout.
+      if (step === 2) {
+        world.allOs = [
+          { id: 21, event: "workflow_dispatch", status: "queued", conclusion: null },
+          { id: 20, event: "schedule" },
+        ];
+      } else if (step === 3) {
+        world.allOs = [
+          { id: 21, event: "workflow_dispatch" },
+          { id: 20, event: "schedule" },
+        ];
+      }
+    });
+    const result = await gate(input(), github, time);
+    assert.equal(result.ok, true, result.lines.join("\n"));
+    assert.deepEqual(dispatched, [`ci-all-os.yml@${TAG}`]);
+    assert.equal(time.slept, 3);
   });
 
   it("waits for a ci.yml run in progress", async () => {
@@ -247,8 +281,8 @@ describe("gate", () => {
     assert.deepEqual(dispatched, []);
     assert.equal(time.slept, 0);
     assert.deepEqual(result.lines.slice(1), [
-      "ci.yml: no push or dispatch run on this commit.",
-      "ci-all-os.yml: no push or dispatch run on this commit.",
+      "ci.yml: no run on this commit, pull-request runs aside.",
+      "ci-all-os.yml: no run on this commit, pull-request runs aside.",
       `A release run would dispatch ci-all-os.yml on ${TAG} and wait for it.`,
     ]);
   });

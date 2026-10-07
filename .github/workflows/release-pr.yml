@@ -42,7 +42,8 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
       # No publish-script: with no changeset on main the action does nothing.
       - name: Open or update the Version Packages pull request
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2

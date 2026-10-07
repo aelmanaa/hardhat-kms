@@ -273,11 +273,13 @@ export function checkLiveRule(version: string, target: PromoteTarget, liveRun: L
     return `${version} is a patch; live-run ${recorded} is accepted. A patch whose changelog touches signing or sending needs sepolia:<commit>, and that call is the maintainer's.`;
   }
   if (liveRun.kind === "none") {
-    throw new Error(`${version} is a ${bump}; live-run none is refused for a minor or a major`);
+    throw new Error(
+      `${version} is a ${bump}; live-run none is refused for a minor or a major. Run the live suite at the tag commit (fork or Sepolia), then dispatch again with live-run fork or sepolia:<commit>.`,
+    );
   }
   if (target === "latest" && liveRun.kind !== "sepolia") {
     throw new Error(
-      `${version} is a ${bump}; moving latest needs live-run sepolia:<commit>, not ${liveRun.kind}`,
+      `${version} is a ${bump}; moving latest needs live-run sepolia:<commit>, not ${liveRun.kind}. Run the Sepolia suite at the tag commit, commit test/live/proof.json, then dispatch again with live-run sepolia:<that commit>.`,
     );
   }
   return `${version} is a ${bump}; live-run ${recorded} meets the live rule for target ${target}.`;
