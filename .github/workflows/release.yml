@@ -1,0 +1,418 @@
+# Stages a release to npm from a maintainer-signed vX.Y.Z tag. docs/contributor/releasing.md has the
+# maintainer's steps and decision 0016 the reasons. The jobs, in order:
+# 1. verify-tag: scripts/verify-release-tag.ts. The tag is signed by a key in .github/release-keys/,
+#    names the version of the four manifests, has no prerelease part, and its commit is on main.
+# 2. gate-ci: the tagged commit has a passing ci.yml run and a ci-all-os.yml run that passed on
+#    macOS and Windows; when the nightly skipped the commit, the job dispatches ci-all-os.yml on the
+#    tag and waits (scripts/release-gate-ci.ts).
+# 3. pack: build, the package checks, the publish plan, then one tarball per package with `gitHead`
+#    set to the tagged commit, their file lists and SHA-256 sums in the job summary.
+# 4. publish: after a maintainer approves the npm-publish environment, `npm stage publish` of the
+#    four tarballs under the beta dist-tag, with provenance. Nothing is installable until a
+#    maintainer approves the stage on npmjs.com.
+# 5. github-release: a draft GitHub Release with the prerelease flag, its notes from the
+#    hardhat-kms changelog.
+# A manual dispatch is always a dry run: jobs 1 to 3 on the `tag` input (or, with `none`, on the
+# dispatched branch, without the signature check), then `npm stage publish --dry-run` of each
+# tarball. It needs no environment, no OIDC token and no secret.
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Run verify-tag, gate-ci and pack, then npm stage publish --dry-run; nothing is published
+        type: boolean
+        default: true
+      tag:
+        description: An existing vX.Y.Z tag to dry-run, or none to pack the dispatched branch
+        type: string
+        default: none
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    ${{ github.event_name == 'push' && format('release-{0}', github.ref_name)
+    || format('release-dry-run-{0}', inputs.tag) }}
+  cancel-in-progress: false
+
+jobs:
+  verify-tag:
+    name: Verify the tag
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.trigger.outputs.tag }}
+      dry-run: ${{ steps.trigger.outputs.dry-run }}
+      commit: ${{ steps.verify.outputs.commit }}
+      version: ${{ steps.verify.outputs.version }}
+    steps:
+      - name: Read the trigger
+        id: trigger
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          if [ "$EVENT" = push ]; then
+            tag="$REF_NAME"
+            dry_run=false
+          else
+            if [ "$INPUT_DRY_RUN" != true ]; then
+              echo "::error::A release starts only from a pushed signed tag. A manual dispatch runs the dry run; set dry-run to true."
+              exit 1
+            fi
+            tag="$INPUT_TAG"
+            dry_run=true
+          fi
+          # A name of safe characters only; verify-release-tag.ts decides whether it is a release tag.
+          if [ "$tag" != none ] && ! printf '%s' "$tag" | grep -Eq '^v[0-9][0-9A-Za-z.+-]*$'; then
+            echo "::error::tag must be a vX.Y.Z tag or none, not $tag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "dry-run=$dry_run" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: the script checks that the tagged commit is an ancestor of origin/main.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Verify the tag signature, version and commit
+        id: verify
+        env:
+          TAG: ${{ steps.trigger.outputs.tag }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "$TAG" = none ]; then
+            version="$(node -p 'require("./packages/hardhat-kms/package.json").version')"
+            echo "commit=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "Dry run without a tag: the signature, tag-name and main checks did not run. Packing \`$HEAD_SHA\` at version $version." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # Fetch the tag object itself, and main, so neither depends on how the checkout fetched them.
+          git fetch --force --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/main:refs/remotes/origin/main"
+          set -o pipefail
+          node scripts/verify-release-tag.ts "$TAG" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "commit=$(git rev-parse "refs/tags/$TAG^{commit}")" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  gate-ci:
+    name: CI passed on the tagged commit
+    needs: verify-tag
+    runs-on: ubuntu-26.04
+    # The dispatched macOS and Windows run gets 90 minutes, queueing included.
+    timeout-minutes: 100
+    permissions:
+      contents: read # checks out the scripts
+      actions: write # reads the runs of ci.yml and ci-all-os.yml, and dispatches ci-all-os.yml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/release-gate-ci.ts
+            scripts/ci-all-os-decide.ts
+          sparse-checkout-cone-mode: false
+      # Node 24 strips the scripts' types; they import only node: modules, so nothing is installed.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Require a passing ci.yml and ci-all-os.yml run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.verify-tag.outputs.commit }}
+          TAG: ${{ needs.verify-tag.outputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          MODE: ${{ needs.verify-tag.outputs.dry-run == 'true' && 'report' || 'enforce' }}
+        run: |
+          ref="$TAG"
+          if [ "$ref" = none ]; then ref="$REF_NAME"; fi
+          node scripts/release-gate-ci.ts --repo "$GITHUB_REPOSITORY" --sha "$COMMIT" --ref "$ref" \
+            --mode "$MODE" --wait-minutes 90 --summary "$GITHUB_STEP_SUMMARY"
+
+  pack:
+    name: Build and pack
+    needs: verify-tag
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.verify-tag.outputs.commit }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No dependency cache: what goes to npm is built only from the lockfile and the registry.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Builds, then publint, arethetypeswrong, the deprecated-package check and knip.
+      - run: pnpm run pkg:check
+      - name: Publish plan
+        run: |
+          {
+            echo "## Publish plan"
+            echo
+            echo "The plan prints changesets' default dist-tag; the publish job stages under \`beta\`."
+            echo
+            echo '```text'
+            pnpm exec changeset publish-plan 2>&1
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      # npm writes no gitHead into a manifest published from a tarball, and the promotion checks
+      # tie the published version to the tag through it. pnpm pack keeps the field.
+      - name: Pack the four packages with gitHead set to the tagged commit
+        env:
+          COMMIT: ${{ needs.verify-tag.outputs.commit }}
+          VERSION: ${{ needs.verify-tag.outputs.version }}
+        run: |
+          out="$RUNNER_TEMP/tarballs"
+          mkdir -p "$out"
+          : > "$out/order.txt"
+          # The core first: the providers pin it to the exact version.
+          for dir in hardhat-kms hardhat-kms-aws hardhat-kms-gcp hardhat-kms-azure; do
+            (cd "packages/$dir" && npm pkg set "gitHead=$COMMIT")
+            tarball="$(cd "packages/$dir" && pnpm pack --json --pack-destination "$out" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).filename')"
+            manifest="$(tar -xOzf "$tarball" package/package.json)"
+            name="$(printf '%s' "$manifest" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).name')"
+            packed_version="$(printf '%s' "$manifest" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')"
+            git_head="$(printf '%s' "$manifest" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).gitHead')"
+            if [ "$packed_version" != "$VERSION" ] || [ "$git_head" != "$COMMIT" ]; then
+              echo "::error::$name packed as $packed_version with gitHead $git_head; expected $VERSION and $COMMIT"
+              exit 1
+            fi
+            basename "$tarball" >> "$out/order.txt"
+            echo "$name@$packed_version gitHead $git_head: $(basename "$tarball")"
+          done
+          (cd "$out" && sha256sum $(cat order.txt) > SHA256SUMS)
+      - name: Tarball sums, file lists and the diff against latest
+        run: |
+          out="$RUNNER_TEMP/tarballs"
+          {
+            echo "## Tarballs"
+            echo
+            echo "| Tarball | SHA-256 |"
+            echo "| --- | --- |"
+            while read -r sum file; do echo "| \`$file\` | \`$sum\` |"; done < "$out/SHA256SUMS"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          while read -r file; do
+            name="$(tar -xOzf "$out/$file" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).name')"
+            tar -tzf "$out/$file" | sort > "$RUNNER_TEMP/$file.files"
+            {
+              echo "<details><summary>$name: $(wc -l < "$RUNNER_TEMP/$file.files") files</summary>"
+              echo
+              echo '```text'
+              cat "$RUNNER_TEMP/$file.files"
+              echo '```'
+              echo
+              echo "</details>"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+            url="$(npm view "$name@latest" dist.tarball 2>/dev/null || true)"
+            if [ -z "$url" ]; then
+              echo "$name has no latest version on npm yet; no file-list diff." >> "$GITHUB_STEP_SUMMARY"
+            else
+              curl -fsSL "$url" -o "$RUNNER_TEMP/latest.tgz"
+              tar -tzf "$RUNNER_TEMP/latest.tgz" | sort > "$RUNNER_TEMP/latest.files"
+              {
+                echo "<details><summary>$name: file list against latest</summary>"
+                echo
+                echo '```diff'
+                diff -u "$RUNNER_TEMP/latest.files" "$RUNNER_TEMP/$file.files" || true
+                echo '```'
+                echo
+                echo "</details>"
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo >> "$GITHUB_STEP_SUMMARY"
+          done < "$out/order.txt"
+      - name: Release notes from the hardhat-kms changelog
+        env:
+          VERSION: ${{ needs.verify-tag.outputs.version }}
+          DRY_RUN: ${{ needs.verify-tag.outputs.dry-run }}
+        run: |
+          notes="$RUNNER_TEMP/release-notes/notes.md"
+          mkdir -p "$(dirname "$notes")"
+          if [ -f packages/hardhat-kms/CHANGELOG.md ]; then
+            awk -v heading="## $VERSION" '$0 == heading { found = 1; next } found && /^## / { exit } found { print }' \
+              packages/hardhat-kms/CHANGELOG.md > "$notes"
+          fi
+          if [ ! -s "$notes" ]; then
+            if [ "$DRY_RUN" = true ]; then
+              echo "::warning::packages/hardhat-kms/CHANGELOG.md has no entry for $VERSION; a release run would fail here."
+              echo "No changelog entry for $VERSION." > "$notes"
+            else
+              echo "::error::packages/hardhat-kms/CHANGELOG.md has no entry for $VERSION"
+              exit 1
+            fi
+          fi
+          { echo "## Release notes"; echo; cat "$notes"; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tarballs
+          path: ${{ runner.temp }}/tarballs/
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Stage to npm under beta
+    needs: [verify-tag, gate-ci, pack]
+    if: needs.verify-tag.outputs.dry-run == 'false' && github.event_name == 'push'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    # A maintainer approves this environment; each trusted-publisher configuration on npm pins it.
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # the OIDC token for trusted publishing and for the provenance attestation
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: tarballs
+          path: ${{ runner.temp }}/tarballs
+      - name: Check the tarballs against the sums of the pack job
+        run: cd "$RUNNER_TEMP/tarballs" && sha256sum -c SHA256SUMS
+      # No registry-url: setup-node would write an .npmrc that expects a token.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # The npm that ships with Node 24 is older than OIDC dist-tags need (11.21.0), so the job
+      # installs the newest npm, with no install scripts, and refuses one below that floor.
+      - name: Install the newest npm
+        run: | # zizmor: ignore[adhoc-packages] npm itself, outside any lockfile, by design
+          npm install --global --ignore-scripts npm@latest
+          npm --version
+          node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
+      - name: A prerelease never goes to latest
+        env:
+          VERSION: ${{ needs.verify-tag.outputs.version }}
+          DIST_TAG: beta
+        run: |
+          case "$VERSION" in
+            *-*)
+              if [ "$DIST_TAG" = latest ]; then
+                echo "::error::$VERSION is a prerelease and would be staged under latest"
+                exit 1
+              fi
+              ;;
+          esac
+      # First publish only. A trusted-publisher configuration cannot exist before its package, so
+      # 0.9.0 stages with a one-day token stored on the npm-publish environment. Without the secret
+      # the step does nothing and the publish runs over OIDC. Remove this step, and the secret, in
+      # the pull request that closes the 0.9.0 publish.
+      - name: First publish only, write the token to the job's npmrc
+        env:
+          NPM_FIRST_PUBLISH_TOKEN: ${{ secrets.NPM_FIRST_PUBLISH_TOKEN }}
+        run: |
+          if [ -z "$NPM_FIRST_PUBLISH_TOKEN" ]; then
+            echo "No first-publish token on the environment; publishing over OIDC."
+            exit 0
+          fi
+          umask 077
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_FIRST_PUBLISH_TOKEN" > "$RUNNER_TEMP/first-publish.npmrc"
+          echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/first-publish.npmrc" >> "$GITHUB_ENV"
+          echo "The first-publish token is set; staging with it, with provenance from OIDC."
+      - name: Stage the four packages under beta
+        env:
+          DIST_TAG: beta
+        run: |
+          cd "$RUNNER_TEMP/tarballs"
+          echo "## Staged under \`$DIST_TAG\`" >> "$GITHUB_STEP_SUMMARY"
+          while read -r file; do
+            npm stage publish "./$file" --tag "$DIST_TAG" --access public --provenance
+            echo "- \`$file\`" >> "$GITHUB_STEP_SUMMARY"
+          done < order.txt
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Approve the four stages on npmjs.com; until then nothing is installable." >> "$GITHUB_STEP_SUMMARY"
+
+  publish-dry-run:
+    name: Stage to npm (dry run)
+    needs: [verify-tag, gate-ci, pack]
+    if: needs.verify-tag.outputs.dry-run == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: tarballs
+          path: ${{ runner.temp }}/tarballs
+      - name: Check the tarballs against the sums of the pack job
+        run: cd "$RUNNER_TEMP/tarballs" && sha256sum -c SHA256SUMS
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # The npm that ships with Node 24 is older than OIDC dist-tags need (11.21.0), so the job
+      # installs the newest npm, with no install scripts, and refuses one below that floor.
+      - name: Install the newest npm
+        run: | # zizmor: ignore[adhoc-packages] npm itself, outside any lockfile, by design
+          npm install --global --ignore-scripts npm@latest
+          npm --version
+          node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
+      - name: npm stage publish --dry-run, and the commands a release would run
+        env:
+          DIST_TAG: beta
+          TAG: ${{ needs.verify-tag.outputs.tag }}
+        run: |
+          cd "$RUNNER_TEMP/tarballs"
+          {
+            echo "## Dry run"
+            echo
+            echo "A release run would approve the npm-publish environment, then run:"
+            echo
+            echo '```sh'
+            while read -r file; do
+              echo "npm stage publish ./$file --tag $DIST_TAG --access public --provenance"
+            done < order.txt
+            echo "gh release create $TAG --verify-tag --draft --prerelease --title $TAG --notes-file notes.md"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          while read -r file; do
+            npm stage publish --dry-run "./$file" --tag "$DIST_TAG" --access public
+          done < order.txt
+
+  github-release:
+    name: Draft GitHub Release
+    needs: [verify-tag, publish]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # creates the draft release
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes
+      # A re-run of this job after a failure finds the release and creates no second one.
+      - name: Create the draft release unless it exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify-tag.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG exists; nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --prerelease \
+            --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes/notes.md"
+          echo "Created the draft prerelease $TAG." >> "$GITHUB_STEP_SUMMARY"

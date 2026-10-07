@@ -215,3 +215,70 @@ export function assertAttestations(verified: readonly VerifiedPackage[], version
     );
   }
 }
+
+/** What a promotion records about the live suite: `sepolia:<commit>`, `fork` or `none`. */
+export type LiveRun = { kind: "sepolia"; commit: string } | { kind: "fork" } | { kind: "none" };
+
+/** The promotion targets of promote.yml. */
+export type PromoteTarget = "verify" | "latest";
+
+/** A commit id: 7 to 40 hexadecimal characters. */
+const COMMIT = /^[0-9a-f]{7,40}$/;
+
+/**
+ * Parses the `live-run` input of promote.yml.
+ *
+ * @param value - `sepolia:<commit>`, `fork` or `none`.
+ * @returns The parsed value.
+ */
+export function parseLiveRun(value: string): LiveRun {
+  if (value === "fork" || value === "none") {
+    return { kind: value };
+  }
+  const commit = value.startsWith("sepolia:") ? value.slice("sepolia:".length) : undefined;
+  if (commit === undefined || !COMMIT.test(commit)) {
+    throw new Error(
+      `live-run ${JSON.stringify(value)} is not sepolia:<commit>, fork or none; the commit is the one that added test/live/proof.json`,
+    );
+  }
+  return { kind: "sepolia", commit };
+}
+
+/**
+ * The bump a stable version is, read from its numbers alone: `x.y.z` with `z` above 0 is a patch,
+ * `x.y.0` with `y` above 0 a minor, `x.0.0` a major.
+ *
+ * @param version - A stable version.
+ */
+export function bumpOf(version: string): "major" | "minor" | "patch" {
+  const [, minor, patch] = stableVersion(version);
+  return patch > 0 ? "patch" : minor > 0 ? "minor" : "major";
+}
+
+/**
+ * Applies the live rule of docs/contributor/releasing.md: a minor or a major never goes without a
+ * live run, and goes to `latest` only with a Sepolia run; a patch accepts any value, because only
+ * the maintainer knows whether its changelog touches signing or sending.
+ *
+ * @param version - The version to verify or promote.
+ * @param target - `verify` or `latest`.
+ * @param liveRun - The parsed `live-run` input.
+ * @returns The line for the job summary.
+ * @throws When the value is refused, with the rule in the message.
+ */
+export function checkLiveRule(version: string, target: PromoteTarget, liveRun: LiveRun): string {
+  const bump = bumpOf(version);
+  const recorded = liveRun.kind === "sepolia" ? `sepolia at ${liveRun.commit}` : liveRun.kind;
+  if (bump === "patch") {
+    return `${version} is a patch; live-run ${recorded} is accepted. A patch whose changelog touches signing or sending needs sepolia:<commit>, and that call is the maintainer's.`;
+  }
+  if (liveRun.kind === "none") {
+    throw new Error(`${version} is a ${bump}; live-run none is refused for a minor or a major`);
+  }
+  if (target === "latest" && liveRun.kind !== "sepolia") {
+    throw new Error(
+      `${version} is a ${bump}; moving latest needs live-run sepolia:<commit>, not ${liveRun.kind}`,
+    );
+  }
+  return `${version} is a ${bump}; live-run ${recorded} meets the live rule for target ${target}.`;
+}

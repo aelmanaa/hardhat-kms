@@ -3,8 +3,8 @@ name: Registry mode
 # The package checks in registry mode (scripts/check-packages.ts, consumer-typecheck.ts,
 # test-peer-installs.ts, check-registry-release.ts and the examples test with --from-registry),
 # against a local registry (verdaccio) that serves the packages built from the checkout:
-# `pnpm run test:registry-mode`. docs/contributor/testing.md describes the mode. The promotion
-# workflow of #47 runs the same scripts against npm.
+# `pnpm run test:registry-mode`. docs/contributor/testing.md describes the mode. promote.yml runs
+# the same scripts against npm.
 # The run takes about four billable minutes and tests scripts that change rarely, so it is not on
 # every pull request: it runs when a script, its tests, an example, a published manifest or this
 # file changes, on every push to main, nightly and on manual dispatch. It is not a required check:
