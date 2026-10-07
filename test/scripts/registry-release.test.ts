@@ -13,9 +13,12 @@ import {
   assertGitHead,
   assertNotBelowLatest,
   assertPublished,
+  bumpOf,
+  checkLiveRule,
   compareVersions,
   type PackageView,
   parseGitHead,
+  parseLiveRun,
   parsePackageView,
   parseVerified,
   stableVersion,
@@ -188,5 +191,75 @@ describe("the release guards", () => {
     assert.throws(() => parseVerified('{"invalid":[],"missing":[]}'), {
       message: "npm audit signatures returned no verified list",
     });
+  });
+});
+
+describe("the live rule of promote.yml", () => {
+  const sepolia = parseLiveRun("sepolia:0123abc");
+
+  it("parses sepolia:<commit>, fork and none, and refuses anything else", () => {
+    assert.deepEqual(sepolia, { kind: "sepolia", commit: "0123abc" });
+    assert.deepEqual(parseLiveRun("fork"), { kind: "fork" });
+    assert.deepEqual(parseLiveRun("none"), { kind: "none" });
+    for (const value of [
+      "sepolia:",
+      "sepolia:XYZ1234",
+      "sepolia:abc",
+      "Sepolia:0123abc",
+      "sepolia:xyz0123abc",
+      "sepolia:0123abc/",
+      "sepolia:0123abc\nfork",
+      "fork\n",
+      "",
+    ]) {
+      assert.throws(() => parseLiveRun(value), {
+        message: `live-run ${JSON.stringify(value)} is not sepolia:<commit>, fork or none; the commit is the one that added test/live/proof.json`,
+      });
+    }
+  });
+
+  it("reads the bump from the version numbers", () => {
+    assert.equal(bumpOf("1.2.3"), "patch");
+    assert.equal(bumpOf("0.9.1"), "patch");
+    assert.equal(bumpOf("1.2.0"), "minor");
+    assert.equal(bumpOf("0.9.0"), "minor");
+    assert.equal(bumpOf("1.0.0"), "major");
+    assert.throws(() => bumpOf("1.0.0-beta.1"), { message: /is a prerelease/ });
+  });
+
+  it("accepts any value on a patch, and says the signing call is the maintainer's", () => {
+    for (const value of [sepolia, parseLiveRun("fork"), parseLiveRun("none")]) {
+      for (const target of ["verify", "latest"] as const) {
+        assert.match(checkLiveRule("1.2.3", target, value), /^1\.2\.3 is a patch; live-run /);
+      }
+    }
+  });
+
+  it("refuses none on a minor or a major, for both targets", () => {
+    for (const target of ["verify", "latest"] as const) {
+      assert.throws(() => checkLiveRule("1.2.0", target, { kind: "none" }), {
+        message:
+          /^1\.2\.0 is a minor; live-run none is refused for a minor or a major\. Run the live suite/,
+      });
+      assert.throws(() => checkLiveRule("2.0.0", target, { kind: "none" }), {
+        message:
+          /^2\.0\.0 is a major; live-run none is refused for a minor or a major\. Run the live suite/,
+      });
+    }
+  });
+
+  it("moves latest on a minor or a major only with a Sepolia run", () => {
+    assert.throws(() => checkLiveRule("1.2.0", "latest", { kind: "fork" }), {
+      message:
+        /^1\.2\.0 is a minor; moving latest needs live-run sepolia:<commit>, not fork\. Run the Sepolia suite/,
+    });
+    assert.equal(
+      checkLiveRule("1.2.0", "verify", { kind: "fork" }),
+      "1.2.0 is a minor; live-run fork meets the live rule for target verify.",
+    );
+    assert.equal(
+      checkLiveRule("2.0.0", "latest", sepolia),
+      "2.0.0 is a major; live-run sepolia at 0123abc meets the live rule for target latest.",
+    );
   });
 });

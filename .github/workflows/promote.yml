@@ -1,0 +1,251 @@
+# Verifies a staged and approved version from npm, and moves `latest` to it. Dispatched by a
+# maintainer; docs/contributor/releasing.md, Verify and promote, has the steps.
+# - job verify, for both targets: the live rule (scripts/check-live-rule.ts), then
+#   scripts/check-registry-release.ts (beta is the version, the four packages have it, it is not
+#   below latest, no prerelease, four provenance attestations, gitHead is the tag's commit), the
+#   package checks, the consumer typecheck on three TypeScript versions, the peer-install matrix
+#   and the examples against LocalStack, all installing the version from npm (--from-registry).
+# - target verify: publishes the draft GitHub Release with the prerelease flag on.
+# - target latest: after a maintainer approves the npm-latest environment, `npm dist-tag add` for
+#   the four packages over OIDC, then the GitHub Release becomes the latest release.
+# Either target comments on the merged Version Packages pull request with the result of each job
+# and the live-run value. The live suite itself runs on the maintainer's machine until it runs in
+# Actions; this workflow only records and checks the value. Dispatch it from main: the npm-latest
+# environment accepts only that branch.
+name: Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The exact version, without the v (for example 1.2.0)
+        type: string
+        required: true
+      target:
+        description: verify checks the version from npm; latest also moves the latest dist-tag to it
+        type: choice
+        options: [verify, latest]
+        default: verify
+      live-run:
+        description: "The live run at the tag commit: sepolia:<proof commit>, fork or none"
+        type: string
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: promote-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify the version from npm
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      contents: read # checks out the scripts and fetches the tag
+    outputs:
+      commit: ${{ steps.tag.outputs.commit }}
+    steps:
+      # Each input is matched as one whole string ([[ =~ ]], not grep, which matches line by line),
+      # so nothing later, the pull request comment included, sees an unchecked value.
+      - name: Check the inputs
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target }}
+          LIVE_RUN: ${{ inputs.live-run }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be an exact X.Y.Z without the v and without a prerelease part, for example 1.2.0"
+            exit 1
+          fi
+          if [[ ! "$LIVE_RUN" =~ ^(sepolia:[0-9a-f]{7,40}|fork|none)$ ]]; then
+            echo "::error::live-run must be sepolia:<commit> (the commit that added test/live/proof.json), fork or none"
+            exit 1
+          fi
+          {
+            echo "## Promote $VERSION, target $TARGET"
+            echo
+            echo "live-run: \`$LIVE_RUN\`"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch the release tag
+        id: tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git fetch --force --no-tags origin "+refs/tags/v$VERSION:refs/tags/v$VERSION"
+          echo "commit=$(git rev-parse "refs/tags/v$VERSION^{commit}")" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Live rule
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target }}
+          LIVE_RUN: ${{ inputs.live-run }}
+        run: node scripts/check-live-rule.ts "$VERSION" "$TARGET" "$LIVE_RUN" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Registry release checks
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -o pipefail
+          {
+            echo '```text'
+            node scripts/check-registry-release.ts "$VERSION" 2>&1 | tee /dev/stderr
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Package checks from the registry
+        env:
+          VERSION: ${{ inputs.version }}
+        run: pnpm run build && node scripts/check-packages.ts --from-registry "$VERSION"
+      - name: Consumer typecheck from the registry
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          for typescript in 5.9.3 6.0.3 7.0.2; do
+            node scripts/consumer-typecheck.ts --from-registry "$VERSION" "$typescript"
+          done
+      - name: Peer installs from the registry
+        env:
+          VERSION: ${{ inputs.version }}
+        run: node scripts/test-peer-installs.ts --from-registry "$VERSION"
+      # Starts LocalStack, pinned by digest, and runs copies of the examples that install the
+      # version from npm.
+      - name: Examples from the registry against LocalStack
+        env:
+          HARDHAT_KMS_EXAMPLES_VERSION: ${{ inputs.version }}
+        run: pnpm run test:examples
+      - name: Record that every registry check passed
+        env:
+          VERSION: ${{ inputs.version }}
+        run: echo "Every registry check passed for $VERSION." >> "$GITHUB_STEP_SUMMARY"
+
+  release-beta:
+    name: Publish the GitHub Release as a prerelease
+    needs: verify
+    if: inputs.target == 'verify'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # edits the release
+    steps:
+      - name: Publish the draft with the prerelease flag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ inputs.version }}
+        run: |
+          draft="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [ "$draft" != true ]; then
+            echo "Release $TAG is already published; left as it is." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false
+          echo "Published release $TAG as a prerelease." >> "$GITHUB_STEP_SUMMARY"
+
+  latest:
+    name: Move latest on npm
+    needs: verify
+    if: inputs.target == 'latest'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    # A maintainer approves this environment; the dist-tag trusted-publisher configuration pins it.
+    environment: npm-latest
+    permissions:
+      id-token: write # the OIDC token for npm dist-tag add
+    steps:
+      # No registry-url: setup-node would write an .npmrc that expects a token.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # Node 24 ships npm 11.19, and OIDC dist-tags need 11.21.0. The same pinned npm as
+      # release.yml, with no install scripts; raise the pin there and here together.
+      - name: Install the pinned npm
+        run: | # zizmor: ignore[adhoc-packages] npm itself, pinned to an exact version
+          npm install --global --ignore-scripts npm@12.2.0
+          npm --version
+          node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
+      # The verify job checked the dist-tags, possibly hours before the approval, so each package
+      # is checked again just before its move: beta is the version and latest is not above it. A
+      # package whose latest already is the version is skipped, so a re-run after the maintainer
+      # moved the tags by hand only edits the release.
+      - name: npm dist-tag add for the four packages
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$VERSION is not a stable X.Y.Z; latest never points at a prerelease"
+            exit 1
+          fi
+          for name in hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure; do
+            beta="$(npm view "$name" dist-tags.beta)"
+            current="$(npm view "$name" dist-tags.latest)"
+            if [ "$beta" != "$VERSION" ]; then
+              echo "::error::$name has beta at $beta, not $VERSION; run release.yml for $VERSION first"
+              exit 1
+            fi
+            if [ -n "$current" ] && ! node -e 'const [a, b] = process.argv.slice(1).map((v) => v.split(".").map(Number)); const d = a.map((n, i) => n - b[i]).find((n) => n !== 0) ?? 0; process.exit(d > 0 ? 1 : 0);' "$current" "$VERSION"; then
+              echo "::error::$name has latest at $current, above $VERSION; latest never moves backwards"
+              exit 1
+            fi
+            if [ "$current" = "$VERSION" ]; then
+              echo "- $name: latest already is $VERSION" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            npm dist-tag add "$name@$VERSION" latest
+            echo "- $name: latest moved from $current to $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  release-latest:
+    name: Mark the GitHub Release as latest
+    needs: latest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # edits the release
+    steps:
+      - name: Publish the release as the latest, without the prerelease flag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ inputs.version }}
+        run: |
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
+          echo "Release $TAG is the latest release." >> "$GITHUB_STEP_SUMMARY"
+
+  record:
+    name: Comment on the Version Packages pull request
+    needs: [verify, release-beta, latest, release-latest]
+    if: ${{ !cancelled() && needs.verify.outputs.commit != '' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write # comments on the merged pull request
+    steps:
+      - name: Comment with the result, the live-run value and the run link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.verify.outputs.commit }}
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target }}
+          LIVE_RUN: ${{ inputs.live-run }}
+          VERIFY: ${{ needs.verify.result }}
+          DIST_TAG: ${{ inputs.target == 'latest' && needs.latest.result || 'not run' }}
+          RELEASE: ${{ inputs.target == 'latest' && needs.release-latest.result || needs.release-beta.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          number="$(gh api "repos/$GITHUB_REPOSITORY/commits/$COMMIT/pulls" --jq '.[0].number // empty')"
+          if [ -z "$number" ]; then
+            echo "::warning::no pull request has $COMMIT as its merge commit; nothing to comment on"
+            exit 0
+          fi
+          body="$(printf "Promote %s, target %s: verify %s, dist-tag move %s, GitHub Release %s.\n\nlive-run: \`%s\`\n\nRun: %s\n" \
+            "$VERSION" "$TARGET" "$VERIFY" "$DIST_TAG" "$RELEASE" "$LIVE_RUN" "$RUN_URL")"
+          gh pr comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
