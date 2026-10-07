@@ -89,4 +89,4 @@ See [docs/contributor/architecture.md](docs/contributor/architecture.md) for how
 
 ## Maintainers
 
-hardhat-kms is maintained by its author, Amine El Manaa ([@aelmanaa](https://github.com/aelmanaa)), in a personal capacity. It is not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google or Microsoft. Contributions are welcome on the same terms. Issues and pull requests are answered on a best-effort basis, with no promised response time. Vulnerability reports follow [SECURITY.md](SECURITY.md), which promises an acknowledgement within 3 business days.
+hardhat-kms is maintained by [@aelmanaa](https://github.com/aelmanaa) in a personal capacity. It is not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google or Microsoft. Contributions are welcome on the same terms. Issues and pull requests are answered on a best-effort basis, with no promised response time. Vulnerability reports follow [SECURITY.md](SECURITY.md), which promises an acknowledgement within 3 business days.
