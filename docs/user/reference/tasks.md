@@ -250,7 +250,7 @@ Error in community plugin hardhat-kms: kms sign: the typed data is for chain 1, 
 
 ### Raw digests
 
-`--no-hash <digest>` signs a raw 32-byte digest, `0x` and 64 hex digits, as it is. Any 32 bytes are accepted, and a digest can be the hash of a transaction or a permit. No RPC method signs a bare digest. `--no-hash` is reachable only through the task, from the CLI or from code that runs the task. Sign only a digest you computed yourself. The task prints a warning to standard error each time and refuses any value that is not exactly 32 bytes:
+`--no-hash <digest>` signs a raw 32-byte digest, `0x` and 64 hex digits, as it is. Any 32 bytes are accepted, and a digest can be the hash of a transaction or a permit. No RPC method signs a bare digest. `--no-hash` is reachable only through the task, from the CLI or from code that runs the task. The one other route is a library account created with `rawSign: true` ([Library accounts](library-accounts.md#options)). Sign only a digest you computed yourself. The task prints a warning to standard error each time and refuses any value that is not exactly 32 bytes:
 
 ```text
 [hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Sign only a digest you computed yourself: it can authorize a transaction or a permit.
@@ -322,7 +322,7 @@ The signature is 65 bytes, `r || s || v`, as `kms sign`, `personal_sign` and `et
 ### Compared with `cast wallet verify`
 
 - The message, `--data` and `--from-file`, the `v` values and the high-S handling are the same.
-- There is no `--no-hash`, on purpose. Only `kms sign` handles raw 32-byte digests, and only with the explicit `--no-hash` option.
+- There is no `--no-hash`, on purpose. Among the tasks, only `kms sign` handles raw 32-byte digests, and only with the explicit `--no-hash` option.
 - `--key` checks against a KMS key without copying its address.
 - Only EOA signatures are checked. A smart-contract wallet's EIP-1271 `isValidSignature` is not called.
 
@@ -379,7 +379,7 @@ The task fails, and the KMS signs nothing, when:
 
 ### How the task fills the transaction
 
-The task fills what the file leaves out as [`eth_signTransaction`](rpc-methods.md) does for a KMS account: fees, gas, the chain id and the nonce. For the same request, key and chain state, the bytes are the same as those `eth_signTransaction` returns. The nonce is the node's pending count, and nothing reserves it: if the key sends another transaction first, the signed one is stale.
+The task fills what the file leaves out as [`eth_signTransaction`](rpc-methods.md) does for a KMS account: fees, gas, the chain id and the nonce. For the same request, key and chain state, the task fills the same transaction as `eth_signTransaction` and signs the same digest. Both signatures recover to the key's address, but their bytes, and so the raw transactions, can differ: AWS KMS picks a random nonce for each signature, and Google Cloud KMS and Azure Key Vault do not document how they choose it ([Every signature is verified](../explanation/security-model.md#every-signature-is-verified)). The nonce is the node's pending count, and nothing reserves it: if the key sends another transaction first, the signed one is stale.
 
 ### Transaction type
 
