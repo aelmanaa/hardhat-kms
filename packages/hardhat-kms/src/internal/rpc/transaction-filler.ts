@@ -57,6 +57,12 @@ export type FilledTransaction = RpcTransactionRequest & {
 /** A micro-eth-signer transaction. The filler builds legacy, EIP-2930, EIP-1559 and EIP-7702 ones. */
 export type UnsignedTransaction = ReturnType<typeof Transaction.fromHex>;
 
+/** EIP-1559 fees suggested from the node's `eth_feeHistory`. */
+interface Eip1559Fees {
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+}
+
 /** Fills a KMS account's transaction the way Hardhat fills a local account's. */
 export interface TransactionFiller {
   /**
@@ -95,16 +101,15 @@ function isInternalCallOutOfGas(error: Error): boolean {
 }
 
 /**
- * Fills transactions for one network connection. It keeps what Hardhat's handlers keep per
- * connection: whether the node supports EIP-1559 and `eth_feeHistory`, and the capped block gas
- * limit.
+ * Fills transactions for one network connection. It keeps per connection whether the node
+ * supports EIP-1559 and the capped block gas limit, as Hardhat's handlers do. Unlike Hardhat, it
+ * does not remember a failed `eth_feeHistory`: see #suggestEip1559Fees.
  */
 export class HardhatTransactionFiller implements TransactionFiller {
   readonly #request: RequestFunction;
   readonly #chainId: () => Promise<bigint>;
   readonly #settings: FillSettings;
   #nodeSupportsEip1559: boolean | undefined;
-  #nodeHasFeeHistory: boolean | undefined;
   #blockGasLimit: number | undefined;
 
   /**
@@ -231,10 +236,14 @@ export class HardhatTransactionFiller implements TransactionFiller {
     return hexStringToBigInt(stringResult(price, "eth_gasPrice", "eth_gasPrice"));
   }
 
-  /** AutomaticGasPriceHandler#suggestEip1559FeePriceValues. */
-  async #suggestEip1559Fees(): Promise<
-    { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } | undefined
-  > {
+  /**
+   * AutomaticGasPriceHandler#suggestEip1559FeePriceValues, with one difference. Hardhat remembers
+   * a failed or unreadable `eth_feeHistory` for the rest of the connection and sends every later
+   * transaction as legacy. One transient failure, such as a fork node's first read from its
+   * upstream RPC, would then downgrade every send on the connection. The filler asks again once,
+   * and falls back to a legacy gas price for this transaction only.
+   */
+  async #suggestEip1559Fees(): Promise<Eip1559Fees | undefined> {
     if (this.#nodeSupportsEip1559 === undefined) {
       const block = await this.#request("eth_getBlockByNumber", ["latest", false]);
       if (!isObject(block)) {
@@ -242,9 +251,14 @@ export class HardhatTransactionFiller implements TransactionFiller {
       }
       this.#nodeSupportsEip1559 = block.baseFeePerGas !== undefined;
     }
-    if (this.#nodeHasFeeHistory === false || !this.#nodeSupportsEip1559) {
+    if (!this.#nodeSupportsEip1559) {
       return undefined;
     }
+    return (await this.#feesFromHistory()) ?? (await this.#feesFromHistory());
+  }
+
+  /** One `eth_feeHistory` read: the suggested fees, or undefined when there is no usable answer. */
+  async #feesFromHistory(): Promise<Eip1559Fees | undefined> {
     // As in Hardhat, a failed request and an answer it cannot read both count as no
     // eth_feeHistory: a failed request reads as no answer. The answer is read outside the catch,
     // so a malformed answer is handled by the check that reads it.
@@ -256,11 +270,11 @@ export class HardhatTransactionFiller implements TransactionFiller {
     const baseFees: unknown = isObject(history) ? history.baseFeePerGas : undefined;
     const rewards: unknown = isObject(history) ? history.reward : undefined;
     if (!Array.isArray(baseFees) || !Array.isArray(rewards)) {
-      return this.#withoutFeeHistory();
+      return undefined;
     }
     let maxPriorityFeePerGas = quantityOf(Array.isArray(rewards[0]) ? rewards[0][0] : undefined);
     if (maxPriorityFeePerGas === undefined) {
-      return this.#withoutFeeHistory();
+      return undefined;
     }
     if (maxPriorityFeePerGas === 0n) {
       maxPriorityFeePerGas = await this.#suggestedPriorityFee();
@@ -272,19 +286,13 @@ export class HardhatTransactionFiller implements TransactionFiller {
     }
     const lastBaseFee = quantityOf(baseFees.at(-1));
     if (lastBaseFee === undefined) {
-      return this.#withoutFeeHistory();
+      return undefined;
     }
     return {
       maxFeePerGas:
         (lastBaseFee * 9n ** (BASE_FEE_FULL_BLOCKS - 1n)) / 8n ** (BASE_FEE_FULL_BLOCKS - 1n),
       maxPriorityFeePerGas,
     };
-  }
-
-  /** Remembers that the node has no usable eth_feeHistory, so fills use a legacy gas price. */
-  #withoutFeeHistory(): undefined {
-    this.#nodeHasFeeHistory = false;
-    return undefined;
   }
 
   /**

@@ -169,7 +169,7 @@ describe("HardhatTransactionFiller fees", () => {
     assert.ok(!node.methods().includes("eth_feeHistory"));
   });
 
-  it("falls back to a legacy gas price when eth_feeHistory fails, and remembers it", async () => {
+  it("falls back to a legacy gas price when eth_feeHistory fails twice, for that send only", async () => {
     for (const history of [
       () => {
         throw new Error("method not found");
@@ -182,7 +182,41 @@ describe("HardhatTransactionFiller fees", () => {
       const first = await instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
       await instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
       assert.equal(first.gasPrice, 100n);
-      assert.equal(node.methods().filter((method) => method === "eth_feeHistory").length, 1);
+      // Each fill asks once and retries once; nothing is remembered.
+      assert.equal(node.methods().filter((method) => method === "eth_feeHistory").length, 4);
+    }
+  });
+
+  it("retries a failed eth_feeHistory once, and asks again on the next send", async () => {
+    for (const failure of [
+      () => {
+        throw new Error("upstream unavailable");
+      },
+      // A fork node that has not yet indexed the block it just mined answers with no reward.
+      () => ({ baseFeePerGas: ["0x40"], reward: [] }),
+    ]) {
+      // The answers in order: one failure, a success, two failures, then successes.
+      const plan = [false, true, false, false];
+      const { node, filler: instance } = filler({
+        ...EIP1559_NODE,
+        eth_feeHistory: (params) =>
+          (plan.shift() ?? true) ? EIP1559_NODE.eth_feeHistory?.(params) : failure(),
+      });
+      const send = async () => await instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
+      const retried = await send();
+      assert.equal(retried.maxFeePerGas, 81n);
+      assert.equal(retried.maxPriorityFeePerGas, 2n);
+      assert.equal(retried.gasPrice, undefined);
+      const histories = () => node.methods().filter((method) => method === "eth_feeHistory").length;
+      assert.equal(histories(), 2);
+      const legacy = await send();
+      assert.equal(legacy.gasPrice, 100n);
+      assert.equal(legacy.maxFeePerGas, undefined);
+      assert.equal(histories(), 4);
+      const recovered = await send();
+      assert.equal(recovered.maxFeePerGas, 81n);
+      assert.equal(recovered.gasPrice, undefined);
+      assert.equal(histories(), 5);
     }
   });
 
@@ -844,7 +878,7 @@ async function fillWithHistory(answer: unknown, more: Record<string, Handler> = 
 }
 
 describe("HardhatTransactionFiller eth_feeHistory answers", () => {
-  it("counts an answer it cannot read as no eth_feeHistory, and remembers it", async () => {
+  it("counts an answer it cannot read as no eth_feeHistory, for that send only", async () => {
     for (const answer of [
       null,
       "0x1",
@@ -864,7 +898,7 @@ describe("HardhatTransactionFiller eth_feeHistory answers", () => {
       const { first, histories } = await fillWithHistory(answer);
       assert.equal(first.gasPrice, 100n, JSON.stringify(answer));
       assert.equal(first.maxFeePerGas, undefined, JSON.stringify(answer));
-      assert.equal(histories, 1, JSON.stringify(answer));
+      assert.equal(histories, 4, JSON.stringify(answer));
     }
   });
 
@@ -874,7 +908,7 @@ describe("HardhatTransactionFiller eth_feeHistory answers", () => {
       { eth_maxPriorityFeePerGas: () => "0x5" },
     );
     assert.equal(first.gasPrice, 100n);
-    assert.equal(histories, 1);
+    assert.equal(histories, 4);
     // As in Hardhat, the priority fee is asked for before the base fee is read.
     assert.ok(methods.includes("eth_maxPriorityFeePerGas"));
   });

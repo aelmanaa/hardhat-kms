@@ -280,6 +280,28 @@ describe("transaction filling matches Hardhat's local accounts", () => {
     });
   });
 
+  it("asks eth_feeHistory again after a failure, where Hardhat stays legacy", async () => {
+    // A deliberate difference: Hardhat remembers a failed eth_feeHistory for the connection.
+    const connection: NetworkConnection<string> = await hre.network.create("local");
+    try {
+      const filler = fillerFor(connection);
+      await withFault("eth_feeHistory", "method not supported", async () => {
+        const unsigned = await compareOn("local", connection, filler, { from: FROM, to: TO });
+        assert.equal(unsigned.type, "legacy");
+      });
+      const sent = main.raw.length;
+      await connection.provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: FROM, to: TO }],
+      });
+      assert.equal(Transaction.fromHex(main.raw[sent] ?? "", false).type, "legacy");
+      const filled = await filler.fill("eth_sendTransaction", [{ from: FROM, to: TO }]);
+      assert.equal(buildUnsignedTransaction(filled).type, "eip1559");
+    } finally {
+      await connection.close();
+    }
+  });
+
   it("uses the capped block gas limit when the estimate has an execution error", async () => {
     const connection: NetworkConnection<string> = await hre.network.create("local");
     try {
