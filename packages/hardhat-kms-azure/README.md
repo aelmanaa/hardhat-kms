@@ -1,22 +1,26 @@
 # @hardhat-kms/azure
 
+The Azure Key Vault provider for [hardhat-kms](https://github.com/aelmanaa/hardhat-kms): Hardhat 3 signs transactions, messages and typed data with secp256k1 keys held in Azure Key Vault or Azure Managed HSM. The private key never leaves the vault. The package depends on `@azure/keyvault-keys` and `@azure/identity`, so there is no SDK to install separately.
+
 Works with Azure Key Vault and Azure Key Vault Managed HSM. Not affiliated with or endorsed by Microsoft.
 
-> In development. Not published to npm yet.
+0.9.0 is the release candidate for 1.0.0; install it to test. Until 1.0.0 is published, use it with test keys on testnets.
 
-The Azure Key Vault provider for [hardhat-kms](https://github.com/aelmanaa/hardhat-kms): Hardhat 3 signs transactions, messages and typed data with secp256k1 keys held in Azure Key Vault or Azure Managed HSM. The private key never leaves the vault.
+## Key type
 
-It depends on `@azure/keyvault-keys` and `@azure/identity`, so there is no SDK to install separately.
+An `EC` or `EC-HSM` key on the `P-256K` curve, with `sign` among its permitted operations.
 
 ## Install
 
+In a Hardhat 3 project (`npx hardhat --init` creates one):
+
 ```sh
-npm install --save-dev hardhat-kms @hardhat-kms/azure
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/azure
 ```
 
-Node.js support: see [Support](https://github.com/aelmanaa/hardhat-kms#support).
+`@hardhat-kms/azure` needs `hardhat-kms` at the same version. The packages run on Node.js 22.13.0 or later ([Support](https://aelmanaa.github.io/hardhat-kms/user/reference/support)).
 
-## Usage
+## Configure
 
 Add `@hardhat-kms/azure` to `plugins`. It loads `hardhat-kms` itself.
 
@@ -38,16 +42,26 @@ export default defineConfig({
     sepolia: {
       type: "http",
       url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
       kmsAccounts: ["deployer"],
     },
   },
 });
 ```
 
-The key must be an `EC` or `EC-HSM` key on the `P-256K` curve, with `sign` among its permitted operations. The identity needs `get` and `sign` on the key: a custom role with only the `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` data actions, or the broader Key Vault Crypto User role. Credentials come from, in order: a service principal in the environment, workload identity, `az login`, `azd auth login`, then a managed identity (user-assigned with `AZURE_CLIENT_ID`), which gets 10 seconds for a token and 3 seconds for each request.
+A `keyId` with a version names one key version. Without the version, it follows the key's current version, which a rotation changes. The [configuration reference](https://aelmanaa.github.io/hardhat-kms/user/reference/configuration) lists every option.
 
-## Docs
+## Check the key
 
-- [Azure Key Vault setup](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/azure-key-vault-setup.md): create a key, grant access, sign in, configure Hardhat
-- [Configuration reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/configuration.md)
-- All docs: [docs/README.md](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/README.md)
+1. Run `npx hardhat kms accounts`. It reads the key's public key and prints its address, and below the table the `address` pin to add.
+2. Add the pin to the key's entry, for example `deployer: { provider: "azure", keyId: "https://my-vault.vault.azure.net/keys/deployer/…", address: "0x…" }`. The pin is optional. Without it, the plugin still checks every signature against the address it derives from the key's public key. With it, the plugin also refuses to sign when the key id comes to name a different key, such as after a rotation of a key whose id has no version.
+3. Run `npx hardhat kms accounts --check-sign`. `ok` in the `SIGN` column proves that your credentials may sign with the key, not only read it. The key signs a random message, not a transaction, so this needs no network and no funds.
+
+## Credentials and permissions
+
+The plugin builds its own credential chain and uses the first source that returns a token: a service principal in the environment, workload identity, `az login` or `azd auth login`, then a managed identity. On a laptop, `az login` is enough. No credentials go in the Hardhat config. The identity needs `get` and `sign` on the key: a custom role with only the `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` data actions, or the broader Key Vault Crypto User role.
+
+- [Set up an Azure Key Vault key](https://aelmanaa.github.io/hardhat-kms/user/guides/azure-key-vault-setup): create the key, grant access, configure Hardhat.
+- [Permissions](https://aelmanaa.github.io/hardhat-kms/user/guides/azure-key-vault-setup#2-allow-get-and-sign-and-nothing-else) and [credential sources](https://aelmanaa.github.io/hardhat-kms/user/guides/azure-key-vault-setup#3-sign-in) in detail.
+- [Errors](https://aelmanaa.github.io/hardhat-kms/user/guides/azure-key-vault-setup#errors): what each failure means and how to fix it.
+- [All docs](https://aelmanaa.github.io/hardhat-kms/).
