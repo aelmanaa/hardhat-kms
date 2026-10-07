@@ -73,7 +73,7 @@ Prefer a role, IAM Identity Center (`aws sso login`) or `aws login` ([AWS CLI 2.
 
 The policy's two KMS permissions, `kms:GetPublicKey` and `kms:Sign`, have not yet been checked alone against real AWS KMS: the plugin's live tests ran with an administrator identity.
 
-Credentials come from the AWS SDK's default chain: access keys in the environment, then a `~/.aws` profile or SSO session, then a web identity token, then the role of the container or machine. A key's `profile` option picks a named profile. Never set a profile and access keys in the environment together: today a profile, from `profile` or `AWS_PROFILE`, makes the SDK ignore the keys, and the SDK's own warning says a future version may prefer the keys instead. A CI job that exports keys therefore needs a config without a literal `profile`; on a laptop, set `AWS_PROFILE` instead, or see [One config for a laptop and CI](#one-config-for-a-laptop-and-ci). An alias names a key in the credentials' own account and region, so pin the key's `address`. [Credentials](../reference/configuration.md#aws) gives the full order and both rules.
+Credentials come from the AWS SDK's default chain: access keys in the environment, then a `~/.aws` profile or SSO session, then a web identity token, then the role of the container or machine. A key's `profile` option picks a named profile. Never set a profile and access keys in the environment together: today a profile, from `profile` or `AWS_PROFILE`, makes the SDK ignore the keys, and the SDK's own warning says a future version may prefer the keys instead. A CI job that exports keys therefore needs a config without a literal `profile`; on a laptop, set `AWS_PROFILE` instead, or see [One config for a laptop and CI](#one-config-for-a-laptop-and-ci). An alias names a key in the credentials' own account and region, so pin the key's `address`. [Credentials](../reference/credentials.md#aws) gives the full order and both rules.
 
 ## 3. Install the plugin and configure the key
 
@@ -141,7 +141,7 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 
 ## One config for a laptop and CI
 
-On a laptop, a key often signs through an SSO profile. In CI, the job exports access keys to the environment, and with today's AWS SDK a profile in the config makes it skip them ([Never set a profile and environment keys together](../reference/configuration.md#aws)). Take `profile` from a configuration variable with an empty default, so each environment sets only what it needs. Take `region` the same way when the key lives in a region other than the profile's:
+On a laptop, a key often signs through an SSO profile. In CI, the job exports access keys to the environment, and with today's AWS SDK a profile in the config makes it skip them ([Never set a profile and environment keys together](../reference/credentials.md#aws)). Take `profile` from a configuration variable with an empty default, so each environment sets only what it needs. Take `region` the same way when the key lives in a region other than the profile's:
 
 ```ts
 import { configVariable, defineConfig } from "hardhat/config";
