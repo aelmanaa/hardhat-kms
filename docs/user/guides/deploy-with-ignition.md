@@ -1,6 +1,6 @@
 ---
 title: Deploy with Hardhat Ignition
-description: "Hardhat Ignition with a KMS signer: choose the deployer, rehearse on a simulated network, deploy, and resume after a KMS failure."
+description: "Hardhat Ignition with a KMS signer: choose the deployer, rehearse on a simulated network, deploy, resume after a KMS failure, and verify the source."
 ---
 
 # Deploy with Hardhat Ignition
@@ -139,11 +139,35 @@ Run the deployment on the `rehearsal` network first. `kms.simulatedBalance` give
 npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --default-sender 0x…
 ```
 
-Ignition keeps nothing from a deployment to an `edr-simulated` network. To rehearse against Sepolia's current state, run the same command on `sepoliaFork`, which forks Sepolia through `SEPOLIA_RPC_URL`. The contracts are deployed only in the local fork, and `kms.simulatedBalance` funds the KMS account there too:
+Ignition keeps nothing from a deployment to an `edr-simulated` network. To rehearse against Sepolia's recent state, run the same command on `sepoliaFork`, which forks Sepolia through `SEPOLIA_RPC_URL`. The fork starts from a block a little behind the latest one, so a contract deployed in the last few minutes may be missing from it. The contracts are deployed only in the local fork, and `kms.simulatedBalance` funds the KMS account there too:
 
 ```sh
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepoliaFork --default-sender 0x…
 ```
+
+A config that has only the live network, such as the one the [first-deploy tutorials](../tutorials/first-deploy-aws.md) build, needs two additions for the fork: `simulatedBalance` in the `kms` section and the `sepoliaFork` network. The rest of the file stays the same:
+
+<!-- docs-check: skip -->
+
+```ts
+  kms: {
+    // The deployer's balance on simulated networks such as sepoliaFork. Sepolia ignores it.
+    simulatedBalance: 10n ** 18n,
+    keys: {
+      // The deployer key, unchanged.
+    },
+  },
+  networks: {
+    // The other networks, unchanged.
+    sepoliaFork: {
+      type: "edr-simulated",
+      forking: { url: configVariable("SEPOLIA_RPC_URL") },
+      kmsAccounts: ["deployer"],
+    },
+  },
+```
+
+Leave out `--verify` on `sepoliaFork`: the fork ends with the command, so no explorer can see the contract. Each transaction usually costs one KMS signing request, and retries can add more ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)). Each run also reads the public key once. A rehearsal of the tutorials' `Counter` module took about a minute, most of it spent fetching Sepolia's state, and ended with a `Deployed Addresses` list whose contract address exists only in the fork.
 
 A key chosen with `--kms` instead of a config entry is added to the network selected with `--network`. Pass `--kms` with a network that does not list the same key: `rehearsal` already lists `deployer`, so `--kms aws` with `AWS_KMS_KEY_ID=alias/deployer` fails there with an error that names both. `rehearsalCli` lists no KMS keys and is `edr-simulated`, so `kms.simulatedBalance` funds the key there:
 
@@ -166,3 +190,39 @@ What changes with a KMS account:
 ## 5. Resume after a KMS failure
 
 If a KMS call fails or times out, the plugin sends nothing for that transaction, and the deployment stops with an error. Ignition has already written the transaction's nonce to its journal in `ignition/deployments/chain-<chain id>` before asking for the signature. Fix the cause, such as an expired session or a missing permission, then run the same `ignition deploy` command again. Ignition reads the journal and resumes the deployment where it stopped.
+
+## 6. Verify the source on block explorers
+
+Add `--verify` to the live `ignition deploy` command, and Ignition verifies each deployed contract with `@nomicfoundation/hardhat-verify` once the deployment ends, on Etherscan, Blockscout and Sourcify. Etherscan needs an API key, and without one its verification fails; the first-deploy tutorials turn it off with `verify: { etherscan: { enabled: false } }`. A KMS account changes nothing here, since verification sends no transaction.
+
+An explorer can answer that the contract "has already been verified" for a contract you just deployed. A common contract, such as the `Counter` of Hardhat's templates, has been seen before:
+
+- Sourcify matches a new contract on its own when it already holds the source. In a recorded run of the tutorials, it matched the contract a minute after the deployment, before the verify step ran.
+- Blockscout matches a new contract against a database of code it has verified before, and marks it verified with no request from you.
+
+Check the result on Blockscout: open the `Explorer:` link under `=== Blockscout ===` in the `--verify` output. If the page shows the contract as verified, which it may say it did through its bytecode database, you are done.
+
+If the page instead shows a "verified twin" or a "similar match", Blockscout is showing the source of another contract with similar code, and yours is not verified yet. Only then, verify it with `--force`:
+
+```sh
+npx hardhat build --build-profile production
+npx hardhat verify blockscout --network sepolia --force <contract address>
+```
+
+The build comes first because `verify` compares the deployed bytecode with the local build, and `ignition deploy` deployed the `production` build. Other commands, such as `npx hardhat run` or `npx hardhat test`, rebuild with the default profile, and `verify` then fails with `HHE80009`.
+
+When this verifies the contract, Blockscout's part of the output ends like this:
+
+```text
+📤 Submitted source code for verification on Blockscout:
+
+  contracts/Counter.sol:Counter
+  Address: <contract address>
+
+⏳ Waiting for verification result...
+
+
+✅ Contract verified successfully on Blockscout!
+```
+
+If it fails with `HHE80022` and says the contract `is already verified`, the contract is verified, and there is nothing left to do. Blockscout limits how often it answers requests without an API key. If the command fails with `Response status code 429: Too Many Requests`, wait a few minutes and run it again.
