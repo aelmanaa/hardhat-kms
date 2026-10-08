@@ -24,6 +24,7 @@ allowBuilds:
 # Versions of the development tools, shared by every package (decision 0010).
 
 catalog:
+  "@alchemy/wallet-apis": "5.3.0"
   "@arethetypeswrong/cli": "0.18.5"
   "@changesets/changelog-github": "1.0.1"
   "@changesets/cli": "3.0.3"

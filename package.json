@@ -44,6 +44,7 @@
     "version-packages": "changeset version && pnpm install --lockfile-only --ignore-scripts"
   },
   "devDependencies": {
+    "@alchemy/wallet-apis": "catalog:",
     "@arethetypeswrong/cli": "catalog:",
     "@changesets/changelog-github": "catalog:",
     "@changesets/cli": "catalog:",
