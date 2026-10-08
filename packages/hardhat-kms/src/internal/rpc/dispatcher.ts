@@ -1,6 +1,10 @@
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
-import { hexStringToBigInt, isHexString } from "@nomicfoundation/hardhat-utils/hex";
+import {
+  hexStringToBigInt,
+  hexStringToBytes,
+  isHexString,
+} from "@nomicfoundation/hardhat-utils/hex";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import {
   rpcAddress,
@@ -34,6 +38,7 @@ import {
   libraryHoldOf,
   libraryHoldsActive,
   takeOwedLibraryReset,
+  warnAboutNonceGap,
   withSendLock,
 } from "./send-guard.ts";
 import { notPlainData, stringResult, type TransactionFiller } from "./transaction-filler.ts";
@@ -342,7 +347,14 @@ export async function dispatch(
   transactions: ConnectionTransactions,
 ): Promise<JsonRpcResponse> {
   if (accounts.isEmpty) {
-    return await next(request);
+    // A library send from another connection's account may hold a lock that this raw transaction
+    // must end. Without a hold, rawKmsTransaction finds nothing and the request passes on.
+    const raw = RAW_SEND_METHODS.has(request.method)
+      ? rawKmsTransaction(accounts, request.method, paramsOf(request))
+      : undefined;
+    return raw === undefined
+      ? await next(request)
+      : await sendRawTransaction(request, raw, transactions, next);
   }
   const params = paramsOf(request);
   if (ACCOUNT_METHODS.has(request.method)) {
@@ -1022,15 +1034,24 @@ async function broadcast(
   return passOn();
 }
 
-/** A raw transaction whose sender is one of the connection's KMS accounts. */
+/**
+ * A raw transaction whose sender is one of the connection's KMS accounts, or may be the account
+ * of a library send that holds a lock.
+ */
 interface RawKmsTransaction {
   /** The sender's lowercase address. */
   address: string;
   /** The raw transaction, its hash and its nonce. */
   transaction: SentTransaction;
   /**
-   * Whether the connection has not looked up its KMS addresses, so the sender counts only when a
-   * library send of that address holds the lock on this chain.
+   * The chain it was signed for; `undefined` for a legacy transaction without EIP-155 replay
+   * protection, which is valid on every chain.
+   */
+  chainId: bigint | undefined;
+  /**
+   * Whether the sender is not one of the connection's known KMS accounts (the addresses have not
+   * been looked up, or the connection has other keys or none), so it counts only when a library
+   * send of that address holds the lock on this chain.
    */
   heldOnly: boolean;
 }
@@ -1040,14 +1061,16 @@ interface RawKmsTransaction {
  * `eth_sendRawTransactionSync` request. The sender is recovered when the connection's KMS
  * addresses have already been looked up, as `connection.kms.getAccount`, a send or `eth_accounts`
  * does, or when a library send holds a lock, which its raw transaction must end even when it
- * reaches a connection that has not looked them up. So a raw transaction never causes a KMS call.
+ * reaches a connection that has not looked them up, has other KMS keys or has none. So a raw
+ * transaction never causes a KMS call.
  * Params that do not decode as a signed transaction give `undefined`, and the request passes on
  * unchanged.
  *
  * @param accounts - The connection's KMS accounts.
  * @param method - The request's method, for the debug output.
  * @param params - The request's params.
- * @returns The transaction, or `undefined` when it is not a KMS account's.
+ * @returns The transaction, or `undefined` when it is not a KMS account's and no library send
+ * holds a lock.
  */
 function rawKmsTransaction(
   accounts: ConnectionAccounts,
@@ -1055,27 +1078,30 @@ function rawKmsTransaction(
   params: readonly unknown[],
 ): RawKmsTransaction | undefined {
   const [raw] = params;
-  const known = accounts.hasKnownAddresses;
-  if (typeof raw !== "string" || (!known && !libraryHoldsActive())) {
+  const held = libraryHoldsActive();
+  if (typeof raw !== "string" || (!accounts.hasKnownAddresses && !held)) {
     return undefined;
   }
   let address: string;
   let nonce: bigint;
+  let chainId: bigint | undefined;
   try {
     // Strict mode off, as the plugin decodes its own transactions: a node is the judge of the rest.
     const transaction = Transaction.fromHex(raw, false);
     address = transaction.sender.toLowerCase();
     nonce = transaction.raw.nonce;
+    chainId = transaction.raw.chainId;
   } catch (error) {
     log("%s: the plugin cannot decode it (%s); passed on", method, errorName(error));
     return undefined;
   }
-  if (known && !accounts.isKnownKmsAccount(address)) {
+  // False while the addresses have not been looked up.
+  const heldOnly = !accounts.isKnownKmsAccount(address);
+  if (heldOnly && !held) {
     return undefined;
   }
-  const bytes = Buffer.from(raw.replace(/^0x/i, ""), "hex");
-  const hash = `0x${Buffer.from(keccak_256(bytes)).toString("hex")}`;
-  return { address, transaction: { raw, hash, nonce }, heldOnly: !known };
+  const hash = `0x${Buffer.from(keccak_256(hexStringToBytes(raw))).toString("hex")}`;
+  return { address, transaction: { raw, hash, nonce }, chainId, heldOnly };
 }
 
 /**
@@ -1088,9 +1114,13 @@ function rawKmsTransaction(
  * the transaction becomes the account's uncertain transaction, which that next send looks up
  * first.
  *
+ * The raw transaction of a library send that holds the account's lock (same chain, sender and
+ * nonce) ends the hold, and its outcome is also recorded on the connection that gave the hold,
+ * when it came through another one.
+ *
  * A raw transaction made from inside a send from the same account, which would wait for itself,
- * fails at once and is not sent. When the chain id cannot be read, the request passes on
- * unchanged.
+ * fails at once and is not sent. When the chain id cannot be read, or the transaction was signed
+ * for another chain, the request passes on unchanged.
  */
 async function sendRawTransaction(
   request: JsonRpcRequest,
@@ -1105,6 +1135,10 @@ async function sendRawTransaction(
     log("%s: the chain id is unknown (%s); passed on", request.method, errorName(error));
     return await next(request);
   }
+  if (raw.chainId !== undefined && raw.chainId !== chainId) {
+    log("%s: signed for chain %d, not this connection's; passed on", request.method, raw.chainId);
+    return await next(request);
+  }
   const key = `${chainId}:${raw.address}`;
   const hold = libraryHoldOf(key);
   if (raw.heldOnly && hold === undefined) {
@@ -1114,11 +1148,14 @@ async function sendRawTransaction(
     throw catalogError(ERRORS.rawSendReentrant, { account: describeSendKey(key) });
   }
   const sends = transactions.sends();
-  if (hold?.nonce === raw.transaction.nonce) {
+  // A library account signs only EIP-155 transactions, so one without a chain id is never the
+  // holder's: it takes the lock as any other raw transaction does.
+  if (hold?.nonce === raw.transaction.nonce && raw.chainId !== undefined) {
     // The library send that holds the lock for this nonce: it goes out as the holder.
     let failed = true;
     try {
-      const answer = await broadcastRaw(request, raw, sends, next);
+      // The hold's owner learns the outcome too: its next send must count this nonce.
+      const answer = await broadcastRaw(request, raw, [sends, hold.owner], next);
       failed = "error" in answer;
       return answer;
     } finally {
@@ -1134,7 +1171,7 @@ async function sendRawTransaction(
     key,
     request,
     next,
-    async () => await broadcastRaw(request, raw, sends, next),
+    async () => await broadcastRaw(request, raw, [sends], next),
   );
 }
 
@@ -1295,7 +1332,10 @@ export async function resetLibraryNonce(
     }
   }
   if (sends.hasReservations(address)) {
-    sends.resetReservation(address);
+    const gap = sends.resetReservation(address, hold?.nonce);
+    if (gap !== undefined) {
+      warnAboutNonceGap(key, gap);
+    }
   } else {
     hold?.end();
   }
@@ -1341,19 +1381,32 @@ const SYNC_TIMEOUT_CODE = 4;
  * mark rises and the nonce's reservation ends. Any other outcome marks the reservation failed, so the client's
  * `reset` after its error ends that one; an uncertain answer or no answer also makes it the
  * uncertain transaction. Unlike {@link broadcast}, nothing is wrapped or kept for a retry: the
- * caller holds the bytes and can send them again.
+ * caller holds the bytes and can send them again. Every send state in `learners` records the
+ * outcome; recording it twice in one changes nothing.
  */
 async function broadcastRaw(
   request: JsonRpcRequest,
   raw: RawKmsTransaction,
-  sends: ConnectionSends,
+  learners: readonly ConnectionSends[],
   next: Next,
 ): Promise<JsonRpcResponse> {
   const { address, transaction } = raw;
   const nodeHasIt = (): void => {
-    sends.settleUncertain(address, transaction.hash);
-    sends.recordSent(address, transaction.nonce);
-    sends.releaseReservation(address, transaction.nonce);
+    for (const sends of learners) {
+      sends.settleUncertain(address, transaction.hash);
+      sends.recordSent(address, transaction.nonce);
+      sends.releaseReservation(address, transaction.nonce);
+    }
+  };
+  const failReservation = (): void => {
+    for (const sends of learners) {
+      sends.failReservation(address, transaction.nonce);
+    }
+  };
+  const rememberUncertain = (): void => {
+    for (const sends of learners) {
+      sends.rememberUncertain(address, transaction);
+    }
   };
   const learn = (error: Record<string, unknown>): void => {
     const { code, message } = error;
@@ -1365,9 +1418,9 @@ async function broadcastRaw(
       nodeHasIt();
       return;
     }
-    sends.failReservation(address, transaction.nonce);
+    failReservation();
     if (isUncertainAnswer(code, message)) {
-      sends.rememberUncertain(address, transaction);
+      rememberUncertain();
     }
   };
   let answer: JsonRpcResponse;
@@ -1378,10 +1431,10 @@ async function broadcastRaw(
     if (error !== undefined) {
       learn(error);
     } else {
-      sends.failReservation(address, transaction.nonce);
+      failReservation();
       if (!isConnectionRefused(thrown)) {
         log("raw transaction %s got no answer (%s)", transaction.hash, errorName(thrown));
-        sends.rememberUncertain(address, transaction);
+        rememberUncertain();
       }
     }
     throw thrown;
