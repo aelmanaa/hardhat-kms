@@ -86,7 +86,10 @@ const locks = new Map<string, SendLock>();
 interface LibraryHold {
   /** The nonce the send was given. */
   readonly nonce: bigint;
-  /** The send state of the connection that gave it, so closing the connection ends the hold. */
+  /**
+   * The send state of the connection that gave it: closing that connection ends the hold, and only
+   * a viem `reset` through that connection can end it.
+   */
   readonly owner: object;
   /** Ends the hold and releases the lock. */
   readonly end: () => void;
@@ -283,10 +286,14 @@ export async function withSendLock<T>(
 }
 
 /**
- * By lock key: the viem `reset` calls still to come for library sends that no longer hold the
- * lock (their nonce choice failed, or their broadcast failed), which must not end another hold.
+ * By the send state of the connection that gave the hold, then by lock key: the viem `reset` calls
+ * still to come for library sends whose broadcast failed, and which no longer hold the lock, so
+ * that they do not end another hold. Such a reset comes through the account's own connection, the
+ * hold's owner, so a reset through another connection, or through this one after it closed, never
+ * uses one up. A `reset` after a failed `consume` never gets here: the account's nonce manager
+ * keeps it.
  */
-const pendingResets = new Map<string, number>();
+const pendingResets = new WeakMap<object, Map<string, number>>();
 
 /**
  * Timer functions whose timers keep the process alive, unlike {@link systemTimers}: a send that
@@ -366,10 +373,12 @@ export async function holdForLibrary(
  * The library send that holds a key's lock.
  *
  * @param key - The lock key.
- * @returns Its nonce and how to end it, or `undefined` when no library send holds the lock. The
- * same object is returned while the same send holds the lock.
+ * @returns Its nonce, the send state that gave it and how to end it, or `undefined` when no
+ * library send holds the lock. The same object is returned while the same send holds the lock.
  */
-export function libraryHoldOf(key: string): Pick<LibraryHold, "nonce" | "end"> | undefined {
+export function libraryHoldOf(
+  key: string,
+): Pick<LibraryHold, "nonce" | "owner" | "end"> | undefined {
   return libraryHolds.get(key);
 }
 
@@ -389,10 +398,11 @@ export function libraryHoldsActive(): boolean {
  * @param failed - Whether the broadcast failed, so viem's `reset` for it is still to come.
  */
 export function endLibraryHold(key: string, failed: boolean): void {
-  if (failed) {
-    expectLibraryReset(key);
+  const hold = libraryHolds.get(key);
+  if (failed && hold !== undefined) {
+    expectLibraryReset(key, hold.owner);
   }
-  libraryHolds.get(key)?.end();
+  hold?.end();
 }
 
 /**
@@ -400,28 +410,36 @@ export function endLibraryHold(key: string, failed: boolean): void {
  * end another send's hold.
  *
  * @param key - The lock key.
+ * @param owner - The send state of the connection that gave the hold.
  */
-export function expectLibraryReset(key: string): void {
-  pendingResets.set(key, (pendingResets.get(key) ?? 0) + 1);
+export function expectLibraryReset(key: string, owner: object): void {
+  const owed = pendingResets.get(owner) ?? new Map<string, number>();
+  owed.set(key, (owed.get(key) ?? 0) + 1);
+  pendingResets.set(owner, owed);
 }
 
 /**
- * Uses up one viem `reset` owed by a library send that no longer holds the lock (its nonce choice
- * failed, or its broadcast failed), so that it ends no other send's hold.
+ * Uses up one viem `reset` owed by a library send that no longer holds the lock (its broadcast
+ * failed), so that it ends no other send's hold.
  *
  * @param key - The lock key.
+ * @param owner - The send state of the connection the reset came through.
  * @returns Whether a reset was owed.
  */
-export function takeOwedLibraryReset(key: string): boolean {
-  const owed = pendingResets.get(key) ?? 0;
-  if (owed === 0) {
+export function takeOwedLibraryReset(key: string, owner: object): boolean {
+  const byKey = pendingResets.get(owner);
+  if (byKey === undefined) {
     return false;
   }
-  // Stryker disable next-line ConditionalExpression: a count of 0 left in the map reads as no reset owed
+  // A count is deleted when it reaches 0, so a stored count is at least 1.
+  const owed = byKey.get(key);
+  if (owed === undefined) {
+    return false;
+  }
   if (owed === 1) {
-    pendingResets.delete(key);
+    byKey.delete(key);
   } else {
-    pendingResets.set(key, owed - 1);
+    byKey.set(key, owed - 1);
   }
   return true;
 }

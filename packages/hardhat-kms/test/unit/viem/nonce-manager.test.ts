@@ -144,6 +144,73 @@ describe("a library account's nonce manager", () => {
     assert.deepEqual(nonceCalls, []);
   });
 
+  it("keeps the reset viem sends after each failed consume, and passes on the next one", async () => {
+    const { connection, nonceCalls, state } = setup();
+    let failures = 0;
+    connection.nonces.choose = async (request) => {
+      if (failures > 0) {
+        failures--;
+        // As when the connection cannot read its chain id or the send lock is not had.
+        throw await Promise.resolve(new Error("no nonce"));
+      }
+      nonceCalls.push(["choose", request]);
+      return await Promise.resolve(7n);
+    };
+    const account = await createKmsNetworkConnection(connection).getAccount(ADDRESS);
+    const parameters = { address: ADDRESS, chainId: CHAIN_ID, client: {} };
+    const { nonceManager } = account;
+    // A refusal by the account itself, and two by the connection.
+    state.closed = true;
+    await assert.rejects(nonceManager.consume(parameters), /^HardhatPluginError/u);
+    state.closed = false;
+    failures = 2;
+    await assert.rejects(nonceManager.consume(parameters), /no nonce/u);
+    await assert.rejects(nonceManager.consume(parameters), /no nonce/u);
+    nonceManager.reset(parameters);
+    nonceManager.reset(parameters);
+    nonceManager.reset(parameters);
+    assert.equal(await nonceManager.consume(parameters), 7);
+    nonceManager.reset(parameters);
+    nonceManager.reset(parameters);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(
+      nonceCalls.map(([method]) => method),
+      ["choose", "reset", "reset"],
+      "three resets kept, the two after them passed on",
+    );
+  });
+
+  it("keeps no reset for a failed get, which viem does not reset", async () => {
+    const { connection, nonceCalls, state } = setup();
+    const account = await createKmsNetworkConnection(connection).getAccount(ADDRESS);
+    const parameters = { address: ADDRESS, chainId: CHAIN_ID, client: {} };
+    state.closed = true;
+    await assert.rejects(account.nonceManager.get(parameters));
+    state.closed = false;
+    account.nonceManager.reset(parameters);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(nonceCalls, [["reset", LOWER, BigInt(CHAIN_ID)]]);
+  });
+
+  it("keeps the reset of a viem sendTransaction whose consume the closed connection refused", async () => {
+    const { connection, nonceCalls, state } = setup();
+    const account = await createKmsNetworkConnection(connection).getAccount(ADDRESS);
+    const node = fakeNode();
+    const wallet = createWalletClient({
+      account,
+      chain: hardhat,
+      transport: custom(node.provider),
+    });
+    state.closed = true;
+    await assert.rejects(
+      wallet.sendTransaction({ to: TO, value: 1n }),
+      /nonceManager\.consume: the connection to network/u,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(nonceCalls, [], "no nonce asked for and no reset passed on");
+    assert.ok(!node.methods.includes("eth_sendRawTransaction"));
+  });
+
   it("is consumed once by viem's sendTransaction, and not reset after a send that went out", async () => {
     const { connection, nonceCalls } = setup();
     const account = await createKmsNetworkConnection(connection).getAccount(ADDRESS);
