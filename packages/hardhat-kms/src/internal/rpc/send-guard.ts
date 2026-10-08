@@ -218,6 +218,10 @@ const LIBRARY_WARNINGS_DOCS =
 const FILL_NONCE_DOCS =
   "https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/uncertain-sends.md#4-fill-a-gap-or-replace-a-transaction";
 
+/** Where looking a transaction up is explained. */
+const LOOK_UP_DOCS =
+  "https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/uncertain-sends.md#2-look-the-transaction-up";
+
 /**
  * Names the account and chain of a lock key in a warning, with the address checksummed.
  *
@@ -344,15 +348,16 @@ const keepAliveTimers: Timers = {
 
 /**
  * Warns that viem's `reset` ended the reservation of a nonce that a library send held until its
- * time limit, while the account has already used a higher nonce: the library send failed, so no
- * transaction has that nonce, and the account's later transactions wait behind the gap.
+ * time limit, while the account has already used a higher nonce. viem resets after any error,
+ * including a timeout after the node took the transaction, so the nonce may or may not be a gap;
+ * if it is, the account's later transactions wait behind it.
  *
  * @param key - The lock key.
  * @param nonce - The nonce of the gap.
  */
 export function warnAboutNonceGap(key: string, nonce: bigint): void {
   warn(
-    `viem reset a connection.kms.getAccount send from ${describeSendKeyForWarning(key)} after its ${LIBRARY_HOLD_MS / 1000} s hold ended, so no transaction has its nonce ${nonce}, but the account has sent with a higher nonce since. Those transactions are not mined until a transaction with nonce ${nonce} is. Fill the gap with a transaction that sets nonce ${nonce}; see ${FILL_NONCE_DOCS}.`,
+    `viem reset a connection.kms.getAccount send from ${describeSendKeyForWarning(key)} with nonce ${nonce} after its ${LIBRARY_HOLD_MS / 1000} s hold ended, and the account has used a higher nonce since. If that send never reached the node, nonce ${nonce} is a gap, and the account's later transactions are not mined until a transaction with nonce ${nonce} is. viem also resets after a timeout, when the node may have the transaction, so check the node for nonce ${nonce} first (${LOOK_UP_DOCS}), and fill the gap only if it is one (${FILL_NONCE_DOCS}).`,
   );
 }
 
@@ -783,11 +788,12 @@ export class ConnectionSends {
    * signed, else the newest one.
    *
    * @param from - The sender's lowercase address.
-   * @returns The ended reservation's nonce when it leaves a gap: a library send held it until its
-   * time limit, and the sender has used a higher nonce since (the high-water mark or another
-   * reservation is above it). Otherwise `undefined`.
+   * @param held - The nonce a library send of this connection holds now, if any.
+   * @returns The ended reservation's nonce when it may leave a gap: a library send held it until
+   * its time limit, and the sender has used a higher nonce since (the high-water mark, another
+   * reservation or `held` is above it). Otherwise `undefined`.
    */
-  public resetReservation(from: string): bigint | undefined {
+  public resetReservation(from: string, held?: bigint): bigint | undefined {
     const live = this.#live(from);
     const entries = [...live].toReversed();
     const chosen =
@@ -800,7 +806,7 @@ export class ConnectionSends {
     const [nonce, reservation] = chosen;
     this.releaseReservation(from, nonce);
     // -1n: no mark. The ended reservation is no longer in `live`.
-    const used = [this.#highWater.get(from) ?? -1n, ...live.keys()];
+    const used = [this.#highWater.get(from) ?? -1n, held ?? -1n, ...live.keys()];
     const above = used.some((other) => other > nonce);
     return reservation.afterHoldLimit && above ? nonce : undefined;
   }

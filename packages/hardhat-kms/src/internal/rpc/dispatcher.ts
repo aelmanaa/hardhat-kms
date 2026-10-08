@@ -1332,7 +1332,7 @@ export async function resetLibraryNonce(
     }
   }
   if (sends.hasReservations(address)) {
-    const gap = sends.resetReservation(address);
+    const gap = sends.resetReservation(address, hold?.nonce);
     if (gap !== undefined) {
       warnAboutNonceGap(key, gap);
     }

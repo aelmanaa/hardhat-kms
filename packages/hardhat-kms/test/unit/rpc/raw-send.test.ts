@@ -1333,9 +1333,37 @@ describe("a library send's hold, whichever way its raw transaction arrives (#433
       .map((call) => String(call.arguments[0]))
       .filter((message) => message.includes("gap"));
     assert.equal(gaps.length, 1);
-    assert.match(gaps[0] ?? "", /no transaction has its nonce 0\b/);
-    assert.match(gaps[0] ?? "", /on chain 31340 after its 60 s hold ended/);
+    assert.match(gaps[0] ?? "", /with nonce 0 after its 60 s hold ended/);
+    assert.match(gaps[0] ?? "", /uncertain-sends\.md#2-look-the-transaction-up/);
+    assert.doesNotMatch(gaps[0] ?? "", /no transaction has/);
+    assert.match(gaps[0] ?? "", /on chain 31340 with nonce 0 after its 60 s hold ended/);
     assert.match(gaps[0] ?? "", /uncertain-sends\.md#4-fill-a-gap-or-replace-a-transaction/);
+  });
+
+  it("warns about the nonce gap when a second library send skipped the expired nonce", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const harness = await setUp("http", 31342);
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const first = await library(connection, {}, 31342);
+    assert.equal(await first.consume(), 0);
+    t.mock.timers.tick(LIBRARY_HOLD_MS);
+    await settle();
+    const second = await library(connection, {}, 31342);
+    assert.equal(await second.consume(), 1, "the second library send skips the reserved 0");
+    // The first send fails after all, and viem resets it; the second send still holds 1.
+    await first.reset();
+    const gaps = warn.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .filter((message) => message.includes("gap"));
+    assert.equal(gaps.length, 1);
+    assert.match(gaps[0] ?? "", /with nonce 0 after its 60 s hold ended/);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the second send's hold stays");
+    resultOf((await sendRaw(harness, connection, cowRaw(1n, 1n, 31342n))).response);
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [1n, 2n]);
   });
 
   it("prints no gap warning for a send reset after its hold limit when no higher nonce was used", async (t) => {

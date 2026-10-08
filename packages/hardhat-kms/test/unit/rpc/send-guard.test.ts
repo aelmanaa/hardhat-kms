@@ -1042,6 +1042,10 @@ describe("ConnectionSends nonce reservations", () => {
     other.signedReservation(COW, 7n);
     other.reserve(COW, 8n, true);
     assert.equal(other.resetReservation(COW), undefined, "a reservation below it is no gap");
+    other.reserve(COW, 9n, true);
+    assert.equal(other.resetReservation(COW, 9n), undefined, "a hold at its own nonce is no gap");
+    other.reserve(COW, 9n, true);
+    assert.equal(other.resetReservation(COW, 10n), 9n, "a hold above it");
   });
 
   it("keeps a hold-limit reservation past a higher plugin send, but not past its own nonce or the pending count", () => {
