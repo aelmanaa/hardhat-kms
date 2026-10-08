@@ -63,10 +63,25 @@ describe("a library account's nonce manager", () => {
     account.nonceManager.increment(parameters);
     account.nonceManager.reset(parameters);
     assert.deepEqual(nonceCalls, [
-      ["choose", { address: LOWER, chainId: BigInt(CHAIN_ID), reserve: true, ownTransport: false }],
       [
         "choose",
-        { address: LOWER, chainId: BigInt(CHAIN_ID), reserve: false, ownTransport: false },
+        {
+          address: LOWER,
+          chainId: BigInt(CHAIN_ID),
+          reserve: true,
+          ownTransport: false,
+          signal: undefined,
+        },
+      ],
+      [
+        "choose",
+        {
+          address: LOWER,
+          chainId: BigInt(CHAIN_ID),
+          reserve: false,
+          ownTransport: false,
+          signal: undefined,
+        },
       ],
       ["reset", LOWER, BigInt(CHAIN_ID)],
     ]);
@@ -87,9 +102,27 @@ describe("a library account's nonce manager", () => {
     assert.deepEqual(
       nonceCalls.map((call) => call[1]),
       [
-        { address: LOWER, chainId: BigInt(CHAIN_ID), reserve: true, ownTransport: true },
-        { address: LOWER, chainId: BigInt(CHAIN_ID), reserve: true, ownTransport: false },
-        { address: LOWER, chainId: BigInt(CHAIN_ID), reserve: false, ownTransport: false },
+        {
+          address: LOWER,
+          chainId: BigInt(CHAIN_ID),
+          reserve: true,
+          ownTransport: true,
+          signal: undefined,
+        },
+        {
+          address: LOWER,
+          chainId: BigInt(CHAIN_ID),
+          reserve: true,
+          ownTransport: false,
+          signal: undefined,
+        },
+        {
+          address: LOWER,
+          chainId: BigInt(CHAIN_ID),
+          reserve: false,
+          ownTransport: false,
+          signal: undefined,
+        },
       ],
     );
   });
@@ -240,7 +273,16 @@ describe("a library account's nonce manager", () => {
     });
     await assert.rejects(wallet.sendTransaction({ to: TO, value: 1n }));
     assert.deepEqual(nonceCalls, [
-      ["choose", { address: LOWER, chainId: BigInt(CHAIN_ID), reserve: true, ownTransport: false }],
+      [
+        "choose",
+        {
+          address: LOWER,
+          chainId: BigInt(CHAIN_ID),
+          reserve: true,
+          ownTransport: false,
+          signal: undefined,
+        },
+      ],
       ["reset", LOWER, BigInt(CHAIN_ID)],
     ]);
     assert.ok(!node.methods.includes("eth_sendRawTransaction"));

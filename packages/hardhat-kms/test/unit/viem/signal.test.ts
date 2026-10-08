@@ -93,15 +93,27 @@ async function settle(): Promise<void> {
 describe("getAccount's signal", () => {
   it("refuses getAccount before any KMS call when the signal has already aborted", async () => {
     const { adapter, connection } = setup();
+    const lookups: string[] = [];
+    const counted = {
+      ...connection,
+      accounts: {
+        ...connection.accounts,
+        keyFor: async (address: string) => {
+          lookups.push(address);
+          return await connection.accounts.keyFor(address);
+        },
+      },
+    };
     await assertRefused(
       adapter,
       async () =>
-        await createKmsNetworkConnection(connection).getAccount(ADDRESS, {
+        await createKmsNetworkConnection(counted).getAccount(ADDRESS, {
           signal: AbortSignal.abort(),
         }),
       refused("getAccount"),
     );
     assert.equal(kmsCalls(adapter), 0);
+    assert.deepEqual(lookups, [], "refused before the key lookup, which can call the KMS");
   });
 
   it("ignores an inherited signal, as it ignores other inherited options", async () => {
@@ -298,7 +310,16 @@ describe("getAccount's signal", () => {
     assert.ok(!methods.includes("eth_sendRawTransaction"), "nothing was broadcast");
     await settle();
     assert.deepEqual(nonceCalls, [
-      ["choose", { address: LOWER, chainId: BigInt(CHAIN_ID), reserve: true, ownTransport: false }],
+      [
+        "choose",
+        {
+          address: LOWER,
+          chainId: BigInt(CHAIN_ID),
+          reserve: true,
+          ownTransport: false,
+          signal: caller.signal,
+        },
+      ],
       ["reset", LOWER, BigInt(CHAIN_ID)],
     ]);
   });

@@ -21,6 +21,7 @@ import {
 import { assembleSignedTransaction } from "../rpc/transactions.ts";
 import { checkTypedDataChain } from "../rpc/typed-data.ts";
 import type { KmsSigner, SignerCallOptions } from "../signer/kms-signer.ts";
+import { CancelledError } from "../signer/timeout.ts";
 import { warn } from "../warnings.ts";
 import {
   readAddress,
@@ -439,16 +440,27 @@ function buildNonceManager(context: AccountContext): KmsNonceManager {
     reserve: boolean,
   ): Promise<number> => {
     checkOpen(connection, operation);
-    // Checked before the nonce is chosen: viem calls reset only after a consume that succeeded,
-    // so a consume must not fail once it holds the send lock.
-    checkNotCancelled(context.options.signal, operation);
+    // A refused consume is counted below, like any failed consume, so the reset viem sends after
+    // it ends no other send's hold.
+    const { signal } = context.options;
+    checkNotCancelled(signal, operation);
     const type = reserve ? ownTransportType(parameters.client) : undefined;
     const own = type !== undefined;
     if (own) {
       warnAboutTransport(type);
     }
     const chainId = BigInt(parameters.chainId);
-    return Number(await connection.nonces.choose({ address, chainId, reserve, ownTransport: own }));
+    try {
+      return Number(
+        await connection.nonces.choose({ address, chainId, reserve, ownTransport: own, signal }),
+      );
+    } catch (error) {
+      // The signal ended the wait for the send lock: nothing is held or reserved.
+      if (error instanceof CancelledError) {
+        throw catalogError(ERRORS.accountCancelled, {}, { operation });
+      }
+      throw error;
+    }
   };
   // The resets still to come after this account's failed consumes.
   let owedResets = 0;
