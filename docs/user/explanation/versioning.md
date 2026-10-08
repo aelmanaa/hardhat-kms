@@ -63,7 +63,7 @@ minimumReleaseAgeExclude:
 
 ### Node.js
 
-The Node.js policy is in the [Support reference](../reference/support.md): which lines are supported, which versions CI runs, and when a line is dropped.
+The Node.js policy is in [Supported Node.js versions](../reference/support.md): which lines are supported, which versions CI runs, and when a line is dropped.
 
 ### Hardhat
 

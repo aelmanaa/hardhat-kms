@@ -1,9 +1,9 @@
 ---
-title: First deploy on Sepolia with Azure Key Vault
+title: Deploy a Hardhat contract to Sepolia with Azure Key Vault
 description: "Sign Hardhat transactions with Azure Key Vault: create a P-256K key, deploy a contract to Sepolia from it, verify the source and purge the key."
 ---
 
-# First deploy on Sepolia with Azure Key Vault
+# Deploy a Hardhat contract to Sepolia with Azure Key Vault
 
 Audience: developers who have an Azure subscription and the Azure CLI signed in, and have not used Azure Key Vault with Hardhat.
 
