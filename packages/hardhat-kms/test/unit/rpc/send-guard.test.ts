@@ -928,7 +928,7 @@ describe("library holds", () => {
     assert.equal(ran, true);
     assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
     assert.equal(
-      takeOwedLibraryReset(KEY),
+      takeOwedLibraryReset(KEY, owner),
       false,
       "no reset is owed for a broadcast that went out",
     );
@@ -1120,17 +1120,19 @@ describe("library holds", () => {
   it("uses up the resets owed by failed sends before it ends a hold", async () => {
     const KEY = nextKey();
     const timers = fakeTimers();
-    expectLibraryReset(KEY);
-    await holdForLibrary(KEY, {}, async () => await Promise.resolve(2n), timers);
+    const owner = {};
+    expectLibraryReset(KEY, owner);
+    await holdForLibrary(KEY, owner, async () => await Promise.resolve(2n), timers);
     endLibraryHold(KEY, true);
-    expectLibraryReset(KEY);
-    await holdForLibrary(KEY, {}, async () => await Promise.resolve(3n), timers);
+    expectLibraryReset(KEY, owner);
+    await holdForLibrary(KEY, owner, async () => await Promise.resolve(3n), timers);
+    assert.equal(takeOwedLibraryReset(KEY, {}), false, "another connection's reset owes nothing");
     // Owed: the first expected reset, the failed broadcast of 2, and the second expected reset.
     for (let i = 0; i < 3; i++) {
-      assert.equal(takeOwedLibraryReset(KEY), true, "owed");
+      assert.equal(takeOwedLibraryReset(KEY, owner), true, "owed");
       assert.equal(libraryHoldOf(KEY)?.nonce, 3n, "the hold is still there");
     }
-    assert.equal(takeOwedLibraryReset(KEY), false, "the next reset is the hold's own");
+    assert.equal(takeOwedLibraryReset(KEY, owner), false, "the next reset is the hold's own");
     assert.equal(libraryHoldsActive(), true);
     libraryHoldOf(KEY)?.end();
     assert.equal(libraryHoldOf(KEY)?.nonce, undefined);

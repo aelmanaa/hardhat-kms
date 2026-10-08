@@ -673,6 +673,56 @@ describe("a library account's send through the connection", () => {
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
   });
 
+  it("does not let a late reset through a closed connection use up the reset a failed broadcast owes", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const other = await openKnown(harness);
+    const stale = await library(other);
+    assert.equal(await stale.consume(), 0);
+    // Closing ends the stale send's hold; viem's reset for that send is still to come.
+    await harness.close(other);
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    refuse(node, "nonce gap");
+    errorOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+    node.onRaw = undefined;
+    const next = await library(connection);
+    assert.equal(await next.consume(), 0, "the node did not take nonce 0");
+    await stale.reset();
+    // The reset the failed broadcast owes: the next send keeps its hold.
+    await holder.reset();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the plugin's send still waits for the next hold");
+    resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n]);
+  });
+
+  it("does not let a reset through another open connection use up the reset a failed broadcast owes", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const other = await openKnown(harness);
+    const elsewhere = await library(other);
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    refuse(node, "nonce gap");
+    errorOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+    node.onRaw = undefined;
+    const next = await library(connection);
+    assert.equal(await next.consume(), 0, "the node did not take nonce 0");
+    // As from a send on the other connection whose hold ended at its 60 s limit.
+    await elsewhere.reset();
+    await holder.reset();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the plugin's send still waits for the next hold");
+    resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n]);
+    await harness.close(other);
+  });
+
   it("refuses once the connection is closed", async () => {
     const harness = await setUp();
     const connection = await openKnown(harness);

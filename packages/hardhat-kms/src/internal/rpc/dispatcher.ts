@@ -1124,7 +1124,7 @@ async function sendRawTransaction(
     } finally {
       // viem resets the nonce manager after an error; that reset must not end another hold.
       if (failed) {
-        expectLibraryReset(key);
+        expectLibraryReset(key, hold.owner);
       }
       // This hold only: after its time limit, another send may hold the lock by now.
       hold.end();
@@ -1260,10 +1260,10 @@ export async function resetLibraryNonce(
     return;
   }
   const key = `${chainId}:${address}`;
-  if (takeOwedLibraryReset(key)) {
+  const sends = transactions.sends();
+  if (takeOwedLibraryReset(key, sends)) {
     return;
   }
-  const sends = transactions.sends();
   // Only a hold this connection gave: a reset through another connection, or through this one
   // after it closed, is never this hold's.
   const current = libraryHoldOf(key);
