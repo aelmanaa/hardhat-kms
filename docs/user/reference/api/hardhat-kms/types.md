@@ -892,9 +892,10 @@ account owners need it. A warning is printed when it is on.
 > `optional` **signal?**: `AbortSignal`
 
 Stops the account's KMS calls when it aborts. A KMS call in flight then rejects with
-`core.signer.cancelled` and is not retried, and every later call of the account, `getAccount`
-included, is refused before any KMS call. A request that already reached the KMS can still be
-signed there; the account never returns that signature, so viem never sends it.
+`core.signer.cancelled` and is not retried. After that, every method of the account, and
+`getAccount` called with the same signal, refuses before any KMS call. A request that already
+reached the KMS can still be signed there; the account never returns that signature, so viem
+never sends it.
 
 ---
 
