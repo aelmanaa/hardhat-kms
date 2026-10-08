@@ -7,7 +7,7 @@ description: "Make a KMS key the signer of an Alchemy smart wallet: what the key
 
 Audience: users with a working KMS key setup, such as [Set up an AWS KMS key](aws-kms-setup.md), who want the key to own a smart wallet through Alchemy's Wallet APIs, for example to have gas sponsored. Assumes you know what a viem account is; no prior knowledge of ERC-4337 or EIP-7702 is needed.
 
-Checked on 2026-10-08 against `@alchemy/wallet-apis` 5.3.0, viem 2.57.1 and Hardhat 3.18.0. The script in [step 3](#3-check-the-signatures-without-sending) ran on that date with an AWS KMS key on Sepolia: the authorization, the user operation signature and the typed-data signature each recovered to the key's address, and nothing was sent. The send in [step 4](#4-send-a-call) needs an Alchemy API key and was not run.
+Checked with `@alchemy/wallet-apis` 5.3.0 on 2026-10-08, with viem 2.57.1 and Hardhat 3.18.0. The script in [step 3](#3-check-the-signatures-without-sending) ran on that date with an AWS KMS key on Sepolia: the authorization, a `personal_sign` over an example user operation hash and a typed-data signature each recovered to the key's address, and nothing was sent. The send in [step 4](#4-send-a-call) needs an Alchemy API key and was not run. This repository does not install `@alchemy/wallet-apis`, so its checks do not typecheck the scripts in steps 3 and 4; a later release of the package can change the calls they make.
 
 `connection.kms.getAccount` returns a viem `LocalAccount` for a KMS key ([Library accounts reference](../reference/library-accounts.md)). `@alchemy/wallet-apis` takes a `LocalAccount` as the signer of a smart wallet, so the KMS key can be that signer with no adapter. The plugin adds nothing Alchemy-specific.
 
@@ -88,6 +88,8 @@ It needs no Alchemy API key: signing does not call Alchemy, so the transport is 
 
 Save it as `scripts/check-alchemy-owner.ts`:
 
+<!-- docs-check: skip -->
+
 ```ts
 // The project's hardhat.config.ts loads the plugin's types; the import makes the file stand alone.
 import "hardhat-kms";
@@ -141,7 +143,8 @@ const authorizationSigner = await recoverAuthorizationAddress({
 });
 console.log("authorization signed by the key:", isAddressEqual(authorizationSigner, owner.address));
 
-// 2. A user operation for EntryPoint v0.7, signed as personal_sign over its hash.
+// 2. A user operation for EntryPoint v0.7, which Modular Account v2 uses (src/ma-v2/mav2StaticImpl.ts
+// in @alchemy/smart-accounts 5.2.0), signed as personal_sign over its hash.
 const userOpHash = getUserOperationHash({
   chainId: sepolia.id,
   entryPointAddress: entryPoint07Address,
@@ -202,6 +205,8 @@ A send needs an Alchemy API key, and a gas sponsorship policy if Alchemy pays th
 
 `sendCalls` runs `prepareCalls`, `signPreparedCalls` and `sendPreparedCalls` in turn. On the first send on a chain, the KMS key signs the authorization and the user operation; after that, only the user operation:
 
+<!-- docs-check: skip -->
+
 ```ts
 import "hardhat-kms";
 import hre from "hardhat";
@@ -235,7 +240,8 @@ await connection.close();
 
 ## Before you delegate a deployer key
 
-- After the first send, the key's address has code: it is delegated to Modular Account v2 on that chain. Tools that treat an address with code as a contract treat it that way too. [Return the funds from a KMS address](return-funds.md), for example, refuses to send to such an address. `@alchemy/wallet-apis` has an `undelegateAccount` action; its source comment says Alchemy sponsors that transaction only on the Enterprise plan (`src/actions/undelegateAccount.ts`).
+- After the first send, the key's address has code: it is delegated to Modular Account v2 on that chain. Tools that treat an address with code as a contract treat it that way too: [Return the funds from a KMS address](return-funds.md) refuses this address as `RETURN_TO`. The key can still send from it, so returning its own funds works as before. `@alchemy/wallet-apis` has an `undelegateAccount` action; its source comment says Alchemy sponsors that transaction only on the Enterprise plan (`src/actions/undelegateAccount.ts`).
+- After delegation, a `personal_sign` or typed-data signature from the key can authorize a user operation that spends from the address, whether it comes from `kms sign`, `eth_sign` or `getAccount().signMessage`. Sign messages with this key only through the smart wallet client, and only for calls you prepared.
 - The authorization is signed for the account's nonce at the time `prepareCalls` runs. If the same key sends a transaction through Hardhat before the user operation is included, the nonce moves on and EIP-7702 skips the authorization. Prepare the calls again after such a send.
 - To keep the key's address free of code, use a separate smart contract account instead: Alchemy's [EIP-7702 page](https://www.alchemy.com/docs/wallets/transactions/using-eip-7702) shows `requestAccount` with `creationHint: { accountType: "sma-b" }`, then `sendCalls` with that `account`. The KMS key then signs only user operations, no authorization.
 
