@@ -67,12 +67,23 @@ Why the manifests read `0.8.0` before the first release: `changeset version` app
 
 6. Push the tag: `git push origin v1.2.0`. The push starts `release.yml` (tag pattern `v[0-9]*.[0-9]*.[0-9]*`).
 7. Wait for `verify-tag`, `gate-ci` and `pack` to go green. `gate-ci` needs four passing runs on the tagged commit, pull-request runs aside:
-   - `ci.yml`, the Linux jobs. It runs on every push to `main`, so a commit of `main` usually has a run already. The job dispatches it only when the commit has no run; a failed run ends the job, so re-run its failed jobs or fix the cause.
+   - `ci.yml`, the Linux jobs. It runs on every push to `main`, so a commit of `main` usually has a run already.
    - `ci-all-os.yml`, whose macOS and Windows test jobs both passed.
    - `hardhat-versions.yml`, the Hardhat floor and latest, with every job passed.
    - `sdk-floors.yml`, the cloud SDK and viem floors, with every job passed.
 
-   For each of the four that has no run on the commit, and for each of the last three whose run failed, the job dispatches it on the tag and waits up to 90 minutes in all (`scripts/release-gate-ci.ts`); a run of those three that failed before the dispatch does not end the wait. If it gives up after 90 minutes, re-run the job once the dispatched runs finish. If a run failed, the summary links it; fix the cause and follow [Run failed before `publish`](#run-failed-before-publish).
+   The job waits up to 90 minutes in all (`scripts/release-gate-ci.ts`). What it does when a workflow has no passing run on the commit follows one rule, the same table as `RETRY_RULES` in the script:
+
+   | Workflow               | No run, or no job ran | The newest run failed | Why                                                                                |
+   | ---------------------- | --------------------- | --------------------- | ---------------------------------------------------------------------------------- |
+   | `ci.yml`               | Dispatch once         | Stop the gate         | hermetic: frozen lockfile, actions and images pinned                               |
+   | `ci-all-os.yml`        | Dispatch once         | Dispatch once more    | runs on macos-latest and windows-latest, and its scheduled run may predate the tag |
+   | `hardhat-versions.yml` | Dispatch once         | Dispatch once more    | tests the latest Hardhat 3 release at run time                                     |
+   | `sdk-floors.yml`       | Dispatch once         | Stop the gate         | hermetic: pinned SDK and viem floors, frozen lockfile                              |
+
+   A run failed when it concluded anything but `success`. The gate dispatches on the tag and waits; a dispatched run that fails stops the gate. A second run of a hermetic workflow tests the same inputs, so it could only hide a flaky failure; the two retried workflows depend on inputs outside the commit, so a second run can test something the first did not.
+
+   Whatever the verdict, the step summary ends with every failed run and every failed earlier attempt of a run of the four workflows on the commit: run id, attempt, conclusion and the jobs that failed. The job also prints each as a warning annotation. A pass after a failure therefore shows the failure: open each run and decide whether it was a flake before you approve `npm-publish`. When the gate stops on a failed run, re-run its failed jobs if the failure is a flake, then re-run the job; otherwise fix the cause and follow [Run failed before `publish`](#run-failed-before-publish). If the job gives up after 90 minutes, re-run it once the dispatched runs finish.
 
 8. Read the publish plan, the four tarball file lists, their SHA-256 sums and the release notes in the step summary. Each tarball's `package.json` carries `gitHead`, the tagged commit, which `promote.yml` checks later; npm does not add it to a package published from a tarball. From the second release on, the summary also diffs each file list against the tarball on `latest`. Stop if a file list holds a surprise: nothing has reached npm yet, and [Run failed before `publish`](#run-failed-before-publish) applies.
 9. Approve the `npm-publish` environment. The `publish` job checks the tarballs against the SHA-256 sums the `pack` job passed as a job output, and their name, version and `gitHead`, then stages the four packages with `npm stage publish <tarball> --tag <dist-tag> --access public --provenance`, over OIDC. The dist-tag is `beta` for a tag on `main` and `release-X.Y` for a hotfix (see [Hotfix on an older line](#5-hotfix-on-an-older-line)). Then the `github-release` job creates the GitHub Release `vX.Y.Z` as a draft with the prerelease flag, its notes taken from the `hardhat-kms` changelog entry for the version.
