@@ -1,5 +1,31 @@
 # hardhat-kms
 
+## 0.10.0
+
+### Minor Changes
+
+- [#413](https://github.com/aelmanaa/hardhat-kms/pull/413) [`ed85784`](https://github.com/aelmanaa/hardhat-kms/commit/ed857842fe8b50142c228e72a965b1bce7512744) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `connection.kms.getAccount` takes a `signal` option. When the `AbortSignal` aborts, the account's KMS call in progress stops with `cancelled by the caller's abort signal` and is not retried. After that, every method of the account, and `getAccount` called with the same signal, refuses before any KMS call. A request that already reached the KMS can still be signed there, but the account never returns that signature.
+  
+  Issue: [#8](https://github.com/aelmanaa/hardhat-kms/issues/8)
+
+### Patch Changes
+
+- [#422](https://github.com/aelmanaa/hardhat-kms/pull/422) [`b7b294f`](https://github.com/aelmanaa/hardhat-kms/commit/b7b294f056169b51fdb85a27664f807db3898ee4) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The package READMEs link to the Node.js support page by its new title, Supported Node.js versions. Its URL is unchanged.
+  
+  Issue: [#379](https://github.com/aelmanaa/hardhat-kms/issues/379)
+
+- [#421](https://github.com/aelmanaa/hardhat-kms/pull/421) [`a74b722`](https://github.com/aelmanaa/hardhat-kms/commit/a74b72225483fcbcbe06cfe04b1d6061f40c5aef) Thanks [@aelmanaa](https://github.com/aelmanaa)! - Two sends from the same KMS key could take the same nonce, so the node kept only one of them. This could happen to code that keeps using a `connection.kms.getAccount` account after its connection is closed, while another connection sends from the same key. viem calls the account's `nonceManager.reset` when a send fails, even when the account refused to give it a nonce, and that reset released the send lock that the other connection's send was holding. The account now ignores the `reset` that follows a nonce it refused, and a reset only releases the lock for a send of its own connection. A reset owed by a send whose broadcast failed is now counted for that send's connection only, so a reset through another connection cannot use it up.
+  
+  What should I do? Nothing. An account still refuses to send once its connection is closed; call `getAccount` on an open connection to send again.
+  
+  Issue: [#416](https://github.com/aelmanaa/hardhat-kms/issues/416)
+
+- [#407](https://github.com/aelmanaa/hardhat-kms/pull/407) [`ce294f0`](https://github.com/aelmanaa/hardhat-kms/commit/ce294f06379eabede447b615d71142449b8e7409) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A key whose `provider` is `turnkey` or `fireblocks`, in any case, now fails config validation with `core.config.provider-reserved`. The message links the issue that tracks the planned provider. The core also refuses to build an adapter for such a key. A third-party plugin's `kms` handler never receives one.
+  
+  What should I do? Nothing, unless a third-party plugin serves keys under `turnkey` or `fireblocks`. Give that plugin's provider another id, and change the `provider` of its keys to match.
+  
+  Issue: [#349](https://github.com/aelmanaa/hardhat-kms/issues/349)
+
 ## 0.9.0
 
 ### Minor Changes

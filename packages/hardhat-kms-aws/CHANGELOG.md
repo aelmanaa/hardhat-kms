@@ -1,5 +1,12 @@
 # @hardhat-kms/aws
 
+## 0.10.0
+
+### Patch Changes
+
+- Updated dependencies [[`b7b294f`](https://github.com/aelmanaa/hardhat-kms/commit/b7b294f056169b51fdb85a27664f807db3898ee4), [`ed85784`](https://github.com/aelmanaa/hardhat-kms/commit/ed857842fe8b50142c228e72a965b1bce7512744), [`a74b722`](https://github.com/aelmanaa/hardhat-kms/commit/a74b72225483fcbcbe06cfe04b1d6061f40c5aef), [`ce294f0`](https://github.com/aelmanaa/hardhat-kms/commit/ce294f06379eabede447b615d71142449b8e7409)]:
+  - hardhat-kms@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes
