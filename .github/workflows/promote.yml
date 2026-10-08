@@ -297,9 +297,10 @@ jobs:
           npm install --global --ignore-scripts npm@12.2.0
           npm --version
           node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
-      # The verify job checked the dist-tags, possibly hours before the approval, so each package
-      # is checked again just before its move: beta, or release-X.Y for a hotfix staged from the
-      # release branch of its line, is the version, and latest is not above it. A
+      # The verify job checked the dist-tags, possibly hours before the approval, so the four
+      # packages are checked again just before the move: beta, or release-X.Y for a hotfix staged
+      # from the release branch of its line, is the version, and latest is not above it. All four
+      # are checked before any tag moves, so one package's bad state leaves no package moved. A
       # package whose latest already is the version is skipped, so a re-run after the maintainer
       # moved the tags by hand only edits the release.
       - name: npm dist-tag add for the four packages
@@ -315,8 +316,10 @@ jobs:
           line="release-${VERSION%.*}"
           # npm 11 prints the dist-tags object and npm 12 wraps it in a one-element array; this
           # prints the object, and refuses any other shape or npm's error. unwrapNpmView in
-          # scripts/registry-release.ts has the same rule; change the two together.
+          # scripts/npm-view.ts has the same rule; change the two together.
           unwrap='const what = "npm view " + process.argv[1] + " dist-tags --json printed "; let t = JSON.parse(process.argv[2]); if (Array.isArray(t)) { if (t.length !== 1) { console.error("::error::" + what + "an array of " + t.length + " entries; expected one object or a one-element array"); process.exit(1); } t = t[0]; } if (typeof t !== "object" || t === null || Array.isArray(t) || "error" in t) { console.error("::error::" + what + JSON.stringify(t) + ", not a dist-tags object"); process.exit(1); } console.log(JSON.stringify(t));'
+          # Pass 1 reads and checks the four packages and moves nothing; pass 2 moves them.
+          moves=()
           for name in hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure; do
             view="$(npm view "$name" dist-tags --json)"
             tags="$(node -e "$unwrap" "$name" "$view")"
@@ -335,8 +338,11 @@ jobs:
               echo "- $name: latest already is $VERSION" >> "$GITHUB_STEP_SUMMARY"
               continue
             fi
-            npm dist-tag add "$name@$VERSION" latest
-            echo "- $name: latest moved from $current to $VERSION" >> "$GITHUB_STEP_SUMMARY"
+            moves+=("$name" "${current:-nothing}")
+          done
+          for ((i = 0; i < ${#moves[@]}; i += 2)); do
+            npm dist-tag add "${moves[i]}@$VERSION" latest
+            echo "- ${moves[i]}: latest moved from ${moves[i + 1]} to $VERSION" >> "$GITHUB_STEP_SUMMARY"
           done
 
   release-latest:

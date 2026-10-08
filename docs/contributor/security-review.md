@@ -95,6 +95,7 @@ scripts/release-channel.ts
 scripts/release-gate-ci.ts
 scripts/ci-all-os-decide.ts
 scripts/registry-release.ts
+scripts/npm-view.ts
 scripts/check-registry-release.ts
 scripts/check-live-rule.ts
 scripts/consumer-typecheck.ts

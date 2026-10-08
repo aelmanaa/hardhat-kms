@@ -1,6 +1,7 @@
 // The guards of scripts/check-registry-release.ts, as functions of parsed `npm view`, `npm audit
 // signatures` and git output, so the tests can feed them recorded output. Each guard throws an
 // error whose message names the check that failed and the values it compared.
+import { unwrapNpmView } from "./npm-view.ts";
 import { PACKAGES } from "./registry.ts";
 import { MAIN_DIST_TAG, releaseBranch } from "./verify-release-tag.ts";
 
@@ -31,28 +32,6 @@ function field(value: unknown, name: string): unknown {
 function npmError(error: unknown): string {
   const summary = field(error, "summary");
   return typeof summary === "string" ? summary : JSON.stringify(error);
-}
-
-/**
- * Unwraps the parsed `--json` output of `npm view`. npm 11 prints the value itself, and npm 12
- * wraps it in a one-element array: `[{"beta":"1.0.0"}]` for `npm view <package> dist-tags --json`,
- * `["<commit>"]` for `npm view <package>@<version> --json gitHead`. promote.yml inlines the same
- * rule in its dist-tag move; change the two together.
- *
- * @param command - The command that printed the output, for the error message.
- * @param parsed - The parsed output.
- * @returns The value, or the only element of a one-element array.
- */
-export function unwrapNpmView(command: string, parsed: unknown): unknown {
-  if (!Array.isArray(parsed)) {
-    return parsed;
-  }
-  if (parsed.length !== 1) {
-    throw new Error(
-      `${command} printed an array of ${parsed.length} entries; expected one value or a one-element array`,
-    );
-  }
-  return parsed[0];
 }
 
 /**

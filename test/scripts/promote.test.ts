@@ -36,12 +36,20 @@ after(() => {
   rmSync(work, { recursive: true, force: true });
 });
 
-/** Runs the step with `npm view` printing `view` for every package. */
-function moveLatest(view: string, version = "1.2.3") {
+/**
+ * Runs the step with `npm view` printing `view` for every package, or the entry of `overrides`
+ * for the packages it names.
+ */
+function moveLatest(view: string, version = "1.2.3", overrides: Record<string, string> = {}) {
   const summary = path.join(work, "summary.md");
   writeFileSync(summary, "");
   const stub = `npm() {
-  if [ "$1" = view ]; then printf '%s\\n' "$NPM_VIEW"; else printf 'npm %s\\n' "$*"; fi
+  if [ "$1" != view ]; then printf 'npm %s\\n' "$*"; return; fi
+  case "$2" in
+${Object.entries(overrides)
+  .map(([name, output]) => `    ${JSON.stringify(name)}) printf '%s\\n' ${shellQuote(output)} ;;\n`)
+  .join("")}    *) printf '%s\\n' "$NPM_VIEW" ;;
+  esac
 }
 `;
   const result = spawnSync("bash", ["-e", "-c", stub + distTagStep()], {
@@ -57,6 +65,9 @@ function moveLatest(view: string, version = "1.2.3") {
   // The step writes its ::error:: lines with echo, to standard output; node writes to stderr.
   return { status: result.status, output: result.stdout + result.stderr, adds };
 }
+
+/** A single-quoted bash word. */
+const shellQuote = (text: string): string => `'${text.replaceAll("'", String.raw`'\''`)}'`;
 
 const PACKAGES = ["hardhat-kms", "@hardhat-kms/aws", "@hardhat-kms/gcp", "@hardhat-kms/azure"];
 const moved = (version: string) =>
@@ -99,6 +110,32 @@ describe(
         assert.match(result.output, /hardhat-kms has beta at 1\.2\.2 and release-1\.2 at nothing/);
         assert.deepEqual(result.adds, []);
       }
+    });
+
+    it("checks all four packages before moving any: a bad third package moves none", () => {
+      const bad: [string, RegExp][] = [
+        ["[]", /npm view @hardhat-kms\/gcp dist-tags --json printed an array of 0 entries/],
+        [JSON.stringify([{ beta: "1.2.2" }]), /@hardhat-kms\/gcp has beta at 1\.2\.2/],
+        [
+          JSON.stringify([{ beta: "1.2.3", latest: "1.3.0" }]),
+          /@hardhat-kms\/gcp has latest at 1\.3\.0/,
+        ],
+      ];
+      for (const [view, message] of bad) {
+        const result = moveLatest(npm12, "1.2.3", { "@hardhat-kms/gcp": view });
+        assert.notEqual(result.status, 0, view);
+        assert.match(result.output, message, view);
+        assert.deepEqual(result.adds, [], view);
+      }
+    });
+
+    it("skips a package whose latest already is the version and moves the rest", () => {
+      const result = moveLatest(npm12, "1.2.3", {
+        "hardhat-kms": JSON.stringify([{ beta: "1.2.3", latest: "1.2.3" }]),
+        "@hardhat-kms/aws": JSON.stringify([{ beta: "1.2.3", latest: "1.2.3" }]),
+      });
+      assert.equal(result.status, 0, result.output);
+      assert.deepEqual(result.adds, moved("1.2.3").slice(2));
     });
 
     it("refuses any other shape before moving a tag, naming the package", () => {

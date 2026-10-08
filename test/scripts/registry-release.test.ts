@@ -7,6 +7,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { unwrapNpmView } from "../../scripts/npm-view.ts";
 import {
   assertAttestations,
   assertStagedTag,
@@ -23,7 +24,6 @@ import {
   parseVerified,
   stableVersion,
   stagingDistTags,
-  unwrapNpmView,
 } from "../../scripts/registry-release.ts";
 import { PACKAGES } from "../../scripts/registry.ts";
 
