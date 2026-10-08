@@ -15,7 +15,30 @@ hardhat-kms is two packages: the core, `hardhat-kms`, and the provider package f
 | Google Cloud KMS               | `@hardhat-kms/gcp`   | `hardhatKmsGcp`   |
 | Azure Key Vault or Managed HSM | `@hardhat-kms/azure` | `hardhatKmsAzure` |
 
-The packages support Hardhat ^3.18.0 and the Node.js versions in [Support](../reference/support.md). If you have no Hardhat 3 project yet, `npx hardhat --init` creates one.
+The packages support Hardhat ^3.18.0 and the Node.js versions in [Support](../reference/support.md). Run the steps in a Hardhat 3 project. If you have none yet, `npx hardhat --init` (`pnpm dlx hardhat --init`, `yarn dlx hardhat --init`) creates one in a new directory.
+
+To start from an empty directory instead, create a `package.json` with `"type": "module"` first. Hardhat 3 runs only in ES module projects: without that field, step 3 stops with "Hardhat only supports ESM projects".
+
+::: code-group
+
+```sh [npm]
+npm init -y
+npm pkg set type=module
+```
+
+```sh [pnpm]
+pnpm init
+pnpm pkg set type=module
+```
+
+```sh [Yarn]
+yarn init -2
+npm pkg set type=module
+```
+
+:::
+
+`yarn init -2` sets the directory up for Yarn 4; with Yarn 1, run `yarn init -y` instead.
 
 ## 1. Install the packages
 
@@ -112,7 +135,7 @@ export default defineConfig({
 
 :::
 
-In a project from `npx hardhat --init`, add the import and append the plugin to the existing `plugins` list.
+In a project from `npx hardhat --init`, add the import and append the plugin to the existing `plugins` list. In an empty directory, save the block as `hardhat.config.ts`.
 
 ## 3. Check the install
 
