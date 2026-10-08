@@ -34,6 +34,28 @@ function npmError(error: unknown): string {
 }
 
 /**
+ * Unwraps the parsed `--json` output of `npm view`. npm 11 prints the value itself, and npm 12
+ * wraps it in a one-element array: `[{"beta":"1.0.0"}]` for `npm view <package> dist-tags --json`,
+ * `["<commit>"]` for `npm view <package>@<version> --json gitHead`. promote.yml inlines the same
+ * rule in its dist-tag move; change the two together.
+ *
+ * @param command - The command that printed the output, for the error message.
+ * @param parsed - The parsed output.
+ * @returns The value, or the only element of a one-element array.
+ */
+export function unwrapNpmView(command: string, parsed: unknown): unknown {
+  if (!Array.isArray(parsed)) {
+    return parsed;
+  }
+  if (parsed.length !== 1) {
+    throw new Error(
+      `${command} printed an array of ${parsed.length} entries; expected one value or a one-element array`,
+    );
+  }
+  return parsed[0];
+}
+
+/**
  * Checks that a version can go to `latest`: exact `major.minor.patch`, with no prerelease or build
  * suffix.
  *
@@ -73,7 +95,7 @@ export function parsePackageView(name: string, json: string): PackageView {
   if (json.trim() === "") {
     throw new Error(`${name} has no published version`);
   }
-  const parsed: unknown = JSON.parse(json);
+  const parsed = unwrapNpmView(`npm view ${name}`, JSON.parse(json));
   const error = field(parsed, "error");
   if (error !== undefined) {
     throw new Error(`npm view ${name} failed: ${npmError(error)}`);
@@ -109,7 +131,7 @@ export function parseGitHead(json: string): string | undefined {
   if (json.trim() === "") {
     return undefined;
   }
-  const parsed: unknown = JSON.parse(json);
+  const parsed = unwrapNpmView("npm view gitHead", JSON.parse(json));
   return typeof parsed === "string" && parsed !== "" ? parsed : undefined;
 }
 

@@ -313,8 +313,13 @@ jobs:
           # The dist-tag a hotfix of line X.Y is staged under; `npm view name dist-tags.<tag>` would
           # read the dot in it as a path, so the dist-tags are read as JSON.
           line="release-${VERSION%.*}"
+          # npm 11 prints the dist-tags object and npm 12 wraps it in a one-element array; this
+          # prints the object, and refuses any other shape or npm's error. unwrapNpmView in
+          # scripts/registry-release.ts has the same rule; change the two together.
+          unwrap='const what = "npm view " + process.argv[1] + " dist-tags --json printed "; let t = JSON.parse(process.argv[2]); if (Array.isArray(t)) { if (t.length !== 1) { console.error("::error::" + what + "an array of " + t.length + " entries; expected one object or a one-element array"); process.exit(1); } t = t[0]; } if (typeof t !== "object" || t === null || Array.isArray(t) || "error" in t) { console.error("::error::" + what + JSON.stringify(t) + ", not a dist-tags object"); process.exit(1); } console.log(JSON.stringify(t));'
           for name in hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure; do
-            tags="$(npm view "$name" dist-tags --json)"
+            view="$(npm view "$name" dist-tags --json)"
+            tags="$(node -e "$unwrap" "$name" "$view")"
             beta="$(node -p 'JSON.parse(process.argv[1]).beta ?? ""' "$tags")"
             hotfix="$(node -p 'JSON.parse(process.argv[1])[process.argv[2]] ?? ""' "$tags" "$line")"
             current="$(node -p 'JSON.parse(process.argv[1]).latest ?? ""' "$tags")"

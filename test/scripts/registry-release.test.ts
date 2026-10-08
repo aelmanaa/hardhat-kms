@@ -23,6 +23,7 @@ import {
   parseVerified,
   stableVersion,
   stagingDistTags,
+  unwrapNpmView,
 } from "../../scripts/registry-release.ts";
 import { PACKAGES } from "../../scripts/registry.ts";
 
@@ -85,6 +86,49 @@ describe("parsePackageView", () => {
     });
     assert.throws(() => parsePackageView("x", '{"versions":["1.0.0"]}'), {
       message: "npm view x returned no dist-tags",
+    });
+  });
+});
+
+// npm 12 wraps `npm view --json` output in a one-element array; npm 11 prints the value itself.
+// The *-npm12.json fixtures are npm 12.2.0's output for hardhat-kms.
+describe("unwrapNpmView", () => {
+  it("returns a bare value, and the only element of a one-element array", () => {
+    assert.deepEqual(unwrapNpmView("npm view x", { beta: "1.0.0" }), { beta: "1.0.0" });
+    assert.deepEqual(unwrapNpmView("npm view x", [{ beta: "1.0.0" }]), { beta: "1.0.0" });
+    assert.equal(unwrapNpmView("npm view x", "abc"), "abc");
+    assert.equal(unwrapNpmView("npm view x", ["abc"]), "abc");
+  });
+
+  it("refuses an empty array and an array of several entries, naming the command", () => {
+    assert.throws(() => unwrapNpmView("npm view x", []), {
+      message:
+        "npm view x printed an array of 0 entries; expected one value or a one-element array",
+    });
+    assert.throws(() => unwrapNpmView("npm view x", [{ beta: "1.0.0" }, { beta: "1.0.1" }]), {
+      message:
+        "npm view x printed an array of 2 entries; expected one value or a one-element array",
+    });
+  });
+
+  it("lets parsePackageView and parseGitHead read npm 12's output like npm 11's", () => {
+    assert.deepEqual(parsePackageView("hardhat-kms", fixture("view-hardhat-kms-npm12.json")), {
+      name: "hardhat-kms",
+      distTags: { beta: "0.10.0", latest: "0.9.0" },
+      versions: ["0.0.0-stage", "0.9.0", "0.10.0"],
+    });
+    assert.equal(
+      parseGitHead(fixture("githead-npm12.json")),
+      "953a9e31bd966b142ebbe93d8decae4f618ac2d5",
+    );
+    assert.throws(() => parsePackageView("x", "[]"), {
+      message: /^npm view x printed an array of 0 entries/,
+    });
+    assert.throws(() => parseGitHead('["a", "b"]'), {
+      message: /^npm view gitHead printed an array of 2 entries/,
+    });
+    assert.throws(() => parsePackageView("x", `[${fixture("view-missing.json")}]`), {
+      message: /^npm view x failed: Not Found/,
     });
   });
 });
