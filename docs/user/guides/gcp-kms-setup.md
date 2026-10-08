@@ -5,9 +5,12 @@ description: Create a Google Cloud KMS secp256k1 HSM key for Ethereum signing, g
 
 # Set up a Google Cloud KMS key
 
-Audience: users who sign with a key in Google Cloud KMS.
+This guide creates a secp256k1 signing key in Google Cloud KMS, allows a deployer to sign with it and nothing else, adds it to a Hardhat project and checks that it signs.
 
 With `@hardhat-kms/gcp`, a connection lists the key's account, signs messages and typed data with it, and signs and sends transactions.
+
+> [!NOTE]
+> Audience: users who sign with a key in Google Cloud KMS.
 
 ## 1. Create a secp256k1 signing key
 

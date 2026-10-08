@@ -41,15 +41,39 @@ Promotion moves the `latest` tag onto the version already on `beta`. Nothing is 
 
 The default install takes `latest`:
 
-```sh
+::: code-group
+
+```sh [npm]
 npm install --save-dev hardhat-kms @hardhat-kms/aws
 ```
 
+```sh [pnpm]
+pnpm add --save-dev hardhat-kms @hardhat-kms/aws
+```
+
+```sh [Yarn]
+yarn add --dev hardhat-kms @hardhat-kms/aws
+```
+
+:::
+
 To test a version before it is promoted, install both packages from `beta`. `@hardhat-kms/gcp` and `@hardhat-kms/azure` install the same way.
 
-```sh
+::: code-group
+
+```sh [npm]
 npm install --save-dev hardhat-kms@beta @hardhat-kms/aws@beta
 ```
+
+```sh [pnpm]
+pnpm add --save-dev hardhat-kms@beta @hardhat-kms/aws@beta
+```
+
+```sh [Yarn]
+yarn add --dev hardhat-kms@beta @hardhat-kms/aws@beta
+```
+
+:::
 
 pnpm 11 and 12 hold back a version published less than 24 hours ago (the `minimumReleaseAge` setting). With pnpm's defaults the hold is not strict: when no older version matches, as with `hardhat-kms@beta`, pnpm installs the young one anyway. A project that sets `minimumReleaseAge` itself is strict and refuses it. In that project, exempt the packages in `pnpm-workspace.yaml`:
 

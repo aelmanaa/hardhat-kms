@@ -5,9 +5,12 @@ description: Create an AWS KMS secp256k1 key for Ethereum signing, allow signing
 
 # Set up an AWS KMS key
 
-Audience: users who sign with a key in AWS KMS.
+This guide creates a secp256k1 signing key in AWS KMS, allows a deployer to sign with it and nothing else, adds it to a Hardhat project and checks that it signs.
 
 With `@hardhat-kms/aws`, a connection lists the key's account and signs messages, typed data and transactions with it. `kms history` lists who signed with the key, when and from where, from the CloudTrail event history that AWS keeps for every account without any setup.
+
+> [!NOTE]
+> Audience: users who sign with a key in AWS KMS.
 
 ## 1. Create a secp256k1 signing key
 

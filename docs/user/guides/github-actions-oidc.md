@@ -5,9 +5,14 @@ description: Let a GitHub Actions job sign with an AWS KMS, Google Cloud KMS or 
 
 # Sign from GitHub Actions with OIDC
 
-Audience: users who want a GitHub Actions job to deploy or sign with a KMS key that is already set up. Assumes a key created with one of the setup guides, admin rights on the repository, and rights to create roles or identities in the key's cloud. No experience with OpenID Connect (OIDC) is assumed.
+This guide sets up a GitHub Actions job that deploys or signs with a KMS key, with credentials the cloud issues for that job alone, and checks that the job can sign.
 
-Checked against each cloud's documentation on 2026-10-08. This repository's own [live-tests workflow](https://github.com/aelmanaa/hardhat-kms/blob/main/.github/workflows/live-tests.yml) signs in the same way, with one environment that has a required reviewer, a trust on that environment's subject in each cloud, and the same three login actions at the same commits; its run 37700159523 passed on all three clouds on 2026-10-07 (UTC). It installs with pnpm and runs tests. The cloud commands as written were not run for this page, and neither was the example workflow below, `kms accounts --check-sign` step included.
+You need a key created with one of the setup guides, admin rights on the repository, and rights to create roles or identities in the key's cloud. No experience with OpenID Connect (OIDC) is assumed.
+
+> [!NOTE]
+> Audience: users who want a GitHub Actions job to deploy or sign with a KMS key that is already set up.
+>
+> Checked against each cloud's documentation on 2026-10-08. This repository's own [live-tests workflow](https://github.com/aelmanaa/hardhat-kms/blob/main/.github/workflows/live-tests.yml) signs in the same way, with one environment that has a required reviewer, a trust on that environment's subject in each cloud, and the same three login actions at the same commits; its run 37700159523 passed on all three clouds on 2026-10-07 (UTC). It installs with pnpm and runs tests. The cloud commands as written were not run for this page, and neither was the example workflow below, `kms accounts --check-sign` step included.
 
 A GitHub Actions job can ask GitHub for a short-lived OIDC token that names the repository and the job's environment. Each cloud exchanges that token for short-lived credentials. GitHub stores no access key, client secret or service account key. The plugin then finds those credentials the same way it finds your own on a laptop ([Cloud credentials for KMS signing](../explanation/cloud-access.md#ci-with-oidc)).
 
