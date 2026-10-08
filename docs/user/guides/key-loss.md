@@ -5,12 +5,6 @@ description: Undo a deleted AWS KMS, Cloud KMS or Key Vault key, guard keys agai
 
 # Prevent and recover from losing a key
 
-Audience: users who sign with a key in AWS KMS, Google Cloud KMS or Azure Key Vault and hold funds or contract roles at its address. Assumes a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).
-
-The provider facts below were checked against each provider's documentation on 2026-10-01, and every undo path in [Undo a deletion](#undo-a-deletion) ran that day on a throwaway key. Provider behaviour can change; each fact links to the page it comes from.
-
-The private key of a KMS key never leaves the KMS, so neither you nor the plugin holds a copy. If the key is deleted, or nobody can use it any more, the address keeps its balance and its contract roles, but nothing can sign for it again. The plugin cannot recover anything.
-
 This guide covers:
 
 - [Undo a deletion](#undo-a-deletion) while the provider still allows it.
@@ -18,6 +12,15 @@ This guide covers:
 - [Avoid lockout](#avoid-lockout), where the key exists but nobody can reach it.
 - [Back up a key](#back-up-a-key), and what a backup costs you.
 - [Retire a key](#retire-a-key) without losing what its address holds.
+
+You need a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).
+
+> [!NOTE]
+> Audience: users who sign with a key in AWS KMS, Google Cloud KMS or Azure Key Vault and hold funds or contract roles at its address.
+>
+> The provider facts below were checked against each provider's documentation on 2026-10-01, and every undo path in [Undo a deletion](#undo-a-deletion) ran that day on a throwaway key. Provider behaviour can change; each fact links to the page it comes from.
+
+The private key of a KMS key never leaves the KMS, so neither you nor the plugin holds a copy. If the key is deleted, or nobody can use it any more, the address keeps its balance and its contract roles, but nothing can sign for it again. The plugin cannot recover anything.
 
 ## Undo a deletion
 

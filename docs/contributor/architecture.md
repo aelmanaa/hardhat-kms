@@ -318,7 +318,7 @@ Status messages from adapters go to Hardhat's `interruptions.displayMessage` wit
 
 ## Cloud access and credentials
 
-The core never sees a credential. It builds a signer for a key through the signer cache, which runs the `kms` hook chain (`createKeyAdapter`), and the provider package that claims the key builds the SDK client. On AWS and Google Cloud the client gets no credential options, so the cloud's SDK walks its own default chain. On Azure the package builds the chain itself. The user-facing rules, with the variables each source reads, are in the [credentials reference](../user/reference/credentials.md) and [How the plugin reaches your cloud](../user/explanation/cloud-access.md).
+The core never sees a credential. It builds a signer for a key through the signer cache, which runs the `kms` hook chain (`createKeyAdapter`), and the provider package that claims the key builds the SDK client. On AWS and Google Cloud the client gets no credential options, so the cloud's SDK walks its own default chain. On Azure the package builds the chain itself. The user-facing rules, with the variables each source reads, are in the [credentials reference](../user/reference/credentials.md) and [Cloud credentials for KMS signing](../user/explanation/cloud-access.md).
 
 What all three providers share:
 

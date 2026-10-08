@@ -7,6 +7,48 @@ description: "connection.kms.getAccount returns a viem account for a KMS key, fo
 
 Audience: Users and library authors who need a viem account object for a KMS key, for example for viem's `signAuthorization`, a smart-account SDK or a script outside a wallet client.
 
+## Which entry point to use
+
+| You want to                                                                        | Use                                                                                    |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Send transactions or deploy from a KMS key with viem                               | `connection.viem.getWalletClient(address)` from hardhat-viem                           |
+| Send transactions or deploy from a KMS key with ethers                             | `connection.ethers.getSigner(address)` from hardhat-ethers                             |
+| Deploy an Ignition module                                                          | `--default-sender` ([Deploy with Hardhat Ignition](../guides/deploy-with-ignition.md)) |
+| Sign an EIP-7702 authorization, own a smart account, or sign with no wallet client | [`connection.kms.getAccount(address)`](#connectionkmsgetaccount)                       |
+| Sign a bare 32-byte digest, as a Coinbase smart account's owner does               | `connection.kms.getAccount(address, { rawSign: true })` ([Options](#options))          |
+
+The first three send through Hardhat: the plugin fills, signs and broadcasts each transaction. An account from `getAccount` can send too, as long as its viem client's transport is `custom(connection.provider)`, which lets the plugin order the account's sends with its own sends from the same key. This script sends 0.001 ETH and waits for the receipt:
+
+```ts
+import "hardhat-kms";
+import { network } from "hardhat";
+import { createPublicClient, createWalletClient, custom, parseEther } from "viem";
+import { sepolia } from "viem/chains";
+
+const connection = await network.create("sepolia");
+const account = await connection.kms.getAccount("0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826");
+const transport = custom(connection.provider);
+
+try {
+  // viem fills the transaction, the KMS key signs it, and the raw transaction goes through the
+  // connection, so the plugin orders it with its own sends from the same key.
+  const hash = await createWalletClient({ account, chain: sepolia, transport }).sendTransaction({
+    to: "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB",
+    value: parseEther("0.001"),
+  });
+  const receipt = await createPublicClient({ chain: sepolia, transport }).waitForTransactionReceipt(
+    {
+      hash,
+    },
+  );
+  console.log(hash, receipt.status);
+} finally {
+  await connection.close();
+}
+```
+
+[Sending](#sending) gives the rules for these sends, and why the transport matters.
+
 ## `connection.kms.getAccount`
 
 Every network connection has a `kms` field. Its `getAccount` method returns a viem [`LocalAccount`](https://viem.sh/docs/accounts/local) whose key is one of the connection's KMS keys. Here the account signs a message, and nothing is sent:
@@ -162,7 +204,8 @@ Some cases stay outside this:
 - A blob transaction (type 3) in its network form, with its blobs, is passed on without being decoded, and is not counted.
 - A raw transaction from a KMS address goes on untouched until the connection has looked up its KMS addresses, which `getAccount`, a send and `eth_accounts` do, unless a library send of that address holds the lock: then its raw transaction ends the hold on any connection to the chain, with no KMS call.
 - A send of the account started by code that runs inside a send from the same account, such as a network hook during the fill, fails at once and is not signed or sent: it would wait for itself. Its error is `core.account.nonce-reentrant` ([Errors](errors.md#library-accounts)).
-- A send whose raw transaction does not reach the plugin and that viem does not reset keeps the account's lock for at most 60 s; the timer keeps the process alive until then. If that send's `reset` comes after the 60 s, it can end the hold of the account's next library send.
+- A send whose raw transaction does not reach the plugin and that viem does not reset keeps the account's lock for at most 60 s; the timer keeps the process alive until then. If that send's `reset` comes after the 60 s, it can end the hold of the account's next library send on the same connection.
+- A `nonceManager.consume` that your code calls itself, outside viem's `sendTransaction`, and that fails, makes the account ignore one later `reset` for each such failure. If an ignored `reset` was for a send that failed, that send's nonce stays held for up to 60 s, as for a send that viem does not reset. viem's own sends reset after every failed `consume`.
 
 These rules need viem 2.55.13 or later ([`getAccount`](#connectionkmsgetaccount)).
 

@@ -5,11 +5,14 @@ description: "Foundry --aws and --gcp equivalents in Hardhat 3: the --kms option
 
 # Migrate from Foundry
 
-Audience: Foundry users moving KMS signing to Hardhat.
-
-`--kms` keys are added to the selected network and sign messages, typed data and transactions, with keys in AWS KMS, Google Cloud KMS or Azure Key Vault.
+This guide moves KMS signing from Foundry to Hardhat: the environment variables Foundry reads pick the key, from the command line as in Foundry, or from the config.
 
 Foundry picks a KMS signer per command with `--aws` or `--gcp`, and reads the key from environment variables. hardhat-kms reads the same variables, in two ways. Both need the provider's package in `plugins`: `@hardhat-kms/aws` ([Set up an AWS KMS key](aws-kms-setup.md#3-install-the-plugin-and-configure-the-key)), `@hardhat-kms/gcp` ([Set up a Google Cloud KMS key](gcp-kms-setup.md#3-install-the-plugin-and-configure-the-key)) or `@hardhat-kms/azure` ([Set up an Azure Key Vault key](azure-key-vault-setup.md#4-install-the-plugin-and-configure-the-key)).
+
+> [!NOTE]
+> Audience: Foundry users moving KMS signing to Hardhat.
+
+`--kms` keys are added to the selected network and sign messages, typed data and transactions, with keys in AWS KMS, Google Cloud KMS or Azure Key Vault.
 
 ## From the command line, as in Foundry
 

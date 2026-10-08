@@ -18,6 +18,9 @@ exclude = [
   # does not hold yet, so lychee reports an untrusted certificate. Clients that trust that root,
   # such as macOS, load the site. Remove this entry once a lychee run without it passes.
   '^https://tsx\.is/',
+  # The 1.0.0 launch note links the live proof at the v1.0.0 tag, which does not exist until the
+  # release. Remove this entry once the tag is pushed.
+  '^https://github\.com/aelmanaa/hardhat-kms/blob/v1\.0\.0/',
 ]
 
 # GitHub rate-limits anonymous checks.

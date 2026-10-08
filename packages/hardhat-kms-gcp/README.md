@@ -18,7 +18,7 @@ In a Hardhat 3 project (`npx hardhat --init` creates one):
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/gcp
 ```
 
-`@hardhat-kms/gcp` needs `hardhat-kms` at the same version. The packages run on Node.js 22.13.0 or later ([Support](https://aelmanaa.github.io/hardhat-kms/user/reference/support)).
+`@hardhat-kms/gcp` needs `hardhat-kms` at the same version. The packages run on Node.js 22.13.0 or later ([Supported Node.js versions](https://aelmanaa.github.io/hardhat-kms/user/reference/support)).
 
 ## Configure
 

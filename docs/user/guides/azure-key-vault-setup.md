@@ -5,9 +5,16 @@ description: "Azure Key Vault and Managed HSM setup for Ethereum signing: a P-25
 
 # Set up an Azure Key Vault key
 
-Audience: users who sign with a key in Azure Key Vault or Azure Managed HSM, and who have the `az` CLI.
+This guide creates a secp256k1 signing key in Azure Key Vault or Azure Managed HSM, allows a deployer to get and sign with it and nothing else, signs in, adds the key to a Hardhat project and checks that it signs.
 
-With `@hardhat-kms/azure`, a connection lists the key's account and signs transactions, messages and typed data with it. The plugin's live tests on Sepolia ran against a real vault, with the developer's own identity, not with the roles in [step 2](#2-allow-get-and-sign-and-nothing-else). `kms history` lists who signed with the key, when and from where, from the Key Vault audit log that a diagnostic setting sends to a Log Analytics workspace; see [Audit logs](#audit-logs).
+You need the `az` CLI.
+
+With `@hardhat-kms/azure`, a connection lists the key's account and signs transactions, messages and typed data with it. `kms history` lists who signed with the key, when and from where, from the Key Vault audit log that a diagnostic setting sends to a Log Analytics workspace; see [Audit logs](#audit-logs).
+
+> [!NOTE]
+> Audience: users who sign with a key in Azure Key Vault or Azure Managed HSM.
+>
+> The plugin's live tests on Sepolia ran against a real vault, with the developer's own identity, not with the roles in [step 2](#2-allow-get-and-sign-and-nothing-else).
 
 ## 1. Create a secp256k1 signing key
 
@@ -158,7 +165,7 @@ hardhat-kms tries these credential sources in order and uses the first that retu
 
 This is the order proposed for Foundry's Azure Key Vault signer in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120), which no Foundry release includes yet. The developer tools come before the managed identity, so a local `az login` works without waiting for the managed identity endpoint, which outside Azure may never answer. A source that is not configured is skipped; a source that is configured but fails, such as a service principal with a wrong secret, stops the search with its error.
 
-Every Azure key of a run signs as the identity this chain finds; [Credentials](../reference/credentials.md#azure) lists the variables that turn each source on, and [How the plugin reaches your cloud](../explanation/cloud-access.md) shows which source a laptop, a CI job and a server use.
+Every Azure key of a run signs as the identity this chain finds; [Credentials](../reference/credentials.md#azure) lists the variables that turn each source on, and [Cloud credentials for KMS signing](../explanation/cloud-access.md) shows which source a laptop, a CI job and a server use.
 
 On a laptop, `az login` is enough. In GitHub Actions, run `azure/login` with OIDC federation rather than a client secret.
 

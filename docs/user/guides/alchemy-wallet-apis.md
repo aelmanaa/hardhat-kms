@@ -5,9 +5,14 @@ description: "Make a KMS key the signer of an Alchemy smart wallet: what the key
 
 # Use a KMS key with Alchemy Wallet APIs
 
-Audience: users with a working KMS key setup, such as [Set up an AWS KMS key](aws-kms-setup.md), who want the key to own a smart wallet through Alchemy's Wallet APIs, for example to have gas sponsored. Assumes you know what a viem account is; no prior knowledge of ERC-4337 or EIP-7702 is needed.
+This guide makes a KMS key the signer of a smart wallet through Alchemy's Wallet APIs, for example to have gas sponsored. It checks the key's signatures without sending anything, then sends a call.
 
-Checked with `@alchemy/wallet-apis` 5.3.0 on 2026-10-08, with viem 2.57.1 and Hardhat 3.18.0. The script in [step 3](#3-check-the-signatures-without-sending) ran on that date with an AWS KMS key on Sepolia: the authorization, a `personal_sign` over an example user operation hash and a typed-data signature each recovered to the key's address, and nothing was sent. The send in [step 4](#4-send-a-call) needs an Alchemy API key and was not run. This repository does not install `@alchemy/wallet-apis`, so its checks do not typecheck the scripts in steps 3 and 4; a later release of the package can change the calls they make.
+You need a working KMS key setup, such as [Set up an AWS KMS key](aws-kms-setup.md), and to know what a viem account is; no prior knowledge of ERC-4337 or EIP-7702 is needed.
+
+> [!NOTE]
+> Audience: users who want a KMS key to own a smart wallet through Alchemy's Wallet APIs.
+>
+> Checked with `@alchemy/wallet-apis` 5.3.0 on 2026-10-08, with viem 2.57.1 and Hardhat 3.18.0. The script in [step 3](#3-check-the-signatures-without-sending) ran on that date with an AWS KMS key on Sepolia: the authorization, a `personal_sign` over an example user operation hash and a typed-data signature each recovered to the key's address, and nothing was sent. The send in [step 4](#4-send-a-call) needs an Alchemy API key and was not run. This repository does not install `@alchemy/wallet-apis`, so its checks do not typecheck the scripts in steps 3 and 4; a later release of the package can change the calls they make.
 
 `connection.kms.getAccount` returns a viem `LocalAccount` for a KMS key ([Library accounts reference](../reference/library-accounts.md)). `@alchemy/wallet-apis` takes a `LocalAccount` as the signer of a smart wallet, so the KMS key can be that signer with no adapter. The plugin adds nothing Alchemy-specific.
 

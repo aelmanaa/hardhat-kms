@@ -5,8 +5,6 @@ description: Turn on hardhat-kms debug output with DEBUG=hardhat:kms:*, what eac
 
 # Debug output
 
-Audience: users who want to see what the plugin does, for example when a key is slow or fails.
-
 Set `DEBUG` to turn on the plugin's debug output. It goes to standard error:
 
 ```sh
@@ -14,6 +12,9 @@ DEBUG=hardhat:kms:* npx hardhat run scripts/deploy.ts --network sepolia
 ```
 
 `DEBUG=hardhat:*` also turns on Hardhat's own debug output. `DEBUG` takes a comma-separated list, so `DEBUG=hardhat:kms:config,hardhat:kms:signer` shows just those two namespaces. Set `DEBUG_COLORS=no` for plain text.
+
+> [!NOTE]
+> Audience: users who want to see what the plugin does, for example when a key is slow or fails.
 
 ## Namespaces
 

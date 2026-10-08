@@ -1,26 +1,25 @@
 ---
-title: First deploy on Sepolia with Azure Key Vault
+title: Deploy a Hardhat contract to Sepolia with Azure Key Vault
 description: "Sign Hardhat transactions with Azure Key Vault: create a P-256K key, deploy a contract to Sepolia from it, verify the source and purge the key."
 ---
 
-# First deploy on Sepolia with Azure Key Vault
-
-Audience: developers who have an Azure subscription and the Azure CLI signed in, and have not used Azure Key Vault with Hardhat.
-
-This tutorial was followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH. That run used an existing Standard vault with RBAC. On 2026-10-07, at commit [`f822377`](https://github.com/aelmanaa/hardhat-kms/commit/f822377), with Azure CLI 2.90.0, the Azure commands of steps 2 and 8 were run in a new resource group. They created the group, the vault, a Key Vault Crypto Officer assignment and the key, and refused to reuse the group once it existed. Clean-up purged the key, deleted the group, which removed the vault and the assignment, and purged the vault; `az group exists` then printed `false`. That run skipped the Hardhat steps, step 3's role assignment for a deployer and the "Keep the resource group" route.
+# Deploy a Hardhat contract to Sepolia with Azure Key Vault
 
 In this tutorial you create a Hardhat project, create a signing key in Azure Key Vault, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Key Vault: Hardhat asks Key Vault for a signature each time it sends a transaction.
-
-It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 
 You need:
 
 - Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm, pnpm or Yarn.
 - A POSIX shell, such as bash or zsh; on Windows, use WSL. Step 2 also uses `openssl` to make random names.
 - The Azure CLI, signed in with `az login`, with a subscription where you can create a resource group and a key vault and assign roles, such as one where you have the Owner role. The plugin finds the same sign-in as the CLI. It tries environment variables first, but only a complete set: `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` with `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE`. `AZURE_CLIENT_ID` alone only chooses a user-assigned managed identity, which the plugin tries after the CLI. See [Sign in](../guides/azure-key-vault-setup.md#3-sign-in).
-- A sign-in that completed multifactor authentication. Steps 2, 3 and 8 create and delete Azure resources, which Azure allows a user only after MFA; [Sign in](../guides/azure-key-vault-setup.md#3-sign-in) says which commands that covers.
+- A sign-in that completed multifactor authentication. Steps 2 and 8, and the optional deployer role, create and delete Azure resources, which Azure allows a user only after MFA; [Sign in](../guides/azure-key-vault-setup.md#3-sign-in) says which commands that covers.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
 - About 0.01 Sepolia ETH, from a faucet or another account.
+
+> [!NOTE]
+> Audience: developers who have an Azure subscription and the Azure CLI signed in, and have not used Azure Key Vault with Hardhat. It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
+>
+> This tutorial was followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH. That run used an existing Standard vault with RBAC. On 2026-10-07, at commit [`f822377`](https://github.com/aelmanaa/hardhat-kms/commit/f822377), with Azure CLI 2.90.0, the Azure commands of steps 2 and 8 were run in a new resource group. They created the group, the vault, a Key Vault Crypto Officer assignment and the key, and refused to reuse the group once it existed. Clean-up purged the key, deleted the group, which removed the vault and the assignment, and purged the vault; `az group exists` then printed `false`. That run skipped the Hardhat steps, the optional role assignment for a deployer and the "Keep the resource group" route.
 
 ## 1. Create a Hardhat project with the plugin
 
@@ -74,7 +73,7 @@ yarn add --dev hardhat-kms @hardhat-kms/azure
 
 :::
 
-If pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, add the packages it names under `allowBuilds` in `pnpm-workspace.yaml` with the value `false`, then run `pnpm install`; the plugin needs none of their install scripts. With Yarn 4.15 or later on the day of a release, the install stops with `YN0016` until `.yarnrc.yml` approves the new versions. [Install hardhat-kms](../guides/install-before-release.md) gives the settings for each package manager.
+If the install stops with `ERR_PNPM_IGNORED_BUILDS` from pnpm or `YN0016` from Yarn, [If the install stops](../guides/install-before-release.md#if-the-install-stops) gives the fix for each package manager.
 
 Register the provider: in `hardhat.config.ts`, import it and add it to `plugins`. It loads `hardhat-kms` itself. The rest of the file stays as the template made it:
 
@@ -189,37 +188,11 @@ echo "$KEY_ID"
 
 `KEY_ID` is the versioned id of the key, `https://<vault name>.vault.azure.net/keys/hardhat-kms-tutorial/` and 32 hex digits. Keep this shell open: the next steps use `RG`, `VAULT`, `VAULT_ID` and `KEY_ID`.
 
-## 3. Allow the key to sign, and nothing else
+## 3. Choose the identity that signs
 
-Hardhat signs with the identity you signed in with. For this tutorial, that identity is you, and the Key Vault Crypto Officer role from step 2 covers it. A real deployer should not be able to create or delete keys. This step gives it the built-in **Key Vault Crypto User** role on this one key, not on the vault, so it can use no other key. For a deployer that holds real funds, use the custom role described below the command instead.
+Hardhat signs with the identity you signed in with. For this tutorial, that identity is you, and the Key Vault Crypto Officer role from step 2 covers it, so this step runs no command. Step 4 checks that you may sign.
 
-Print what the role allows:
-
-```sh
-az role definition list --name "Key Vault Crypto User" --query '[0].permissions[0].dataActions' --output tsv
-```
-
-It prints nine data actions on keys: `read`, which the plugin needs to get the public key, `sign`, which it needs to sign, and `update`, `backup`, `encrypt`, `decrypt`, `wrap`, `unwrap` and `verify`, which it does not use. It allows no delete or purge.
-
-To give a deployer identity the role on the key, assign it with the key's scope, or give each deployer its own vault and assign the role on that vault. The assignee is the object id of a user, group, service principal or managed identity; its principal type is `User`, `Group` or `ServicePrincipal`, which covers managed identities:
-
-```sh
-KEY_SCOPE="${VAULT_ID:?is empty: set it with the az keyvault show command above}/keys/hardhat-kms-tutorial"
-
-az role assignment create --role "Key Vault Crypto User" \
-  --assignee-object-id <deployer object id> \
-  --assignee-principal-type <principal type> \
-  --scope "$KEY_SCOPE"
-```
-
-Two caveats for this role. Signing with only Key Vault Crypto User is not checked live yet. And it can do more than sign: `update` can disable the key or change its permitted operations, and `backup` writes a copy of the key. Whoever can restore that copy into a vault can sign as the key's address ([Back up a key](../guides/key-loss.md#back-up-a-key)). To grant only `read` and `sign`, create the [custom role](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) and pass its name to `--role` instead.
-
-To check the assignments without changing anything, list them. The list includes the roles inherited from the vault, the resource group and the subscription:
-
-```sh
-az role assignment list --scope "$KEY_SCOPE" --include-inherited \
-  --query '[].[roleDefinitionName,principalName]' --output tsv
-```
+A real deployer should not be able to create or delete keys. The tutorial does not need one: [Optional: give a deployer a sign role](#optional-give-a-deployer-a-sign-role), just before step 8, gives a deployer identity a role on this one key.
 
 ## 4. Add the key to the project
 
@@ -444,6 +417,40 @@ Open the `Explorer:` links from the output, with your contract's address:
 
 The `From` field of each transaction is your deployer address. The signature came from Azure Key Vault; Hardhat never held a private key.
 
+## Optional: give a deployer a sign role
+
+This section sets up a production deployer, which the tutorial does not need. Run it before step 8, while the key exists, in the shell from step 2, which has `VAULT_ID`. Step 8 removes the assignment.
+
+It gives the deployer the built-in **Key Vault Crypto User** role on this one key, not on the vault, so it can use no other key. For a deployer that holds real funds, use the custom role described below the command instead.
+
+Print what the role allows:
+
+```sh
+az role definition list --name "Key Vault Crypto User" --query '[0].permissions[0].dataActions' --output tsv
+```
+
+It prints nine data actions on keys: `read`, which the plugin needs to get the public key, `sign`, which it needs to sign, and `update`, `backup`, `encrypt`, `decrypt`, `wrap`, `unwrap` and `verify`, which it does not use. It allows no delete or purge.
+
+To give a deployer identity the role on the key, assign it with the key's scope, or give each deployer its own vault and assign the role on that vault. The assignee is the object id of a user, group, service principal or managed identity; its principal type is `User`, `Group` or `ServicePrincipal`, which covers managed identities:
+
+```sh
+KEY_SCOPE="${VAULT_ID:?is empty: set it with the az keyvault show command above}/keys/hardhat-kms-tutorial"
+
+az role assignment create --role "Key Vault Crypto User" \
+  --assignee-object-id <deployer object id> \
+  --assignee-principal-type <principal type> \
+  --scope "$KEY_SCOPE"
+```
+
+Two caveats for this role. Signing with only Key Vault Crypto User is not checked live yet. And it can do more than sign: `update` can disable the key or change its permitted operations, and `backup` writes a copy of the key. Whoever can restore that copy into a vault can sign as the key's address ([Back up a key](../guides/key-loss.md#back-up-a-key)). To grant only `read` and `sign`, create the [custom role](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) and pass its name to `--role` instead.
+
+To check the assignments without changing anything, list them. The list includes the roles inherited from the vault, the resource group and the subscription:
+
+```sh
+az role assignment list --scope "$KEY_SCOPE" --include-inherited \
+  --query '[].[roleDefinitionName,principalName]' --output tsv
+```
+
 ## 8. Clean up
 
 When you are done, send the remaining Sepolia ETH back, then disable the key, delete it, and delete the vault. In a new shell, set `SEPOLIA_RPC_URL` and `AZURE_KEY_ID` again first, as in step 4: the script loads the config, which reads them.
@@ -497,7 +504,7 @@ az keyvault key set-attributes --id "$AZURE_KEY_ID" --enabled false
 
 To keep the key instead, run only the disable step, and stop here. A disabled key costs nothing, because nothing can use it.
 
-If you gave a deployer the Key Vault Crypto User role in step 3, remove that assignment. If you assigned the custom role instead, pass its name to `--role`:
+If you gave a deployer the Key Vault Crypto User role in [Optional: give a deployer a sign role](#optional-give-a-deployer-a-sign-role), remove that assignment. If you assigned the custom role instead, pass its name to `--role`:
 
 ```sh
 az role assignment delete --role "Key Vault Crypto User" --assignee-object-id <deployer object id> \
