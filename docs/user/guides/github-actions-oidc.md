@@ -7,9 +7,9 @@ description: Let a GitHub Actions job sign with an AWS KMS, Google Cloud KMS or 
 
 Audience: users who want a GitHub Actions job to deploy or sign with a KMS key that is already set up. Assumes a key created with one of the setup guides, admin rights on the repository, and rights to create roles or identities in the key's cloud. No experience with OpenID Connect (OIDC) is assumed.
 
-Checked on 2026-10-08 against this repository's own live-tests workflow, which has the shape this page describes: one environment with a required reviewer, one trusted subject per cloud, and only the two key permissions below. It passed with an AWS KMS, a Google Cloud KMS and an Azure Key Vault key. The cloud commands come from each cloud's documentation and were not run as written.
+Checked against each cloud's documentation on 2026-10-08. This repository's own [live-tests workflow](https://github.com/aelmanaa/hardhat-kms/blob/main/.github/workflows/live-tests.yml) signs in the same way, with one environment that has a required reviewer, a trust on that environment's subject in each cloud, and the same three login actions at the same commits; its run 37700159523 passed on all three clouds on 2026-10-07 (UTC). It installs with pnpm and runs tests. The cloud commands as written were not run for this page, and neither was the example workflow below, `kms accounts --check-sign` step included.
 
-A GitHub Actions job can ask GitHub for a short-lived OIDC token that names the repository and the job's environment. Each cloud exchanges that token for short-lived credentials, so GitHub stores no access key, client secret or service account key. The plugin then finds those credentials the same way it finds your own on a laptop ([How the plugin reaches your cloud](../explanation/cloud-access.md#ci-with-oidc)).
+A GitHub Actions job can ask GitHub for a short-lived OIDC token that names the repository and the job's environment. Each cloud exchanges that token for short-lived credentials. GitHub stores no access key, client secret or service account key. The plugin then finds those credentials the same way it finds your own on a laptop ([How the plugin reaches your cloud](../explanation/cloud-access.md#ci-with-oidc)).
 
 | Cloud        | What trusts the job                                                          | What it may do                                                          |
 | ------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
@@ -42,7 +42,7 @@ The two ids are also on the repository's API page:
 gh api repos/<owner>/<repo> --jq '.owner.id, .id'
 ```
 
-Trust the form the repository sends today. A trust for the other form refuses every token. When you switch a repository to the immutable form, add a trust for the new subject first, and remove the old one once a run passes.
+Before you opt in, GitHub's preview endpoint shows the subject the repository would send in the immutable form ([changelog](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/)). Trust the form the repository sends today. A trust for the other form refuses every token. When you switch a repository to the immutable form, add a trust for the new subject first, and remove the old one once a run passes.
 
 ## 2. Create an environment with required reviewers
 
@@ -95,9 +95,9 @@ Save the role's trust policy as `trust-policy.json`. It accepts a token only for
 }
 ```
 
-Replace `111122223333` with your account id. For a repository that sends the name form, the subject is `repo:<owner>/<repo>:environment:deploy`. Keep `StringEquals` with the full subject: IAM refuses a trust policy for GitHub whose `sub` condition is missing or only a wildcard, and AWS recommends limiting it to specific repositories ([same page](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html#idp_oidc_Create_GitHub)).
+Replace `111122223333` with your account id. A repository that sends the name form needs the subject `repo:<owner>/<repo>:environment:deploy`. Keep `StringEquals` with the full subject. IAM refuses a trust policy for GitHub whose `sub` condition is missing or only a wildcard, and AWS recommends limiting it to specific repositories ([same page](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html#idp_oidc_Create_GitHub)).
 
-Create the role, then attach the signing policy from the [AWS setup guide](aws-kms-setup.md#2-allow-signing-and-nothing-else), `hardhat-kms-deployer`, to it:
+Create the role. Then attach to it `hardhat-kms-deployer`, the signing policy from the [AWS setup guide](aws-kms-setup.md#2-allow-signing-and-nothing-else):
 
 ```sh
 aws iam create-role \
@@ -107,17 +107,17 @@ aws iam create-role \
 aws iam attach-role-policy --role-name hardhat-kms-deploy --policy-arn <Arn of the hardhat-kms-deployer policy>
 ```
 
-Environment secrets for the workflow: `AWS_ROLE_ARN`, the `Role.Arn` that `create-role` prints, and `DEPLOYER_KEY`, the key ARN. Set the environment variable `AWS_REGION` to the key's region.
+Environment secrets for the workflow: `AWS_ROLE_ARN`, the `Role.Arn` that `create-role` prints, and `DEPLOYER_KEY`, the key ARN. The key's region goes in `AWS_REGION`, a variable (not a secret) of the `deploy` environment, under Environments, deploy, Environment variables, since the workflow reads it as `vars.AWS_REGION`.
 
 ### Google Cloud
 
 Grant the key's roles straight to the job's subject, as a principal of a workload identity pool. No service account is needed, and none is impersonated: Cloud KMS supports such principals, and so does Cloud Logging, for `kms history` ([supported services](https://docs.cloud.google.com/iam/docs/federated-identity-supported-services)).
 
-Enable the APIs the pool and the token exchange need, in the key's project. Google's guide also lists the IAM Service Account Credentials API (`iamcredentials.googleapis.com`), which only service account impersonation uses, so this setup does not need it; it may already be on as a dependency of another API ([Workload Identity Federation with deployment pipelines](https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines)):
+Enable the four APIs that Google's guide lists, in the key's project. Enabling an API grants no permission. No step of this setup calls the IAM Service Account Credentials API (`iamcredentials.googleapis.com`), which serves service account impersonation, but Google's guide lists it, so enable it too ([Workload Identity Federation with deployment pipelines](https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines)):
 
 ```sh
 gcloud services enable iam.googleapis.com sts.googleapis.com cloudresourcemanager.googleapis.com \
-  --project my-project
+  iamcredentials.googleapis.com --project my-project
 ```
 
 Create a pool and a provider for GitHub's issuer. GitHub uses one issuer for every repository, so Google requires an attribute condition that limits the provider to your tokens ([same page](https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines)). This one checks the owner and repository by id, and the environment:
@@ -137,7 +137,7 @@ gcloud iam workload-identity-pools providers create-oidc deploy-jobs \
   --attribute-condition "assertion.repository_owner_id == '<owner id>' && assertion.repository_id == '<repo id>' && assertion.environment == 'deploy'"
 ```
 
-`google.subject` holds the token's subject, which can be at most 127 characters ([Workload Identity Federation](https://docs.cloud.google.com/iam/docs/workload-identity-federation)). Grant the two roles on the key to that subject. The member names the pool by the project's number, which `gcloud projects describe my-project --format='value(projectNumber)'` prints:
+`google.subject` holds the token's subject, which can be at most 127 characters ([Workload Identity Federation](https://docs.cloud.google.com/iam/docs/workload-identity-federation)). The two other mapped attributes are not used by the binding below; they let you bind a `principalSet://iam.googleapis.com/projects/<project number>/locations/global/workloadIdentityPools/github/attribute.repository_id/<repo id>` member instead, for example when a long owner or repository name makes the subject longer than 127 characters. With such a member, the attribute condition still limits the provider to the `deploy` environment. Grant the two roles on the key to that subject. The member names the pool by the project's number, which `gcloud projects describe my-project --format='value(projectNumber)'` prints:
 
 ```sh
 MEMBER="principal://iam.googleapis.com/projects/<project number>/locations/global/workloadIdentityPools/github/subject/repo:<owner>@<owner id>/<repo>@<repo id>:environment:deploy"
@@ -152,7 +152,7 @@ for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
 done
 ```
 
-Signing needs nothing else: no project-level role and no `resourcemanager.projects.get`, since the plugin passes the project named in the key's `keyVersionName` to Google's client libraries ([Google Cloud setup guide](gcp-kms-setup.md#2-allow-signing-and-nothing-else)). For `kms history` in the job, also grant `roles/logging.privateLogViewer` on the project to the same member ([Allow reading the logs](gcp-kms-setup.md#allow-reading-the-logs)).
+Signing needs nothing else: no project-level role and no `resourcemanager.projects.get`, since the plugin passes the project named in the key's `keyVersionName` to Google's client libraries ([Google Cloud setup guide](gcp-kms-setup.md#2-allow-signing-and-nothing-else)). For `kms history` in the job, also grant `roles/logging.privateLogViewer` on the project to the same member. That role reads every Data Access log of the project, not only the key's entries ([Allow reading the logs](gcp-kms-setup.md#allow-reading-the-logs)).
 
 Environment secrets for the workflow: `GCP_WORKLOAD_IDENTITY_PROVIDER`, the provider's full name, and `DEPLOYER_KEY`, the key's `keyVersionName`. Print the provider's name with:
 
@@ -289,15 +289,18 @@ jobs:
       contents: read
       id-token: write # lets the job request the OIDC token
     steps:
-      # Install and build before signing in, so no install script and no download runs with
-      # cloud credentials.
+      # Every step of this job can request an OIDC token, so no dependency install script runs
+      # here (--ignore-scripts), and no dependency cache is restored. Installing and building
+      # before the sign-in steps keeps the credentials they export out of the install and the
+      # compiler download.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-      - run: npm ci
+          package-manager-cache: false # setup-node caches npm when package.json names it
+      - run: npm ci --ignore-scripts
       - run: npx hardhat build
 
       # AWS KMS
@@ -334,6 +337,7 @@ jobs:
 
 What each part does:
 
+- `id-token: write` applies to every step of the job: GitHub gives each step what it needs to request a token, and a token from this job is one the cloud trusts ([OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)). So `npm ci --ignore-scripts` keeps dependency install scripts from running, which the plugin's dependencies do not need ([Install hardhat-kms](install-before-release.md)), and the job uses no dependency cache that another run could have written. To run install scripts, install and build in a separate job without `id-token` and pass the result on as an artifact.
 - `permissions` at the top gives the workflow's other jobs nothing. Only this job may request an OIDC token (`id-token: write`) and read the code (`contents: read`) ([Configuring OpenID Connect in Amazon Web Services](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws)).
 - Each action is pinned to a full commit SHA, with its version in a comment. GitHub calls this "the only way to use an action as an immutable release" ([Secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)). Check each SHA against the action's own repository when you update it.
 - `aws-actions/configure-aws-credentials` exports temporary access keys and `AWS_REGION`. The plugin's AWS SDK picks them up as long as no profile is set.
@@ -356,19 +360,21 @@ The key id shows as the name of its configuration variable, so the log does not 
 
 ## Common failures
 
-| Symptom                                                                                                     | Cause and fix                                                                                                                                                                                                                                                                                                |
-| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| AWS sign-in fails with `Not authorized to perform sts:AssumeRoleWithWebIdentity`                            | The token's subject or audience differs from the trust policy. Compare the policy's `sub` with step 1, character for character, and check that the job names the environment.                                                                                                                                |
-| Google Cloud signing fails with `the token exchange refused the external credentials (invalid_grant)`       | The token does not match the provider's attribute condition, or the provider expects another audience. Check the condition's ids and environment name, and that the workflow's input names this provider.                                                                                                    |
-| Google Cloud signing fails with `permission denied (PERMISSION_DENIED)`                                     | The token exchange worked, but the key's bindings name another subject. Compare the member's subject after `/subject/` with step 1, and check that both roles are on this key.                                                                                                                               |
-| Azure sign-in fails with `AADSTS70021: No matching federated identity record found for presented assertion` | The federated credential's issuer or subject differs from the token's, or the credential was created a few minutes ago and has not propagated yet ([considerations](https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-considerations)).                                       |
-| Azure sign-in fails with `AADSTS700212`, no matching record for the assertion audience                      | The `audience` input of `azure/login` differs from the federated credential's audience. Leave both at `api://AzureADTokenExchange`, the default ([Authenticate to Azure from GitHub Actions by OpenID Connect](https://learn.microsoft.com/en-us/azure/developer/github/connect-from-azure-openid-connect)). |
-| Every cloud refuses the token, and the job never waited for approval                                        | The job does not name the environment, so its subject ends in `:ref:refs/heads/<branch>` or `:pull_request` instead. Add `environment: deploy` to the job. A pull request from a fork gets no OIDC token at all.                                                                                             |
-| A sign-in step fails because an input such as `role-to-assume` is empty                                     | The secret is missing from the environment, or was set as a repository secret under another name. Environment secrets reach only jobs that name the environment.                                                                                                                                             |
-| The subject looks right and is still refused                                                                | The repository sends the other subject form. Compare with `sub_claim_prefix` from step 1; a rename or a transfer after 2026-07-15 switches the repository to the immutable form.                                                                                                                             |
-| AWS signs as another identity, or finds no credentials                                                      | The config or the job sets a profile (`profile` on the key, or `AWS_PROFILE`), so the AWS SDK skips the exported keys ([Credentials](../reference/credentials.md#aws)).                                                                                                                                      |
-| Azure signs as another identity                                                                             | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` (or a certificate path) are set in the job, so a service principal wins over the Azure CLI. Remove them.                                                                                                                                      |
-| Google Cloud signing fails with `the provider call failed (Error)` before any Cloud KMS call                | A `@hardhat-kms/gcp` build older than 0.9.0 looked the project up through Cloud Resource Manager, which the federated identity may not call. Upgrade to 0.9.0 or later; it passes the key's project and makes no lookup.                                                                                     |
+| Symptom                                                                                                              | Cause and fix                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AWS sign-in fails with `Not authorized to perform sts:AssumeRoleWithWebIdentity`                                     | The token's subject or audience differs from the trust policy. Compare the policy's `sub` with step 1, character for character, and check that the job names the environment.                                                                                                                                |
+| Google Cloud signing fails with `the token exchange refused the external credentials (invalid_grant)`                | The token does not match the provider's attribute condition, or the provider expects another audience. Check the condition's ids and environment name, and that the workflow's input names this provider.                                                                                                    |
+| Google Cloud signing fails with `permission denied (PERMISSION_DENIED)`                                              | The token exchange worked, but the key's bindings name another subject. Compare the member's subject after `/subject/` with step 1, and check that both roles are on this key.                                                                                                                               |
+| Azure sign-in fails with `AADSTS700213: No matching federated identity record found for presented assertion subject` | The federated credential's subject differs from the token's. Compare the subject the error quotes with the credential's `subject`, character for character.                                                                                                                                                  |
+| Azure sign-in fails with `AADSTS700211`, no matching record for the assertion issuer                                 | The federated credential's issuer is not exactly `https://token.actions.githubusercontent.com`.                                                                                                                                                                                                              |
+| Azure sign-in fails with `AADSTS70021: No matching federated identity record found for presented assertion`          | The federated credential was created a few minutes ago and has not propagated yet. Wait and run again ([considerations](https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-considerations)).                                                                                   |
+| Azure sign-in fails with `AADSTS700212`, no matching record for the assertion audience                               | The `audience` input of `azure/login` differs from the federated credential's audience. Leave both at `api://AzureADTokenExchange`, the default ([Authenticate to Azure from GitHub Actions by OpenID Connect](https://learn.microsoft.com/en-us/azure/developer/github/connect-from-azure-openid-connect)). |
+| Every cloud refuses the token, and the job never waited for approval                                                 | The job does not name the environment, so its subject ends in `:ref:refs/heads/<branch>` or `:pull_request` instead. Add `environment: deploy` to the job. A pull request from a fork gets no OIDC token at all.                                                                                             |
+| A sign-in step fails because an input such as `role-to-assume` is empty                                              | The secret is missing from the environment, or was set as a repository secret under another name. Environment secrets reach only jobs that name the environment.                                                                                                                                             |
+| The subject looks right and is still refused                                                                         | The repository sends the other subject form. Compare with `sub_claim_prefix` from step 1; a rename or a transfer after 2026-07-15 switches the repository to the immutable form.                                                                                                                             |
+| AWS signs as another identity, or finds no credentials                                                               | The config or the job sets a profile (`profile` on the key, or `AWS_PROFILE`), so the AWS SDK skips the exported keys ([Credentials](../reference/credentials.md#aws)).                                                                                                                                      |
+| Azure signs as another identity                                                                                      | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` (or a certificate path) are set in the job, so a service principal wins over the Azure CLI. Remove them.                                                                                                                                      |
+| Google Cloud signing fails with `the provider call failed (Error)` before any Cloud KMS call                         | A `@hardhat-kms/gcp` build older than 0.9.0 looked the project up through Cloud Resource Manager, which the federated identity may not call. Upgrade to 0.9.0 or later; it passes the key's project and makes no lookup.                                                                                     |
 
 For an error that the plugin itself reports, look it up in [Errors](../reference/errors.md) by its id or a fixed part of its message.
 
@@ -376,5 +382,5 @@ For an error that the plugin itself reports, look it up in [Errors](../reference
 
 - [How the plugin reaches your cloud](../explanation/cloud-access.md): which credential source each cloud uses in CI.
 - [Credentials reference](../reference/credentials.md): every variable that changes the identity that signs.
-- [Find who signed with a key](who-signed.md): read the key's sign events, including the job's, from the cloud's audit log.
+- [Find who signed with a key](who-signed.md): read the key's sign events, including the job's, from the cloud's audit log. To run `kms history` in the job, also grant the read permission of your cloud's setup guide: [AWS](aws-kms-setup.md#the-read-permission), [Google Cloud](gcp-kms-setup.md#allow-reading-the-logs), [Azure](azure-key-vault-setup.md#the-read-permission).
 - [Deploy with Hardhat Ignition](deploy-with-ignition.md): a deploy script to run in the job.
