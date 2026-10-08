@@ -8,6 +8,10 @@
 // typechecks hardhat-kms and runs the two test files. pnpm-workspace.yaml and the lockfile are
 // restored afterwards, even on Ctrl-C, and the install is redone from the restored lockfile.
 //
+// After each install it also checks that the Node.js minimum the installed Hardhat enforces at
+// startup is not above the floor of engines.node of hardhat-kms (scripts/node-floor.ts). A higher
+// minimum fails the run; the build and tests still run for that version.
+//
 // "Latest" is the newest 3.x release that is at least a day old, or older than minimumReleaseAge
 // if the project sets one. This is a deliberate supply-chain hold, not a pnpm limit: pnpm's
 // built-in default is not strict and would install a younger release after adding it to
@@ -19,8 +23,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { nodeFloorMismatch, readHardhatNodeMinimum } from "./node-floor.ts";
 import {
   deliverSignals,
+  installedDirectory,
   output,
   readJson,
   resolvedVersion,
@@ -44,9 +50,10 @@ const TESTS = [
 const DEFAULT_MINIMUM_RELEASE_AGE = 1440;
 const STABLE = /^(\d+)\.(\d+)\.(\d+)$/;
 
-type Stage = "install" | "build" | "typecheck" | "tests";
+type Stage = "install" | "node floor" | "build" | "typecheck" | "tests";
 const HINTS: Record<Stage, string> = {
   install: "pnpm could not install it, or hardhat-kms resolves another version.",
+  "node floor": "The Node.js floor check could not read Hardhat's minimum or engines.node.",
   build: "The packages do not compile against it.",
   typecheck: "hardhat-kms or its tests do not typecheck against it.",
   tests:
@@ -147,6 +154,22 @@ function withCatalogVersion(workspace: string, version: string): string {
   return workspace.replace(entry, `$1"${version}"`);
 }
 
+/**
+ * The Node.js floor check of scripts/node-floor.ts for the hardhat that hardhat-kms resolves.
+ * Each version is a new folder in the pnpm store, so importing its node-version.js never returns
+ * the module of a version installed earlier in the run.
+ */
+async function checkNodeFloor(version: string): Promise<string | undefined> {
+  const hardhat = installedDirectory(plugin, "hardhat");
+  const enginesNode = stringRecord(readJson(path.join(plugin, "package.json")).engines).node;
+  if (enginesNode === undefined) {
+    throw new Error("packages/hardhat-kms/package.json has no engines.node");
+  }
+  const minimum = await readHardhatNodeMinimum(hardhat);
+  process.stdout.write(`hardhat ${version} requires Node.js ${minimum.join(".")}\n`);
+  return nodeFloorMismatch(version, minimum, enginesNode);
+}
+
 const chosen = targets(process.argv.slice(2));
 process.stdout.write(`Testing ${chosen.map(describe).join(" and ")}\n`);
 
@@ -162,6 +185,12 @@ await withRestoredFiles([path.join(root, "pnpm-lock.yaml"), workspaceFile], asyn
       const installed = resolvedVersion(plugin, "hardhat");
       if (installed !== target.version) {
         throw new Error(`hardhat-kms resolves hardhat ${installed}, not ${target.version}`);
+      }
+      stage = "node floor";
+      const mismatch = await checkNodeFloor(target.version);
+      if (mismatch !== undefined) {
+        failures.push(`${describe(target)} at node floor`);
+        process.stderr.write(`\n${describe(target)} fails at the node floor stage. ${mismatch}\n`);
       }
       stage = "build";
       run(["run", "build"]);
@@ -187,7 +216,7 @@ await withRestoredFiles([path.join(root, "pnpm-lock.yaml"), workspaceFile], asyn
       }
       failures.push(`${describe(target)} at ${stage}`);
       process.stderr.write(`\n${describe(target)} fails at the ${stage} stage. ${HINTS[stage]}\n`);
-      if (stage === "install" && error instanceof Error) {
+      if ((stage === "install" || stage === "node floor") && error instanceof Error) {
         process.stderr.write(`${error.message}\n`);
       }
     }

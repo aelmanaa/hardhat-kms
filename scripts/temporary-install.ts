@@ -69,23 +69,30 @@ export function stringRecord(value: unknown): Record<string, string> {
 }
 
 /**
- * The version of a dependency that a package resolves, read from the installed package.json.
+ * The folder of a dependency that a package resolves.
  *
  * It looks for node_modules/<dependency> in the package's folder and each parent, as Node does
- * for a bare specifier, and reads the manifest from disk on every call. require.resolve would
- * not do: Node caches resolutions and symlink targets for the life of the process, so after a
- * second install in the same run it would still report the first version.
+ * for a bare specifier, and checks the disk on every call. require.resolve would not do: Node
+ * caches resolutions and symlink targets for the life of the process, so after a second install
+ * in the same run it would still return the first version's folder.
  */
-export function resolvedVersion(directory: string, dependency: string): string {
+export function installedDirectory(directory: string, dependency: string): string {
   for (let folder = path.resolve(directory); ; folder = path.dirname(folder)) {
-    const manifest = path.join(folder, "node_modules", ...dependency.split("/"), "package.json");
-    if (existsSync(manifest)) {
-      return String(readJson(manifest).version);
+    const installed = path.join(folder, "node_modules", ...dependency.split("/"));
+    if (existsSync(path.join(installed, "package.json"))) {
+      return installed;
     }
     if (path.dirname(folder) === folder) {
       throw new Error(`${dependency} is not installed for ${directory}`);
     }
   }
+}
+
+/** The version of a dependency that a package resolves, read from the installed package.json. */
+export function resolvedVersion(directory: string, dependency: string): string {
+  return String(
+    readJson(path.join(installedDirectory(directory, dependency), "package.json")).version,
+  );
 }
 
 /**
