@@ -383,10 +383,10 @@ cat > "$POLICY" <<EOF
 EOF
 ```
 
-If you have no deployer role, create one named `hardhat-deployer`. Its trust policy names only the identity that runs these commands, so no one else in the account can assume the role. Like the sign policy, the trust policy holds your account ID, so step 8 deletes its file too:
+If you have no deployer role, create one named `hardhat-deployer`. Its trust policy lets only the identity that runs these commands assume the role. It names your account and adds a condition on `aws:userid`, your identity's unique ID: an IAM user's ID, or for a role session, including an IAM Identity Center sign-in, the role's ID and your session name. That is the form AWS asks for with IAM Identity Center ([IAM Identity Center principals](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html#principal-identity-users), [Principal key values](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_variables.html#principaltable)). Because it names the account, your own permissions must also allow `sts:AssumeRole` on the role, as an administrator's do. Like the sign policy, the trust policy holds your account ID, so step 8 deletes its file too:
 
 ```sh
-CALLER_ARN=$(aws sts get-caller-identity --query Arn --output text)
+read -r ACCOUNT_ID CALLER_USERID <<< "$(aws sts get-caller-identity --query '[Account,UserId]' --output text)"
 TRUST=kms-deployer-trust.json
 
 cat > "$TRUST" <<EOF
@@ -395,8 +395,9 @@ cat > "$TRUST" <<EOF
   "Statement": [
     {
       "Effect": "Allow",
-      "Principal": { "AWS": "$CALLER_ARN" },
-      "Action": "sts:AssumeRole"
+      "Principal": { "AWS": "arn:aws:iam::$ACCOUNT_ID:root" },
+      "Action": "sts:AssumeRole",
+      "Condition": { "StringEquals": { "aws:userid": "$CALLER_USERID" } }
     }
   ]
 }
@@ -407,7 +408,7 @@ aws iam create-role --role-name hardhat-deployer \
   --max-session-duration 3600 --output none
 ```
 
-`CALLER_ARN` is your IAM user, or your role session when you signed in by assuming another role (`arn:aws:sts::<account ID>:assumed-role/<role>/<session>`). AWS accepts both as principals ([Principal element](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html)). For a sign-in through IAM Identity Center, AWS asks resource policies to name the account and to limit it with a condition on your permission set's role instead ([IAM Identity Center principals](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html#principal-identity-users)). If you sign in as the account's root user, use an IAM identity instead: only an IAM user or role can call `AssumeRole` ([Compare AWS STS credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_sts-comparison.html)).
+If you sign in as the account's root user, use an IAM identity instead: only an IAM user or role can call `AssumeRole` ([Compare AWS STS credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_sts-comparison.html)).
 
 A new role has no permissions. Attach the policy to give it the two the plugin needs. For the role named `hardhat-deployer`, whether you created it above or had it already:
 

@@ -579,7 +579,7 @@ for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
 done
 ```
 
-If you followed [Optional: give a deployer only the sign roles](#optional-give-a-deployer-only-the-sign-roles), remove the service account in this order: its two roles on the key, your Token Creator grant, then the service account itself. A deleted service account's bindings are not removed with it: they stay in the key's policy as `deleted:serviceAccount:` members for up to 60 days ([Delete and undelete service accounts](https://docs.cloud.google.com/iam/docs/service-accounts-delete-undelete)). The last command, `gcloud iam service-accounts delete`, asks you to confirm; answer `y`. In a new shell, set `SA_EMAIL` again first:
+If you followed [Optional: give a deployer only the sign roles](#optional-give-a-deployer-only-the-sign-roles), remove the service account in this order: its two roles on the key, your Token Creator grant, then the service account itself. A deleted service account's bindings are not removed with it: they stay in the key's policy as `deleted:serviceAccount:` members for up to 60 days ([Delete and undelete service accounts](https://docs.cloud.google.com/iam/docs/service-accounts-delete-undelete)). The last command of the second block below, `gcloud iam service-accounts delete`, asks you to confirm; answer `y`. In a new shell, set `SA_EMAIL` again first:
 
 ```sh
 SA_EMAIL="hardhat-kms-deployer@$GCP_PROJECT_ID.iam.gserviceaccount.com"
