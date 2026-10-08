@@ -1914,7 +1914,7 @@ export const ERRORS = {
     kind: "error",
     group: "Library accounts",
     template:
-      "the signal given to getAccount has aborted, so this account no longer signs. Get a new account to sign again",
+      "the signal given to getAccount has aborted, so the account makes no more KMS calls. Call getAccount with a new signal to sign again",
     cause:
       "`getAccount`, or a method of the account it returned, was called after the `signal` passed in its options aborted. The account refuses before any KMS call and reserves no nonce.",
     fix: "Call `getAccount` again, with a signal that has not aborted or with none.",

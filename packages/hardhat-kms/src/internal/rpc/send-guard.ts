@@ -7,8 +7,8 @@ import { HardhatPluginError } from "hardhat/plugins";
 import { PLUGIN_ID } from "../constants.ts";
 import { toChecksumAddress } from "../crypto/address.ts";
 import { ERRORS } from "../error-catalog.ts";
-import { catalogError } from "../errors.ts";
-import { systemTimers, type Timers } from "../signer/timeout.ts";
+import { catalogError, catalogMessage } from "../errors.ts";
+import { CancelledError, systemTimers, type Timers } from "../signer/timeout.ts";
 import { warn } from "../warnings.ts";
 
 /** How long a retry entry lives after a failed broadcast. */
@@ -122,13 +122,24 @@ function noTimer(): void {}
 
 /**
  * Waits for the turn of a send behind a held lock. Fails at once when {@link MAX_SEND_LOCK_WAITERS}
- * sends already wait, and after {@link SEND_LOCK_STALL_MS} without the lock passing to a new holder.
+ * sends already wait, after {@link SEND_LOCK_STALL_MS} without the lock passing to a new holder,
+ * and when `signal` aborts before the turn comes.
  *
  * @param key - The lock key.
  * @param lock - The held lock.
  * @param timers - Timer functions for the no-progress limit.
+ * @param signal - The caller's signal, if any.
+ * @throws {CancelledError} If `signal` aborts first, or had aborted before the call.
  */
-async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise<void> {
+async function waitForTurn(
+  key: string,
+  lock: SendLock,
+  timers: Timers,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (signal?.aborted === true) {
+    throw cancelledWait();
+  }
   if (lock.waiters.length >= MAX_SEND_LOCK_WAITERS) {
     throw catalogError(ERRORS.sendWaitersFull, {
       account: describeSendKey(key),
@@ -138,20 +149,30 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
   await new Promise<void>((resolve, reject) => {
     // Cancels the waiter's current no-progress timer; there is none until the first restart.
     let cancel: () => void = noTimer;
+    /** Takes the waiter out of the queue and fails it; a waiter already granted stays. */
+    const leave = (error: Error): void => {
+      const index = lock.waiters.indexOf(waiter);
+      if (index === -1) {
+        return;
+      }
+      lock.waiters.splice(index, 1);
+      cancel();
+      signal?.removeEventListener("abort", onAbort);
+      reject(error);
+    };
+    const onAbort = (): void => {
+      leave(cancelledWait());
+    };
     const waiter: Waiter = {
       grant: () => {
         cancel();
+        signal?.removeEventListener("abort", onAbort);
         resolve();
       },
       restart: () => {
         cancel();
         cancel = timers.setTimeout(() => {
-          const index = lock.waiters.indexOf(waiter);
-          if (index === -1) {
-            return;
-          }
-          lock.waiters.splice(index, 1);
-          reject(
+          leave(
             catalogError(ERRORS.sendStalled, {
               account: describeSendKey(key),
               seconds: SEND_LOCK_STALL_MS / 1000,
@@ -167,7 +188,13 @@ async function waitForTurn(key: string, lock: SendLock, timers: Timers): Promise
     // hand-off.
     waiter.restart();
     lock.waiters.push(waiter);
+    signal?.addEventListener("abort", onAbort);
   });
+}
+
+/** The error of a wait for the send lock that the caller's signal ended. */
+function cancelledWait(): CancelledError {
+  return new CancelledError(catalogMessage(ERRORS.cancelled, {}));
 }
 
 /**
@@ -235,18 +262,20 @@ export function holdsSendLock(key: string): boolean {
  * A send for a key that the current async context holds, such as one made by a hook during the
  * holder's fill, fails at once: it would wait for itself. A waiting send fails after
  * {@link SEND_LOCK_STALL_MS} with no progress, and no more than {@link MAX_SEND_LOCK_WAITERS} sends
- * wait per key. None of these failures signs or sends anything. The holder's own work is not cut
- * short.
+ * wait per key. A send whose `signal` aborts while it waits leaves the queue and fails. None of
+ * these failures signs or sends anything. The holder's own work is not cut short.
  *
  * @param key - The lock key.
  * @param run - The work to do under the lock.
  * @param timers - Timer functions for the no-progress limit.
+ * @param signal - Ends the wait for the lock when it aborts; never the work under it.
  * @returns What `run` returns.
  */
 export async function withSendLock<T>(
   key: string,
   run: () => Promise<T>,
   timers: Timers = systemTimers,
+  signal?: AbortSignal,
 ): Promise<T> {
   if (holdsSendLock(key)) {
     throw catalogError(ERRORS.sendReentrant, { account: describeSendKey(key) });
@@ -260,7 +289,7 @@ export async function withSendLock<T>(
       warnAboutLibraryWait(key);
     }, LIBRARY_WAIT_WARNING_MS);
     try {
-      await waitForTurn(key, lock, timers);
+      await waitForTurn(key, lock, timers, signal);
     } finally {
       cancelWarning();
     }
@@ -321,6 +350,7 @@ const keepAliveTimers: Timers = {
  * @param owner - The connection's send state.
  * @param choose - Chooses the nonce, under the lock.
  * @param timers - Timer functions for the hold's limit; by default they keep the process alive.
+ * @param signal - Ends the wait for the lock when it aborts, as in {@link withSendLock}.
  * @returns The nonce.
  */
 export async function holdForLibrary(
@@ -328,6 +358,7 @@ export async function holdForLibrary(
   owner: object,
   choose: () => Promise<bigint>,
   timers: Timers = keepAliveTimers,
+  signal?: AbortSignal,
 ): Promise<bigint> {
   const control: { acquired?: (nonce: bigint) => void; release?: () => void } = {};
   const acquired = new Promise<bigint>((resolve) => {
@@ -336,35 +367,40 @@ export async function holdForLibrary(
   const released = new Promise<void>((resolve) => {
     control.release = resolve;
   });
-  const holding = withSendLock(key, async () => {
-    const nonce = await choose();
-    const cancel = timers.setTimeout(() => {
-      warn(
-        `a connection.kms.getAccount send from ${describeSendKeyForWarning(key)} chose nonce ${nonce}, and after ${LIBRARY_HOLD_MS / 1000} s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast later, it and the account's next send share a nonce, and the node refuses one of them. Send the library account through custom(connection.provider); see ${LIBRARY_WARNINGS_DOCS}.`,
-      );
-      hold.end();
-    }, LIBRARY_HOLD_MS);
-    const hold: LibraryHold = {
-      nonce,
-      owner,
-      waitWarned: false,
-      // A hold stays in libraryHolds from here until it ends, so this check also makes a second
-      // call a no-op, and an old hold's end cannot remove a newer one.
-      end: () => {
-        if (libraryHolds.get(key) !== hold) {
-          return;
-        }
-        libraryHolds.delete(key);
-        cancel();
-        // Stryker disable next-line OptionalChaining: the promise executor above set release
-        control.release?.();
-      },
-    };
-    libraryHolds.set(key, hold);
-    // Stryker disable next-line OptionalChaining: the promise executor above set acquired
-    control.acquired?.(nonce);
-    await released;
-  });
+  const holding = withSendLock(
+    key,
+    async () => {
+      const nonce = await choose();
+      const cancel = timers.setTimeout(() => {
+        warn(
+          `a connection.kms.getAccount send from ${describeSendKeyForWarning(key)} chose nonce ${nonce}, and after ${LIBRARY_HOLD_MS / 1000} s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast later, it and the account's next send share a nonce, and the node refuses one of them. Send the library account through custom(connection.provider); see ${LIBRARY_WARNINGS_DOCS}.`,
+        );
+        hold.end();
+      }, LIBRARY_HOLD_MS);
+      const hold: LibraryHold = {
+        nonce,
+        owner,
+        waitWarned: false,
+        // A hold stays in libraryHolds from here until it ends, so this check also makes a second
+        // call a no-op, and an old hold's end cannot remove a newer one.
+        end: () => {
+          if (libraryHolds.get(key) !== hold) {
+            return;
+          }
+          libraryHolds.delete(key);
+          cancel();
+          // Stryker disable next-line OptionalChaining: the promise executor above set release
+          control.release?.();
+        },
+      };
+      libraryHolds.set(key, hold);
+      // Stryker disable next-line OptionalChaining: the promise executor above set acquired
+      control.acquired?.(nonce);
+      await released;
+    },
+    systemTimers,
+    signal,
+  );
   // Stryker disable next-line ArrowFunction: holding resolves only after acquired, so the race is already settled
   return await Promise.race([acquired, holding.then(async () => await acquired)]);
 }
