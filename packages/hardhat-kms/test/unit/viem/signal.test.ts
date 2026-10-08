@@ -186,6 +186,25 @@ describe("getAccount's signal", () => {
     assert.deepEqual(nonceCalls, []);
   });
 
+  it("keeps one reset per refused consume, on any chain, and passes the next one on", async () => {
+    const { connection, nonceCalls } = setup();
+    const caller = new AbortController();
+    const account = await createKmsNetworkConnection(connection).getAccount(ADDRESS, {
+      signal: caller.signal,
+    });
+    caller.abort();
+    for (const chainId of [CHAIN_ID, 1]) {
+      const parameters = { address: ADDRESS, chainId, client: {} };
+      await assert.rejects(account.nonceManager.consume(parameters));
+      account.nonceManager.reset(parameters);
+    }
+    await settle();
+    assert.deepEqual(nonceCalls, [], "each refused consume's reset is kept by the account");
+    account.nonceManager.reset({ address: ADDRESS, chainId: CHAIN_ID });
+    await settle();
+    assert.deepEqual(nonceCalls, [["reset", LOWER, BigInt(CHAIN_ID)]]);
+  });
+
   it("drops a signature that comes back after the signal aborted", async () => {
     const base = setup();
     const caller = new AbortController();

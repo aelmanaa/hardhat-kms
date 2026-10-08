@@ -512,6 +512,29 @@ describe("a library account's send through the connection", () => {
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
   });
 
+  it("counts an aborted wait's reset once, so the holder's own reset still ends its hold", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    const caller = new AbortController();
+    const waiting = await connection.kms.getAccount(COW, { signal: caller.signal });
+    const parameters = { address: waiting.address, chainId: 31337, client: {} };
+    const consuming = waiting.nonceManager.consume(parameters);
+    assert.equal(await settled(consuming), false);
+    caller.abort();
+    await assert.rejects(consuming, /the signal given to getAccount has aborted/);
+    waiting.nonceManager.reset(parameters);
+    await settle();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false);
+    // The holder's send failed: its reset ends its hold, as no owed reset is left to swallow it.
+    await holder.reset();
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n]);
+  });
+
   it("ends an own-transport consume's wait for the lock when its signal aborts", async () => {
     const harness = await setUp();
     const connection = await openKnown(harness);
