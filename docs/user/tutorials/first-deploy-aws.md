@@ -131,7 +131,7 @@ The project refers to the key by its alias. Keep this shell open: step 8 uses `K
 
 Hardhat signs with the identity you signed in with. For this tutorial, that identity can be the one that created the key, so this step runs no command. Step 4 checks that it may sign.
 
-A production deployer should have only `kms:GetPublicKey`, to derive the address, and `kms:Sign`, limited to what the plugin sends. The tutorial does not need that policy: [Optional: give a deployer only the sign policy](#optional-give-a-deployer-only-the-sign-policy), just before step 8, writes it, attaches it to a role and checks it.
+A production deployer should have only `kms:GetPublicKey`, to derive the address, and `kms:Sign`, limited to what the plugin sends. The tutorial does not need that policy: [Optional: give a deployer only the sign policy](#optional-give-a-deployer-only-the-sign-policy), just before step 8, writes it, gives it to a new role and signs as that role.
 
 ## 4. Add the key to the project
 
@@ -350,7 +350,7 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 ## Optional: give a deployer only the sign policy
 
-This section sets up a production deployer, which the tutorial does not need: an identity that may read the key's public key and sign with it, and do nothing else. Run it before step 8, while the key exists, in the shell from step 2, which has `KEY_ID`. In a new shell, set `KEY_ID` again first with the `describe-key` command at the start of step 8's key removal. Step 8 removes what this section adds.
+This section sets up a production deployer, which the tutorial does not need: an identity that may read the key's public key and sign with it, and do nothing else. It creates that identity as an IAM role and signs with the key as the role. Run it before step 8, while the key exists, in the shell from step 2, which has `KEY_ID`. In a new shell, set `KEY_ID` again first with the `describe-key` command at the start of step 8's key removal. Step 8 removes what this section adds, the role included.
 
 Write the policy with your key's ARN to a file in the project. The ARN holds your AWS account ID, so do not commit the file; step 8 deletes it:
 
@@ -383,7 +383,34 @@ cat > "$POLICY" <<EOF
 EOF
 ```
 
-To give an existing deployer role this policy, attach it. For a role named `hardhat-deployer`:
+If you have no deployer role, create one named `hardhat-deployer`. Its trust policy lets only the identity that runs these commands assume the role. It names your account and adds a condition on `aws:userid`, your identity's unique ID: an IAM user's ID, or for a role session, including an IAM Identity Center sign-in, the role's ID and your session name. That is the form AWS asks for with IAM Identity Center ([IAM Identity Center principals](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html#principal-identity-users), [Principal key values](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_variables.html#principaltable)). Because it names the account, your own permissions must also allow `sts:AssumeRole` on the role, as an administrator's do. Like the sign policy, the trust policy holds your account ID, so step 8 deletes its file too:
+
+```sh
+read -r ACCOUNT_ID CALLER_USERID <<< "$(aws sts get-caller-identity --query '[Account,UserId]' --output text)"
+TRUST=kms-deployer-trust.json
+
+cat > "$TRUST" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::$ACCOUNT_ID:root" },
+      "Action": "sts:AssumeRole",
+      "Condition": { "StringEquals": { "aws:userid": "$CALLER_USERID" } }
+    }
+  ]
+}
+EOF
+
+aws iam create-role --role-name hardhat-deployer \
+  --assume-role-policy-document "file://$TRUST" \
+  --max-session-duration 3600 --output none
+```
+
+If you sign in as the account's root user, use an IAM identity instead: only an IAM user or role can call `AssumeRole` ([Compare AWS STS credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_sts-comparison.html)).
+
+A new role has no permissions. Attach the policy to give it the two the plugin needs. For the role named `hardhat-deployer`, whether you created it above or had it already:
 
 ```sh
 aws iam put-role-policy --role-name hardhat-deployer --policy-name hardhat-kms-tutorial \
@@ -406,6 +433,53 @@ aws iam simulate-custom-policy --policy-input-list "$(cat "$POLICY")" \
 ```
 
 The first prints `"findings": []` and the second `allowed`. The same simulation with another algorithm, such as `ECDSA_SHA_384`, or another action, such as `kms:Decrypt` or `kms:ScheduleKeyDeletion`, prints `implicitDeny`. [Set up an AWS KMS key](../guides/aws-kms-setup.md#2-allow-signing-and-nothing-else) explains the conditions and the key policy.
+
+The simulator only evaluates the policy. To sign as the role, assume it. `sts assume-role` returns credentials that expire after one hour; the commands keep them in shell variables and print nothing. A role you just created can take a few seconds before it can be assumed: if the command fails with `AccessDenied`, wait 10 seconds and run it again:
+
+```sh
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+read -r ROLE_KEY_ID ROLE_SECRET ROLE_TOKEN <<< "$(aws sts assume-role \
+  --role-arn "arn:aws:iam::$ACCOUNT_ID:role/hardhat-deployer" \
+  --role-session-name hardhat-kms-tutorial \
+  --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)"
+```
+
+The function below runs one command with the role's credentials, so your own commands keep running as you. It removes `AWS_PROFILE` for that command: with `AWS_PROFILE` set, the AWS SDK that the plugin uses ignores access keys in the environment and signs as the profile ([Credentials](../reference/credentials.md#aws)). Since the profile is gone, the function also passes your region in `AWS_REGION`. It runs in a subshell, so the credentials never reach your own shell, and it stops with `is empty` if a role variable is missing:
+
+```sh
+as_deployer() (
+  region="${AWS_REGION:-$(aws configure get region)}"
+  unset AWS_PROFILE
+  export AWS_ACCESS_KEY_ID="${ROLE_KEY_ID:?is empty: run the aws sts assume-role command above}"
+  export AWS_SECRET_ACCESS_KEY="${ROLE_SECRET:?is empty: run the aws sts assume-role command above}"
+  export AWS_SESSION_TOKEN="${ROLE_TOKEN:?is empty: run the aws sts assume-role command above}"
+  export AWS_REGION="$region"
+  "$@"
+)
+
+as_deployer aws sts get-caller-identity --query Arn --output text
+```
+
+It prints `arn:aws:sts::<account ID>:assumed-role/hardhat-deployer/hardhat-kms-tutorial`: the role, not you. If it prints another identity, or stops with `is empty`, `assume-role` failed: run it again before you go on. Now check that the role may sign with the key:
+
+::: code-group
+
+```sh [npm]
+as_deployer npx hardhat kms accounts --check-sign
+```
+
+```sh [pnpm]
+as_deployer pnpm hardhat kms accounts --check-sign
+```
+
+```sh [Yarn]
+as_deployer yarn hardhat kms accounts --check-sign
+```
+
+:::
+
+It prints the same row as in step 4, with `matches` under `PIN` and `ok` under `SIGN`, this time signed by a role that holds only the sign policy. To deploy as the role, put `as_deployer` before step 6's command. When the credentials expire, run the `assume-role` command again.
 
 ## 8. Clean up
 
@@ -455,6 +529,8 @@ aws kms enable-key --key-id "$KEY_ID"
 
 After the 7 days, the key is gone for good, and nothing can sign for the address again.
 
+While the alias exists, a second run of this tutorial stops at step 2's `create-alias`, because the name is taken. To run the tutorial again within the 7 days, give the alias another name, such as `alias/hardhat-kms-tutorial-2`, in step 2's `create-alias` and in step 4's `keyId`. Deleting the old alias with `aws kms delete-alias --alias-name alias/hardhat-kms-tutorial` frees the name without touching the key, but then only the key ID finds that key, so note it first if you may cancel the deletion.
+
 If you followed [Optional: give a deployer only the sign policy](#optional-give-a-deployer-only-the-sign-policy), delete its policy file, from the project directory:
 
 ```sh
@@ -468,6 +544,16 @@ aws iam delete-role-policy --role-name hardhat-deployer --policy-name hardhat-km
 ```
 
 For an IAM user, use `aws iam delete-user-policy --user-name <user name> --policy-name hardhat-kms-tutorial` instead. If your administrator added the policy to a permission set, ask them to remove it.
+
+If you created the `hardhat-deployer` role there, delete it now that its policy is gone; IAM refuses to delete a role that still has a policy. Then delete the trust policy file and the role's credentials:
+
+```sh
+aws iam delete-role --role-name hardhat-deployer
+rm kms-deployer-trust.json
+unset ROLE_KEY_ID ROLE_SECRET ROLE_TOKEN
+```
+
+Credentials the role handed out stay valid until they expire, within the hour, but with the policy removed they can no longer use the key.
 
 To keep the key instead, run only the `disable-key` command: a disabled key cannot sign, `aws kms enable-key` brings it back, and it still costs $1 a month.
 

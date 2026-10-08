@@ -147,7 +147,7 @@ Hardhat signs as the identity of your Application Default Credentials (ADC), not
 
 The ADC identity needs two permissions on this key: `cloudkms.cryptoKeyVersions.viewPublicKey`, to derive the address, and `cloudkms.cryptoKeyVersions.useToSign`, to sign. Creating the key does not give them. Cloud KMS Admin has neither: it "provides access to Cloud KMS resources, except for access to restricted resource types and cryptographic operations" ([Cloud KMS permissions and roles](https://docs.cloud.google.com/kms/docs/reference/permissions-and-roles)). The project Owner role has both, which is how the recorded run signed. The two-role grant below is not yet checked against real Cloud KMS ([Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else)).
 
-The predefined roles `roles/cloudkms.publicKeyViewer` and `roles/cloudkms.signer` hold one each. Neither can disable, destroy or restore a key version, nor change who has access; [Optional: inspect the roles and the key's access](#optional-inspect-the-roles-and-the-keys-access) lists what they hold.
+The predefined roles `roles/cloudkms.publicKeyViewer` and `roles/cloudkms.signer` hold one each. Neither can disable, destroy or restore a key version, nor change who has access; [Optional: inspect the roles and the key's access](#optional-inspect-the-roles-and-the-keys-access) lists what they hold, and [Optional: give a deployer only the sign roles](#optional-give-a-deployer-only-the-sign-roles) signs as a service account that holds these two roles and nothing else.
 
 Find the ADC identity. First check that the gcloud CLI does not impersonate a service account:
 
@@ -440,6 +440,82 @@ gcloud kms keys get-iam-policy deployer --keyring hardhat-kms-tutorial --locatio
 
 Before any grant it prints only an `etag` line, since the key has no bindings of its own; your access comes from the project. After the grant it lists the two roles, each with the deployer as member. [Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) covers the roles in more detail.
 
+## Optional: give a deployer only the sign roles
+
+This section sets up a production deployer, which the tutorial does not need: a service account that holds the two roles of step 3 on this key and nothing else, and that the plugin signs as. Run it before step 8, while the key version is enabled, in the shell from step 3, which has `GCP_PROJECT_ID`, `GCP_LOCATION` and `DEPLOYER`. It assumes that `DEPLOYER` is your own account, `user:<email>`. Creating, granting and deleting the service account needs Service Account Admin (`roles/iam.serviceAccountAdmin`) on the project, which project Owner includes and Cloud KMS Admin does not. Step 8 removes the service account and its grants.
+
+Create the service account. A new service account has no roles, in the project or anywhere else:
+
+```sh
+SA_EMAIL="hardhat-kms-deployer@$GCP_PROJECT_ID.iam.gserviceaccount.com"
+
+gcloud iam service-accounts create hardhat-kms-deployer --display-name "hardhat-kms tutorial deployer"
+```
+
+In a new shell, set `SA_EMAIL` again first, with the same line.
+
+Grant it the two roles on the key, as step 3 did for you:
+
+```sh
+for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
+  gcloud kms keys add-iam-policy-binding deployer \
+    --keyring hardhat-kms-tutorial \
+    --location "$GCP_LOCATION" \
+    --member "serviceAccount:$SA_EMAIL" \
+    --role "$role"
+done
+```
+
+Impersonation goes through the IAM Service Account Credentials API, which a project may not have turned on ([Use service account impersonation](https://docs.cloud.google.com/docs/authentication/use-service-account-impersonation)). Turn it on; doing so again does no harm:
+
+```sh
+gcloud services enable iamcredentials.googleapis.com
+```
+
+To sign as the service account without a key file, you impersonate it: your account asks Google for short-lived tokens of the service account. That needs `iam.serviceAccounts.getAccessToken`, from the Service Account Token Creator role, `roles/iam.serviceAccountTokenCreator`. Google says to grant it "even when you are working in a project that you created" ([Use service account impersonation](https://docs.cloud.google.com/docs/authentication/use-service-account-impersonation)), so do not count on project Owner for it. Grant it to your account on this service account only, not on the project:
+
+```sh
+gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+  --member "$DEPLOYER" \
+  --role roles/iam.serviceAccountTokenCreator
+```
+
+Then point your Application Default Credentials at the service account. The command opens a browser: choose the account in `DEPLOYER`. It overwrites the credentials that `gcloud auth application-default login` wrote before, and step 8 writes them again. `--disable-quota-project` keeps a quota project out of the credentials, since the service account has no `serviceusage.services.use` permission to use one (step 3 explains that error):
+
+```sh
+gcloud auth application-default login --impersonate-service-account "$SA_EMAIL" --disable-quota-project
+```
+
+Check whose tokens the plugin now gets, with step 3's command:
+
+```sh
+curl -s -d "access_token=$(gcloud auth application-default print-access-token \
+  --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/userinfo.email)" \
+  https://www.googleapis.com/oauth2/v1/tokeninfo
+```
+
+The `email` field is the service account's email. If the command fails with a `403` from `iamcredentials.googleapis.com` that says the API is disabled, run the `gcloud services enable` command above. Any other `403` from it means the Token Creator grant has not taken effect yet: like the key's roles, it typically takes 2 minutes and can take 7 or longer. Wait and run it again.
+
+Check that the service account may sign with the key:
+
+::: code-group
+
+```sh [npm]
+npx hardhat kms accounts --check-sign
+```
+
+```sh [pnpm]
+pnpm hardhat kms accounts --check-sign
+```
+
+```sh [Yarn]
+yarn hardhat kms accounts --check-sign
+```
+
+:::
+
+It prints the same row as in step 4, with `matches` under `PIN` and `ok` under `SIGN`, this time signed by a service account that holds only the two roles on this key. Until step 8 restores your credentials, every program that uses your Application Default Credentials, Hardhat included, runs as the service account, so step 6's command deploys as it too. A `permission denied (PERMISSION_DENIED)` soon after the grant means the roles have not taken effect yet: wait and run it again.
+
 ## 8. Clean up
 
 When you are done, send the remaining Sepolia ETH back, then disable the key version and schedule its destruction. In a new shell, set `SEPOLIA_RPC_URL`, `GCP_PROJECT_ID` and `GCP_LOCATION` again first, as in steps 2 and 4: the script loads the config, which reads them.
@@ -501,6 +577,34 @@ for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
     --member "$DEPLOYER" \
     --role "$role"
 done
+```
+
+If you followed [Optional: give a deployer only the sign roles](#optional-give-a-deployer-only-the-sign-roles), remove the service account in this order: its two roles on the key, your Token Creator grant, then the service account itself. A deleted service account's bindings are not removed with it: they stay in the key's policy as `deleted:serviceAccount:` members for up to 60 days ([Delete and undelete service accounts](https://docs.cloud.google.com/iam/docs/service-accounts-delete-undelete)). The last command of the second block below, `gcloud iam service-accounts delete`, asks you to confirm; answer `y`. In a new shell, set `SA_EMAIL` again first:
+
+```sh
+SA_EMAIL="hardhat-kms-deployer@$GCP_PROJECT_ID.iam.gserviceaccount.com"
+```
+
+```sh
+for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
+  gcloud kms keys remove-iam-policy-binding deployer \
+    --keyring hardhat-kms-tutorial \
+    --location "$GCP_LOCATION" \
+    --member "serviceAccount:$SA_EMAIL" \
+    --role "$role"
+done
+
+gcloud iam service-accounts remove-iam-policy-binding "$SA_EMAIL" \
+  --member "$DEPLOYER" \
+  --role roles/iam.serviceAccountTokenCreator
+
+gcloud iam service-accounts delete "$SA_EMAIL"
+```
+
+Then sign your Application Default Credentials in as yourself again, since they still point at the deleted service account, and choose your own account in the browser:
+
+```sh
+gcloud auth application-default login
 ```
 
 To keep the key instead, run only the `disable` command: a disabled version cannot sign, `gcloud kms keys versions enable` brings it back, and it still costs about $2.50 a month.

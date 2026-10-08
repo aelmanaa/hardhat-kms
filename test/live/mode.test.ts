@@ -1,4 +1,5 @@
-// The live suite's mode switch and anvil lookup. Runs offline, in `pnpm test`.
+// The live suite's mode and package-source switches and the anvil lookup. Runs offline, in
+// `pnpm test`.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,7 +7,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import { findAnvil } from "./helpers/anvil.ts";
-import { liveMode, MODE_VARIABLE } from "./helpers/mode.ts";
+import { liveMode, liveSource, MODE_VARIABLE, SOURCE_VARIABLE } from "./helpers/mode.ts";
 
 describe("live test mode", () => {
   it("runs on the fork unless real Sepolia is asked for", () => {
@@ -20,6 +21,39 @@ describe("live test mode", () => {
   it("refuses any other value", () => {
     for (const value of ["mainnet", "live", "true", "sepolia-fork"]) {
       assert.throws(() => liveMode({ [MODE_VARIABLE]: value }), /must be "fork" or "sepolia"/);
+    }
+  });
+
+  it("runs the checkout's packages unless a registry version is asked for", () => {
+    assert.deepEqual(liveSource({}), { kind: "source" });
+    assert.deepEqual(liveSource({ [SOURCE_VARIABLE]: "" }), { kind: "source" });
+    assert.deepEqual(liveSource({ [SOURCE_VARIABLE]: " source " }), { kind: "source" });
+    assert.deepEqual(liveSource({ [SOURCE_VARIABLE]: "registry:0.9.0" }), {
+      kind: "registry",
+      version: "0.9.0",
+    });
+    assert.deepEqual(liveSource({ [SOURCE_VARIABLE]: "registry:1.0.0-beta.1" }), {
+      kind: "registry",
+      version: "1.0.0-beta.1",
+    });
+  });
+
+  it("refuses any other package source, a range or a tag included", () => {
+    for (const value of [
+      "registry",
+      "registry:",
+      "registry:^1.0.0",
+      "registry:latest",
+      "registry:1.0",
+      "npm:1.0.0",
+      "Source",
+      "dist",
+    ]) {
+      assert.throws(
+        () => liveSource({ [SOURCE_VARIABLE]: value }),
+        /must be "source" or "registry:<exact version>"/,
+        value,
+      );
     }
   });
 

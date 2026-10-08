@@ -7,12 +7,11 @@
 // In fork mode (the default), it starts its own anvil fork of Sepolia behind the recording proxy,
 // gives each account FORK_BALANCE with `anvil_setBalance`, and expects exactly that balance. With
 // HARDHAT_KMS_LIVE_NETWORK=sepolia it reads the real balance, which the matrix may be spending at
-// the same time, so it expects only a decimal number of wei. The key variables are those of
-// `sepolia.live.test.ts`. Key ids, URLs and signed data are redacted from every failure.
+// the same time, so it expects only a decimal number of wei. The key variables and
+// HARDHAT_KMS_LIVE_SOURCE are those of `sepolia.live.test.ts`. Key ids, URLs and signed data are
+// redacted from every failure.
 import assert from "node:assert/strict";
-import path from "node:path";
 import { after, before, describe, it, mock } from "node:test";
-import { fileURLToPath } from "node:url";
 
 import type { AccountsReport, KmsKeyUserConfig } from "hardhat-kms/types";
 import { configVariable } from "hardhat/config";
@@ -21,21 +20,17 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 import { isResult } from "hardhat/utils/result";
 import { getAddress, parseEther, toHex } from "viem";
 
-// The provider plugins come from their `src`, as in sepolia.live.test.ts; the core comes from
-// `dist`, which `pnpm run test:live` builds first.
-import hardhatKmsAws from "../../packages/hardhat-kms-aws/src/index.ts";
-import hardhatKmsAzure from "../../packages/hardhat-kms-azure/src/index.ts";
-import hardhatKmsGcp from "../../packages/hardhat-kms-gcp/src/index.ts";
 import { SEPOLIA_CHAIN_ID } from "./cases.ts";
 import { type AnvilFork, findAnvil, startAnvilFork } from "./helpers/anvil.ts";
 import { liveMode, MODE_VARIABLE } from "./helpers/mode.ts";
+import { livePackages, registryCheck } from "./helpers/packages.ts";
 import { redact } from "./helpers/redact.ts";
 import { type RecordingProxy, startRecordingProxy } from "./helpers/rpc-proxy.ts";
 
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixture-project");
-
 const mode = liveMode(process.env);
 const onFork = mode === "fork";
+/** The provider plugins: the checkout's, or the published ones in registry mode. */
+const packages = await livePackages(process.env);
 
 /** Used when HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL is not set. Needs no API key. */
 const DEFAULT_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
@@ -89,7 +84,7 @@ async function redacted<T>(step: () => Promise<T>): Promise<T> {
 async function runtime(provider: Provider, url: string): Promise<HardhatRuntimeEnvironment> {
   return await createHardhatRuntimeEnvironment(
     {
-      plugins: [hardhatKmsAws, hardhatKmsGcp, hardhatKmsAzure],
+      plugins: [packages.aws, packages.gcp, packages.azure],
       networks: {
         [provider.name]: {
           type: "http",
@@ -102,7 +97,7 @@ async function runtime(provider: Provider, url: string): Promise<HardhatRuntimeE
       },
     },
     { network: provider.name },
-    root,
+    packages.root,
   );
 }
 
@@ -255,4 +250,6 @@ describe(onFork ? "kms accounts live on a Sepolia fork" : "kms accounts live on 
       `upstream methods: ${[...proxy.methods()].map(([method, count]) => `${method} ${count}`).join(", ")}`,
     );
   });
+
+  registryCheck(packages, configured.length);
 });
