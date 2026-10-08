@@ -24,6 +24,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { nodeFloorMismatch, readHardhatNodeMinimum } from "./node-floor.ts";
+import { parsePublishTimes } from "./npm-view.ts";
 import {
   deliverSignals,
   installedDirectory,
@@ -103,7 +104,7 @@ function minimumReleaseAge(): number {
  * on purpose, so the script never needs a minimumReleaseAgeExclude entry.
  */
 function latest(): string {
-  const published = stringRecord(JSON.parse(output(["view", "hardhat", "time", "--json"])));
+  const published = parsePublishTimes("hardhat", output(["view", "hardhat", "time", "--json"]));
   const releases = Object.keys(published)
     .filter((version) => STABLE.exec(version)?.[1] === "3")
     .toSorted((left, right) => compareVersions(right, left));

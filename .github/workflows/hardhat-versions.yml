@@ -23,6 +23,7 @@ on:
       - "packages/hardhat-kms/test/integration/transaction-filler.test.ts"
       - "packages/hardhat-kms/test/integration/network-hook.test.ts"
       - "scripts/test-hardhat-versions.ts"
+      - "scripts/npm-view.ts"
       - "scripts/node-floor.ts"
       - "scripts/temporary-install.ts"
       - ".github/workflows/hardhat-versions.yml"
