@@ -1,6 +1,6 @@
 ---
 title: Debug output
-description: Turn on hardhat-kms debug output with DEBUG=hardhat:kms:*, what each namespace logs, and why the output is safe to paste into an issue.
+description: Turn on hardhat-kms debug output with DEBUG=hardhat:kms:*, what each namespace logs, and what to check before you share it in an issue.
 ---
 
 # Debug output
@@ -32,7 +32,7 @@ DEBUG=hardhat:kms:* npx hardhat run scripts/deploy.ts --network sepolia
 
 ## What the output contains
 
-The output is meant to be pasted into an issue. It contains display ids (`aws:<AWS_KMS_KEY_ID>`), addresses, provider ids, operation names, request ids, timings and error class names. Key and network names from your config are printed as written, with control characters escaped.
+Review the output before you share it, for example in an issue. It contains display ids (`aws:<AWS_KMS_KEY_ID>`), addresses, provider ids, operation names, request ids, timings and error class names. Key and network names from your config are printed as written, with control characters escaped. So is a key identifier written literally in the config, such as a key ARN, which holds your AWS account id ([Resolved config](../reference/configuration.md#resolved-config)). Configuration-variable values are hidden.
 
 It never contains:
 

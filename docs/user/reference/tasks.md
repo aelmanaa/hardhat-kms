@@ -437,7 +437,17 @@ The chain is followed by `(from --chain)` or `(from --network <name>)`. Other no
 
 ### Keep the tuple private until it is used
 
-Treat a printed tuple as a credential until a transaction uses it or the account's nonce moves past it. Anyone who holds it can submit it, from any account, and delegate the key's account to the code it names. To cancel a tuple you no longer want, send any transaction from the key: that uses the nonce, and the tuple can no longer apply. A chain-0 tuple applies on every chain where the account has that nonce, so it stays usable on each chain until the nonce moves past it there.
+Treat a printed tuple as a credential until a transaction uses it or the account's nonce moves past it. Anyone who holds it can submit it, from any account, and delegate the key's account to the code it names.
+
+[EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) applies a tuple only when the account's nonce equals the tuple's nonce. A tuple stops applying on a chain once the account's confirmed nonce there is above the tuple's nonce. To check, read `eth_getTransactionCount(address, "finalized")` on each chain where the tuple could apply, or `"latest"` a few blocks later on a node without that tag, and compare it with the tuple's `nonce`. A higher nonce does not show that the tuple went unused, since a tuple that applies also raises the nonce. Read `eth_getCode(address, "latest")` too: `0xef0100` followed by the tuple's delegate means a tuple for that delegate applied. To undo it, sign an authorization for the zero address, which clears the delegation, and send it as in [Send the authorization](#send-the-authorization).
+
+One transaction from the key is not always enough. A `--self-broadcast` tuple carries the pending nonce + 1: when the pending nonce is N, the tuple's nonce is N + 1. A transaction at N raises the confirmed nonce to N + 1, which equals the tuple's, so the tuple can still be submitted. The confirmed nonce must reach N + 2. The same holds for a tuple signed with a `--nonce` above the pending count: every nonce up to and including the tuple's must be used.
+
+To retire a `--self-broadcast` tuple without a race, use the next transaction for it: run `kms sign-auth --network <name> --self-broadcast <key> 0x0000000000000000000000000000000000000000` and send the result as in [Send the authorization](#send-the-authorization). That transaction takes nonce N, and its own tuple, which clears any delegation, takes N + 1 in the same transaction, so the old tuple has no nonce left to apply at. This works while the key's pending nonce is still N. For a tuple signed with a `--nonce` further ahead, first use the nonces before it.
+
+Until the confirmed nonce is above the tuple's, your own transactions race whoever holds the tuple. Once the account's nonce equals the tuple's, a third party can put the tuple in a transaction of their own, and that transaction can be included before yours.
+
+A chain-0 tuple applies on every chain where the account has that nonce, so it stays usable on each chain until the nonce moves past it there. That includes chains where the key has never sent a transaction and chains that add EIP-7702 later. A chain-0 tuple for nonce 0 is usable on every chain where the key's account is new, and it can be retired there only by sending from the key on that chain.
 
 ### Send the authorization
 

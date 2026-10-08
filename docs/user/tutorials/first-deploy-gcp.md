@@ -414,6 +414,8 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 ## Optional: inspect the roles and the key's access
 
+[Skip to step 8](#8-clean-up) if you do not need this section.
+
 The tutorial does not need these commands. They read the two roles and the key's access and change nothing. Run them before step 8, in the shell from step 2, which has `GCP_LOCATION`.
 
 List what the two roles of step 3 hold:
@@ -441,6 +443,8 @@ gcloud kms keys get-iam-policy deployer --keyring hardhat-kms-tutorial --locatio
 Before any grant it prints only an `etag` line, since the key has no bindings of its own; your access comes from the project. After the grant it lists the two roles, each with the deployer as member. [Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) covers the roles in more detail.
 
 ## Optional: give a deployer only the sign roles
+
+[Skip to step 8](#8-clean-up) if you do not need this section.
 
 This section sets up a production deployer, which the tutorial does not need: a service account that holds the two roles of step 3 on this key and nothing else, and that the plugin signs as. Run it before step 8, while the key version is enabled, in the shell from step 3, which has `GCP_PROJECT_ID`, `GCP_LOCATION` and `DEPLOYER`. It assumes that `DEPLOYER` is your own account, `user:<email>`. Creating, granting and deleting the service account needs Service Account Admin (`roles/iam.serviceAccountAdmin`) on the project, which project Owner includes and Cloud KMS Admin does not. Step 8 removes the service account and its grants.
 
