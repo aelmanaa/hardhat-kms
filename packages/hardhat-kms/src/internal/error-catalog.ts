@@ -524,7 +524,8 @@ export const ERRORS = {
     group: "Provider plugins",
     template:
       "signing with {name} keys is not available yet (https://github.com/aelmanaa/hardhat-kms/issues/{issue})",
-    cause: "The provider is planned, but its adapter is not released yet.",
+    cause:
+      "The provider is planned, but its adapter is not released yet. A key with a reserved id such as `turnkey` gets this error too when it reaches the resolved config without validation, for example through another plugin's config hook.",
     fix: "Follow the linked issue, or use another provider.",
   },
   providerPackageMissing: {
