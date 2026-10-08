@@ -70,7 +70,7 @@ git clone https://github.com/aelmanaa/hardhat-kms.git
 git -C hardhat-kms rev-parse 'v<version>^{commit}'
 ```
 
-The check passes when `repository` is `https://github.com/aelmanaa/hardhat-kms`, `ref` is `refs/tags/v<version>`, `path` is `.github/workflows/release.yml`, and `commit` is the commit `git rev-parse` printed. Any other value is a failure: go to [If a check fails](#if-a-check-fails).
+The check passes when `repository` is `https://github.com/aelmanaa/hardhat-kms`, `ref` is `refs/tags/v<version>`, `path` is `.github/workflows/release.yml`, and `commit` is the commit `git rev-parse` printed. Any other value is a failure: go to [If a check fails](#if-a-check-fails). A prerelease of a future major, such as `2.0.0-next.0` on the `next` dist-tag, comes from `.github/workflows/release-next.yml` instead.
 
 ## 3. Check the tag's signature
 

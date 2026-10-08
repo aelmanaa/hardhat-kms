@@ -1,18 +1,18 @@
-# Stages a release of the stable line to npm from a maintainer-signed vX.Y.Z tag: from main under
-# the beta dist-tag, or a hotfix from release/X.Y under release-X.Y. The jobs are in
-# release-stage.yml, which release-next.yml calls too; this file
-# fixes the channel to stable, so a version with a prerelease part is refused at every step
-# (scripts/release-channel.ts). docs/contributor/releasing.md has the maintainer's steps and
-# decision 0016 the reasons.
-# The tag pattern leaves out every tag with a `-`, so a vX.Y.Z-next.N tag starts only
-# release-next.yml; were one to reach this workflow, release-trigger.ts refuses it.
+# Stages a prerelease of a future major to npm from a maintainer-signed vX.Y.Z-next.N tag on the
+# next branch, under the next dist-tag only. The jobs are in release-stage.yml, the same ones
+# release.yml runs: signed tag against .github/release-keys/, the CI gate, fresh installs, pack,
+# the tarball sums, the npm-publish environment and a staged publish over OIDC. This file fixes
+# the channel to next, so every step refuses a version without -next.N, and the tagged commit must
+# be on the next branch, which the channel names and no input or tag can change
+# (scripts/release-channel.ts). A next version never reaches beta or latest: promote.yml refuses
+# it. docs/contributor/releasing.md, A future major, has the maintainer's steps.
 # A manual dispatch is always a dry run (release-stage.yml has what it runs). GitHub dispatches
 # only a workflow whose file is on the default branch.
-name: Release
+name: Release next
 
 on:
   push:
-    tags: ["v[0-9]*.[0-9]*.[0-9]*", "!v*-*"]
+    tags: ["v[0-9]*.[0-9]*.[0-9]*-next.[0-9]*"]
   workflow_dispatch:
     inputs:
       dry-run:
@@ -20,7 +20,7 @@ on:
         type: boolean
         default: true
       tag:
-        description: An existing vX.Y.Z tag to dry-run, or none to pack the dispatched branch
+        description: An existing vX.Y.Z-next.N tag to dry-run, or none to pack the dispatched branch
         type: string
         default: none
 
@@ -28,13 +28,13 @@ permissions: {}
 
 concurrency:
   group: >-
-    ${{ github.event_name == 'push' && format('release-{0}', github.ref_name)
-    || format('release-dry-run-{0}', github.run_id) }}
+    ${{ github.event_name == 'push' && format('release-next-{0}', github.ref_name)
+    || format('release-next-dry-run-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
   release:
-    name: Stable
+    name: Next
     # The union of what the called jobs need; each job there narrows it to its own permissions.
     permissions:
       contents: write # the jobs check out the repository; github-release creates the draft release
@@ -44,6 +44,6 @@ jobs:
     # checkout, so ./ and the self-repository $/ resolve alike; actionlint 1.7.12 rejects $/.
     uses: ./.github/workflows/release-stage.yml # zizmor: ignore[self-repository]
     with:
-      channel: stable
+      channel: next
       dispatch-tag: ${{ inputs.tag }}
       dispatch-dry-run: ${{ format('{0}', inputs.dry-run) }}

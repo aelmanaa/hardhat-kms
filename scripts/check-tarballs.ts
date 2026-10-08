@@ -1,5 +1,5 @@
 // Checks the four release tarballs against a list of SHA-256 sums and against the release they
-// belong to. release.yml runs it twice: in `pack`, right after packing, and in `publish` and the
+// belong to. release-stage.yml, the jobs release.yml and release-next.yml share, runs it twice: in `pack`, right after packing, and in `publish` and the
 // dry run, on the downloaded artifact, against the sums `pack` passed as a job output. The sums
 // therefore travel outside the artifact they cover, so a swapped artifact fails here.
 // For each line of the sums file, in order:
@@ -8,9 +8,11 @@
 // - its package/package.json names the package expected at that position (the core first, then
 //   the providers, as scripts/registry.ts lists them), at the release version, with `gitHead` set
 //   to the tagged commit.
-// The directory must hold no other tarball, and the version must be a stable X.Y.Z.
+// The directory must hold no other tarball, and the version must belong to the channel: a stable
+// X.Y.Z by default, an X.Y.Z-next.N with `--channel next` (scripts/release-channel.ts).
 //
 // Usage: node scripts/check-tarballs.ts --dir DIR --sums FILE --version X.Y.Z --commit SHA
+//   [--channel stable|next]
 // Prints one line per tarball, or the first failure, and exits 1 on a failure.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -20,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { PACKAGES } from "./registry.ts";
+import { CHANNELS, type Channel, parseChannel } from "./release-channel.ts";
 
 /** One line of a `sha256sum` listing. */
 export interface SumLine {
@@ -89,6 +92,7 @@ export function checkManifest(file: string, manifestText: string, expected: Expe
  * @param sumsText - The `sha256sum` listing they must match.
  * @param version - The release version.
  * @param commit - The tagged commit.
+ * @param channel - The release channel; defaults to `stable`.
  * @returns One line per tarball.
  */
 export function checkTarballs(
@@ -96,10 +100,13 @@ export function checkTarballs(
   sumsText: string,
   version: string,
   commit: string,
+  channel: Channel = "stable",
 ): string[] {
-  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+  if (!CHANNELS[channel].version.test(version)) {
     throw new Error(
-      `version ${version} is not a stable X.Y.Z; a prerelease is never staged from main`,
+      channel === "stable"
+        ? `version ${version} is not a stable X.Y.Z; a prerelease is never staged from main`
+        : `version ${version} is not an X.Y.Z-next.N; release-next.yml stages only next prereleases`,
     );
   }
   const sums = parseSums(sumsText);
@@ -139,15 +146,17 @@ function main(argv: readonly string[]): void {
       sums: { type: "string" },
       version: { type: "string" },
       commit: { type: "string" },
+      channel: { type: "string" },
     },
   });
   const { dir, sums, version, commit } = values;
+  const channel = parseChannel(values.channel ?? "stable");
   if (dir === undefined || sums === undefined || version === undefined || commit === undefined) {
     throw new Error(
-      "usage: node scripts/check-tarballs.ts --dir DIR --sums FILE --version X.Y.Z --commit SHA",
+      "usage: node scripts/check-tarballs.ts --dir DIR --sums FILE --version X.Y.Z --commit SHA [--channel stable|next]",
     );
   }
-  const lines = checkTarballs(dir, readFileSync(sums, "utf8"), version, commit);
+  const lines = checkTarballs(dir, readFileSync(sums, "utf8"), version, commit, channel);
   process.stdout.write(`${lines.join("\n")}\n`);
 }
 

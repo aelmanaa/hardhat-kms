@@ -136,8 +136,15 @@ describe("verify-release-tag", { skip }, () => {
       cwd,
       env,
     );
-  const verify = (tag: string, options: { keysDirectory?: string; mainRef?: string } = {}) =>
-    verifyReleaseTag({ tag, cwd: repo, env, keysDirectory: keys, ...options });
+  const verify = (
+    tag: string,
+    options: {
+      keysDirectory?: string;
+      mainRef?: string;
+      channel?: "stable" | "next";
+      nextRef?: string;
+    } = {},
+  ) => verifyReleaseTag({ tag, cwd: repo, env, keysDirectory: keys, ...options });
   const writeManifests = (versions: Record<string, string>): void => {
     for (const manifest of MANIFESTS) {
       mkdirSync(path.dirname(path.join(repo, manifest)), { recursive: true });
@@ -685,6 +692,105 @@ describe("verify-release-tag", { skip }, () => {
     );
   });
 
+  it("passes a next tag whose commit is on origin/next, staged under next", () => {
+    onBranch("next", "2.0.0-next.0", { push: true }, (commit) =>
+      withTag(
+        "v2.0.0-next.0",
+        () => signWith(trustedHome, trustedKey, "v2.0.0-next.0"),
+        () => {
+          const verdict = verify("v2.0.0-next.0", { channel: "next" });
+          assert.equal(verdict.ok, true, verdict.ok ? "" : verdict.reason);
+          if (verdict.ok) {
+            assert.equal(verdict.version, "2.0.0-next.0");
+            assert.equal(verdict.commit, commit);
+            assert.equal(verdict.branch, "origin/next");
+            assert.equal(verdict.distTag, "next");
+          }
+        },
+      ),
+    );
+  });
+
+  it("fails a next tag on the stable channel, so release.yml never stages one", () => {
+    onBranch("next", "2.0.0-next.0", { push: true }, () =>
+      withTag(
+        "v2.0.0-next.0",
+        () => signWith(trustedHome, trustedKey, "v2.0.0-next.0"),
+        () =>
+          assert.deepEqual(verify("v2.0.0-next.0"), {
+            ok: false,
+            reason:
+              "version 2.0.0-next.0 is not a stable X.Y.Z version; only stable versions are released",
+          }),
+      ),
+    );
+  });
+
+  it("fails a stable tag on the next channel, on main or on next", () => {
+    withTag(
+      "v1.2.3",
+      () => signWith(trustedHome, trustedKey, "v1.2.3"),
+      () =>
+        assert.deepEqual(verify("v1.2.3", { channel: "next" }), {
+          ok: false,
+          reason:
+            "version 1.2.3 is not an X.Y.Z-next.N version; release-next.yml stages only the next prereleases of the next branch",
+        }),
+    );
+  });
+
+  it("fails other prerelease names on the next channel", () => {
+    for (const version of ["2.0.0-beta.0", "2.0.0-next", "2.0.0-next.0.1", "2.0.0-next.0+b"]) {
+      onBranch("next", version, { push: true }, () =>
+        withTag(
+          `v${version}`,
+          () => signWith(trustedHome, trustedKey, `v${version}`),
+          () => {
+            const verdict = verify(`v${version}`, { channel: "next" });
+            assert.equal(verdict.ok, false, version);
+            if (!verdict.ok) {
+              assert.match(verdict.reason, /is not an X\.Y\.Z-next\.N version/, version);
+            }
+          },
+        ),
+      );
+    }
+  });
+
+  it("fails a next tag whose commit is on main, a release branch or another branch, not on next", () => {
+    // origin/next exists and holds only main's commit; the tagged commit is elsewhere.
+    for (const branch of ["stray", "release/2.0"]) {
+      onBranch(branch, "2.0.0-next.0", { push: true, extra: ["next"] }, (commit) =>
+        withTag(
+          "v2.0.0-next.0",
+          () => signWith(trustedHome, trustedKey, "v2.0.0-next.0"),
+          () =>
+            assert.deepEqual(verify("v2.0.0-next.0", { channel: "next" }), {
+              ok: false,
+              reason: `commit ${commit} of v2.0.0-next.0 is not on origin/next`,
+            }),
+        ),
+      );
+    }
+  });
+
+  it("fails a next tag when origin/next is not fetched", () => {
+    onBranch("next", "2.0.0-next.0", { push: true }, () =>
+      withTag(
+        "v2.0.0-next.0",
+        () => signWith(trustedHome, trustedKey, "v2.0.0-next.0"),
+        () =>
+          assert.deepEqual(
+            verify("v2.0.0-next.0", { channel: "next", nextRef: "origin/nowhere" }),
+            {
+              ok: false,
+              reason: "origin/nowhere is not fetched; run git fetch origin next",
+            },
+          ),
+      ),
+    );
+  });
+
   it("fails a tag that does not exist", () => {
     assert.deepEqual(verify("v0.0.1"), { ok: false, reason: "tag v0.0.1 does not exist" });
   });
@@ -740,14 +846,50 @@ describe("verify-release-tag", { skip }, () => {
           cliEnv,
         );
         assert.equal(failed.status, 1);
-        assert.match(failed.stderr, /^v1\.2\.3 fails: no release keys: /);
+        // Node 24.0.0 prints an ExperimentalWarning for the type stripping of an imported script
+        // before the script's own line, so each stderr check matches a line.
+        assert.match(failed.stderr, /^v1\.2\.3 fails: no release keys: /m);
         // A failing tag writes no dist-tag.
         assert.equal(readFileSync(output, "utf8"), "earlier=line\ndist-tag=beta\n");
       },
     );
+    onBranch("next", "2.0.0-next.0", { push: true }, () =>
+      withTag(
+        "v2.0.0-next.0",
+        () => signWith(trustedHome, trustedKey, "v2.0.0-next.0"),
+        () => {
+          const nextOutput = path.join(sandbox, "github-output-next");
+          writeFileSync(nextOutput, "");
+          const passed = run(
+            process.execPath,
+            [script, "v2.0.0-next.0", "--channel", "next", "--keys", keys, "--output", nextOutput],
+            repo,
+            cliEnv,
+          );
+          assert.equal(passed.status, 0, passed.stderr);
+          assert.equal(readFileSync(nextOutput, "utf8"), "dist-tag=next\n");
+          assert.match(
+            passed.stdout,
+            /^v2\.0\.0-next\.0 passes: .* version 2\.0\.0-next\.0 in 4 manifests, commit [0-9a-f]{40} on origin\/next, staged under next\n$/,
+          );
+          const stable = run(
+            process.execPath,
+            [script, "v2.0.0-next.0", "--keys", keys, "--output", nextOutput],
+            repo,
+            cliEnv,
+          );
+          assert.equal(stable.status, 1);
+          assert.match(stable.stderr, /is not a stable X\.Y\.Z version/);
+          assert.equal(readFileSync(nextOutput, "utf8"), "dist-tag=next\n");
+        },
+      ),
+    );
     const usage = run(process.execPath, [script], repo, cliEnv);
     assert.equal(usage.status, 1);
-    assert.match(usage.stderr, /^usage: /);
+    assert.match(usage.stderr, /^usage: /m);
+    const channel = run(process.execPath, [script, "v1.2.3", "--channel", "beta"], repo, cliEnv);
+    assert.equal(channel.status, 1);
+    assert.match(channel.stderr, /^channel "beta" is not stable or next$/m);
   });
 });
 
