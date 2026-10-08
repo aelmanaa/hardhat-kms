@@ -84,5 +84,6 @@ Runnable projects for viem, ethers and Ignition are in [examples/](../examples/R
 | [Signing prior art](contributor/research/signing-prior-art.md)   | How other signers compare, and why each check exists             |
 | [Roadmap](contributor/roadmap.md)                                | What ships in 1.0 and what comes after                           |
 | [1.0.0 launch note](contributor/launch-notes/1.0.0.md)           | The 1.0.0 announcement text, and the template for the next major |
+| [Adoption metrics](contributor/adoption-metrics.md)              | The monthly check of downloads, search and referrers             |
 | [SECURITY.md](../SECURITY.md)                                    | Reporting vulnerabilities                                        |
 | [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md)                      | Contributor Covenant 2.1 and how to report a breach              |
