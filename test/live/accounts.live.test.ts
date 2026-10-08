@@ -8,7 +8,8 @@
 // gives each account FORK_BALANCE with `anvil_setBalance`, and expects exactly that balance. With
 // HARDHAT_KMS_LIVE_NETWORK=sepolia it reads the real balance, which the matrix may be spending at
 // the same time, so it expects only a decimal number of wei. The key variables and
-// HARDHAT_KMS_LIVE_SOURCE are those of `sepolia.live.test.ts`. Key ids, URLs and signed data are redacted from every failure.
+// HARDHAT_KMS_LIVE_SOURCE are those of `sepolia.live.test.ts`. Key ids, URLs and signed data are
+// redacted from every failure.
 import assert from "node:assert/strict";
 import { after, before, describe, it, mock } from "node:test";
 

@@ -18,7 +18,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { packageName, removeScratchProject } from "./helpers/packages.ts";
+import { livePackages, packageName, removeScratchProject } from "./helpers/packages.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(here, "../..");
@@ -41,13 +41,22 @@ function liveFiles(directory: string): string[] {
   });
 }
 
-/** The specifiers of a file's static imports and exports and of its dynamic imports. */
-function specifiers(text: string): string[] {
+/**
+ * The specifiers of a file's static imports and exports and of its dynamic imports, in double
+ * quotes, single quotes or a template literal. A backstop: the `registry:` check of each live file
+ * is the proof that a registry run loaded nothing from `packages/`. Comment lines are left out,
+ * since their prose quotes paths in backticks.
+ */
+function specifiers(source: string): string[] {
+  const text = source
+    .split("\n")
+    .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+    .join("\n");
   return [
-    ...text.matchAll(/\bfrom\s*"([^"]+)"/g),
-    ...text.matchAll(/\bimport\s*\(\s*"([^"]+)"/g),
-    ...text.matchAll(/^\s*import\s*"([^"]+)"/gm),
-  ].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+    ...text.matchAll(/\bfrom\s*(["'`])([^"'`]+)\1/g),
+    ...text.matchAll(/\bimport\s*\(\s*(["'`])([^"'`]+)\1/g),
+    ...text.matchAll(/^\s*import\s*(["'`])([^"'`]+)\1/gm),
+  ].flatMap((match) => (match[2] === undefined ? [] : [match[2]]));
 }
 
 /** Writes a package with an ES module entry point. */
@@ -104,6 +113,46 @@ describe("live package loader", () => {
     }
   });
 
+  /** A specifier the scan must catch in a live file. */
+  const target = "../../packages/hardhat-kms/src/index.ts";
+
+  it("finds imports in double quotes", () => {
+    for (const text of [
+      `import x from "${target}";`,
+      `const x = await import("${target}");`,
+      `export {\n  a,\n  b,\n} from "${target}";`,
+      `import "${target}";`,
+    ]) {
+      assert.deepEqual(specifiers(text), [target], text);
+    }
+  });
+
+  it("finds imports in single quotes", () => {
+    for (const text of [
+      `import x from '${target}';`,
+      `const x = await import('${target}');`,
+      `export {\n  a,\n  b,\n} from '${target}';`,
+      `import '${target}';`,
+    ]) {
+      assert.deepEqual(specifiers(text), [target], text);
+    }
+  });
+
+  it("finds dynamic imports in template literals", () => {
+    for (const text of [
+      `const x = await import(\`${target}\`);`,
+      `const x = await import( \`${target}\` );`,
+    ]) {
+      assert.deepEqual(specifiers(text), [target], text);
+    }
+  });
+
+  it("ignores paths quoted in comment lines", () => {
+    for (const text of [`// read from \`${target}\``, ` * loaded from \`${target}\`.`]) {
+      assert.deepEqual(specifiers(text), [], text);
+    }
+  });
+
   it("imports the checkout's packages only in the loader's source mode", () => {
     for (const file of liveFiles(here)) {
       const relative = path.relative(here, file);
@@ -117,6 +166,34 @@ describe("live package loader", () => {
       );
     }
   });
+
+  // On a Node without module.registerHooks, registry mode stops before it installs anything: the
+  // registry below cannot be reached, so an install would fail with npm's error instead.
+  it(
+    "refuses registry mode before the install on a Node without module.registerHooks",
+    {
+      skip:
+        typeof nodeModule.registerHooks === "function"
+          ? "this Node has module.registerHooks"
+          : false,
+    },
+    async () => {
+      const previous = process.env.npm_config_registry;
+      process.env.npm_config_registry = "http://127.0.0.1:9/";
+      try {
+        await assert.rejects(
+          livePackages({ HARDHAT_KMS_LIVE_SOURCE: "registry:0.9.0" }),
+          /registry mode needs module\.registerHooks, from Node 22\.15/,
+        );
+      } finally {
+        if (previous === undefined) {
+          delete process.env.npm_config_registry;
+        } else {
+          process.env.npm_config_registry = previous;
+        }
+      }
+    },
+  );
 
   // `pnpm test` also runs on Node 22.13, the published floor, which has no module.registerHooks.
   const skipHook =

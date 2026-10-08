@@ -33,7 +33,7 @@ on:
         options: [verify, latest]
         default: verify
       live-run:
-        description: "The live run at the tag commit: sepolia:<proof commit>, fork or none"
+        description: "sepolia:<proof commit> (a Sepolia run at the tag commit), fork (this run runs fork mode against the npm packages) or none"
         type: string
         required: true
 

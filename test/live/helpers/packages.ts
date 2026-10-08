@@ -83,6 +83,8 @@ export function packageName(specifier: string): string | undefined {
  */
 export function removeScratchProject(directory: string): void {
   const resolved = path.resolve(directory);
+  // The temp-directory and prefix checks repeat what `created` already ensures: defence in depth,
+  // kept on purpose so that a later change to how `created` is filled cannot widen the removal.
   if (
     !created.has(resolved) ||
     path.dirname(resolved) !== realpathSync(tmpdir()) ||
@@ -180,6 +182,18 @@ function peersOf(directory: string): Set<string> {
   return peers;
 }
 
+/**
+ * Throws unless this Node has `module.registerHooks` (Node 22.15 and later), which registry mode
+ * needs for its resolve hook.
+ */
+function assertRegisterHooks(): void {
+  if (typeof nodeModule.registerHooks !== "function") {
+    throw new Error(
+      `registry mode needs module.registerHooks, from Node 22.15; this is Node ${process.versions.node}`,
+    );
+  }
+}
+
 /** Where the hook resolves to, once registered. A process registers one hook. */
 let redirected: { directory: string; workspaceModules: string[] } | undefined;
 
@@ -197,11 +211,7 @@ export function redirectPackages(directory: string): string[] {
     }
     return redirected.workspaceModules;
   }
-  if (typeof nodeModule.registerHooks !== "function") {
-    throw new Error(
-      `registry mode needs module.registerHooks, from Node 22.15; this is Node ${process.versions.node}`,
-    );
-  }
+  assertRegisterHooks();
   const workspaceModules: string[] = [];
   redirected = { directory, workspaceModules };
   const peers = peersOf(directory);
@@ -231,8 +241,8 @@ export function redirectPackages(directory: string): string[] {
 
 /**
  * Loads the three provider plugins from the source the environment selects. In registry mode it
- * installs the scratch project first, which takes a network install (or an offline one from npm's
- * cache), and removes it when the process exits.
+ * checks the Node version, then installs the scratch project, which takes a network install (or an
+ * offline one from npm's cache), and removes it when the process exits.
  *
  * @param env - The environment, normally `process.env`.
  * @returns The plugins, the project root and, in registry mode, the installed versions.
@@ -257,6 +267,7 @@ export async function livePackages(
       workspaceModules: () => [],
     };
   }
+  assertRegisterHooks();
   const { directory, versions } = installRegistryProject(source.version);
   process.once("exit", () => {
     removeScratchProject(directory);

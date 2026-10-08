@@ -10,8 +10,8 @@
 // HARDHAT_KMS_LIVE_NETWORK=sepolia, it checks that the account has no code (a delegation would
 // run on the transfer to itself), then sends one EIP-1559 transaction of 0 wei from each account
 // to itself, and signs nothing else. A receipt that does not arrive in time fails with the
-// transaction's hash and nonce. The key variables and HARDHAT_KMS_LIVE_SOURCE are those of `sepolia.live.test.ts`. Key ids,
-// URLs and signed data are redacted from every failure.
+// transaction's hash and nonce. The key variables and HARDHAT_KMS_LIVE_SOURCE are those of
+// `sepolia.live.test.ts`. Key ids, URLs and signed data are redacted from every failure.
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 
@@ -248,7 +248,8 @@ describe(
               }
 
               // An EIP-1559 transaction: on the fork a transfer of 1 wei to the sponsor, on
-              // Sepolia 0 wei to the account itself. The nonce is set, so that a timeout can name it.
+              // Sepolia 0 wei to the account itself. The nonce is set, so that a timeout can
+              // name it.
               const nonce = await publicClient.getTransactionCount({
                 address,
                 blockTag: "pending",
