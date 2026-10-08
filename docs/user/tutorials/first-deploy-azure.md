@@ -192,7 +192,7 @@ echo "$KEY_ID"
 
 Hardhat signs with the identity you signed in with. For this tutorial, that identity is you, and the Key Vault Crypto Officer role from step 2 covers it, so this step runs no command. Step 4 checks that you may sign.
 
-A real deployer should not be able to create or delete keys. The tutorial does not need one: [Optional: give a deployer a sign role](#optional-give-a-deployer-a-sign-role), just before step 8, gives a deployer identity a role on this one key.
+A real deployer should not be able to create or delete keys. The tutorial does not need one: [Optional: give a deployer a sign role](#optional-give-a-deployer-a-sign-role), just before step 8, gives a deployer identity a role on this one key, creates such an identity if you have none, and signs as it.
 
 ## 4. Add the key to the project
 
@@ -419,7 +419,7 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 ## Optional: give a deployer a sign role
 
-This section sets up a production deployer, which the tutorial does not need. Run it before step 8, while the key exists, in the shell from step 2, which has `VAULT_ID`. Step 8 removes the assignment.
+This section sets up a production deployer, which the tutorial does not need. Run it before step 8, while the key exists, in the shell from step 4, which has `VAULT_ID` and `AZURE_KEY_ID`. Step 8 removes the assignment, and the deployer identity if this section created it.
 
 It gives the deployer the built-in **Key Vault Crypto User** role on this one key, not on the vault, so it can use no other key. For a deployer that holds real funds, use the custom role described below the command instead.
 
@@ -430,6 +430,20 @@ az role definition list --name "Key Vault Crypto User" --query '[0].permissions[
 ```
 
 It prints nine data actions on keys: `read`, which the plugin needs to get the public key, `sign`, which it needs to sign, and `update`, `backup`, `encrypt`, `decrypt`, `wrap`, `unwrap` and `verify`, which it does not use. It allows no delete or purge.
+
+The deployer needs an identity of its own. A managed identity exists only on Azure resources, such as a virtual machine, so a laptop cannot sign in as one. To try the role from a laptop, create an app registration with a service principal and a client secret that expires in one day. Skip this block if you have a deployer identity already. Creating an app registration needs permission in Microsoft Entra ID, which users have unless an administrator turned it off:
+
+```sh
+TENANT_ID=$(az account show --query tenantId --output tsv)
+APP_ID=$(az ad app create --display-name hardhat-kms-tutorial-deployer --query appId --output tsv)
+SP_OBJECT_ID=$(az ad sp create --id "${APP_ID:?is empty: check that az ad app create succeeded}" --query id --output tsv)
+
+END=$(date -u -v+1d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+1 day' +%Y-%m-%dT%H:%M:%SZ)
+SP_SECRET=$(az ad app credential reset --id "$APP_ID" --display-name hardhat-kms-tutorial \
+  --end-date "$END" --query password --output tsv)
+```
+
+The secret stays in `SP_SECRET` and is not printed. The CLI warns that its output holds credentials; that is expected. The `END` line uses macOS's `date` first and GNU's second.
 
 To give a deployer identity the role on the key, assign it with the key's scope, or give each deployer its own vault and assign the role on that vault. The assignee is the object id of a user, group, service principal or managed identity; its principal type is `User`, `Group` or `ServicePrincipal`, which covers managed identities:
 
@@ -442,6 +456,15 @@ az role assignment create --role "Key Vault Crypto User" \
   --scope "$KEY_SCOPE"
 ```
 
+For the service principal created above, the object id is in `SP_OBJECT_ID` and the principal type is `ServicePrincipal`:
+
+```sh
+az role assignment create --role "Key Vault Crypto User" \
+  --assignee-object-id "${SP_OBJECT_ID:?is empty: set it with the az ad sp create command above}" \
+  --assignee-principal-type ServicePrincipal \
+  --scope "$KEY_SCOPE"
+```
+
 Two caveats for this role. Signing with only Key Vault Crypto User is not checked live yet. And it can do more than sign: `update` can disable the key or change its permitted operations, and `backup` writes a copy of the key. Whoever can restore that copy into a vault can sign as the key's address ([Back up a key](../guides/key-loss.md#back-up-a-key)). To grant only `read` and `sign`, create the [custom role](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) and pass its name to `--role` instead.
 
 To check the assignments without changing anything, list them. The list includes the roles inherited from the vault, the resource group and the subscription:
@@ -450,6 +473,34 @@ To check the assignments without changing anything, list them. The list includes
 az role assignment list --scope "$KEY_SCOPE" --include-inherited \
   --query '[].[roleDefinitionName,principalName]' --output tsv
 ```
+
+To sign as the service principal, give the plugin its credentials. The plugin tries a complete set of `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` before the Azure CLI's sign-in, as the list at the top of this page says. The function below sets them for one command only, so your own commands keep running as you:
+
+```sh
+as_deployer() {
+  env AZURE_TENANT_ID="$TENANT_ID" AZURE_CLIENT_ID="$APP_ID" AZURE_CLIENT_SECRET="$SP_SECRET" "$@"
+}
+```
+
+Check that the service principal may sign with the key:
+
+::: code-group
+
+```sh [npm]
+as_deployer npx hardhat kms accounts --check-sign
+```
+
+```sh [pnpm]
+as_deployer pnpm hardhat kms accounts --check-sign
+```
+
+```sh [Yarn]
+as_deployer yarn hardhat kms accounts --check-sign
+```
+
+:::
+
+It prints the same row as in step 4, with `matches` under `PIN` and `ok` under `SIGN`, this time signed by a service principal whose only role is Key Vault Crypto User on this key. A role assignment can take up to 10 minutes to take effect ([Troubleshoot Azure RBAC](https://learn.microsoft.com/azure/role-based-access-control/troubleshooting#symptom---role-assignment-changes-are-not-being-detected)): if `SIGN` shows `FAILED` with `Forbidden` on the `error:` line, wait and run it again. To deploy as the service principal, put `as_deployer` before step 6's command.
 
 ## 8. Clean up
 
@@ -509,6 +560,22 @@ If you gave a deployer the Key Vault Crypto User role in [Optional: give a deplo
 ```sh
 az role assignment delete --role "Key Vault Crypto User" --assignee-object-id <deployer object id> \
   --scope "${VAULT_ID:?is empty: set it with the az keyvault show command earlier in step 8}/keys/hardhat-kms-tutorial"
+```
+
+If the optional section created the `hardhat-kms-tutorial-deployer` app registration, run the commands below instead of the one above. They remove its assignment first, then delete the app registration, which deletes its service principal and its secret. In this order no assignment is left behind: an assignment whose principal is deleted stays on the key, listed as "Identity not found" ([Troubleshoot Azure RBAC](https://learn.microsoft.com/azure/role-based-access-control/troubleshooting#symptom---role-assignments-with-identity-not-found)). In a new shell, set `APP_ID` and `SP_OBJECT_ID` again first:
+
+```sh
+APP_ID=$(az ad app list --display-name hardhat-kms-tutorial-deployer --query '[0].appId' --output tsv)
+SP_OBJECT_ID=$(az ad sp show --id "${APP_ID:?is empty: no app registration is named hardhat-kms-tutorial-deployer}" --query id --output tsv)
+```
+
+```sh
+az role assignment delete --role "Key Vault Crypto User" \
+  --assignee-object-id "${SP_OBJECT_ID:?is empty: set it with the az ad sp show command earlier in step 8}" \
+  --scope "${VAULT_ID:?is empty: set it with the az keyvault show command earlier in step 8}/keys/hardhat-kms-tutorial"
+
+az ad app delete --id "${APP_ID:?is empty: set it with the az ad app list command earlier in step 8}"
+unset SP_SECRET
 ```
 
 Delete the key:
