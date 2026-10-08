@@ -412,6 +412,34 @@ Open the `Explorer:` links from the output, with your contract's address:
 
 The `From` field of each transaction is your deployer address. The signature came from Cloud KMS; Hardhat never held a private key.
 
+## Optional: inspect the roles and the key's access
+
+The tutorial does not need these commands. They read the two roles and the key's access and change nothing. Run them before step 8, in the shell from step 2, which has `GCP_LOCATION`.
+
+List what the two roles of step 3 hold:
+
+```sh
+gcloud iam roles describe roles/cloudkms.publicKeyViewer --format='value(includedPermissions)'
+gcloud iam roles describe roles/cloudkms.signer --format='value(includedPermissions)'
+```
+
+The output:
+
+```text
+cloudkms.cryptoKeyVersions.viewPublicKey;cloudkms.locations.get;cloudkms.locations.list;resourcemanager.projects.get
+cloudkms.cryptoKeyVersions.useToSign;cloudkms.locations.get;cloudkms.locations.list;resourcemanager.projects.get
+```
+
+Next to the one key permission, each role can only read the project and list the Cloud KMS locations. Neither can disable, destroy or restore a key version, nor change who has access.
+
+To check who has access to the key, without changing anything:
+
+```sh
+gcloud kms keys get-iam-policy deployer --keyring hardhat-kms-tutorial --location "$GCP_LOCATION"
+```
+
+Before any grant it prints only an `etag` line, since the key has no bindings of its own; your access comes from the project. After the grant it lists the two roles, each with the deployer as member. [Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) covers the roles in more detail.
+
 ## 8. Clean up
 
 When you are done, send the remaining Sepolia ETH back, then disable the key version and schedule its destruction. In a new shell, set `SEPOLIA_RPC_URL`, `GCP_PROJECT_ID` and `GCP_LOCATION` again first, as in steps 2 and 4: the script loads the config, which reads them.
@@ -476,34 +504,6 @@ done
 ```
 
 To keep the key instead, run only the `disable` command: a disabled version cannot sign, `gcloud kms keys versions enable` brings it back, and it still costs about $2.50 a month.
-
-## Optional: inspect the roles and the key's access
-
-The tutorial does not need these commands. They read the two roles and the key's access and change nothing. Run them while the key exists, after step 2 and before step 8, in the shell that has `GCP_LOCATION`.
-
-List what the two roles of step 3 hold:
-
-```sh
-gcloud iam roles describe roles/cloudkms.publicKeyViewer --format='value(includedPermissions)'
-gcloud iam roles describe roles/cloudkms.signer --format='value(includedPermissions)'
-```
-
-The output:
-
-```text
-cloudkms.cryptoKeyVersions.viewPublicKey;cloudkms.locations.get;cloudkms.locations.list;resourcemanager.projects.get
-cloudkms.cryptoKeyVersions.useToSign;cloudkms.locations.get;cloudkms.locations.list;resourcemanager.projects.get
-```
-
-Next to the one key permission, each role can only read the project and list the Cloud KMS locations. Neither can disable, destroy or restore a key version, nor change who has access.
-
-To check who has access to the key, without changing anything:
-
-```sh
-gcloud kms keys get-iam-policy deployer --keyring hardhat-kms-tutorial --location "$GCP_LOCATION"
-```
-
-Before any grant it prints only an `etag` line, since the key has no bindings of its own; your access comes from the project. After the grant it lists the two roles, each with the deployer as member. [Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) covers the roles in more detail.
 
 ## Next steps
 

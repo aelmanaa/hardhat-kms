@@ -131,7 +131,7 @@ The project refers to the key by its alias. Keep this shell open: step 8 uses `K
 
 Hardhat signs with the identity you signed in with. For this tutorial, that identity can be the one that created the key, so this step runs no command. Step 4 checks that it may sign.
 
-A production deployer should have only `kms:GetPublicKey`, to derive the address, and `kms:Sign`, limited to what the plugin sends. The tutorial does not need that policy: [Optional: give a deployer only the sign policy](#optional-give-a-deployer-only-the-sign-policy), after step 8, writes it, attaches it to a role and checks it.
+A production deployer should have only `kms:GetPublicKey`, to derive the address, and `kms:Sign`, limited to what the plugin sends. The tutorial does not need that policy: [Optional: give a deployer only the sign policy](#optional-give-a-deployer-only-the-sign-policy), just before step 8, writes it, attaches it to a role and checks it.
 
 ## 4. Add the key to the project
 
@@ -348,6 +348,65 @@ Open the `Explorer:` links from the output, with your contract's address:
 
 The `From` field of each transaction is your deployer address. The signature came from AWS KMS; Hardhat never held a private key.
 
+## Optional: give a deployer only the sign policy
+
+This section sets up a production deployer, which the tutorial does not need: an identity that may read the key's public key and sign with it, and do nothing else. Run it before step 8, while the key exists, in the shell from step 2, which has `KEY_ID`. In a new shell, set `KEY_ID` again first with the `describe-key` command at the start of step 8's key removal. Step 8 removes what this section adds.
+
+Write the policy with your key's ARN to a file in the project. The ARN holds your AWS account ID, so do not commit the file; step 8 deletes it:
+
+```sh
+KEY_ARN=$(aws kms describe-key --key-id "$KEY_ID" --query KeyMetadata.Arn --output text)
+POLICY=kms-sign-policy.json
+
+cat > "$POLICY" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "kms:GetPublicKey",
+      "Resource": "$KEY_ARN"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "kms:Sign",
+      "Resource": "$KEY_ARN",
+      "Condition": {
+        "StringEquals": {
+          "kms:SigningAlgorithm": "ECDSA_SHA_256",
+          "kms:MessageType": "DIGEST"
+        }
+      }
+    }
+  ]
+}
+EOF
+```
+
+To give an existing deployer role this policy, attach it. For a role named `hardhat-deployer`:
+
+```sh
+aws iam put-role-policy --role-name hardhat-deployer --policy-name hardhat-kms-tutorial \
+  --policy-document "file://$POLICY"
+```
+
+For an IAM user, use `aws iam put-user-policy --user-name <user name>` instead. If you sign in through IAM Identity Center, ask your administrator to add the policy to your permission set. Prefer a role, IAM Identity Center or `aws login` to an IAM user's access keys: AWS recommends "relying on temporary credentials instead of creating long-term credentials such as access keys" ([Security best practices in IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)).
+
+To check the policy without changing anything, AWS IAM Access Analyzer and the policy simulator accept the file:
+
+```sh
+aws accessanalyzer validate-policy --policy-type IDENTITY_POLICY \
+  --policy-document "file://$POLICY" --output json
+
+aws iam simulate-custom-policy --policy-input-list "$(cat "$POLICY")" \
+  --action-names kms:Sign --resource-arns "$KEY_ARN" \
+  --context-entries ContextKeyName=kms:SigningAlgorithm,ContextKeyValues=ECDSA_SHA_256,ContextKeyType=string \
+                    ContextKeyName=kms:MessageType,ContextKeyValues=DIGEST,ContextKeyType=string \
+  --query 'EvaluationResults[].EvalDecision' --output text
+```
+
+The first prints `"findings": []` and the second `allowed`. The same simulation with another algorithm, such as `ECDSA_SHA_384`, or another action, such as `kms:Decrypt` or `kms:ScheduleKeyDeletion`, prints `implicitDeny`. [Set up an AWS KMS key](../guides/aws-kms-setup.md#2-allow-signing-and-nothing-else) explains the conditions and the key policy.
+
 ## 8. Clean up
 
 When you are done, send the remaining Sepolia ETH back, then disable the key and schedule its deletion. In a new shell, set `SEPOLIA_RPC_URL` again first, as in step 4.
@@ -408,68 +467,9 @@ If you attached the policy to a role there, remove it from the role:
 aws iam delete-role-policy --role-name hardhat-deployer --policy-name hardhat-kms-tutorial
 ```
 
-For an IAM user, use `aws iam delete-user-policy --user-name <user name> --policy-name hardhat-kms-tutorial` instead.
+For an IAM user, use `aws iam delete-user-policy --user-name <user name> --policy-name hardhat-kms-tutorial` instead. If your administrator added the policy to a permission set, ask them to remove it.
 
 To keep the key instead, run only the `disable-key` command: a disabled key cannot sign, `aws kms enable-key` brings it back, and it still costs $1 a month.
-
-## Optional: give a deployer only the sign policy
-
-This section sets up a production deployer, which the tutorial does not need: an identity that may read the key's public key and sign with it, and do nothing else. Run it while the key exists, after step 2 and before step 8, in the shell that has `KEY_ID`. Step 8 removes what it adds.
-
-Write the policy with your key's ARN to a file in the project. The ARN holds your AWS account ID, so do not commit the file; step 8 deletes it:
-
-```sh
-KEY_ARN=$(aws kms describe-key --key-id "$KEY_ID" --query KeyMetadata.Arn --output text)
-POLICY=kms-sign-policy.json
-
-cat > "$POLICY" <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": "kms:GetPublicKey",
-      "Resource": "$KEY_ARN"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "kms:Sign",
-      "Resource": "$KEY_ARN",
-      "Condition": {
-        "StringEquals": {
-          "kms:SigningAlgorithm": "ECDSA_SHA_256",
-          "kms:MessageType": "DIGEST"
-        }
-      }
-    }
-  ]
-}
-EOF
-```
-
-To give an existing deployer role this policy, attach it. For a role named `hardhat-deployer`:
-
-```sh
-aws iam put-role-policy --role-name hardhat-deployer --policy-name hardhat-kms-tutorial \
-  --policy-document "file://$POLICY"
-```
-
-For an IAM user, use `aws iam put-user-policy --user-name <user name>` instead. If you sign in through IAM Identity Center, ask your administrator to add the policy to your permission set. Prefer a role, IAM Identity Center or `aws login` to an IAM user's access keys: AWS recommends "relying on temporary credentials instead of creating long-term credentials such as access keys" ([Security best practices in IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)).
-
-To check the policy without changing anything, AWS IAM Access Analyzer and the policy simulator accept the file:
-
-```sh
-aws accessanalyzer validate-policy --policy-type IDENTITY_POLICY \
-  --policy-document "file://$POLICY" --output json
-
-aws iam simulate-custom-policy --policy-input-list "$(cat "$POLICY")" \
-  --action-names kms:Sign --resource-arns "$KEY_ARN" \
-  --context-entries ContextKeyName=kms:SigningAlgorithm,ContextKeyValues=ECDSA_SHA_256,ContextKeyType=string \
-                    ContextKeyName=kms:MessageType,ContextKeyValues=DIGEST,ContextKeyType=string \
-  --query 'EvaluationResults[].EvalDecision' --output text
-```
-
-The first prints `"findings": []` and the second `allowed`. The same simulation with another algorithm, such as `ECDSA_SHA_384`, or another action, such as `kms:Decrypt` or `kms:ScheduleKeyDeletion`, prints `implicitDeny`. [Set up an AWS KMS key](../guides/aws-kms-setup.md#2-allow-signing-and-nothing-else) explains the conditions and the key policy.
 
 ## Next steps
 

@@ -192,7 +192,7 @@ echo "$KEY_ID"
 
 Hardhat signs with the identity you signed in with. For this tutorial, that identity is you, and the Key Vault Crypto Officer role from step 2 covers it, so this step runs no command. Step 4 checks that you may sign.
 
-A real deployer should not be able to create or delete keys. The tutorial does not need one: [Optional: give a deployer a sign role](#optional-give-a-deployer-a-sign-role), after step 8, gives a deployer identity a role on this one key.
+A real deployer should not be able to create or delete keys. The tutorial does not need one: [Optional: give a deployer a sign role](#optional-give-a-deployer-a-sign-role), just before step 8, gives a deployer identity a role on this one key.
 
 ## 4. Add the key to the project
 
@@ -417,6 +417,40 @@ Open the `Explorer:` links from the output, with your contract's address:
 
 The `From` field of each transaction is your deployer address. The signature came from Azure Key Vault; Hardhat never held a private key.
 
+## Optional: give a deployer a sign role
+
+This section sets up a production deployer, which the tutorial does not need. Run it before step 8, while the key exists, in the shell from step 2, which has `VAULT_ID`. Step 8 removes the assignment.
+
+It gives the deployer the built-in **Key Vault Crypto User** role on this one key, not on the vault, so it can use no other key. For a deployer that holds real funds, use the custom role described below the command instead.
+
+Print what the role allows:
+
+```sh
+az role definition list --name "Key Vault Crypto User" --query '[0].permissions[0].dataActions' --output tsv
+```
+
+It prints nine data actions on keys: `read`, which the plugin needs to get the public key, `sign`, which it needs to sign, and `update`, `backup`, `encrypt`, `decrypt`, `wrap`, `unwrap` and `verify`, which it does not use. It allows no delete or purge.
+
+To give a deployer identity the role on the key, assign it with the key's scope, or give each deployer its own vault and assign the role on that vault. The assignee is the object id of a user, group, service principal or managed identity; its principal type is `User`, `Group` or `ServicePrincipal`, which covers managed identities:
+
+```sh
+KEY_SCOPE="${VAULT_ID:?is empty: set it with the az keyvault show command above}/keys/hardhat-kms-tutorial"
+
+az role assignment create --role "Key Vault Crypto User" \
+  --assignee-object-id <deployer object id> \
+  --assignee-principal-type <principal type> \
+  --scope "$KEY_SCOPE"
+```
+
+Two caveats for this role. Signing with only Key Vault Crypto User is not checked live yet. And it can do more than sign: `update` can disable the key or change its permitted operations, and `backup` writes a copy of the key. Whoever can restore that copy into a vault can sign as the key's address ([Back up a key](../guides/key-loss.md#back-up-a-key)). To grant only `read` and `sign`, create the [custom role](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) and pass its name to `--role` instead.
+
+To check the assignments without changing anything, list them. The list includes the roles inherited from the vault, the resource group and the subscription:
+
+```sh
+az role assignment list --scope "$KEY_SCOPE" --include-inherited \
+  --query '[].[roleDefinitionName,principalName]' --output tsv
+```
+
 ## 8. Clean up
 
 When you are done, send the remaining Sepolia ETH back, then disable the key, delete it, and delete the vault. In a new shell, set `SEPOLIA_RPC_URL` and `AZURE_KEY_ID` again first, as in step 4: the script loads the config, which reads them.
@@ -545,40 +579,6 @@ az keyvault purge --name "${VAULT:?set VAULT to the name step 2 printed}"
 ```
 
 If the vault has purge protection, `az keyvault purge` is refused, and the vault's name stays taken until the retention period ends.
-
-## Optional: give a deployer a sign role
-
-This section sets up a production deployer, which the tutorial does not need. Run it while the key exists, after step 2 and before step 8, in the shell that has `VAULT_ID`. Step 8 removes the assignment.
-
-It gives the deployer the built-in **Key Vault Crypto User** role on this one key, not on the vault, so it can use no other key. For a deployer that holds real funds, use the custom role described below the command instead.
-
-Print what the role allows:
-
-```sh
-az role definition list --name "Key Vault Crypto User" --query '[0].permissions[0].dataActions' --output tsv
-```
-
-It prints nine data actions on keys: `read`, which the plugin needs to get the public key, `sign`, which it needs to sign, and `update`, `backup`, `encrypt`, `decrypt`, `wrap`, `unwrap` and `verify`, which it does not use. It allows no delete or purge.
-
-To give a deployer identity the role on the key, assign it with the key's scope, or give each deployer its own vault and assign the role on that vault. The assignee is the object id of a user, group, service principal or managed identity; its principal type is `User`, `Group` or `ServicePrincipal`, which covers managed identities:
-
-```sh
-KEY_SCOPE="${VAULT_ID:?is empty: set it with the az keyvault show command above}/keys/hardhat-kms-tutorial"
-
-az role assignment create --role "Key Vault Crypto User" \
-  --assignee-object-id <deployer object id> \
-  --assignee-principal-type <principal type> \
-  --scope "$KEY_SCOPE"
-```
-
-Two caveats for this role. Signing with only Key Vault Crypto User is not checked live yet. And it can do more than sign: `update` can disable the key or change its permitted operations, and `backup` writes a copy of the key. Whoever can restore that copy into a vault can sign as the key's address ([Back up a key](../guides/key-loss.md#back-up-a-key)). To grant only `read` and `sign`, create the [custom role](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) and pass its name to `--role` instead.
-
-To check the assignments without changing anything, list them. The list includes the roles inherited from the vault, the resource group and the subscription:
-
-```sh
-az role assignment list --scope "$KEY_SCOPE" --include-inherited \
-  --query '[].[roleDefinitionName,principalName]' --output tsv
-```
 
 ## Next steps
 

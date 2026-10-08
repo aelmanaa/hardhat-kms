@@ -12,12 +12,12 @@ Audience: Users and library authors who need a viem account object for a KMS key
 | You want to                                                                        | Use                                                                                    |
 | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | Send transactions or deploy from a KMS key with viem                               | `connection.viem.getWalletClient(address)` from hardhat-viem                           |
-| Send transactions or deploy from a KMS key with ethers                             | `ethers.getSigner(address)` from hardhat-ethers                                        |
+| Send transactions or deploy from a KMS key with ethers                             | `connection.ethers.getSigner(address)` from hardhat-ethers                             |
 | Deploy an Ignition module                                                          | `--default-sender` ([Deploy with Hardhat Ignition](../guides/deploy-with-ignition.md)) |
 | Sign an EIP-7702 authorization, own a smart account, or sign with no wallet client | [`connection.kms.getAccount(address)`](#connectionkmsgetaccount)                       |
 | Sign a bare 32-byte digest, as a Coinbase smart account's owner does               | `connection.kms.getAccount(address, { rawSign: true })` ([Options](#options))          |
 
-The first three send through Hardhat, and the plugin fills, signs and broadcasts each transaction. An account from `getAccount` can send too, with a viem client whose transport is `custom(connection.provider)`. This script sends 0.001 ETH from the KMS key and waits for the receipt:
+The first three send through Hardhat: the plugin fills, signs and broadcasts each transaction. An account from `getAccount` can send too, as long as its viem client's transport is `custom(connection.provider)`, which lets the plugin order the account's sends with its own sends from the same key. This script sends 0.001 ETH and waits for the receipt:
 
 ```ts
 import "hardhat-kms";
@@ -29,17 +29,22 @@ const connection = await network.create("sepolia");
 const account = await connection.kms.getAccount("0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826");
 const transport = custom(connection.provider);
 
-// viem fills the transaction, the KMS key signs it, and the raw transaction goes through the
-// connection, so the plugin orders it with its own sends from the same key.
-const hash = await createWalletClient({ account, chain: sepolia, transport }).sendTransaction({
-  to: "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB",
-  value: parseEther("0.001"),
-});
-const receipt = await createPublicClient({ chain: sepolia, transport }).waitForTransactionReceipt({
-  hash,
-});
-console.log(hash, receipt.status);
-await connection.close();
+try {
+  // viem fills the transaction, the KMS key signs it, and the raw transaction goes through the
+  // connection, so the plugin orders it with its own sends from the same key.
+  const hash = await createWalletClient({ account, chain: sepolia, transport }).sendTransaction({
+    to: "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB",
+    value: parseEther("0.001"),
+  });
+  const receipt = await createPublicClient({ chain: sepolia, transport }).waitForTransactionReceipt(
+    {
+      hash,
+    },
+  );
+  console.log(hash, receipt.status);
+} finally {
+  await connection.close();
+}
 ```
 
 [Sending](#sending) gives the rules for these sends, and why the transport matters.

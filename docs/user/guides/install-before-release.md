@@ -69,13 +69,13 @@ The command names `hardhat` because the plugin packages list it as a peer depend
 
 Find the message in the table, then follow the section for your package manager:
 
-| Package manager     | What you see                                                    | Fix                                                                                                             |
-| ------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| npm 11 and 12       | A warning, or blocked install scripts, for `esbuild` and others | None: the plugin needs none of these scripts ([npm](#npm)).                                                     |
-| pnpm 11 and later   | `ERR_PNPM_IGNORED_BUILDS`                                       | List the packages it names under `allowBuilds` with the value `false`, then run `pnpm install` ([pnpm](#pnpm)). |
-| Yarn 4              | `HHE22` from `yarn hardhat`                                     | Set `nodeLinker: node-modules` ([Yarn](#yarn)).                                                                 |
-| Yarn 4.15 and later | `YN0016` on the day of a release                                | Approve the plugin packages with `npmPreapprovedPackages` ([Yarn](#yarn)).                                      |
-| Yarn 4.14 and later | `YN0004` for `esbuild` and `protobufjs`                         | None: the plugin needs neither script ([Yarn](#yarn)).                                                          |
+| Package manager     | What you see                                                    | Fix                                                                                                                                      |
+| ------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| npm 11 and 12       | A warning, or blocked install scripts, for `esbuild` and others | None: the plugin needs none of these scripts ([npm](#npm)).                                                                              |
+| pnpm 11 and later   | `ERR_PNPM_IGNORED_BUILDS`                                       | List the packages it names under `allowBuilds` in `pnpm-workspace.yaml` with the value `false`, then run `pnpm install` ([pnpm](#pnpm)). |
+| Yarn 4              | `HHE22` from `yarn hardhat`                                     | Set `nodeLinker: node-modules` in `.yarnrc.yml`, then run `yarn install` again ([Yarn](#yarn)).                                          |
+| Yarn 4.15 and later | `YN0016` on the day of a release                                | Approve the plugin packages with `npmPreapprovedPackages` in `.yarnrc.yml`; delete the line after a day ([Yarn](#yarn)).                 |
+| Yarn 4.14 and later | `YN0004` for `esbuild` and `protobufjs`                         | None: the plugin needs neither script ([Yarn](#yarn)).                                                                                   |
 
 ### npm
 
