@@ -5,7 +5,7 @@ description: "Where hardhat-kms gets cloud credentials: the sources AWS, Google 
 
 # Credentials reference
 
-Audience: Users who need to know which credentials sign, and which variables and files change them. For an overview by environment (a laptop, CI, a server), read [How the plugin reaches your cloud](../explanation/cloud-access.md) first.
+Audience: Users who need to know which credentials sign, and which variables and files change them. For an overview by environment (a laptop, CI, a server), read [How the plugin reaches your cloud](../explanation/cloud-access.md) first. To set up a GitHub Actions job that signs over OIDC, see [Sign from GitHub Actions with OIDC](../guides/github-actions-oidc.md).
 
 No secrets live in the Hardhat config. On AWS and Google Cloud the plugin passes no credentials, so the cloud's SDK walks its own chain of sources and uses the first one that is configured. On Azure the plugin builds the chain listed below. The lists give the order in which sources are tried.
 

@@ -9,6 +9,7 @@ Each page except the generated API reference opens with an `Audience:` line that
 - I need a key and want a first deploy: First deploy on Sepolia with [AWS KMS](user/tutorials/first-deploy-aws.md), [Google Cloud KMS](user/tutorials/first-deploy-gcp.md) or [Azure Key Vault](user/tutorials/first-deploy-azure.md).
 - I already have a secp256k1 key in a KMS: start at step 2 of the setup guide for [AWS KMS](user/guides/aws-kms-setup.md#2-allow-signing-and-nothing-else), [Google Cloud KMS](user/guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) or [Azure Key Vault](user/guides/azure-key-vault-setup.md#2-allow-get-and-sign-and-nothing-else).
 - I want to deploy my contracts: [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md).
+- I want CI to sign with no stored credentials: [Sign from GitHub Actions with OIDC](user/guides/github-actions-oidc.md).
 - A command or script failed: [Errors](user/reference/errors.md) has every error with its cause and fix. Search the page for a fixed part of the message.
 - I sent a transaction and do not know what happened: [After an uncertain send](user/guides/uncertain-sends.md).
 - Who signed with this key, and when: [Find who signed with a key](user/guides/who-signed.md).
@@ -27,40 +28,42 @@ Each page except the generated API reference opens with an `Audience:` line that
 
 ## Using the plugin
 
-| Page                                                                     | Kind        |
-| ------------------------------------------------------------------------ | ----------- |
-| [Configuration](user/reference/configuration.md)                         | Reference   |
-| [Credentials](user/reference/credentials.md)                             | Reference   |
-| [RPC methods](user/reference/rpc-methods.md)                             | Reference   |
-| [Tasks](user/reference/tasks.md)                                         | Reference   |
-| [Errors](user/reference/errors.md)                                       | Reference   |
-| [Library accounts](user/reference/library-accounts.md)                   | Reference   |
-| [Support](user/reference/support.md)                                     | Reference   |
-| [API reference](user/reference/api/README.md)                            | Reference   |
-| [Install hardhat-kms](user/guides/install-before-release.md)             | How-to      |
-| [Set up an AWS KMS key](user/guides/aws-kms-setup.md)                    | How-to      |
-| [Set up an Azure Key Vault key](user/guides/azure-key-vault-setup.md)    | How-to      |
-| [Set up a Google Cloud KMS key](user/guides/gcp-kms-setup.md)            | How-to      |
-| [Prevent and recover from losing a key](user/guides/key-loss.md)         | How-to      |
-| [Rotate a key and pin its address](user/guides/key-rotation.md)          | How-to      |
-| [Use several keys across networks](user/guides/multiple-keys.md)         | How-to      |
-| [Debug output](user/guides/debug-output.md)                              | How-to      |
-| [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md)      | How-to      |
-| [After an uncertain send](user/guides/uncertain-sends.md)                | How-to      |
-| [Return the funds from a KMS address](user/guides/return-funds.md)       | How-to      |
-| [Find who signed with a key](user/guides/who-signed.md)                  | How-to      |
-| [Migrate from Foundry](user/guides/migrate-from-foundry.md)              | How-to      |
-| [Verify a release](user/guides/verify-a-release.md)                      | How-to      |
-| [Comparison with Foundry](user/explanation/foundry-comparison.md)        | Explanation |
-| [Compared with other KMS signers](user/explanation/other-kms-signers.md) | Explanation |
-| [A KMS key or a private key in .env](user/explanation/kms-or-env-key.md) | Explanation |
-| [A KMS key or a Ledger](user/explanation/kms-or-ledger.md)               | Explanation |
-| [How hardhat-kms works](user/explanation/how-it-works.md)                | Explanation |
-| [How the plugin reaches your cloud](user/explanation/cloud-access.md)    | Explanation |
-| [Security model](user/explanation/security-model.md)                     | Explanation |
-| [Release channels and versioning](user/explanation/versioning.md)        | Explanation |
+| Page                                                                         | Kind        |
+| ---------------------------------------------------------------------------- | ----------- |
+| [Configuration](user/reference/configuration.md)                             | Reference   |
+| [Credentials](user/reference/credentials.md)                                 | Reference   |
+| [RPC methods](user/reference/rpc-methods.md)                                 | Reference   |
+| [Tasks](user/reference/tasks.md)                                             | Reference   |
+| [Errors](user/reference/errors.md)                                           | Reference   |
+| [Library accounts](user/reference/library-accounts.md)                       | Reference   |
+| [Support](user/reference/support.md)                                         | Reference   |
+| [API reference](user/reference/api/README.md)                                | Reference   |
+| [Install hardhat-kms](user/guides/install-before-release.md)                 | How-to      |
+| [Set up an AWS KMS key](user/guides/aws-kms-setup.md)                        | How-to      |
+| [Set up an Azure Key Vault key](user/guides/azure-key-vault-setup.md)        | How-to      |
+| [Set up a Google Cloud KMS key](user/guides/gcp-kms-setup.md)                | How-to      |
+| [Prevent and recover from losing a key](user/guides/key-loss.md)             | How-to      |
+| [Rotate a key and pin its address](user/guides/key-rotation.md)              | How-to      |
+| [Use several keys across networks](user/guides/multiple-keys.md)             | How-to      |
+| [Sign from GitHub Actions with OIDC](user/guides/github-actions-oidc.md)     | How-to      |
+| [Debug output](user/guides/debug-output.md)                                  | How-to      |
+| [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md)          | How-to      |
+| [After an uncertain send](user/guides/uncertain-sends.md)                    | How-to      |
+| [Return the funds from a KMS address](user/guides/return-funds.md)           | How-to      |
+| [Find who signed with a key](user/guides/who-signed.md)                      | How-to      |
+| [Migrate from Foundry](user/guides/migrate-from-foundry.md)                  | How-to      |
+| [Use a KMS key with Alchemy Wallet APIs](user/guides/alchemy-wallet-apis.md) | How-to      |
+| [Verify a release](user/guides/verify-a-release.md)                          | How-to      |
+| [Comparison with Foundry](user/explanation/foundry-comparison.md)            | Explanation |
+| [Compared with other KMS signers](user/explanation/other-kms-signers.md)     | Explanation |
+| [A KMS key or a private key in .env](user/explanation/kms-or-env-key.md)     | Explanation |
+| [A KMS key or a Ledger](user/explanation/kms-or-ledger.md)                   | Explanation |
+| [How hardhat-kms works](user/explanation/how-it-works.md)                    | Explanation |
+| [How the plugin reaches your cloud](user/explanation/cloud-access.md)        | Explanation |
+| [Security model](user/explanation/security-model.md)                         | Explanation |
+| [Release channels and versioning](user/explanation/versioning.md)            | Explanation |
 
-Runnable projects for viem, ethers and Ignition are in [examples/](../examples/README.md). The remaining guides are listed under [Planned pages](contributor/documentation.md#planned-pages).
+Runnable projects for viem, ethers and Ignition are in [examples/](../examples/README.md). Pages not written yet are listed under [Planned pages](contributor/documentation.md#planned-pages).
 
 ## Contributing
 

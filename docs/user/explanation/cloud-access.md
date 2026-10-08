@@ -75,7 +75,7 @@ flowchart LR
 
 ### CI with OIDC
 
-The CI job proves its identity to the cloud with a short-lived OpenID Connect (OIDC) token from the CI system, and gets short-lived credentials back. No long-lived secret is stored. These are the GitHub Actions steps; other CI systems have equivalents.
+The CI job proves its identity to the cloud with a short-lived OpenID Connect (OIDC) token from the CI system, and gets short-lived credentials back. No long-lived secret is stored. These are the GitHub Actions steps; other CI systems have equivalents. [Sign from GitHub Actions with OIDC](../guides/github-actions-oidc.md) sets up the trust in each cloud and the workflow.
 
 ```mermaid
 flowchart LR
@@ -151,6 +151,7 @@ The plugin passes no credentials to the AWS and Google Cloud SDKs, so their list
 ## Read next
 
 - [Credentials reference](../reference/credentials.md): every variable each source reads.
+- [Sign from GitHub Actions with OIDC](../guides/github-actions-oidc.md): the CI with OIDC setup, step by step.
 - The setup guides, which say which identity to grant access: [AWS KMS](../guides/aws-kms-setup.md), [Google Cloud KMS](../guides/gcp-kms-setup.md), [Azure Key Vault](../guides/azure-key-vault-setup.md).
 - [Comparison with Foundry](foundry-comparison.md#credentials): how Foundry finds credentials on each cloud.
 - Optional, for contributors: [Cloud access and credentials](../../contributor/architecture.md#cloud-access-and-credentials) in the architecture docs, with the code and SDK lines behind each step.
