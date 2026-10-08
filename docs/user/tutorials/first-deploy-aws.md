@@ -383,10 +383,10 @@ cat > "$POLICY" <<EOF
 EOF
 ```
 
-If you have no deployer role, create one named `hardhat-deployer`. Its trust policy lets identities of your own account assume the role when their own permissions allow `sts:AssumeRole` on it, as an administrator's do. Like the sign policy, the trust policy holds your account ID, so step 8 deletes its file too:
+If you have no deployer role, create one named `hardhat-deployer`. Its trust policy names only the identity that runs these commands, so no one else in the account can assume the role. Like the sign policy, the trust policy holds your account ID, so step 8 deletes its file too:
 
 ```sh
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+CALLER_ARN=$(aws sts get-caller-identity --query Arn --output text)
 TRUST=kms-deployer-trust.json
 
 cat > "$TRUST" <<EOF
@@ -395,7 +395,7 @@ cat > "$TRUST" <<EOF
   "Statement": [
     {
       "Effect": "Allow",
-      "Principal": { "AWS": "arn:aws:iam::$ACCOUNT_ID:root" },
+      "Principal": { "AWS": "$CALLER_ARN" },
       "Action": "sts:AssumeRole"
     }
   ]
@@ -406,6 +406,8 @@ aws iam create-role --role-name hardhat-deployer \
   --assume-role-policy-document "file://$TRUST" \
   --max-session-duration 3600 --output none
 ```
+
+`CALLER_ARN` is your IAM user, or your role session when you signed in by assuming another role (`arn:aws:sts::<account ID>:assumed-role/<role>/<session>`). AWS accepts both as principals ([Principal element](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html)). For a sign-in through IAM Identity Center, AWS asks resource policies to name the account and to limit it with a condition on your permission set's role instead ([IAM Identity Center principals](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html#principal-identity-users)). If you sign in as the account's root user, use an IAM identity instead: only an IAM user or role can call `AssumeRole` ([Compare AWS STS credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_sts-comparison.html)).
 
 A new role has no permissions. Attach the policy to give it the two the plugin needs. For the role named `hardhat-deployer`, whether you created it above or had it already:
 
@@ -431,33 +433,34 @@ aws iam simulate-custom-policy --policy-input-list "$(cat "$POLICY")" \
 
 The first prints `"findings": []` and the second `allowed`. The same simulation with another algorithm, such as `ECDSA_SHA_384`, or another action, such as `kms:Decrypt` or `kms:ScheduleKeyDeletion`, prints `implicitDeny`. [Set up an AWS KMS key](../guides/aws-kms-setup.md#2-allow-signing-and-nothing-else) explains the conditions and the key policy.
 
-The simulator only evaluates the policy. To sign as the role, assume it. `sts assume-role` returns credentials that expire after one hour; the command keeps them in shell variables and prints nothing. A role you just created can take a few seconds before it can be assumed: if the command fails with `AccessDenied`, wait 10 seconds and run it again:
+The simulator only evaluates the policy. To sign as the role, assume it. `sts assume-role` returns credentials that expire after one hour; the commands keep them in shell variables and print nothing. A role you just created can take a few seconds before it can be assumed: if the command fails with `AccessDenied`, wait 10 seconds and run it again:
 
 ```sh
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
 read -r ROLE_KEY_ID ROLE_SECRET ROLE_TOKEN <<< "$(aws sts assume-role \
   --role-arn "arn:aws:iam::$ACCOUNT_ID:role/hardhat-deployer" \
   --role-session-name hardhat-kms-tutorial \
   --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)"
 ```
 
-In a new shell, set `ACCOUNT_ID` again first with the `get-caller-identity` command above.
-
-The function below runs one command with the role's credentials, so your own commands keep running as you. It removes `AWS_PROFILE` for that command: with `AWS_PROFILE` set, the AWS SDK that the plugin uses ignores access keys in the environment and signs as the profile ([Credentials](../reference/credentials.md#aws)). Since the profile is gone, the function also passes your region in `AWS_REGION`:
+The function below runs one command with the role's credentials, so your own commands keep running as you. It removes `AWS_PROFILE` for that command: with `AWS_PROFILE` set, the AWS SDK that the plugin uses ignores access keys in the environment and signs as the profile ([Credentials](../reference/credentials.md#aws)). Since the profile is gone, the function also passes your region in `AWS_REGION`. It runs in a subshell, so the credentials never reach your own shell, and it stops with `is empty` if a role variable is missing:
 
 ```sh
-as_deployer() {
-  env -u AWS_PROFILE \
-    AWS_ACCESS_KEY_ID="$ROLE_KEY_ID" \
-    AWS_SECRET_ACCESS_KEY="$ROLE_SECRET" \
-    AWS_SESSION_TOKEN="$ROLE_TOKEN" \
-    AWS_REGION="${AWS_REGION:-$(aws configure get region)}" \
-    "$@"
-}
+as_deployer() (
+  region="${AWS_REGION:-$(aws configure get region)}"
+  unset AWS_PROFILE
+  export AWS_ACCESS_KEY_ID="${ROLE_KEY_ID:?is empty: run the aws sts assume-role command above}"
+  export AWS_SECRET_ACCESS_KEY="${ROLE_SECRET:?is empty: run the aws sts assume-role command above}"
+  export AWS_SESSION_TOKEN="${ROLE_TOKEN:?is empty: run the aws sts assume-role command above}"
+  export AWS_REGION="$region"
+  "$@"
+)
 
 as_deployer aws sts get-caller-identity --query Arn --output text
 ```
 
-It prints `arn:aws:sts::<account ID>:assumed-role/hardhat-deployer/hardhat-kms-tutorial`: the role, not you. If it prints your own identity, the role's variables are empty because `assume-role` failed: run it again before you go on. Now check that the role may sign with the key:
+It prints `arn:aws:sts::<account ID>:assumed-role/hardhat-deployer/hardhat-kms-tutorial`: the role, not you. If it prints another identity, or stops with `is empty`, `assume-role` failed: run it again before you go on. Now check that the role may sign with the key:
 
 ::: code-group
 

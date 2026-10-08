@@ -442,7 +442,7 @@ Before any grant it prints only an `etag` line, since the key has no bindings of
 
 ## Optional: give a deployer only the sign roles
 
-This section sets up a production deployer, which the tutorial does not need: a service account that holds the two roles of step 3 on this key and nothing else, and that the plugin signs as. Run it before step 8, while the key version is enabled, in the shell from step 3, which has `GCP_PROJECT_ID`, `GCP_LOCATION` and `DEPLOYER`. It assumes that `DEPLOYER` is your own account, `user:<email>`. Step 8 removes the service account and its grants.
+This section sets up a production deployer, which the tutorial does not need: a service account that holds the two roles of step 3 on this key and nothing else, and that the plugin signs as. Run it before step 8, while the key version is enabled, in the shell from step 3, which has `GCP_PROJECT_ID`, `GCP_LOCATION` and `DEPLOYER`. It assumes that `DEPLOYER` is your own account, `user:<email>`. Creating, granting and deleting the service account needs Service Account Admin (`roles/iam.serviceAccountAdmin`) on the project, which project Owner includes and Cloud KMS Admin does not. Step 8 removes the service account and its grants.
 
 Create the service account. A new service account has no roles, in the project or anywhere else:
 
@@ -464,6 +464,12 @@ for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
     --member "serviceAccount:$SA_EMAIL" \
     --role "$role"
 done
+```
+
+Impersonation goes through the IAM Service Account Credentials API, which a project may not have turned on ([Use service account impersonation](https://docs.cloud.google.com/docs/authentication/use-service-account-impersonation)). Turn it on; doing so again does no harm:
+
+```sh
+gcloud services enable iamcredentials.googleapis.com
 ```
 
 To sign as the service account without a key file, you impersonate it: your account asks Google for short-lived tokens of the service account. That needs `iam.serviceAccounts.getAccessToken`, from the Service Account Token Creator role, `roles/iam.serviceAccountTokenCreator`. Google says to grant it "even when you are working in a project that you created" ([Use service account impersonation](https://docs.cloud.google.com/docs/authentication/use-service-account-impersonation)), so do not count on project Owner for it. Grant it to your account on this service account only, not on the project:
@@ -488,7 +494,7 @@ curl -s -d "access_token=$(gcloud auth application-default print-access-token \
   https://www.googleapis.com/oauth2/v1/tokeninfo
 ```
 
-The `email` field is the service account's email. If the command fails with a `403` from `iamcredentials.googleapis.com`, the Token Creator grant has not taken effect yet: like the key's roles, it typically takes 2 minutes and can take 7 or longer. Wait and run it again.
+The `email` field is the service account's email. If the command fails with a `403` from `iamcredentials.googleapis.com` that says the API is disabled, run the `gcloud services enable` command above. Any other `403` from it means the Token Creator grant has not taken effect yet: like the key's roles, it typically takes 2 minutes and can take 7 or longer. Wait and run it again.
 
 Check that the service account may sign with the key:
 
@@ -508,7 +514,7 @@ yarn hardhat kms accounts --check-sign
 
 :::
 
-It prints the same row as in step 4, with `matches` under `PIN` and `ok` under `SIGN`, this time signed by a service account that holds only the two roles on this key. Until step 8 restores your credentials, every Hardhat command signs as the service account, so step 6's command deploys as it too. A `permission denied (PERMISSION_DENIED)` soon after the grant means the roles have not taken effect yet: wait and run it again.
+It prints the same row as in step 4, with `matches` under `PIN` and `ok` under `SIGN`, this time signed by a service account that holds only the two roles on this key. Until step 8 restores your credentials, every program that uses your Application Default Credentials, Hardhat included, runs as the service account, so step 6's command deploys as it too. A `permission denied (PERMISSION_DENIED)` soon after the grant means the roles have not taken effect yet: wait and run it again.
 
 ## 8. Clean up
 
@@ -573,7 +579,7 @@ for role in roles/cloudkms.publicKeyViewer roles/cloudkms.signer; do
 done
 ```
 
-If you followed [Optional: give a deployer only the sign roles](#optional-give-a-deployer-only-the-sign-roles), remove the service account in this order: its two roles on the key, your Token Creator grant, then the service account itself. A deleted service account's bindings are not removed with it: they stay in the key's policy as `deleted:serviceAccount:` members for up to 60 days ([Delete and undelete service accounts](https://docs.cloud.google.com/iam/docs/service-accounts-delete-undelete)). In a new shell, set `SA_EMAIL` again first:
+If you followed [Optional: give a deployer only the sign roles](#optional-give-a-deployer-only-the-sign-roles), remove the service account in this order: its two roles on the key, your Token Creator grant, then the service account itself. A deleted service account's bindings are not removed with it: they stay in the key's policy as `deleted:serviceAccount:` members for up to 60 days ([Delete and undelete service accounts](https://docs.cloud.google.com/iam/docs/service-accounts-delete-undelete)). The last command, `gcloud iam service-accounts delete`, asks you to confirm; answer `y`. In a new shell, set `SA_EMAIL` again first:
 
 ```sh
 SA_EMAIL="hardhat-kms-deployer@$GCP_PROJECT_ID.iam.gserviceaccount.com"
@@ -595,7 +601,7 @@ gcloud iam service-accounts remove-iam-policy-binding "$SA_EMAIL" \
 gcloud iam service-accounts delete "$SA_EMAIL"
 ```
 
-`gcloud iam service-accounts delete` asks you to confirm; answer `y`. Then sign your Application Default Credentials in as yourself again, since they still point at the deleted service account, and choose your own account in the browser:
+Then sign your Application Default Credentials in as yourself again, since they still point at the deleted service account, and choose your own account in the browser:
 
 ```sh
 gcloud auth application-default login

@@ -477,10 +477,15 @@ az role assignment list --scope "$KEY_SCOPE" --include-inherited \
 To sign as the service principal, give the plugin its credentials. The plugin tries a complete set of `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` before the Azure CLI's sign-in, as the list at the top of this page says. The function below sets them for one command only, so your own commands keep running as you:
 
 ```sh
-as_deployer() {
-  env AZURE_TENANT_ID="$TENANT_ID" AZURE_CLIENT_ID="$APP_ID" AZURE_CLIENT_SECRET="$SP_SECRET" "$@"
-}
+as_deployer() (
+  export AZURE_TENANT_ID="${TENANT_ID:?is empty: set it with the az account show command above}"
+  export AZURE_CLIENT_ID="${APP_ID:?is empty: set it with the az ad app create command above}"
+  export AZURE_CLIENT_SECRET="${SP_SECRET:?is empty: run the az ad app credential reset command above}"
+  "$@"
+)
 ```
+
+If a variable is empty, the function stops and names the command to run. Without the guard, the plugin would sign as you, through the Azure CLI, and the check below would pass for the wrong identity. The function runs in a subshell, so the secret never reaches your own shell. A new shell has lost the secret, and Azure cannot show it again. Set `TENANT_ID` with `az account show` and `APP_ID` with the `az ad app list` command of step 8, then run the `az ad app credential reset` command above, which replaces the old secret with a new one.
 
 Check that the service principal may sign with the key:
 
@@ -555,14 +560,14 @@ az keyvault key set-attributes --id "$AZURE_KEY_ID" --enabled false
 
 To keep the key instead, run only the disable step, and stop here. A disabled key costs nothing, because nothing can use it.
 
-If you gave a deployer the Key Vault Crypto User role in [Optional: give a deployer a sign role](#optional-give-a-deployer-a-sign-role), remove that assignment. If you assigned the custom role instead, pass its name to `--role`:
+If you gave a deployer the Key Vault Crypto User role in [Optional: give a deployer a sign role](#optional-give-a-deployer-a-sign-role), remove that assignment. If the optional section created the `hardhat-kms-tutorial-deployer` app registration, skip the next command and run the ones after it instead. If you assigned the custom role instead, pass its name to `--role`:
 
 ```sh
 az role assignment delete --role "Key Vault Crypto User" --assignee-object-id <deployer object id> \
   --scope "${VAULT_ID:?is empty: set it with the az keyvault show command earlier in step 8}/keys/hardhat-kms-tutorial"
 ```
 
-If the optional section created the `hardhat-kms-tutorial-deployer` app registration, run the commands below instead of the one above. They remove its assignment first, then delete the app registration, which deletes its service principal and its secret. In this order no assignment is left behind: an assignment whose principal is deleted stays on the key, listed as "Identity not found" ([Troubleshoot Azure RBAC](https://learn.microsoft.com/azure/role-based-access-control/troubleshooting#symptom---role-assignments-with-identity-not-found)). In a new shell, set `APP_ID` and `SP_OBJECT_ID` again first:
+For the `hardhat-kms-tutorial-deployer` app registration, the commands below remove its assignment first, then delete the app registration, which deletes its service principal and its secret. In this order no assignment is left behind: an assignment whose principal is deleted stays on the key, listed as "Identity not found" ([Troubleshoot Azure RBAC](https://learn.microsoft.com/azure/role-based-access-control/troubleshooting#symptom---role-assignments-with-identity-not-found)). In a new shell, set `APP_ID` and `SP_OBJECT_ID` again first:
 
 ```sh
 APP_ID=$(az ad app list --display-name hardhat-kms-tutorial-deployer --query '[0].appId' --output tsv)
