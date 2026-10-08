@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   assertAttestations,
-  assertBetaTag,
+  assertStagedTag,
   assertGitHead,
   assertNotBelowLatest,
   assertPublished,
@@ -22,6 +22,7 @@ import {
   parsePackageView,
   parseVerified,
   stableVersion,
+  stagingDistTags,
 } from "../../scripts/registry-release.ts";
 import { PACKAGES } from "../../scripts/registry.ts";
 
@@ -92,7 +93,7 @@ describe("the release guards", () => {
   it("pass for the beta version of the released fixture", () => {
     const views = released();
     assertPublished(views, "1.0.1");
-    assertBetaTag(views, "1.0.1");
+    assertStagedTag(views, "1.0.1");
     assertNotBelowLatest(views, "1.0.1");
     // The first publish: latest and beta are the same version.
     assertNotBelowLatest(views, "1.0.0");
@@ -114,15 +115,44 @@ describe("the release guards", () => {
 
   it("refuse a version that beta does not point at, or no beta at all", () => {
     const views = released();
-    assert.throws(() => assertBetaTag(views, "1.0.0"), {
-      message: "hardhat-kms has beta at 1.0.1, not 1.0.0",
+    assert.throws(() => assertStagedTag(views, "1.0.0"), {
+      message:
+        "hardhat-kms has beta at 1.0.1, release-1.0 at nothing, not 1.0.0; release.yml stages a version under beta or release-1.0 first",
     });
     const [core, ...rest] = views;
     assert.ok(core !== undefined);
     assert.throws(
-      () => assertBetaTag([{ ...core, distTags: { latest: "1.0.0" } }, ...rest], "1.0.1"),
-      { message: "hardhat-kms has no beta dist-tag; release.yml publishes to beta first" },
+      () => assertStagedTag([{ ...core, distTags: { latest: "1.0.0" } }, ...rest], "1.0.1"),
+      {
+        message:
+          "hardhat-kms has beta at nothing, release-1.0 at nothing, not 1.0.1; release.yml stages a version under beta or release-1.0 first",
+      },
     );
+  });
+
+  it("accept a hotfix staged under the release-X.Y dist-tag of its own line only", () => {
+    // 1.2.0 is the newest release, on beta and latest; 1.0.1 is a hotfix of the 1.0 line.
+    const hotfix = released().map((view) => ({
+      ...view,
+      distTags: { latest: "1.2.0", beta: "1.2.0", "release-1.0": "1.0.1", "release-1.1": "1.1.4" },
+      versions: [...view.versions, "1.0.1", "1.1.4", "1.2.0"],
+    }));
+    assertStagedTag(hotfix, "1.0.1");
+    assertStagedTag(hotfix, "1.1.4");
+    assert.deepEqual(stagingDistTags("1.0.1"), ["beta", "release-1.0"]);
+    // Another line's dist-tag does not count: 1.1.4 is not on release-1.0's line.
+    const crossed = hotfix.map((view) => ({
+      ...view,
+      distTags: { latest: "1.2.0", beta: "1.2.0", "release-1.0": "1.1.4" },
+    }));
+    assert.throws(() => assertStagedTag(crossed, "1.1.4"), {
+      message:
+        "hardhat-kms has beta at 1.2.0, release-1.1 at nothing, not 1.1.4; release.yml stages a version under beta or release-1.1 first",
+    });
+    // A hotfix of an older line never goes to latest: latest would move backwards.
+    assert.throws(() => assertNotBelowLatest(hotfix, "1.0.1"), {
+      message: "hardhat-kms has latest at 1.2.0; 1.0.1 is lower and would move latest backwards",
+    });
   });
 
   it("refuse a version below latest, and accept any version when there is no latest", () => {

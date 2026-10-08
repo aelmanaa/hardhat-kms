@@ -2,6 +2,7 @@
 // signatures` and git output, so the tests can feed them recorded output. Each guard throws an
 // error whose message names the check that failed and the values it compared.
 import { PACKAGES } from "./registry.ts";
+import { MAIN_DIST_TAG, releaseBranch } from "./verify-release-tag.ts";
 
 /** What `npm view <package> --json dist-tags versions` returns. */
 export interface PackageView {
@@ -146,15 +147,24 @@ export function assertPublished(views: readonly PackageView[], version: string):
   }
 }
 
-/** Every package's `beta` dist-tag must point at the version. */
-export function assertBetaTag(views: readonly PackageView[], version: string): void {
+/**
+ * The dist-tags release.yml may have staged a version under: `beta` for a release from main, and
+ * `release-X.Y` for a hotfix from the release branch of its line.
+ * @param version - A stable `X.Y.Z` version.
+ */
+export function stagingDistTags(version: string): string[] {
+  const release = releaseBranch(version);
+  return release === undefined ? [MAIN_DIST_TAG] : [MAIN_DIST_TAG, release.distTag];
+}
+
+/** Every package's `beta` dist-tag, or the `release-X.Y` dist-tag of a hotfix, must point at the version. */
+export function assertStagedTag(views: readonly PackageView[], version: string): void {
+  const tags = stagingDistTags(version);
   for (const view of views) {
-    const beta = view.distTags.beta;
-    if (beta !== version) {
+    if (!tags.some((tag) => view.distTags[tag] === version)) {
+      const found = tags.map((tag) => `${tag} at ${view.distTags[tag] ?? "nothing"}`).join(", ");
       throw new Error(
-        beta === undefined
-          ? `${view.name} has no beta dist-tag; release.yml publishes to beta first`
-          : `${view.name} has beta at ${beta}, not ${version}`,
+        `${view.name} has ${found}, not ${version}; release.yml stages a version under ${tags.join(" or ")} first`,
       );
     }
   }

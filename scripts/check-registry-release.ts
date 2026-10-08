@@ -1,6 +1,6 @@
 // Checks a version on the registry before it goes to `latest`: the first step of the promotion
 // workflow, and what no other package check covers. The version must be stable, published for the
-// four packages, at their `beta` dist-tag and not below `latest`; the published core's `gitHead`
+// four packages, at their `beta` dist-tag (or `release-X.Y` for a hotfix) and not below `latest`; the published core's `gitHead`
 // must be the commit of tag `v<version>`; and in a scratch project `npm install --ignore-scripts`
 // of the four packages followed by `npm audit signatures` must verify a provenance attestation for
 // each. The guards are in scripts/registry-release.ts.
@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { withPackDirectory } from "./pack.ts";
 import {
   assertAttestations,
-  assertBetaTag,
+  assertStagedTag,
   assertGitHead,
   assertNotBelowLatest,
   assertPublished,
@@ -25,6 +25,7 @@ import {
   parsePackageView,
   parseVerified,
   stableVersion,
+  stagingDistTags,
 } from "./registry-release.ts";
 import {
   assertInstalledVersion,
@@ -90,8 +91,8 @@ try {
   );
   assertPublished(views, version);
   ok(`${version} is published for ${PACKAGES.join(", ")}`);
-  assertBetaTag(views, version);
-  ok(`beta is ${version} for the four packages`);
+  assertStagedTag(views, version);
+  ok(`${version} is staged under ${stagingDistTags(version).join(" or ")} for the four packages`);
   assertNotBelowLatest(views, version);
   const latest = views[0]?.distTags.latest;
   ok(latest === undefined ? "no latest yet" : `latest is ${latest}, not above ${version}`);

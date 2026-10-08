@@ -17,6 +17,7 @@ import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { pack } from "../../scripts/pack.ts";
+import { stagingDistTags } from "../../scripts/registry-release.ts";
 import { PACKAGES, YARN_BERRY, yarnBerrySettings } from "../../scripts/registry.ts";
 import { readJson } from "../../scripts/temporary-install.ts";
 
@@ -338,7 +339,7 @@ describe("registry mode against a local registry", { timeout: 2_100_000 }, () =>
     assert.deepEqual(reported(run.output), [
       `ok   ${version} is a stable version`,
       `ok   ${version} is published for ${PACKAGES.join(", ")}`,
-      `ok   beta is ${version} for the four packages`,
+      `ok   ${version} is staged under ${stagingDistTags(version).join(" or ")} for the four packages`,
       `ok   latest is ${version}, not above ${version}`,
       `FAIL tag v${version} is not in this checkout; run git fetch origin tag v${version}`,
     ]);

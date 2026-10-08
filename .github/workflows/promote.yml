@@ -1,10 +1,11 @@
 # Verifies a staged and approved version from npm, and moves `latest` to it. Dispatched by a
 # maintainer; docs/contributor/releasing.md, Verify and promote, has the steps.
 # - job verify, for both targets: the live rule (scripts/check-live-rule.ts), then
-#   scripts/check-registry-release.ts (beta is the version, the four packages have it, it is not
-#   below latest, no prerelease, four provenance attestations, gitHead is the tag's commit), the
-#   package checks, the consumer typecheck on three TypeScript versions, the peer-install matrix
-#   and the examples against LocalStack, all installing the version from npm (--from-registry).
+#   scripts/check-registry-release.ts (beta, or release-X.Y for a hotfix, is the version, the four
+#   packages have it, it is not below latest, so latest never moves backwards, no prerelease,
+#   four provenance attestations, gitHead is the tag's commit), the package checks, the consumer
+#   typecheck on three TypeScript versions, the peer-install matrix and the examples against
+#   LocalStack, all installing the version from npm (--from-registry).
 # - target verify: publishes the draft GitHub Release with the prerelease flag on.
 # - target latest: after a maintainer approves the npm-latest environment, `npm dist-tag add` for
 #   the four packages over OIDC, then the GitHub Release becomes the latest release.
@@ -174,7 +175,8 @@ jobs:
           npm --version
           node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
       # The verify job checked the dist-tags, possibly hours before the approval, so each package
-      # is checked again just before its move: beta is the version and latest is not above it. A
+      # is checked again just before its move: beta, or release-X.Y for a hotfix staged from the
+      # release branch of its line, is the version, and latest is not above it. A
       # package whose latest already is the version is skipped, so a re-run after the maintainer
       # moved the tags by hand only edits the release.
       - name: npm dist-tag add for the four packages
@@ -185,11 +187,16 @@ jobs:
             echo "::error::$VERSION is not a stable X.Y.Z; latest never points at a prerelease"
             exit 1
           fi
+          # The dist-tag a hotfix of line X.Y is staged under; `npm view name dist-tags.<tag>` would
+          # read the dot in it as a path, so the dist-tags are read as JSON.
+          line="release-${VERSION%.*}"
           for name in hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure; do
-            beta="$(npm view "$name" dist-tags.beta)"
-            current="$(npm view "$name" dist-tags.latest)"
-            if [ "$beta" != "$VERSION" ]; then
-              echo "::error::$name has beta at $beta, not $VERSION; run release.yml for $VERSION first"
+            tags="$(npm view "$name" dist-tags --json)"
+            beta="$(node -p 'JSON.parse(process.argv[1]).beta ?? ""' "$tags")"
+            hotfix="$(node -p 'JSON.parse(process.argv[1])[process.argv[2]] ?? ""' "$tags" "$line")"
+            current="$(node -p 'JSON.parse(process.argv[1]).latest ?? ""' "$tags")"
+            if [ "$beta" != "$VERSION" ] && [ "$hotfix" != "$VERSION" ]; then
+              echo "::error::$name has beta at ${beta:-nothing} and $line at ${hotfix:-nothing}, not $VERSION; run release.yml for $VERSION first"
               exit 1
             fi
             if [ -n "$current" ] && ! node -e 'const [a, b] = process.argv.slice(1).map((v) => v.split(".").map(Number)); const d = a.map((n, i) => n - b[i]).find((n) => n !== 0) ?? 0; process.exit(d > 0 ? 1 : 0);' "$current" "$VERSION"; then
