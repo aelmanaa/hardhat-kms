@@ -41,7 +41,9 @@ export function kmsEntry(options: EntryOptions): Record<string, unknown> {
   const cryptoKeyName = options.cryptoKeyName ?? CRYPTO_KEY_NAME;
   const version = options.version ?? "1";
   const name = `${cryptoKeyName}/cryptoKeyVersions/${version}`;
-  const [, project, , location, , keyRing, , key] = cryptoKeyName.split("/");
+  const [, named, , location, , keyRing, , key] = cryptoKeyName.split("/");
+  // The resource label and the log name hold the project's id, even when the name holds its number.
+  const project = named === PROJECT_NUMBER ? PROJECT : named;
   return {
     protoPayload: {
       "@type": "type.googleapis.com/google.cloud.audit.AuditLog",

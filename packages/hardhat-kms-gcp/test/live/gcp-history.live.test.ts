@@ -3,8 +3,11 @@
 // project with Data Access audit logs on for Cloud KMS, and it uses the developer's Application
 // Default Credentials, which need roles/logging.privateLogViewer on the project as well as the
 // signing roles. It signs one random digest through the plugin, then reads the key's history
-// until that signature's entry appears. Nothing it prints names the project, the key ring, the key
-// or a principal.
+// until that signature's entry appears. A second test signs nothing: it reads the last 7 days with
+// the key named by its project id and by its project number, and checks that both reads list the
+// same entries. It is skipped unless HARDHAT_KMS_LIVE_GCP_PROJECT_NUMBER holds the key's project
+// number. Nothing it prints names the project, its number, the key
+// ring, the key or a principal.
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { describe, it, mock } from "node:test";
@@ -17,6 +20,8 @@ import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import hardhatKmsGcp from "../../src/index.ts";
 
 const VARIABLE = "HARDHAT_KMS_LIVE_GCP_KEY";
+/** Set by the test to the key's name with the project number, read as a configuration variable. */
+const NUMBER_VARIABLE = "HARDHAT_KMS_LIVE_GCP_KEY_BY_NUMBER_390";
 const keyVersionName = process.env[VARIABLE]?.trim() ?? "";
 const parts =
   /^projects\/([^/]+)\/locations\/([^/]+)\/keyRings\/([^/]+)\/cryptoKeys\/([^/]+)\/cryptoKeyVersions\/(\d+)$/.exec(
@@ -26,11 +31,17 @@ const parts =
 /** How long to wait for the entry; Cloud Logging usually delivers it within seconds. */
 const POLL_LIMIT_MS = 180_000;
 const POLL_INTERVAL_MS = 10_000;
+/** The range the read by project number compares: the key signs in every live run. */
+const NUMBER_RANGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Removes the project, key ring, key names and email addresses from a text. */
+/** The key's project number, for the read by number; that test is skipped without it. */
+const NUMBER_SOURCE = "HARDHAT_KMS_LIVE_GCP_PROJECT_NUMBER";
+const projectNumber = process.env[NUMBER_SOURCE]?.trim() ?? "";
+
+/** Removes the project, its number, key ring, key names and email addresses from a text. */
 function redact(text: string): string {
   let masked = text.replaceAll(keyVersionName, "<key version>");
-  for (const part of (parts ?? []).slice(1, 5)) {
+  for (const part of [...(parts ?? []).slice(1, 5), projectNumber].filter((item) => item !== "")) {
     masked = masked.replaceAll(part, "<redacted>");
   }
   return masked.replaceAll(/[\w.+-]+@[\w.-]+/g, "<email>");
@@ -48,11 +59,11 @@ async function redacted<T>(step: () => Promise<T>): Promise<T> {
   }
 }
 
-async function runtime() {
+async function runtime(variable: string = VARIABLE) {
   return await createHardhatRuntimeEnvironment({
     plugins: [hardhatKmsGcp],
     // From a variable, so that `kms history` masks the key's name without --show-ids.
-    kms: { keys: { deployer: { provider: "gcp", keyVersionName: configVariable(VARIABLE) } } },
+    kms: { keys: { deployer: { provider: "gcp", keyVersionName: configVariable(variable) } } },
   });
 }
 
@@ -86,8 +97,12 @@ function isReport(value: unknown): value is KmsHistoryReport {
 }
 
 /** Runs `kms history deployer --json`, capturing both streams so that nothing is printed. */
-async function history(since: string): Promise<{ report: KmsHistoryReport; stdout: string }> {
-  const hre = await runtime();
+async function history(
+  since: string,
+  until?: string,
+  variable: string = VARIABLE,
+): Promise<{ report: KmsHistoryReport; stdout: string }> {
+  const hre = await runtime(variable);
   let stdout = "";
   const write = mock.method(process.stdout, "write", (chunk: unknown) => {
     stdout += String(chunk);
@@ -98,7 +113,7 @@ async function history(since: string): Promise<{ report: KmsHistoryReport; stdou
     const result: unknown = await hre.tasks.getTask(["kms", "history"]).run({
       key: "deployer",
       since,
-      until: undefined,
+      until,
       limit: 1000,
       json: true,
       showIds: false,
@@ -109,6 +124,11 @@ async function history(since: string): Promise<{ report: KmsHistoryReport; stdou
     write.mock.restore();
     writeError.mock.restore();
   }
+}
+
+/** The insert ids of a report's events, in order. */
+function insertIds(report: KmsHistoryReport): unknown[] {
+  return report.events.map((event) => event.extra?.insertId);
 }
 
 describe(
@@ -164,5 +184,50 @@ describe(
         assert.ok(!outsidePrincipals.includes(part), "a key id reached the output");
       }
     });
+
+    it(
+      "lists the same entries when the key names its project by number",
+      {
+        skip:
+          projectNumber === ""
+            ? `${NUMBER_SOURCE} is not set: set it to the key's project number to read by number`
+            : false,
+      },
+      async () => {
+        // Read only: it signs nothing, and reads a range that ended a minute ago, so that both reads
+        // see the same delivered entries.
+        assert.ok(parts !== null, `${VARIABLE} must be a full key version name`);
+        const [, project = ""] = parts;
+        assert.match(projectNumber, /^\d+$/, `${NUMBER_SOURCE} must be a project number`);
+        process.env[NUMBER_VARIABLE] = keyVersionName.replace(
+          `projects/${project}/`,
+          `projects/${projectNumber}/`,
+        );
+        try {
+          const now = Math.floor(Date.now() / 1000) * 1000;
+          const since = new Date(now - NUMBER_RANGE_MS).toISOString();
+          const until = new Date(now - 60_000).toISOString();
+          const byId = await redacted(async () => await history(since, until));
+          const byNumber = await redacted(async () => await history(since, until, NUMBER_VARIABLE));
+          assert.ok(
+            byId.report.events.length > 0,
+            "the key has no sign entries in the last 7 days to compare",
+          );
+          assert.deepEqual(insertIds(byNumber.report), insertIds(byId.report));
+          assert.equal(byNumber.report.truncated, byId.report.truncated);
+          // A federated principal's subject can hold a project number; principals show as logged.
+          const outsidePrincipals = byNumber.stdout.replaceAll(
+            /"principal(Subject)?": "[^"]*"/g,
+            "",
+          );
+          assert.ok(
+            !outsidePrincipals.includes(projectNumber),
+            "the project number reached the output",
+          );
+        } finally {
+          Reflect.deleteProperty(process.env, NUMBER_VARIABLE);
+        }
+      },
+    );
   },
 );

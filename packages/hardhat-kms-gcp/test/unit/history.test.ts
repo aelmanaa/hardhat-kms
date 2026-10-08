@@ -47,6 +47,12 @@ const SINCE = new Date("2026-10-01T10:00:00Z");
 const UNTIL = new Date("2026-10-02T10:00:00Z");
 const NOW = new Date("2026-10-02T12:00:00Z").getTime();
 
+/** A sign entry of the key with other resource labels. */
+function relabelled(insertId: string, labels: Record<string, unknown>): unknown {
+  const entry = kmsEntry({ timestamp: "2026-10-02T09:00:00Z", insertId });
+  return { ...entry, resource: { type: "cloudkms_cryptokeyversion", labels } };
+}
+
 function gcpKey(name: string = KEY_VERSION_NAME): GcpKmsKeyConfig {
   return {
     provider: "gcp",
@@ -276,6 +282,7 @@ describe("the Google Cloud history reader", () => {
       const bare = {
         timestamp: "2026-10-02T05:00:00Z",
         protoPayload: { methodName: "AsymmetricSign", resourceName: KEY_VERSION_NAME },
+        resource: { labels: { project_id: PROJECT } },
       };
       const { result } = await read([{ entries: [bare] }]);
       assert.deepEqual(result.events[0], {
@@ -344,9 +351,37 @@ describe("the Google Cloud history reader", () => {
         );
         const [request] = fake.requests;
         assert.deepEqual(request?.resourceNames, [`projects/${name.split("/")[1] ?? ""}`]);
-        // No clause names the project, so either form of it matches the same entries.
-        assert.doesNotMatch(request?.filter ?? "", new RegExp(`${PROJECT}|${PROJECT_NUMBER}`));
       }
+    });
+
+    it("leaves out an entry of the same key path in another project", async () => {
+      const own = kmsEntry({ timestamp: "2026-10-02T09:00:00Z", insertId: "own" });
+      const foreign = kmsEntry({
+        timestamp: "2026-10-02T08:00:00Z",
+        insertId: "foreign",
+        cryptoKeyName: CRYPTO_KEY_NAME.replace(PROJECT, "other-project"),
+      });
+      const { result } = await read([{ entries: [foreign, own] }]);
+      assert.deepEqual(
+        result.events.map((event) => event.extra?.insertId),
+        ["own"],
+      );
+    });
+
+    it("leaves out an entry whose project label names another project", async () => {
+      const { result } = await read([
+        {
+          entries: [
+            relabelled("other", { project_id: "other-project" }),
+            relabelled("case", { project_id: PROJECT.toUpperCase() }),
+          ],
+        },
+      ]);
+      // Project ids have no capital letters, so a label in another case is the same project.
+      assert.deepEqual(
+        result.events.map((event) => event.extra?.insertId),
+        ["case"],
+      );
     });
 
     it("describes what the log cannot show, with no id outside scope.ids", async () => {
@@ -397,6 +432,7 @@ describe("the Google Cloud history reader", () => {
           filter: [
             'log_id("cloudaudit.googleapis.com/data_access")',
             'resource.type="cloudkms_cryptokeyversion"',
+            `resource.labels.project_id="${PROJECT}"`,
             'resource.labels.location="us-east1"',
             'resource.labels.key_ring_id="example-ring"',
             'resource.labels.crypto_key_id="deployer"',
@@ -409,6 +445,35 @@ describe("the Google Cloud history reader", () => {
           pageSize: 6,
         },
       ]);
+    });
+
+    it("names the key's project in the filter, by id, domain-scoped id or number", () => {
+      const rest = [
+        'resource.labels.location="us-east1"',
+        'resource.labels.key_ring_id="example-ring"',
+        'resource.labels.crypto_key_id="deployer"',
+        'protoPayload.methodName="AsymmetricSign"',
+        `protoPayload.resourceName:"/${KEY_PATH}/cryptoKeyVersions/"`,
+        'timestamp>="2026-10-01T10:00:00.000Z"',
+        'timestamp<"2026-10-02T10:00:01.000Z"',
+      ];
+      for (const [project, clause] of [
+        [PROJECT, `resource.labels.project_id="${PROJECT}"`],
+        ["example.com:example-project", 'resource.labels.project_id="example.com:example-project"'],
+        [PROJECT_NUMBER, `source("projects/${PROJECT_NUMBER}")`],
+      ] as const) {
+        const parts = keyParts(KEY_VERSION_NAME.replace(PROJECT, project));
+        assert.ok(parts, project);
+        assert.equal(
+          signEntriesFilter(parts, SINCE, UNTIL),
+          [
+            'log_id("cloudaudit.googleapis.com/data_access")',
+            'resource.type="cloudkms_cryptokeyversion"',
+            clause,
+            ...rest,
+          ].join(" AND "),
+        );
+      }
     });
 
     it("asks for at most 1000 entries a page", async () => {
@@ -813,6 +878,17 @@ describe("the Google Cloud history reader", () => {
             ],
           },
           /timestamp that is not a date/,
+        ],
+        [
+          {
+            entries: [
+              {
+                timestamp: "2026-10-02T09:00:00Z",
+                protoPayload: { methodName: "AsymmetricSign", resourceName: KEY_VERSION_NAME },
+              },
+            ],
+          },
+          /an entry has no resource\.labels\.project_id/,
         ],
       ];
       for (const [answer, expected] of cases) {
