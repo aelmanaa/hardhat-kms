@@ -395,6 +395,10 @@ async function signAuthorization(
  * (`sendTransaction`, `writeContract`, `deployContract`), and `reset` when that send fails. The
  * connection chooses the nonce as the plugin's own sends would, and keeps it from them until the
  * raw transaction reaches the node, `reset` is called, or 60 s pass.
+ *
+ * viem calls `reset` after a `consume` that failed too, and a failed `consume` holds and reserves
+ * nothing. The manager counts its failed consumes and keeps that many resets, so a reset after one
+ * cannot end the hold of another send from the same key.
  */
 function buildNonceManager(context: AccountContext): KmsNonceManager {
   const { connection } = context;
@@ -413,12 +417,25 @@ function buildNonceManager(context: AccountContext): KmsNonceManager {
     const chainId = BigInt(parameters.chainId);
     return Number(await connection.nonces.choose({ address, chainId, reserve, ownTransport: own }));
   };
+  // The resets still to come after this account's failed consumes.
+  let owedResets = 0;
   const manager: KmsNonceManager = {
-    consume: async (parameters) => await choose("nonceManager.consume", parameters, true),
+    consume: async (parameters) => {
+      try {
+        return await choose("nonceManager.consume", parameters, true);
+      } catch (error) {
+        owedResets += 1;
+        throw error;
+      }
+    },
     get: async (parameters) => await choose("nonceManager.get", parameters, false),
     // Nothing to count: each consume reads the node and the reservations again.
     increment: () => undefined,
     reset: (parameters) => {
+      if (owedResets > 0) {
+        owedResets -= 1;
+        return;
+      }
       // viem does not await reset; a failure only leaves the hold to its time limit.
       connection.nonces.reset(address, BigInt(parameters.chainId)).catch((error: unknown) => {
         log("%s: nonceManager.reset failed (%s)", context.address, errorName(error));

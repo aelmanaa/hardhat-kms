@@ -7,7 +7,8 @@ import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import type { NetworkConnection } from "hardhat/types/network";
 import type { JsonRpcResponse } from "hardhat/types/providers";
 import { Transaction } from "micro-eth-signer";
-import { serializeTransaction, toHex } from "viem";
+import { createWalletClient, custom, serializeTransaction, toHex } from "viem";
+import { hardhat } from "viem/chains";
 
 import {
   MAX_SEND_LOCK_WAITERS,
@@ -590,6 +591,86 @@ describe("a library account's send through the connection", () => {
     resultOf((await sendRaw(harness, connection, cowRaw(1n))).response);
     resultOf(await sending);
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 2n]);
+  });
+
+  it("does not let a reset after a consume refused on a closed connection end another connection's hold", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    const other = await openKnown(harness);
+    const stale = await library(other);
+    await harness.close(other);
+    await assert.rejects(stale.consume(), /nonceManager\.consume: the connection to network/);
+    // viem calls reset after a consume that failed, too.
+    await stale.reset();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the plugin's send still waits for the holder");
+    resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+  });
+
+  it("does not let a late reset through a closed connection end the hold another connection gave", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const other = await openKnown(harness);
+    const stale = await library(other);
+    assert.equal(await stale.consume(), 0);
+    // Closing ends the stale send's hold; its account then refuses to sign, and viem resets.
+    await harness.close(other);
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    await stale.reset();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the plugin's send still waits for the holder");
+    resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+  });
+
+  it("does not let a reset through another open connection end this connection's hold", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    const other = await openKnown(harness);
+    const elsewhere = await library(other);
+    await elsewhere.reset();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the plugin's send still waits for the holder");
+    await holder.reset();
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n]);
+  });
+
+  it("does not let a viem sendTransaction refused on a closed connection end another connection's hold", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    const other = await openKnown(harness);
+    const stale = await other.kms.getAccount(COW);
+    const wallet = createWalletClient({
+      account: stale,
+      chain: hardhat,
+      transport: custom(other.provider),
+    });
+    await harness.close(other);
+    await assert.rejects(
+      wallet.sendTransaction({ to: TO, value: 1n }),
+      /nonceManager\.consume: the connection to network/,
+    );
+    await settle();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the plugin's send still waits for the holder");
+    resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
   });
 
   it("refuses once the connection is closed", async () => {

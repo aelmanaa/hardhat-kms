@@ -86,7 +86,10 @@ const locks = new Map<string, SendLock>();
 interface LibraryHold {
   /** The nonce the send was given. */
   readonly nonce: bigint;
-  /** The send state of the connection that gave it, so closing the connection ends the hold. */
+  /**
+   * The send state of the connection that gave it: closing that connection ends the hold, and only
+   * a viem `reset` through that connection can end it.
+   */
   readonly owner: object;
   /** Ends the hold and releases the lock. */
   readonly end: () => void;
@@ -283,8 +286,9 @@ export async function withSendLock<T>(
 }
 
 /**
- * By lock key: the viem `reset` calls still to come for library sends that no longer hold the
- * lock (their nonce choice failed, or their broadcast failed), which must not end another hold.
+ * By lock key: the viem `reset` calls still to come for library sends whose broadcast failed, and
+ * which no longer hold the lock, so that they do not end another hold. A `reset` after a failed
+ * `consume` never gets here: the account's nonce manager keeps it.
  */
 const pendingResets = new Map<string, number>();
 
@@ -366,10 +370,12 @@ export async function holdForLibrary(
  * The library send that holds a key's lock.
  *
  * @param key - The lock key.
- * @returns Its nonce and how to end it, or `undefined` when no library send holds the lock. The
- * same object is returned while the same send holds the lock.
+ * @returns Its nonce, the send state that gave it and how to end it, or `undefined` when no
+ * library send holds the lock. The same object is returned while the same send holds the lock.
  */
-export function libraryHoldOf(key: string): Pick<LibraryHold, "nonce" | "end"> | undefined {
+export function libraryHoldOf(
+  key: string,
+): Pick<LibraryHold, "nonce" | "owner" | "end"> | undefined {
   return libraryHolds.get(key);
 }
 
@@ -406,8 +412,8 @@ export function expectLibraryReset(key: string): void {
 }
 
 /**
- * Uses up one viem `reset` owed by a library send that no longer holds the lock (its nonce choice
- * failed, or its broadcast failed), so that it ends no other send's hold.
+ * Uses up one viem `reset` owed by a library send that no longer holds the lock (its broadcast
+ * failed), so that it ends no other send's hold.
  *
  * @param key - The lock key.
  * @returns Whether a reset was owed.

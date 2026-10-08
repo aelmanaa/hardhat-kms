@@ -204,7 +204,7 @@ Some cases stay outside this:
 - A blob transaction (type 3) in its network form, with its blobs, is passed on without being decoded, and is not counted.
 - A raw transaction from a KMS address goes on untouched until the connection has looked up its KMS addresses, which `getAccount`, a send and `eth_accounts` do, unless a library send of that address holds the lock: then its raw transaction ends the hold on any connection to the chain, with no KMS call.
 - A send of the account started by code that runs inside a send from the same account, such as a network hook during the fill, fails at once and is not signed or sent: it would wait for itself. Its error is `core.account.nonce-reentrant` ([Errors](errors.md#library-accounts)).
-- A send whose raw transaction does not reach the plugin and that viem does not reset keeps the account's lock for at most 60 s; the timer keeps the process alive until then. If that send's `reset` comes after the 60 s, it can end the hold of the account's next library send.
+- A send whose raw transaction does not reach the plugin and that viem does not reset keeps the account's lock for at most 60 s; the timer keeps the process alive until then. If that send's `reset` comes after the 60 s, it can end the hold of the account's next library send on the same connection.
 
 These rules need viem 2.55.13 or later ([`getAccount`](#connectionkmsgetaccount)).
 
