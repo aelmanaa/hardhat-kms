@@ -5,7 +5,12 @@ description: Check that the hardhat-kms packages you installed were built from a
 
 # Verify a release
 
-Audience: users who installed `hardhat-kms` and a provider package from npm and want to confirm, before they sign with a production key, that the packages are the ones this repository's release run built. Assumes a shell with npm 11, `jq`, `curl` and `git`; the tag check also needs `gpg`.
+This guide confirms that the `hardhat-kms` and provider packages you installed from npm are the ones this repository's release run built, before you sign with a production key.
+
+You need a shell with npm 11, `jq`, `curl` and `git`; the tag check also needs `gpg`.
+
+> [!NOTE]
+> Audience: users who installed `hardhat-kms` and a provider package from npm.
 
 Every release is built and published by a GitHub Actions run of this repository, from a signed `v<version>` tag, with npm provenance. The checks below confirm that the packages you installed are the ones that run built. Run them from one working directory, and replace `<version>` with the installed version, such as `1.0.0`.
 

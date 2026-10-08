@@ -5,17 +5,20 @@ description: What rotating an AWS KMS, Cloud KMS or Key Vault key does to your E
 
 # Rotate a key and pin its address
 
-Audience: users who sign with a key in AWS KMS, Google Cloud KMS or Azure Key Vault and want to rotate it, or want a rotation to fail loudly rather than change their address. Assumes a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).
-
-The provider facts below were checked against each provider's documentation on 2026-10-02. The AWS alias case and the Azure version case in [What a pin does](#what-a-pin-does) ran that day on throwaway keys. Provider behaviour can change; each fact links to the page it comes from.
-
-An Ethereum address is derived from the public key. New key material is a new public key, and so a new address. Rotating a signing key does not move anything: the funds, the nonce history and every contract role stay with the old address, and only the old key can sign for it.
-
 This guide covers:
 
 - [What rotation does on each provider](#what-rotation-does-on-each-provider), and which key ids follow a rotation.
 - [What a pin does](#what-a-pin-does) when the key behind an id changes.
 - [Move to a new key](#move-to-a-new-key) on purpose.
+
+You need a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).
+
+> [!NOTE]
+> Audience: users who sign with a key in AWS KMS, Google Cloud KMS or Azure Key Vault and want to rotate it, or want a rotation to fail loudly rather than change their address.
+>
+> The provider facts below were checked against each provider's documentation on 2026-10-02. The AWS alias case and the Azure version case in [What a pin does](#what-a-pin-does) ran that day on throwaway keys. Provider behaviour can change; each fact links to the page it comes from.
+
+An Ethereum address is derived from the public key. New key material is a new public key, and so a new address. Rotating a signing key does not move anything: the funds, the nonce history and every contract role stay with the old address, and only the old key can sign for it.
 
 ## What rotation does on each provider
 

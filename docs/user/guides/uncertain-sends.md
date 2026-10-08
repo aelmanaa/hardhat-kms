@@ -5,9 +5,14 @@ description: "After a KMS send with no clear answer, or one that is not mined: l
 
 # Recover from an uncertain transaction send
 
-Audience: users who send transactions from a KMS account on a live network and got an error that does not say whether the transaction went out, or see a transaction that does not get mined. Assumes a working key setup and the `@nomicfoundation/hardhat-viem` plugin.
+This guide finds out whether a transaction from a KMS account went out after a send error that does not say, then fills the nonce gap or replaces the transaction if it needs to.
 
-Checked against hardhat-kms 0.8.0, viem 2.57.1 and a local anvil node on 2026-10-07. The repository's tests run the `fill-nonce.ts` script below against Hardhat 3.18.0's node (EDR 0.22.0). Not run on a public network.
+You need a working key setup and the `@nomicfoundation/hardhat-viem` plugin.
+
+> [!NOTE]
+> Audience: users who send transactions from a KMS account on a live network and got an error that does not say whether the transaction went out, or see a transaction that does not get mined.
+>
+> Checked against hardhat-kms 0.8.0, viem 2.57.1 and a local anvil node on 2026-10-07. The repository's tests run the `fill-nonce.ts` script below against Hardhat 3.18.0's node (EDR 0.22.0). Not run on a public network.
 
 Do not send again from the account until step 2 tells you what happened to the first transaction.
 
