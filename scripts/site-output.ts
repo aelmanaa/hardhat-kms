@@ -252,12 +252,12 @@ export function siteLinks(
   // carry spaces or attributes (`</script >`), and the removal repeats until nothing changes, so
   // a block that a removal joins back together is removed as well.
   let markup = html;
-  for (let previous; previous !== markup;) {
+  let previous;
+  do {
     previous = markup;
-    markup = markup
-      .replaceAll(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, "")
-      .replaceAll(/<pre\b[\s\S]*?<\/pre\b[^>]*>/gi, "");
-  }
+    markup = markup.replaceAll(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, "");
+    markup = markup.replaceAll(/<pre\b[\s\S]*?<\/pre\b[^>]*>/gi, "");
+  } while (markup !== previous);
   for (const match of markup.matchAll(/\s(?:href|src)="([^"]*)"/g)) {
     const target = decodeEntities(match[1] ?? "");
     if (target === "" || target.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(target)) {
