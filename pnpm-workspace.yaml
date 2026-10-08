@@ -81,3 +81,7 @@ overrides:
   compression: ^1.8.2
   # GHSA-238p-pmpm-9mq7. mermaid 12.1.0 (docs site) asks for katex ^0.16.47; the fix is in 0.18.2.
   katex: ^0.18.2
+  # GHSA-p8wg-vrv2-v86f, GHSA-8r5x-fm3f-whwj, GHSA-xw65-4hp5-5hc7. verdaccio 6.10.5 (local
+  # registry for the release tests) pins @verdaccio/hooks 8.1.6, which pins handlebars 4.7.9
+  # exactly.
+  handlebars: ^4.7.10
