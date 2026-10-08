@@ -8,7 +8,7 @@ Status: the [GitHub milestones](https://github.com/aelmanaa/hardhat-kms/mileston
 
 - The signing core: every signature is verified against the key, and an address pin refuses a key that is not the one expected.
 - AWS KMS, Google Cloud KMS and Azure Key Vault, each as its own package.
-- Accounts, messages, typed data and every transaction type through the network hook, so `hardhat-viem`, `hardhat-ethers`, Ignition and scripts sign with a KMS key without code changes.
+- Accounts, messages, typed data and legacy, EIP-2930, EIP-1559 and EIP-7702 transactions through the network hook (blob transactions, EIP-4844, are refused), so `hardhat-viem`, `hardhat-ethers`, Ignition and scripts sign with a KMS key without code changes.
 - The `--kms` option, which takes a key from Foundry's environment variables without a config entry.
 - The `kms` tasks: `accounts`, `address`, `public-key`, `sign`, `sign-tx`, `sign-auth` and `verify`.
 - `connection.kms.getAccount` for viem: a local account backed by a KMS key, for library code.
