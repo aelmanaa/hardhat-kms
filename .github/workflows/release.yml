@@ -5,9 +5,9 @@
 #    the version of the four manifests, no prerelease part, its commit on main or, for a hotfix
 #    X.Y.Z, on release/X.Y.
 # 2. gate-ci: the tagged commit has a passing ci.yml run, a ci-all-os.yml run that passed on macOS
-#    and Windows, and passing hardhat-versions.yml and sdk-floors.yml runs; for each of the four
-#    that has no passing run on the commit, the job dispatches it on the tag and waits
-#    (scripts/release-gate-ci.ts).
+#    and Windows, and passing hardhat-versions.yml and sdk-floors.yml runs. The job dispatches on
+#    the tag each one the commit has no run of, retries a failed run only where the retry table in
+#    scripts/release-gate-ci.ts allows, and lists every failed run on the commit in its summary.
 # 3. pack: build, the package checks, the publish plan, then one tarball per package with `gitHead`
 #    set to the tagged commit, checked by scripts/check-tarballs.ts. The SHA-256 sums leave the job
 #    as a job output, apart from the artifact they cover.
