@@ -29,7 +29,7 @@ npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
 
 The command names every required peer dependency, so the same list works with yarn, which does not install peers. `connection.kms.getAccount` also needs `viem` ^2.55.13; ethers and Ignition projects can skip it.
 
-Nothing is on npm before 0.9.0: until then this command fails with `E404`, and [Install before the first npm release](docs/user/guides/install-before-release.md) builds the packages from the repository instead.
+[Install hardhat-kms](docs/user/guides/install-before-release.md) gives the pnpm and Yarn commands, the settings each package manager needs, and the check that the plugin is registered.
 
 ## Configure a key
 

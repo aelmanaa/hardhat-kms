@@ -42,10 +42,10 @@ const coreEngines: unknown = Reflect.get(Object(coreManifest), "engines");
 const coreNodeRange = String(Reflect.get(Object(coreEngines), "node")).replace(/\.0$/, "");
 
 /**
- * The install guide for the time before the first npm release. The release deletes it, and the
- * llms.txt preamble switches from it to the npm commands then.
+ * The install guide. Its file name dates from before the first npm release; it keeps it so the
+ * published URL keeps working (GitHub Pages cannot redirect).
  */
-const PRE_RELEASE_GUIDE = "user/guides/install-before-release.md";
+const INSTALL_GUIDE = "user/guides/install-before-release.md";
 
 /** Generated pages: edits go to their generator's sources, so the page has no edit link. */
 function isGenerated(source: string): boolean {
@@ -248,11 +248,6 @@ function agentPreamble(): string {
   const configure = `add the plugin and the key to \`hardhat.config.ts\` ([configuration reference](${markdownCopyUrl("user/reference/configuration.md")})) and list the key's address with \`npx hardhat kms accounts\``;
   const credentials =
     "Credentials never come from the Hardhat config: AWS and Google Cloud use their SDK's credential discovery, and Azure uses the plugin's own chain.";
-  if (existsSync(path.join(docsDirectory, PRE_RELEASE_GUIDE))) {
-    return `## Start here for agents
-
-hardhat-kms is not on npm yet. Until the first release, build and install the packages from GitHub as [Install before the first npm release](${markdownCopyUrl(PRE_RELEASE_GUIDE)}) describes. Then ${configure}. ${credentials}${skill}`;
-  }
   return `## Start here for agents
 
 Install the core and the provider package for the cloud that holds the key, ${configure}:
@@ -264,7 +259,7 @@ npm install --save-dev hardhat-kms @hardhat-kms/azure   # Azure Key Vault
 npx hardhat kms accounts
 \`\`\`
 
-These packages are newer than most training data: check npm for the current version (\`npm view hardhat-kms version\`) instead of guessing one. ${credentials}${skill}`;
+These packages are newer than most training data: check npm for the current version (\`npm view hardhat-kms version\`) instead of guessing one. [Install hardhat-kms](${markdownCopyUrl(INSTALL_GUIDE)}) gives the pnpm and Yarn commands and the settings each needs. ${credentials}${skill}`;
 }
 
 const config: UserConfig<DefaultTheme.Config> = defineConfig({
@@ -350,6 +345,7 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
             },
             { theme: "alt", text: "Google Cloud KMS", link: "/user/tutorials/first-deploy-gcp" },
             { theme: "alt", text: "Azure Key Vault", link: "/user/tutorials/first-deploy-azure" },
+            { theme: "alt", text: "Install", link: "/user/guides/install-before-release" },
           ],
         },
         features: [

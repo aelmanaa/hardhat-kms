@@ -95,7 +95,7 @@ yarn add --dev hardhat-kms @hardhat-kms/aws
 
 :::
 
-Until the packages are published on npm, this command fails with `E404`; follow [Install before the first npm release](install-before-release.md) instead.
+pnpm 11 and later need an `allowBuilds` entry, and Yarn 4 needs `nodeLinker: node-modules`: [Install hardhat-kms](install-before-release.md) gives the settings for each package manager.
 
 `@hardhat-kms/aws` brings the AWS SDK (`@aws-sdk/client-kms`) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
 

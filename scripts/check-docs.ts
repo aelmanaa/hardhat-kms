@@ -10,7 +10,7 @@
 //   (scripts/generate-api-docs.ts); its pages are skipped by the snippet typecheck;
 // - first-party source builds its errors only through the catalogue helpers (checkErrorSites);
 // - the user docs and the READMEs hold no milestone codes and no HTML comments other than the
-//   skip marker and the pre-release note (scripts/user-pages.ts);
+//   snippet skip marker (scripts/user-pages.ts);
 // - no tracked source, test, fixture, script, changeset, workflow or page names an internal
 //   milestone, a review round or the maintainer's machine (checkInternalWords);
 // - every ```mermaid block parses with Mermaid's own parser (scripts/mermaid-blocks.ts);

@@ -4,13 +4,13 @@ This file tells coding agents where things are in hardhat-kms. Humans can start 
 
 hardhat-kms is a Hardhat 3 plugin that signs transactions, messages and typed data with secp256k1 keys in AWS KMS, Google Cloud KMS and Azure Key Vault. It works at the JSON-RPC layer, so viem, ethers and Ignition see KMS keys as ordinary accounts. The private key never leaves the KMS.
 
-Status: not on npm yet. Unless a page marks something as planned, everything the docs describe has merged to `main`, and the plugin is still in development until the 1.0 release.
+Status: on npm since 0.9.0, the release candidate for 1.0.0. Unless a page marks something as planned, everything the docs describe has merged to `main`, and the plugin is still in development until the 1.0 release.
 
 ## If you are helping someone use the plugin
 
 Install the skill with `npx skills add aelmanaa/hardhat-kms`: it holds the setup steps, a config and what the plugin refuses. Its source is [skills/hardhat-kms/SKILL.md](skills/hardhat-kms/SKILL.md).
 
-These packages are newer than most training data: check npm for the current version with `npm view hardhat-kms version` before you install. Nothing is on npm before 0.9.0; until then `npm install` fails with `E404` and the packages are built from the repository ([docs/user/guides/install-before-release.md](docs/user/guides/install-before-release.md)). Install the provider package for the user's cloud with the core and Hardhat 3, configure a key under `kms.keys` and attach it to a network with `kmsAccounts` ([docs/user/reference/configuration.md](docs/user/reference/configuration.md)), then list the key's address.
+These packages are newer than most training data: check npm for the current version with `npm view hardhat-kms version` before you install. Install the provider package for the user's cloud with the core and Hardhat 3, configure a key under `kms.keys` and attach it to a network with `kmsAccounts` ([docs/user/reference/configuration.md](docs/user/reference/configuration.md)), then list the key's address. The commands for npm, pnpm and Yarn, and the settings each needs, are in [docs/user/guides/install-before-release.md](docs/user/guides/install-before-release.md).
 
 AWS KMS:
 
@@ -51,7 +51,7 @@ Pages:
 - A viem account for a KMS key in library code (`connection.kms.getAccount`, for viem's `signAuthorization`, smart-account owners and scripts), what it refuses, and why its sends bypass the send lock: [docs/user/reference/library-accounts.md](docs/user/reference/library-accounts.md)
 - The TypeScript API of `hardhat-kms`, `hardhat-kms/types` and `hardhat-kms/provider-utils`, generated from TSDoc: [docs/user/reference/api/README.md](docs/user/reference/api/README.md)
 - Which Node.js versions the published packages run on, and when a line is dropped: [docs/user/reference/support.md](docs/user/reference/support.md)
-- Install the packages before the first npm release (build from the repository, pack, install the tarballs; deleted at the release): [docs/user/guides/install-before-release.md](docs/user/guides/install-before-release.md)
+- Install the packages with npm, pnpm or Yarn (each one's settings, the google-gax override, registering the plugin, a build from the repository for testers): [docs/user/guides/install-before-release.md](docs/user/guides/install-before-release.md)
 - Set up an AWS KMS key (key spec, IAM policy, the `@hardhat-kms/aws` package, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
 - Set up an Azure Key Vault key (key type and curve, RBAC role or access policy, credential order, the `@hardhat-kms/azure` package): [docs/user/guides/azure-key-vault-setup.md](docs/user/guides/azure-key-vault-setup.md)
 - Set up a Google Cloud KMS key (algorithm, HSM protection level, IAM roles, the `@hardhat-kms/gcp` package, config, errors): [docs/user/guides/gcp-kms-setup.md](docs/user/guides/gcp-kms-setup.md)

@@ -130,6 +130,8 @@ const KEY_VERSION_NAME = new RegExp(
 const VERSION = /^[1-9]\d*$/;
 /** `projects/<p>/`, the start of a resource name. */
 const PROJECT_PREFIX = /^projects\/[^/]+\//;
+/** A project number. A project id starts with a letter, a domain-scoped one with its domain. */
+const PROJECT_NUMBER = /^\d+$/;
 const HEX_DIGEST = /^[0-9a-fA-F]{64}$/;
 const BASE64_DIGEST = /^[A-Za-z0-9+/]{43}=$/;
 const SUBJECT_TYPE = /^[A-Za-z]+$/;
@@ -139,6 +141,7 @@ const ERRNO = /^E(?!RR_)[A-Z0-9_]{2,31}$/;
 
 /** The parts of a key's name the query is built from. */
 interface KeyParts {
+  /** The project, by its id, its domain-scoped id or its number, as the config gives it. */
   project: string;
   location: string;
   keyRing: string;
@@ -187,10 +190,15 @@ export function quote(value: string): string {
 /**
  * The Cloud Logging filter for a key's sign entries in a range. Cloud Logging compares these
  * strings without regard to case, so the reader checks each entry's `resourceName` exactly too.
- * No clause names the project, which the config may give by its id or its number: the request's
- * `resourceNames` limits the read to the project. Google documents that a project read also
- * returns entries a sink in another project routes into it, so a key of the same location, key
- * ring and name in that other project would match too.
+ *
+ * A project read also returns entries a sink in another project routes into it, so a clause names
+ * the key's project; otherwise a key in that other project with the same location, key ring and
+ * name would match too. For a project id it is `resource.labels.project_id`, which Google
+ * documents as the project's id on the `cloudkms_cryptokeyversion` resource. No resource label
+ * holds the project number, so for a number it is `source("projects/<number>")`, which keeps the
+ * entries that come from the project. Google documents `source()` with a project id; in a live
+ * read on 2026-10-08 the number returned the same entries, another project's number none, and a
+ * number of no project was refused with `NOT_FOUND`.
  *
  * @param parts - The key's parts.
  * @param since - The start of the range, inclusive.
@@ -203,6 +211,9 @@ export function signEntriesFilter(parts: KeyParts, since: Date, until: Date): st
   return [
     `log_id("cloudaudit.googleapis.com/data_access")`,
     `resource.type="cloudkms_cryptokeyversion"`,
+    PROJECT_NUMBER.test(parts.project)
+      ? `source(${quote(`projects/${parts.project}`)})`
+      : `resource.labels.project_id=${quote(parts.project)}`,
     `resource.labels.location=${quote(parts.location)}`,
     `resource.labels.key_ring_id=${quote(parts.keyRing)}`,
     `resource.labels.crypto_key_id=${quote(parts.key)}`,
@@ -286,9 +297,8 @@ function signEvent(
     throw new BadResponse("an entry has no protoPayload, resourceName, methodName or timestamp");
   }
   // The filter matches without regard to case: an entry of a key whose name differs only in case
-  // belongs to another key. The project part is not compared, since it can be the id or the
-  // number. A project read also returns entries routed in from another project, so a same-named
-  // key there matches too.
+  // belongs to another key. The project part of `resourceName` is not compared, since it can be
+  // the id or the number; the project label is checked below.
   const suffix = `/${parts.keyPath}/cryptoKeyVersions/`;
   const project = PROJECT_PREFIX.exec(resourceName)?.[0];
   const version =
@@ -301,6 +311,18 @@ function signEvent(
   const at = Date.parse(time);
   if (!Number.isFinite(at)) {
     throw new BadResponse("an entry has a timestamp that is not a date");
+  }
+  // For a project id, the entry's project label must name it. A project id has no capital
+  // letters, so a match without regard to case is still the same project. For a project number,
+  // which no resource label holds, the filter's `source()` clause is the check.
+  if (!PROJECT_NUMBER.test(parts.project)) {
+    const label = text(field(field(entry, "resource"), "labels"), "project_id");
+    if (label === null) {
+      throw new BadResponse("an entry has no resource.labels.project_id");
+    }
+    if (label.toLowerCase() !== parts.project.toLowerCase()) {
+      return undefined;
+    }
   }
   if (at < range.since.getTime() || at > range.until.getTime()) {
     return undefined;

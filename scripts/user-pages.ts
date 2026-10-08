@@ -13,20 +13,6 @@
 /** The marker that excludes the next snippet from the typecheck. */
 export const SKIP_MARKER = "<!-- docs-check: skip -->";
 
-/** The page whose pre-release note may stay: the release pull request reads and deletes it. */
-export const PRE_RELEASE_PAGE = "docs/user/guides/install-before-release.md";
-
-/**
- * Whether a user page may hold this HTML comment: the snippet skip marker anywhere, and the note at
- * the top of the pre-release install page that tells the release pull request what to delete.
- */
-function isAllowedComment(file: string, comment: string): boolean {
-  if (comment === SKIP_MARKER) {
-    return true;
-  }
-  return file === PRE_RELEASE_PAGE && comment.startsWith("<!--\nPre-release only.");
-}
-
 /** Replaces each character but a newline with a space, so offsets and line numbers stay put. */
 function blank(text: string): string {
   return text.replaceAll(/[^\n]/g, " ");
@@ -85,7 +71,8 @@ export function userPageProblems(file: string, text: string): string[] {
   const problems: string[] = [];
   const prose = withoutCode(text);
   for (const match of prose.matchAll(/<!--[\s\S]*?-->/g)) {
-    if (!isAllowedComment(file, match[0])) {
+    // The snippet skip marker is the only comment a user page may hold.
+    if (match[0] !== SKIP_MARKER) {
       problems.push(
         `${file}:${lineOf(text, match.index)}: HTML comment in a user page; move maintainer notes to docs/contributor/`,
       );
