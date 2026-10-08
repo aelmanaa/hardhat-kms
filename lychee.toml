@@ -9,11 +9,13 @@ exclude = [
   '^https://ops\.vault\.azure\.net',
   '^https://<vault',
   '^https://rpc\.example',
-  # Etherscan and the npm website answer 403 to requests from CI runners (bot protection), so a
-  # 403 there says nothing about the link. Nothing else checks these links automatically: open the
-  # Etherscan pages in a browser, and check a linked package with `npm view <name>`.
+  # Etherscan, Socket, and the npm package and search pages answer 403 to requests from CI
+  # runners (bot protection), so a 403 there says nothing about the link. Nothing else checks these
+  # links automatically: open the Etherscan, Socket and npm search pages in a browser, and check a
+  # linked package with `npm view <name>`.
   '^https://(sepolia\.)?etherscan\.io/',
-  '^https://www\.npmjs\.com/package/',
+  '^https://www\.npmjs\.com/(package/|search)',
+  '^https://socket\.dev/',
   # tsx.is chains to Let's Encrypt's ISRG Root YE, which the Mozilla-based root store lychee uses
   # does not hold yet, so lychee reports an untrusted certificate. Clients that trust that root,
   # such as macOS, load the site. Remove this entry once a lychee run without it passes.
