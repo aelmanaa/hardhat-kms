@@ -102,9 +102,23 @@ A dispatch with `dry-run` set to anything but true, or with a `tag` that is not 
 
 ### Trusted publishing
 
-`release.yml` stages and `promote.yml` moves the dist-tag over OIDC only; neither reads a token or a secret. Each of the four packages has two trusted-publisher configurations on npmjs.com: one for `release.yml` on the `npm-publish` environment (stage only, the default for configurations created since 2026-09-03) and one for `promote.yml` on the `npm-latest` environment (allow dist-tag, no publish). The publish job runs in `release-stage.yml`, but npm matches the token against the calling workflow, so the configuration names `release.yml`. A future major adds a third, for `release-next.yml` ([section 7](#7-a-future-major)). Each package's "Publishing access" is set to "Require two-factor authentication and disallow bypass 2fa tokens (recommended)", the label npmjs.com shows; npm's documentation calls the same option "Require two-factor authentication and disallow tokens".
+`release.yml` stages and `promote.yml` moves the dist-tag over OIDC only; neither reads a token or a secret. Each of the four packages has two trusted-publisher configurations on npmjs.com: one for `release.yml` on the `npm-publish` environment (stage only, the default for configurations created since 2026-09-03) and one for `promote.yml` on the `npm-latest` environment (allow dist-tag, no publish). The publish job runs in `release-stage.yml`, but npm matches the token against the calling workflow, so the configuration names `release.yml`. A future major adds a third, for `release-next.yml` ([section 7](#7-a-future-major)). From the first release after 0.9.0, the signing certificate's SAN and Build Signer URI name `release-stage.yml`, the file that runs the publish job, while the provenance statement's `workflow.path` and the certificate's Build Config URI still name `release.yml`. Each package's "Publishing access" is set to "Require two-factor authentication and disallow bypass 2fa tokens (recommended)", the label npmjs.com shows; npm's documentation calls the same option "Require two-factor authentication and disallow tokens".
 
 A configuration shows "not yet validated" until a publish uses it, and expires 48 hours after its creation if no publish does. Check the configurations on the day of each tag, and recreate any that expired before pushing it ([Trusted-publisher configuration expired](#trusted-publisher-configuration-expired)).
+
+### First stable release through `release-stage.yml`
+
+The first stable tag after the jobs moved into `release-stage.yml` is also the first publish over OIDC from a reusable workflow. Two checks for it:
+
+1. Before tagging, dispatch a dry run on the last release tag, which runs the signed-tag path of `verify-tag` inside the reusable workflow:
+
+   ```sh
+   gh workflow run release.yml --ref main -f dry-run=true -f tag=v0.9.0
+   ```
+
+   `verify-tag` must pass with `v0.9.0 passes: ... on origin/main, staged under beta`. With `v0.9.0`, `pack` then fails with `Unknown option '--channel'`: it runs the `check-tarballs.ts` of the tagged commit, which predates the channel option. A tag cut after this change passes `pack` too.
+
+2. After the stage is approved, read the provenance of one package as in [Verify a release](../user/guides/verify-a-release.md#2-read-the-provenance): `path` must be `.github/workflows/release.yml`. Then check that the certificate's SAN names `.github/workflows/release-stage.yml@refs/tags/v<version>`, for example with `gh attestation verify` or by decoding the certificate in the attestation bundle. A refused OIDC exchange stages nothing, and [Run failed before `publish`](#run-failed-before-publish) applies.
 
 ### First publish (0.9.0, 2026-10-08)
 
