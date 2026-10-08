@@ -51,9 +51,13 @@ export function readTypedData(data: unknown, operation: string): TypedData {
  * rounds them silently, so a `uint256` amount or a large chain id would be signed with another
  * value than the one written.
  */
-function refuseUnsafeIntegers(_key: string, value: unknown): unknown {
-  if (typeof value === "number" && Number.isInteger(value) && !Number.isSafeInteger(value)) {
-    throw new InvalidTypedDataError(catalogMessage(ERRORS.typedDataUnsafeInteger, { value }));
+function refuseUnsafeIntegers(key: string, value: unknown): unknown {
+  // Number.isInteger is false for anything but a number.
+  if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+    // The key, never the value: this runs before any shape check, so the file may be another
+    // one given by mistake, and the number part of a secret.
+    const where = key === "" ? "at the top level" : `at key ${JSON.stringify(key.slice(0, 40))}`;
+    throw new InvalidTypedDataError(catalogMessage(ERRORS.typedDataUnsafeInteger, { where }));
   }
   return value;
 }

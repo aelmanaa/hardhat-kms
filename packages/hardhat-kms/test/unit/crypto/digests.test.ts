@@ -204,6 +204,36 @@ describe("parseTypedData", () => {
     }
   });
 
+  it("cuts the encoder's message, which quotes the value, to 200 characters ending in ...", () => {
+    const typedData = {
+      ...EIP712_MAIL,
+      types: { ...EIP712_MAIL.types, Mail: [{ name: "contents", type: "string[]" }] },
+      message: { contents: "x".repeat(10_000) },
+    };
+    const full = (() => {
+      try {
+        typedDataDigest(typedData);
+      } catch (error) {
+        return error instanceof Error ? error.message : undefined;
+      }
+      return undefined;
+    })();
+    assert.ok(full !== undefined && full.length > 200);
+    // A message of exactly 200 characters is kept whole. The message ends with the value.
+    assert.ok(full.endsWith("x".repeat(10_000)));
+    const exact = { ...typedData, message: { contents: "x".repeat(10_000 - (full.length - 200)) } };
+    assert.throws(
+      () => parseTypedData(exact),
+      invalidTypedData(catalogMessage(ERRORS.typedDataEncoder, { message: full.slice(0, 200) })),
+    );
+    assert.throws(
+      () => parseTypedData(typedData),
+      invalidTypedData(
+        catalogMessage(ERRORS.typedDataEncoder, { message: `${full.slice(0, 197)}...` }),
+      ),
+    );
+  });
+
   it("refuses values that are not plain data, before reading them", () => {
     const plainData = catalogMessage(ERRORS.typedDataPlainData, {});
     for (const [name, value] of [

@@ -154,7 +154,7 @@ Keys can also come from Foundry's environment variables with `--kms aws`, `--kms
 
 After loading, `hre.config.kms` holds the resolved section. Every network's config gets a `kmsAccounts` array of resolved keys, empty when none are configured. A key listed by name resolves to the same settings as its entry in `hre.config.kms.keys`.
 
-Each resolved key has a `displayId` that is safe to print: the provider id and the key identifier, such as `aws:alias/deployer`. An identifier read from a configuration variable shows as the variable's name, for example `aws:<AWS_KMS_KEY_ID>`, and its value is read only when the key is used. A third-party provider's key shows as `<provider>:<key name>`, and its `userConfig` holds the key's fields with configuration variables resolved, as Hardhat does for its own config.
+Each resolved key has a `displayId` that is safe to print: the provider id and the key identifier, such as `aws:alias/deployer`. An identifier read from a configuration variable shows as the variable's name, for example `aws:<AWS_KMS_KEY_ID>`, and its value is read only when the key is used. A literal identifier shows as written, so a literal AWS key ARN, which holds the AWS account id, appears in error prefixes and in `DEBUG` output: use `configVariable` to keep the ARN out of logs. A third-party provider's key shows as `<provider>:<key name>`, and its `userConfig` holds the key's fields with configuration variables resolved, as Hardhat does for its own config.
 
 The resolved types are exported from `hardhat-kms/types`. Narrow a resolved key on its `provider` field; a third-party provider adds its resolved type to `KmsProviderConfigs`.
 

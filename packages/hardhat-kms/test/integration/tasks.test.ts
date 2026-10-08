@@ -710,7 +710,7 @@ describe("kms sign", () => {
       const json = JSON.stringify(EIP712_MAIL).replace('"chainId":1', '"chainId":9007199254740993');
 
       await assertKmsError(runSign(hre, { key: "deployer", message: json, data: true }), [
-        "the typed data is invalid: a number is above 2^53 - 1 (read as 9007199254740992)",
+        'the typed data is invalid: a number at key "chainId" is above 2^53 - 1',
         "write it as a string",
       ]);
       assert.equal(created.length, 0);

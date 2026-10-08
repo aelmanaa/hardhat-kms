@@ -445,6 +445,33 @@ describe("kms sign-tx over HTTP", () => {
         `cannot read the transaction file ${path.join(scratch, "missing.json")} (ENOENT)`,
       ]);
     });
+
+    it("names the line and column of a file that is not JSON, and repeats none of it", async () => {
+      // A .env file given by mistake, and a file that is JSON up to the middle of a secret.
+      const cases: [string, string][] = [
+        ["AWS_SECRET_ACCESS_KEY=example\nAWS_REGION=eu-west-1\n", "line 1, column 1"],
+        [`{\n  "to": "${TO}",\n  "data": hhkms-fake-secret-0123456789\n}\n`, "line 3, column 11"],
+      ];
+      for (const [content, where] of cases) {
+        const file = txFile(content);
+        const { hre, created } = await runtime(networks, { network: "kms" });
+        await assert.rejects(signTx(hre, "zero", file), (error: unknown) => {
+          assert.ok(error instanceof HardhatPluginError, String(error));
+          assert.ok(
+            error.message.includes(`the transaction file ${file} is not valid JSON at ${where}`),
+            error.message,
+          );
+          // No four characters in a row from the file, so no part of a secret.
+          const shown = error.message.replace(file, "");
+          for (let start = 0; start + 4 <= content.length; start++) {
+            const part = content.slice(start, start + 4);
+            assert.ok(!shown.includes(part), `"${shown}" repeats "${part}" from the file`);
+          }
+          return true;
+        });
+        assert.equal(signatures(created), 0, "the KMS signed nothing");
+      }
+    });
   });
 });
 

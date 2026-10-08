@@ -38,4 +38,5 @@ hardhat-kms follows MetaMask, the one signer that checks, and makes the check st
 - Typed data without a chain still signs; refusing it would break valid EIP-712 that every other signer accepts.
 - Signing typed data that names a chain now needs `eth_chainId` to answer. Messages (`eth_sign`, `personal_sign`) do not read the chain, since it is not part of their signature.
 - A domain that names its chain field anything but `chainId` (for example `chainID`) is, for EIP-712, a domain without a chain id: it is signed without a check.
+- The check reads `domain.chainId` whatever type `EIP712Domain` declares for it. With a type other than `uint256`, such as `string` with `"1"`, the check can pass while the digest does not bind the chain in the standard way. This is not a bypass: a verifier that declares `uint256 chainId` has another type hash, so the signature does not verify there. A passing check alone does not prove the standard chain binding.
 - Revisit if wallets start refusing domains without `chainId`, or if a standard asks signers to.

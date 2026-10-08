@@ -40,7 +40,8 @@ const COMPACT_LENGTH = 64;
  *
  * @param output - The signature returned by the adapter.
  * @returns The raw `r` and `s`, not yet normalized.
- * @throws {InvalidSignatureError} If the encoding is invalid or a scalar is out of range.
+ * @throws {InvalidSignatureError} If the encoding is invalid, or a scalar is not a bigint or is
+ *   out of range.
  */
 export function parseSignature(output: SignatureOutput): { r: bigint; s: bigint } {
   let r: bigint;
@@ -63,6 +64,11 @@ export function parseSignature(output: SignatureOutput): { r: bigint; s: bigint 
       );
     }
   } else {
+    // The type says bigint, but a third-party adapter in JavaScript can return numbers, which
+    // compare with bigints but fail in the arithmetic that follows.
+    if (typeof output.r !== "bigint" || typeof output.s !== "bigint") {
+      throw new InvalidSignatureError(catalogMessage(ERRORS.signatureScalarType, {}));
+    }
     ({ r, s } = output);
   }
   if (r <= 0n || r >= CURVE_ORDER || s <= 0n || s >= CURVE_ORDER) {

@@ -856,6 +856,15 @@ export const ERRORS = {
     cause: "The provider returned DER or compact bytes that are not a valid ECDSA signature.",
     fix: "If it repeats, report it.",
   },
+  signatureScalarType: {
+    id: "core.signature.scalar-type",
+    kind: "reason",
+    group: "Signatures",
+    template: "r and s must be bigints",
+    cause:
+      "A provider plugin returned a signature as `{ r, s }` whose values are not `bigint`, for example JavaScript numbers, which cannot hold a 256-bit scalar exactly.",
+    fix: "Report it to the provider plugin.",
+  },
   signatureRange: {
     id: "core.signature.range",
     kind: "reason",
@@ -1314,7 +1323,7 @@ export const ERRORS = {
     group: "Typed data",
     template: "{message}",
     cause:
-      "The EIP-712 encoder refused the typed data, for example for an unknown type or a value that does not fit its type. The message is the encoder's own.",
+      "The EIP-712 encoder refused the typed data, for example for an unknown type or a value that does not fit its type. The message is the encoder's own, cut to 200 characters, ending in `...`, because it can quote a whole value.",
     fix: "Fix the type or value the message names.",
   },
   typedDataUnsafeInteger: {
@@ -1322,9 +1331,9 @@ export const ERRORS = {
     kind: "reason",
     group: "Typed data",
     template:
-      "a number is above 2^53 - 1 (read as {value}), so JSON cannot hold it exactly; write it as a string",
+      "a number {where} is above 2^53 - 1, so JSON cannot hold it exactly; write it as a string",
     cause:
-      "The typed data JSON has an integer too large for a JavaScript number, which would be rounded and signed as another value.",
+      "The typed data JSON has an integer too large for a JavaScript number, which would be rounded and signed as another value. The message names the key, cut to 40 characters, and never the number, since the file may be another one given by mistake.",
     fix: "Write large integers, such as `uint256` amounts, as decimal or hex strings.",
   },
   chainIdInvalid: {
@@ -1529,8 +1538,9 @@ export const ERRORS = {
     id: "core.task.tx-file-not-json",
     kind: "error",
     group: "Tasks",
-    template: "the transaction file {file} is not valid JSON: {reason}",
-    cause: "The file given to `kms sign-tx` is not JSON. The reason is the JSON parser's.",
+    template: "the transaction file {file} is not valid JSON at line {line}, column {column}",
+    cause:
+      "The file given to `kms sign-tx` is not JSON, for example another file given by mistake. The message names where the JSON stops being valid and quotes none of the file, which could hold a secret.",
     fix: 'Fix the JSON. Quantities are strings, such as `"0x1"`.',
   },
   txFileNotObject: {

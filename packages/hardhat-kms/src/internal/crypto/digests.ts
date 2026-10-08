@@ -77,9 +77,12 @@ export function parseTypedData(input: unknown): TypedData {
   try {
     typedDataDigest(typedData);
   } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
     throw new InvalidTypedDataError(
       catalogMessage(ERRORS.typedDataEncoder, {
-        message: error instanceof Error ? error.message : String(error),
+        // The encoder quotes the caller's values, at any length: keep the start, as
+        // viem/inputs.ts does for micro-eth-signer's transaction errors, and mark the cut.
+        message: reason.length > 200 ? `${reason.slice(0, 197)}...` : reason,
       }),
     );
   }
