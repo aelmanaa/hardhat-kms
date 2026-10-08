@@ -2,7 +2,8 @@
 # maintainer's steps and decision 0016 the reasons. The jobs, in order:
 # 1. verify-tag: scripts/release-trigger.ts checks the trigger and its inputs as whole strings,
 #    then scripts/verify-release-tag.ts checks the tag: signed by a key in .github/release-keys/,
-#    the version of the four manifests, no prerelease part, its commit on main.
+#    the version of the four manifests, no prerelease part, its commit on main or, for a hotfix
+#    X.Y.Z, on release/X.Y.
 # 2. gate-ci: the tagged commit has a passing ci.yml run, a ci-all-os.yml run that passed on macOS
 #    and Windows, and passing hardhat-versions.yml and sdk-floors.yml runs; for each of the last
 #    three that has no passing run on the commit, the job dispatches it on the tag and waits
@@ -63,7 +64,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The whole history: the script checks that the tagged commit is an ancestor of origin/main.
+          # The whole history: the script checks that the tagged commit is an ancestor of origin/main
+          # or of the release branch of its version.
           fetch-depth: 0
           persist-credentials: false
       # Node 24 strips the scripts' types; they import only node: modules, so nothing is installed.
@@ -96,8 +98,10 @@ jobs:
             echo "Dry run without a tag: the signature, tag-name and main checks did not run. Packing \`$HEAD_SHA\` at version $version." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          # Fetch the tag object itself, and main, so neither depends on how the checkout fetched them.
-          git fetch --force --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/main:refs/remotes/origin/main"
+          # Fetch the tag object itself, main and the release branches, so none depends on how the
+          # checkout fetched them. The script picks the one release branch it reads from the
+          # version at the tagged commit, never from this list.
+          git fetch --force --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/main:refs/remotes/origin/main" "+refs/heads/release/*:refs/remotes/origin/release/*"
           set -o pipefail
           node scripts/verify-release-tag.ts "$TAG" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "commit=$(git rev-parse "refs/tags/$TAG^{commit}")" >> "$GITHUB_OUTPUT"

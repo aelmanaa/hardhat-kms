@@ -57,7 +57,7 @@ Why the manifests read `0.8.0` before the first release: `changeset version` app
    node scripts/verify-release-tag.ts v1.2.0
    ```
 
-   `git verify-tag` checks the signature against your keyring and prints `Good signature from <your user id>`. The script checks what the workflow checks: the signature against `.github/release-keys/` in a throwaway `GNUPGHOME`, the tag name against the four manifests at that commit, no `-` in the version, and the commit reachable from `origin/main`. It prints one line:
+   `git verify-tag` checks the signature against your keyring and prints `Good signature from <your user id>`. The script checks what the workflow checks: the signature against `.github/release-keys/` in a throwaway `GNUPGHOME`, the tag name against the four manifests at that commit, no `-` in the version, and the commit reachable from `origin/main`, or, for a hotfix, from the release branch of its version (see [Hotfix on an older line](#5-hotfix-on-an-older-line)). It prints one line:
 
    ```text
    v1.2.0 passes: signed by <name> <email> (<fingerprint>), version 1.2.0 in 4 manifests, commit <merge-sha> on origin/main
@@ -151,12 +151,18 @@ The first version of a package lands on `latest` whatever is asked, because the 
 
 ## 5. Hotfix on an older line
 
-1. Branch `v1.x` from the last tag of that line.
+A hotfix line lives on a branch named `release/<major>.<minor>`: `release/1.0` carries 1.0.1, 1.0.2 and so on.
+
+1. Branch `release/1.0` from the last tag of that line (`git switch -c release/1.0 v1.0.0`) and push it.
 2. Cherry-pick the fix with its changeset onto the branch.
 3. Run `pnpm run version-packages` on the branch and commit the result.
-4. Follow [Cut a release](#3-cut-a-release) from the branch, with the tag signed at the branch commit.
+4. Follow [Cut a release](#3-cut-a-release) from the branch, with the tag signed at the branch commit and `git fetch origin release/1.0` in place of `git fetch origin main`.
 
-One gap to close before the first hotfix line: `scripts/verify-release-tag.ts` accepts only a commit reachable from `origin/main` (its `--main` option names the ref), so the release workflow has to pass the release branch for a tag on it. The promote workflow refuses to move `latest` backwards, so once a newer major exists the GitHub Release is created with `--latest=false` and the dist-tag the version is moved to is `previous`, never `latest`.
+`scripts/verify-release-tag.ts` accepts a tagged commit on `origin/main`, or on `origin/release/X.Y` when the tag is `vX.Y.Z`. It builds that branch name from the version in the manifests at the tagged commit, which must match the tag name, so a tag cannot point the check at another branch: `v1.0.1` on `release/1.1`, on `release/1.0` only in a local clone, or on any other branch fails with `commit <sha> of v1.0.1 is not on origin/main or origin/release/1.0`. The signature, manifest and stable-version checks are the same as for a tag on `main`, and the success line ends with `on origin/release/1.0`. The release workflow fetches every `release/*` branch along with `main` before it runs the script.
+
+Two gaps remain before the first hotfix release. The `gate-ci` job counts only a push run of `ci.yml` on the tagged commit, and `ci.yml` runs on pushes to `main` only, so it refuses a commit that exists only on a release branch. And the reachability check is only as strong as the branch: give `release/*` the same protection as `main`, so that only a reviewed pull request can move it.
+
+The promote workflow refuses to move `latest` backwards, so once a newer major exists the GitHub Release is created with `--latest=false` and the dist-tag the version is moved to is `previous`, never `latest`.
 
 ## 6. Bad release runbook
 
