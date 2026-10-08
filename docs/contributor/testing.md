@@ -229,7 +229,7 @@ Agents never dispatch the workflow, never add `ci:live` and never approve the en
 
 ### Trust
 
-Only the `live` job of each workflow has `id-token: write`; the workflow's default is `permissions: {}`. Each cloud trusts one token subject, the immutable form that names the environment: `repo:aelmanaa@<owner id>/hardhat-kms@<repository id>:environment:live-tests`.
+In `live-tests.yml` only the `live` job has `id-token: write`; in `promote.yml`, `live` and `latest` do. Each workflow's default is `permissions: {}`. Each cloud trusts one token subject, the immutable form that names the environment: `repo:aelmanaa@<owner id>/hardhat-kms@<repository id>:environment:live-tests`.
 
 | Cloud        | Trusted identity                                                                        | What it may do                                    |
 | ------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------- |
