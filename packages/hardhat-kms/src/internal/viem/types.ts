@@ -121,7 +121,8 @@ export interface KmsSignTransactionOptions {
  * other. Not so for a client with its own transport, such as `http(url)`: only its nonce is
  * reserved. These sends have no retry cache.
  *
- * After `connection.close()`, every method refuses before any KMS call.
+ * After `connection.close()`, or once the `signal` given to `getAccount` has aborted, every method
+ * refuses before any KMS call.
  */
 export interface KmsAccount {
   /** The checksummed address. */
@@ -231,6 +232,13 @@ export interface KmsAccountOptions {
   rawSign?: boolean | undefined;
   /** Let `signAuthorization` sign for chain 0, which makes the authorization valid on every chain. */
   allowChainZeroAuthorization?: boolean | undefined;
+  /**
+   * Stops the account's KMS calls when it aborts. A KMS call in flight then rejects with
+   * `core.signer.cancelled` and is not retried, and every later call of the account, `getAccount`
+   * included, is refused before any KMS call. A request that already reached the KMS can still be
+   * signed there; the account never returns that signature, so viem never sends it.
+   */
+  signal?: AbortSignal | undefined;
 }
 
 /** What hardhat-kms adds to a network connection, as `connection.kms`. */
@@ -240,7 +248,8 @@ export interface KmsNetworkConnection {
    * package, and asks the KMS for the key's public key once.
    *
    * @param address - The address of one of the connection's KMS accounts.
-   * @param options - Options; `rawSign: true` adds `sign({ hash })`.
+   * @param options - Options; `rawSign: true` adds `sign({ hash })`, and `signal` cancels the
+   * account's KMS calls.
    * @returns The account.
    */
   readonly getAccount: {

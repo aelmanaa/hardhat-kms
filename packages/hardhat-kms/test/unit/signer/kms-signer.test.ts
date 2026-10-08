@@ -34,6 +34,8 @@ import {
 } from "../../helpers/vectors.ts";
 
 const hex = (value: string) => new Uint8Array(Buffer.from(value, "hex"));
+/** Replaced in a promise's executor before it is called. */
+const ignore = (): void => undefined;
 const baseOptions: KmsSignerOptions = {
   timeoutMs: 30_000,
   displayMessage: async () => {
@@ -98,6 +100,31 @@ function throwsWith(create: () => unknown, message: string) {
     assert.equal(error.message, message);
     return true;
   });
+}
+
+/** The message of the signer's `core.signer.cancelled` error during `operation`. */
+const cancelled = (operation: string): string =>
+  fakeKeyMessage(operation, ERRORS.signerCancelled, {});
+
+/** An adapter whose public key lookup answers when the test says so. */
+function heldLookup() {
+  const inner = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
+  let answer: () => void = ignore;
+  const answered = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  const lookups: AbortSignal[] = [];
+  const adapter: KmsKeyAdapter = {
+    describe: () => inner.describe(),
+    getPublicKey: async (ctx) => {
+      lookups.push(ctx.signal);
+      await answered;
+      return await (inner.getPublicKey?.(ctx) ?? Promise.reject(new Error("missing")));
+    },
+    signDigest: async (request, ctx) =>
+      await (inner.signDigest?.(request, ctx) ?? Promise.reject(new Error("missing"))),
+  };
+  return { kms: new KmsSigner(adapter, baseOptions), answer, lookups };
 }
 
 describe("KmsSigner", () => {
@@ -1111,6 +1138,162 @@ describe("KmsSigner", () => {
         confirmed: false,
       });
       assert.equal(adapter.calls.signDigest, 0);
+    });
+  });
+
+  describe("the caller's signal", () => {
+    const secretKey = hex(HARDHAT_ACCOUNT_0.secretKey);
+    const digest = new Uint8Array(32).fill(7);
+
+    /** An adapter whose signing calls never answer, and that records each call's signal. */
+    function hangingSigner(timers = fakeTimers()) {
+      const inner = fakeAdapter({ secretKey });
+      const signals: AbortSignal[] = [];
+      const adapter: KmsKeyAdapter = {
+        describe: () => inner.describe(),
+        getPublicKey: async (ctx) =>
+          await (inner.getPublicKey?.(ctx) ?? Promise.reject(new Error("missing"))),
+        signDigest: async (_request, ctx) => {
+          signals.push(ctx.signal);
+          return await new Promise<never>(() => {
+            // Never answers.
+          });
+        },
+      };
+      return { kms: new KmsSigner(adapter, { ...baseOptions, timers }), signals, timers };
+    }
+
+    for (const [method, sign] of [
+      [
+        "signDigest",
+        async (kms: KmsSigner, signal: AbortSignal) => await kms.signDigest(digest, { signal }),
+      ],
+      [
+        "signPersonalMessage",
+        async (kms: KmsSigner, signal: AbortSignal) =>
+          await kms.signPersonalMessage(new Uint8Array([1, 2, 3]), { signal }),
+      ],
+      [
+        "signTypedData",
+        async (kms: KmsSigner, signal: AbortSignal) =>
+          await kms.signTypedData(EIP712_MAIL, { signal }),
+      ],
+    ] as const) {
+      it(`${method}: aborts the provider call and rejects with core.signer.cancelled`, async () => {
+        const { kms, signals, timers } = hangingSigner();
+        await kms.getAddress();
+        const caller = new AbortController();
+
+        const pending = sign(kms, caller.signal);
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(signals.length, 1);
+        assert.equal(signals[0]?.aborted, false);
+        caller.abort();
+        await rejectsWith(pending, cancelled("sign"));
+        assert.equal(signals[0]?.aborted, true, "the provider call's signal aborted");
+        assert.equal(signals.length, 1, "a cancelled call is not retried");
+        assert.equal(timers.pending(), 0, "the deadline is cancelled");
+      });
+    }
+
+    it("is told apart from a timeout", async () => {
+      const { kms, timers } = hangingSigner();
+      await kms.getAddress();
+      const caller = new AbortController();
+      const pending = kms.signDigest(digest, { signal: caller.signal });
+      await new Promise((resolve) => setImmediate(resolve));
+      timers.fire();
+      caller.abort();
+      await rejectsWith(
+        pending,
+        fakeKeyMessage("sign", ERRORS.signerNoAnswer, { timeout: 30_000 }),
+      );
+    });
+
+    it("refuses before any provider call when the signal has already aborted", async () => {
+      const { adapter, signer: kms } = signer({ secretKey });
+      await kms.getAddress();
+
+      await rejectsWith(kms.signDigest(digest, { signal: AbortSignal.abort() }), cancelled("sign"));
+      assert.equal(adapter.calls.signDigest, 0);
+    });
+
+    it("does not retry an invalid signature once the signal has aborted", async () => {
+      const caller = new AbortController();
+      const { adapter, signer: kms } = signer({
+        secretKey,
+        wrongKeyForCalls: 1,
+        beforeSign: async () => {
+          caller.abort();
+          await Promise.resolve();
+        },
+      });
+      await kms.getAddress();
+
+      await rejectsWith(kms.signDigest(digest, { signal: caller.signal }), cancelled("sign"));
+      assert.equal(adapter.calls.signDigest, 1);
+    });
+
+    it("signs as before with a signal that does not abort", async () => {
+      const { signer: kms } = signer({ secretKey });
+      const caller = new AbortController();
+      const withSignal = await kms.signDigest(digest, { signal: caller.signal });
+      assert.deepEqual(withSignal, await kms.signDigest(digest));
+      const message = new Uint8Array([1, 2, 3]);
+      assert.equal(
+        await kms.signPersonalMessage(message, { signal: caller.signal }),
+        await kms.signPersonalMessage(message),
+      );
+      assert.equal(
+        await kms.signTypedData(EIP712_MAIL, { signal: caller.signal }),
+        await kms.signTypedData(EIP712_MAIL),
+      );
+      assert.deepEqual(await kms.getPublicKey({ signal: caller.signal }), await kms.getPublicKey());
+    });
+
+    describe("on the key lookup that callers share", () => {
+      it("stops this caller's wait, and lets the lookup finish for the others", async () => {
+        const { kms, answer, lookups } = heldLookup();
+        const caller = new AbortController();
+        const mine = kms.getPublicKey({ signal: caller.signal });
+        const other = kms.getPublicKey();
+        await new Promise((resolve) => setImmediate(resolve));
+
+        caller.abort();
+        await rejectsWith(mine, cancelled("get public key"));
+        assert.equal(lookups[0]?.aborted, false, "the shared lookup goes on");
+        answer();
+        assert.deepEqual(await other, secp256k1.getPublicKey(secretKey, false));
+        assert.equal(lookups.length, 1);
+      });
+
+      it("reports a sign whose lookup was cancelled as a cancelled sign", async () => {
+        const { kms, answer } = heldLookup();
+        const caller = new AbortController();
+        const pending = kms.signDigest(digest, { signal: caller.signal });
+        await new Promise((resolve) => setImmediate(resolve));
+
+        caller.abort();
+        await rejectsWith(pending, cancelled("sign"));
+        answer();
+      });
+
+      it("passes the lookup's own error through", async () => {
+        const inner = fakeAdapter({ secretKey });
+        const failure = new HardhatPluginError("hardhat-kms", "adapter says no");
+        const kms = new KmsSigner(
+          {
+            describe: () => inner.describe(),
+            getPublicKey: async () => await Promise.reject(failure),
+          },
+          baseOptions,
+        );
+
+        await assert.rejects(
+          kms.getPublicKey({ signal: new AbortController().signal }),
+          (error: unknown) => error === failure,
+        );
+      });
     });
   });
 });

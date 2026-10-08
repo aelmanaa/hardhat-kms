@@ -20,7 +20,7 @@ import {
 } from "../rpc/dispatcher.ts";
 import { assembleSignedTransaction } from "../rpc/transactions.ts";
 import { checkTypedDataChain } from "../rpc/typed-data.ts";
-import type { KmsSigner } from "../signer/kms-signer.ts";
+import type { KmsSigner, SignerCallOptions } from "../signer/kms-signer.ts";
 import { warn } from "../warnings.ts";
 import {
   readAddress,
@@ -146,17 +146,19 @@ function checkViemVersion(version: string, operation: string): void {
   }
 }
 
-const OPTION_NAMES = new Set(["rawSign", "allowChainZeroAuthorization"]);
+const OPTION_NAMES = new Set(["rawSign", "allowChainZeroAuthorization", "signal"]);
 
 /** The options of `getAccount`, checked. */
 interface AccountOptions {
   rawSign: boolean;
   allowChainZeroAuthorization: boolean;
+  /** Cancels the account's KMS calls when it aborts. */
+  signal: AbortSignal | undefined;
 }
 
 function readOptions(options: unknown, operation: string): AccountOptions {
   if (options === undefined) {
-    return { rawSign: false, allowChainZeroAuthorization: false };
+    return { rawSign: false, allowChainZeroAuthorization: false, signal: undefined };
   }
   if (!isObject(options)) {
     throw catalogError(
@@ -183,9 +185,18 @@ function readOptions(options: unknown, operation: string): AccountOptions {
       { operation },
     );
   };
+  const signal = Object.hasOwn(options, "signal") ? options.signal : undefined;
+  if (signal !== undefined && !(signal instanceof AbortSignal)) {
+    throw catalogError(
+      ERRORS.accountField,
+      { field: "options.signal", expected: "an AbortSignal" },
+      { operation },
+    );
+  }
   return {
     rawSign: flag("rawSign"),
     allowChainZeroAuthorization: flag("allowChainZeroAuthorization"),
+    signal,
   };
 }
 
@@ -250,6 +261,18 @@ function checkOpen(connection: AccountConnection, operation: string): void {
   }
 }
 
+/**
+ * Refuses, before any KMS call, once the signal given to `getAccount` has aborted.
+ *
+ * @param signal - The account's signal, if any.
+ * @param operation - The account method, for the error message.
+ */
+function checkNotCancelled(signal: AbortSignal | undefined, operation: string): void {
+  if (signal?.aborted === true) {
+    throw catalogError(ERRORS.accountCancelled, {}, { operation });
+  }
+}
+
 /** A `0x`-prefixed hex string, typed as such. */
 function hex(value: string): KmsHex {
   return `0x${value.slice(2)}`;
@@ -266,10 +289,15 @@ function word(value: bigint): KmsHex {
 
 /**
  * Signs with the account's key, through the connection's signer cache. It refuses when the
- * connection is closed, checked right before the KMS call, so a close during a call's earlier
- * steps (such as the chain id lookup) still stops it.
+ * connection is closed or the account's signal has aborted, checked right before the KMS call, so
+ * a close or an abort during a call's earlier steps (such as the chain id lookup) still stops it.
+ * `use` gets the call options to pass to the signer, which carry the account's signal. A result
+ * that comes back after the signal aborted is dropped, so viem never gets a signature to send.
  */
-type WithSigner = <T>(operation: string, use: (signer: KmsSigner) => Promise<T>) => Promise<T>;
+type WithSigner = <T>(
+  operation: string,
+  use: (signer: KmsSigner, call: SignerCallOptions) => Promise<T>,
+) => Promise<T>;
 
 /** What the account methods share. */
 interface AccountContext {
@@ -293,6 +321,7 @@ async function signTransaction(
   const operation = "signTransaction";
   const { connection, address } = context;
   checkOpen(connection, operation);
+  checkNotCancelled(context.options.signal, operation);
   const input = readTransaction(transaction, operation);
   const chainId = await connection.chainId();
   if (input.chainId !== chainId) {
@@ -324,8 +353,8 @@ async function signTransaction(
     );
   }
   log("%s: signing a %s transaction for chain %s", address, input.type, chainId.toString());
-  const signed = await context.withSigner(operation, async (signer) => {
-    const signature = await signer.signDigest(keccak_256(unsignedBytes));
+  const signed = await context.withSigner(operation, async (signer, call) => {
+    const signature = await signer.signDigest(keccak_256(unsignedBytes), call);
     return assembleSignedTransaction(input.unsigned, signature, address, operation);
   });
   // After the signature: a reservation whose transaction was signed is the one most likely sent.
@@ -341,6 +370,7 @@ async function signAuthorization(
   const operation = "signAuthorization";
   const { connection, address } = context;
   checkOpen(connection, operation);
+  checkNotCancelled(context.options.signal, operation);
   const request = readAuthorization(parameters, operation);
   if (request.chainId === 0 && !context.options.allowChainZeroAuthorization) {
     throw catalogError(ERRORS.accountAuthChainZero, {}, { operation });
@@ -363,7 +393,7 @@ async function signAuthorization(
   log("%s: signing an authorization for chain %d", address, request.chainId);
   const signature = await context.withSigner(
     operation,
-    async (signer) => await signer.signDigest(digest),
+    async (signer, call) => await signer.signDigest(digest, call),
   );
   const signed: KmsSignedAuthorization = {
     address: request.delegate,
@@ -409,6 +439,9 @@ function buildNonceManager(context: AccountContext): KmsNonceManager {
     reserve: boolean,
   ): Promise<number> => {
     checkOpen(connection, operation);
+    // Checked before the nonce is chosen: viem calls reset only after a consume that succeeded,
+    // so a consume must not fail once it holds the send lock.
+    checkNotCancelled(context.options.signal, operation);
     const type = reserve ? ownTransportType(parameters.client) : undefined;
     const own = type !== undefined;
     if (own) {
@@ -458,13 +491,14 @@ function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | 
       return hex(
         await withSigner(
           "signMessage",
-          async (signer) => await signer.signPersonalMessage(message),
+          async (signer, call) => await signer.signPersonalMessage(message, call),
         ),
       );
     },
     signTypedData: async (parameters: KmsTypedDataDefinition) => {
       const operation = "signTypedData";
       checkOpen(connection, operation);
+      checkNotCancelled(context.options.signal, operation);
       const typedData = readViemTypedData(parameters, operation);
       await checkTypedDataChain(typedData, {
         operation,
@@ -476,7 +510,10 @@ function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | 
         mismatch: ERRORS.typedDataChainMismatchNetwork,
       });
       return hex(
-        await withSigner(operation, async (signer) => await signer.signTypedData(typedData)),
+        await withSigner(
+          operation,
+          async (signer, call) => await signer.signTypedData(typedData, call),
+        ),
       );
     },
     signTransaction: async (transaction, options) =>
@@ -491,7 +528,10 @@ function buildAccount(context: AccountContext, publicKey: KmsHex): KmsAccount | 
     ...account,
     sign: async (parameters: { hash: unknown }) => {
       const digest = readHash(parameters, "sign");
-      const signature = await withSigner("sign", async (signer) => await signer.signDigest(digest));
+      const signature = await withSigner(
+        "sign",
+        async (signer, call) => await signer.signDigest(digest, call),
+      );
       return hex(toRpcSignature(signature));
     },
   };
@@ -529,6 +569,8 @@ export function createKmsNetworkConnection(
     }
     checkViemVersion(viem.version, operation);
     const checked = readOptions(options, operation);
+    // Before the key lookup, which can call the KMS.
+    checkNotCancelled(checked.signal, operation);
     const checksummed = readAddress(address, "address", operation);
     const { accounts } = connection;
     const key = await accounts.keyFor(checksummed.toLowerCase());
@@ -544,12 +586,19 @@ export function createKmsNetworkConnection(
         { operation },
       );
     }
+    const { signal } = checked;
     const withSigner: WithSigner = async (method, use) => {
       checkOpen(connection, method);
-      return await accounts.signWith(key, use);
+      checkNotCancelled(signal, method);
+      const result = await accounts.signWith(key, async (signer) => await use(signer, { signal }));
+      checkNotCancelled(signal, method);
+      return result;
     };
     // The one KMS call of getAccount; it also checks the key's address pin.
-    const publicKey = await withSigner(operation, async (signer) => await signer.getPublicKey());
+    const publicKey = await withSigner(
+      operation,
+      async (signer, call) => await signer.getPublicKey(call),
+    );
     if (checked.rawSign) {
       warn(
         `the account ${checksummed} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,

@@ -466,6 +466,37 @@ describe("a library account's send through the connection", () => {
     assert.deepEqual(node.raw.map(nonceOf), [0n]);
   });
 
+  it("ends the hold at reset when the account's signal aborted before it signed", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const caller = new AbortController();
+    const account = await connection.kms.getAccount(COW, { signal: caller.signal });
+    const parameters = { address: account.address, chainId: 31337, client: {} };
+    assert.equal(await account.nonceManager.consume(parameters), 0);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false);
+    caller.abort();
+    await assert.rejects(
+      account.signTransaction({
+        type: "eip1559",
+        chainId: 31337,
+        nonce: 0,
+        gas: 21_000n,
+        maxFeePerGas: 2n,
+        maxPriorityFeePerGas: 1n,
+        to: TO,
+        value: 1n,
+      }),
+      /signTransaction: the signal given to getAccount has aborted/,
+    );
+    // viem resets the nonce manager after a send that failed.
+    account.nonceManager.reset(parameters);
+    await settle();
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n], "only the plugin's send went out");
+  });
+
   it("ends the hold when its raw transaction fails, and its reset then ends no other hold", async () => {
     const harness = await setUp();
     const { node, send } = harness;

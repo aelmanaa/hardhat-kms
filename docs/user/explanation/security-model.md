@@ -90,6 +90,8 @@ Whatever answer comes back late, the plugin drops it. It never returns a late si
 
 The plugin does not retry a timed-out call. For a transaction, the failure comes before the broadcast, so nothing is sent and the nonce is not used: running the script again fills the same nonce. Raise `timeoutMs` if your KMS is slow to answer.
 
+A library account made with `getAccount(address, { signal })` can also be cancelled before `timeoutMs` runs out. An abort works like a timeout: the plugin stops waiting, aborts the SDK call, drops any late signature and does not retry, and a request that already reached the KMS can still be signed there ([Cancelling with a signal](../reference/library-accounts.md#cancelling-with-a-signal)).
+
 ### How many sign requests one call can send
 
 One request to the plugin makes at most two signer calls (`packages/hardhat-kms/src/internal/signer/kms-signer.ts:299-318`). The second happens only when the first returned a signature that failed the signer's checks; a timeout or any other error is never retried by the signer. Each signer call can in turn send several requests to the KMS, because the provider's SDK, or the adapter, retries transient failures:

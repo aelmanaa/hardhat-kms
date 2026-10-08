@@ -35,7 +35,14 @@ import {
   errorName,
   type TemplateParams,
 } from "../errors.ts";
-import { systemTimers, TimeoutError, type Timers, withTimeout } from "./timeout.ts";
+import {
+  CancelledError,
+  systemTimers,
+  TimeoutError,
+  type Timers,
+  untilCancelled,
+  withTimeout,
+} from "./timeout.ts";
 import type { KeyDescription, KmsKeyAdapter, SignContext } from "./types.ts";
 
 const log = coreDebug("signer");
@@ -55,6 +62,19 @@ export interface KmsSignerOptions {
   displayId?: string | undefined;
   /** Timer functions, for tests. */
   timers?: Timers | undefined;
+}
+
+/**
+ * Options of one signer call. The signer is shared by every connection of a Hardhat runtime, so a
+ * caller's signal belongs to the call, not to the signer.
+ */
+export interface SignerCallOptions {
+  /**
+   * The caller's signal. When it aborts, the provider call's own signal aborts too, and the call
+   * rejects with `core.signer.cancelled` and is not retried. A key lookup that other callers share
+   * goes on, bounded by the key's `timeoutMs`; only this caller stops waiting for it.
+   */
+  signal?: AbortSignal | undefined;
 }
 
 /** Largest delay Node's timers accept; larger values fire after 1 ms. */
@@ -176,12 +196,13 @@ export class KmsSigner {
   /**
    * Returns the key's uncompressed public key, resolving and pin-checking it on first use.
    *
+   * @param options - The caller's signal, if any.
    * @returns The 65-byte public key, starting with `0x04`.
    * @throws If the adapter returns only an address and the key has not signed yet, so the public
    * key is unknown.
    */
-  public async getPublicKey(): Promise<Uint8Array> {
-    const { publicKey } = await this.#resolveIdentity();
+  public async getPublicKey(options: SignerCallOptions = {}): Promise<Uint8Array> {
+    const { publicKey } = await this.#identityFor("get public key", options.signal);
     if (publicKey === undefined) {
       throw this.#error("get public key", ERRORS.signerAddressOnly, {});
     }
@@ -192,20 +213,30 @@ export class KmsSigner {
    * Signs a 32-byte digest.
    *
    * @param digest - The digest.
+   * @param options - The caller's signal, if any.
    * @returns The normalized, verified signature.
    */
-  public async signDigest(digest: Uint8Array): Promise<RecoverableSignature> {
-    return await this.#sign({ kind: "digest", digest });
+  public async signDigest(
+    digest: Uint8Array,
+    options: SignerCallOptions = {},
+  ): Promise<RecoverableSignature> {
+    return await this.#sign({ kind: "digest", digest }, options.signal);
   }
 
   /**
    * Signs an EIP-191 personal message and returns it in RPC form.
    *
    * @param message - The message bytes.
+   * @param options - The caller's signal, if any.
    * @returns `0x`-prefixed `r || s || v`.
    */
-  public async signPersonalMessage(message: Uint8Array): Promise<string> {
-    const signature = toRpcSignature(await this.#sign({ kind: "message", message }));
+  public async signPersonalMessage(
+    message: Uint8Array,
+    options: SignerCallOptions = {},
+  ): Promise<string> {
+    const signature = toRpcSignature(
+      await this.#sign({ kind: "message", message }, options.signal),
+    );
     const { address } = await this.#resolveIdentity();
     if (!verifyPersonalMessageSignature(signature, message, address)) {
       throw this.#error("sign message", ERRORS.signerEip191Failed, {});
@@ -217,10 +248,16 @@ export class KmsSigner {
    * Signs EIP-712 typed data and returns it in RPC form.
    *
    * @param typedData - The typed data.
+   * @param options - The caller's signal, if any.
    * @returns `0x`-prefixed `r || s || v`.
    */
-  public async signTypedData(typedData: TypedData): Promise<string> {
-    const signature = toRpcSignature(await this.#sign({ kind: "typedData", typedData }));
+  public async signTypedData(
+    typedData: TypedData,
+    options: SignerCallOptions = {},
+  ): Promise<string> {
+    const signature = toRpcSignature(
+      await this.#sign({ kind: "typedData", typedData }, options.signal),
+    );
     const { address } = await this.#resolveIdentity();
     if (!verifyTypedDataSignature(signature, typedData, address)) {
       throw this.#error("sign typed data", ERRORS.signerEip712Failed, {});
@@ -244,6 +281,24 @@ export class KmsSigner {
       throw error;
     });
     return await this.#identity;
+  }
+
+  /**
+   * Resolves the identity for one caller. The lookup is shared by every caller of this signer, so
+   * the caller's signal only stops this caller's wait, never the lookup.
+   */
+  async #identityFor(operation: string, signal: AbortSignal | undefined): Promise<KeyIdentity> {
+    if (signal === undefined) {
+      return await this.#resolveIdentity();
+    }
+    try {
+      return await untilCancelled(this.#resolveIdentity(), signal);
+    } catch (error) {
+      if (error instanceof CancelledError) {
+        throw this.#error(operation, ERRORS.signerCancelled, {});
+      }
+      throw error;
+    }
   }
 
   async #loadIdentity(): Promise<KeyIdentity> {
@@ -284,7 +339,10 @@ export class KmsSigner {
     }
   }
 
-  async #sign(request: SignRequest): Promise<RecoverableSignature> {
+  async #sign(
+    request: SignRequest,
+    signal: AbortSignal | undefined,
+  ): Promise<RecoverableSignature> {
     if (request.kind === "digest" && request.digest.length !== DIGEST_LENGTH) {
       // A caller error: never send it to the provider, and never retry it.
       throw this.#error("sign", ERRORS.signerDigestLength, {
@@ -292,18 +350,19 @@ export class KmsSigner {
         length: request.digest.length,
       });
     }
-    const identity = await this.#resolveIdentity();
+    const identity = await this.#identityFor("sign", signal);
     const digest = digestOf(request);
     try {
-      return await this.#signOnce(request, digest, identity);
+      return await this.#signOnce(request, digest, identity, signal);
     } catch (error) {
       if (!(error instanceof InvalidSignatureError)) {
         throw error;
       }
-      // A fresh signature once: a transient backend fault must not become a silent wrong key.
+      // A fresh signature once: a transient backend fault must not become a silent wrong key. Not
+      // after the caller's abort: the retry's call refuses to start.
       log("%s: invalid signature (%s), asking for a fresh one", this.#displayId, error.message);
       try {
-        return await this.#signOnce(request, digest, identity);
+        return await this.#signOnce(request, digest, identity, signal);
       } catch (retryError) {
         if (retryError instanceof InvalidSignatureError) {
           throw this.#error("sign", ERRORS.signerInvalidSignature, { reason: retryError.message });
@@ -317,10 +376,11 @@ export class KmsSigner {
     request: SignRequest,
     digest: Uint8Array,
     identity: KeyIdentity,
+    signal: AbortSignal | undefined,
   ): Promise<RecoverableSignature> {
     // Built before the call, so that a payload the signer cannot copy is not blamed on the provider.
     const call = this.#adapterCall(request, digest);
-    const output = await this.#call("sign", call);
+    const output = await this.#call("sign", call, signal);
     if (identity.publicKey !== undefined) {
       return normalizeSignature(output, digest, identity.publicKey);
     }
@@ -373,7 +433,11 @@ export class KmsSigner {
     }
   }
 
-  async #call<T>(operation: string, run: (ctx: SignContext) => Promise<T>): Promise<T> {
+  async #call<T>(
+    operation: string,
+    run: (ctx: SignContext) => Promise<T>,
+    callerSignal?: AbortSignal,
+  ): Promise<T> {
     const requestId = randomUUID();
     const started = Date.now();
     const key = this.#displayId;
@@ -390,6 +454,7 @@ export class KmsSigner {
           }),
         this.#options.timeoutMs,
         this.#timers,
+        callerSignal,
       );
       log("%s: %s done in %d ms", key, operation, Date.now() - started);
       return result;
@@ -404,6 +469,9 @@ export class KmsSigner {
       }
       if (error instanceof TimeoutError) {
         throw this.#error(operation, ERRORS.signerNoAnswer, { timeout: this.#options.timeoutMs });
+      }
+      if (error instanceof CancelledError) {
+        throw this.#error(operation, ERRORS.signerCancelled, {});
       }
       // Only the error's class name: SDK errors can carry request metadata and headers.
       throw this.#error(operation, ERRORS.signerCallFailed, { errorName: errorName(error) });
