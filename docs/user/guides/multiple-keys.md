@@ -5,10 +5,6 @@ description: Use several KMS keys across networks and clouds, next to local or L
 
 # Use several keys across networks
 
-Audience: users who sign with more than one KMS key, on more than one network, or next to local or Ledger accounts. Assumes a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).
-
-The `kms accounts` output below has the shape of a run on 2026-10-02 with a Google Cloud KMS key and an Azure Key Vault key, with the addresses replaced by test addresses.
-
 This guide covers:
 
 - [Name each key once](#name-each-key-once) and use it on several networks.
@@ -18,6 +14,13 @@ This guide covers:
 - [Add keys from the command line](#add-keys-from-the-command-line) with `--kms`.
 - [List each key once per network](#list-each-key-once-per-network).
 - [Check the setup](#check-the-setup) with `kms accounts`.
+
+You need a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).
+
+> [!NOTE]
+> Audience: users who sign with more than one KMS key, on more than one network, or next to local or Ledger accounts.
+>
+> The `kms accounts` output below has the shape of a run on 2026-10-02 with a Google Cloud KMS key and an Azure Key Vault key, with the addresses replaced by test addresses.
 
 ## Name each key once
 

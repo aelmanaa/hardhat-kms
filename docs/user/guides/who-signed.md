@@ -5,9 +5,14 @@ description: "hardhat kms history: who signed, from CloudTrail, Cloud Audit Logs
 
 # Find who signed with a key
 
-Audience: operators with a KMS key in use who must answer "who signed what with this key, and when", after an incident or for an audit. Assumes a key set up as in one of the setup guides and the cloud's CLI signed in: `aws`, `gcloud` or `az`.
+This guide answers "who signed what with this key, and when" from the cloud's audit log, after an incident or for an audit: it turns the log on, reads the sign events, matches them to transactions and keeps the log long enough.
 
-Checked against hardhat-kms 0.8.0 on 2026-10-07: `kms history` read the logs of one live key per cloud, and both scripts below ran against Sepolia transactions of those keys, of types 0, 1, 2 and 4, and against a local node. The commands that change logging or retention in steps 1 and 5 come from each cloud's documentation and were not run for this page.
+You need a key set up as in one of the setup guides and the cloud's CLI signed in: `aws`, `gcloud` or `az`.
+
+> [!NOTE]
+> Audience: operators with a KMS key in use who must answer "who signed what with this key, and when", after an incident or for an audit.
+>
+> Checked against hardhat-kms 0.8.0 on 2026-10-07: `kms history` read the logs of one live key per cloud, and both scripts below ran against Sepolia transactions of those keys, of types 0, 1, 2 and 4, and against a local node. The commands that change logging or retention in steps 1 and 5 come from each cloud's documentation and were not run for this page.
 
 [`kms history`](../reference/tasks.md#kms-history) lists a key's sign requests from the cloud's own audit log: AWS CloudTrail, Google Cloud Audit Logs, or Azure Key Vault's audit events in a Log Analytics workspace. The list includes requests from any client, not only the plugin. The plugin keeps no record of its own signatures, so the log is the only history there is.
 

@@ -76,7 +76,7 @@ All connections in one Hardhat run share one signer per configured key, so each 
 
 ## Read next
 
-- [How the plugin reaches your cloud](cloud-access.md): which credentials the provider packages use, on a laptop, in CI and on a server.
+- [Cloud credentials for KMS signing](cloud-access.md): which credentials the provider packages use, on a laptop, in CI and on a server.
 - [Security model](security-model.md): what these checks protect against, what they do not, and what happens when a KMS call times out.
 - Optional, for contributors: [Architecture](../../contributor/architecture.md) and [Transactions](../../contributor/transactions.md) in the contributor docs, with the code behind each step, the filler, nonces, the send lock and retries.
 - [Debug output](../guides/debug-output.md): watch each step of a request with `DEBUG=hardhat:kms:*`.

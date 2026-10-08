@@ -123,7 +123,7 @@ The official packages are `hardhat-kms` and the packages under the `@hardhat-kms
 
 ## Support
 
-[Support](https://aelmanaa.github.io/hardhat-kms/user/reference/support) lists the Node.js versions the packages run on and where to ask a question. [Release channels and versioning](https://aelmanaa.github.io/hardhat-kms/user/explanation/versioning) covers the `latest` and `beta` tags, the Hardhat and viem ranges, and security fixes for a previous major.
+[Supported Node.js versions](https://aelmanaa.github.io/hardhat-kms/user/reference/support) lists the versions the packages run on and where to ask a question. [Release channels and versioning](https://aelmanaa.github.io/hardhat-kms/user/explanation/versioning) covers the `latest` and `beta` tags, the Hardhat and viem ranges, and security fixes for a previous major.
 
 ## Contributing
 

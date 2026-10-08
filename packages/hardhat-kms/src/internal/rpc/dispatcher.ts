@@ -1124,7 +1124,7 @@ async function sendRawTransaction(
     } finally {
       // viem resets the nonce manager after an error; that reset must not end another hold.
       if (failed) {
-        expectLibraryReset(key);
+        expectLibraryReset(key, hold.owner);
       }
       // This hold only: after its time limit, another send may hold the lock by now.
       hold.end();
@@ -1205,42 +1205,39 @@ export async function libraryNonce(
     return await choose();
   };
   const key = `${chainId}:${address}`;
-  try {
-    if (holdsSendLock(key)) {
-      throw catalogError(
-        ERRORS.accountNonceReentrant,
-        { account: describeSendKey(key) },
-        { operation },
-      );
-    }
-    if (!request.ownTransport) {
-      const nonce = await holdForLibrary(key, sends, chooseForSend);
-      log("%s: nonce %d given to a library account's send, which holds the lock", address, nonce);
-      return nonce;
-    }
-    return await withSendLock(key, async () => {
-      const nonce = await chooseForSend();
-      sends.reserve(address, nonce);
-      log("%s: nonce %d reserved for a library account's own transport", address, nonce);
-      return nonce;
-    });
-  } catch (error) {
-    // viem resets the nonce manager after this failure; that reset must not end another hold.
-    expectLibraryReset(key);
-    throw error;
+  // A failure holds and reserves nothing. viem's reset after it stays in the account's nonce
+  // manager, which counts its failed consumes, so it cannot end another send's hold.
+  if (holdsSendLock(key)) {
+    throw catalogError(
+      ERRORS.accountNonceReentrant,
+      { account: describeSendKey(key) },
+      { operation },
+    );
   }
+  if (!request.ownTransport) {
+    const nonce = await holdForLibrary(key, sends, chooseForSend);
+    log("%s: nonce %d given to a library account's send, which holds the lock", address, nonce);
+    return nonce;
+  }
+  return await withSendLock(key, async () => {
+    const nonce = await chooseForSend();
+    sends.reserve(address, nonce);
+    log("%s: nonce %d reserved for a library account's own transport", address, nonce);
+    return nonce;
+  });
 }
 
 /**
  * Handles viem's `reset` for a library account's send that failed: it ends the send's hold of the
  * lock, or, for a client with its own transport, one reservation. A reset for another chain than
- * the connection's comes from a send that got no nonce from the plugin, and does nothing.
+ * the connection's comes from a send that got no nonce from the plugin, and does nothing. A reset
+ * after a failed `consume` never gets here: the account's nonce manager keeps it.
  *
  * viem passes `reset` only the address and the chain, not the client or the nonce, so a reset
- * cannot say which `consume` it follows. In order:
+ * cannot say which `consume` it follows. It only ever ends a hold that this connection gave. In
+ * order:
  *
- * 1. A reset owed by a send that holds nothing any more (its `consume` failed, or its broadcast
- *    failed) is used up.
+ * 1. A reset owed by a send whose broadcast failed, which holds nothing any more, is used up.
  * 2. With no reservation of the sender on this connection, the reset is the hold's.
  * 3. With reservations and a hold, the reservations whose nonce the node already has (below its
  *    pending count) are ended first: their sends are past their broadcast and cannot fail.
@@ -1263,11 +1260,14 @@ export async function resetLibraryNonce(
     return;
   }
   const key = `${chainId}:${address}`;
-  if (takeOwedLibraryReset(key)) {
+  const sends = transactions.sends();
+  if (takeOwedLibraryReset(key, sends)) {
     return;
   }
-  const sends = transactions.sends();
-  const hold = libraryHoldOf(key);
+  // Only a hold this connection gave: a reset through another connection, or through this one
+  // after it closed, is never this hold's.
+  const current = libraryHoldOf(key);
+  const hold = current?.owner === sends ? current : undefined;
   if (hold !== undefined && sends.hasReservations(address)) {
     let count: unknown;
     try {

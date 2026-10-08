@@ -132,7 +132,7 @@ Explain these to the user rather than working around them:
 
 ## Reference
 
-- First deploy on Sepolia, start to finish: [AWS KMS](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-aws.md), [Google Cloud KMS](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-gcp.md), [Azure Key Vault](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-azure.md)
+- Deploy a Hardhat contract to Sepolia, start to finish: [AWS KMS](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-aws.md), [Google Cloud KMS](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-gcp.md), [Azure Key Vault](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/tutorials/first-deploy-azure.md)
 - Key creation, permissions and audit logs: [AWS](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/aws-kms-setup.md), [Google Cloud](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/gcp-kms-setup.md), [Azure](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/azure-key-vault-setup.md)
 - Every config field and key form: [configuration reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/configuration.md)
 - Every task option: [tasks reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/tasks.md)

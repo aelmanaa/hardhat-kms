@@ -1,17 +1,11 @@
 ---
-title: First deploy on Sepolia with Google Cloud KMS
+title: Deploy a Hardhat contract to Sepolia with Google Cloud KMS
 description: "Deploy a Hardhat 3 contract to Sepolia with Google Cloud KMS: create an HSM secp256k1 key, deploy from it, verify the source and destroy it."
 ---
 
-# First deploy on Sepolia with Google Cloud KMS
-
-Audience: developers who have a Google Cloud project and the gcloud CLI signed in, and have not used Cloud KMS with Hardhat.
-
-This tutorial was followed from an empty directory on 2026-10-02, at commit [`ab3ee2a`](https://github.com/aelmanaa/hardhat-kms/commit/ab3ee2a), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 6 minutes, without the wait for Sepolia ETH. The run kept the 30-day default destroy schedule; the [key-loss check](../guides/key-loss.md#google-cloud-kms) covers the 24-hour schedule of step 2.
+# Deploy a Hardhat contract to Sepolia with Google Cloud KMS
 
 In this tutorial you create a Hardhat project, create a signing key in Google Cloud KMS, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Cloud KMS: Hardhat asks Cloud KMS for a signature each time it sends a transaction.
-
-It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 
 You need:
 
@@ -21,6 +15,11 @@ You need:
 - Application Default Credentials: run `gcloud auth application-default login` once. The plugin signs in with these, not with the gcloud CLI's own sign-in, and the two can be different accounts; step 3 shows how to see which one the plugin uses.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
 - About 0.01 Sepolia ETH, from a faucet or another account.
+
+> [!NOTE]
+> Audience: developers who have a Google Cloud project and the gcloud CLI signed in, and have not used Cloud KMS with Hardhat. It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
+>
+> This tutorial was followed from an empty directory on 2026-10-02, at commit [`ab3ee2a`](https://github.com/aelmanaa/hardhat-kms/commit/ab3ee2a), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 6 minutes, without the wait for Sepolia ETH. The run kept the 30-day default destroy schedule; the [key-loss check](../guides/key-loss.md#google-cloud-kms) covers the 24-hour schedule of step 2.
 
 ## 1. Create a Hardhat project with the plugin
 
@@ -74,7 +73,7 @@ yarn add --dev hardhat-kms @hardhat-kms/gcp
 
 :::
 
-If pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, add the packages it names under `allowBuilds` in `pnpm-workspace.yaml` with the value `false`, then run `pnpm install`; the plugin needs none of their install scripts. With Yarn 4.15 or later on the day of a release, the install stops with `YN0016` until `.yarnrc.yml` approves the new versions. [Install hardhat-kms](../guides/install-before-release.md) gives the settings for each package manager.
+If the install stops with `ERR_PNPM_IGNORED_BUILDS` from pnpm or `YN0016` from Yarn, [If the install stops](../guides/install-before-release.md#if-the-install-stops) gives the fix for each package manager.
 
 Register the provider: in `hardhat.config.ts`, import it and add it to `plugins`. It loads `hardhat-kms` itself. The rest of the file stays as the template made it:
 
@@ -148,21 +147,7 @@ Hardhat signs as the identity of your Application Default Credentials (ADC), not
 
 The ADC identity needs two permissions on this key: `cloudkms.cryptoKeyVersions.viewPublicKey`, to derive the address, and `cloudkms.cryptoKeyVersions.useToSign`, to sign. Creating the key does not give them. Cloud KMS Admin has neither: it "provides access to Cloud KMS resources, except for access to restricted resource types and cryptographic operations" ([Cloud KMS permissions and roles](https://docs.cloud.google.com/kms/docs/reference/permissions-and-roles)). The project Owner role has both, which is how the recorded run signed. The two-role grant below is not yet checked against real Cloud KMS ([Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else)).
 
-The predefined roles `roles/cloudkms.publicKeyViewer` and `roles/cloudkms.signer` hold one each. List what they hold:
-
-```sh
-gcloud iam roles describe roles/cloudkms.publicKeyViewer --format='value(includedPermissions)'
-gcloud iam roles describe roles/cloudkms.signer --format='value(includedPermissions)'
-```
-
-The output:
-
-```text
-cloudkms.cryptoKeyVersions.viewPublicKey;cloudkms.locations.get;cloudkms.locations.list;resourcemanager.projects.get
-cloudkms.cryptoKeyVersions.useToSign;cloudkms.locations.get;cloudkms.locations.list;resourcemanager.projects.get
-```
-
-Next to the one key permission, each role can only read the project and list the Cloud KMS locations. Neither can disable, destroy or restore a key version, nor change who has access.
+The predefined roles `roles/cloudkms.publicKeyViewer` and `roles/cloudkms.signer` hold one each. Neither can disable, destroy or restore a key version, nor change who has access; [Optional: inspect the roles and the key's access](#optional-inspect-the-roles-and-the-keys-access) lists what they hold.
 
 Find the ADC identity. First check that the gcloud CLI does not impersonate a service account:
 
@@ -209,14 +194,6 @@ done
 A new grant typically takes 2 minutes to apply, and can take 7 minutes or longer ([Access change propagation](https://docs.cloud.google.com/iam/docs/access-change-propagation)). If step 4 fails with `permission denied (PERMISSION_DENIED)` soon after the grant, wait and run it again.
 
 If the deployer then gets `PERMISSION_DENIED` about `serviceusage.services.use`, look at its quota project. If the ADC account has `serviceusage.services.use` on the gcloud CLI's project, `gcloud auth application-default login` writes that project into the credentials as the quota project; without the permission, it writes none and says so ([`gcloud auth application-default login`](https://cloud.google.com/sdk/gcloud/reference/auth/application-default/login)). The client then names the quota project in each request (the `x-goog-user-project` header), which needs `serviceusage.services.use` on it. Either set a project the deployer may use with `gcloud auth application-default set-quota-project <project>`, sign in again with `gcloud auth application-default login --disable-quota-project`, or grant the deployer `roles/serviceusage.serviceUsageConsumer` on the project ([Set the quota project](https://docs.cloud.google.com/docs/quotas/set-quota-project)).
-
-To check who has access to the key, without changing anything:
-
-```sh
-gcloud kms keys get-iam-policy deployer --keyring hardhat-kms-tutorial --location "$GCP_LOCATION"
-```
-
-Before any grant it prints only an `etag` line, since the key has no bindings of its own; your access comes from the project. After the grant it lists the two roles, each with the deployer as member. [Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) covers the roles in more detail.
 
 ## 4. Add the key to the project
 
@@ -434,6 +411,34 @@ Open the `Explorer:` links from the output, with your contract's address:
 - Etherscan: `https://sepolia.etherscan.io/address/<contract address>#code`. This tutorial does not verify on Etherscan, so the contract has no verified source of its own there. Etherscan may show the source of another contract with the same bytecode, marked "Similar Match".
 
 The `From` field of each transaction is your deployer address. The signature came from Cloud KMS; Hardhat never held a private key.
+
+## Optional: inspect the roles and the key's access
+
+The tutorial does not need these commands. They read the two roles and the key's access and change nothing. Run them before step 8, in the shell from step 2, which has `GCP_LOCATION`.
+
+List what the two roles of step 3 hold:
+
+```sh
+gcloud iam roles describe roles/cloudkms.publicKeyViewer --format='value(includedPermissions)'
+gcloud iam roles describe roles/cloudkms.signer --format='value(includedPermissions)'
+```
+
+The output:
+
+```text
+cloudkms.cryptoKeyVersions.viewPublicKey;cloudkms.locations.get;cloudkms.locations.list;resourcemanager.projects.get
+cloudkms.cryptoKeyVersions.useToSign;cloudkms.locations.get;cloudkms.locations.list;resourcemanager.projects.get
+```
+
+Next to the one key permission, each role can only read the project and list the Cloud KMS locations. Neither can disable, destroy or restore a key version, nor change who has access.
+
+To check who has access to the key, without changing anything:
+
+```sh
+gcloud kms keys get-iam-policy deployer --keyring hardhat-kms-tutorial --location "$GCP_LOCATION"
+```
+
+Before any grant it prints only an `etag` line, since the key has no bindings of its own; your access comes from the project. After the grant it lists the two roles, each with the deployer as member. [Set up a Google Cloud KMS key](../guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) covers the roles in more detail.
 
 ## 8. Clean up
 
