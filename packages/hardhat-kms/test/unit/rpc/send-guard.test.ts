@@ -1016,6 +1016,51 @@ describe("ConnectionSends nonce reservations", () => {
     assert.equal(sends.nonceFor(COW, 0n), 3n, "1 was reset, 2 stays");
   });
 
+  it("reports a gap only for a hold-limit reservation with a higher nonce used since", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 0n, true);
+    assert.equal(sends.resetReservation(COW), undefined, "nothing above it: no gap");
+    sends.reserve(COW, 0n, true);
+    sends.recordSent(COW, 0n);
+    assert.equal(sends.resetReservation(COW), undefined, "a mark at its own nonce is no gap");
+    sends.reserve(COW, 1n, true);
+    sends.recordSent(COW, 2n);
+    assert.equal(sends.resetReservation(COW), 1n, "the mark is above it");
+    const { sends: other } = withClock(false);
+    other.reserve(COW, 3n, true);
+    other.reserve(COW, 4n);
+    other.signedReservation(COW, 4n);
+    assert.equal(other.resetReservation(COW), 3n, "another reservation is above it");
+    assert.equal(other.resetReservation(COW), undefined, "4 is a client's reservation, not a gap");
+    other.reserve(COW, 5n);
+    other.reserve(COW, 6n);
+    other.signedReservation(COW, 6n);
+    assert.equal(other.resetReservation(COW), undefined, "5 is a client's reservation, not a gap");
+    assert.equal(other.resetReservation(COW), undefined);
+    assert.equal(other.resetReservation(COW), undefined, "nothing left to reset");
+    other.reserve(COW, 7n);
+    other.signedReservation(COW, 7n);
+    other.reserve(COW, 8n, true);
+    assert.equal(other.resetReservation(COW), undefined, "a reservation below it is no gap");
+  });
+
+  it("keeps a hold-limit reservation past a higher plugin send, but not past its own nonce or the pending count", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 1n, true);
+    sends.reserve(COW, 2n);
+    sends.releaseReservationsUpTo(COW, 3n);
+    assert.equal(sends.nonceFor(COW, 0n), 2n, "1 stays, 2 is gone");
+    sends.releaseReservationsUpTo(COW, 0n);
+    assert.equal(sends.nonceFor(COW, 0n), 2n, "a lower nonce ends nothing");
+    sends.releaseReservationsUpTo(COW, 1n);
+    assert.equal(sends.hasReservations(COW), false, "a send with its very nonce ends it");
+    sends.reserve(COW, 4n, true);
+    sends.releaseReservationsBelow(COW, 4n);
+    assert.equal(sends.hasReservations(COW), true, "the node does not have 4 yet");
+    sends.releaseReservationsBelow(COW, 5n);
+    assert.equal(sends.hasReservations(COW), false, "the node has 4");
+  });
+
   it("forgets every reservation when the connection closes, and reserves nothing after", () => {
     const { sends } = withClock();
     sends.reserve(COW, 1n);

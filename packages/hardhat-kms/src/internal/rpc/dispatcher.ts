@@ -1,6 +1,10 @@
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
-import { hexStringToBigInt, isHexString } from "@nomicfoundation/hardhat-utils/hex";
+import {
+  hexStringToBigInt,
+  hexStringToBytes,
+  isHexString,
+} from "@nomicfoundation/hardhat-utils/hex";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import {
   rpcAddress,
@@ -34,6 +38,7 @@ import {
   libraryHoldOf,
   libraryHoldsActive,
   takeOwedLibraryReset,
+  warnAboutNonceGap,
   withSendLock,
 } from "./send-guard.ts";
 import { notPlainData, stringResult, type TransactionFiller } from "./transaction-filler.ts";
@@ -1095,9 +1100,7 @@ function rawKmsTransaction(
   if (heldOnly && !held) {
     return undefined;
   }
-  // Stryker disable next-line Regex: hex has no "x", so only a leading 0x can match either way
-  const bytes = Buffer.from(raw.replace(/^0x/i, ""), "hex");
-  const hash = `0x${Buffer.from(keccak_256(bytes)).toString("hex")}`;
+  const hash = `0x${Buffer.from(keccak_256(hexStringToBytes(raw))).toString("hex")}`;
   return { address, transaction: { raw, hash, nonce }, chainId, heldOnly };
 }
 
@@ -1145,7 +1148,9 @@ async function sendRawTransaction(
     throw catalogError(ERRORS.rawSendReentrant, { account: describeSendKey(key) });
   }
   const sends = transactions.sends();
-  if (hold?.nonce === raw.transaction.nonce) {
+  // A library account signs only EIP-155 transactions, so one without a chain id is never the
+  // holder's: it takes the lock as any other raw transaction does.
+  if (hold?.nonce === raw.transaction.nonce && raw.chainId !== undefined) {
     // The library send that holds the lock for this nonce: it goes out as the holder.
     let failed = true;
     try {
@@ -1327,7 +1332,10 @@ export async function resetLibraryNonce(
     }
   }
   if (sends.hasReservations(address)) {
-    sends.resetReservation(address);
+    const gap = sends.resetReservation(address);
+    if (gap !== undefined) {
+      warnAboutNonceGap(key, gap);
+    }
   } else {
     hold?.end();
   }

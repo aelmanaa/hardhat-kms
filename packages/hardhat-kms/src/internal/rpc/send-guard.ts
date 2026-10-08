@@ -214,6 +214,10 @@ export const LIBRARY_WAIT_WARNING_MS = 5000;
 const LIBRARY_WARNINGS_DOCS =
   "https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/library-accounts.md#warnings";
 
+/** Where filling a nonce gap is explained. */
+const FILL_NONCE_DOCS =
+  "https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/uncertain-sends.md#4-fill-a-gap-or-replace-a-transaction";
+
 /**
  * Names the account and chain of a lock key in a warning, with the address checksummed.
  *
@@ -339,6 +343,20 @@ const keepAliveTimers: Timers = {
 };
 
 /**
+ * Warns that viem's `reset` ended the reservation of a nonce that a library send held until its
+ * time limit, while the account has already used a higher nonce: the library send failed, so no
+ * transaction has that nonce, and the account's later transactions wait behind the gap.
+ *
+ * @param key - The lock key.
+ * @param nonce - The nonce of the gap.
+ */
+export function warnAboutNonceGap(key: string, nonce: bigint): void {
+  warn(
+    `viem reset a connection.kms.getAccount send from ${describeSendKeyForWarning(key)} after its ${LIBRARY_HOLD_MS / 1000} s hold ended, so no transaction has its nonce ${nonce}, but the account has sent with a higher nonce since. Those transactions are not mined until a transaction with nonce ${nonce} is. Fill the gap with a transaction that sets nonce ${nonce}; see ${FILL_NONCE_DOCS}.`,
+  );
+}
+
+/**
  * Takes the send lock for a library account's send and keeps it after `choose` returns: viem
  * signs and sends the transaction with the chosen nonce itself, in later requests. The hold ends
  * when that raw transaction is broadcast ({@link endLibraryHold}), when viem's `reset` reports
@@ -376,7 +394,7 @@ export async function holdForLibrary(
       const nonce = await choose();
       const cancel = timers.setTimeout(() => {
         // Before the lock passes on: the send waiting for it must skip this nonce.
-        owner.reserve(key.slice(key.indexOf(":") + 1), nonce);
+        owner.reserve(key.slice(key.indexOf(":") + 1), nonce, true);
         warn(
           `a connection.kms.getAccount send from ${describeSendKeyForWarning(key)} chose nonce ${nonce}, and after ${LIBRARY_HOLD_MS / 1000} s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock and reserved the nonce: the account's sends through its connection skip it for up to ${RESERVATION_MS / 1000} s. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast after that, it and another send of the account can share the nonce, and either can replace the other or be refused. Send the library account through custom(connection.provider); see ${LIBRARY_WARNINGS_DOCS}.`,
         );
@@ -585,6 +603,8 @@ interface Reservation {
   signed: boolean;
   /** Whether its raw transaction went to the node and was not taken. */
   failed: boolean;
+  /** Whether a library send held this nonce until the hold's time limit made it a reservation. */
+  afterHoldLimit: boolean;
 }
 
 interface RetryEntry {
@@ -658,8 +678,9 @@ export class ConnectionSends {
    *
    * @param from - The sender's lowercase address.
    * @param nonce - The nonce.
+   * @param afterHoldLimit - Whether a library send held this nonce until its time limit.
    */
-  public reserve(from: string, nonce: bigint): void {
+  public reserve(from: string, nonce: bigint, afterHoldLimit = false): void {
     if (this.#closed) {
       return;
     }
@@ -670,6 +691,7 @@ export class ConnectionSends {
       expiresAt: this.#now() + RESERVATION_MS,
       signed: false,
       failed: false,
+      afterHoldLimit,
     });
     this.#reservations.set(from, reservations);
   }
@@ -729,20 +751,27 @@ export class ConnectionSends {
    * @param pending - The node's pending transaction count for the sender.
    */
   public releaseReservationsBelow(from: string, pending: bigint): void {
-    // With a pending count of 0, the bound is -1 and nothing is released.
-    this.releaseReservationsUpTo(from, pending - 1n);
+    const reservations = this.#reservations.get(from) ?? new Map<bigint, Reservation>();
+    for (const reserved of reservations.keys()) {
+      if (reserved < pending) {
+        reservations.delete(reserved);
+      }
+    }
   }
 
   /**
-   * Ends the reservations of nonces up to one that a send through the plugin used.
+   * Ends the reservations of nonces up to one that a send through the plugin used. A reservation
+   * that a library send's hold left at its time limit ends only when the send used its very nonce:
+   * a higher nonce says nothing about whether that library send went out, and its `reset` must
+   * still find it, to warn about the gap it leaves.
    *
    * @param from - The sender's lowercase address.
    * @param nonce - The send's nonce.
    */
   public releaseReservationsUpTo(from: string, nonce: bigint): void {
     const reservations = this.#reservations.get(from) ?? new Map<bigint, Reservation>();
-    for (const reserved of reservations.keys()) {
-      if (reserved <= nonce) {
+    for (const [reserved, reservation] of reservations) {
+      if (reservation.afterHoldLimit ? reserved === nonce : reserved <= nonce) {
         reservations.delete(reserved);
       }
     }
@@ -754,16 +783,26 @@ export class ConnectionSends {
    * signed, else the newest one.
    *
    * @param from - The sender's lowercase address.
+   * @returns The ended reservation's nonce when it leaves a gap: a library send held it until its
+   * time limit, and the sender has used a higher nonce since (the high-water mark or another
+   * reservation is above it). Otherwise `undefined`.
    */
-  public resetReservation(from: string): void {
-    const entries = [...this.#live(from)].toReversed();
+  public resetReservation(from: string): bigint | undefined {
+    const live = this.#live(from);
+    const entries = [...live].toReversed();
     const chosen =
       entries.find(([, reservation]) => reservation.failed) ??
       entries.find(([, reservation]) => !reservation.signed) ??
       entries[0];
-    if (chosen !== undefined) {
-      this.releaseReservation(from, chosen[0]);
+    if (chosen === undefined) {
+      return undefined;
     }
+    const [nonce, reservation] = chosen;
+    this.releaseReservation(from, nonce);
+    // -1n: no mark. The ended reservation is no longer in `live`.
+    const used = [this.#highWater.get(from) ?? -1n, ...live.keys()];
+    const above = used.some((other) => other > nonce);
+    return reservation.afterHoldLimit && above ? nonce : undefined;
   }
 
   /** The sender's reservations that still count; expired ones are dropped. */

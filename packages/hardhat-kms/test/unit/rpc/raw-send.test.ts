@@ -1280,7 +1280,7 @@ describe("a library send's hold, whichever way its raw transaction arrives (#433
     );
   });
 
-  it("ends the hold for the held nonce's raw transaction without a chain id (before EIP-155)", async () => {
+  it("never takes a raw transaction without a chain id (before EIP-155) as the holder's", async () => {
     const harness = await setUp();
     const { node, send } = harness;
     const connection = await openKnown(harness);
@@ -1288,8 +1288,8 @@ describe("a library send's hold, whichever way its raw transaction arrives (#433
     assert.equal(await manager.consume(), 0);
     const sending = send(connection, { from: COW, to: TO });
     assert.equal(await settled(sending), false);
-    // Valid on every chain, this one included.
-    const raw = await privateKeyToAccount(`0x${COW_ACCOUNT.secretKey}`).signTransaction({
+    // Signed by another tool; a library account signs only EIP-155 transactions.
+    const old = await privateKeyToAccount(`0x${COW_ACCOUNT.secretKey}`).signTransaction({
       type: "legacy",
       to: TO,
       nonce: 0,
@@ -1297,11 +1297,64 @@ describe("a library send's hold, whichever way its raw transaction arrives (#433
       gas: 21_000n,
       value: 1n,
     });
-    assert.equal(Transaction.fromHex(raw, false).raw.chainId, undefined);
-    resultOf((await sendRaw(harness, connection, raw)).response);
-    assert.equal(await settled(sending), true, "the hold ended at the raw transaction");
+    assert.equal(Transaction.fromHex(old, false).raw.chainId, undefined);
+    const oldSending = sendRaw(harness, connection, old);
+    assert.equal(
+      await settled(oldSending),
+      false,
+      "it waits for the lock like any raw transaction",
+    );
+    assert.equal(await settled(sending), false, "the hold stays");
+    // The library send's own raw transaction ends the hold.
+    resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
     resultOf(await sending);
-    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+    resultOf((await oldSending).response);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 0n]);
+  });
+
+  it("warns about the nonce gap when a send reset after its hold limit leaves one", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const harness = await setUp("http", 31340);
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const manager = await library(connection, {}, 31340);
+    assert.equal(await manager.consume(), 0);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false);
+    t.mock.timers.tick(LIBRARY_HOLD_MS);
+    resultOf(await sending);
+    // The library send fails after all, and viem resets it: nonce 0 is never sent.
+    await manager.reset();
+    resultOf(await send(connection, { from: COW, to: TO }));
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [1n, 2n, 3n]);
+    const gaps = warn.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .filter((message) => message.includes("gap"));
+    assert.equal(gaps.length, 1);
+    assert.match(gaps[0] ?? "", /no transaction has its nonce 0\b/);
+    assert.match(gaps[0] ?? "", /on chain 31340 after its 60 s hold ended/);
+    assert.match(gaps[0] ?? "", /uncertain-sends\.md#4-fill-a-gap-or-replace-a-transaction/);
+  });
+
+  it("prints no gap warning for a send reset after its hold limit when no higher nonce was used", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const harness = await setUp("http", 31341);
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const manager = await library(connection, {}, 31341);
+    assert.equal(await manager.consume(), 0);
+    t.mock.timers.tick(LIBRARY_HOLD_MS);
+    await settle();
+    await manager.reset();
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n], "the reset freed nonce 0");
+    assert.equal(
+      warn.mock.calls.filter((call) => String(call.arguments[0]).includes("gap")).length,
+      0,
+    );
   });
 
   it("does not raise the mark for a raw transaction signed for another chain", async () => {
