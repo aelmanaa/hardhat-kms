@@ -41,7 +41,7 @@ npm search "hardhat kms" --searchlimit=20 --parseable | cut -f1 | grep -n -x -e 
 npm view hardhat-kms keywords description
 ```
 
-The first command prints the position of each of the four packages in the first 20 results, or nothing if none is listed. The same results are at <https://www.npmjs.com/search?q=hardhat%20kms>, in a browser. The npm website refuses requests without one. On 2026-10-08 the search did not list any of the packages yet.
+The first command prints the position of each of the four packages in the first 20 results, or nothing if none is listed. To see the same results, open <https://www.npmjs.com/search?q=hardhat%20kms> in a browser. The npm website blocks scripted requests such as curl. On 2026-10-08 the search did not list any of the packages yet.
 
 On the package page, <https://www.npmjs.com/package/hardhat-kms>, in a browser, check that the TypeScript badge sits next to the name and that the Provenance section links the release workflow run. The provenance attestation is also in the registry:
 
@@ -53,7 +53,7 @@ It prints `https://slsa.dev/provenance/v1` for a release published from CI.
 
 ## Package health
 
-Open these in a browser. Socket refuses requests without one.
+Open these in a browser. Socket blocks scripted requests such as curl.
 
 - Socket: <https://socket.dev/npm/package/hardhat-kms>, and the same path for `@hardhat-kms/aws`, `@hardhat-kms/gcp` and `@hardhat-kms/azure`. Read the supply chain, vulnerability, quality, maintenance and license scores and every alert.
 - Snyk: <https://security.snyk.io/package/npm/hardhat-kms>. Read the known vulnerabilities for the latest version and the package health score. On 2026-10-08 it showed 0 vulnerabilities for 0.9.0 and no health score yet.
