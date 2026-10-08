@@ -430,7 +430,7 @@ Both explorers may answer "already verified": the template's `Counter` is a comm
 Open the `Explorer:` links from the output, with your contract's address:
 
 - Blockscout: `https://eth-sepolia.blockscout.com/address/<contract address>#code` shows the source, marked as verified, and the two transactions from your deployer address: the deployment and the `incBy` call.
-- Sourcify: `https://sourcify.dev/server/repo-ui/11155111/<contract address>` shows the files and "Exact Match" or "Match". "Match", formerly "partial match", means the source and bytecode match but the metadata hash at the end of the bytecode differs; the contract is verified either way ([Exact Match vs Match](https://docs.sourcify.dev/docs/exact-match-vs-match/)).
+- Sourcify: `https://sourcify.dev/server/repo-ui/11155111/<contract address>` shows the files and "Exact Match" or "Match". "Match", formerly "partial match", means the bytecode matches except the metadata hash at its end, so the source can differ in comments, variable names or file paths; the contract is verified either way ([Exact Match vs Match](https://docs.sourcify.dev/docs/exact-match-vs-match/)).
 - Etherscan: `https://sepolia.etherscan.io/address/<contract address>#code`. This tutorial does not verify on Etherscan, so the contract has no verified source of its own there. Etherscan may show the source of another contract with the same bytecode, marked "Similar Match".
 
 The `From` field of each transaction is your deployer address. The signature came from Cloud KMS; Hardhat never held a private key.
