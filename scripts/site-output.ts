@@ -231,6 +231,30 @@ export function anchors(html: string): Set<string> {
 }
 
 /**
+ * `html` without its `<tag>` blocks: each block runs from its start tag to the first end tag, which
+ * may carry spaces or attributes (`</script >`). An unclosed script runs to the end of the text, as
+ * in a browser. An unclosed `<pre>` is not raw text, so it and what follows are kept and their
+ * links still checked. The text is read once from the start, so a start tag can never be formed
+ * from the pieces around a removed block.
+ */
+function withoutBlocks(html: string, tag: "script" | "pre"): string {
+  const start = new RegExp(`<${tag}\\b`, "i");
+  const end = new RegExp(`</${tag}\\b[^>]*>`, "i");
+  let kept = "";
+  let rest = html;
+  for (let open = rest.search(start); open !== -1; open = rest.search(start)) {
+    kept += rest.slice(0, open);
+    const block = rest.slice(open);
+    const close = end.exec(block);
+    if (close === null) {
+      return tag === "pre" ? kept + block : kept;
+    }
+    rest = block.slice(close.index + close[0].length);
+  }
+  return kept + rest;
+}
+
+/**
  * The site links of a page: `href` and `src` values that stay on the site, absolute, root-relative,
  * relative (`./setup#step-2`) or a bare `#anchor`, resolved against the page's own clean URL and
  * returned without the base path as `{ path, anchor }`. A root-relative link without the base path
@@ -249,9 +273,7 @@ export function siteLinks(
     site.hostname,
   );
   // Inline scripts and code hold text that looks like links; only markup counts.
-  const markup = html
-    .replaceAll(/<script\b[\s\S]*?<\/script>/gi, "")
-    .replaceAll(/<pre\b[\s\S]*?<\/pre>/gi, "");
+  const markup = withoutBlocks(withoutBlocks(html, "script"), "pre");
   for (const match of markup.matchAll(/\s(?:href|src)="([^"]*)"/g)) {
     const target = decodeEntities(match[1] ?? "");
     if (target === "" || target.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(target)) {

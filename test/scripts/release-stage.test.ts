@@ -127,6 +127,50 @@ describe("release-stage.yml", () => {
     assert.deepEqual(Object.keys(on), ["workflow_call"]);
   });
 
+  // What goes to npm is built only from the lockfile and the registry, so no release job may
+  // restore or save a dependency cache. setup-node and pnpm/action-setup must say so explicitly,
+  // so a change of their default cannot turn one on.
+  it("restores and saves no dependency cache in any job", () => {
+    const found: string[] = [];
+    let setups = 0;
+    for (const [name, job] of jobsOf(stage)) {
+      const steps = field(job, "steps");
+      assert.ok(Array.isArray(steps), name);
+      for (const step of steps) {
+        const uses = field(step, "uses");
+        if (typeof uses !== "string") {
+          continue;
+        }
+        const action = uses.split("@")[0] ?? "";
+        const inputs = field(step, "with");
+        const where = `${name}: ${action}`;
+        if (action === "actions/cache" || action.startsWith("actions/cache/")) {
+          found.push(`${where} is a cache action`);
+        }
+        for (const input of ["cache", "package-manager-cache"]) {
+          const value = field(inputs, input);
+          if (value !== undefined && value !== false) {
+            found.push(`${where} sets ${input}: ${JSON.stringify(value)}`);
+          }
+        }
+        const off =
+          action === "actions/setup-node"
+            ? "package-manager-cache"
+            : action === "pnpm/action-setup"
+              ? "cache"
+              : undefined;
+        if (off !== undefined) {
+          setups += 1;
+          if (field(inputs, off) === undefined) {
+            found.push(`${where} does not set ${off}: false`);
+          }
+        }
+      }
+    }
+    assert.ok(setups > 0, "no setup-node or pnpm/action-setup step found");
+    assert.deepEqual(found, []);
+  });
+
   it("checks out every script a sparse job runs, and what those import", () => {
     const missing: string[] = [];
     for (const [name, job] of jobsOf(stage)) {

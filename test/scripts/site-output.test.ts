@@ -338,6 +338,31 @@ describe("siteLinks", () => {
     const html = '<script>const a = \' href="/x"\';</script><pre><code> href="/y"</code></pre>';
     assert.deepEqual(siteLinks("a.html", html, SITE), { links: [], problems: [] });
   });
+
+  it("ignores links inside a script whose end tag has spaces or attributes", () => {
+    const html =
+      '<script>const a = \' href="/x"\';</script ><script> href="/z"</script\t\n bar><a href="/site/y">y</a>';
+    assert.deepEqual(siteLinks("a.html", html, SITE), {
+      links: [{ path: "y", anchor: undefined }],
+      problems: [],
+    });
+  });
+
+  it("checks the links after a pre that is never closed", () => {
+    const html = '<pre><code> href="/x"</code><a href="/site/y">y</a>';
+    assert.deepEqual(siteLinks("a.html", html, SITE), {
+      links: [{ path: "y", anchor: undefined }],
+      problems: ["a.html: the link /x does not start with /site/"],
+    });
+  });
+
+  it("ignores links after a script that is never closed, as a browser does", () => {
+    const html = '<a href="/site/y">y</a><script> href="/x"<a href="/z">z</a>';
+    assert.deepEqual(siteLinks("a.html", html, SITE), {
+      links: [{ path: "y", anchor: undefined }],
+      problems: [],
+    });
+  });
 });
 
 describe("outputCandidates", () => {
