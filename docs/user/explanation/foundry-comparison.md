@@ -7,7 +7,7 @@ description: "hardhat-kms compared with Foundry's AWS and Google Cloud KMS signe
 
 Audience: Users choosing between Foundry and Hardhat for KMS signing.
 
-Compared with Foundry at commit `336712c`, foundry-core `6228965` and alloy `c6a2f8c`, read from source on 2026-09-30 ([Signing prior art](../../contributor/research/signing-prior-art.md)). Later Foundry releases may differ.
+Compared with Foundry at commit `336712c`, foundry-core `6228965` and alloy `c6a2f8c`, and with the Azure signer proposed in [foundry#17120](https://github.com/foundry-rs/foundry/pull/17120), all read from source on 2026-09-30 ([Signing prior art](../../contributor/research/signing-prior-art.md)). Later Foundry releases may differ.
 
 ## Differences from Foundry
 

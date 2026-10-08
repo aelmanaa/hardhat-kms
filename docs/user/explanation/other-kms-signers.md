@@ -53,7 +53,7 @@ hardhat-kms is a Hardhat 3 plugin. Its packages declare `hardhat` `^3.18.0` as a
 | Signature checks           | Every signature is recovered locally and checked against the key's address before it is used; an optional `address` pin also refuses a key that derives to another address ([Every signature is verified](security-model.md#every-signature-is-verified)) |
 | Keys from the command line | `--kms aws`, `--kms gcp` or `--kms azure` reads a key from Foundry's environment variables, without a config entry ([Migrate from Foundry](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry))                                        |
 | Signing history            | `kms history` lists a key's sign events from CloudTrail, Cloud Audit Logs or the Key Vault audit log ([`kms history`](../reference/tasks.md#kms-history))                                                                                                 |
-| Tasks                      | Eight `kms` tasks, such as `kms accounts`, which checks each key's address and sign permission ([Hardhat kms tasks reference](../reference/tasks.md))                                                                                                     |
+| Tasks                      | Eight `kms` tasks, such as `kms accounts`, which checks each key's address and sign permission ([Hardhat KMS tasks reference](../reference/tasks.md))                                                                                                     |
 
 The contributor page [Signing prior art](../../contributor/research/signing-prior-art.md) (optional reading) compares the signature checks of Foundry and of the JavaScript KMS signer libraries that some of these plugins build on, check by check.
 

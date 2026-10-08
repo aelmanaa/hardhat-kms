@@ -11,7 +11,7 @@ Each page except the generated API reference opens with an `Audience:` line that
 - I want to deploy my contracts: [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md).
 - I want CI to sign with no stored credentials: [Sign from GitHub Actions with OIDC](user/guides/github-actions-oidc.md).
 - A command or script failed: [Errors](user/reference/errors.md) has every error with its cause and fix. Search the page for a fixed part of the message.
-- I sent a transaction and do not know what happened: [Recover an uncertain transaction send](user/guides/uncertain-sends.md).
+- I sent a transaction and do not know what happened: [Recover from an uncertain transaction send](user/guides/uncertain-sends.md).
 - Who signed with this key, and when: [Find who signed with a key](user/guides/who-signed.md).
 - What does the plugin protect against: [Security model](user/explanation/security-model.md).
 - Should I use a KMS key at all: compare it with [a private key in .env](user/explanation/kms-or-env-key.md), [a Ledger](user/explanation/kms-or-ledger.md) and [other KMS signers](user/explanation/other-kms-signers.md).
@@ -33,7 +33,7 @@ Each page except the generated API reference opens with an `Audience:` line that
 | [Configuration](user/reference/configuration.md)                             | Reference   |
 | [Credentials](user/reference/credentials.md)                                 | Reference   |
 | [RPC methods](user/reference/rpc-methods.md)                                 | Reference   |
-| [Hardhat kms tasks reference](user/reference/tasks.md)                       | Reference   |
+| [Hardhat KMS tasks reference](user/reference/tasks.md)                       | Reference   |
 | [Errors](user/reference/errors.md)                                           | Reference   |
 | [Library accounts](user/reference/library-accounts.md)                       | Reference   |
 | [Supported Node.js versions](user/reference/support.md)                      | Reference   |
@@ -48,7 +48,7 @@ Each page except the generated API reference opens with an `Audience:` line that
 | [Sign from GitHub Actions with OIDC](user/guides/github-actions-oidc.md)     | How-to      |
 | [Debug output](user/guides/debug-output.md)                                  | How-to      |
 | [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md)          | How-to      |
-| [Recover an uncertain transaction send](user/guides/uncertain-sends.md)      | How-to      |
+| [Recover from an uncertain transaction send](user/guides/uncertain-sends.md) | How-to      |
 | [Return the funds from a KMS address](user/guides/return-funds.md)           | How-to      |
 | [Find who signed with a key](user/guides/who-signed.md)                      | How-to      |
 | [Migrate from Foundry](user/guides/migrate-from-foundry.md)                  | How-to      |
