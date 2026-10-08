@@ -1,11 +1,11 @@
 // The proof check of promote.yml: for a `live-run` of `sepolia:<commit>`, reads
 // test/live/proof.json at that commit and checks it against tag v<version> (checkReleaseProof in
-// helpers/release-proof.ts). Any other live-run value has no proof to check. Runs in the clone in
-// the current directory, prints what it checked, and appends it to --summary when given
-// (GITHUB_STEP_SUMMARY).
+// helpers/release-proof.ts). Any other live-run value has no proof to check. Runs in the clone at
+// --repo, the current directory by default, prints what it checked, and appends it to --summary
+// when given (GITHUB_STEP_SUMMARY).
 //
 // Usage: node test/live/check-release-proof.ts <version> <sepolia:<commit>|fork|none>
-//   [--summary FILE]
+//   [--summary FILE] [--repo DIR]
 import { appendFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 
@@ -13,13 +13,13 @@ import { parseLiveRun } from "../../scripts/registry-release.ts";
 import { checkReleaseProof } from "./helpers/release-proof.ts";
 
 const usage =
-  "usage: node test/live/check-release-proof.ts <version> <sepolia:<commit>|fork|none> [--summary FILE]";
+  "usage: node test/live/check-release-proof.ts <version> <sepolia:<commit>|fork|none> [--summary FILE] [--repo DIR]";
 
 try {
   const { positionals, values } = parseArgs({
     args: process.argv.slice(2),
     allowPositionals: true,
-    options: { summary: { type: "string" } },
+    options: { summary: { type: "string" }, repo: { type: "string" } },
   });
   const [version, liveRun] = positionals;
   if (version === undefined || liveRun === undefined || positionals.length !== 2) {
@@ -31,7 +31,7 @@ try {
   const parsed = parseLiveRun(liveRun);
   let line: string;
   if (parsed.kind === "sepolia") {
-    const found = checkReleaseProof(process.cwd(), version, parsed.commit);
+    const found = checkReleaseProof(values.repo ?? process.cwd(), version, parsed.commit);
     const providers = found.proof.providers
       .map((provider) => `${provider.provider} ${provider.records.length} records`)
       .join(", ");

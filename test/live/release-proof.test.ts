@@ -23,6 +23,7 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(here, "check-release-proof.ts");
+const ROOT = path.resolve(here, "../..");
 /** test/live/proof.json at 32b13734f6c7c263a9a59697528e471b74ca1d96, the proof for 0.10.0. */
 const PROOF_0_10_0 = readFileSync(path.join(here, "fixtures/proof-0.10.0.json"), "utf8");
 /** The commit of tag v0.10.0. */
@@ -117,7 +118,11 @@ function run(
   cwd: string,
   args: readonly string[],
 ): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync(process.execPath, [SCRIPT, ...args], { cwd, encoding: "utf8" });
+  // Runs from the repository, where Node 22.13.0's `--import tsx` resolves, against the clone.
+  const result = spawnSync(process.execPath, [SCRIPT, ...args, "--repo", cwd], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
