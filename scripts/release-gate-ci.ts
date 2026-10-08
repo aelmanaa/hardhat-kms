@@ -10,8 +10,11 @@
 // ci.yml runs on every push to main, so the merge commit of the Version Packages pull request
 // usually has one, but a hotfix commit on a release branch has none. The other three are
 // path-filtered or scheduled and may have skipped the commit. For each of the four that has no
-// passing run, the gate dispatches it on the tag (`--ref`) and waits for the result; it waits
-// without dispatching while a run is in progress.
+// run, the gate dispatches it on the tag (`--ref`) and waits for the result; it waits without
+// dispatching while a run is in progress. A failed run of one of the other three is dispatched
+// once more, because their results also depend on inputs outside the commit (the latest Hardhat,
+// the macOS and Windows images). A failed ci.yml run ends the gate: ci.yml is hermetic, so a
+// second run of the same commit would only hide a flaky failure.
 // It talks to the GitHub API through `gh api`, which reads its token from GH_TOKEN.
 //
 // Usage:
@@ -42,6 +45,14 @@ export type DispatchedWorkflow =
   | typeof ALL_OS_WORKFLOW
   | typeof HARDHAT_VERSIONS_WORKFLOW
   | typeof SDK_FLOORS_WORKFLOW;
+/**
+ * Whether the gate dispatches a workflow again when its run on the commit failed. Never for
+ * ci.yml, which the gate dispatches only when the commit has no run of it.
+ */
+export function retriesFailure(workflow: DispatchedWorkflow): boolean {
+  return workflow !== LINUX_WORKFLOW;
+}
+
 /** The workflows the gate dispatches, in the order it looks at them and reports them. */
 export const DISPATCHED_WORKFLOWS: readonly DispatchedWorkflow[] = [
   LINUX_WORKFLOW,
@@ -357,7 +368,11 @@ export async function gate(
       ...others.map(({ workflow, found }) => describe(workflow, found)),
     ];
     for (const { workflow, found } of others) {
-      if (found.state === "missing" || found.state === "failed") {
+      if (found.state === "failed" && !retriesFailure(workflow)) {
+        lines.push(
+          `A release run would fail: the newest ${workflow} run on this commit did not pass, and the gate does not retry it.`,
+        );
+      } else if (found.state === "missing" || found.state === "failed") {
         lines.push(`A release run would dispatch ${workflow} on ${ref} and wait for it.`);
       }
     }
@@ -399,6 +414,23 @@ export async function gate(
           ...failedDispatches.map(
             ({ workflow }) =>
               `The ${workflow} run dispatched on ${ref} did not pass. Open it from the link above: re-run its failed jobs if the failure is a flake, then re-run this job; otherwise fix the cause on the branch the tag came from and release a new version.`,
+          ),
+        ],
+      };
+    }
+    const notRetried = others.filter(
+      ({ workflow, found }) =>
+        found.state === "failed" && !retriesFailure(workflow) && !dispatchedAfter.has(workflow),
+    );
+    if (notRetried.length > 0) {
+      return {
+        ok: false,
+        lines: [
+          header,
+          ...status,
+          ...notRetried.map(
+            ({ workflow }) =>
+              `The newest ${workflow} run on this commit did not pass, and the gate does not retry it. Open it from the link above: re-run its failed jobs if the failure is a flake, then re-run this job; otherwise fix the cause and release a new version.`,
           ),
         ],
       };

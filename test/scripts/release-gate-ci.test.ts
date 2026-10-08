@@ -14,6 +14,7 @@ import {
   type GateGitHub,
   type GateInput,
   parseGateRuns,
+  retriesFailure,
 } from "../../scripts/release-gate-ci.ts";
 
 const REPO = "owner/repo";
@@ -330,9 +331,13 @@ describe("gate", () => {
 });
 
 // ci.yml, hardhat-versions.yml and sdk-floors.yml count a run that concluded `success`; the last
-// two also require every job to have passed. The gate dispatches each the same way.
+// two also require every job to have passed. The gate dispatches each when the commit has no run;
+// it dispatches the last two again after a failed run, and never ci.yml.
 for (const workflow of ["ci.yml", "hardhat-versions.yml", "sdk-floors.yml"] as const) {
   const field = FIELD[workflow];
+  const retries = retriesFailure(workflow);
+  /** The runs before the dispatch: a failed one where the gate retries, else none. */
+  const before: Run[] = retries ? [{ id: 60, conclusion: "failure" }] : [];
   const other = workflow === "hardhat-versions.yml" ? "sdk-floors.yml" : "hardhat-versions.yml";
   /** A world where every workflow but `workflow` passed, and `workflow` has the given runs. */
   const worldWith = (runs: Run[]): World => ({
@@ -382,7 +387,7 @@ for (const workflow of ["ci.yml", "hardhat-versions.yml", "sdk-floors.yml"] as c
       assert.match(result.lines.join("\n"), new RegExp(`${workflow}: run \\[61\\]`));
     });
 
-    for (const conclusion of ["cancelled", "skipped"]) {
+    for (const conclusion of retries ? ["cancelled", "skipped"] : []) {
       it(`does not count a ${conclusion} run, and dispatches`, async () => {
         const world = worldWith([{ id: 60, conclusion }]);
         const { github, dispatched } = fake(world, (changed) => {
@@ -431,7 +436,7 @@ for (const workflow of ["ci.yml", "hardhat-versions.yml", "sdk-floors.yml"] as c
     it("says a dispatched run is not listed yet when it gives up before the run shows", async () => {
       // With no wait it gives up on the look that dispatched; with two minutes, two looks later.
       for (const minutes of [0, 2]) {
-        const world = worldWith([{ id: 60, conclusion: "failure" }]);
+        const world = worldWith(before);
         const { github, dispatched } = fake(world);
         const result = await gate(input({ waitMs: minutes * 60_000 }), github, clock());
         assert.equal(result.ok, false);
@@ -457,8 +462,8 @@ for (const workflow of ["ci.yml", "hardhat-versions.yml", "sdk-floors.yml"] as c
       assert.equal(time.slept, 1);
     });
 
-    it("dispatches once after a failed run, and fails when the dispatched run fails too", async () => {
-      const world = worldWith([{ id: 60, conclusion: "failure" }]);
+    it(`dispatches once ${retries ? "after a failed run" : "when no run exists"}, and fails when the dispatched run fails`, async () => {
+      const world = worldWith(before);
       const { github, dispatched } = fake(world, (changed) => {
         changed[field] = [
           { id: 61, event: "workflow_dispatch", conclusion: "failure" },
@@ -476,33 +481,85 @@ for (const workflow of ["ci.yml", "hardhat-versions.yml", "sdk-floors.yml"] as c
       assert.doesNotMatch(text, new RegExp(`The ${other} run dispatched`));
     });
 
-    it("after a dispatch, an older failed run does not end the wait for the dispatched run", async () => {
-      let step = 0;
-      const world = worldWith([{ id: 60, event: "schedule", conclusion: "failure" }]);
-      const { github, dispatched } = fake(world);
-      const time = clock(() => {
-        step += 1;
-        // The dispatched run is not listed on the first look after the dispatch, is queued on the
-        // second, and has passed on the third. The failed run 60 stays listed throughout.
-        if (step === 2) {
-          world[field] = [
-            { id: 61, event: "workflow_dispatch", status: "queued", conclusion: null },
-            { id: 60, event: "schedule", conclusion: "failure" },
-          ];
-        } else if (step === 3) {
-          world[field] = [
-            { id: 61, event: "workflow_dispatch" },
-            { id: 60, event: "schedule", conclusion: "failure" },
-          ];
-        }
+    // Only where the gate dispatches after a failed run.
+    if (retries) {
+      it("after a dispatch, an older failed run does not end the wait for the dispatched run", async () => {
+        let step = 0;
+        const world = worldWith([{ id: 60, event: "schedule", conclusion: "failure" }]);
+        const { github, dispatched } = fake(world);
+        const time = clock(() => {
+          step += 1;
+          // The dispatched run is not listed on the first look after the dispatch, is queued on the
+          // second, and has passed on the third. The failed run 60 stays listed throughout.
+          if (step === 2) {
+            world[field] = [
+              { id: 61, event: "workflow_dispatch", status: "queued", conclusion: null },
+              { id: 60, event: "schedule", conclusion: "failure" },
+            ];
+          } else if (step === 3) {
+            world[field] = [
+              { id: 61, event: "workflow_dispatch" },
+              { id: 60, event: "schedule", conclusion: "failure" },
+            ];
+          }
+        });
+        const result = await gate(input(), github, time);
+        assert.equal(result.ok, true, result.lines.join("\n"));
+        assert.deepEqual(dispatched, [`${workflow}@${TAG}`]);
+        assert.equal(time.slept, 3);
       });
-      const result = await gate(input(), github, time);
-      assert.equal(result.ok, true, result.lines.join("\n"));
-      assert.deepEqual(dispatched, [`${workflow}@${TAG}`]);
-      assert.equal(time.slept, 3);
-    });
+    }
   });
 }
+
+describe("gate and a ci.yml run that did not pass", () => {
+  for (const conclusion of ["failure", "cancelled", "skipped"]) {
+    it(`ends at once on a ${conclusion} ci.yml run, and dispatches nothing`, async () => {
+      const { github, dispatched } = fake({
+        linux: [{ id: 10, conclusion }],
+        allOs: [],
+        hardhat: [],
+        floors: [],
+        jobs: {},
+      });
+      const time = clock();
+      const result = await gate(input(), github, time);
+      assert.equal(result.ok, false);
+      assert.deepEqual(dispatched, []);
+      assert.equal(time.slept, 0);
+      const text = result.lines.join("\n");
+      assert.match(text, /ci\.yml: the newest run on this commit, \[10\]/);
+      assert.match(
+        text,
+        /The newest ci\.yml run on this commit did not pass, and the gate does not retry it\./,
+      );
+    });
+  }
+
+  it("in report mode says a release run would fail, not that it would dispatch ci.yml", async () => {
+    const { github, dispatched } = fake({
+      linux: [{ id: 10, conclusion: "failure" }],
+      allOs: [{ id: 20 }],
+      jobs: { 20: passedJobs },
+    });
+    const result = await gate(input({ mode: "report" }), github, clock());
+    assert.equal(result.ok, true);
+    assert.deepEqual(dispatched, []);
+    const text = result.lines.join("\n");
+    assert.match(
+      text,
+      /A release run would fail: the newest ci\.yml run on this commit did not pass, and the gate does not retry it\./,
+    );
+    assert.doesNotMatch(text, /would dispatch ci\.yml/);
+  });
+
+  it("retries the other three workflows and never ci.yml", () => {
+    assert.equal(retriesFailure("ci.yml"), false);
+    for (const workflow of ["ci-all-os.yml", "hardhat-versions.yml", "sdk-floors.yml"] as const) {
+      assert.equal(retriesFailure(workflow), true);
+    }
+  });
+});
 
 describe("gate with several workflows missing", () => {
   it("dispatches each missing workflow once and passes when all dispatched runs pass", async () => {

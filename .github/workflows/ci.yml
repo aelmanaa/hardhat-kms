@@ -6,7 +6,7 @@ on:
     branches: [main]
   merge_group:
   # The release gate (scripts/release-gate-ci.ts) dispatches this workflow on a release tag whose
-  # commit has no passing push run, such as a hotfix commit on a release/X.Y branch. A cache saved
+  # commit has no run of it, such as a hotfix commit on a release/X.Y branch. A cache saved
   # by such a run is scoped to the tag or branch it ran on; runs on main never restore it.
   workflow_dispatch:
 

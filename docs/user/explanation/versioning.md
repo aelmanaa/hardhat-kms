@@ -31,7 +31,7 @@ Two npm dist-tags, `latest` and `beta`, point only at stable version strings: no
 
 `latest` is the version the maintainers promoted after installing it from the registry into a fresh project and running the release checks against it. `npm install` without a tag gives you this one.
 
-`beta` is the newest published version, which may not have been promoted yet. When nothing is waiting for promotion, `beta` and `latest` point at the same version.
+`beta` is the newest version published from `main`, which may not have been promoted yet. When nothing is waiting for promotion, `beta` and `latest` point at the same version.
 
 A version on `beta` was built from a signed tag on `main`, passed the full test suite on Linux, macOS and Windows, and carries a provenance attestation. It was not yet installed and tested from the registry, and it may be deprecated instead of promoted if that test finds a problem. Use test keys and testnets with a beta.
 
@@ -88,7 +88,7 @@ viem is needed only by `connection.kms.getAccount`; the plugin signs through Har
 
 ### Previous major
 
-After a new major is promoted to `latest`, the previous major gets security fixes for 12 months from that promotion, as patch releases of its last minor. A security fix closes a vulnerability reported under [SECURITY.md](../../../SECURITY.md) or an advisory in a dependency these packages ship. Such a patch may raise `engines.node` when the fix needs a newer Node.js, and its changelog entry says so. The previous major gets no new features and no Hardhat floor change. After 12 months it gets nothing, and only the current major is supported.
+After a new major is promoted to `latest`, the previous major gets security fixes for 12 months from that promotion, as patch releases of its last minor. These patches are published under a dist-tag named after the line, such as `release-1.4` for 1.4.x, and never move `latest` or `beta`: install one with `npm install --save-dev hardhat-kms@release-1.4 @hardhat-kms/aws@release-1.4`. A security fix closes a vulnerability reported under [SECURITY.md](../../../SECURITY.md) or an advisory in a dependency these packages ship. Such a patch may raise `engines.node` when the fix needs a newer Node.js, and its changelog entry says so. The previous major gets no new features and no Hardhat floor change. After 12 months it gets nothing, and only the current major is supported.
 
 ## Deprecation
 

@@ -3,7 +3,15 @@
 // is absent. Runs in `pnpm test`.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -474,7 +482,7 @@ describe("verify-release-tag", { skip }, () => {
           assert.deepEqual(verify("v2.0.0-next.1"), {
             ok: false,
             reason:
-              "version 2.0.0-next.1 is not a stable X.Y.Z version; only stable versions release from main",
+              "version 2.0.0-next.1 is not a stable X.Y.Z version; only stable versions are released",
           }),
       );
     } finally {
@@ -495,7 +503,7 @@ describe("verify-release-tag", { skip }, () => {
           assert.deepEqual(verify("v1.2.3+build.7"), {
             ok: false,
             reason:
-              "version 1.2.3+build.7 is not a stable X.Y.Z version; only stable versions release from main",
+              "version 1.2.3+build.7 is not a stable X.Y.Z version; only stable versions are released",
           }),
       );
     } finally {
@@ -568,6 +576,7 @@ describe("verify-release-tag", { skip }, () => {
             assert.equal(verdict.version, "1.2.4");
             assert.equal(verdict.commit, commit);
             assert.equal(verdict.branch, "origin/release/1.2");
+            assert.equal(verdict.distTag, "release-1.2");
           }
         },
       ),
@@ -581,6 +590,7 @@ describe("verify-release-tag", { skip }, () => {
       () => {
         const verdict = verify("v1.2.3");
         assert.equal(verdict.ok && verdict.branch, "origin/main");
+        assert.equal(verdict.ok && verdict.distTag, "beta");
       },
     );
   });
@@ -709,20 +719,30 @@ describe("verify-release-tag", { skip }, () => {
       "v1.2.3",
       () => signWith(trustedHome, trustedKey, "v1.2.3"),
       () => {
-        const passed = run(process.execPath, [script, "v1.2.3", "--keys", keys], repo, cliEnv);
+        const output = path.join(sandbox, "github-output");
+        writeFileSync(output, "earlier=line\n");
+        const passed = run(
+          process.execPath,
+          [script, "v1.2.3", "--keys", keys, "--output", output],
+          repo,
+          cliEnv,
+        );
         assert.equal(passed.status, 0, passed.stderr);
+        assert.equal(readFileSync(output, "utf8"), "earlier=line\ndist-tag=beta\n");
         assert.match(
           passed.stdout,
-          /^v1\.2\.3 passes: signed by Release Maintainer <[^>]+> \([0-9A-F]+\), version 1\.2\.3 in 4 manifests, commit [0-9a-f]{40} on origin\/main\n$/,
+          /^v1\.2\.3 passes: signed by Release Maintainer <[^>]+> \([0-9A-F]+\), version 1\.2\.3 in 4 manifests, commit [0-9a-f]{40} on origin\/main, staged under beta\n$/,
         );
         const failed = run(
           process.execPath,
-          [script, "v1.2.3", "--keys", path.join(sandbox, "no-keys")],
+          [script, "v1.2.3", "--keys", path.join(sandbox, "no-keys"), "--output", output],
           repo,
           cliEnv,
         );
         assert.equal(failed.status, 1);
         assert.match(failed.stderr, /^v1\.2\.3 fails: no release keys: /);
+        // A failing tag writes no dist-tag.
+        assert.equal(readFileSync(output, "utf8"), "earlier=line\ndist-tag=beta\n");
       },
     );
     const usage = run(process.execPath, [script], repo, cliEnv);
@@ -736,10 +756,12 @@ describe("releaseBranch", () => {
     assert.deepEqual(releaseBranch("1.0.1"), {
       ref: "refs/remotes/origin/release/1.0",
       name: "origin/release/1.0",
+      distTag: "release-1.0",
     });
     assert.deepEqual(releaseBranch("12.34.56"), {
       ref: "refs/remotes/origin/release/12.34",
       name: "origin/release/12.34",
+      distTag: "release-12.34",
     });
   });
 
