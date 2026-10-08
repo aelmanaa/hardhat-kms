@@ -1,20 +1,24 @@
 # Verifies a staged and approved version from npm, and moves `latest` to it. Dispatched by a
 # maintainer; docs/contributor/releasing.md, Verify and promote, has the steps.
-# - job verify, for both targets: the live rule (scripts/check-live-rule.ts), then
-#   scripts/check-registry-release.ts (beta, or release-X.Y for a hotfix, is the version, the four
-#   packages have it, it is not below latest, so latest never moves backwards, no prerelease,
-#   four provenance attestations, gitHead is the tag's commit), the package checks, the consumer
-#   typecheck on three TypeScript versions, the peer-install matrix and the examples against
-#   LocalStack, all installing the version from npm (--from-registry).
+# - job verify, for both targets: the live rule (scripts/check-live-rule.ts), for
+#   sepolia:<commit> the proof check (test/live/check-release-proof.ts: the commit is on main or
+#   release/X.Y, its test/live/proof.json covers the three providers and tested the tag's commit),
+#   then scripts/check-registry-release.ts (beta, or release-X.Y for a hotfix, is the version, the
+#   four packages have it, it is not below latest, so latest never moves backwards, no
+#   prerelease, four provenance attestations, gitHead is the tag's commit), the package checks,
+#   the consumer typecheck on three TypeScript versions, the peer-install matrix and the examples
+#   against LocalStack, all installing the version from npm (--from-registry).
 # - target verify: publishes the draft GitHub Release with the prerelease flag on.
 # - target latest: after a maintainer approves the npm-latest environment, `npm dist-tag add` for
-#   the four packages over OIDC, then the GitHub Release becomes the latest release.
+#   the four packages over OIDC, then the GitHub Release becomes the latest release. Both jobs
+#   share the concurrency group promote-latest with every version, so latest moves one version
+#   at a time; verify stays per version.
 # - job live, only when live-run is fork: after the owner approves the live-tests environment, the
 #   live suite in fork mode against the four packages installed from npm at the version
 #   (HARDHAT_KMS_LIVE_SOURCE=registry:<version>), signed in to the three clouds over OIDC as in
 #   live-tests.yml. Either target then waits for it, and a failed live run stops the promotion. A
 #   Sepolia run (live-run sepolia:<commit>) still runs before the dispatch, on the maintainer's
-#   machine or in live-tests.yml; this workflow checks its value.
+#   machine or in live-tests.yml; this workflow checks its proof.
 # Either target comments on the merged Version Packages pull request with the result of each job
 # and the live-run value. Dispatch it from main: the npm-latest environment accepts only that
 # branch.
@@ -75,9 +79,12 @@ jobs:
             echo "live-run: \`$LIVE_RUN\`"
             echo
           } >> "$GITHUB_STEP_SUMMARY"
+      # The whole history of every branch: the proof check reads test/live/proof.json at the
+      # live-run commit and checks that the commit is on main or on release/X.Y.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Fetch the release tag
         id: tag
         env:
@@ -98,6 +105,14 @@ jobs:
           TARGET: ${{ inputs.target }}
           LIVE_RUN: ${{ inputs.live-run }}
         run: node scripts/check-live-rule.ts "$VERSION" "$TARGET" "$LIVE_RUN" --summary "$GITHUB_STEP_SUMMARY"
+      # For sepolia:<commit>: the commit is on main or release/X.Y and is the last to change
+      # test/live/proof.json, the proof covers AWS, Google Cloud and Azure on Sepolia with every
+      # record as its case expects, and the commit the suite tested is the tag's.
+      - name: Sepolia proof
+        env:
+          VERSION: ${{ inputs.version }}
+          LIVE_RUN: ${{ inputs.live-run }}
+        run: node test/live/check-release-proof.ts "$VERSION" "$LIVE_RUN" --summary "$GITHUB_STEP_SUMMARY"
       - name: Registry release checks
         env:
           VERSION: ${{ inputs.version }}
@@ -280,6 +295,11 @@ jobs:
       || (inputs.live-run != 'fork' && needs.live.result == 'skipped')) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
+    # One group for every version, shared with release-latest: two promotions never read and move
+    # latest at once. A run waits here while another run's job holds the group.
+    concurrency:
+      group: promote-latest
+      cancel-in-progress: false
     # A maintainer approves this environment; the dist-tag trusted-publisher configuration pins it.
     environment: npm-latest
     permissions:
@@ -350,6 +370,11 @@ jobs:
     needs: latest
     runs-on: ubuntu-26.04
     timeout-minutes: 5
+    # The group of the latest job. Another promotion's latest job can run between the two jobs of
+    # this run, so the release becomes the latest only while npm's latest still is this version.
+    concurrency:
+      group: promote-latest
+      cancel-in-progress: false
     permissions:
       contents: write # edits the release
     steps:
@@ -357,7 +382,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ inputs.version }}
+          VERSION: ${{ inputs.version }}
         run: |
+          current="$(curl --fail --silent --show-error https://registry.npmjs.org/-/package/hardhat-kms/dist-tags | jq -r '.latest // ""')"
+          if [ "$current" != "$VERSION" ]; then
+            echo "::error::hardhat-kms has latest at ${current:-nothing}, not $VERSION; another promotion moved it, so release $TAG is left as it is"
+            exit 1
+          fi
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
           echo "Release $TAG is the latest release." >> "$GITHUB_STEP_SUMMARY"
 

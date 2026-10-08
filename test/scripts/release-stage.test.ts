@@ -301,3 +301,50 @@ describe("release-stage.yml", () => {
     },
   );
 });
+
+describe("promote.yml", () => {
+  const workflow = readWorkflow("promote.yml");
+  const jobs = new Map(jobsOf(workflow));
+
+  it("moves latest in one concurrency group for every version, never cancelled", () => {
+    const groups = ["latest", "release-latest"].map((name) => {
+      const concurrency = field(jobs.get(name), "concurrency");
+      assert.equal(field(concurrency, "cancel-in-progress"), false, name);
+      const group = field(concurrency, "group");
+      assert.equal(typeof group, "string", name);
+      return String(group);
+    });
+    const [group] = groups;
+    assert.ok(group !== undefined);
+    assert.deepEqual(groups, [group, group]);
+    // A fixed name: no expression, so no version (or anything else per run) in it.
+    assert.doesNotMatch(group, /\$\{\{|version/i);
+    // No other job, verify above all, waits on it.
+    for (const [name, job] of jobs) {
+      if (name !== "latest" && name !== "release-latest") {
+        assert.notEqual(field(field(job, "concurrency"), "group"), group, name);
+      }
+    }
+    assert.match(String(field(field(workflow, "concurrency"), "group")), /inputs\.version/);
+  });
+
+  it("checks the Sepolia proof in the verify job, after the live rule and with full history", () => {
+    const steps: unknown = field(jobs.get("verify"), "steps");
+    assert.ok(Array.isArray(steps));
+    const text = (step: unknown, name: string): string => {
+      const value = field(step, name);
+      return typeof value === "string" ? value : "";
+    };
+    const runs = steps.map((step: unknown) => text(step, "run"));
+    const rule = runs.findIndex((run) => run.includes("scripts/check-live-rule.ts"));
+    const proof = runs.findIndex((run) =>
+      run.startsWith('node test/live/check-release-proof.ts "$VERSION" "$LIVE_RUN"'),
+    );
+    assert.notEqual(rule, -1);
+    assert.equal(proof, rule + 1);
+    const checkout: unknown = steps.find((step: unknown) =>
+      text(step, "uses").startsWith("actions/checkout@"),
+    );
+    assert.equal(field(field(checkout, "with"), "fetch-depth"), 0);
+  });
+});
