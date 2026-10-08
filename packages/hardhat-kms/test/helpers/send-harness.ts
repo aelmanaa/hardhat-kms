@@ -100,8 +100,11 @@ export interface SendHarness {
   node: FakeNode;
   state: SignState;
   timers: FakeTimers;
-  /** Opens a connection through the hook. */
-  open: () => Promise<NetworkConnection<string>>;
+  /**
+   * Opens a connection through the hook: to `remote`, which has the KMS keys, or to `plain`, a
+   * network with no KMS keys on the same chain and node.
+   */
+  open: (network?: "remote" | "plain") => Promise<NetworkConnection<string>>;
   /** Closes a connection through the hook. */
   close: (connection: NetworkConnection<string>) => Promise<void>;
   /** Sends `eth_sendTransaction` with one transaction. */
@@ -150,6 +153,7 @@ export async function setUp(
         gasPrice: 1,
         kmsAccounts: ["cow", "zero"],
       },
+      plain: { type: "http", url: "http://127.0.0.1:1", chainId, gas: 21_000, gasPrice: 1 },
     },
   });
   const state: SignState = { beforeSign: undefined, signatures: 0, closed: 0 };
@@ -227,11 +231,14 @@ export async function setUp(
 
   const timers = fakeTimers();
   const handlers = createNetworkHandlers(timers);
-  const { remote } = hre.config.networks;
+  const { remote, plain } = hre.config.networks;
   assert.ok(remote);
-  const networkConfig = type === "http" ? remote : { ...remote, type };
+  assert.ok(plain);
+  const configs = { remote: type === "http" ? remote : { ...remote, type }, plain };
 
-  const open = async (): Promise<NetworkConnection<string>> => {
+  const open = async (
+    network: "remote" | "plain" = "remote",
+  ): Promise<NetworkConnection<string>> => {
     const provider = {
       request: async ({ method, params }: { method: string; params?: unknown[] }) => {
         const response = await answer({ jsonrpc: "2.0", id: 0, method, params: params ?? [] });
@@ -242,8 +249,8 @@ export async function setUp(
       },
     };
     const connection = {
-      networkName: "remote",
-      networkConfig,
+      networkName: network,
+      networkConfig: configs[network],
       provider,
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- only the fields the hook reads
     } as NetworkConnection<string>;

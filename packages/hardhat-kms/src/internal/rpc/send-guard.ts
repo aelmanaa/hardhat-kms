@@ -87,10 +87,11 @@ interface LibraryHold {
   /** The nonce the send was given. */
   readonly nonce: bigint;
   /**
-   * The send state of the connection that gave it: closing that connection ends the hold, and only
-   * a viem `reset` through that connection can end it.
+   * The send state of the connection that gave it: closing that connection ends the hold, only a
+   * viem `reset` through that connection can end it, and its raw transaction's outcome is recorded
+   * there whichever connection it comes through.
    */
-  readonly owner: object;
+  readonly owner: ConnectionSends;
   /** Ends the hold and releases the lock. */
   readonly end: () => void;
   /** Whether a send waiting behind this hold has printed the wait warning. */
@@ -322,7 +323,7 @@ export async function withSendLock<T>(
  * uses one up. A `reset` after a failed `consume` never gets here: the account's nonce manager
  * keeps it.
  */
-const pendingResets = new WeakMap<object, Map<string, number>>();
+const pendingResets = new WeakMap<ConnectionSends, Map<string, number>>();
 
 /**
  * Timer functions whose timers keep the process alive, unlike {@link systemTimers}: a send that
@@ -342,7 +343,9 @@ const keepAliveTimers: Timers = {
  * signs and sends the transaction with the chosen nonce itself, in later requests. The hold ends
  * when that raw transaction is broadcast ({@link endLibraryHold}), when viem's `reset` reports
  * that the send failed (`resetLibraryNonce` in the dispatcher), when the owner's connection closes, or after
- * {@link LIBRARY_HOLD_MS}. Sends that wait behind it wait as they wait behind any send.
+ * {@link LIBRARY_HOLD_MS}. Sends that wait behind it wait as they wait behind any send. At the time
+ * limit the nonce becomes a reservation on the owner first, so the owner's sends through the
+ * plugin skip it for {@link RESERVATION_MS} instead of signing it again.
  *
  * When the lock cannot be had, or `choose` fails, nothing is held and the error is thrown.
  *
@@ -355,7 +358,7 @@ const keepAliveTimers: Timers = {
  */
 export async function holdForLibrary(
   key: string,
-  owner: object,
+  owner: ConnectionSends,
   choose: () => Promise<bigint>,
   timers: Timers = keepAliveTimers,
   signal?: AbortSignal,
@@ -372,8 +375,10 @@ export async function holdForLibrary(
     async () => {
       const nonce = await choose();
       const cancel = timers.setTimeout(() => {
+        // Before the lock passes on: the send waiting for it must skip this nonce.
+        owner.reserve(key.slice(key.indexOf(":") + 1), nonce);
         warn(
-          `a connection.kms.getAccount send from ${describeSendKeyForWarning(key)} chose nonce ${nonce}, and after ${LIBRARY_HOLD_MS / 1000} s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast later, it and the account's next send share a nonce, and the node refuses one of them. Send the library account through custom(connection.provider); see ${LIBRARY_WARNINGS_DOCS}.`,
+          `a connection.kms.getAccount send from ${describeSendKeyForWarning(key)} chose nonce ${nonce}, and after ${LIBRARY_HOLD_MS / 1000} s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock and reserved the nonce: the account's sends through its connection skip it for up to ${RESERVATION_MS / 1000} s. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast after that, it and another send of the account can share the nonce, and either can replace the other or be refused. Send the library account through custom(connection.provider); see ${LIBRARY_WARNINGS_DOCS}.`,
         );
         hold.end();
       }, LIBRARY_HOLD_MS);
@@ -448,7 +453,7 @@ export function endLibraryHold(key: string, failed: boolean): void {
  * @param key - The lock key.
  * @param owner - The send state of the connection that gave the hold.
  */
-export function expectLibraryReset(key: string, owner: object): void {
+export function expectLibraryReset(key: string, owner: ConnectionSends): void {
   const owed = pendingResets.get(owner) ?? new Map<string, number>();
   owed.set(key, (owed.get(key) ?? 0) + 1);
   pendingResets.set(owner, owed);
@@ -462,7 +467,7 @@ export function expectLibraryReset(key: string, owner: object): void {
  * @param owner - The send state of the connection the reset came through.
  * @returns Whether a reset was owed.
  */
-export function takeOwedLibraryReset(key: string, owner: object): boolean {
+export function takeOwedLibraryReset(key: string, owner: ConnectionSends): boolean {
   const byKey = pendingResets.get(owner);
   if (byKey === undefined) {
     return false;
@@ -485,7 +490,7 @@ export function takeOwedLibraryReset(key: string, owner: object): boolean {
  *
  * @param owner - The connection's send state.
  */
-export function endLibraryHoldsOf(owner: object): void {
+export function endLibraryHoldsOf(owner: ConnectionSends): void {
   for (const hold of libraryHolds.values()) {
     if (hold.owner === owner) {
       hold.end();
