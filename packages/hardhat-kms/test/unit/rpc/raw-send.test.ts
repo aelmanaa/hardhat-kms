@@ -673,6 +673,22 @@ describe("a library account's send through the connection", () => {
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
   });
 
+  it("owes no reset for a raw transaction that went out, so the next send's reset ends its hold", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+    const next = await library(connection);
+    assert.equal(await next.consume(), 1);
+    await next.reset();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), true, "the reset ended the next send's hold");
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+  });
+
   it("does not let a late reset through a closed connection use up the reset a failed broadcast owes", async () => {
     const harness = await setUp();
     const { node, send } = harness;

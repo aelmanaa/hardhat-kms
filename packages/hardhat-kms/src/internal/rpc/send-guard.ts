@@ -428,11 +428,14 @@ export function expectLibraryReset(key: string, owner: object): void {
  */
 export function takeOwedLibraryReset(key: string, owner: object): boolean {
   const byKey = pendingResets.get(owner);
-  const owed = byKey?.get(key) ?? 0;
-  if (byKey === undefined || owed === 0) {
+  if (byKey === undefined) {
     return false;
   }
-  // Stryker disable next-line ConditionalExpression: a count of 0 left in the map reads as no reset owed
+  // A count is deleted when it reaches 0, so a stored count is at least 1.
+  const owed = byKey.get(key);
+  if (owed === undefined) {
+    return false;
+  }
   if (owed === 1) {
     byKey.delete(key);
   } else {

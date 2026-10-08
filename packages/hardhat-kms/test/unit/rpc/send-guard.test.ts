@@ -1117,6 +1117,12 @@ describe("library holds", () => {
     }
   });
 
+  it("owes no reset for a failed broadcast when no library send holds the lock", () => {
+    const KEY = nextKey();
+    endLibraryHold(KEY, true);
+    assert.equal(libraryHoldsActive(), false);
+  });
+
   it("uses up the resets owed by failed sends before it ends a hold", async () => {
     const KEY = nextKey();
     const timers = fakeTimers();
