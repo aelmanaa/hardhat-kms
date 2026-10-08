@@ -1,7 +1,8 @@
-// Compares the Node.js minimum that Hardhat enforces at startup with the floor of `engines.node`
-// in packages/hardhat-kms/package.json. The support policy (docs/user/reference/support.md) says the
-// two are equal, and Hardhat has raised its minimum in a patch release before (3.4.3 moved it from
-// 22.10.0 to 22.13.0). scripts/test-hardhat-versions.ts runs this for each Hardhat version it
+// Checks that the Node.js minimum Hardhat enforces at startup is not above the floor of
+// `engines.node` in packages/hardhat-kms/package.json. Hardhat has raised its minimum in a patch
+// release before (3.4.3 moved it from 22.10.0 to 22.13.0), and the support policy
+// (docs/user/reference/support.md) then raises engines.node to match. Our floor may be higher than
+// Hardhat's: a cloud SDK or an end-of-life drop can raise it on its own. scripts/test-hardhat-versions.ts runs this for each Hardhat version it
 // installs.
 //
 // Hardhat's package.json has no `engines` field. The minimum lives in the constant
@@ -56,12 +57,13 @@ export function nodeFloorOf(range: string): Version {
 }
 
 /**
- * Checks that the Node.js minimum of a Hardhat version equals the floor of our `engines.node`.
+ * Checks that the Node.js minimum of a Hardhat version is not above the floor of our `engines.node`.
  *
  * @param hardhatVersion - The Hardhat version, for the message.
  * @param hardhatMinimum - Hardhat's MIN_SUPPORTED_NODE_VERSION.
  * @param enginesNode - `engines.node` of packages/hardhat-kms/package.json.
- * @returns `undefined` when they are equal, otherwise a message naming both values.
+ * @returns `undefined` when Hardhat's minimum is at or below our floor, otherwise a message naming
+ * both values.
  */
 export function nodeFloorMismatch(
   hardhatVersion: string,
@@ -69,14 +71,10 @@ export function nodeFloorMismatch(
   enginesNode: string,
 ): string | undefined {
   const ours = nodeFloorOf(enginesNode);
-  const difference = compareVersions(hardhatMinimum, ours);
-  if (difference === 0) {
+  if (compareVersions(hardhatMinimum, ours) <= 0) {
     return undefined;
   }
-  const values = `hardhat ${hardhatVersion} requires Node.js ${formatVersion(hardhatMinimum)}, and engines.node of hardhat-kms is ${enginesNode} (floor ${formatVersion(ours)}).`;
-  return difference > 0
-    ? `${values} On Node.js ${formatVersion(ours)}, Hardhat exits at startup. Raise engines.node of every package to >=${formatVersion(hardhatMinimum)} in the next minor release (docs/user/reference/support.md).`
-    : `${values} engines.node asks for more than this Hardhat needs, and the support policy sets it to Hardhat's minimum: raise the hardhat peer floor to a release with the same minimum, or lower engines.node (docs/user/reference/support.md).`;
+  return `hardhat ${hardhatVersion} requires Node.js ${formatVersion(hardhatMinimum)}, above the engines.node floor of hardhat-kms, ${enginesNode} (floor ${formatVersion(ours)}). On Node.js ${formatVersion(ours)}, Hardhat exits at startup. Raise engines.node of every package to >=${formatVersion(hardhatMinimum)} in the next minor release (docs/user/reference/support.md).`;
 }
 
 /**
@@ -94,7 +92,13 @@ export async function readHardhatNodeMinimum(hardhatDirectory: string): Promise<
     "cli",
     "node-version.js",
   );
-  const loaded: unknown = await import(pathToFileURL(file).href);
+  const update = "update scripts/node-floor.ts to where Hardhat keeps its Node.js minimum";
+  let loaded: unknown;
+  try {
+    loaded = await import(pathToFileURL(file).href);
+  } catch (error) {
+    throw new Error(`${file} could not be loaded; ${update}`, { cause: error });
+  }
   const constant: unknown =
     typeof loaded === "object" && loaded !== null
       ? Object.getOwnPropertyDescriptor(loaded, "MIN_SUPPORTED_NODE_VERSION")?.value
@@ -105,7 +109,7 @@ export async function readHardhatNodeMinimum(hardhatDirectory: string): Promise<
     !constant.every((part) => Number.isInteger(part))
   ) {
     throw new Error(
-      `${file} does not export MIN_SUPPORTED_NODE_VERSION as three integers; update scripts/node-floor.ts to where Hardhat keeps its Node.js minimum`,
+      `${file} does not export MIN_SUPPORTED_NODE_VERSION as three integers; ${update}`,
     );
   }
   return [Number(constant[0]), Number(constant[1]), Number(constant[2])];

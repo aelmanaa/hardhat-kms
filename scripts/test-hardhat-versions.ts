@@ -9,8 +9,8 @@
 // restored afterwards, even on Ctrl-C, and the install is redone from the restored lockfile.
 //
 // After each install it also checks that the Node.js minimum the installed Hardhat enforces at
-// startup equals the floor of engines.node of hardhat-kms (scripts/node-floor.ts). A difference
-// fails the run; the build and tests still run for that version.
+// startup is not above the floor of engines.node of hardhat-kms (scripts/node-floor.ts). A higher
+// minimum fails the run; the build and tests still run for that version.
 //
 // "Latest" is the newest 3.x release that is at least a day old, or older than minimumReleaseAge
 // if the project sets one. This is a deliberate supply-chain hold, not a pnpm limit: pnpm's
@@ -190,7 +190,7 @@ await withRestoredFiles([path.join(root, "pnpm-lock.yaml"), workspaceFile], asyn
       const mismatch = await checkNodeFloor(target.version);
       if (mismatch !== undefined) {
         failures.push(`${describe(target)} at node floor`);
-        process.stderr.write(`\n${mismatch}\n`);
+        process.stderr.write(`\n${describe(target)} fails at the node floor stage. ${mismatch}\n`);
       }
       stage = "build";
       run(["run", "build"]);

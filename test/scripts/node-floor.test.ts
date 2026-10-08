@@ -29,6 +29,7 @@ describe("nodeFloorOf", () => {
     assert.deepEqual(nodeFloorOf("^22.13.0 || >=24.0.0"), [22, 13, 0]);
     assert.deepEqual(nodeFloorOf(">=24.0.0 || ^22.13.0"), [22, 13, 0]);
     assert.deepEqual(nodeFloorOf("^22.13.0||^24.0.0||>=26.0.0"), [22, 13, 0]);
+    assert.deepEqual(nodeFloorOf("^22.13.1 || >=22.13.0"), [22, 13, 0]);
   });
 
   it("rejects a range it cannot read a floor from", () => {
@@ -44,12 +45,21 @@ describe("nodeFloorMismatch", () => {
     assert.equal(nodeFloorMismatch("3.18.0", [22, 13, 0], "^22.13.0 || >=24.0.0"), undefined);
   });
 
+  it("passes when Hardhat's minimum is below our floor", () => {
+    assert.equal(nodeFloorMismatch("3.4.2", [22, 10, 0], ">=22.13.0"), undefined);
+    assert.equal(nodeFloorMismatch("3.18.0", [22, 13, 0], ">=24.0.0"), undefined);
+  });
+
   it("fails, naming both values, when Hardhat's minimum is higher", () => {
     const message = nodeFloorMismatch("3.19.0", [22, 18, 0], ">=22.13.0");
     assert.ok(message !== undefined);
     assert.match(message, /hardhat 3\.19\.0 requires Node\.js 22\.18\.0/);
-    assert.match(message, /engines\.node of hardhat-kms is >=22\.13\.0 \(floor 22\.13\.0\)/);
+    assert.match(message, /engines\.node floor of hardhat-kms, >=22\.13\.0 \(floor 22\.13\.0\)/);
     assert.match(message, /Raise engines\.node of every package to >=22\.18\.0/);
+  });
+
+  it("fails when Hardhat's minimum is higher by a patch only", () => {
+    assert.ok(nodeFloorMismatch("3.19.0", [22, 13, 1], ">=22.13.0") !== undefined);
   });
 
   it("fails when Hardhat's minimum is higher than the lowest || alternative", () => {
@@ -57,14 +67,6 @@ describe("nodeFloorMismatch", () => {
     assert.ok(message !== undefined);
     assert.match(message, /requires Node\.js 24\.0\.0/);
     assert.match(message, /\(floor 22\.13\.0\)/);
-  });
-
-  it("fails, naming both values, when Hardhat's minimum is lower", () => {
-    const message = nodeFloorMismatch("3.4.2", [22, 10, 0], ">=22.13.0");
-    assert.ok(message !== undefined);
-    assert.match(message, /hardhat 3\.4\.2 requires Node\.js 22\.10\.0/);
-    assert.match(message, /\(floor 22\.13\.0\)/);
-    assert.match(message, /raise the hardhat peer floor/);
   });
 });
 
@@ -90,6 +92,16 @@ describe("readHardhatNodeMinimum", () => {
       "export const MIN_SUPPORTED_NODE_VERSION = [22, 18, 0];\n",
     );
     assert.deepEqual(await readHardhatNodeMinimum(directory), [22, 18, 0]);
+  });
+
+  it("fails, naming the file, when node-version.js is missing", async () => {
+    const directory = path.join(scratch, "no-dist");
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(path.join(directory, "package.json"), JSON.stringify({ type: "module" }));
+    await assert.rejects(
+      readHardhatNodeMinimum(directory),
+      /node-version\.js could not be loaded; update scripts\/node-floor\.ts/,
+    );
   });
 
   it("fails when the constant is missing or malformed", async () => {
