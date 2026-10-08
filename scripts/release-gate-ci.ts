@@ -12,21 +12,14 @@
 // path-filtered or scheduled and may have skipped the commit. It waits without dispatching while a
 // run is in progress.
 //
-// The retry rule, one row per workflow (RETRY_RULES below; docs/contributor/releasing.md has the
-// same table):
-//
-// | Workflow             | No run, or no job ran | The newest run failed | Why                         |
-// | -------------------- | --------------------- | --------------------- | --------------------------- |
-// | ci.yml               | Dispatch once         | Stop the gate         | hermetic                    |
-// | ci-all-os.yml        | Dispatch once         | Dispatch once more    | macOS and Windows -latest   |
-// | hardhat-versions.yml | Dispatch once         | Dispatch once more    | latest Hardhat at run time  |
-// | sdk-floors.yml       | Dispatch once         | Stop the gate         | hermetic                    |
-//
-// A run "failed" when it concluded anything but `success`. A run that concluded `success` with a
-// skipped job tested nothing, so it is treated like a missing run. A dispatched run that fails ends
-// the gate. Whatever the verdict, the output lists every failed run and every failed earlier
-// attempt of a run on the commit, with its conclusion and failed jobs, so a pass after a failure is
-// never silent; the release job also prints each as a warning annotation.
+// The retry rule is RETRY_RULES below, with the same table in docs/contributor/releasing.md (a
+// test compares them): every workflow is dispatched once when the commit has no run of it, or only
+// a run that was not fully tested (cancelled, or `success` with a skipped job); a failed run is
+// dispatched once more only for ci-all-os.yml and hardhat-versions.yml; a run dispatched on the
+// commit that did not pass stops the gate, so a re-run of the gate job grants no further retry.
+// Whatever the verdict, the output lists every run and every earlier attempt of a run on the
+// commit that did not conclude `success`, with its conclusion and failed jobs, so a pass after a
+// failure is never silent; the release job also prints each as a warning annotation.
 // It talks to the GitHub API through `gh api`, which reads its token from GH_TOKEN.
 //
 // Usage:
@@ -284,7 +277,7 @@ export async function findConcluded(
       return { state: "passed", run };
     }
     if (run.id > since) {
-      failed ??= run;
+      failed = preferFailure(failed, run);
     }
   }
   const pending = runs.find((run) => run.status !== "completed");
@@ -334,7 +327,7 @@ export async function findAllOs(
       return { state: "passed", run };
     }
     if (run.id > since) {
-      failed ??= run;
+      failed = preferFailure(failed, run);
     }
   }
   const pending = runs.find((run) => run.status !== "completed");
@@ -344,7 +337,7 @@ export async function findAllOs(
   return failed === undefined ? { state: "missing" } : { state: "failed", run: failed };
 }
 
-/** Job conclusions that are not a failure: the job passed, or an `if:` skipped it. */
+/** Job conclusions that are not a failure: `success`, `skipped` (an `if:` or path condition) and `neutral`. */
 const NOT_FAILED: ReadonlySet<string> = new Set(["success", "skipped", "neutral"]);
 
 async function failedJobs(github: GateGitHub, jobsPath: string): Promise<string[]> {
@@ -430,6 +423,9 @@ function describe(workflow: string, found: Found, dispatchedOn?: string): string
     case "pending":
       return `${workflow}: run [${found.run.id}](${found.run.htmlUrl}) is still ${found.run.status}.`;
     case "failed":
+      if (found.run.conclusion === "success") {
+        return `${workflow}: the newest run on this commit, [${found.run.id}](${found.run.htmlUrl}), concluded success but skipped a job, so it was not fully tested.`;
+      }
       return `${workflow}: the newest run on this commit, [${found.run.id}](${found.run.htmlUrl}), did not pass (${found.run.conclusion ?? "no conclusion"}).`;
     case "missing":
       return `${workflow}: no run on this commit, pull-request runs aside.`;
@@ -474,13 +470,35 @@ async function newestRunId(
 }
 
 /**
- * Whether a found run ends the gate under {@link RETRY_RULES}: a run that concluded anything but
- * `success`, of a workflow the gate does not retry. A run that concluded `success` with a skipped
- * job tested nothing, so the gate dispatches the workflow as if it had no run.
+ * Whether a completed run that did not pass was not fully tested rather than failed: it was
+ * cancelled (as when a newer push to main replaces a pending run in its concurrency group), or it
+ * concluded `success` with a skipped job.
  */
-function stopsGate(workflow: DispatchedWorkflow, found: Found): boolean {
+export function notFullyTested(run: GateRun): boolean {
+  return run.conclusion === "success" || run.conclusion === "cancelled";
+}
+
+/** Of two runs that did not pass, newest first, the one the gate acts on: a failure before an untested run. */
+function preferFailure(current: GateRun | undefined, older: GateRun): GateRun {
+  return current === undefined || (notFullyTested(current) && !notFullyTested(older))
+    ? older
+    : current;
+}
+
+/**
+ * Whether a found run ends the gate under {@link RETRY_RULES}:
+ * - a run dispatched on the commit (event `workflow_dispatch`) that did not pass: it is the one
+ *   dispatch, or the one retry, so a re-run of the gate job does not grant another;
+ * - a failed run of a workflow the gate does not retry.
+ * Any other run that did not pass was not fully tested, or may be retried, so the gate dispatches.
+ */
+export function stopsGate(workflow: DispatchedWorkflow, found: Found): boolean {
+  if (found.state !== "failed") {
+    return false;
+  }
   return (
-    found.state === "failed" && found.run.conclusion !== "success" && !retriesFailure(workflow)
+    found.run.event === "workflow_dispatch" ||
+    (!notFullyTested(found.run) && !retriesFailure(workflow))
   );
 }
 
@@ -663,6 +681,19 @@ export function annotation(message: string): string {
   return message.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
 }
 
+/**
+ * One warning annotation per failure, so each shows on the run page as well as in the summary.
+ * @param failures - What the gate found.
+ */
+export function annotations(failures: readonly FailedAttempt[]): string[] {
+  return failures.map(
+    (failure) =>
+      `::warning title=Failed CI run on the tagged commit::${annotation(
+        `${failure.workflow} run ${failure.runId} attempt ${failure.attempt} of ${failure.attempts} concluded ${failure.conclusion}. ${failure.htmlUrl}`,
+      )}`,
+  );
+}
+
 function required(value: string | undefined, name: string): string {
   if (value === undefined || value.trim() === "") {
     throw new Error(`--${name} is required`);
@@ -713,12 +744,8 @@ async function main(argv: readonly string[]): Promise<void> {
     },
   );
   const report = `${result.lines.join("\n\n")}\n`;
-  for (const failure of result.failures) {
-    process.stdout.write(
-      `::warning title=Failed CI run on the tagged commit::${annotation(
-        `${failure.workflow} run ${failure.runId} attempt ${failure.attempt} of ${failure.attempts} concluded ${failure.conclusion}. ${failure.htmlUrl}`,
-      )}\n`,
-    );
+  for (const line of annotations(result.failures)) {
+    process.stdout.write(`${line}\n`);
   }
   if (values.summary !== undefined) {
     appendFileSync(values.summary, report);

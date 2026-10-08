@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   annotation,
+  annotations,
   type Clock,
   describeFailures,
   DISPATCHED_WORKFLOWS,
@@ -561,7 +562,7 @@ for (const workflow of ["ci.yml", "hardhat-versions.yml", "sdk-floors.yml"] as c
 }
 
 describe("gate and a ci.yml run that did not pass", () => {
-  for (const conclusion of ["failure", "cancelled", "skipped"]) {
+  for (const conclusion of ["failure", "skipped"]) {
     it(`ends at once on a ${conclusion} ci.yml run, and dispatches nothing`, async () => {
       const { github, dispatched } = fake({
         linux: [{ id: 10, conclusion }],
@@ -583,6 +584,26 @@ describe("gate and a ci.yml run that did not pass", () => {
       );
     });
   }
+
+  it("dispatches ci.yml after a cancelled run, which tested nothing", async () => {
+    const { github, dispatched } = fake(
+      {
+        linux: [{ id: 10, conclusion: "cancelled" }],
+        allOs: [{ id: 20 }],
+        jobs: { 20: passedJobs },
+      },
+      (changed) => {
+        changed.linux = [{ id: 11, event: "workflow_dispatch" }, ...changed.linux];
+      },
+    );
+    const result = await gate(input(), github, clock());
+    assert.equal(result.ok, true, result.lines.join("\n"));
+    assert.deepEqual(dispatched, [`ci.yml@${TAG}`]);
+    assert.match(
+      result.lines.join("\n"),
+      /- ci\.yml: run \[10\]\(.+\), attempt 1 of 1, concluded cancelled\./,
+    );
+  });
 
   it("in report mode says a release run would fail, not that it would dispatch ci.yml", async () => {
     const { github, dispatched } = fake({
@@ -615,6 +636,10 @@ describe("gate and a ci.yml run that did not pass", () => {
     );
     const rows = [...page.matchAll(/^ *\| `([a-z-]+\.yml)` *\|([^|]+)\|([^|]+)\|([^|]+)\|$/gm)].map(
       (match) => [match[1], match[2]?.trim(), match[3]?.trim(), match[4]?.trim()],
+    );
+    assert.match(
+      page,
+      /^ *\| Workflow +\| No run, or not fully tested \| The newest run failed \| Why +\|$/m,
     );
     assert.deepEqual(
       rows,
@@ -749,6 +774,97 @@ for (const workflow of DISPATCHED_WORKFLOWS) {
       assert.deepEqual(result.failures, []);
     });
 
+    it("stops on a failed run dispatched on the commit, so a re-run of the job retries nothing", async () => {
+      // Run 73 is the dispatch of an earlier attempt of the gate job; run 70 the run before it.
+      const world = worldWith([
+        { id: 73, event: "workflow_dispatch", conclusion: "failure" },
+        { id: 70, conclusion: "failure" },
+      ]);
+      world.jobs[70] = buildFailed;
+      const { github, dispatched } = fake(world);
+      const result = await gate(input(), github, clock());
+      assert.equal(result.ok, false, result.lines.join("\n"));
+      assert.deepEqual(dispatched, []);
+      assert.deepEqual(
+        result.failures.map(({ runId }) => runId),
+        [73, 70],
+      );
+    });
+
+    it("dispatches after a cancelled run, as for a missing run, and lists the cancelled run", async () => {
+      const world = worldWith([{ id: 70, conclusion: "cancelled" }]);
+      world.jobs[70] = {
+        jobs: [
+          { name: "Build", conclusion: "cancelled" },
+          { name: "Lint", conclusion: "success" },
+        ],
+      };
+      const { github, dispatched } = fake(world, (changed) => {
+        changed[field] = [{ id: 71, event: "workflow_dispatch" }, ...(changed[field] ?? [])];
+      });
+      const result = await gate(input(), github, clock());
+      assert.equal(result.ok, true, result.lines.join("\n"));
+      assert.deepEqual(dispatched, [`${workflow}@${TAG}`]);
+      assert.match(
+        result.lines.join("\n"),
+        new RegExp(
+          `- ${workflow.replace(".", "\\.")}: run \\[70\\]\\(.+\\), attempt 1 of 1, concluded cancelled\\. Failed jobs: Build \\(cancelled\\)\\.`,
+        ),
+      );
+    });
+
+    it("stops on a cancelled run dispatched on the commit", async () => {
+      const world = worldWith([{ id: 73, event: "workflow_dispatch", conclusion: "cancelled" }]);
+      const { github, dispatched } = fake(world);
+      const result = await gate(input(), github, clock());
+      assert.equal(result.ok, false, result.lines.join("\n"));
+      assert.deepEqual(dispatched, []);
+      assert.deepEqual(
+        result.failures.map(({ runId, conclusion }) => [runId, conclusion]),
+        [[73, "cancelled"]],
+      );
+    });
+
+    // ci.yml is read without its jobs, so it has no run that passed with a skipped job.
+    if (workflow !== "ci.yml") {
+      const skippedJob =
+        workflow === "ci-all-os.yml"
+          ? {
+              jobs: [
+                { name: "Test (macOS, Node 22.13.0)", conclusion: "skipped" },
+                { name: "Test (Windows, Node 22.13.0)", conclusion: "skipped" },
+              ],
+            }
+          : { jobs: [{ name: "Floors", conclusion: "skipped" }] };
+
+      it("in report mode says a release would dispatch after a run with a skipped job", async () => {
+        const world = worldWith([{ id: 70 }]);
+        world.jobs[70] = skippedJob;
+        const { github } = fake(world);
+        const result = await gate(input({ mode: "report" }), github, clock());
+        const text = result.lines.join("\n");
+        assert.match(text, /concluded success but skipped a job, so it was not fully tested\./);
+        assert.match(
+          text,
+          new RegExp(`A release run would dispatch ${workflow.replace(".", "\\.")} on`),
+        );
+        assert.doesNotMatch(text, /A release run would fail/);
+      });
+
+      it(`acts on an older failed run, not a newer run with a skipped job: ${retries ? "dispatches" : "stops"}`, async () => {
+        const world = worldWith([{ id: 74 }, { id: 70, conclusion: "failure" }]);
+        world.jobs[74] = skippedJob;
+        world.jobs[70] = buildFailed;
+        const { github, dispatched } = fake(world, (changed) => {
+          changed[field] = [{ id: 71, event: "workflow_dispatch" }, ...(changed[field] ?? [])];
+        });
+        const result = await gate(input(), github, clock());
+        assert.equal(result.ok, retries, result.lines.join("\n"));
+        assert.deepEqual(dispatched, retries ? [`${workflow}@${TAG}`] : []);
+        assert.match(result.lines.join("\n"), earlier);
+      });
+    }
+
     it("in report mode lists the failed run", async () => {
       const world = worldWith([{ id: 70, conclusion: "failure" }]);
       world.jobs[70] = buildFailed;
@@ -784,6 +900,26 @@ describe("describeFailures and annotation", () => {
       ]).split("\n")[1],
       "- ci.yml: run [9](https://github.com/owner/repo/actions/runs/9), attempt 1 of 1, concluded startup_failure. No job failed; the run page shows the cause.",
     );
+  });
+
+  it("writes one warning annotation per failure", () => {
+    assert.deepEqual(
+      annotations([
+        {
+          workflow: "sdk-floors.yml",
+          runId: 9,
+          attempt: 1,
+          attempts: 2,
+          conclusion: "failure",
+          htmlUrl: "https://github.com/owner/repo/actions/runs/9/attempts/1",
+          failedJobs: ["SDK floors (failure)"],
+        },
+      ]),
+      [
+        "::warning title=Failed CI run on the tagged commit::sdk-floors.yml run 9 attempt 1 of 2 concluded failure. https://github.com/owner/repo/actions/runs/9/attempts/1",
+      ],
+    );
+    assert.deepEqual(annotations([]), []);
   });
 
   it("escapes a workflow-command message", () => {
