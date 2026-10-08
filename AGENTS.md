@@ -57,6 +57,7 @@ Pages:
 - Set up a Google Cloud KMS key (algorithm, HSM protection level, IAM roles, the `@hardhat-kms/gcp` package, config, errors): [docs/user/guides/gcp-kms-setup.md](docs/user/guides/gcp-kms-setup.md)
 - A key was deleted or nobody can reach it, or a key is being retired (each provider's waiting period and undo, guardrails, lockout, backups): [docs/user/guides/key-loss.md](docs/user/guides/key-loss.md)
 - Rotate a key, or catch an alias or Azure key version that changed under the config (what rotation does per provider, `address` pins, moving to a new key): [docs/user/guides/key-rotation.md](docs/user/guides/key-rotation.md)
+- Sign from a GitHub Actions job with no stored cloud credential (an environment with required reviewers, the OIDC trust per cloud scoped to the job's subject, the workflow with SHA-pinned login actions, `kms accounts --check-sign` in CI, common failures): [docs/user/guides/github-actions-oidc.md](docs/user/guides/github-actions-oidc.md)
 - Use several keys across networks and providers, next to local or Ledger accounts, and pick the sender: [docs/user/guides/multiple-keys.md](docs/user/guides/multiple-keys.md)
 - Turn on and read the debug output: [docs/user/guides/debug-output.md](docs/user/guides/debug-output.md)
 - Deploy with Hardhat Ignition from a KMS account (choosing the deployer, rehearsing on a simulated network or a Sepolia fork, verifying the source on Blockscout and Sourcify when an explorer shows a "verified twin"): [docs/user/guides/deploy-with-ignition.md](docs/user/guides/deploy-with-ignition.md)
@@ -74,7 +75,7 @@ Pages:
 - What the plugin protects against and what it does not, what to configure, and what happens when a KMS call times out: [docs/user/explanation/security-model.md](docs/user/explanation/security-model.md)
 - Check that installed packages were built from a signed release tag (`npm audit signatures`, provenance, tag signature, tarball files): [docs/user/guides/verify-a-release.md](docs/user/guides/verify-a-release.md)
 - What `latest` and `beta` mean, what a version number promises, the Hardhat and viem ranges per plugin major, and how long an old major gets security fixes: [docs/user/explanation/versioning.md](docs/user/explanation/versioning.md)
-- Pages not written yet (the remaining guides): [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
+- Pages not written yet: [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
 
 Never ask a user to paste credentials, private keys or API-keyed RPC URLs. Credentials never come from the Hardhat config: AWS and Google Cloud keys use their SDK's credential discovery, and Azure keys use the plugin's own chain ([docs/user/guides/azure-key-vault-setup.md#3-sign-in](docs/user/guides/azure-key-vault-setup.md#3-sign-in)). API-keyed RPC URLs belong in `configVariable()`, which also accepts key identifiers.
 

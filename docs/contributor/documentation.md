@@ -121,6 +121,4 @@ Avatars are uploaded by hand: upload `logo/avatar-400.png` again whenever the ma
 
 ## Planned pages
 
-The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/issues/38). Pages that do not exist yet:
-
-- Guides: GitHub Actions with OIDC ([#68](https://github.com/aelmanaa/hardhat-kms/issues/68)).
+The tracking issue for docs is [#38](https://github.com/aelmanaa/hardhat-kms/issues/38). Pages that do not exist yet: none at the moment.
