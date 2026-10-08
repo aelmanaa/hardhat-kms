@@ -1,9 +1,9 @@
 ---
-title: First deploy on Sepolia with AWS KMS
+title: Deploy a Hardhat contract to Sepolia with AWS KMS
 description: "Deploy a Hardhat 3 contract to Sepolia with AWS KMS: create a secp256k1 key, sign the deployment with it, verify the source and clean up."
 ---
 
-# First deploy on Sepolia with AWS KMS
+# Deploy a Hardhat contract to Sepolia with AWS KMS
 
 Audience: developers who have an AWS account and AWS CLI v2 signed in, and have not used AWS KMS with Hardhat.
 

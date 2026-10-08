@@ -1,9 +1,9 @@
 ---
-title: After an uncertain send
+title: Recover an uncertain transaction send
 description: "After a KMS send with no clear answer, or one that is not mined: look it up, compare the pending and latest counts, then wait or fill a nonce."
 ---
 
-# After an uncertain send
+# Recover an uncertain transaction send
 
 Audience: users who send transactions from a KMS account on a live network and got an error that does not say whether the transaction went out, or see a transaction that does not get mined. Assumes a working key setup and the `@nomicfoundation/hardhat-viem` plugin.
 

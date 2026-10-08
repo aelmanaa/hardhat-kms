@@ -6,12 +6,12 @@ Each page except the generated API reference opens with an `Audience:` line that
 
 ## Start here
 
-- I need a key and want a first deploy: First deploy on Sepolia with [AWS KMS](user/tutorials/first-deploy-aws.md), [Google Cloud KMS](user/tutorials/first-deploy-gcp.md) or [Azure Key Vault](user/tutorials/first-deploy-azure.md).
+- I need a key and want a first deploy: Deploy a Hardhat contract to Sepolia with [AWS KMS](user/tutorials/first-deploy-aws.md), [Google Cloud KMS](user/tutorials/first-deploy-gcp.md) or [Azure Key Vault](user/tutorials/first-deploy-azure.md).
 - I already have a secp256k1 key in a KMS: start at step 2 of the setup guide for [AWS KMS](user/guides/aws-kms-setup.md#2-allow-signing-and-nothing-else), [Google Cloud KMS](user/guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) or [Azure Key Vault](user/guides/azure-key-vault-setup.md#2-allow-get-and-sign-and-nothing-else).
 - I want to deploy my contracts: [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md).
 - I want CI to sign with no stored credentials: [Sign from GitHub Actions with OIDC](user/guides/github-actions-oidc.md).
 - A command or script failed: [Errors](user/reference/errors.md) has every error with its cause and fix. Search the page for a fixed part of the message.
-- I sent a transaction and do not know what happened: [After an uncertain send](user/guides/uncertain-sends.md).
+- I sent a transaction and do not know what happened: [Recover an uncertain transaction send](user/guides/uncertain-sends.md).
 - Who signed with this key, and when: [Find who signed with a key](user/guides/who-signed.md).
 - What does the plugin protect against: [Security model](user/explanation/security-model.md).
 - Should I use a KMS key at all: compare it with [a private key in .env](user/explanation/kms-or-env-key.md), [a Ledger](user/explanation/kms-or-ledger.md) and [other KMS signers](user/explanation/other-kms-signers.md).
@@ -20,11 +20,11 @@ Each page except the generated API reference opens with an `Audience:` line that
 
 ## Tutorials
 
-| Page                                                                                 | Kind     |
-| ------------------------------------------------------------------------------------ | -------- |
-| [First deploy on Sepolia with AWS KMS](user/tutorials/first-deploy-aws.md)           | Tutorial |
-| [First deploy on Sepolia with Google Cloud KMS](user/tutorials/first-deploy-gcp.md)  | Tutorial |
-| [First deploy on Sepolia with Azure Key Vault](user/tutorials/first-deploy-azure.md) | Tutorial |
+| Page                                                                                              | Kind     |
+| ------------------------------------------------------------------------------------------------- | -------- |
+| [Deploy a Hardhat contract to Sepolia with AWS KMS](user/tutorials/first-deploy-aws.md)           | Tutorial |
+| [Deploy a Hardhat contract to Sepolia with Google Cloud KMS](user/tutorials/first-deploy-gcp.md)  | Tutorial |
+| [Deploy a Hardhat contract to Sepolia with Azure Key Vault](user/tutorials/first-deploy-azure.md) | Tutorial |
 
 ## Using the plugin
 
@@ -33,10 +33,10 @@ Each page except the generated API reference opens with an `Audience:` line that
 | [Configuration](user/reference/configuration.md)                             | Reference   |
 | [Credentials](user/reference/credentials.md)                                 | Reference   |
 | [RPC methods](user/reference/rpc-methods.md)                                 | Reference   |
-| [Tasks](user/reference/tasks.md)                                             | Reference   |
+| [Hardhat kms tasks reference](user/reference/tasks.md)                       | Reference   |
 | [Errors](user/reference/errors.md)                                           | Reference   |
 | [Library accounts](user/reference/library-accounts.md)                       | Reference   |
-| [Support](user/reference/support.md)                                         | Reference   |
+| [Supported Node.js versions](user/reference/support.md)                      | Reference   |
 | [API reference](user/reference/api/README.md)                                | Reference   |
 | [Install hardhat-kms](user/guides/install-before-release.md)                 | How-to      |
 | [Set up an AWS KMS key](user/guides/aws-kms-setup.md)                        | How-to      |
@@ -48,7 +48,7 @@ Each page except the generated API reference opens with an `Audience:` line that
 | [Sign from GitHub Actions with OIDC](user/guides/github-actions-oidc.md)     | How-to      |
 | [Debug output](user/guides/debug-output.md)                                  | How-to      |
 | [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md)          | How-to      |
-| [After an uncertain send](user/guides/uncertain-sends.md)                    | How-to      |
+| [Recover an uncertain transaction send](user/guides/uncertain-sends.md)      | How-to      |
 | [Return the funds from a KMS address](user/guides/return-funds.md)           | How-to      |
 | [Find who signed with a key](user/guides/who-signed.md)                      | How-to      |
 | [Migrate from Foundry](user/guides/migrate-from-foundry.md)                  | How-to      |
@@ -59,7 +59,7 @@ Each page except the generated API reference opens with an `Audience:` line that
 | [A KMS key or a private key in .env](user/explanation/kms-or-env-key.md)     | Explanation |
 | [A KMS key or a Ledger](user/explanation/kms-or-ledger.md)                   | Explanation |
 | [How hardhat-kms works](user/explanation/how-it-works.md)                    | Explanation |
-| [How the plugin reaches your cloud](user/explanation/cloud-access.md)        | Explanation |
+| [Cloud credentials for KMS signing](user/explanation/cloud-access.md)        | Explanation |
 | [Security model](user/explanation/security-model.md)                         | Explanation |
 | [Release channels and versioning](user/explanation/versioning.md)            | Explanation |
 

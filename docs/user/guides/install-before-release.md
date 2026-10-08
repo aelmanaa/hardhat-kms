@@ -15,7 +15,7 @@ hardhat-kms is two packages: the core, `hardhat-kms`, and the provider package f
 | Google Cloud KMS               | `@hardhat-kms/gcp`   | `hardhatKmsGcp`   |
 | Azure Key Vault or Managed HSM | `@hardhat-kms/azure` | `hardhatKmsAzure` |
 
-The packages support Hardhat ^3.18.0 and the Node.js versions in [Support](../reference/support.md). Run the steps in a Hardhat 3 project. If you have none yet, `npx hardhat --init` (`pnpm dlx hardhat --init`, `yarn dlx hardhat --init`) creates one in a new directory.
+The packages need Hardhat ^3.18.0 and one of the [supported Node.js versions](../reference/support.md). Run the steps in a Hardhat 3 project. If you have none yet, `npx hardhat --init` (`pnpm dlx hardhat --init`, `yarn dlx hardhat --init`) creates one in a new directory.
 
 To start from an empty directory instead, create a `package.json` with `"type": "module"` first. Hardhat 3 runs only in ES module projects: without that field, step 3 stops with "Hardhat only supports ESM projects".
 
@@ -169,7 +169,7 @@ Building needs:
 - Node.js 22.18 or later. The repository's scripts are TypeScript files that run with plain `node`.
 - pnpm 12, which the repository pins in `packageManager`. Run `corepack enable`, or `npm install -g pnpm@12.8.1`.
 
-Your Hardhat project needs none of them: it uses the packed files with npm, pnpm or Yarn on the Node.js versions in [Support](../reference/support.md).
+Your Hardhat project needs none of them: it uses the packed files with npm, pnpm or Yarn on the [supported Node.js versions](../reference/support.md).
 
 ```sh
 git clone https://github.com/aelmanaa/hardhat-kms.git

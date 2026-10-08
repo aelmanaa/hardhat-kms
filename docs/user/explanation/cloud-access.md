@@ -1,9 +1,9 @@
 ---
-title: How the plugin reaches your cloud
+title: Cloud credentials for KMS signing
 description: Which identity signs when Hardhat uses a KMS key on a laptop, in CI with OIDC or on a server, and how each cloud's credential chain picks it.
 ---
 
-# How the plugin reaches your cloud
+# Cloud credentials for KMS signing
 
 Audience: users who want to know which identity signs when they run Hardhat with a KMS key, on a laptop, in CI or on a server. Assumes a key created with one of the setup guides; no experience with cloud credentials and no knowledge of the plugin's code.
 

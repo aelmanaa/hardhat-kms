@@ -1,9 +1,9 @@
 ---
-title: Tasks reference
+title: Hardhat kms tasks reference
 description: "Every kms task: list keys, sign messages, typed data, transactions and authorizations, verify signatures, and read a key's sign events."
 ---
 
-# Tasks reference
+# Hardhat kms tasks reference
 
 Audience: Users running the `kms` tasks.
 
