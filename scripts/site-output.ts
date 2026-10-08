@@ -250,7 +250,7 @@ export function siteLinks(
   );
   // Inline scripts and code hold text that looks like links; only markup counts.
   const markup = html
-    .replaceAll(/<script\b[\s\S]*?<\/script>/gi, "")
+    .replaceAll(/<script\b[\s\S]*?<\/script\s*>/gi, "")
     .replaceAll(/<pre\b[\s\S]*?<\/pre>/gi, "");
   for (const match of markup.matchAll(/\s(?:href|src)="([^"]*)"/g)) {
     const target = decodeEntities(match[1] ?? "");

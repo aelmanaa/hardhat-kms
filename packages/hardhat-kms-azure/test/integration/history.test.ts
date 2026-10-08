@@ -196,7 +196,7 @@ describe("kms history on an Azure key", () => {
     assert.match(stdout, /KeySign/);
     assert.match(stdout, new RegExp(REQUEST_ID));
     assert.match(stdout, new RegExp(VERSION_1));
-    assert.doesNotMatch(stdout, new RegExp(VAULT_HOST));
+    assert.ok(!stdout.includes(VAULT_HOST));
   });
 
   it("marks a result over the limit as truncated", async () => {
@@ -245,7 +245,7 @@ describe("kms history on an Azure key", () => {
     const { error } = await history();
     assert.ok(error instanceof Error);
     assert.match(error.message, /workspaces\/query\/read and .*\/query\/AZKVAuditLogs\/read/);
-    assert.doesNotMatch(error.message, new RegExp(VAULT_HOST));
+    assert.ok(!error.message.includes(VAULT_HOST));
   });
 
   it("fails when the workspace has no AZKVAuditLogs table", async () => {

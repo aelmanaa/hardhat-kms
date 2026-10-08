@@ -338,6 +338,14 @@ describe("siteLinks", () => {
     const html = '<script>const a = \' href="/x"\';</script><pre><code> href="/y"</code></pre>';
     assert.deepEqual(siteLinks("a.html", html, SITE), { links: [], problems: [] });
   });
+
+  it("ignores links inside a script whose end tag has a space before >", () => {
+    const html = '<script>const a = \' href="/x"\';</script ><a href="/site/y">y</a>';
+    assert.deepEqual(siteLinks("a.html", html, SITE), {
+      links: [{ path: "y", anchor: undefined }],
+      problems: [],
+    });
+  });
 });
 
 describe("outputCandidates", () => {

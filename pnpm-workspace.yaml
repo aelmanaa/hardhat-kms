@@ -65,3 +65,19 @@ catalog:
 catalogs:
   typescript6:
     typescript: "npm:@typescript/typescript6@6.0.2"
+
+# Security overrides for exact pins in development-only dependencies. pnpm applies them inside
+# this workspace only; they are not published, and no package in the production dependency tree
+# of packages/* is affected. Remove each one when its upstream pin moves past the fix.
+overrides:
+  # 24 axios advisories, highest fix 1.20.0. @ledgerhq/hw-app-eth 7.9.0 (via
+  # @nomicfoundation/hardhat-ledger, coexistence test only) pins axios 1.13.5 exactly.
+  axios: 1.20.0
+  # GHSA-q8mj-m7cp-5q26, GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx. typed-rest-client 2.3.x
+  # (via @stryker-mutator/core, mutation testing only) pins qs 6.15.1 exactly.
+  "typed-rest-client>qs": ^6.16.0
+  # GHSA-vc2v-76pw-4v95. verdaccio 6.10.5 (local registry for the release tests) pins
+  # compression 1.8.1 exactly.
+  compression: ^1.8.2
+  # GHSA-238p-pmpm-9mq7. mermaid 12.1.0 (docs site) asks for katex ^0.16.47; the fix is in 0.18.2.
+  katex: ^0.18.2
