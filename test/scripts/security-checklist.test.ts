@@ -472,6 +472,8 @@ describe("the repository's list page and template", () => {
       "scripts/security-checklist.ts",
       "scripts/temporary-install.ts",
       "scripts/consumer-typecheck.ts",
+      "test/live/check-release-proof.ts",
+      "test/live/helpers/release-proof.ts",
       "package.json",
       "pnpm-workspace.yaml",
       "docs/contributor/security-review.md",
