@@ -91,6 +91,16 @@ export const ERRORS = {
       "A key's `provider` matches a built-in provider id (`aws`, `gcp`, `azure`) in another case, or is one edit away from one, such as `AWS` or `gpc`.",
     fix: "Use the id the message suggests. A third-party provider needs an id that does not look like a built-in one.",
   },
+  providerReserved: {
+    id: "core.config.provider-reserved",
+    kind: "validation",
+    group: "Configuration",
+    template:
+      'Provider "{provider}" is reserved for the planned {name} provider, which is not released yet (https://github.com/aelmanaa/hardhat-kms/issues/{issue})',
+    cause:
+      "A key's `provider` is `turnkey` or `fireblocks`, in any case. hardhat-kms keeps these ids for its planned Turnkey and Fireblocks providers, so no other plugin can use them.",
+    fix: "Follow the linked issue for the release, or use another provider. A third-party provider needs an id of its own.",
+  },
   keyShape: {
     id: "core.config.key-shape",
     kind: "validation",
@@ -514,7 +524,8 @@ export const ERRORS = {
     group: "Provider plugins",
     template:
       "signing with {name} keys is not available yet (https://github.com/aelmanaa/hardhat-kms/issues/{issue})",
-    cause: "The provider is planned, but its adapter is not released yet.",
+    cause:
+      "The provider is planned, but its adapter is not released yet. A key with a reserved id such as `turnkey` gets this error too when it reaches the resolved config without validation, for example through another plugin's config hook.",
     fix: "Follow the linked issue, or use another provider.",
   },
   providerPackageMissing: {

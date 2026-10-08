@@ -107,6 +107,38 @@ describe("kms hook", () => {
     ]);
   });
 
+  it("refuses a reserved provider id even when a plugin claims its keys", async () => {
+    const hre = await runtime();
+    const claimed: string[] = [];
+    hre.hooks.registerHandlers("kms", {
+      createKeyAdapter: async (context, reservedKey, next) => {
+        const provider: string = reservedKey.provider;
+        if (["turnkey", "fireblocks"].includes(provider.toLowerCase())) {
+          claimed.push(provider);
+          return fakeAdapter({ secretKey });
+        }
+        return await next(context, reservedKey);
+      },
+    });
+    const vault = key(hre, "vault");
+    for (const [provider, name, issue] of [
+      ["turnkey", "Turnkey", 54],
+      ["fireblocks", "Fireblocks", 55],
+      ["TurnKey", "Turnkey", 54],
+    ] as const) {
+      // Validation refuses these ids, so change a resolved key at run time, as another plugin's
+      // config hook could. No provider config type has these ids, hence Reflect.set.
+      const reservedKey: KmsKeyConfig = { ...vault, displayId: `${provider}:a` };
+      Reflect.set(reservedKey, "provider", provider);
+      await assertPluginError(createKeyAdapter(hre, reservedKey), [
+        `${provider}, create adapter, key ${provider}:a:`,
+        `signing with ${name} keys is not available yet`,
+        `https://github.com/aelmanaa/hardhat-kms/issues/${issue}`,
+      ]);
+    }
+    assert.deepEqual(claimed, []);
+  });
+
   it("lets a test provide a first-party provider with a handler registered at run time", async () => {
     const hre = await runtime();
     const seen: string[] = [];
