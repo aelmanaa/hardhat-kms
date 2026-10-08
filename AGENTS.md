@@ -131,6 +131,7 @@ Where things are:
 | How other signers compare, and why each check exists        | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
 | Roadmap                                                     | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
 | The 1.0.0 announcement text                                 | [docs/contributor/launch-notes/1.0.0.md](docs/contributor/launch-notes/1.0.0.md)                 |
+| Adoption metrics, the monthly check                         | [docs/contributor/adoption-metrics.md](docs/contributor/adoption-metrics.md)                     |
 
 Decision records:
 
