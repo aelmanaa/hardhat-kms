@@ -32,7 +32,7 @@ curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/azure
 
 Each answer is `{"downloads":N,"start":"YYYY-MM-DD","end":"YYYY-MM-DD","package":"..."}`. For a calendar month, put the dates in the path, for example `point/2026-11-01:2026-11-30/hardhat-kms`. Swap `point` for `range` to get one count per day. The bulk form (`hardhat-kms,@hardhat-kms/aws`) does not accept scoped packages, so query each one on its own.
 
-On 2026-10-08, the day 0.9.0 was published, all four queries returned `{"error":"package ... not found"}`. The API counts a package only after its first full day on the registry.
+The API lags a few days. On 2026-10-08 its `last-month` window ended on 2026-10-04, before 0.9.0 was published on 2026-10-07, and all four queries returned `{"error":"package ... not found"}`.
 
 ## npm listing
 
@@ -41,9 +41,9 @@ npm search "hardhat kms" --searchlimit=20 --parseable | cut -f1 | grep -n -x -e 
 npm view hardhat-kms keywords description
 ```
 
-The first command prints the position of each of the four packages in the first 20 results, or nothing if none is listed. The same results are at <https://www.npmjs.com/search?q=hardhat%20kms>. On 2026-10-08 the search did not list any of the packages yet.
+The first command prints the position of each of the four packages in the first 20 results, or nothing if none is listed. The same results are at <https://www.npmjs.com/search?q=hardhat%20kms>, in a browser. The npm website refuses requests without one. On 2026-10-08 the search did not list any of the packages yet.
 
-On the package page, <https://www.npmjs.com/package/hardhat-kms>, check that the TypeScript badge sits next to the name and that the Provenance section links the release workflow run. The provenance attestation is also in the registry:
+On the package page, <https://www.npmjs.com/package/hardhat-kms>, in a browser, check that the TypeScript badge sits next to the name and that the Provenance section links the release workflow run. The provenance attestation is also in the registry:
 
 ```sh
 npm view hardhat-kms dist.attestations.provenance.predicateType
@@ -56,7 +56,7 @@ It prints `https://slsa.dev/provenance/v1` for a release published from CI.
 Open these in a browser. Socket refuses requests without one.
 
 - Socket: <https://socket.dev/npm/package/hardhat-kms>, and the same path for `@hardhat-kms/aws`, `@hardhat-kms/gcp` and `@hardhat-kms/azure`. Read the supply chain, vulnerability, quality, maintenance and license scores and every alert.
-- Snyk: <https://security.snyk.io/package/npm/hardhat-kms>. Read the known vulnerabilities for the latest version and the package health score.
+- Snyk: <https://security.snyk.io/package/npm/hardhat-kms>. Read the known vulnerabilities for the latest version and the package health score. On 2026-10-08 it showed 0 vulnerabilities for 0.9.0 and no health score yet.
 
 Open an issue for every alert, vulnerability or score that is not green, with a link to the page.
 
@@ -72,12 +72,14 @@ gh api repos/aelmanaa/hardhat-kms/traffic/popular/referrers --jq '.[] | "\(.refe
 gh api repos/aelmanaa/hardhat-kms/traffic/popular/paths --jq '.[] | "\(.path) \(.count) \(.uniques)"'
 ```
 
+On 2026-10-08 the repository had 0 stars, 0 forks and 0 watchers.
+
 The same numbers are under Insights, Traffic at <https://github.com/aelmanaa/hardhat-kms/graphs/traffic>. Clones include every CI checkout, so they say little about users. Referrers are the useful line: they name the sites that sent people to the repository.
 
 Dependents:
 
 - GitHub: <https://github.com/aelmanaa/hardhat-kms/network/dependents>, the public repositories whose lockfile names a package from this repository.
-- npm: the Dependents tab of <https://www.npmjs.com/package/hardhat-kms?activeTab=dependents>, packages published with `hardhat-kms` as a dependency.
+- npm: the Dependents tab of <https://www.npmjs.com/package/hardhat-kms?activeTab=dependents>, in a browser, packages published with `hardhat-kms` as a dependency.
 
 ## Docs site search
 
@@ -135,7 +137,7 @@ curl -s "https://context7.com/api/v1/search?query=hardhat-kms" | jq '.results[] 
 
 On 2026-10-08 it returned `"state": "finalized"`, last updated 2026-10-07, with 1431 snippets.
 
-The skill's page on skills.sh, <https://skills.sh/aelmanaa/hardhat-kms/hardhat-kms>, shows how many times `npx skills add aelmanaa/hardhat-kms` installed it.
+Once skills.sh lists the skill, its page, <https://skills.sh/aelmanaa/hardhat-kms/hardhat-kms>, shows how many times `npx skills add aelmanaa/hardhat-kms` installed it. On 2026-10-08 the page said the skill was not available and a search on skills.sh found nothing, so the skill is not listed yet.
 
 ## Monthly entries
 
