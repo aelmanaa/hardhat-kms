@@ -8,9 +8,11 @@ import type { NetworkConnection } from "hardhat/types/network";
 import type { JsonRpcResponse } from "hardhat/types/providers";
 import { Transaction } from "micro-eth-signer";
 import { createWalletClient, custom, serializeTransaction, toHex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { hardhat } from "viem/chains";
 
 import {
+  LIBRARY_HOLD_MS,
   MAX_SEND_LOCK_WAITERS,
   SEND_LOCK_STALL_MS,
   sendLocksInUse,
@@ -18,6 +20,7 @@ import {
 import {
   COW,
   errorOf,
+  failOnce,
   gate,
   hashOf,
   nonceOf,
@@ -400,9 +403,13 @@ describe("a raw transaction that is not a known KMS account's", () => {
 const HTTP_CLIENT = { transport: { type: "http" } };
 
 /** A library account of cow on a connection, and its nonce manager's calls. */
-async function library(connection: NetworkConnection<string>, client: unknown = {}) {
+async function library(
+  connection: NetworkConnection<string>,
+  client: unknown = {},
+  chainId = 31337,
+) {
   const account = await connection.kms.getAccount(COW);
-  const parameters = { address: account.address, chainId: 31337, client };
+  const parameters = { address: account.address, chainId, client };
   return {
     consume: async (): Promise<number> => await account.nonceManager.consume(parameters),
     get: async (): Promise<number> => await account.nonceManager.get(parameters),
@@ -1187,5 +1194,247 @@ describe("a library send's raw transaction on a connection that has not looked u
     resultOf((await sendRaw(harness, other, raw)).response);
     assert.ok(!node.methods.includes("eth_getTransactionByHash"));
     await manager.reset();
+  });
+});
+
+describe("a library send's hold, whichever way its raw transaction arrives (#433)", () => {
+  it("raises the mark of the connection that gave the hold when the raw transaction goes through another one", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const other = await harness.open();
+    const manager = await library(connection);
+    assert.equal(await manager.consume(), 0);
+    // The node's pending count lags at 0, so only the mark of `connection` can move the next nonce.
+    resultOf((await sendRaw(harness, other, cowRaw(0n))).response);
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+  });
+
+  it("makes it the uncertain transaction of the connection that gave the hold when it gets no answer", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const other = await harness.open();
+    const manager = await library(connection);
+    assert.equal(await manager.consume(), 0);
+    const raw = cowRaw(0n);
+    failOnce(node);
+    await assert.rejects(sendRaw(harness, other, raw), /socket hang up/);
+    await manager.reset();
+    // The node has it, though its pending count lags at 0.
+    node.lookUp = (hash) => (hash === hashOf(raw) ? { hash } : null);
+    node.methods.length = 0;
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.ok(node.methods.includes("eth_getTransactionByHash"), "the send looked it up first");
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+  });
+
+  it("reserves the held nonce when the hold reaches its time limit, so a waiting send skips it", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    // The hold's limit runs on the global setTimeout, which this mock drives.
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    // A chain id of its own, so a failure here leaves no hold behind for other tests.
+    const harness = await setUp("http", 31339);
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const manager = await library(connection, {}, 31339);
+    assert.equal(await manager.consume(), 0);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the send waits behind the hold");
+    t.mock.timers.tick(LIBRARY_HOLD_MS);
+    resultOf(await sending);
+    // The library send's raw transaction arrives late.
+    resultOf((await sendRaw(harness, connection, cowRaw(0n, 1n, 31339n))).response);
+    assert.deepEqual(node.raw.map(nonceOf), [1n, 0n]);
+    const limit = warn.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .filter((message) => message.includes(`after ${LIBRARY_HOLD_MS / 1000} s`));
+    assert.equal(limit.length, 1);
+    assert.doesNotMatch(limit[0] ?? "", /refuses one of them/);
+    assert.match(limit[0] ?? "", /skip/);
+  });
+
+  it("leaves the hold alone for a raw transaction with the held nonce signed for another chain", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const manager = await library(connection);
+    assert.equal(await manager.consume(), 0);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false);
+    refuse(node, "invalid chain id");
+    const elsewhere = cowRaw(0n, 1n, 1n);
+    const { forwardedParams, params } = await sendRaw(harness, connection, elsewhere);
+    assert.equal(forwardedParams, params, "passed on unchanged");
+    node.onRaw = undefined;
+    assert.equal(await settled(sending), false, "the hold stays");
+    // No reset is owed for it, so the library send's own reset ends the hold.
+    await manager.reset();
+    assert.equal(await settled(sending), true, "the library send's reset ended the hold");
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n]);
+    assert.deepEqual(
+      node.raw.map((raw) => Transaction.fromHex(raw, false).raw.chainId),
+      [1n, 31337n],
+    );
+  });
+
+  it("never takes a raw transaction without a chain id (before EIP-155) as the holder's", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const manager = await library(connection);
+    assert.equal(await manager.consume(), 0);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false);
+    // Signed by another tool; a library account signs only EIP-155 transactions.
+    const old = await privateKeyToAccount(`0x${COW_ACCOUNT.secretKey}`).signTransaction({
+      type: "legacy",
+      to: TO,
+      nonce: 0,
+      gasPrice: 1n,
+      gas: 21_000n,
+      value: 1n,
+    });
+    assert.equal(Transaction.fromHex(old, false).raw.chainId, undefined);
+    const oldSending = sendRaw(harness, connection, old);
+    assert.equal(
+      await settled(oldSending),
+      false,
+      "it waits for the lock like any raw transaction",
+    );
+    assert.equal(await settled(sending), false, "the hold stays");
+    // The library send's own raw transaction ends the hold.
+    resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+    resultOf(await sending);
+    resultOf((await oldSending).response);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 0n]);
+  });
+
+  it("warns about the nonce gap when a send reset after its hold limit leaves one", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const harness = await setUp("http", 31340);
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const manager = await library(connection, {}, 31340);
+    assert.equal(await manager.consume(), 0);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false);
+    t.mock.timers.tick(LIBRARY_HOLD_MS);
+    resultOf(await sending);
+    // The library send fails after all, and viem resets it: nonce 0 is never sent.
+    await manager.reset();
+    resultOf(await send(connection, { from: COW, to: TO }));
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [1n, 2n, 3n]);
+    const gaps = warn.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .filter((message) => message.includes("gap"));
+    assert.equal(gaps.length, 1);
+    assert.match(gaps[0] ?? "", /with nonce 0 after its 60 s hold ended/);
+    assert.match(gaps[0] ?? "", /uncertain-sends\.md#2-look-the-transaction-up/);
+    assert.doesNotMatch(gaps[0] ?? "", /no transaction has/);
+    assert.match(gaps[0] ?? "", /on chain 31340 with nonce 0 after its 60 s hold ended/);
+    assert.match(gaps[0] ?? "", /uncertain-sends\.md#4-fill-a-gap-or-replace-a-transaction/);
+  });
+
+  it("warns about the nonce gap when a second library send skipped the expired nonce", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const harness = await setUp("http", 31342);
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const first = await library(connection, {}, 31342);
+    assert.equal(await first.consume(), 0);
+    t.mock.timers.tick(LIBRARY_HOLD_MS);
+    await settle();
+    const second = await library(connection, {}, 31342);
+    assert.equal(await second.consume(), 1, "the second library send skips the reserved 0");
+    // The first send fails after all, and viem resets it; the second send still holds 1.
+    await first.reset();
+    const gaps = warn.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .filter((message) => message.includes("gap"));
+    assert.equal(gaps.length, 1);
+    assert.match(gaps[0] ?? "", /with nonce 0 after its 60 s hold ended/);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the second send's hold stays");
+    resultOf((await sendRaw(harness, connection, cowRaw(1n, 1n, 31342n))).response);
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [1n, 2n]);
+  });
+
+  it("prints no gap warning for a send reset after its hold limit when no higher nonce was used", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const harness = await setUp("http", 31341);
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const manager = await library(connection, {}, 31341);
+    assert.equal(await manager.consume(), 0);
+    t.mock.timers.tick(LIBRARY_HOLD_MS);
+    await settle();
+    await manager.reset();
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n], "the reset freed nonce 0");
+    assert.equal(
+      warn.mock.calls.filter((call) => String(call.arguments[0]).includes("gap")).length,
+      0,
+    );
+  });
+
+  it("does not raise the mark for a raw transaction signed for another chain", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    resultOf((await sendRaw(harness, connection, cowRaw(0n, 1n, 1n))).response);
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n]);
+  });
+
+  it("ends the hold when the raw transaction goes through a connection with no KMS keys", async () => {
+    const harness = await setUp();
+    const { node, state, send } = harness;
+    const connection = await openKnown(harness);
+    const plain = await harness.open("plain");
+    const manager = await library(connection);
+    assert.equal(await manager.consume(), 0);
+    const signatures = state.signatures;
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false);
+    resultOf((await sendRaw(harness, plain, cowRaw(0n))).response);
+    assert.equal(await settled(sending), true, "the hold ended at the raw transaction");
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+    assert.equal(state.signatures, signatures + 1, "only the plugin's send signed");
+  });
+
+  it("ends the hold through a connection with no KMS keys whose empty list was already looked up", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const plain = await harness.open("plain");
+    // getAccount looks up the connection's KMS addresses: none.
+    await assert.rejects(plain.kms.getAccount(COW), /not a KMS account|no KMS accounts/i);
+    const manager = await library(connection);
+    assert.equal(await manager.consume(), 0);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false);
+    resultOf((await sendRaw(harness, plain, cowRaw(0n))).response);
+    assert.equal(await settled(sending), true, "the hold ended at the raw transaction");
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+  });
+
+  it("passes a raw transaction on untouched through a connection with no KMS keys when nothing is held", async () => {
+    const harness = await setUp();
+    const { node } = harness;
+    const plain = await harness.open("plain");
+    node.methods.length = 0;
+    const { forwardedParams, params } = await sendRaw(harness, plain, cowRaw(0n));
+    assert.equal(forwardedParams, params);
+    assert.deepEqual(node.methods, ["eth_sendRawTransaction"], "not even the chain id is read");
   });
 });

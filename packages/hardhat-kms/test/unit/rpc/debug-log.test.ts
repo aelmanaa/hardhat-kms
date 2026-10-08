@@ -260,21 +260,33 @@ describe("rpc debug lines", () => {
     fixture.chainIdFails = true;
     await fixture.request("eth_sendRawTransaction", [cowRaw(fixture.chainId, 0n)]);
     fixture.chainIdFails = false;
+    await fixture.request("eth_sendRawTransaction", [cowRaw(fixture.chainId + 1n, 0n)]);
     fixture.answers.set("eth_sendRawTransaction", () => {
       throw new TypeError("socket hang up");
     });
     const raw = cowRaw(fixture.chainId, 1n);
     await fixture.request("eth_sendRawTransaction", [raw]).catch(() => undefined);
     const logged = lines();
-    assert.equal(logged.length, 3, logged.join("\n"));
+    assert.equal(logged.length, 4, logged.join("\n"));
     assert.match(
       logged[0] ?? "",
       /^eth_sendRawTransaction: the plugin cannot decode it \(\w+\); passed on$/,
     );
     assert.deepEqual(logged.slice(1), [
       "eth_sendRawTransaction: the chain id is unknown (Error); passed on",
+      `eth_sendRawTransaction: signed for chain ${fixture.chainId + 1n}n, not this connection's; passed on`,
       `raw transaction ${hashOf(raw)} got no answer (TypeError)`,
     ]);
+  });
+
+  it("does not decode a raw transaction before the KMS addresses are looked up, when nothing is held", async () => {
+    nextChainId++;
+    const fixture = await dispatchFixture({ chainId: nextChainId });
+    lines();
+    fixture.answers.set("eth_sendRawTransaction", () => "0xhash");
+    await fixture.request("eth_sendRawTransaction", ["0x1234"]);
+    assert.deepEqual(lines(), [], "no line says it could not be decoded");
+    assert.equal(fixture.forwarded.length, 1);
   });
 
   it("logs nothing for a raw transaction request whose params are not a list", async () => {

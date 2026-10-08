@@ -29,6 +29,11 @@ import {
 import { CancelledError, systemTimers, type Timers } from "../../../src/internal/signer/timeout.ts";
 import { fakeTimers } from "../../helpers/fake-timers.ts";
 
+/** The send state of a new connection, to own library holds. */
+function newOwner(): ConnectionSends {
+  return new ConnectionSends({ highWater: true, timers: fakeTimers() });
+}
+
 /** A promise and the function that resolves it. */
 function gate(): { promise: Promise<void>; open: () => void } {
   const control: { open: () => void } = { open: () => {} };
@@ -644,7 +649,13 @@ describe("withSendLock with a signal", () => {
     const holder = withSendLock(key, async () => await held.promise);
     const caller = new AbortController();
     const waiting = watch(
-      holdForLibrary(key, {}, async () => await Promise.resolve(3n), fakeTimers(), caller.signal),
+      holdForLibrary(
+        key,
+        newOwner(),
+        async () => await Promise.resolve(3n),
+        fakeTimers(),
+        caller.signal,
+      ),
     );
     await settle();
     caller.abort();
@@ -1005,6 +1016,55 @@ describe("ConnectionSends nonce reservations", () => {
     assert.equal(sends.nonceFor(COW, 0n), 3n, "1 was reset, 2 stays");
   });
 
+  it("reports a gap only for a hold-limit reservation with a higher nonce used since", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 0n, true);
+    assert.equal(sends.resetReservation(COW), undefined, "nothing above it: no gap");
+    sends.reserve(COW, 0n, true);
+    sends.recordSent(COW, 0n);
+    assert.equal(sends.resetReservation(COW), undefined, "a mark at its own nonce is no gap");
+    sends.reserve(COW, 1n, true);
+    sends.recordSent(COW, 2n);
+    assert.equal(sends.resetReservation(COW), 1n, "the mark is above it");
+    const { sends: other } = withClock(false);
+    other.reserve(COW, 3n, true);
+    other.reserve(COW, 4n);
+    other.signedReservation(COW, 4n);
+    assert.equal(other.resetReservation(COW), 3n, "another reservation is above it");
+    assert.equal(other.resetReservation(COW), undefined, "4 is a client's reservation, not a gap");
+    other.reserve(COW, 5n);
+    other.reserve(COW, 6n);
+    other.signedReservation(COW, 6n);
+    assert.equal(other.resetReservation(COW), undefined, "5 is a client's reservation, not a gap");
+    assert.equal(other.resetReservation(COW), undefined);
+    assert.equal(other.resetReservation(COW), undefined, "nothing left to reset");
+    other.reserve(COW, 7n);
+    other.signedReservation(COW, 7n);
+    other.reserve(COW, 8n, true);
+    assert.equal(other.resetReservation(COW), undefined, "a reservation below it is no gap");
+    other.reserve(COW, 9n, true);
+    assert.equal(other.resetReservation(COW, 9n), undefined, "a hold at its own nonce is no gap");
+    other.reserve(COW, 9n, true);
+    assert.equal(other.resetReservation(COW, 10n), 9n, "a hold above it");
+  });
+
+  it("keeps a hold-limit reservation past a higher plugin send, but not past its own nonce or the pending count", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 1n, true);
+    sends.reserve(COW, 2n);
+    sends.releaseReservationsUpTo(COW, 3n);
+    assert.equal(sends.nonceFor(COW, 0n), 2n, "1 stays, 2 is gone");
+    sends.releaseReservationsUpTo(COW, 0n);
+    assert.equal(sends.nonceFor(COW, 0n), 2n, "a lower nonce ends nothing");
+    sends.releaseReservationsUpTo(COW, 1n);
+    assert.equal(sends.hasReservations(COW), false, "a send with its very nonce ends it");
+    sends.reserve(COW, 4n, true);
+    sends.releaseReservationsBelow(COW, 4n);
+    assert.equal(sends.hasReservations(COW), true, "the node does not have 4 yet");
+    sends.releaseReservationsBelow(COW, 5n);
+    assert.equal(sends.hasReservations(COW), false, "the node has 4");
+  });
+
   it("forgets every reservation when the connection closes, and reserves nothing after", () => {
     const { sends } = withClock();
     sends.reserve(COW, 1n);
@@ -1030,7 +1090,7 @@ describe("library holds", () => {
   it("keeps the lock after the nonce is chosen, until the broadcast ends the hold", async () => {
     const KEY = nextKey();
     const timers = fakeTimers();
-    const owner = {};
+    const owner = newOwner();
     const nonce = await holdForLibrary(KEY, owner, async () => await Promise.resolve(4n), timers);
     assert.equal(nonce, 4n);
     assert.equal(libraryHoldOf(KEY)?.nonce, 4n);
@@ -1056,22 +1116,30 @@ describe("library holds", () => {
     assert.equal(sendLocksInUse(), 0);
   });
 
-  it(`ends the hold after ${LIBRARY_HOLD_MS} ms when nothing else ends it, with a warning`, async () => {
+  it(`ends the hold after ${LIBRARY_HOLD_MS} ms when nothing else ends it, reserves its nonce and warns`, async () => {
     const KEY = nextKey();
+    const address = KEY.slice(KEY.indexOf(":") + 1);
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const timers = fakeTimers();
-      await holdForLibrary(KEY, {}, async () => await Promise.resolve(1n), timers);
-      timers.fire();
-      await withSendLock(KEY, async () => {
+      const owner = newOwner();
+      await holdForLibrary(KEY, owner, async () => await Promise.resolve(1n), timers);
+      assert.equal(owner.hasReservations(address), false, "no reservation while it holds");
+      let chosen: bigint | undefined;
+      const waiting = withSendLock(KEY, async () => {
+        chosen = owner.nonceFor(address, 1n);
         await Promise.resolve();
       });
+      timers.fire();
+      await waiting;
+      assert.equal(chosen, 2n, "the send that waited skips the held nonce");
+      assert.equal(owner.nonceFor(address, 0n), 2n, "the nonce stays reserved after it");
       assert.equal(libraryHoldOf(KEY)?.nonce, undefined);
       assert.deepEqual(
         warn.mock.calls.map((call) => call.arguments),
         [
           [
-            `hardhat-kms: a connection.kms.getAccount send from ${CHECKSUMMED} on chain ${KEY.slice(0, KEY.indexOf(":"))} chose nonce 1, and after 60 s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast later, it and the account's next send share a nonce, and the node refuses one of them. Send the library account through custom(connection.provider); see ${DOCS}.`,
+            `hardhat-kms: a connection.kms.getAccount send from ${CHECKSUMMED} on chain ${KEY.slice(0, KEY.indexOf(":"))} chose nonce 1, and after 60 s it has neither broadcast it through the connection nor been reset by viem, so the plugin released the account's send lock and reserved the nonce: the account's sends through its connection skip it for up to 60 s. Its raw transaction did not reach the plugin, as with a custom transport over another provider. If it is broadcast after that, it and another send of the account can share the nonce, and either can replace the other or be refused. Send the library account through custom(connection.provider); see ${DOCS}.`,
           ],
         ],
       );
@@ -1085,7 +1153,7 @@ describe("library holds", () => {
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const timers = fakeTimers();
-      await holdForLibrary(KEY, {}, async () => await Promise.resolve(1n), timers);
+      await holdForLibrary(KEY, newOwner(), async () => await Promise.resolve(1n), timers);
       endLibraryHold(KEY, false);
       timers.fire();
       await withSendLock(KEY, async () => {
@@ -1102,7 +1170,7 @@ describe("library holds", () => {
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const clock = clockTimers();
-      await holdForLibrary(KEY, {}, async () => await Promise.resolve(6n), fakeTimers());
+      await holdForLibrary(KEY, newOwner(), async () => await Promise.resolve(6n), fakeTimers());
       const waiting = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
       await clock.advance(LIBRARY_WAIT_WARNING_MS - 1);
       assert.equal(warn.mock.callCount(), 0, "not before the delay");
@@ -1132,7 +1200,7 @@ describe("library holds", () => {
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const clock = clockTimers();
-      const owner = {};
+      const owner = newOwner();
       await holdForLibrary(KEY, owner, async () => await Promise.resolve(1n), fakeTimers());
       const second = holdForLibrary(
         KEY,
@@ -1168,7 +1236,7 @@ describe("library holds", () => {
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const clock = clockTimers();
-      await holdForLibrary(KEY, {}, async () => await Promise.resolve(8n), fakeTimers());
+      await holdForLibrary(KEY, newOwner(), async () => await Promise.resolve(8n), fakeTimers());
       const waiters = [0, 1, 2].map((index) =>
         watch(withSendLock(KEY, async () => await Promise.resolve(index), clock)),
       );
@@ -1187,7 +1255,7 @@ describe("library holds", () => {
     const KEY = nextKey();
     const first = await holdForLibrary(
       KEY,
-      {},
+      newOwner(),
       async () => await Promise.resolve(1n),
       fakeTimers(),
     );
@@ -1195,7 +1263,7 @@ describe("library holds", () => {
     const old = libraryHoldOf(KEY);
     assert.ok(old !== undefined);
     old.end();
-    await holdForLibrary(KEY, {}, async () => await Promise.resolve(2n), fakeTimers());
+    await holdForLibrary(KEY, newOwner(), async () => await Promise.resolve(2n), fakeTimers());
     old.end();
     assert.equal(libraryHoldOf(KEY)?.nonce, 2n, "the newer hold stays");
     endLibraryHold(KEY, false);
@@ -1222,7 +1290,7 @@ describe("library holds", () => {
       await settle();
       assert.equal(behindPlugin.done, true);
 
-      await holdForLibrary(KEY, {}, async () => await Promise.resolve(2n), fakeTimers());
+      await holdForLibrary(KEY, newOwner(), async () => await Promise.resolve(2n), fakeTimers());
       const short = watch(withSendLock(KEY, async () => await Promise.resolve(), clock));
       await clock.advance(LIBRARY_WAIT_WARNING_MS - 1);
       endLibraryHold(KEY, false);
@@ -1246,13 +1314,17 @@ describe("library holds", () => {
   it("uses up the resets owed by failed sends before it ends a hold", async () => {
     const KEY = nextKey();
     const timers = fakeTimers();
-    const owner = {};
+    const owner = newOwner();
     expectLibraryReset(KEY, owner);
     await holdForLibrary(KEY, owner, async () => await Promise.resolve(2n), timers);
     endLibraryHold(KEY, true);
     expectLibraryReset(KEY, owner);
     await holdForLibrary(KEY, owner, async () => await Promise.resolve(3n), timers);
-    assert.equal(takeOwedLibraryReset(KEY, {}), false, "another connection's reset owes nothing");
+    assert.equal(
+      takeOwedLibraryReset(KEY, newOwner()),
+      false,
+      "another connection's reset owes nothing",
+    );
     // Owed: the first expected reset, the failed broadcast of 2, and the second expected reset.
     for (let i = 0; i < 3; i++) {
       assert.equal(takeOwedLibraryReset(KEY, owner), true, "owed");
@@ -1283,8 +1355,8 @@ describe("library holds", () => {
   it("ends only the holds of a closing connection", async () => {
     const KEY = nextKey();
     const timers = fakeTimers();
-    const mine = {};
-    const other = {};
+    const mine = newOwner();
+    const other = newOwner();
     const otherKey = `${KEY}0`;
     await holdForLibrary(KEY, mine, async () => await Promise.resolve(1n), timers);
     await holdForLibrary(otherKey, other, async () => await Promise.resolve(1n), timers);
@@ -1299,7 +1371,7 @@ describe("library holds", () => {
   it("holds nothing when the nonce cannot be chosen, and throws its error", async () => {
     const KEY = nextKey();
     await assert.rejects(
-      holdForLibrary(KEY, {}, async () => {
+      holdForLibrary(KEY, newOwner(), async () => {
         throw await Promise.resolve(new Error("no node"));
       }),
       /no node/,
@@ -1311,7 +1383,7 @@ describe("library holds", () => {
   it("keeps the process alive while a hold lasts, by default", async () => {
     const KEY = nextKey();
     const timers = fakeTimers();
-    const done = holdForLibrary(KEY, {}, async () => await Promise.resolve(9n));
+    const done = holdForLibrary(KEY, newOwner(), async () => await Promise.resolve(9n));
     assert.equal(await done, 9n);
     assert.equal(timers.pending(), 0, "the default timers are real, and the test ends the hold");
     endLibraryHold(KEY, false);
