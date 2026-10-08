@@ -348,6 +348,14 @@ describe("siteLinks", () => {
     });
   });
 
+  it("checks the links after a pre that is never closed", () => {
+    const html = '<pre><code> href="/x"</code><a href="/site/y">y</a>';
+    assert.deepEqual(siteLinks("a.html", html, SITE), {
+      links: [{ path: "y", anchor: undefined }],
+      problems: ["a.html: the link /x does not start with /site/"],
+    });
+  });
+
   it("ignores links after a script that is never closed, as a browser does", () => {
     const html = '<a href="/site/y">y</a><script> href="/x"<a href="/z">z</a>';
     assert.deepEqual(siteLinks("a.html", html, SITE), {

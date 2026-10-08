@@ -231,10 +231,11 @@ export function anchors(html: string): Set<string> {
 }
 
 /**
- * `html` without its `<tag>` blocks, read as a browser reads them: each block runs from its start
- * tag to the first end tag, which may carry spaces or attributes (`</script >`), or to the end of
- * the text when it is not closed. The text is read once from the start, so a start tag can never
- * be formed from the pieces around a removed block.
+ * `html` without its `<tag>` blocks: each block runs from its start tag to the first end tag, which
+ * may carry spaces or attributes (`</script >`). An unclosed script runs to the end of the text, as
+ * in a browser. An unclosed `<pre>` is not raw text, so it and what follows are kept and their
+ * links still checked. The text is read once from the start, so a start tag can never be formed
+ * from the pieces around a removed block.
  */
 function withoutBlocks(html: string, tag: "script" | "pre"): string {
   const start = new RegExp(`<${tag}\\b`, "i");
@@ -245,7 +246,10 @@ function withoutBlocks(html: string, tag: "script" | "pre"): string {
     kept += rest.slice(0, open);
     const block = rest.slice(open);
     const close = end.exec(block);
-    rest = close === null ? "" : block.slice(close.index + close[0].length);
+    if (close === null) {
+      return tag === "pre" ? kept + block : kept;
+    }
+    rest = block.slice(close.index + close[0].length);
   }
   return kept + rest;
 }

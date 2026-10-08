@@ -217,7 +217,15 @@ const passed = await withRestoredFiles(restorable, async () => {
     for (const { floor, check } of below) {
       versions[floor.sdk] = check.version;
     }
-    writeFileSync(workspace, withOverrides(committed, versions));
+    // Edits the current file, so whatever `pnpm add` wrote there stays; only the floors change.
+    writeFileSync(
+      workspace,
+      withOverrides(
+        readFileSync(workspace, "utf8"),
+        versions,
+        found.map((floor) => floor.sdk),
+      ),
+    );
     run(["install", "--no-frozen-lockfile", "--ignore-scripts"]);
     for (const { floor, check } of below) {
       const installed = resolvedVersion(floor.directory, floor.sdk);

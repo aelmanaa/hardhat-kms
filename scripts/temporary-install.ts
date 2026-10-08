@@ -7,7 +7,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isMap, parseDocument } from "yaml";
+import { isMap, isScalar, parseDocument } from "yaml";
 
 export const root: string = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -140,24 +140,46 @@ export async function withRestoredFiles(
 }
 
 /**
- * The text of pnpm-workspace.yaml with `entries` added to its `overrides`, keeping the overrides
- * and comments the file already has.
- *
- * @param text - The file as committed.
- * @param entries - Package names and the versions to force.
- * @returns The new text.
- * @throws When an entry names a package the file already overrides: the test would no longer run
- *   the version the file chose, or the file's override would be lost.
+ * The package an override key forces: `qs` for `qs`, `"typed-rest-client>qs"` and `qs@<6.16`, and
+ * `@scope/name` for `parent>@scope/name@^1`.
  */
-export function withOverrides(text: string, entries: Record<string, string>): string {
+export function overrideTarget(key: string): string {
+  const target = key.slice(key.lastIndexOf(">") + 1);
+  const range = target.indexOf("@", 1);
+  return range === -1 ? target : target.slice(0, range);
+}
+
+/**
+ * The text of pnpm-workspace.yaml with `entries` set in its `overrides`, keeping the other
+ * overrides, the other settings and the comments the file has.
+ *
+ * @param text - The file's current text.
+ * @param entries - Package names and the versions to force.
+ * @param replaceable - Names whose own plain override (`name: version`) may be replaced, such as
+ *   overrides an earlier call added.
+ * @returns The new text.
+ * @throws When an override already in the file forces an entry's package, in any form (`name`,
+ *   `parent>name`, `name@range`): it would win for some or all copies, so the test would not run
+ *   the version it asks for, or the file's override would be lost.
+ */
+export function withOverrides(
+  text: string,
+  entries: Record<string, string>,
+  replaceable: readonly string[] = [],
+): string {
   const document = parseDocument(text);
   const existing = document.get("overrides");
   if (existing !== undefined && !isMap(existing)) {
     throw new Error("pnpm-workspace.yaml has an overrides entry that is not a map");
   }
+  const keys = (existing?.items ?? []).map((pair) =>
+    String(isScalar(pair.key) ? pair.key.value : pair.key),
+  );
   for (const [name, version] of Object.entries(entries)) {
-    if (existing?.has(name) === true) {
-      throw new Error(`pnpm-workspace.yaml already overrides ${name}`);
+    for (const key of keys) {
+      if (overrideTarget(key) === name && !(key === name && replaceable.includes(name))) {
+        throw new Error(`pnpm-workspace.yaml already overrides ${name} (${key})`);
+      }
     }
     document.setIn(["overrides", name], version);
   }
