@@ -487,7 +487,7 @@ as_deployer() (
 )
 ```
 
-If a variable is empty, the function stops and names the command to run. Without the guard, the plugin would sign as you, through the Azure CLI, and the check below would pass for the wrong identity. The secret stays in a shell variable of this shell, but the function runs in a subshell and exports it to that one command only, so your other commands keep running as you; step 8 unsets the variable. A new shell has lost the secret, and Azure cannot show it again. Set `TENANT_ID` with `az account show` and `APP_ID` with the `az ad app list` command of step 8, then run the `az ad app credential reset` command above, which replaces the old secret with a new one.
+If a variable is empty, the function stops and names the command to run. Without the guard, the plugin would sign as you, through the Azure CLI, and the check below would pass for the wrong identity. The function runs in a subshell and exports the secret to that one command; it stays in an unexported variable of this shell until step 8 unsets it. A new shell has lost the secret, and Azure cannot show it again. Set `TENANT_ID` with `az account show` and `APP_ID` with the `az ad app list` command of step 8, then run the `az ad app credential reset` command above, which replaces the old secret with a new one.
 
 Check that the service principal may sign with the key:
 

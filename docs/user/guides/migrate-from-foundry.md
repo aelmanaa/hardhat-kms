@@ -16,7 +16,7 @@ Foundry picks a KMS signer per command with `--aws` or `--gcp`, and reads the ke
 
 ## From the command line, as in Foundry
 
-Add `--kms` with the providers to load, and keep the variables that name the key:
+Add `--kms` with the providers to load:
 
 ::: code-group
 
@@ -46,7 +46,7 @@ AWS_KMS_KEY_ID=alias/deployer yarn hardhat run scripts/deploy.ts --network sepol
 
 :::
 
-On AWS, choose one credential source before you run these. When access keys in the environment and `AWS_PROFILE` are both set, Foundry signs with the keys and this plugin with the profile (see the credentials paragraph under [In the config](#in-the-config)). The two can be different identities, and the same alias can then name a different key in each. Run `npx hardhat --kms aws kms accounts` and compare the address with the one `cast wallet address --aws` prints before you deploy.
+On AWS, use one credential source before you run these: unset either `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`. When both are set, Foundry signs with the access keys and this plugin with the profile ([Credentials](../reference/credentials.md#aws)). The two can be different identities, and the same alias can then name a different key in each. Before you deploy, check that `npx hardhat --kms aws kms address AWS_KMS_KEY_ID` prints the same address as `cast wallet address --aws`.
 
 | `--kms` value | Variables read, as in Foundry                                                       |
 | ------------- | ----------------------------------------------------------------------------------- |
