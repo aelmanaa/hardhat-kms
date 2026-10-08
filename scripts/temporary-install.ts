@@ -7,6 +7,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isMap, parseDocument } from "yaml";
+
 export const root: string = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
@@ -135,4 +137,29 @@ export async function withRestoredFiles(
       }
     }
   }
+}
+
+/**
+ * The text of pnpm-workspace.yaml with `entries` added to its `overrides`, keeping the overrides
+ * and comments the file already has.
+ *
+ * @param text - The file as committed.
+ * @param entries - Package names and the versions to force.
+ * @returns The new text.
+ * @throws When an entry names a package the file already overrides: the test would no longer run
+ *   the version the file chose, or the file's override would be lost.
+ */
+export function withOverrides(text: string, entries: Record<string, string>): string {
+  const document = parseDocument(text);
+  const existing = document.get("overrides");
+  if (existing !== undefined && !isMap(existing)) {
+    throw new Error("pnpm-workspace.yaml has an overrides entry that is not a map");
+  }
+  for (const [name, version] of Object.entries(entries)) {
+    if (existing?.has(name) === true) {
+      throw new Error(`pnpm-workspace.yaml already overrides ${name}`);
+    }
+    document.setIn(["overrides", name], version);
+  }
+  return document.toString();
 }

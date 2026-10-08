@@ -339,8 +339,17 @@ describe("siteLinks", () => {
     assert.deepEqual(siteLinks("a.html", html, SITE), { links: [], problems: [] });
   });
 
-  it("ignores links inside a script whose end tag has a space before >", () => {
-    const html = '<script>const a = \' href="/x"\';</script ><a href="/site/y">y</a>';
+  it("ignores links inside a script whose end tag has spaces or attributes", () => {
+    const html =
+      '<script>const a = \' href="/x"\';</script ><script> href="/z"</script\t\n bar><a href="/site/y">y</a>';
+    assert.deepEqual(siteLinks("a.html", html, SITE), {
+      links: [{ path: "y", anchor: undefined }],
+      problems: [],
+    });
+  });
+
+  it("removes a script that removing another joins back together", () => {
+    const html = '<scr<script></script>ipt> href="/x"</script><a href="/site/y">y</a>';
     assert.deepEqual(siteLinks("a.html", html, SITE), {
       links: [{ path: "y", anchor: undefined }],
       problems: [],

@@ -18,7 +18,7 @@
 // redone from the restored lockfile.
 //
 // Usage: node scripts/test-sdk-floors.ts
-import { appendFileSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -29,6 +29,7 @@ import {
   run,
   stringRecord,
   wasInterrupted,
+  withOverrides,
   withRestoredFiles,
 } from "./temporary-install.ts";
 import { floorOf } from "./version-range.ts";
@@ -133,13 +134,12 @@ const passed = await withRestoredFiles(restorable, async () => {
   // A floor can also be a dependency of another SDK, as google-gax is of @google-cloud/kms. An
   // override makes every package in the workspace resolve the floor, so the SDK's own copy and its
   // types are the floor too, not only the provider package's direct dependency.
+  // The floors join the overrides the file already has, such as the security ones.
   const workspace = path.join(root, "pnpm-workspace.yaml");
-  if (/^overrides:/m.test(readFileSync(workspace, "utf8"))) {
-    throw new Error("pnpm-workspace.yaml already has overrides; merge the floors into them");
-  }
-  appendFileSync(
+  const committed = readFileSync(workspace, "utf8");
+  writeFileSync(
     workspace,
-    `\noverrides:\n${found.map((floor) => `  "${floor.sdk}": "${floor.version}"\n`).join("")}`,
+    withOverrides(committed, Object.fromEntries(found.map((floor) => [floor.sdk, floor.version]))),
   );
   for (const floor of found.filter((candidate) => candidate.kind === "dependency")) {
     process.stdout.write(`\n== ${floor.packageName}: ${floor.sdk}@${floor.version}\n`);
@@ -213,14 +213,11 @@ const passed = await withRestoredFiles(restorable, async () => {
     return check === undefined ? [] : [{ floor, check }];
   });
   if (below.length > 0) {
-    let overrides = readFileSync(workspace, "utf8");
+    const versions = Object.fromEntries(found.map((floor) => [floor.sdk, floor.version]));
     for (const { floor, check } of below) {
-      overrides = overrides.replace(
-        `  "${floor.sdk}": "${floor.version}"\n`,
-        `  "${floor.sdk}": "${check.version}"\n`,
-      );
+      versions[floor.sdk] = check.version;
     }
-    writeFileSync(workspace, overrides);
+    writeFileSync(workspace, withOverrides(committed, versions));
     run(["install", "--no-frozen-lockfile", "--ignore-scripts"]);
     for (const { floor, check } of below) {
       const installed = resolvedVersion(floor.directory, floor.sdk);

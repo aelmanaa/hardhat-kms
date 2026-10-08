@@ -248,10 +248,16 @@ export function siteLinks(
     file.replace(/(^|\/)index\.html$/, "$1").replace(/\.html$/, ""),
     site.hostname,
   );
-  // Inline scripts and code hold text that looks like links; only markup counts.
-  const markup = html
-    .replaceAll(/<script\b[\s\S]*?<\/script\s*>/gi, "")
-    .replaceAll(/<pre\b[\s\S]*?<\/pre>/gi, "");
+  // Inline scripts and code hold text that looks like links; only markup counts. An end tag may
+  // carry spaces or attributes (`</script >`), and the removal repeats until nothing changes, so
+  // a block that a removal joins back together is removed as well.
+  let markup = html;
+  for (let previous; previous !== markup;) {
+    previous = markup;
+    markup = markup
+      .replaceAll(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, "")
+      .replaceAll(/<pre\b[\s\S]*?<\/pre\b[^>]*>/gi, "");
+  }
   for (const match of markup.matchAll(/\s(?:href|src)="([^"]*)"/g)) {
     const target = decodeEntities(match[1] ?? "");
     if (target === "" || target.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(target)) {
