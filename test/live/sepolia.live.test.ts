@@ -19,6 +19,9 @@
 // - HARDHAT_KMS_LIVE_GCP_KEY: the full name of an EC_SIGN_SECP256K1_SHA256 key version.
 // - HARDHAT_KMS_LIVE_AZURE_KEY_ID: the versioned URL of a P-256K key.
 // - HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL: optional; a public RPC without an API key is the default.
+// - HARDHAT_KMS_LIVE_SOURCE: optional; `registry:<version>` runs the four packages installed from
+//   the registry at that version instead of the checkout's (helpers/packages.ts). Such a run writes
+//   no proof, since the proof names a commit.
 //
 // The tests use the developer's own cloud logins and create no cloud resources. Each account must
 // hold the run's floor (the case table's gas at the run's gas price), and on Sepolia the legacy gas
@@ -32,7 +35,7 @@ import { after, before, describe, it, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import hardhatViem from "@nomicfoundation/hardhat-viem";
-import type { KmsKeyConfig, KmsKeyUserConfig } from "hardhat-kms/types";
+import type { KmsKeyUserConfig } from "hardhat-kms/types";
 import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
@@ -47,34 +50,29 @@ import {
   zeroAddress,
 } from "viem";
 
-// The EIP-7702 authorizations are signed by the core signer loaded from `src`, while the
-// transactions go through the plugin built in `dist`. The plugin has no library API to sign an
-// authorization yet (#51).
-// The provider plugins come from their `src`, so their types resolve before any package is built,
-// as in the lint job.
-import hardhatKmsAws from "../../packages/hardhat-kms-aws/src/index.ts";
-import hardhatKmsAzure from "../../packages/hardhat-kms-azure/src/index.ts";
-import hardhatKmsGcp from "../../packages/hardhat-kms-gcp/src/index.ts";
-import { KmsSigner } from "../../packages/hardhat-kms/src/internal/signer/kms-signer.ts";
 import { ProviderRun, SEPOLIA_CHAIN_ID, setLiveCheckBytecode } from "./cases.ts";
 import { type AnvilFork, findAnvil, startAnvilFork } from "./helpers/anvil.ts";
 import { legacyGasPrice } from "./helpers/gas.ts";
 import { SharedLock } from "./helpers/lock.ts";
 import { liveMode, MODE_VARIABLE } from "./helpers/mode.ts";
+import { livePackages, registryCheck } from "./helpers/packages.ts";
 import { type Proof, proofProblems, type ProviderProof } from "./helpers/proof.ts";
 import { redact } from "./helpers/redact.ts";
 import { retryLagging } from "./helpers/retry.ts";
 import { type RecordingProxy, startRecordingProxy } from "./helpers/rpc-proxy.ts";
 import { balanceFloor, casesFor, missingCells } from "./matrix.ts";
 
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixture-project");
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 /** Where the Sepolia run writes its proof. */
-const PROOF_FILE = path.join(path.dirname(root), "proof.json");
+const PROOF_FILE = path.join(here, "proof.json");
 
 /** Where the transactions go; throws at load on a value other than `fork` or `sepolia`. */
 const mode = liveMode(process.env);
 const onFork = mode === "fork";
+/** The provider plugins: the checkout's, or the published ones in registry mode. */
+const packages = await livePackages(process.env);
+const fromRegistry = packages.source.kind === "registry";
 
 /** Used when HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL is not set. Needs no API key. */
 const DEFAULT_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
@@ -182,7 +180,7 @@ async function runtime(forkUrl?: string): Promise<HardhatRuntimeEnvironment> {
   const url = forkUrl ?? (rpcUrl === "" ? DEFAULT_RPC_URL : configVariable(RPC_VARIABLE));
   return await createHardhatRuntimeEnvironment(
     {
-      plugins: [hardhatKmsAws, hardhatKmsGcp, hardhatKmsAzure, hardhatViem],
+      plugins: [packages.aws, packages.gcp, packages.azure, hardhatViem],
       solidity: "0.8.24",
       networks: Object.fromEntries(
         configured.map((provider) => [
@@ -199,34 +197,8 @@ async function runtime(forkUrl?: string): Promise<HardhatRuntimeEnvironment> {
       ),
     },
     {},
-    root,
+    packages.root,
   );
-}
-
-/** The resolved key of a network: the one in its `kmsAccounts`. */
-function keyOf(hre: HardhatRuntimeEnvironment, name: string): KmsKeyConfig {
-  const key = hre.config.networks[name]?.kmsAccounts[0];
-  assert.ok(key !== undefined, `network ${name} has no KMS key`);
-  return key;
-}
-
-/**
- * The core signer for a key, over an adapter from the providers' `kms` hook. The test signs the
- * EIP-7702 authorization with it, since the plugin has no RPC method for that.
- */
-async function coreSigner(hre: HardhatRuntimeEnvironment, key: KmsKeyConfig): Promise<KmsSigner> {
-  const adapter = await hre.hooks.runHandlerChain(
-    "kms",
-    "createKeyAdapter",
-    [key],
-    async (_context, rest: KmsKeyConfig) =>
-      await Promise.reject(new Error(`no provider claimed ${rest.provider}`)),
-  );
-  return new KmsSigner(adapter, {
-    timeoutMs: 60_000,
-    displayMessage: async () => {},
-    displayId: key.displayId,
-  });
 }
 
 const errorText = (error: Error): string => `${error.name}: ${error.message}`;
@@ -258,13 +230,21 @@ async function runProvider(
   t: TestContext,
   forkUrl: string | undefined,
 ): Promise<void> {
-  const signer = await coreSigner(hre, keyOf(hre, provider.name));
+  const connection = await hre.network.create(provider.name);
   try {
-    const account = getAddress(await signer.getAddress());
+    const { viem, provider: rpc } = connection;
+    const listed: unknown = await rpc.request({ method: "eth_accounts" });
+    assert.ok(
+      Array.isArray(listed) && listed.length === 1 && typeof listed[0] === "string",
+      "eth_accounts does not list exactly the KMS account",
+    );
+    const account = getAddress(listed[0]);
+    // The EIP-7702 authorizations are signed through the public library account.
+    const kmsAccount = await connection.kms.getAccount(account);
+    assert.equal(kmsAccount.address, account);
     if (onFork) {
       forkAccounts.add(account);
     }
-    const { viem, provider: rpc } = await hre.network.create(provider.name);
     const publicClient = await viem.getPublicClient();
     const wallet = await viem.getWalletClient(account);
 
@@ -279,12 +259,6 @@ async function runProvider(
       );
       await rpc.request({ method: "anvil_setBalance", params: [account, toHex(FORK_BALANCE)] });
     }
-    const accounts: unknown = await rpc.request({ method: "eth_accounts" });
-    assert.ok(
-      Array.isArray(accounts) &&
-        accounts.some((item) => typeof item === "string" && getAddress(item) === account),
-      "eth_accounts does not list the KMS account",
-    );
     // The legacy and EIP-2930 transactions pay this price; it must clear a rising base fee.
     const nodeGasPrice = await publicClient.getGasPrice();
     const { baseFeePerGas } = await publicClient.getBlock({ blockTag: "latest" });
@@ -317,7 +291,7 @@ async function runProvider(
       provider: provider.name,
       t,
       account,
-      signer,
+      kmsAccount,
       rpc,
       publicClient,
       wallet,
@@ -424,12 +398,12 @@ async function runProvider(
       `${provider.name}: ${sent} transactions, ${liveGas} gas, spent ${formatEther(spent)} ETH`,
     );
   } finally {
-    await signer.close();
+    await connection.close();
   }
 }
 
 const git = (...args: string[]): string =>
-  execFileSync("git", args, { cwd: path.dirname(root), encoding: "utf8" }).trim();
+  execFileSync("git", args, { cwd: here, encoding: "utf8" }).trim();
 
 /** Writes test/live/proof.json from a Sepolia run in which every configured provider passed. */
 function writeProof(): void {
@@ -512,9 +486,11 @@ describe(onFork ? "live on a Sepolia fork" : "live on Sepolia", () => {
   // A proof covers all three providers, so a run with fewer cannot overwrite a complete one.
   const skipWrite = onFork
     ? "a fork run writes no proof"
-    : configured.length < PROVIDERS.length
-      ? "a proof needs all three providers configured; nothing is written"
-      : false;
+    : fromRegistry
+      ? "a registry run writes no proof: the proof names the commit it ran"
+      : configured.length < PROVIDERS.length
+        ? "a proof needs all three providers configured; nothing is written"
+        : false;
   it("sepolia: writes test/live/proof.json", { skip: skipWrite }, (t) => {
     assert.equal(proofs.length, configured.length, "a provider failed, so no proof was written");
     writeProof();
@@ -553,4 +529,6 @@ describe(onFork ? "live on a Sepolia fork" : "live on Sepolia", () => {
     );
     t.diagnostic(`evm_mine nudges: ${nudges}`);
   });
+
+  registryCheck(packages, configured.length);
 });
