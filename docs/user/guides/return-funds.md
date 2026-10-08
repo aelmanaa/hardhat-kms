@@ -5,9 +5,12 @@ description: "A Hardhat script that sends a KMS account's Sepolia balance back t
 
 # Return the funds from a KMS address
 
-Audience: users who funded a KMS key's address on a test network, such as in the first-deploy tutorials, and want the balance back before they delete the key.
+This guide sends the balance of a KMS key's address on a test network back to an address you choose, with a script you save in the project, before you delete the key.
 
 The address belongs to the key alone. Once the key is deleted or destroyed, nothing can move what is left at the address, so send the balance back first. The [first-deploy tutorials](../tutorials/first-deploy-aws.md) run this script in their clean-up step, before they remove the key.
+
+> [!NOTE]
+> Audience: users who funded a KMS key's address on a test network, such as in the first-deploy tutorials, and want the balance back before they delete the key.
 
 ## 1. Check the project
 

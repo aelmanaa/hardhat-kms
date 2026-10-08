@@ -5,9 +5,16 @@ description: "Azure Key Vault and Managed HSM setup for Ethereum signing: a P-25
 
 # Set up an Azure Key Vault key
 
-Audience: users who sign with a key in Azure Key Vault or Azure Managed HSM, and who have the `az` CLI.
+This guide creates a secp256k1 signing key in Azure Key Vault or Azure Managed HSM, allows a deployer to get and sign with it and nothing else, signs in, adds the key to a Hardhat project and checks that it signs.
 
-With `@hardhat-kms/azure`, a connection lists the key's account and signs transactions, messages and typed data with it. The plugin's live tests on Sepolia ran against a real vault, with the developer's own identity, not with the roles in [step 2](#2-allow-get-and-sign-and-nothing-else). `kms history` lists who signed with the key, when and from where, from the Key Vault audit log that a diagnostic setting sends to a Log Analytics workspace; see [Audit logs](#audit-logs).
+You need the `az` CLI.
+
+With `@hardhat-kms/azure`, a connection lists the key's account and signs transactions, messages and typed data with it. `kms history` lists who signed with the key, when and from where, from the Key Vault audit log that a diagnostic setting sends to a Log Analytics workspace; see [Audit logs](#audit-logs).
+
+> [!NOTE]
+> Audience: users who sign with a key in Azure Key Vault or Azure Managed HSM.
+>
+> The plugin's live tests on Sepolia ran against a real vault, with the developer's own identity, not with the roles in [step 2](#2-allow-get-and-sign-and-nothing-else).
 
 ## 1. Create a secp256k1 signing key
 

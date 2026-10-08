@@ -5,7 +5,7 @@ description: Install hardhat-kms and a provider package with npm, pnpm or Yarn, 
 
 # Install hardhat-kms
 
-Audience: people adding hardhat-kms to a Hardhat 3 project.
+This page installs hardhat-kms and the provider package for your cloud with npm, pnpm or Yarn, registers the plugin in `hardhat.config.ts` and checks that Hardhat lists its tasks.
 
 hardhat-kms is two packages: the core, `hardhat-kms`, and the provider package for the cloud that holds your key. Install both at the same version:
 
@@ -40,6 +40,9 @@ npm pkg set type=module
 
 `yarn init -2` sets the directory up for Yarn 4; with Yarn 1, run `yarn init -y` instead.
 
+> [!NOTE]
+> Audience: people adding hardhat-kms to a Hardhat 3 project.
+
 ## 1. Install the packages
 
 The commands below install the AWS provider. For another cloud, replace `@hardhat-kms/aws` with the package from the table.
@@ -62,6 +65,18 @@ yarn add --dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
 
 The command names `hardhat` because the plugin packages list it as a peer dependency, and Yarn does not install peers. It also raises an older Hardhat 3 to 3.18. `connection.kms.getAccount` needs `viem` ^2.55.13 as well; ethers and Ignition projects can skip it ([Library accounts](../reference/library-accounts.md#package-managers-and-the-peer-ranges)).
 
+### If the install stops
+
+Find the message in the table, then follow the section for your package manager:
+
+| Package manager     | What you see                                                    | Fix                                                                                                             |
+| ------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| npm 11 and 12       | A warning, or blocked install scripts, for `esbuild` and others | None: the plugin needs none of these scripts ([npm](#npm)).                                                     |
+| pnpm 11 and later   | `ERR_PNPM_IGNORED_BUILDS`                                       | List the packages it names under `allowBuilds` with the value `false`, then run `pnpm install` ([pnpm](#pnpm)). |
+| Yarn 4              | `HHE22` from `yarn hardhat`                                     | Set `nodeLinker: node-modules` ([Yarn](#yarn)).                                                                 |
+| Yarn 4.15 and later | `YN0016` on the day of a release                                | Approve the plugin packages with `npmPreapprovedPackages` ([Yarn](#yarn)).                                      |
+| Yarn 4.14 and later | `YN0004` for `esbuild` and `protobufjs`                         | None: the plugin needs neither script ([Yarn](#yarn)).                                                          |
+
 ### npm
 
 npm needs no settings. npm 11 warns that `esbuild`, and `protobufjs` with Google Cloud, have install scripts "not yet covered by allowScripts". npm 12 blocks those scripts and lists the packages: `esbuild`, `protobufjs` with Google Cloud, and `fsevents` on macOS. The plugin needs none of them, so leave them blocked.
@@ -75,6 +90,8 @@ allowBuilds:
   esbuild: false
   protobufjs: false # Google Cloud only
 ```
+
+If pnpm names other packages, add each one under `allowBuilds` with the value `false` too; the plugin needs none of their install scripts.
 
 pnpm 10 prints the same list as a warning and installs; it needs no change.
 
