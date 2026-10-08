@@ -75,8 +75,12 @@ async function exec(
 }
 
 /** Runs one of the scripts in scripts/ with node. */
-const script = async (name: string, args: string[]): Promise<Completed> =>
-  await exec(process.execPath, [path.join(root, "scripts", name), ...args]);
+const script = async (
+  name: string,
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<Completed> =>
+  await exec(process.execPath, [path.join(root, "scripts", name), ...args], { env });
 
 /** A TCP port nothing listens on right now. */
 async function freePort(): Promise<number> {
@@ -334,8 +338,15 @@ describe("registry mode against a local registry", { timeout: 2_100_000 }, () =>
   });
 
   it("check-registry-release: the dist-tag guards pass, then the tag check names the missing tag", async () => {
-    const run = await script("check-registry-release.ts", [version, "--registry", registry]);
-    assert.equal(run.status, 1);
+    // The script reads the tag from the checkout, and a clone that holds the release's tag would
+    // pass this check: git reads an empty repository of the test's instead, which has no tags.
+    const empty = mkdtempSync(path.join(sandbox, "no-tags-"));
+    execFileSync("git", ["init", "--quiet", empty]);
+    const run = await script("check-registry-release.ts", [version, "--registry", registry], {
+      ...process.env,
+      GIT_DIR: path.join(empty, ".git"),
+    });
+    assert.equal(run.status, 1, run.output);
     assert.deepEqual(reported(run.output), [
       `ok   ${version} is a stable version`,
       `ok   ${version} is published for ${PACKAGES.join(", ")}`,
