@@ -4,13 +4,17 @@
 // two connections to one chain, and checks after every step that no send signs a nonce that
 // another live send still owns.
 //
-// Replay a failure with the seed and path that fast-check prints:
-//   NONCE_MODEL_SEED=<seed> NONCE_MODEL_PATH=<path> node --test test/unit/rpc/nonce-model.test.ts
-// Run more sequences with NONCE_MODEL_RUNS=<count> (100 by default; the nightly CI run sets 2000).
+// Every property runs a fixed seed by default, so a run, and a mutation run under Stryker, is
+// reproducible. The nightly CI run sets NONCE_MODEL_SEED=random and NONCE_MODEL_RUNS=2000.
+// Replay a failure with the seed, path and replayPath that fast-check prints:
+//   NONCE_MODEL_SEED=<seed> NONCE_MODEL_PATH=<path> NONCE_MODEL_REPLAY_PATH=<replayPath> \
+//   NONCE_MODEL_UNGUARD=1 node --test test/unit/rpc/nonce-model.test.ts
+// (NONCE_MODEL_UNGUARD=1 runs the properties that UNTIL_434 skips, too.)
 //
-// The invariants that fail on main today (#434) are skipped behind UNTIL_434, each with its own
-// kind, so the unguarded property still fails on anything else. Their shrunk counterexamples are
-// fixed regression cases below.
+// The orderings that fail on main today (#434) are classified into their own `-434` kinds only
+// when they match the known shape, and those kinds are skipped behind UNTIL_434. Every other
+// violation of the same invariant keeps its plain kind, which the unguarded property checks.
+// The shrunk counterexamples are fixed regression cases below.
 import assert from "node:assert/strict";
 import { describe, it, type TestContext } from "node:test";
 
@@ -19,7 +23,11 @@ import type { NetworkConnection } from "hardhat/types/network";
 import type { JsonRpcResponse } from "hardhat/types/providers";
 import { Transaction } from "micro-eth-signer";
 
-import { LIBRARY_HOLD_MS } from "../../../src/internal/rpc/send-guard.ts";
+import {
+  LIBRARY_HOLD_MS,
+  libraryHoldOf,
+  sendLocksInUse,
+} from "../../../src/internal/rpc/send-guard.ts";
 import {
   COW,
   gate,
@@ -33,13 +41,18 @@ import {
 } from "../../helpers/send-harness.ts";
 
 // An empty value, as CI sets outside its nightly run, means the default.
-const RUNS = Number(process.env.NONCE_MODEL_RUNS || "100");
-const SEED = process.env.NONCE_MODEL_SEED ? Number(process.env.NONCE_MODEL_SEED) : undefined;
-const PATH = process.env.NONCE_MODEL_PATH || undefined;
+const env = (name: string): string | undefined => process.env[name] || undefined;
+const RUNS = Number(env("NONCE_MODEL_RUNS") ?? "200");
+/** A fixed seed unless NONCE_MODEL_SEED says otherwise; `random` lets fast-check pick one. */
+const SEED_SETTING = env("NONCE_MODEL_SEED") ?? "445";
+const SEED = SEED_SETTING === "random" ? undefined : Number(SEED_SETTING);
+const PATH = env("NONCE_MODEL_PATH");
+const REPLAY_PATH = env("NONCE_MODEL_REPLAY_PATH");
+const UNGUARD = env("NONCE_MODEL_UNGUARD") === "1";
 /** Each property's limit: about 15 ms a sequence locally, with room for slow CI runners. */
 const PROPERTY_TIMEOUT_MS = Math.max(120_000, RUNS * 100);
 
-/** The kinds of violation the model reports, one per invariant it checks. */
+/** The kinds of violation the model reports. Kinds ending in `-434` are guarded (see UNTIL_434). */
 type Kind =
   /** A send signed a nonce the node already has from another send. */
   | "delivered"
@@ -49,18 +62,30 @@ type Kind =
   | "hold"
   /** A send on a connection signed a nonce that connection reserved for a live library send. */
   | "reservation"
+  /** A hold outlived its time limit, or a lock or hold outlived the connections. */
+  | "limit"
   /**
-   * On edr-simulated, which keeps no high-water mark, a send signed a nonce its own connection
-   * sent past a gap that a reservation left.
+   * #434, item 2: a plugin send that skipped an own-transport reservation released it, or
+   * #434, item 3: a reset that names no nonce released another unsigned reservation, and a send
+   * then signed that reservation's nonce.
    */
-  | "gap"
+  | "reservation-434"
   /**
-   * A send signed the nonce of a library send through the connection whose hold a reset of an
-   * own-transport send on the same connection may have ended.
+   * #434, item 2 on edr-simulated (no high-water mark): a send signed a nonce its own connection
+   * sent past the gap an own-transport or expired reservation left.
    */
-  | "reset-hold"
-  /** A plugin send reached the node after its connection closed. */
-  | "close";
+  | "gap-434"
+  /**
+   * #434 (added to its scope by this suite): an own-transport send's reset, whose reservation the
+   * node already has (below its pending count) or that was already released, ended another send's
+   * hold, and a send then signed the held nonce.
+   */
+  | "reset-hold-434"
+  /**
+   * #434, item 1: a plugin send in flight when its connection closed reached the node, or a
+   * library send through the connection waiting for the lock got a hold after the close.
+   */
+  | "close-434";
 
 type Mode = "accept" | "refuse" | "no-answer";
 type ConnectionIndex = 0 | 1;
@@ -95,8 +120,15 @@ interface LibrarySend {
   expired: boolean;
   /** The connection its raw transaction went through (through the connection only). */
   via?: ConnectionIndex;
-  /** An own-transport send's reset on its connection came while it held the lock. */
-  exposedByReset: boolean;
+  /**
+   * While it held the lock, an own-transport send on its connection was reset with its
+   * reservation below the node's pending count or already released (the reset-hold-434 shape).
+   */
+  holdLostToReset: boolean;
+  /** A plugin send on its connection skipped this own-transport reservation (#434, item 2). */
+  upToReleased: boolean;
+  /** Another send's reset came while this reservation was unsigned (#434, item 3). */
+  ambiguousReset: boolean;
   /** Its connection closed, which ended its hold or reservation. */
   orphaned: boolean;
   consume: () => Promise<number>;
@@ -114,6 +146,8 @@ interface Delivered {
   uncertain: boolean;
   /** The connections whose send state recorded it: none for a library send's own transport. */
   recordedOn: ReadonlySet<ConnectionIndex>;
+  /** It went out past a live reservation of a lower nonce on a connection that recorded it. */
+  pastReservation: boolean;
 }
 
 /** The model, and the real system it drives. */
@@ -130,6 +164,10 @@ interface World {
   kms: { paused: boolean; gate: { promise: Promise<void>; open: () => void } };
   /** Every request the model started, so a run ends only when they all settled. */
   inFlight: Promise<unknown>[];
+  /** How many of them settled. */
+  settled: number;
+  /** The send locks in use before the sequence. */
+  locksBefore: number;
   violations: { kind: Kind; message: string }[];
   /** The kinds of violation this test fails on. */
   kinds: ReadonlySet<Kind>;
@@ -147,6 +185,9 @@ function pendingOf(world: World): bigint {
   }
   return pending;
 }
+
+/** The send lock's key of the model's account on the world's chain. */
+const lockKey = (world: World): string => `${world.chainId}:${COW.toLowerCase()}`;
 
 const valueOf = (raw: string): number => Number(Transaction.fromHex(raw, false).raw.value);
 
@@ -168,7 +209,12 @@ function checkClaim(world: World, claimer: Send, nonce: bigint, step: string): v
       // Past a nonce gap, only the connection's own record (the high-water mark, kept on http
       // networks, or the uncertain record and its lookup) tells it the node has the nonce.
       world.violations.push({
-        kind: world.type === "http" ? (had.uncertain ? "uncertain" : "delivered") : "gap",
+        kind:
+          world.type === "edr-simulated" && had.pastReservation
+            ? "gap-434"
+            : had.uncertain
+              ? "uncertain"
+              : "delivered",
         message: what,
       });
     }
@@ -188,12 +234,12 @@ function checkClaim(world: World, claimer: Send, nonce: bigint, step: string): v
     const sameConnection = other.connection === claimer.connection;
     if (other.transport === "through" && !other.expired) {
       world.violations.push({
-        kind: other.exposedByReset ? "reset-hold" : "hold",
+        kind: other.holdLostToReset ? "reset-hold-434" : "hold",
         message: `${step}: send ${claimer.id} signed nonce ${nonce}, held by library send ${other.id}`,
       });
     } else if (sameConnection) {
       world.violations.push({
-        kind: "reservation",
+        kind: other.upToReleased || other.ambiguousReset ? "reservation-434" : "reservation",
         message: `${step}: send ${claimer.id} on connection ${claimer.connection} signed nonce ${nonce}, reserved for library send ${other.id} (${other.transport}${other.expired ? ", past the hold limit" : ""})`,
       });
     }
@@ -211,7 +257,7 @@ function onRaw(world: World) {
     if (send.kind === "plugin") {
       if (world.closed[send.connection]) {
         world.violations.push({
-          kind: "close",
+          kind: "close-434",
           message: `plugin send ${id} reached the node with nonce ${nonce} after connection ${send.connection} closed`,
         });
       } else {
@@ -228,6 +274,18 @@ function onRaw(world: World) {
     if (world.mode === "no-answer") {
       throw new Error("socket hang up");
     }
+    if (send.kind === "plugin") {
+      // On main, an accepted plugin send releases the reservations up to its nonce.
+      for (const reserved of reservationsOn(world, send.connection)) {
+        if (
+          reserved.transport === "own" &&
+          reserved.nonce !== undefined &&
+          reserved.nonce < nonce
+        ) {
+          reserved.upToReleased = true;
+        }
+      }
+    }
     return { jsonrpc: "2.0", id: 1, result: hashOf(raw) };
   };
 }
@@ -241,7 +299,17 @@ function deliver(world: World, send: Send, nonce: bigint): void {
     } else if (send.via !== undefined) {
       recordedOn.add(send.via).add(send.connection);
     }
-    world.delivered.set(nonce, { id: send.id, uncertain: world.mode === "no-answer", recordedOn });
+    const pastReservation = [...recordedOn].some((connection) =>
+      reservationsOn(world, connection).some(
+        (reserved) => reserved.nonce !== undefined && reserved.nonce < nonce,
+      ),
+    );
+    world.delivered.set(nonce, {
+      id: send.id,
+      uncertain: world.mode === "no-answer",
+      recordedOn,
+      pastReservation,
+    });
   }
   if (send.kind === "library") {
     send.state = "delivered";
@@ -251,12 +319,34 @@ function deliver(world: World, send: Send, nonce: bigint): void {
 
 /** Starts a request without waiting for it, and lets it run as far as it can. */
 async function start(world: World, request: Promise<unknown>): Promise<void> {
-  world.inFlight.push(request.catch(() => undefined));
+  world.inFlight.push(
+    request
+      .catch(() => undefined)
+      .finally(() => {
+        world.settled++;
+      }),
+  );
   await settle();
 }
 
 const library = (world: World): LibrarySend[] =>
   world.sends.filter((send): send is LibrarySend => send.kind === "library");
+
+/**
+ * The live library sends whose nonce is a reservation on a connection: own transport, or a hold
+ * past its time limit; not yet in the node.
+ */
+function reservationsOn(world: World, connection: ConnectionIndex): LibrarySend[] {
+  return library(world).filter(
+    (send) =>
+      send.connection === connection &&
+      !send.orphaned &&
+      LIVE.has(send.state) &&
+      send.nonce !== undefined &&
+      !world.delivered.has(send.nonce) &&
+      (send.transport === "own" || send.expired),
+  );
+}
 
 /** A step of a sequence. */
 type Step = fc.AsyncCommand<object, World>;
@@ -324,7 +414,9 @@ function libraryConsume(connection: ConnectionIndex, transport: "through" | "own
         transport,
         state: "consuming",
         expired: false,
-        exposedByReset: false,
+        holdLostToReset: false,
+        upToReleased: false,
+        ambiguousReset: false,
         orphaned: false,
         consume: async () => await account.nonceManager.consume(parameters),
         sign: async (nonce) =>
@@ -354,6 +446,13 @@ function libraryConsume(connection: ConnectionIndex, transport: "through" | "own
           }
           send.state = "consumed";
           send.orphaned = world.closed[connection];
+          if (send.orphaned && transport === "through") {
+            // Its hold keeps the account's lock on every connection until the 60 s limit.
+            world.violations.push({
+              kind: "close-434",
+              message: `library send ${id} got nonce ${send.nonce} and holds the lock after connection ${connection} closed`,
+            });
+          }
           checkClaim(world, send, send.nonce, `library send ${id} consume`);
         })(),
       );
@@ -428,6 +527,40 @@ function libraryBroadcast(index: number, through: ConnectionIndex): Step {
   };
 }
 
+/**
+ * Marks the sends that a reset of `reset` can wrong on main today, in the two shapes #434 fixes:
+ * - an own-transport send whose reservation the node already has, or that is already released,
+ *   so the reset finds no reservation to end and ends the hold of the send that holds the lock;
+ * - an unsigned reservation of another send, which a reset that names no nonce may release.
+ */
+function markKnownResetShapes(world: World, reset: LibrarySend): void {
+  const reservations = reservationsOn(world, reset.connection);
+  const nonce = reset.nonce;
+  if (
+    reset.transport === "own" &&
+    nonce !== undefined &&
+    (nonce < pendingOf(world) || reset.upToReleased || reset.ambiguousReset)
+  ) {
+    for (const held of library(world)) {
+      if (
+        held.transport === "through" &&
+        held.connection === reset.connection &&
+        LIVE.has(held.state) &&
+        !held.expired
+      ) {
+        held.holdLostToReset = true;
+      }
+    }
+  }
+  if (reservations.includes(reset)) {
+    for (const other of reservations) {
+      if (other !== reset && (other.state === "consumed" || other.state === "signing")) {
+        other.ambiguousReset = true;
+      }
+    }
+  }
+}
+
 function libraryReset(index: number): Step {
   return {
     check: () => true,
@@ -442,15 +575,9 @@ function libraryReset(index: number): Step {
       if (send === undefined || (!after.has(send.state) && !uncertain)) {
         return;
       }
+      markKnownResetShapes(world, send);
       if (send.state !== "delivered") {
         send.state = "reset";
-      }
-      if (send.transport === "own") {
-        for (const held of library(world)) {
-          if (held.transport === "through" && held.connection === send.connection) {
-            held.exposedByReset ||= LIVE.has(held.state) && !held.expired;
-          }
-        }
       }
       send.reset();
       await settle();
@@ -497,8 +624,17 @@ const holdLimit: Step = {
         send.expired = true;
       }
     }
+    const before = libraryHoldOf(lockKey(world));
     world.tick(LIBRARY_HOLD_MS);
     await settle();
+    // Invariant 5: no hold outlives its limit. The same object means the same send's hold.
+    const after = libraryHoldOf(lockKey(world));
+    if (before !== undefined && after === before) {
+      world.violations.push({
+        kind: "limit",
+        message: `the hold of nonce ${before.nonce} outlived its ${LIBRARY_HOLD_MS / 1000} s limit`,
+      });
+    }
   },
   toString: () => "holdLimit",
 };
@@ -536,7 +672,8 @@ const stepArbs: [fc.Arbitrary<Step>, number][] = [
   [indexArb.map(librarySign), 1],
   [fc.tuple(indexArb, connectionArb).map(([index, c]) => libraryBroadcast(index, c)), 1],
   [indexArb.map(libraryReset), 2],
-  [fc.constantFrom<Mode>("accept", "refuse", "no-answer").map(nodeMode), 1],
+  // No answer twice as often: it is the path of the uncertain record and its lookup.
+  [fc.constantFrom<Mode>("accept", "refuse", "no-answer", "no-answer").map(nodeMode), 2],
   [fc.boolean().map(kms), 1],
   [fc.constant(holdLimit), 1],
   [connectionArb.map(close), 1],
@@ -544,7 +681,7 @@ const stepArbs: [fc.Arbitrary<Step>, number][] = [
 
 const steps = fc.commands(
   stepArbs.flatMap(([arb, weight]) => Array.from({ length: weight }, () => arb.map(checked))),
-  { maxCommands: 10 },
+  { maxCommands: 10, ...(REPLAY_PATH === undefined ? {} : { replayPath: REPLAY_PATH }) },
 );
 
 /** A chain id per sequence: the send locks and holds are process-global, keyed by chain. */
@@ -575,6 +712,8 @@ async function newWorld(
     mode: "accept",
     kms: { paused: false, gate: gate() },
     inFlight: [],
+    settled: 0,
+    locksBefore: sendLocksInUse(),
     violations: [],
     kinds,
     tick: (ms) => t.mock.timers.tick(ms),
@@ -594,7 +733,12 @@ async function newWorld(
   return world;
 }
 
-/** Lets every request the sequence started settle: resumes the KMS, closes, ends the holds. */
+/**
+ * Lets every request the sequence started settle: resumes the KMS, closes both connections, and
+ * passes every time limit (the hold's, through the global setTimeout mock, and the lock's 120 s
+ * stall, through the harness's timers). Invariant 5: after that, nothing waits, no hold is left
+ * and no send lock is left in use.
+ */
 async function tearDown(world: World): Promise<void> {
   world.kms.paused = false;
   world.kms.gate.open();
@@ -602,11 +746,32 @@ async function tearDown(world: World): Promise<void> {
   for (const index of [0, 1] as const) {
     await close(index).run({}, world);
   }
-  for (let round = 0; round < 10; round++) {
+  // One round per waiting send at most: each can take a hold after the close, which lasts until
+  // its limit. A sequence has at most 10 steps.
+  for (
+    let round = 0;
+    round < 12 &&
+    (world.settled < world.inFlight.length || libraryHoldOf(lockKey(world)) !== undefined);
+    round++
+  ) {
     world.tick(LIBRARY_HOLD_MS);
+    world.harness.timers.fire();
     await settle();
   }
-  await Promise.all(world.inFlight);
+  const stuck = world.inFlight.length - world.settled;
+  if (stuck > 0) {
+    world.violations.push({
+      kind: "limit",
+      message: `${stuck} request(s) still waiting after both connections closed and every limit passed`,
+    });
+    return;
+  }
+  if (libraryHoldOf(lockKey(world)) !== undefined) {
+    world.violations.push({ kind: "limit", message: "a hold outlived both connections" });
+  }
+  if (sendLocksInUse() > world.locksBefore) {
+    world.violations.push({ kind: "limit", message: "a send lock outlived both connections" });
+  }
 }
 
 /** Runs one sequence on a fresh world, and fails on a violation of one of `kinds`. */
@@ -633,6 +798,32 @@ function mockGlobals(t: TestContext): void {
 }
 
 /**
+ * Sequences every run tries before the random ones: the orderings where a reset, a hold limit or
+ * a lost answer meets a reservation or a hold, which random sequences of 10 steps reach rarely.
+ */
+const EXAMPLES: ["http" | "edr-simulated", Step[]][] = [
+  // An own-transport send's reset while another send holds the lock: the hold stays.
+  [
+    "http",
+    [libraryConsume(0, "own"), libraryConsume(0, "through"), libraryReset(0), pluginSend(0)],
+  ],
+  // The held send's own reset while an own-transport reservation lasts: the reservation's nonce
+  // is still not signed by the plugin.
+  [
+    "http",
+    [libraryConsume(0, "own"), libraryConsume(0, "through"), libraryReset(1), pluginSend(0)],
+  ],
+  // A hold past its limit becomes a reservation, which plugin sends keep skipping.
+  ["edr-simulated", [libraryConsume(0, "through"), holdLimit, pluginSend(0), pluginSend(0)]],
+  ["http", [libraryConsume(0, "through"), holdLimit, pluginSend(0), pluginSend(0)]],
+  // A plugin send with no answer past a gap: the next send looks it up first.
+  [
+    "http",
+    [libraryConsume(0, "through"), holdLimit, nodeMode("no-answer"), pluginSend(0), pluginSend(0)],
+  ],
+];
+
+/**
  * Runs random sequences on both network types and fails on the first violation of one of `kinds`.
  */
 async function check(t: TestContext, kinds: ReadonlySet<Kind>): Promise<void> {
@@ -648,6 +839,10 @@ async function check(t: TestContext, kinds: ReadonlySet<Kind>): Promise<void> {
     {
       numRuns: RUNS,
       endOnFailure: false,
+      examples: EXAMPLES.map(([type, sequence]): ["http" | "edr-simulated", Step[]] => [
+        type,
+        sequence.map(checked),
+      ]),
       ...(SEED === undefined ? {} : { seed: SEED }),
       ...(PATH === undefined ? {} : { path: PATH }),
     },
@@ -658,8 +853,9 @@ async function check(t: TestContext, kinds: ReadonlySet<Kind>): Promise<void> {
  * The guard on the invariants that fail on main today. #434's PR fixes each of these orderings
  * and removes this guard (and the `skip` options that use it).
  */
-const UNTIL_434 =
-  "fails until #434 (https://github.com/aelmanaa/hardhat-kms/issues/434) lands; its PR removes this guard";
+const UNTIL_434: string | false = UNGUARD
+  ? false
+  : "fails until #434 (https://github.com/aelmanaa/hardhat-kms/issues/434) lands; its PR removes this guard";
 
 /** The shrunk counterexamples of the guarded kinds, as fixed regression cases. */
 const KNOWN_434: {
@@ -670,31 +866,37 @@ const KNOWN_434: {
 }[] = [
   {
     name: "a send waiting for the lock when its connection closes does not broadcast",
-    kind: "close",
+    kind: "close-434",
     type: "http",
     steps: [libraryConsume(0, "through"), pluginSend(0), close(0)],
   },
   {
     name: "a send waiting for its KMS signature when its connection closes does not broadcast",
-    kind: "close",
+    kind: "close-434",
     type: "http",
     steps: [kms(true), pluginSend(0), close(0)],
   },
   {
+    name: "a library send waiting for the lock when its connection closes takes no hold",
+    kind: "close-434",
+    type: "http",
+    steps: [libraryConsume(0, "through"), libraryConsume(0, "through"), close(0)],
+  },
+  {
     name: "the older own-transport send's reset keeps the newer send's reservation",
-    kind: "reservation",
+    kind: "reservation-434",
     type: "http",
     steps: [libraryConsume(0, "own"), libraryConsume(0, "own"), libraryReset(0), pluginSend(0)],
   },
   {
     name: "a plugin send that skipped a reservation keeps it on edr-simulated",
-    kind: "reservation",
+    kind: "reservation-434",
     type: "edr-simulated",
     steps: [libraryConsume(0, "own"), pluginSend(0), pluginSend(0)],
   },
   {
     name: "a send past a reservation's gap on edr-simulated is not signed again on its connection",
-    kind: "gap",
+    kind: "gap-434",
     type: "edr-simulated",
     steps: [
       libraryConsume(1, "own"),
@@ -707,7 +909,7 @@ const KNOWN_434: {
   },
   {
     name: "an own-transport send's reset after the node took its nonce keeps another send's hold",
-    kind: "reset-hold",
+    kind: "reset-hold-434",
     type: "http",
     steps: [
       libraryConsume(0, "own"),
@@ -722,7 +924,7 @@ const KNOWN_434: {
   },
   {
     name: "the same with the own-transport send's nonce taken on another connection",
-    kind: "reset-hold",
+    kind: "reset-hold-434",
     type: "http",
     steps: [
       libraryConsume(1, "own"),
@@ -736,26 +938,26 @@ const KNOWN_434: {
 
 describe("the nonce subsystem, over random orderings of sends, resets, holds and close (#445)", () => {
   it(
-    "never signs a nonce the node has, or one a library send holds the lock for",
+    "never signs a nonce another live send owns, and no lock or hold outlives its limit",
     { timeout: PROPERTY_TIMEOUT_MS },
     async (t) => {
-      await check(t, new Set<Kind>(["delivered", "uncertain", "hold"]));
+      await check(t, new Set<Kind>(["delivered", "uncertain", "hold", "reservation", "limit"]));
     },
   );
 
   it(
-    "never signs a nonce a connection reserved for a live library send (#434)",
+    "keeps a reservation through a plugin send that skips it and through another send's reset (#434)",
     { timeout: PROPERTY_TIMEOUT_MS, skip: UNTIL_434 },
     async (t) => {
-      await check(t, new Set<Kind>(["reservation", "gap"]));
+      await check(t, new Set<Kind>(["reservation-434", "gap-434"]));
     },
   );
 
   it(
-    "keeps a library send's hold through another send's reset (#434)",
+    "keeps a library send's hold through an own-transport send's reset (#434)",
     { timeout: PROPERTY_TIMEOUT_MS, skip: UNTIL_434 },
     async (t) => {
-      await check(t, new Set<Kind>(["reset-hold"]));
+      await check(t, new Set<Kind>(["reset-hold-434"]));
     },
   );
 
@@ -763,7 +965,7 @@ describe("the nonce subsystem, over random orderings of sends, resets, holds and
     "sends nothing to the node from a connection after it closed (#434)",
     { timeout: PROPERTY_TIMEOUT_MS, skip: UNTIL_434 },
     async (t) => {
-      await check(t, new Set<Kind>(["close"]));
+      await check(t, new Set<Kind>(["close-434"]));
     },
   );
 });
@@ -776,15 +978,22 @@ describe("the model's shrunk counterexamples (#445)", () => {
     });
   }
 
-  it("each still fails on its own kind (remove with the guard in #434)", async (t) => {
-    // Keeps the cases honest while they are skipped: each one reproduces its bug today.
-    mockGlobals(t);
-    for (const known of KNOWN_434) {
-      await assert.rejects(
-        runSequence(t, known.type, known.steps.map(checked), new Set([known.kind])),
-        new RegExp(`${known.kind}: `),
-        known.name,
-      );
-    }
-  });
+  it(
+    "each still fails on main, only in its own guarded kind (remove with the guard in #434)",
+    { skip: UNGUARD },
+    async (t) => {
+      // Keeps the cases honest while they are skipped: each reproduces its bug today, and in no
+      // unguarded kind, so the guard hides nothing else.
+      mockGlobals(t);
+      const unguarded = new Set<Kind>(["delivered", "uncertain", "hold", "reservation", "limit"]);
+      for (const known of KNOWN_434) {
+        await assert.rejects(
+          runSequence(t, known.type, known.steps.map(checked), new Set([known.kind])),
+          new RegExp(`${known.kind}: `),
+          known.name,
+        );
+        await runSequence(t, known.type, known.steps.map(checked), unguarded);
+      }
+    },
+  );
 });
