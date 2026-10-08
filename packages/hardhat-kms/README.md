@@ -85,7 +85,7 @@ export default defineConfig({
 - Deploy a first contract on Sepolia: the tutorial for [AWS KMS](https://aelmanaa.github.io/hardhat-kms/user/tutorials/first-deploy-aws), [Google Cloud KMS](https://aelmanaa.github.io/hardhat-kms/user/tutorials/first-deploy-gcp) or [Azure Key Vault](https://aelmanaa.github.io/hardhat-kms/user/tutorials/first-deploy-azure).
 - Add keys, providers or networks: the [configuration reference](https://aelmanaa.github.io/hardhat-kms/user/reference/configuration) and [Use several keys across networks](https://aelmanaa.github.io/hardhat-kms/user/guides/multiple-keys).
 - Use viem, ethers or Ignition: runnable [examples](https://github.com/aelmanaa/hardhat-kms/blob/main/examples/README.md), [Deploy with Hardhat Ignition](https://aelmanaa.github.io/hardhat-kms/user/guides/deploy-with-ignition), and [library accounts](https://aelmanaa.github.io/hardhat-kms/user/reference/library-accounts) for a viem account from `connection.kms.getAccount`.
-- Move from Foundry: [Migrate from Foundry](https://aelmanaa.github.io/hardhat-kms/user/guides/migrate-from-foundry) and the [comparison with Foundry](https://aelmanaa.github.io/hardhat-kms/user/explanation/foundry-comparison).
+- Move from Foundry: [Move KMS signing from Foundry to Hardhat](https://aelmanaa.github.io/hardhat-kms/user/guides/migrate-from-foundry) and the [comparison with Foundry](https://aelmanaa.github.io/hardhat-kms/user/explanation/foundry-comparison).
 - Choose where the key lives: a KMS key compared with [a private key in .env](https://aelmanaa.github.io/hardhat-kms/user/explanation/kms-or-env-key), [a Ledger](https://aelmanaa.github.io/hardhat-kms/user/explanation/kms-or-ledger) and [other KMS signers](https://aelmanaa.github.io/hardhat-kms/user/explanation/other-kms-signers).
 - See what the plugin changes in Hardhat: [How hardhat-kms works](https://aelmanaa.github.io/hardhat-kms/user/explanation/how-it-works).
 - Browse [all docs](https://aelmanaa.github.io/hardhat-kms/).
@@ -105,7 +105,7 @@ The `kms` tasks run as `npx hardhat kms <task>`. A task takes a key by the name 
 | `kms verify`     | Checks a signature against an address or a key, locally.                                    |
 | `kms history`    | Lists a key's sign events from CloudTrail, Cloud Audit Logs or the Key Vault audit log.     |
 
-`--kms aws`, `--kms gcp` and `--kms azure` read keys from Foundry's environment variables, such as `AWS_KMS_KEY_ID`, so a Foundry project keeps its variables. The option replaces the key's entry in `kms.keys`, not the provider package: install it and list it in `plugins` as above. [Migrate from Foundry](https://aelmanaa.github.io/hardhat-kms/user/guides/migrate-from-foundry) shows the mapping.
+`--kms aws`, `--kms gcp` and `--kms azure` read keys from Foundry's environment variables, such as `AWS_KMS_KEY_ID`, so a Foundry project keeps its variables. The option replaces the key's entry in `kms.keys`, not the provider package: install it and list it in `plugins` as above. [Move KMS signing from Foundry to Hardhat](https://aelmanaa.github.io/hardhat-kms/user/guides/migrate-from-foundry) shows the mapping.
 
 ## Verify a release
 

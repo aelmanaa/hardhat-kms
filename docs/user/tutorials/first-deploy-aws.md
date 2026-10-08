@@ -350,6 +350,8 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 ## Optional: give a deployer only the sign policy
 
+[Skip to step 8](#8-clean-up) if you do not need this section.
+
 This section sets up a production deployer, which the tutorial does not need: an identity that may read the key's public key and sign with it, and do nothing else. It creates that identity as an IAM role and signs with the key as the role. Run it before step 8, while the key exists, in the shell from step 2, which has `KEY_ID`. In a new shell, set `KEY_ID` again first with the `describe-key` command at the start of step 8's key removal. Step 8 removes what this section adds, the role included.
 
 Write the policy with your key's ARN to a file in the project. The ARN holds your AWS account ID, so do not commit the file; step 8 deletes it:
@@ -445,7 +447,7 @@ read -r ROLE_KEY_ID ROLE_SECRET ROLE_TOKEN <<< "$(aws sts assume-role \
   --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)"
 ```
 
-The function below runs one command with the role's credentials, so your own commands keep running as you. It removes `AWS_PROFILE` for that command: with `AWS_PROFILE` set, the AWS SDK that the plugin uses ignores access keys in the environment and signs as the profile ([Credentials](../reference/credentials.md#aws)). Since the profile is gone, the function also passes your region in `AWS_REGION`. It runs in a subshell, so the credentials never reach your own shell, and it stops with `is empty` if a role variable is missing:
+The function below runs one command with the role's credentials, so your own commands keep running as you. It removes `AWS_PROFILE` for that command: with `AWS_PROFILE` set, the AWS SDK that the plugin uses ignores access keys in the environment and signs as the profile ([Credentials](../reference/credentials.md#aws)). Since the profile is gone, the function also passes your region in `AWS_REGION`. The function runs in a subshell and exports the credentials to that one command; they stay in unexported variables of this shell until step 8 unsets them. It stops with `is empty` if a role variable is missing:
 
 ```sh
 as_deployer() (

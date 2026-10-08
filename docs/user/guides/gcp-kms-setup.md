@@ -135,7 +135,7 @@ Instead of `keyVersionName`, a key can list its parts: `projectId`, `location`, 
 
 To pin the key's address, run `npx hardhat kms accounts`. For a key without a pin it prints an `address` line; paste it into the key in place of the commented-out line ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
-To use a key without a config entry, set `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME` and `GCP_KEY_VERSION` and pass `--kms gcp`; see [Migrate from Foundry](migrate-from-foundry.md). Such a key is added to the network selected with `--network`, or to `default` without one.
+To use a key without a config entry, set `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME` and `GCP_KEY_VERSION` and pass `--kms gcp`; see [Move KMS signing from Foundry to Hardhat](migrate-from-foundry.md). Such a key is added to the network selected with `--network`, or to `default` without one.
 
 `configVariable("SEPOLIA_RPC_URL")` reads the RPC URL when a network needs it: from an environment variable of that name (`export SEPOLIA_RPC_URL=https://…`), or from the Hardhat keystore (`npx hardhat keystore set SEPOLIA_RPC_URL`) when the config loads the keystore plugin. The config above does not: add `import hardhatKeystore from "@nomicfoundation/hardhat-keystore";` and put `hardhatKeystore` in `plugins`, or load a Hardhat toolbox, which includes it. The script in step 4 uses it.
 
