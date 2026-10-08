@@ -1,0 +1,75 @@
+name: Tester report
+description: You followed a tutorial with the version on the npm latest tag. Report what worked, what broke and what confused you.
+labels: ["type:test", "status:needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing. [Tester reports](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/support.md#tester-reports) links the tutorial for each cloud. Use a test key on Sepolia.
+
+        Never paste credentials: access keys, client secrets, service account key files, API keys or the contents of a `.env` file or Hardhat keystore.
+
+        Remove identifiers before you submit: key ids, key ARNs and key resource names, AWS account ids, Google Cloud project ids, Azure tenant, subscription, client and object ids, vault names, Etherscan API keys, and RPC URLs that contain an API key. Replace each with a placeholder such as `<KEY_ARN>`. Sepolia addresses and transaction hashes can stay.
+  - type: checkboxes
+    id: redacted
+    attributes:
+      label: Before you submit
+      options:
+        - label: I removed credentials and the identifiers listed above from every field.
+          required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Cloud
+      options: [AWS KMS, Google Cloud KMS, Azure Key Vault]
+    validations:
+      required: true
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Result
+      options:
+        - Finished the tutorial with no problem
+        - Finished the tutorial, but a step was unclear or wrong
+        - Could not finish the tutorial
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: hardhat-kms, the provider package, Hardhat and Node.js. `npm ls hardhat hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure` (or `pnpm ls` with the same arguments) and `node --version` print them.
+      placeholder: hardhat-kms x.y.z, @hardhat-kms/aws x.y.z, hardhat 3.18.0, Node.js 24.16.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and package manager
+      placeholder: macOS 15.5, pnpm 10.12.1
+    validations:
+      required: true
+  - type: textarea
+    id: step
+    attributes:
+      label: Where you got stuck or confused
+      description: The tutorial step by its heading, what you expected and what happened. Write "none" if every step worked.
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Command and error
+      description: The command you ran and the full error text, with identifiers removed.
+      render: shell
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Other notes, such as a console screen that differs from the tutorial.
+  - type: checkboxes
+    id: thanks
+    attributes:
+      label: Release notes
+      options:
+        - label: The 1.0.0 release notes may thank me by my GitHub username.
