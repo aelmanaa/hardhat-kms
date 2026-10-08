@@ -1,7 +1,8 @@
 name: Hardhat versions
 
 # Runs the transaction-filler differential test and the network hook test against the floor of
-# the hardhat peer range and the latest Hardhat 3 release. The CI workflow tests the lockfile
+# the hardhat peer range and the latest Hardhat 3 release, and fails when the Node.js minimum either
+# Hardhat enforces differs from engines.node of hardhat-kms. The CI workflow tests the lockfile
 # version only. It runs when a manifest, the lockfile, the pnpm settings, the plugin entry, hook
 # handlers or RPC code, the two tests or their helpers, or the scripts change, and weekly, so a
 # new Hardhat release is caught without a repository change.
@@ -22,6 +23,7 @@ on:
       - "packages/hardhat-kms/test/integration/transaction-filler.test.ts"
       - "packages/hardhat-kms/test/integration/network-hook.test.ts"
       - "scripts/test-hardhat-versions.ts"
+      - "scripts/node-floor.ts"
       - "scripts/temporary-install.ts"
       - ".github/workflows/hardhat-versions.yml"
   schedule:
