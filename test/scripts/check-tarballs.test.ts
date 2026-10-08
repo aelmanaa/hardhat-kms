@@ -1,4 +1,4 @@
-// The tarball check of release.yml (`scripts/check-tarballs.ts`): the sums listing, the manifest
+// The tarball check of release-stage.yml (`scripts/check-tarballs.ts`): the sums listing, the manifest
 // fields, and the whole check on four small tarballs built with `tar`. Runs in `pnpm test`, with
 // no network.
 import assert from "node:assert/strict";
@@ -138,6 +138,45 @@ describe("checkTarballs on real tarballs", () => {
   it("fails a prerelease version before reading any tarball", () => {
     assert.throws(() => checkTarballs(tarballs, sums, "1.2.0-rc.1", COMMIT), {
       message: "version 1.2.0-rc.1 is not a stable X.Y.Z; a prerelease is never staged from main",
+    });
+  });
+
+  it("fails a stable version on the next channel before reading any tarball", () => {
+    assert.throws(() => checkTarballs(tarballs, sums, VERSION, COMMIT, "next"), {
+      message:
+        "version 1.2.0 is not an X.Y.Z-next.N; release-next.yml stages only next prereleases",
+    });
+    assert.throws(() => checkTarballs(tarballs, sums, "2.0.0-beta.0", COMMIT, "next"), {
+      message: /^version 2\.0\.0-beta\.0 is not an X\.Y\.Z-next\.N/,
+    });
+  });
+
+  it("passes next tarballs on the next channel and refuses them on the stable one", () => {
+    const next = path.join(work, "next");
+    mkdirSync(next);
+    const files = FILES.map((file) => file.replace("1.2.0", "2.0.0-next.0"));
+    files.forEach((file, index) => {
+      const source = mkdtempSync(path.join(work, "src-"));
+      mkdirSync(path.join(source, "package"));
+      writeFileSync(
+        path.join(source, "package", "package.json"),
+        JSON.stringify({ name: PACKAGES[index], version: "2.0.0-next.0", gitHead: COMMIT }),
+      );
+      execFileSync("tar", ["-czf", `next/${file}`, "-C", path.basename(source), "package"], {
+        cwd: work,
+      });
+    });
+    const nextSums = files
+      .map(
+        (file) =>
+          `${createHash("sha256")
+            .update(readFileSync(path.join(next, file)))
+            .digest("hex")}  ${file}`,
+      )
+      .join("\n");
+    assert.equal(checkTarballs(next, nextSums, "2.0.0-next.0", COMMIT, "next").length, 4);
+    assert.throws(() => checkTarballs(next, nextSums, "2.0.0-next.0", COMMIT), {
+      message: "version 2.0.0-next.0 is not a stable X.Y.Z; a prerelease is never staged from main",
     });
   });
 

@@ -70,7 +70,7 @@ git clone https://github.com/aelmanaa/hardhat-kms.git
 git -C hardhat-kms rev-parse 'v<version>^{commit}'
 ```
 
-The check passes when `repository` is `https://github.com/aelmanaa/hardhat-kms`, `ref` is `refs/tags/v<version>`, `path` is `.github/workflows/release.yml`, and `commit` is the commit `git rev-parse` printed. Any other value is a failure: go to [If a check fails](#if-a-check-fails).
+The check passes when `repository` is `https://github.com/aelmanaa/hardhat-kms`, `ref` is `refs/tags/v<version>`, `path` is `.github/workflows/release.yml`, and `commit` is the commit `git rev-parse` printed. Any other value is a failure: go to [If a check fails](#if-a-check-fails). A prerelease of a future major, such as `2.0.0-next.0` on the `next` dist-tag, comes from `.github/workflows/release-next.yml` instead. From the first version after 0.9.0, the signing certificate's SAN and Build Signer URI name `.github/workflows/release-stage.yml`, the reusable workflow both release workflows call, while `path` here and the certificate's Build Config URI still name the calling workflow. A tool that pins the certificate identity, such as `gh attestation verify --signer-workflow`, needs `release-stage.yml`.
 
 ## 3. Check the tag's signature
 

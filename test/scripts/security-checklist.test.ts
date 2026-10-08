@@ -455,6 +455,8 @@ describe("the repository's list page and template", () => {
     const patterns = parseListedPaths(listPage, "Release and supply chain");
     const releasePaths = [
       ".github/workflows/release.yml",
+      ".github/workflows/release-next.yml",
+      ".github/workflows/release-stage.yml",
       ".github/workflows/promote.yml",
       ".github/workflows/release-pr.yml",
       ".github/workflows/pr-hygiene.yml",
@@ -464,6 +466,7 @@ describe("the repository's list page and template", () => {
       "packages/hardhat-kms/package.json",
       "packages/hardhat-kms-gcp/package.json",
       "scripts/verify-release-tag.ts",
+      "scripts/release-channel.ts",
       "scripts/release-gate-ci.ts",
       "scripts/check-tarballs.ts",
       "scripts/security-checklist.ts",

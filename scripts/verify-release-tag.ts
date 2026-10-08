@@ -1,25 +1,32 @@
 // Decides whether a `vX.Y.Z` tag may start a release. The release workflow runs it first, and a
-// maintainer can run it before pushing a tag. Four checks, in this order, each failing with one line:
+// maintainer can run it before pushing a tag. With `--channel next` it decides the same for a
+// `vX.Y.Z-next.N` tag of release-next.yml (scripts/release-channel.ts has both channels' rules).
+// Four checks, in this order, each failing with one line:
 // 1. The tag is annotated and carries an OpenPGP signature by a key in `.github/release-keys/`.
 //    The keys are imported into a throwaway GNUPGHOME, so the caller's keyring plays no part, and
 //    `git verify-tag --raw` is parsed by its status lines, never by its human output.
 // 2. The tag name is `v` + the version of `packages/hardhat-kms/package.json` at the tagged commit,
 //    and the four package manifests carry that same version.
 // 3. The version is a plain `X.Y.Z`, with no `-` prerelease tag and no `+` build metadata: only
-//    the stable line is released.
+//    the stable line is released. On the next channel it is `X.Y.Z-next.N` instead.
 // 4. The tagged commit is an ancestor of `origin/main`, or of `origin/release/X.Y` for a hotfix
 //    of version X.Y.Z. The release branch name comes from the version in the manifests, which
 //    check 2 tied to the tag name; nothing the tag's pusher writes elsewhere can name a branch.
+//    On the next channel it is an ancestor of `origin/next`, the branch the channel names.
 //
 // A passing tag also gets the npm dist-tag release.yml stages it under: `beta` for a commit on
 // main, `release-X.Y` for a hotfix, so a hotfix of an older line never moves `beta` backwards.
+// A next tag gets `next`, so it never reaches `beta` or `latest`.
 //
 // Usage:
 //   node scripts/verify-release-tag.ts vX.Y.Z [--keys DIR] [--main REF] [--output FILE]
+//   node scripts/verify-release-tag.ts vX.Y.Z-next.N --channel next [--keys DIR] [--next REF]
+//     [--output FILE]
 // Exit code 0 when the tag passes, 1 when it fails or the script cannot decide. `--keys` defaults
 // to `.github/release-keys` and `--main` to `origin/main`, which must be fetched. The release
 // branch is read from `refs/remotes/origin/release/X.Y` when it has been fetched. `--output`
-// appends `dist-tag=<tag>` to FILE (GITHUB_OUTPUT) when the tag passes.
+// appends `dist-tag=<tag>` to FILE (GITHUB_OUTPUT) when the tag passes. On the next channel
+// `--next` (default `origin/next`, which must be fetched) is the only ref read.
 import { spawnSync } from "node:child_process";
 import { appendFileSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,10 +35,14 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
+import { CHANNELS, type Channel, parseChannel, versionFailure } from "./release-channel.ts";
+
 /** The directory of maintainer public keys, relative to the repository root. */
 export const KEYS_DIRECTORY = ".github/release-keys";
 /** The ref the tagged commit must be reachable from. */
 export const MAIN_REF = "origin/main";
+/** The ref a next tag's commit must be reachable from. */
+export const NEXT_REF = "origin/next";
 /** The remote-tracking namespace of the release branches, one `release/X.Y` per hotfix line. */
 export const RELEASE_REFS = "refs/remotes/origin/release/";
 /** The npm dist-tag a release from main is staged under. */
@@ -51,8 +62,6 @@ const PGP_SIGNATURE = "-----BEGIN PGP SIGNATURE-----";
 const PRIVATE_KEY = "PRIVATE KEY";
 const PUBLIC_KEY_BEGIN = "-----BEGIN PGP PUBLIC KEY BLOCK-----";
 const PUBLIC_KEY_END = "-----END PGP PUBLIC KEY BLOCK-----";
-/** A stable version: three numbers, no prerelease tag, no build metadata. */
-const STABLE_VERSION = /^\d+\.\d+\.\d+$/;
 /** The same, with the major and minor captured. */
 const STABLE_VERSION_PARTS = /^(\d+)\.(\d+)\.\d+$/;
 
@@ -68,6 +77,10 @@ export interface VerifyOptions {
   keysDirectory?: string;
   /** The ref the tagged commit must be reachable from; defaults to {@link MAIN_REF}. */
   mainRef?: string;
+  /** The channel; defaults to `stable`. The next channel checks {@link VerifyOptions.nextRef}. */
+  channel?: Channel;
+  /** The ref a next tag's commit must be reachable from; defaults to {@link NEXT_REF}. */
+  nextRef?: string;
 }
 
 /** The one-line reason a tag fails. */
@@ -537,10 +550,29 @@ export function verifyReleaseTag(options: VerifyOptions): Verdict {
     }
   }
 
-  if (!STABLE_VERSION.test(primary.version)) {
+  const channel = options.channel ?? "stable";
+  const wrongVersion = versionFailure(channel, primary.version);
+  if (wrongVersion !== undefined) {
+    return { ok: false, reason: wrongVersion };
+  }
+
+  // The next channel reads one branch, which the channel names: no tag, input or version does.
+  if (channel === "next") {
+    const nextRef = options.nextRef ?? NEXT_REF;
+    const nextHead = git(["rev-parse", "--verify", "--quiet", `${nextRef}^{commit}`], cwd, env);
+    if (nextHead.status !== 0) {
+      return { ok: false, reason: `${nextRef} is not fetched; run git fetch origin next` };
+    }
+    const onNext = git(["merge-base", "--is-ancestor", commit, nextRef], cwd, env);
+    if (onNext.status !== 0) {
+      return { ok: false, reason: `commit ${commit} of ${tag} is not on ${nextRef}` };
+    }
     return {
-      ok: false,
-      reason: `version ${primary.version} is not a stable X.Y.Z version; only stable versions are released`,
+      ...signature,
+      version: primary.version,
+      commit,
+      branch: nextRef,
+      distTag: CHANNELS.next.distTag,
     };
   }
 
@@ -596,14 +628,17 @@ function main(argv: readonly string[]): void {
       keys: { type: "string" },
       main: { type: "string" },
       output: { type: "string" },
+      channel: { type: "string" },
+      next: { type: "string" },
     },
   });
   const tag = positionals[0];
   if (tag === undefined || positionals.length !== 1) {
     throw new Error(
-      "usage: node scripts/verify-release-tag.ts vX.Y.Z [--keys DIR] [--main REF] [--output FILE]",
+      "usage: node scripts/verify-release-tag.ts vX.Y.Z [--keys DIR] [--main REF] [--output FILE] [--channel stable|next] [--next REF]",
     );
   }
+  const channel = parseChannel(values.channel ?? "stable");
   const cwd = process.cwd();
   const verdict = verifyReleaseTag({
     tag,
@@ -611,6 +646,8 @@ function main(argv: readonly string[]): void {
     env: process.env,
     ...(values.keys === undefined ? {} : { keysDirectory: path.resolve(cwd, values.keys) }),
     ...(values.main === undefined ? {} : { mainRef: values.main }),
+    channel,
+    ...(values.next === undefined ? {} : { nextRef: values.next }),
   });
   if (!verdict.ok) {
     process.stderr.write(`${tag} fails: ${verdict.reason}\n`);

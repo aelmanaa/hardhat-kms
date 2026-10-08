@@ -2,7 +2,7 @@
 
 Audience: A maintainer cutting a release, or reading what happened to one. Assumes the setup in [CONTRIBUTING.md](../../CONTRIBUTING.md) and a hardware key that signs git tags.
 
-Status: the trust root (`.github/release-keys/`), `scripts/verify-release-tag.ts`, the `Changeset` check on pull requests, the 0.8.0 base version, the registry mode of the package checks (`--from-registry`, `scripts/check-registry-release.ts`, rehearsed against a local verdaccio by `registry-mode.yml`), the three release workflows (`release-pr.yml`, `release.yml`, `promote.yml`) and the two GitHub environments (`npm-publish`, `npm-latest`) exist. 0.9.0, the first version on npm, went through this process on 2026-10-08; [First publish](#first-publish-090-2026-10-08) records what it taught. [Decision 0016](decisions/0016-release-process.md) records why the process has this shape.
+Status: the trust root (`.github/release-keys/`), `scripts/verify-release-tag.ts`, the `Changeset` check on pull requests, the 0.8.0 base version, the registry mode of the package checks (`--from-registry`, `scripts/check-registry-release.ts`, rehearsed against a local verdaccio by `registry-mode.yml`), the three release workflows (`release-pr.yml`, `release.yml`, `promote.yml`), `release-next.yml` for a future major (section 7), which runs the same jobs as `release.yml` from `release-stage.yml`, and the two GitHub environments (`npm-publish`, `npm-latest`) exist. 0.9.0, the first version on npm, went through this process on 2026-10-08; [First publish](#first-publish-090-2026-10-08) records what it taught. [Decision 0016](decisions/0016-release-process.md) records why the process has this shape.
 
 The model in one sentence: every version is a stable semver string, built from a maintainer-signed `vX.Y.Z` tag, staged to npm under the `beta` dist-tag, approved on npmjs.com, verified from the registry, and promoted to `latest` by moving the dist-tag on that exact version. Nothing is rebuilt between `beta` and `latest`: same tarballs, same provenance. The four packages (`hardhat-kms`, `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure`) are one changesets `fixed` group and always carry the same version.
 
@@ -65,7 +65,7 @@ Why the manifests read `0.8.0` before the first release: `changeset version` app
 
    On a failure the line starts with `v1.2.0 fails:` and names the check. Do not push a tag that fails; delete it with `git tag -d v1.2.0` and fix the cause.
 
-6. Push the tag: `git push origin v1.2.0`. The push starts `release.yml` (tag pattern `v[0-9]*.[0-9]*.[0-9]*`).
+6. Push the tag: `git push origin v1.2.0`. The push starts `release.yml` (tag pattern `v[0-9]*.[0-9]*.[0-9]*`, any tag with a `-` left out). Its jobs are in `release-stage.yml`, which `release-next.yml` calls too; `release.yml` fixes the channel to stable.
 7. Wait for `verify-tag`, `gate-ci` and `pack` to go green. `gate-ci` needs four passing runs on the tagged commit, pull-request runs aside:
    - `ci.yml`, the Linux jobs. It runs on every push to `main`, so a commit of `main` usually has a run already.
    - `ci-all-os.yml`, whose macOS and Windows test jobs both passed.
@@ -102,9 +102,23 @@ A dispatch with `dry-run` set to anything but true, or with a `tag` that is not 
 
 ### Trusted publishing
 
-`release.yml` stages and `promote.yml` moves the dist-tag over OIDC only; neither reads a token or a secret. Each of the four packages has two trusted-publisher configurations on npmjs.com: one for `release.yml` on the `npm-publish` environment (stage only, the default for configurations created since 2026-09-03) and one for `promote.yml` on the `npm-latest` environment (allow dist-tag, no publish). Each package's "Publishing access" is set to "Require two-factor authentication and disallow bypass 2fa tokens (recommended)", the label npmjs.com shows; npm's documentation calls the same option "Require two-factor authentication and disallow tokens".
+`release.yml` stages and `promote.yml` moves the dist-tag over OIDC only; neither reads a token or a secret. Each of the four packages has two trusted-publisher configurations on npmjs.com: one for `release.yml` on the `npm-publish` environment (stage only, the default for configurations created since 2026-09-03) and one for `promote.yml` on the `npm-latest` environment (allow dist-tag, no publish). The publish job runs in `release-stage.yml`, but npm matches the token against the calling workflow, so the configuration names `release.yml`. A future major adds a third, for `release-next.yml` ([section 7](#7-a-future-major)). From the first release after 0.9.0, the signing certificate's SAN and Build Signer URI name `release-stage.yml`, the file that runs the publish job, while the provenance statement's `workflow.path` and the certificate's Build Config URI still name `release.yml`. Each package's "Publishing access" is set to "Require two-factor authentication and disallow bypass 2fa tokens (recommended)", the label npmjs.com shows; npm's documentation calls the same option "Require two-factor authentication and disallow tokens".
 
 A configuration shows "not yet validated" until a publish uses it, and expires 48 hours after its creation if no publish does. Check the configurations on the day of each tag, and recreate any that expired before pushing it ([Trusted-publisher configuration expired](#trusted-publisher-configuration-expired)).
+
+### First stable release through `release-stage.yml`
+
+The first stable tag after the jobs moved into `release-stage.yml` is also the first publish over OIDC from a reusable workflow. Two checks for it:
+
+1. Before tagging, dispatch a dry run on the last release tag, which runs the signed-tag path of `verify-tag` inside the reusable workflow:
+
+   ```sh
+   gh workflow run release.yml --ref main -f dry-run=true -f tag=v0.9.0
+   ```
+
+   `verify-tag` must pass with `v0.9.0 passes: ... on origin/main, staged under beta`. `pack` and the tarball check of the dry-run job pass too. The stable channel calls the tagged commit's `check-tarballs.ts` without a channel option, so a tag whose scripts predate the next channel, such as `v0.9.0` or a hotfix cut from it, works. The last step, `npm stage publish --dry-run`, fails for `v0.9.0` because that version is already on npm.
+
+2. After the stage is approved, read the provenance of one package as in [Verify a release](../user/guides/verify-a-release.md#2-read-the-provenance): `path` must be `.github/workflows/release.yml`. Then check that the certificate's SAN names `.github/workflows/release-stage.yml@refs/tags/v<version>`, for example with `gh attestation verify` or by decoding the certificate in the attestation bundle. A refused OIDC exchange stages nothing, and [Run failed before `publish`](#run-failed-before-publish) applies.
 
 ### First publish (0.9.0, 2026-10-08)
 
@@ -232,12 +246,87 @@ Moving a tag is only safe while the release is still failing. Once a version is 
 
 ## 7. A future major
 
-A major is prepared on a `next` branch in changesets pre mode (`changeset pre enter next`, `baseBranch: next` in that branch's config) and published from `v2.0.0-next.*` tags by a `release-next.yml` with the inverse rule of `release.yml`: the version must contain `-next.`, and the dist-tag is `next`. Promotion is `changeset pre exit`, a merge to `main`, and the normal flow from section 3. Pre mode is never entered on `main`: it blocks `latest` until exit, and a prerelease string promoted by `dist-tag add` is invisible to `^1.0.0` ranges. The detail gets its own issue when the first major is planned.
+A major is prepared on a `next` branch in changesets pre mode and published as `X.Y.Z-next.N` prereleases under the `next` dist-tag, while `main` keeps releasing the current line. Pre mode is never entered on `main`: it blocks `latest` until exit, and a prerelease string promoted by `dist-tag add` is invisible to `^1.0.0` ranges.
+
+`release-next.yml` runs the jobs of `release.yml`: both call `release-stage.yml`, and each passes its channel as a constant in the workflow file (`scripts/release-channel.ts` has the rules). The signed-tag check, the CI gate, the fresh installs, the pack, the tarball sums, the `npm-publish` environment, OIDC, provenance and the stage approval on npmjs.com are the same. What the channel changes:
+
+|                  | `release.yml` (stable)                                                  | `release-next.yml` (next)                       |
+| ---------------- | ----------------------------------------------------------------------- | ----------------------------------------------- |
+| Tag pattern      | `v[0-9]*.[0-9]*.[0-9]*`, without any tag that has a `-`                 | `v[0-9]*.[0-9]*.[0-9]*-next.[0-9]*`             |
+| Version          | `X.Y.Z`; anything with a `-` or a `+` is refused                        | `X.Y.Z-next.N`; anything else is refused        |
+| Tagged commit on | `origin/main`, or `origin/release/X.Y` for a hotfix                     | `origin/next`                                   |
+| Dist-tag         | `beta`, then `latest` through `promote.yml`; `release-X.Y` for a hotfix | `next` only; `promote.yml` refuses a prerelease |
+
+The version rule runs three times on the next channel: `release-trigger.ts` on the tag name, `verify-release-tag.ts --channel next` on the manifests at the tagged commit, and `check-tarballs.ts --channel next` in the pack and publish jobs. The stable channel passes `check-tarballs.ts` no channel option: the script's default is the stable rule, and an older stable tag's copy of the script has no such option. The branch comes from the channel, never from an input or the tag: a next tag on any branch but `next` fails with `commit <sha> of v2.0.0-next.0 is not on origin/next`.
+
+### Owner setup, once
+
+A repository admin does this before the first next tag. No workflow creates any of it.
+
+1. Create the branch from `main`: `git push origin origin/main:refs/heads/next`.
+2. Protect it as `main` is protected: add `refs/heads/next` to the include list of the `protect-main` ruleset, or create a copy of it for `next`. A next tag is only as trustworthy as the branch it must be on: without the ruleset, anyone with write access could push a commit to `next` for an admin to tag.
+3. Nothing to change on the `npm-publish` environment or the `protect-tags` ruleset: both match `v*`, which covers `v2.0.0-next.0`.
+4. On a branch from `next`, enter pre mode and point changesets at `next`, then merge it into `next` through a pull request:
+
+   ```sh
+   pnpm changeset pre enter next
+   # in .changeset/config.json, on this branch only: "baseBranch": "next"
+   ```
+
+   Commit `.changeset/pre.json` and the config.
+
+`ci.yml` runs on pushes to `main` only, so a commit on `next` has no push run of it; the `gate-ci` job dispatches `ci.yml` on the tag and waits, as for a hotfix ([section 5](#5-hotfix-on-an-older-line)). `release-pr.yml` runs only on `main`; on `next`, the Version Packages pull request is made by hand (below).
+
+### Release a next version
+
+1. Version on a branch from `next`, and merge it into `next` through a pull request:
+
+   ```sh
+   pnpm run version-packages
+   ```
+
+   In pre mode this writes `2.0.0-next.0`, then `2.0.0-next.1` and so on, to the four manifests and changelogs, and moves the changesets it used to `.changeset/pre/`, where they wait for the pre exit.
+
+2. On release day, before pushing the tag, create the trusted-publisher configurations. Each of the four packages needs one for `release-next.yml`: repository `aelmanaa/hardhat-kms`, workflow `release-next.yml`, environment `npm-publish`, stage only. A configuration expires 48 hours after its creation unless a publish uses it, so create them on the day of the first next tag, not before; the first publish validates them, and later next tags reuse them. Recreate any that expired, as in [Trusted-publisher configuration expired](#trusted-publisher-configuration-expired).
+3. Tag the merge commit and check it:
+
+   ```sh
+   git fetch origin next
+   git tag -s v2.0.0-next.0 -m v2.0.0-next.0 <merge-sha>
+   git verify-tag v2.0.0-next.0
+   node scripts/verify-release-tag.ts v2.0.0-next.0 --channel next
+   ```
+
+   The script prints `v2.0.0-next.0 passes: ... commit <merge-sha> on origin/next, staged under next`.
+
+4. Push the tag: `git push origin v2.0.0-next.0`. It starts `release-next.yml` and not `release.yml`. The CI gate dispatches `ci.yml` on the tag, since a commit on `next` has no push run of it. Follow steps 7 to 10 of [Cut a release](#3-cut-a-release): the publish job stages under `next`.
+5. After approving the stage, check the dist-tags: `npm view hardhat-kms dist-tags` shows `next` at the version and `beta` and `latest` where they were.
+6. Publish the draft GitHub Release as a prerelease by hand; `promote.yml` does not run for a next version:
+
+   ```sh
+   gh release edit v2.0.0-next.0 --draft=false --prerelease --latest=false
+   ```
+
+Rehearse with a dry run, as for `release.yml`. With `tag=none` it packs the dispatched branch, whose manifests must already carry a next version, so it runs from `next` after the first `version-packages`; a stable version fails in `verify-tag`. GitHub dispatches only a workflow whose file is on `main`.
+
+```sh
+gh workflow run release-next.yml --ref next -f dry-run=true -f tag=none
+gh workflow run release-next.yml --ref next -f dry-run=true -f tag=v2.0.0-next.0
+```
+
+Bring fixes from `main` into `next` with a pull request into `next` that merges `main`.
+
+### Promote the major
+
+1. On a branch from `next`: `pnpm changeset pre exit`, and set `baseBranch` back to `main` in `.changeset/config.json`. Merge it into `next` through a pull request.
+2. Merge `next` into `main` through a pull request. The changesets come with it, so `release-pr.yml` opens the Version Packages pull request with `2.0.0`.
+3. Release `v2.0.0` from `main` through sections 3 and 4.
+4. Once `2.0.0` is on `latest`, remove the `release-next.yml` trusted-publisher configurations, or keep them for the next major.
 
 ## 8. Rules for coding agents
 
 Also in [AGENTS.md](../../AGENTS.md):
 
-- Never tag, publish, approve an environment or a stage, move a dist-tag, or dispatch `promote.yml`. Those are maintainer actions on a hardware key or a WebAuthn device. A dry run of `release.yml` publishes nothing, and an agent may run it on its branch to check a change to the release path.
+- Never tag, publish, approve an environment or a stage, move a dist-tag, or dispatch `promote.yml`. Those are maintainer actions on a hardware key or a WebAuthn device. A dry run of `release.yml` or `release-next.yml` publishes nothing, and an agent may run it on its branch to check a change to the release path.
 - Versions change only through `pnpm run version-packages`, on the Version Packages pull request. Never edit a manifest's `version` by hand.
 - Every user-facing change carries a changeset written as a release note, to the rules in [CONTRIBUTING.md](../../CONTRIBUTING.md#changesets).
