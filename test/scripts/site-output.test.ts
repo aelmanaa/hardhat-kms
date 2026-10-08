@@ -348,8 +348,8 @@ describe("siteLinks", () => {
     });
   });
 
-  it("removes a script that removing another joins back together", () => {
-    const html = '<scr<script></script>ipt> href="/x"</script><a href="/site/y">y</a>';
+  it("ignores links after a script that is never closed, as a browser does", () => {
+    const html = '<a href="/site/y">y</a><script> href="/x"<a href="/z">z</a>';
     assert.deepEqual(siteLinks("a.html", html, SITE), {
       links: [{ path: "y", anchor: undefined }],
       problems: [],
