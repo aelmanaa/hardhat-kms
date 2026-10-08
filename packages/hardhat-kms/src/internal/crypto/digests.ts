@@ -79,7 +79,9 @@ export function parseTypedData(input: unknown): TypedData {
   } catch (error) {
     throw new InvalidTypedDataError(
       catalogMessage(ERRORS.typedDataEncoder, {
-        message: error instanceof Error ? error.message : String(error),
+        // The encoder quotes the caller's values, at any length: keep the start, as
+        // viem/inputs.ts does for micro-eth-signer's transaction errors.
+        message: (error instanceof Error ? error.message : String(error)).slice(0, 200),
       }),
     );
   }

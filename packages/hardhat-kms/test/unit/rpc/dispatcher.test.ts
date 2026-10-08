@@ -329,6 +329,26 @@ describe("dispatch: messages and typed data", () => {
     assert.equal(resultOf(await fixture.request("eth_sign", { 0: COW, 1: MESSAGE })), "0xsigned");
   });
 
+  it("cuts the encoder's message about a large malformed value short", async () => {
+    const fixture = await dispatchFixture();
+    const typedData = {
+      ...TYPED_DATA,
+      types: { ...TYPED_DATA.types, Mail: [{ name: "contents", type: "string[]" }] },
+      // 100 kB where the encoder expects an array: its message quotes the value.
+      message: { contents: "x".repeat(100_000) },
+    };
+    await assert.rejects(
+      fixture.request("eth_signTypedData_v4", [COW, typedData]),
+      (error: unknown) => {
+        assert.ok(error instanceof HardhatPluginError, String(error));
+        assert.ok(error.message.includes("expected array, got: xxx"), error.message);
+        assert.ok(error.message.length < 300, `${error.message.length} characters`);
+        return true;
+      },
+    );
+    assert.ok(fixture.adapters.every((adapter) => adapter.calls.signDigest === 0));
+  });
+
   it("signs typed data for this chain, and refuses another chain", async () => {
     const fixture = await dispatchFixture();
     const signature = resultOf(await fixture.request("eth_signTypedData_v4", [COW, TYPED_DATA]));

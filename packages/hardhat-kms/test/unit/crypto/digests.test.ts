@@ -204,6 +204,27 @@ describe("parseTypedData", () => {
     }
   });
 
+  it("keeps the first 200 characters of the encoder's message, which quotes the value", () => {
+    const typedData = {
+      ...EIP712_MAIL,
+      types: { ...EIP712_MAIL.types, Mail: [{ name: "contents", type: "string[]" }] },
+      message: { contents: "x".repeat(10_000) },
+    };
+    const full = (() => {
+      try {
+        typedDataDigest(typedData);
+      } catch (error) {
+        return error instanceof Error ? error.message : undefined;
+      }
+      return undefined;
+    })();
+    assert.ok(full !== undefined && full.length > 200);
+    assert.throws(
+      () => parseTypedData(typedData),
+      invalidTypedData(catalogMessage(ERRORS.typedDataEncoder, { message: full.slice(0, 200) })),
+    );
+  });
+
   it("refuses values that are not plain data, before reading them", () => {
     const plainData = catalogMessage(ERRORS.typedDataPlainData, {});
     for (const [name, value] of [

@@ -579,6 +579,32 @@ describe("KmsSigner", () => {
   });
 
   describe("signature checks", () => {
+    it("refuses r and s that are numbers with its own error, after one fresh request", async () => {
+      // A third-party adapter in plain JavaScript; s is above n/2, so it would be folded.
+      const half = Number(secp256k1.Point.CURVE().n / 2n);
+      for (const [r, s] of [
+        [1e77, half * 1.5],
+        [1n, half * 1.5],
+        [1e77, 1n],
+      ]) {
+        const { adapter } = signer({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
+        let calls = 0;
+        Reflect.set(adapter, "signDigest", async () => {
+          calls++;
+          return await Promise.resolve({ r, s });
+        });
+        const kms = new KmsSigner(adapter, baseOptions);
+
+        await rejectsWith(
+          kms.signDigest(new Uint8Array(32).fill(5)),
+          fakeKeyMessage("sign", ERRORS.signerInvalidSignature, {
+            reason: catalogMessage(ERRORS.signatureScalarType, {}),
+          }),
+        );
+        assert.equal(calls, 2);
+      }
+    });
+
     it("asks for one fresh signature when the first does not match the key", async () => {
       const { adapter, signer: kms } = signer({
         secretKey: hex(HARDHAT_ACCOUNT_0.secretKey),

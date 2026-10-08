@@ -201,6 +201,25 @@ describe("signatures", () => {
     );
   });
 
+  it("rejects r or s that is not a bigint, before any arithmetic", () => {
+    // What an adapter in plain JavaScript might return; the type forbids it, so go around the type.
+    const high = Number(N - 1n);
+    for (const output of [
+      { r: 1e77, s: 1n },
+      { r: 1n, s: high },
+      { r: "1", s: 1n },
+      { r: 1n, s: undefined },
+    ]) {
+      assert.throws(
+        () => Reflect.apply(parseSignature, undefined, [output]),
+        invalidSignature(catalogMessage(ERRORS.signatureScalarType, {})),
+        JSON.stringify(output, (_key, value: unknown) =>
+          typeof value === "bigint" ? `${value}n` : value,
+        ),
+      );
+    }
+  });
+
   it("rejects scalars outside [1, n - 1]", () => {
     for (const [r, s] of [
       [0n, 1n],

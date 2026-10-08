@@ -11,6 +11,7 @@ import { catalogError, errorName } from "../errors.ts";
 import { createConnectionChain } from "../rpc/chain-id.ts";
 import { createTransactionFiller, type UnsignedTransaction } from "../rpc/transaction-filler.ts";
 import { type SignedTransaction, signTransaction } from "../rpc/transactions.ts";
+import { jsonErrorOffset, lineAndColumn } from "./json-position.ts";
 import { printLine, printNote, withNamedSigner } from "./keys.ts";
 
 /** The arguments of `kms sign-tx`. */
@@ -114,9 +115,11 @@ async function readTransaction(file: string): Promise<Record<string, unknown>> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : errorName(error);
-    throw catalogError(ERRORS.txFileNotJson, { file, reason }, { operation: OPERATION });
+  } catch {
+    // Not JSON.parse's message: it quotes the text around the error, which can be a secret when
+    // the wrong file is given. The position alone is enough to find the error.
+    const { line, column } = lineAndColumn(text, jsonErrorOffset(text));
+    throw catalogError(ERRORS.txFileNotJson, { file, line, column }, { operation: OPERATION });
   }
   if (!isObject(parsed) || Array.isArray(parsed)) {
     throw catalogError(ERRORS.txFileNotObject, { file }, { operation: OPERATION });
