@@ -67,12 +67,12 @@ Why the manifests read `0.8.0` before the first release: `changeset version` app
 
 6. Push the tag: `git push origin v1.2.0`. The push starts `release.yml` (tag pattern `v[0-9]*.[0-9]*.[0-9]*`).
 7. Wait for `verify-tag`, `gate-ci` and `pack` to go green. `gate-ci` needs four passing runs on the tagged commit, pull-request runs aside:
-   - `ci.yml`, the Linux jobs. The job never dispatches it: it waits while a run is in progress and fails when the commit has no passing run.
+   - `ci.yml`, the Linux jobs. It runs on every push to `main`, so a commit of `main` usually has a run already.
    - `ci-all-os.yml`, whose macOS and Windows test jobs both passed.
    - `hardhat-versions.yml`, the Hardhat floor and latest, with every job passed.
    - `sdk-floors.yml`, the cloud SDK and viem floors, with every job passed.
 
-   For each of the last three that has no passing run on the commit, the job dispatches it on the tag and waits up to 90 minutes in all (`scripts/release-gate-ci.ts`); a run that failed before the dispatch does not end the wait. If it gives up after 90 minutes, re-run the job once the dispatched runs finish. If a run failed, the summary links it; fix the cause and follow [Run failed before `publish`](#run-failed-before-publish).
+   For each of the four that has no passing run on the commit, the job dispatches it on the tag and waits up to 90 minutes in all (`scripts/release-gate-ci.ts`); a run that failed before the dispatch does not end the wait. If it gives up after 90 minutes, re-run the job once the dispatched runs finish. If a run failed, the summary links it; fix the cause and follow [Run failed before `publish`](#run-failed-before-publish).
 
 8. Read the publish plan, the four tarball file lists, their SHA-256 sums and the release notes in the step summary. Each tarball's `package.json` carries `gitHead`, the tagged commit, which `promote.yml` checks later; npm does not add it to a package published from a tarball. From the second release on, the summary also diffs each file list against the tarball on `latest`. Stop if a file list holds a surprise: nothing has reached npm yet, and [Run failed before `publish`](#run-failed-before-publish) applies.
 9. Approve the `npm-publish` environment. The `publish` job checks the tarballs against the SHA-256 sums the `pack` job passed as a job output, and their name, version and `gitHead`, then stages the four packages with `npm stage publish <tarball> --tag beta --access public --provenance`, over OIDC. Then the `github-release` job creates the GitHub Release `vX.Y.Z` as a draft with the prerelease flag, its notes taken from the `hardhat-kms` changelog entry for the version.
@@ -160,7 +160,9 @@ A hotfix line lives on a branch named `release/<major>.<minor>`: `release/1.0` c
 
 `scripts/verify-release-tag.ts` accepts a tagged commit on `origin/main`, or on `origin/release/X.Y` when the tag is `vX.Y.Z`. It builds that branch name from the version in the manifests at the tagged commit, which must match the tag name, so a tag cannot point the check at another branch: `v1.0.1` on `release/1.1`, on `release/1.0` only in a local clone, or on any other branch fails with `commit <sha> of v1.0.1 is not on origin/main or origin/release/1.0`. The signature, manifest and stable-version checks are the same as for a tag on `main`, and the success line ends with `on origin/release/1.0`. The release workflow fetches every `release/*` branch along with `main` before it runs the script.
 
-Two gaps remain before the first hotfix release. The `gate-ci` job counts only a push run of `ci.yml` on the tagged commit, and `ci.yml` runs on pushes to `main` only, so it refuses a commit that exists only on a release branch. And the reachability check is only as strong as the branch: give `release/*` the same protection as `main`, so that only a reviewed pull request can move it.
+`ci.yml` runs on pushes to `main` only, so a hotfix commit has no push run of it. The `gate-ci` job dispatches `ci.yml` on the tag, as it does for the other three workflows, and waits for that run; a pull-request run on the hotfix branch does not count. The dispatch needs the `workflow_dispatch` trigger in the `ci.yml` of the tagged commit; it was added in [#319](https://github.com/aelmanaa/hardhat-kms/issues/319), so a release branch cut from an older tag needs that change cherry-picked first. A cache saved by a dispatched run is scoped to the tag, and runs on `main` never restore it.
+
+The reachability check is only as strong as the branch: give `release/*` the same protection as `main`, so that only a reviewed pull request can move it.
 
 The promote workflow refuses to move `latest` backwards, so once a newer major exists the GitHub Release is created with `--latest=false` and the dist-tag the version is moved to is `previous`, never `latest`.
 

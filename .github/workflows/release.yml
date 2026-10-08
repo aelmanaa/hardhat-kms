@@ -5,8 +5,8 @@
 #    the version of the four manifests, no prerelease part, its commit on main or, for a hotfix
 #    X.Y.Z, on release/X.Y.
 # 2. gate-ci: the tagged commit has a passing ci.yml run, a ci-all-os.yml run that passed on macOS
-#    and Windows, and passing hardhat-versions.yml and sdk-floors.yml runs; for each of the last
-#    three that has no passing run on the commit, the job dispatches it on the tag and waits
+#    and Windows, and passing hardhat-versions.yml and sdk-floors.yml runs; for each of the four
+#    that has no passing run on the commit, the job dispatches it on the tag and waits
 #    (scripts/release-gate-ci.ts).
 # 3. pack: build, the package checks, the publish plan, then one tarball per package with `gitHead`
 #    set to the tagged commit, checked by scripts/check-tarballs.ts. The SHA-256 sums leave the job
@@ -116,7 +116,7 @@ jobs:
     timeout-minutes: 100
     permissions:
       contents: read # checks out the scripts
-      actions: write # reads the runs of the four workflows, and dispatches all but ci.yml
+      actions: write # reads the runs of the four workflows, and dispatches each one the commit lacks
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

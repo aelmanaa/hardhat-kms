@@ -7,10 +7,11 @@
 //   each concluded `success` with every job `success` (`everyJobPassed`), so a run whose jobs
 //   were skipped never counts.
 // Only runs of that exact commit count, and never pull-request runs: those test a merge commit.
-// ci.yml runs on every push to main, so the merge commit of the Version Packages pull request has
-// one; the gate waits while it is still in progress. The other three are path-filtered or
-// scheduled and may have skipped the commit; then the gate dispatches each one that has no passing
-// run on the tag (`--ref`) and waits for the result.
+// ci.yml runs on every push to main, so the merge commit of the Version Packages pull request
+// usually has one, but a hotfix commit on a release branch has none. The other three are
+// path-filtered or scheduled and may have skipped the commit. For each of the four that has no
+// passing run, the gate dispatches it on the tag (`--ref`) and waits for the result; it waits
+// without dispatching while a run is in progress.
 // It talks to the GitHub API through `gh api`, which reads its token from GH_TOKEN.
 //
 // Usage:
@@ -27,7 +28,7 @@ import { parseArgs, promisify } from "node:util";
 
 import { bothPassed, type Job, parseJobs } from "./ci-all-os-decide.ts";
 
-/** The Linux workflow, which runs on every push to main. */
+/** The Linux workflow, which runs on every push to main and which the gate dispatches when no run passed. */
 export const LINUX_WORKFLOW = "ci.yml";
 /** The macOS and Windows workflow, which the gate dispatches when no run passed. */
 export const ALL_OS_WORKFLOW = "ci-all-os.yml";
@@ -37,11 +38,13 @@ export const HARDHAT_VERSIONS_WORKFLOW = "hardhat-versions.yml";
 export const SDK_FLOORS_WORKFLOW = "sdk-floors.yml";
 /** A workflow the gate dispatches on the tag when the commit has no passing run. */
 export type DispatchedWorkflow =
+  | typeof LINUX_WORKFLOW
   | typeof ALL_OS_WORKFLOW
   | typeof HARDHAT_VERSIONS_WORKFLOW
   | typeof SDK_FLOORS_WORKFLOW;
 /** The workflows the gate dispatches, in the order it looks at them and reports them. */
 export const DISPATCHED_WORKFLOWS: readonly DispatchedWorkflow[] = [
+  LINUX_WORKFLOW,
   ALL_OS_WORKFLOW,
   HARDHAT_VERSIONS_WORKFLOW,
   SDK_FLOORS_WORKFLOW,
@@ -218,11 +221,18 @@ export async function findConcluded(
 }
 
 /**
- * Looks for a passing ci.yml run on a commit: one that completed with `success`.
+ * Looks for a passing ci.yml run on a commit: one that completed with `success`. Its jobs are not
+ * read: ci.yml skips some jobs on push and on dispatch by design.
+ * @param since - See {@link findConcluded}.
  * @returns The newest passing run, else a run in progress, else the newest failed run, else missing.
  */
-export async function findLinux(github: GateGitHub, repo: string, sha: string): Promise<Found> {
-  return await findConcluded(github, repo, LINUX_WORKFLOW, sha);
+export async function findLinux(
+  github: GateGitHub,
+  repo: string,
+  sha: string,
+  since: number = 0,
+): Promise<Found> {
+  return await findConcluded(github, repo, LINUX_WORKFLOW, sha, since);
 }
 
 /**
@@ -289,9 +299,17 @@ async function findDispatched(
   sha: string,
   since: number,
 ): Promise<Found> {
-  return workflow === ALL_OS_WORKFLOW
-    ? await findAllOs(github, repo, sha, since)
-    : await findConcluded(github, repo, workflow, sha, since, true);
+  switch (workflow) {
+    case LINUX_WORKFLOW:
+      return await findLinux(github, repo, sha, since);
+    case ALL_OS_WORKFLOW:
+      return await findAllOs(github, repo, sha, since);
+    case HARDHAT_VERSIONS_WORKFLOW:
+    case SDK_FLOORS_WORKFLOW:
+      return await findConcluded(github, repo, workflow, sha, since, true);
+    default:
+      return workflow satisfies never;
+  }
 }
 
 /** The highest run id among the candidates, so a dispatch can tell its run from older ones. */
@@ -333,11 +351,9 @@ export async function gate(
       })),
     );
   if (mode === "report") {
-    const linux = await findLinux(github, repo, sha);
     const others = await lookAll(new Map());
     const lines = [
       `${header} dry run, nothing dispatched.`,
-      describe(LINUX_WORKFLOW, linux),
       ...others.map(({ workflow, found }) => describe(workflow, found)),
     ];
     for (const { workflow, found } of others) {
@@ -352,23 +368,11 @@ export async function gate(
   // The highest run id of each workflow on the commit just before the gate dispatched it.
   const dispatchedAfter = new Map<string, number>();
   for (;;) {
-    const linux = await findLinux(github, repo, sha);
-    if (linux.state === "missing" || linux.state === "failed") {
-      return {
-        ok: false,
-        lines: [
-          header,
-          describe(LINUX_WORKFLOW, linux),
-          `Without a passing ${LINUX_WORKFLOW} run on the tagged commit nothing is published. Re-run the failed ${LINUX_WORKFLOW} run, or, if the commit has none, tag a commit of main that passed.`,
-        ],
-      };
-    }
     const others = await lookAll(dispatchedAfter);
     // A dispatched workflow whose only listed run is from before the dispatch has no run of its
     // own to show yet.
-    const describeAll = () => [
-      describe(LINUX_WORKFLOW, linux),
-      ...others.map(({ workflow, found }) => {
+    const describeAll = () =>
+      others.map(({ workflow, found }) => {
         const after = dispatchedAfter.get(workflow);
         if (after === undefined) {
           return describe(workflow, found);
@@ -378,10 +382,9 @@ export async function gate(
           found.state === "failed" && found.run.id <= after ? { state: "missing" } : found,
           ref,
         );
-      }),
-    ];
+      });
     const status = describeAll();
-    if (linux.state === "passed" && others.every(({ found }) => found.state === "passed")) {
+    if (others.every(({ found }) => found.state === "passed")) {
       return { ok: true, lines: [header, ...status] };
     }
     const failedDispatches = others.filter(
@@ -395,7 +398,7 @@ export async function gate(
           ...status,
           ...failedDispatches.map(
             ({ workflow }) =>
-              `The ${workflow} run dispatched on ${ref} did not pass. Open it from the link above: re-run its failed jobs if the failure is a flake, then re-run this job; otherwise fix main and release a new version.`,
+              `The ${workflow} run dispatched on ${ref} did not pass. Open it from the link above: re-run its failed jobs if the failure is a flake, then re-run this job; otherwise fix the cause on the branch the tag came from and release a new version.`,
           ),
         ],
       };
