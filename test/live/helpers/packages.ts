@@ -11,7 +11,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { registerHooks } from "node:module";
+// A namespace import: Node 22.13, the published floor that `pnpm test` also runs on, has no
+// `registerHooks`, and a named import would fail there when this file loads.
+import * as nodeModule from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { it } from "node:test";
@@ -195,6 +197,11 @@ export function redirectPackages(directory: string): string[] {
     }
     return redirected.workspaceModules;
   }
+  if (typeof nodeModule.registerHooks !== "function") {
+    throw new Error(
+      `registry mode needs module.registerHooks, from Node 22.15; this is Node ${process.versions.node}`,
+    );
+  }
   const workspaceModules: string[] = [];
   redirected = { directory, workspaceModules };
   const peers = peersOf(directory);
@@ -202,7 +209,7 @@ export function redirectPackages(directory: string): string[] {
   const scratchParent = pathToFileURL(path.join(directory, "package.json")).href;
   const workspaceParent = pathToFileURL(path.join(REPOSITORY, "package.json")).href;
   const workspacePackages = pathToFileURL(`${path.join(REPOSITORY, "packages")}${path.sep}`).href;
-  registerHooks({
+  nodeModule.registerHooks({
     resolve: (specifier, context, nextResolve) => {
       const name = packageName(specifier);
       const fromScratch = context.parentURL?.startsWith(scratch) === true;

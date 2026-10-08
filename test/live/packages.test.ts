@@ -12,6 +12,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import * as nodeModule from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -117,58 +118,67 @@ describe("live package loader", () => {
     }
   });
 
-  it("loads the four packages from the scratch project and their peers from the workspace", () => {
-    const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "hardhat-kms-live-hook-")));
-    try {
-      // A stand-in for the installed packages: the core re-exports viem, its peer, and each
-      // provider re-exports where the core came from.
-      writePackage(
-        directory,
-        "hardhat-kms",
-        'export * as viem from "viem";\nexport const url = import.meta.url;\n',
-        { viem: "*" },
-      );
-      for (const name of ["@hardhat-kms/aws", "@hardhat-kms/gcp", "@hardhat-kms/azure"]) {
+  // `pnpm test` also runs on Node 22.13, the published floor, which has no module.registerHooks.
+  const skipHook =
+    typeof nodeModule.registerHooks === "function"
+      ? false
+      : "module.registerHooks needs Node 22.15 or later";
+  it(
+    "loads the four packages from the scratch project and their peers from the workspace",
+    { skip: skipHook },
+    () => {
+      const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "hardhat-kms-live-hook-")));
+      try {
+        // A stand-in for the installed packages: the core re-exports viem, its peer, and each
+        // provider re-exports where the core came from.
         writePackage(
           directory,
-          name,
-          'import { url } from "hardhat-kms";\nexport default { id: "fake", core: url };\n',
-          { "hardhat-kms": "*", hardhat: "*" },
+          "hardhat-kms",
+          'export * as viem from "viem";\nexport const url = import.meta.url;\n',
+          { viem: "*" },
         );
+        for (const name of ["@hardhat-kms/aws", "@hardhat-kms/gcp", "@hardhat-kms/azure"]) {
+          writePackage(
+            directory,
+            name,
+            'import { url } from "hardhat-kms";\nexport default { id: "fake", core: url };\n',
+            { "hardhat-kms": "*", hardhat: "*" },
+          );
+        }
+        const helper = path.join(here, "helpers", "packages.ts");
+        const script = [
+          `import { redirectPackages } from ${JSON.stringify(helper)};`,
+          `const loaded = redirectPackages(${JSON.stringify(directory)});`,
+          'const aws = await import("@hardhat-kms/aws");',
+          'const core = await import("hardhat-kms");',
+          'const viem = await import("viem");',
+          'await import(new URL("../../packages/hardhat-kms/package.json", import.meta.url).href, { with: { type: "json" } }).catch(() => {});',
+          "console.log(JSON.stringify({",
+          "  aws: aws.default.core,",
+          "  core: core.url,",
+          "  sameViem: core.viem.keccak256 === viem.keccak256,",
+          "  loaded,",
+          "}));",
+        ].join("\n");
+        const output = execFileSync(process.execPath, ["--input-type=module", "--eval", script], {
+          cwd: here,
+          encoding: "utf8",
+        });
+        const result: unknown = JSON.parse(output);
+        const field = (name: string): unknown => Reflect.get(Object(result), name);
+        const coreUrl = pathToFileURL(
+          path.join(directory, "node_modules", "hardhat-kms", "index.js"),
+        ).href;
+        assert.equal(field("aws"), coreUrl);
+        assert.equal(field("core"), coreUrl);
+        assert.equal(field("sameViem"), true, "the scratch core did not load the workspace's viem");
+        const loaded = field("loaded");
+        assert.ok(Array.isArray(loaded));
+        assert.equal(loaded.length, 1, "the hook did not record the module under packages/");
+        assert.match(String(loaded[0]), /\/packages\/hardhat-kms\/package\.json$/);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
       }
-      const helper = path.join(here, "helpers", "packages.ts");
-      const script = [
-        `import { redirectPackages } from ${JSON.stringify(helper)};`,
-        `const loaded = redirectPackages(${JSON.stringify(directory)});`,
-        'const aws = await import("@hardhat-kms/aws");',
-        'const core = await import("hardhat-kms");',
-        'const viem = await import("viem");',
-        'await import(new URL("../../packages/hardhat-kms/package.json", import.meta.url).href, { with: { type: "json" } }).catch(() => {});',
-        "console.log(JSON.stringify({",
-        "  aws: aws.default.core,",
-        "  core: core.url,",
-        "  sameViem: core.viem.keccak256 === viem.keccak256,",
-        "  loaded,",
-        "}));",
-      ].join("\n");
-      const output = execFileSync(process.execPath, ["--input-type=module", "--eval", script], {
-        cwd: here,
-        encoding: "utf8",
-      });
-      const result: unknown = JSON.parse(output);
-      const field = (name: string): unknown => Reflect.get(Object(result), name);
-      const coreUrl = pathToFileURL(
-        path.join(directory, "node_modules", "hardhat-kms", "index.js"),
-      ).href;
-      assert.equal(field("aws"), coreUrl);
-      assert.equal(field("core"), coreUrl);
-      assert.equal(field("sameViem"), true, "the scratch core did not load the workspace's viem");
-      const loaded = field("loaded");
-      assert.ok(Array.isArray(loaded));
-      assert.equal(loaded.length, 1, "the hook did not record the module under packages/");
-      assert.match(String(loaded[0]), /\/packages\/hardhat-kms\/package\.json$/);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 });
