@@ -7,7 +7,7 @@ description: "Deploy a Hardhat 3 contract to Sepolia with Google Cloud KMS: crea
 
 Audience: developers who have a Google Cloud project and the gcloud CLI signed in, and have not used Cloud KMS with Hardhat.
 
-This tutorial was followed from an empty directory on 2026-10-02, at commit [`ab3ee2a`](https://github.com/aelmanaa/hardhat-kms/commit/ab3ee2a), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 6 minutes, without the wait for Sepolia ETH. The run kept the 30-day default destroy schedule; the [key-loss check](../guides/key-loss.md#google-cloud-kms) covers the 24-hour schedule of step 2. The plugin is not on npm yet; step 1 says how to install it until then.
+This tutorial was followed from an empty directory on 2026-10-02, at commit [`ab3ee2a`](https://github.com/aelmanaa/hardhat-kms/commit/ab3ee2a), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 6 minutes, without the wait for Sepolia ETH. The run kept the 30-day default destroy schedule; the [key-loss check](../guides/key-loss.md#google-cloud-kms) covers the 24-hour schedule of step 2.
 
 In this tutorial you create a Hardhat project, create a signing key in Google Cloud KMS, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Cloud KMS: Hardhat asks Cloud KMS for a signature each time it sends a transaction.
 
@@ -16,7 +16,7 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 You need:
 
 - Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm, pnpm or Yarn.
-- A POSIX shell, such as bash or zsh; on Windows, use WSL. Step 3 also uses `curl` to show which account the plugin signs in as. Until the plugin's first npm release you need Git too: [Install before the first npm release](../guides/install-before-release.md) clones the repository.
+- A POSIX shell, such as bash or zsh; on Windows, use WSL. Step 3 also uses `curl` to show which account the plugin signs in as.
 - The gcloud CLI, signed in with an identity that can create Cloud KMS keys and grant roles on them, and a project set: `gcloud config get-value project` prints it. The project Owner role is enough, and so is Cloud KMS Admin; Cloud KMS Admin cannot read a public key or sign, so step 3 grants the two roles that can. The project needs billing and the Cloud KMS API turned on; `gcloud services enable cloudkms.googleapis.com` turns the API on.
 - Application Default Credentials: run `gcloud auth application-default login` once. The plugin signs in with these, not with the gcloud CLI's own sign-in, and the two can be different accounts; step 3 shows how to see which one the plugin uses.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
@@ -56,7 +56,25 @@ With Yarn, `yarn init -2` pins Yarn 4 in `package.json`, so the template's insta
 
 The template has a `Counter` contract, the Ignition module `ignition/modules/Counter.ts` that deploys it, and a `sepolia` network. It also installs `@nomicfoundation/hardhat-verify`, which verifies contracts on block explorers.
 
-Install the core plugin, `hardhat-kms`, and the Google Cloud provider, `@hardhat-kms/gcp`, in the project with [Install before the first npm release](../guides/install-before-release.md): the packages are not on npm yet, so that page builds them from the repository. Come back here after its step 3.
+Install the core plugin, `hardhat-kms`, and the Google Cloud provider, `@hardhat-kms/gcp`, with the package manager you created the project with:
+
+::: code-group
+
+```sh [npm]
+npm install --save-dev hardhat-kms @hardhat-kms/gcp
+```
+
+```sh [pnpm]
+pnpm add --save-dev hardhat-kms @hardhat-kms/gcp
+```
+
+```sh [Yarn]
+yarn add --dev hardhat-kms @hardhat-kms/gcp
+```
+
+:::
+
+If pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, add the packages it names under `allowBuilds` in `pnpm-workspace.yaml` with the value `false`, then run `pnpm install`; the plugin needs none of their install scripts. With Yarn 4.15 or later on the day of a release, the install stops with `YN0016` until `.yarnrc.yml` approves the new versions. [Install hardhat-kms](../guides/install-before-release.md) gives the settings for each package manager.
 
 Register the provider: in `hardhat.config.ts`, import it and add it to `plugins`. It loads `hardhat-kms` itself. The rest of the file stays as the template made it:
 

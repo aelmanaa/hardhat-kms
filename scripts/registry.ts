@@ -2,7 +2,7 @@
 // scripts/consumer-typecheck.ts and scripts/test-peer-installs.ts install the four published
 // packages at that exact version instead of the tarballs they pack, and
 // scripts/check-registry-release.ts runs only in this mode. `--registry <url>` points every npm
-// call at another registry, for a rehearsal against a local one before the first release.
+// call at another registry, for a rehearsal against a local one before a release.
 import { resolvedVersion } from "./temporary-install.ts";
 
 /** The published packages, in the order the scripts install and report them. */
@@ -112,6 +112,36 @@ export function exactVersion(version: string): string {
  */
 export function registrySpecs(version: string): string[] {
   return PACKAGES.map((name) => `${name}@${exactVersion(version)}`);
+}
+
+/**
+ * The Yarn 4 version scripts/test-peer-installs.ts measures, through corepack; the registry-mode
+ * test runs the same one.
+ */
+export const YARN_BERRY = "4.18.1";
+
+/**
+ * The `.yarnrc.yml` of a Yarn 4 test project. Yarn 4.15 and later skip versions published less
+ * than a day ago (`npmMinimalAgeGate`), so on the day of a release every registry-mode install
+ * would stop with `YN0016`. Registry mode therefore adds the line the install page tells users to
+ * add on release day, `npmPreapprovedPackages`, for the four packages only: every other package
+ * stays under the age gate. Tarball mode installs the packages from `file:` paths, which the age
+ * gate does not apply to, and gets no such line.
+ *
+ * @param registryMode - Whether the project installs the packages from a registry.
+ * @returns The file's text.
+ */
+export function yarnBerrySettings(registryMode: boolean): string {
+  const lines = [
+    "nodeLinker: node-modules",
+    "enableScripts: false",
+    "enableTelemetry: false",
+    "enableHardenedMode: false",
+  ];
+  if (registryMode) {
+    lines.push('npmPreapprovedPackages: ["hardhat-kms", "@hardhat-kms/*"]');
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 /**

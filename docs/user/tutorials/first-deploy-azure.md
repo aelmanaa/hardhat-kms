@@ -7,7 +7,7 @@ description: "Sign Hardhat transactions with Azure Key Vault: create a P-256K ke
 
 Audience: developers who have an Azure subscription and the Azure CLI signed in, and have not used Azure Key Vault with Hardhat.
 
-This tutorial was followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH. That run used an existing Standard vault with RBAC. On 2026-10-07, at commit [`f822377`](https://github.com/aelmanaa/hardhat-kms/commit/f822377), with Azure CLI 2.90.0, the Azure commands of steps 2 and 8 were run in a new resource group. They created the group, the vault, a Key Vault Crypto Officer assignment and the key, and refused to reuse the group once it existed. Clean-up purged the key, deleted the group, which removed the vault and the assignment, and purged the vault; `az group exists` then printed `false`. That run skipped the Hardhat steps, step 3's role assignment for a deployer and the "Keep the resource group" route. The plugin is not on npm yet; step 1 says how to install it until then.
+This tutorial was followed from an empty directory on 2026-10-02, at commit [`0afbad3`](https://github.com/aelmanaa/hardhat-kms/commit/0afbad3), with Hardhat 3.18.1 and `@nomicfoundation/hardhat-verify` 3.1.2. The commands took about 4 minutes, without the wait for Sepolia ETH. That run used an existing Standard vault with RBAC. On 2026-10-07, at commit [`f822377`](https://github.com/aelmanaa/hardhat-kms/commit/f822377), with Azure CLI 2.90.0, the Azure commands of steps 2 and 8 were run in a new resource group. They created the group, the vault, a Key Vault Crypto Officer assignment and the key, and refused to reuse the group once it existed. Clean-up purged the key, deleted the group, which removed the vault and the assignment, and purged the vault; `az group exists` then printed `false`. That run skipped the Hardhat steps, step 3's role assignment for a deployer and the "Keep the resource group" route.
 
 In this tutorial you create a Hardhat project, create a signing key in Azure Key Vault, deploy a contract to Sepolia from that key and verify its source on block explorers. The private key never leaves Key Vault: Hardhat asks Key Vault for a signature each time it sends a transaction.
 
@@ -16,7 +16,7 @@ It takes about 15 minutes, plus the time it takes to get Sepolia ETH.
 You need:
 
 - Node.js 22.13.0 or later (see [supported Node.js versions](../reference/support.md)), and npm, pnpm or Yarn.
-- A POSIX shell, such as bash or zsh; on Windows, use WSL. Step 2 also uses `openssl` to make random names. Until the plugin's first npm release you need Git too: [Install before the first npm release](../guides/install-before-release.md) clones the repository.
+- A POSIX shell, such as bash or zsh; on Windows, use WSL. Step 2 also uses `openssl` to make random names.
 - The Azure CLI, signed in with `az login`, with a subscription where you can create a resource group and a key vault and assign roles, such as one where you have the Owner role. The plugin finds the same sign-in as the CLI. It tries environment variables first, but only a complete set: `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` with `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE`. `AZURE_CLIENT_ID` alone only chooses a user-assigned managed identity, which the plugin tries after the CLI. See [Sign in](../guides/azure-key-vault-setup.md#3-sign-in).
 - A sign-in that completed multifactor authentication. Steps 2, 3 and 8 create and delete Azure resources, which Azure allows a user only after MFA; [Sign in](../guides/azure-key-vault-setup.md#3-sign-in) says which commands that covers.
 - A Sepolia RPC URL. The examples use the public `https://ethereum-sepolia-rpc.publicnode.com`; a provider URL with an API key works too.
@@ -56,7 +56,25 @@ With Yarn, `yarn init -2` pins Yarn 4 in `package.json`, so the template's insta
 
 The template has a `Counter` contract, the Ignition module `ignition/modules/Counter.ts` that deploys it, and a `sepolia` network. It also installs `@nomicfoundation/hardhat-verify`, which verifies contracts on block explorers.
 
-Install the core plugin, `hardhat-kms`, and the Azure provider, `@hardhat-kms/azure`, in the project with [Install before the first npm release](../guides/install-before-release.md): the packages are not on npm yet, so that page builds them from the repository. Come back here after its step 3.
+Install the core plugin, `hardhat-kms`, and the Azure provider, `@hardhat-kms/azure`, with the package manager you created the project with:
+
+::: code-group
+
+```sh [npm]
+npm install --save-dev hardhat-kms @hardhat-kms/azure
+```
+
+```sh [pnpm]
+pnpm add --save-dev hardhat-kms @hardhat-kms/azure
+```
+
+```sh [Yarn]
+yarn add --dev hardhat-kms @hardhat-kms/azure
+```
+
+:::
+
+If pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, add the packages it names under `allowBuilds` in `pnpm-workspace.yaml` with the value `false`, then run `pnpm install`; the plugin needs none of their install scripts. With Yarn 4.15 or later on the day of a release, the install stops with `YN0016` until `.yarnrc.yml` approves the new versions. [Install hardhat-kms](../guides/install-before-release.md) gives the settings for each package manager.
 
 Register the provider: in `hardhat.config.ts`, import it and add it to `plugins`. It loads `hardhat-kms` itself. The rest of the file stays as the template made it:
 

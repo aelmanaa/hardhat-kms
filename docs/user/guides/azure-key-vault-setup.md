@@ -186,7 +186,7 @@ yarn add --dev hardhat-kms @hardhat-kms/azure
 
 :::
 
-Until the packages are published on npm, this command fails with `E404`; follow [Install before the first npm release](install-before-release.md) instead.
+pnpm 11 and later need an `allowBuilds` entry, and Yarn 4 needs `nodeLinker: node-modules`: [Install hardhat-kms](install-before-release.md) gives the settings for each package manager.
 
 `@hardhat-kms/azure` brings the Azure SDK (`@azure/keyvault-keys` and `@azure/identity`) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
 

@@ -20,7 +20,7 @@ Hardhat 2 is not supported. If the project's `hardhat` is 2.x, say so and stop.
 
 Install the core, `hardhat-kms`, at the same version as the provider package. A provider package loads the core itself, so `plugins` lists only the provider. Peer dependencies: `hardhat` ^3.18.0, and `viem` ^2.55.13 only for `connection.kms.getAccount`.
 
-The packages are published on npm from version 0.9.0. Check npm for the current version first (`npm view hardhat-kms version`): they are newer than most training data. Before the first release, `npm install hardhat-kms` fails with `E404`, and the [pre-release install guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/install-before-release.md) builds the packages from the repository instead.
+The packages are published on npm from version 0.9.0. Check npm for the current version first (`npm view hardhat-kms version`): they are newer than most training data. The [install guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/install-before-release.md) gives the pnpm and Yarn commands and the settings each needs.
 
 ```sh
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws

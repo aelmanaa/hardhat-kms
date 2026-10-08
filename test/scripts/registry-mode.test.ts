@@ -3,7 +3,7 @@
 // packages, starts verdaccio on a free port, publishes the tarballs to it under `beta` with a
 // throwaway user, and runs each script with `--from-registry <version> --registry <url>`:
 // scripts/check-packages.ts, scripts/consumer-typecheck.ts, scripts/test-peer-installs.ts (npm
-// only), scripts/check-registry-release.ts and the examples test in registry mode. Needs Docker
+// and Yarn 4), scripts/check-registry-release.ts and the examples test in registry mode. Needs Docker
 // for the examples, and the network for the dependencies the registry proxies from npm.
 //
 // `pnpm run test:registry-mode`. Not in `pnpm test`: the installs take minutes.
@@ -17,7 +17,7 @@ import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { pack } from "../../scripts/pack.ts";
-import { PACKAGES } from "../../scripts/registry.ts";
+import { PACKAGES, YARN_BERRY, yarnBerrySettings } from "../../scripts/registry.ts";
 import { readJson } from "../../scripts/temporary-install.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -290,6 +290,45 @@ describe("registry mode against a local registry", { timeout: 2_100_000 }, () =>
       /\| npm \| provider-mismatch \| - \| - \| not run \| skipped in registry mode \|/,
     );
     assert.match(run.output, /provider-mismatch: skipped in registry mode/);
+    assert.doesNotMatch(run.output, /\| NO \|/);
+  });
+
+  it("yarn berry: the age gate refuses the fresh publish without the pre-approval", async () => {
+    // verdaccio records each version's publish time, which Yarn 4's age gate reads: a project
+    // with the tarball-mode settings stops with YN0016, as a user's would on release day.
+    const directory = mkdtempSync(path.join(sandbox, "yarn-age-gate-"));
+    writeFileSync(
+      path.join(directory, "package.json"),
+      '{ "name": "age-gate", "private": true }\n',
+    );
+    writeFileSync(path.join(directory, ".yarnrc.yml"), yarnBerrySettings(false));
+    writeFileSync(path.join(directory, "yarn.lock"), "");
+    const add = await exec("corepack", [`yarn@${YARN_BERRY}`, "add", `hardhat-kms@${version}`], {
+      cwd: directory,
+      env: {
+        ...process.env,
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
+        COREPACK_ENABLE_STRICT: "0",
+        YARN_ENABLE_IMMUTABLE_INSTALLS: "false",
+        YARN_NPM_REGISTRY_SERVER: registry,
+        YARN_UNSAFE_HTTP_WHITELIST: "127.0.0.1",
+      },
+    });
+    assert.notEqual(add.status, 0, add.output);
+    assert.match(add.output, new RegExp(`YN0016.*hardhat-kms.*npm:${version}.*quarantined`));
+  });
+
+  it("test-peer-installs: yarn berry installs the fresh publish with the pre-approval", async () => {
+    const run = await script("test-peer-installs.ts", [
+      "--from-registry",
+      version,
+      "--registry",
+      registry,
+      "yarn berry",
+    ]);
+    assert.equal(run.status, 0, run.output);
+    assert.match(run.output, /\| yarn berry \| control \| 0 \| \S+ \| reached KMS \| yes \|/);
+    assert.doesNotMatch(run.output, /YN0016/);
     assert.doesNotMatch(run.output, /\| NO \|/);
   });
 
