@@ -200,19 +200,38 @@ describe("release-stage.yml", () => {
     },
   );
 
-  it("passes --channel to every check-tarballs.ts call, from the step's env", () => {
-    const calls = runs.filter((step) => step.run.includes("scripts/check-tarballs.ts"));
-    assert.equal(calls.length, 3, calls.map((step) => step.job).join(", "));
-    for (const step of calls) {
-      const command = step.run
-        .replaceAll(/\\\n\s*/g, " ")
-        .split("\n")
-        .filter((line) => line.includes("scripts/check-tarballs.ts"));
-      assert.equal(command.length, 1, step.job);
-      assert.match(command[0] ?? "", /--channel "\$CHANNEL"/, step.job);
-      assert.equal(field(step.env, "CHANNEL"), "${{ inputs.channel }}", step.job);
-    }
-  });
+  // check-tarballs.ts runs from the tagged commit. A stable tag may predate the --channel option
+  // (a hotfix branch cut from v0.9.0), so a stable call passes no option and gets the script's
+  // default, the stable rule; only the next channel passes --channel next.
+  it(
+    "calls check-tarballs.ts with --channel next on next and with no channel option on stable",
+    {
+      skip: process.platform === "win32" ? "the steps are bash; the release runs on Linux" : false,
+    },
+    () => {
+      const calls = runs.filter((step) => step.run.includes("scripts/check-tarballs.ts"));
+      assert.equal(calls.length, 3, calls.map((step) => step.job).join(", "));
+      for (const step of calls) {
+        assert.equal(field(step.env, "CHANNEL"), "${{ inputs.channel }}", step.job);
+        // From `channel_args=()` to the end of the call; node is a function that prints the
+        // arguments after the script name.
+        const lines = step.run.split("\n");
+        const from = lines.findIndex((line) => line.includes("channel_args=()"));
+        const call = lines.findIndex((line) => line.includes("scripts/check-tarballs.ts"));
+        assert.ok(from !== -1 && call > from, step.job);
+        const to = (lines[call] ?? "").trimEnd().endsWith("\\") ? call + 1 : call;
+        const script = `node() { shift; printf '%s\\n' "$@"; }\n${lines.slice(from, to + 1).join("\n")}`;
+        const env = { VERSION: "1.2.3", COMMIT: "c", out: "o", sums: "s", RUNNER_TEMP: "/t" };
+        const stable = bash(script, { ...env, CHANNEL: "stable" });
+        assert.equal(stable.status, 0, `${step.job}: ${stable.stderr}`);
+        assert.equal(stable.stdout.includes("--channel"), false, step.job);
+        assert.match(stable.stdout, /^--commit\nc\n$/m, step.job);
+        const next = bash(script, { ...env, CHANNEL: "next" });
+        assert.equal(next.status, 0, `${step.job}: ${next.stderr}`);
+        assert.match(next.stdout, /\n--channel\nnext\n$/, step.job);
+      }
+    },
+  );
 
   it(
     "fetches next for the next channel, and main and release/* for stable",

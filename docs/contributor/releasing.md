@@ -116,7 +116,7 @@ The first stable tag after the jobs moved into `release-stage.yml` is also the f
    gh workflow run release.yml --ref main -f dry-run=true -f tag=v0.9.0
    ```
 
-   `verify-tag` must pass with `v0.9.0 passes: ... on origin/main, staged under beta`. With `v0.9.0`, `pack` then fails with `Unknown option '--channel'`: it runs the `check-tarballs.ts` of the tagged commit, which predates the channel option. A tag cut after this change passes `pack` too.
+   `verify-tag` must pass with `v0.9.0 passes: ... on origin/main, staged under beta`. `pack` and the tarball check of the dry-run job pass too. The stable channel calls the tagged commit's `check-tarballs.ts` without a channel option, so a tag whose scripts predate the next channel, such as `v0.9.0` or a hotfix cut from it, works. The last step, `npm stage publish --dry-run`, fails for `v0.9.0` because that version is already on npm.
 
 2. After the stage is approved, read the provenance of one package as in [Verify a release](../user/guides/verify-a-release.md#2-read-the-provenance): `path` must be `.github/workflows/release.yml`. Then check that the certificate's SAN names `.github/workflows/release-stage.yml@refs/tags/v<version>`, for example with `gh attestation verify` or by decoding the certificate in the attestation bundle. A refused OIDC exchange stages nothing, and [Run failed before `publish`](#run-failed-before-publish) applies.
 
@@ -257,7 +257,7 @@ A major is prepared on a `next` branch in changesets pre mode and published as `
 | Tagged commit on | `origin/main`, or `origin/release/X.Y` for a hotfix                     | `origin/next`                                   |
 | Dist-tag         | `beta`, then `latest` through `promote.yml`; `release-X.Y` for a hotfix | `next` only; `promote.yml` refuses a prerelease |
 
-The version rule runs three times on the next channel: `release-trigger.ts` on the tag name, `verify-release-tag.ts --channel next` on the manifests at the tagged commit, and `check-tarballs.ts --channel next` in the pack and publish jobs. The branch comes from the channel, never from an input or the tag: a next tag on any branch but `next` fails with `commit <sha> of v2.0.0-next.0 is not on origin/next`.
+The version rule runs three times on the next channel: `release-trigger.ts` on the tag name, `verify-release-tag.ts --channel next` on the manifests at the tagged commit, and `check-tarballs.ts --channel next` in the pack and publish jobs. The stable channel passes `check-tarballs.ts` no channel option: the script's default is the stable rule, and an older stable tag's copy of the script has no such option. The branch comes from the channel, never from an input or the tag: a next tag on any branch but `next` fails with `commit <sha> of v2.0.0-next.0 is not on origin/next`.
 
 ### Owner setup, once
 

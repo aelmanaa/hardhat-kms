@@ -45,6 +45,13 @@ describe("CHANNELS", () => {
     assert.equal(CHANNELS.next.branch, "next");
   });
 
+  it("keeps the stable rule equal to the default of check-tarballs.ts at older tags", () => {
+    // release-stage.yml passes no --channel on stable, because a hotfix tag cut from v0.9.0 runs
+    // that commit's check-tarballs.ts, which has no such option and checks /^\d+\.\d+\.\d+$/.
+    assert.equal(CHANNELS.stable.version.source, String.raw`^\d+\.\d+\.\d+$`);
+    assert.equal(CHANNELS.stable.version.flags, "");
+  });
+
   it("never stages either channel under latest", () => {
     for (const channel of Object.values(CHANNELS)) {
       assert.notEqual(channel.distTag, "latest");

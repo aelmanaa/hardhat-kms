@@ -247,8 +247,13 @@ jobs:
             tarball="$(cd "packages/$dir" && pnpm pack --json --pack-destination "$out" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).filename')"
             (cd "$out" && sha256sum "$(basename "$tarball")") >> "$sums"
           done
+          # check-tarballs.ts runs at the tagged commit. Its default is the stable channel's rule (a
+          # plain X.Y.Z), and a stable tag may predate the --channel option (a hotfix branch cut
+          # from an older tag), so only the next channel passes it; next tags postdate it.
+          channel_args=()
+          if [ "$CHANNEL" = next ]; then channel_args=(--channel next); fi
           node scripts/check-tarballs.ts --dir "$out" --sums "$sums" --version "$VERSION" --commit "$COMMIT" \
-            --channel "$CHANNEL"
+            "${channel_args[@]}"
           echo "sums=$(base64 -w0 < "$sums")" >> "$GITHUB_OUTPUT"
       - name: Tarball sums, file lists and the diff against latest
         run: |
@@ -391,8 +396,13 @@ jobs:
           COMMIT: ${{ needs.verify-tag.outputs.commit }}
         run: |
           printf '%s' "$SUMS" | base64 -d > "$RUNNER_TEMP/SHA256SUMS"
+          # check-tarballs.ts comes from the tagged commit. Its default is the stable channel's rule (a
+          # plain X.Y.Z), and a stable tag may predate the --channel option (a hotfix branch cut
+          # from an older tag), so only the next channel passes it; next tags postdate it.
+          channel_args=()
+          if [ "$CHANNEL" = next ]; then channel_args=(--channel next); fi
           node scripts/check-tarballs.ts --dir "$RUNNER_TEMP/tarballs" --sums "$RUNNER_TEMP/SHA256SUMS" \
-            --version "$VERSION" --commit "$COMMIT" --channel "$CHANNEL"
+            --version "$VERSION" --commit "$COMMIT" "${channel_args[@]}"
       # Node 24 ships npm 11.19. Staged publishing needs 11.15.0 and OIDC dist-tags 11.21.0, so the
       # release and promote jobs install the same pinned npm, with no install scripts, and refuse
       # one below 11.21.0. Raise the pin on purpose, in all four places.
@@ -461,8 +471,13 @@ jobs:
           COMMIT: ${{ needs.verify-tag.outputs.commit }}
         run: |
           printf '%s' "$SUMS" | base64 -d > "$RUNNER_TEMP/SHA256SUMS"
+          # check-tarballs.ts comes from the tagged commit. Its default is the stable channel's rule (a
+          # plain X.Y.Z), and a stable tag may predate the --channel option (a hotfix branch cut
+          # from an older tag), so only the next channel passes it; next tags postdate it.
+          channel_args=()
+          if [ "$CHANNEL" = next ]; then channel_args=(--channel next); fi
           node scripts/check-tarballs.ts --dir "$RUNNER_TEMP/tarballs" --sums "$RUNNER_TEMP/SHA256SUMS" \
-            --version "$VERSION" --commit "$COMMIT" --channel "$CHANNEL"
+            --version "$VERSION" --commit "$COMMIT" "${channel_args[@]}"
       # The same pinned npm as the publish job; see the comment there.
       - name: Install the pinned npm
         run: | # zizmor: ignore[adhoc-packages] npm itself, pinned to an exact version
