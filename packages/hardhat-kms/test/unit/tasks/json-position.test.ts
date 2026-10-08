@@ -111,6 +111,15 @@ describe("jsonErrorOffset", () => {
   });
 });
 
+describe("jsonErrorOffset on long strings", () => {
+  it("reads strings of any length without overflowing", () => {
+    const long = "a".repeat(10_000_000);
+    assert.equal(jsonErrorOffset(`"${long}`), 0);
+    assert.equal(jsonErrorOffset(`"${long}"x`), long.length + 2);
+    assert.equal(jsonErrorOffset(`"${"\\n".repeat(5_000_000)}`), 0);
+  });
+});
+
 describe("lineAndColumn", () => {
   it("counts lines from 1 at each newline, and columns from 1 after it", () => {
     const text = "ab\ncd\r\n\nef";

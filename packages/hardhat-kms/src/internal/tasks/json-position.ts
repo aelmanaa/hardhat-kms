@@ -7,9 +7,8 @@
  */
 
 const WHITESPACE = new Set([" ", "\t", "\n", "\r"]);
-// Sticky: each matches at `lastIndex` only. A string holds no `"`, `\` or control character
-// (below U+0020) unescaped.
-const STRING = /"(?:[\u0020\u0021\u0023-\u005b\u005d-\uffff]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*"/y;
+// Sticky: each matches at `lastIndex` only.
+const ESCAPE = /\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})/y;
 const NUMBER = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
 const LITERAL = /true|false|null/y;
 
@@ -17,6 +16,37 @@ const LITERAL = /true|false|null/y;
 function tokenEnd(pattern: RegExp, text: string, start: number): number | undefined {
   pattern.lastIndex = start;
   return pattern.test(text) ? pattern.lastIndex : undefined;
+}
+
+/**
+ * The index just past the JSON string at `start`, or `undefined` if there is none. A loop, not
+ * one pattern: a regular expression over a whole string keeps a backtracking entry per
+ * character and overflows on a string of a few million characters.
+ */
+function stringEnd(text: string, start: number): number | undefined {
+  if (text.charAt(start) !== '"') {
+    return undefined;
+  }
+  let index = start + 1;
+  for (;;) {
+    const char = text.charAt(index);
+    if (char === '"') {
+      return index + 1;
+    }
+    if (char === "\\") {
+      const end = tokenEnd(ESCAPE, text, index);
+      if (end === undefined) {
+        return undefined;
+      }
+      index = end;
+    } else if (char < " ") {
+      // A control character that a JSON string must escape, or the end of the text: charAt gives
+      // "" there, which sorts below " " too.
+      return undefined;
+    } else {
+      index++;
+    }
+  }
 }
 
 /**
@@ -41,7 +71,7 @@ export function jsonErrorOffset(text: string): number {
   };
   /** Reads `"key" :` at `index`; returns false where it is not one. */
   const readKey = (): boolean => {
-    const end = tokenEnd(STRING, text, index);
+    const end = stringEnd(text, index);
     if (end === undefined) {
       return false;
     }
@@ -73,9 +103,7 @@ export function jsonErrorOffset(text: string): number {
         continue;
       }
       const end =
-        tokenEnd(STRING, text, index) ??
-        tokenEnd(NUMBER, text, index) ??
-        tokenEnd(LITERAL, text, index);
+        stringEnd(text, index) ?? tokenEnd(NUMBER, text, index) ?? tokenEnd(LITERAL, text, index);
       if (end === undefined) {
         return index;
       }

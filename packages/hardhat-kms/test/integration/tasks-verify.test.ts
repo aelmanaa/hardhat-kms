@@ -547,7 +547,7 @@ describe("kms verify", () => {
       );
       await assertKmsError(
         run(JSON.stringify(EIP712_MAIL).replace('"chainId":1', '"chainId":9007199254740993')),
-        "a number is above 2^53 - 1 (read as 9007199254740992), so JSON cannot hold it exactly; write it as a string",
+        'a number at key "chainId" is above 2^53 - 1, so JSON cannot hold it exactly; write it as a string',
       );
       await assertKmsError(
         run(`${"[".repeat(100_000)}${"]".repeat(100_000)}`),

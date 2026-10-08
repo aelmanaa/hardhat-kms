@@ -204,7 +204,7 @@ describe("parseTypedData", () => {
     }
   });
 
-  it("keeps the first 200 characters of the encoder's message, which quotes the value", () => {
+  it("cuts the encoder's message, which quotes the value, to 200 characters ending in ...", () => {
     const typedData = {
       ...EIP712_MAIL,
       types: { ...EIP712_MAIL.types, Mail: [{ name: "contents", type: "string[]" }] },
@@ -219,9 +219,18 @@ describe("parseTypedData", () => {
       return undefined;
     })();
     assert.ok(full !== undefined && full.length > 200);
+    // A message of exactly 200 characters is kept whole. The message ends with the value.
+    assert.ok(full.endsWith("x".repeat(10_000)));
+    const exact = { ...typedData, message: { contents: "x".repeat(10_000 - (full.length - 200)) } };
+    assert.throws(
+      () => parseTypedData(exact),
+      invalidTypedData(catalogMessage(ERRORS.typedDataEncoder, { message: full.slice(0, 200) })),
+    );
     assert.throws(
       () => parseTypedData(typedData),
-      invalidTypedData(catalogMessage(ERRORS.typedDataEncoder, { message: full.slice(0, 200) })),
+      invalidTypedData(
+        catalogMessage(ERRORS.typedDataEncoder, { message: `${full.slice(0, 197)}...` }),
+      ),
     );
   });
 

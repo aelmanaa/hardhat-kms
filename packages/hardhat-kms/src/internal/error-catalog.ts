@@ -1323,7 +1323,7 @@ export const ERRORS = {
     group: "Typed data",
     template: "{message}",
     cause:
-      "The EIP-712 encoder refused the typed data, for example for an unknown type or a value that does not fit its type. The message is the encoder's own, cut to its first 200 characters because it can quote a whole value.",
+      "The EIP-712 encoder refused the typed data, for example for an unknown type or a value that does not fit its type. The message is the encoder's own, cut to 200 characters, ending in `...`, because it can quote a whole value.",
     fix: "Fix the type or value the message names.",
   },
   typedDataUnsafeInteger: {
@@ -1331,9 +1331,9 @@ export const ERRORS = {
     kind: "reason",
     group: "Typed data",
     template:
-      "a number is above 2^53 - 1 (read as {value}), so JSON cannot hold it exactly; write it as a string",
+      "a number {where} is above 2^53 - 1, so JSON cannot hold it exactly; write it as a string",
     cause:
-      "The typed data JSON has an integer too large for a JavaScript number, which would be rounded and signed as another value.",
+      "The typed data JSON has an integer too large for a JavaScript number, which would be rounded and signed as another value. The message names the key, cut to 40 characters, and never the number, since the file may be another one given by mistake.",
     fix: "Write large integers, such as `uint256` amounts, as decimal or hex strings.",
   },
   chainIdInvalid: {
