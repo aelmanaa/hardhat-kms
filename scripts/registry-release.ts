@@ -1,6 +1,7 @@
 // The guards of scripts/check-registry-release.ts, as functions of parsed `npm view`, `npm audit
 // signatures` and git output, so the tests can feed them recorded output. Each guard throws an
 // error whose message names the check that failed and the values it compared.
+import { unwrapNpmView } from "./npm-view.ts";
 import { PACKAGES } from "./registry.ts";
 import { MAIN_DIST_TAG, releaseBranch } from "./verify-release-tag.ts";
 
@@ -73,7 +74,7 @@ export function parsePackageView(name: string, json: string): PackageView {
   if (json.trim() === "") {
     throw new Error(`${name} has no published version`);
   }
-  const parsed: unknown = JSON.parse(json);
+  const parsed = unwrapNpmView(`npm view ${name}`, JSON.parse(json));
   const error = field(parsed, "error");
   if (error !== undefined) {
     throw new Error(`npm view ${name} failed: ${npmError(error)}`);
@@ -109,7 +110,7 @@ export function parseGitHead(json: string): string | undefined {
   if (json.trim() === "") {
     return undefined;
   }
-  const parsed: unknown = JSON.parse(json);
+  const parsed = unwrapNpmView("npm view gitHead", JSON.parse(json));
   return typeof parsed === "string" && parsed !== "" ? parsed : undefined;
 }
 
