@@ -82,7 +82,8 @@ export type Verdict =
     })
   | Failure;
 
-interface Command {
+/** What a command returned. */
+export interface Command {
   status: number | null;
   stdout: string;
   stderr: string;
@@ -109,6 +110,57 @@ function gpg(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): Comm
     cwd,
     env,
   );
+}
+
+/** Runs a command and returns its exit status and output; throws when it cannot start. */
+export type RunCommand = (
+  file: string,
+  args: readonly string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+) => Command;
+
+/** Turns an absolute path into the spelling `gpg` and `gpgconf` read. */
+export type GpgPath = (file: string) => string;
+
+/**
+ * Makes the function that spells paths the way `gpg` and `gpgconf` read them. On Linux and macOS,
+ * and with a native Windows build of `gpg`, that is the path itself. Git for Windows ships an MSYS
+ * build of `gpg`, which takes `C:\...` for a relative path; for it the path becomes the POSIX form
+ * `cygpath -u` gives, for example `/c/...`. Which build runs is read once, on the first path, from
+ * the home directory `gpg --version` prints: `/c/...` from the MSYS build, `C:\...` from a native
+ * one. On Linux and macOS nothing runs.
+ * @param cwd The directory to run `gpg` and `cygpath` in.
+ * @param env The environment for `gpg` and `cygpath`.
+ * @param runCommand Runs `gpg` and `cygpath`; tests pass a stub.
+ * @param platform The platform Node runs on; tests pass `win32` to reach the Windows branches.
+ * @returns The function; it throws when `gpg` is the MSYS build and `cygpath` cannot convert a path.
+ */
+export function gpgPathFor(
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  runCommand: RunCommand = run,
+  platform: NodeJS.Platform = process.platform,
+): GpgPath {
+  if (platform !== "win32") {
+    return (file) => file;
+  }
+  let posix: boolean | undefined;
+  return (file) => {
+    if (posix === undefined) {
+      const { GNUPGHOME: _, ...withoutHome } = env;
+      const version = runCommand("gpg", ["--version"], cwd, withoutHome).stdout;
+      posix = /^Home: (.*)$/m.exec(version)?.[1]?.startsWith("/") ?? false;
+    }
+    if (!posix) {
+      return file;
+    }
+    const converted = runCommand("cygpath", ["-u", file], cwd, env);
+    if (converted.status !== 0) {
+      throw new Error(`cygpath cannot convert ${file}: ${converted.stderr.trim()}`);
+    }
+    return converted.stdout.trim();
+  };
 }
 
 /**
@@ -238,12 +290,14 @@ export function isOnePublicKeyBlock(text: string): boolean {
 }
 
 /**
- * Imports every `.asc` file of the key directory into `home`.
+ * Imports every `.asc` file of the key directory into `home`, which is spelled for `gpg`;
+ * `gpgPath` spells each key file the same way.
  * @returns The primary fingerprints imported, or the reason the import fails.
  */
 function importKeys(
   keysDirectory: string,
   home: string,
+  gpgPath: GpgPath,
   cwd: string,
   env: NodeJS.ProcessEnv,
 ): { ok: true; fingerprints: Set<string> } | Failure {
@@ -281,7 +335,7 @@ function importKeys(
     // The exit status says nothing useful: gpg exits 2 when it cannot reach an agent it does not
     // need. The IMPORT_OK status lines say what was imported.
     const imported = importedFingerprints(
-      statusLines(gpg(["--homedir", home, "--import", file], cwd, env)),
+      statusLines(gpg(["--homedir", home, "--import", gpgPath(file)], cwd, env)),
     );
     if (imported.size === 0) {
       return {
@@ -360,9 +414,19 @@ function checkSignature(options: VerifyOptions, keysDirectory: string): Signatur
     };
   }
   const home = mkdtempSync(path.join(tmpdir(), HOME_PREFIX));
-  const homeEnv: NodeJS.ProcessEnv = { ...env, GNUPGHOME: home };
+  // `home` itself is what removeKeyHome checks and removes; `gpg` gets it in its own spelling.
+  // A failed conversion throws before the `try` below, so it removes the home itself.
+  const gpgPath = gpgPathFor(cwd, env);
+  let gpgHome: string;
   try {
-    const keys = importKeys(keysDirectory, home, cwd, homeEnv);
+    gpgHome = gpgPath(home);
+  } catch (error: unknown) {
+    removeKeyHome(home);
+    throw error;
+  }
+  const homeEnv: NodeJS.ProcessEnv = { ...env, GNUPGHOME: gpgHome };
+  try {
+    const keys = importKeys(keysDirectory, gpgHome, gpgPath, cwd, homeEnv);
     if (!keys.ok) {
       return keys;
     }
@@ -390,7 +454,7 @@ function checkSignature(options: VerifyOptions, keysDirectory: string): Signatur
   } finally {
     // gpg may have started an agent for this home; stop it before the directory goes. A missing
     // gpgconf is not an error: there is then no agent to stop.
-    spawnSync("gpgconf", ["--homedir", home, "--kill", "gpg-agent"], { cwd, env: homeEnv });
+    spawnSync("gpgconf", ["--homedir", gpgHome, "--kill", "gpg-agent"], { cwd, env: homeEnv });
     removeKeyHome(home);
   }
 }
