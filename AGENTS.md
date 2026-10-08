@@ -130,6 +130,7 @@ Where things are:
 | Why the main decisions were made                            | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
 | How other signers compare, and why each check exists        | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
 | Roadmap                                                     | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
+| The 1.0.0 announcement text                                 | [docs/contributor/launch-notes/1.0.0.md](docs/contributor/launch-notes/1.0.0.md)                 |
 
 Decision records:
 
