@@ -148,7 +148,7 @@ An Azure key name has 1 to 127 letters, digits or `-`, and a key version has let
 
 ## Keys from the command line
 
-Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. Foundry has not released an Azure signer: the `azure` variable names follow the proposal in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120) and may change before it ships. These keys inherit `kms.defaults` and pass the same checks as config keys. They are added to the selected network only (the `--network` value, or `default` without one), after the network's `kmsAccounts`. A command-line key that names the same KMS key as a config key on that network is an error that names both, without the value. See [Migrate from Foundry](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry).
+Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. Foundry has not released an Azure signer: the `azure` variable names follow the proposal in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120) and may change before it ships. These keys inherit `kms.defaults` and pass the same checks as config keys. They are added to the selected network only (the `--network` value, or `default` without one), after the network's `kmsAccounts`. A command-line key that names the same KMS key as a config key on that network is an error that names both, without the value. See [Move KMS signing from Foundry to Hardhat](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry).
 
 ## Resolved config
 

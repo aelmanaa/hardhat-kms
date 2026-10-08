@@ -437,7 +437,15 @@ The chain is followed by `(from --chain)` or `(from --network <name>)`. Other no
 
 ### Keep the tuple private until it is used
 
-Treat a printed tuple as a credential until a transaction uses it or the account's nonce moves past it. Anyone who holds it can submit it, from any account, and delegate the key's account to the code it names. To cancel a tuple you no longer want, send any transaction from the key: that uses the nonce, and the tuple can no longer apply. A chain-0 tuple applies on every chain where the account has that nonce, so it stays usable on each chain until the nonce moves past it there.
+Treat a printed tuple as a credential until a transaction uses it or the account's nonce moves past it. Anyone who holds it can submit it, from any account, and delegate the key's account to the code it names.
+
+[EIP-7702](https://eips.ethereum.org/EIPS/eip-7702) applies a tuple only when the account's nonce equals the tuple's nonce. A tuple stops applying on a chain once the account's confirmed nonce there is above the tuple's nonce. To check, read `eth_getTransactionCount(address, "latest")` on each chain where the tuple could apply and compare it with the tuple's `nonce`.
+
+One transaction from the key is not always enough. A `--self-broadcast` tuple carries the pending nonce + 1: when the pending nonce is N, the tuple's nonce is N + 1. A transaction at N raises the confirmed nonce to N + 1, which equals the tuple's, so the tuple can still be submitted. The confirmed nonce must reach N + 2. The same holds for a tuple signed with a `--nonce` above the pending count: every nonce up to and including the tuple's must be used.
+
+Until the confirmed nonce is above the tuple's, your own transactions race whoever holds the tuple. Once the account's nonce equals the tuple's, a third party can put the tuple in a transaction of their own, and that transaction can be included before yours.
+
+A chain-0 tuple applies on every chain where the account has that nonce, so it stays usable on each chain until the nonce moves past it there.
 
 ### Send the authorization
 

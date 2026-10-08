@@ -87,7 +87,7 @@ export default defineConfig({
 - Deploy a first contract on Sepolia: the tutorial for [AWS KMS](docs/user/tutorials/first-deploy-aws.md), [Google Cloud KMS](docs/user/tutorials/first-deploy-gcp.md) or [Azure Key Vault](docs/user/tutorials/first-deploy-azure.md).
 - Add keys, providers or networks: the [configuration reference](docs/user/reference/configuration.md) and [Use several keys across networks](docs/user/guides/multiple-keys.md).
 - Use viem, ethers or Ignition: runnable [examples](examples/README.md), [Deploy with Hardhat Ignition](docs/user/guides/deploy-with-ignition.md), and [library accounts](docs/user/reference/library-accounts.md) for a viem account from `connection.kms.getAccount`.
-- Move from Foundry: [Migrate from Foundry](docs/user/guides/migrate-from-foundry.md) and the [comparison with Foundry](docs/user/explanation/foundry-comparison.md).
+- Move from Foundry: [Move KMS signing from Foundry to Hardhat](docs/user/guides/migrate-from-foundry.md) and the [comparison with Foundry](docs/user/explanation/foundry-comparison.md).
 - Choose where the key lives: a KMS key compared with [a private key in .env](docs/user/explanation/kms-or-env-key.md), [a Ledger](docs/user/explanation/kms-or-ledger.md) and [other KMS signers](docs/user/explanation/other-kms-signers.md).
 - See what the plugin changes in Hardhat: [How hardhat-kms works](docs/user/explanation/how-it-works.md).
 - Browse [all docs](docs/README.md).
@@ -107,7 +107,7 @@ The `kms` tasks run as `npx hardhat kms <task>`. A task takes a key by the name 
 | `kms verify`     | Checks a signature against an address or a key, locally.                                    |
 | `kms history`    | Lists a key's sign events from CloudTrail, Cloud Audit Logs or the Key Vault audit log.     |
 
-`--kms aws`, `--kms gcp` and `--kms azure` read keys from Foundry's environment variables, such as `AWS_KMS_KEY_ID`, so a Foundry project keeps its variables. The option replaces the key's entry in `kms.keys`, not the provider package: install it and list it in `plugins` as above. [Migrate from Foundry](docs/user/guides/migrate-from-foundry.md) shows the mapping.
+`--kms aws`, `--kms gcp` and `--kms azure` read keys from Foundry's environment variables, such as `AWS_KMS_KEY_ID`, so a Foundry project keeps its variables. The option replaces the key's entry in `kms.keys`, not the provider package: install it and list it in `plugins` as above. [Move KMS signing from Foundry to Hardhat](docs/user/guides/migrate-from-foundry.md) shows the mapping.
 
 ## Verify a release
 

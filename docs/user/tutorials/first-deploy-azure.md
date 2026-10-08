@@ -419,6 +419,8 @@ The `From` field of each transaction is your deployer address. The signature cam
 
 ## Optional: give a deployer a sign role
 
+[Skip to step 8](#8-clean-up) if you do not need this section.
+
 This section sets up a production deployer, which the tutorial does not need. Run it before step 8, while the key exists, in the shell from step 4, which has `VAULT_ID` and `AZURE_KEY_ID`. Step 8 removes the assignment, and the deployer identity if this section created it.
 
 It gives the deployer the built-in **Key Vault Crypto User** role on this one key, not on the vault, so it can use no other key. For a deployer that holds real funds, use the custom role described below the command instead.
@@ -485,7 +487,7 @@ as_deployer() (
 )
 ```
 
-If a variable is empty, the function stops and names the command to run. Without the guard, the plugin would sign as you, through the Azure CLI, and the check below would pass for the wrong identity. The function runs in a subshell, so the secret never reaches your own shell. A new shell has lost the secret, and Azure cannot show it again. Set `TENANT_ID` with `az account show` and `APP_ID` with the `az ad app list` command of step 8, then run the `az ad app credential reset` command above, which replaces the old secret with a new one.
+If a variable is empty, the function stops and names the command to run. Without the guard, the plugin would sign as you, through the Azure CLI, and the check below would pass for the wrong identity. The secret stays in a shell variable of this shell, but the function runs in a subshell and exports it to that one command only, so your other commands keep running as you; step 8 unsets the variable. A new shell has lost the secret, and Azure cannot show it again. Set `TENANT_ID` with `az account show` and `APP_ID` with the `az ad app list` command of step 8, then run the `az ad app credential reset` command above, which replaces the old secret with a new one.
 
 Check that the service principal may sign with the key:
 

@@ -205,7 +205,7 @@ On `sepolia`, whose node manages no accounts, `eth_accounts` lists the Ledger ad
 
 ## Add keys from the command line
 
-`--kms` reads keys from Foundry's environment variables, without a config entry ([Migrate from Foundry](migrate-from-foundry.md#from-the-command-line-as-in-foundry)). For Azure, these are the names proposed in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120), since Foundry has not released an Azure signer. These keys join the selected network only: the `--network` value, or `default` when there is none. They come last in `eth_accounts`, after the network's own accounts and its `kmsAccounts`, so on a network with other accounts the libraries do not pick a `--kms` key by default. Name it by address. Other networks do not get these keys.
+`--kms` reads keys from Foundry's environment variables, without a config entry ([Move KMS signing from Foundry to Hardhat](migrate-from-foundry.md#from-the-command-line-as-in-foundry)). For Azure, these are the names proposed in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120), since Foundry has not released an Azure signer. These keys join the selected network only: the `--network` value, or `default` when there is none. They come last in `eth_accounts`, after the network's own accounts and its `kmsAccounts`, so on a network with other accounts the libraries do not pick a `--kms` key by default. Name it by address. Other networks do not get these keys.
 
 ::: code-group
 

@@ -137,7 +137,7 @@ To pin the key's address, run `npx hardhat kms accounts`. For a key without a pi
 
 `configVariable("SEPOLIA_RPC_URL")` reads the RPC URL when a network needs it: from an environment variable of that name (`export SEPOLIA_RPC_URL=https://…`), or from the Hardhat keystore (`npx hardhat keystore set SEPOLIA_RPC_URL`) when the config loads the keystore plugin. The config above does not: add `import hardhatKeystore from "@nomicfoundation/hardhat-keystore";` and put `hardhatKeystore` in `plugins`, or load a Hardhat toolbox, which includes it. The script in step 4 uses it.
 
-To use a key without a config entry, set `AWS_KMS_KEY_ID` and pass `--kms aws`; see [Migrate from Foundry](migrate-from-foundry.md). Such keys are added to the network selected with `--network`, or to `default` without one.
+To use a key without a config entry, set `AWS_KMS_KEY_ID` and pass `--kms aws`; see [Move KMS signing from Foundry to Hardhat](migrate-from-foundry.md). Such keys are added to the network selected with `--network`, or to `default` without one.
 
 ## 4. Check that the key signs
 

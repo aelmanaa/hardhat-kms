@@ -1,9 +1,9 @@
 ---
-title: Migrate from Foundry
+title: Move KMS signing from Foundry to Hardhat
 description: "Foundry --aws and --gcp equivalents in Hardhat 3: the --kms option reads the same key variables, or the keys move into the config."
 ---
 
-# Migrate from Foundry
+# Move KMS signing from Foundry to Hardhat
 
 This guide moves KMS signing from Foundry to Hardhat: the environment variables Foundry reads pick the key, from the command line as in Foundry, or from the config.
 
@@ -16,7 +16,7 @@ Foundry picks a KMS signer per command with `--aws` or `--gcp`, and reads the ke
 
 ## From the command line, as in Foundry
 
-Add `--kms` with the providers to load, and keep your environment as it is:
+Add `--kms` with the providers to load, and keep the variables that name the key:
 
 ::: code-group
 
@@ -45,6 +45,8 @@ AWS_KMS_KEY_ID=alias/deployer yarn hardhat run scripts/deploy.ts --network sepol
 ```
 
 :::
+
+On AWS, choose one credential source before you run these. When access keys in the environment and `AWS_PROFILE` are both set, Foundry signs with the keys and this plugin with the profile (see the credentials paragraph under [In the config](#in-the-config)). The two can be different identities, and the same alias can then name a different key in each. Run `npx hardhat --kms aws kms accounts` and compare the address with the one `cast wallet address --aws` prints before you deploy.
 
 | `--kms` value | Variables read, as in Foundry                                                       |
 | ------------- | ----------------------------------------------------------------------------------- |
