@@ -1,5 +1,17 @@
 # @hardhat-kms/gcp
 
+## 0.10.0
+
+### Patch Changes
+
+- [#404](https://github.com/aelmanaa/hardhat-kms/pull/404) [`43f238e`](https://github.com/aelmanaa/hardhat-kms/commit/43f238ef63fdd2e02c4604892abbc9024f1832d8) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `kms history` for Google Cloud now shows only the configured key's sign events. Before, if another project routed its Cloud KMS audit logs into the key's project and had a key with the same location, key ring and name, that key's sign events showed in the history too. This holds whether `keyVersionName` names the project by id or by number.
+  
+  What should I do? Nothing.
+  
+  Issue: [#390](https://github.com/aelmanaa/hardhat-kms/issues/390)
+- Updated dependencies [[`b7b294f`](https://github.com/aelmanaa/hardhat-kms/commit/b7b294f056169b51fdb85a27664f807db3898ee4), [`ed85784`](https://github.com/aelmanaa/hardhat-kms/commit/ed857842fe8b50142c228e72a965b1bce7512744), [`a74b722`](https://github.com/aelmanaa/hardhat-kms/commit/a74b72225483fcbcbe06cfe04b1d6061f40c5aef), [`ce294f0`](https://github.com/aelmanaa/hardhat-kms/commit/ce294f06379eabede447b615d71142449b8e7409)]:
+  - hardhat-kms@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes
