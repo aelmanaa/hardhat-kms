@@ -105,9 +105,9 @@ jobs:
           TARGET: ${{ inputs.target }}
           LIVE_RUN: ${{ inputs.live-run }}
         run: node scripts/check-live-rule.ts "$VERSION" "$TARGET" "$LIVE_RUN" --summary "$GITHUB_STEP_SUMMARY"
-      # For sepolia:<commit>: the commit is on main or release/X.Y, its test/live/proof.json covers
-      # AWS, Google Cloud and Azure on Sepolia with every record as its case expects, and the
-      # commit the suite tested is the tag's.
+      # For sepolia:<commit>: the commit is on main or release/X.Y and is the last to change
+      # test/live/proof.json, the proof covers AWS, Google Cloud and Azure on Sepolia with every
+      # record as its case expects, and the commit the suite tested is the tag's.
       - name: Sepolia proof
         env:
           VERSION: ${{ inputs.version }}
@@ -296,7 +296,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     # One group for every version, shared with release-latest: two promotions never read and move
-    # latest at once. A run waits here, approval included, while another holds the group.
+    # latest at once. A run waits here while another run's job holds the group.
     concurrency:
       group: promote-latest
       cancel-in-progress: false

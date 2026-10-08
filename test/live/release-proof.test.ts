@@ -134,6 +134,7 @@ describe("check-release-proof.ts in a clone", () => {
   let incomplete = "";
   let offBranch = "";
   let hotfix = "";
+  let later = "";
 
   before(() => {
     repo = mkdtempSync(path.join(tmpdir(), "release-proof-test-"));
@@ -151,7 +152,9 @@ describe("check-release-proof.ts in a clone", () => {
       }),
     });
     good = commit(repo, "the proof", { "test/live/proof.json": proofFor(tag) });
-    git(repo, "update-ref", "refs/remotes/origin/main", good);
+    // A later commit on main that carries the proof unchanged.
+    later = commit(repo, "a docs change", { "README.md": "docs\n" });
+    git(repo, "update-ref", "refs/remotes/origin/main", later);
     // A commit on a branch that is neither main nor release/1.2.
     git(repo, "checkout", "--quiet", "-b", "feature", tag);
     offBranch = commit(repo, "the proof, off main", { "test/live/proof.json": proofFor(tag) });
@@ -224,6 +227,18 @@ describe("check-release-proof.ts in a clone", () => {
       result.stderr,
       new RegExp(
         `^- the proof tested commit ${tag.slice(0, 7)}, but the tag is commit ${hotfixTag};`,
+        "m",
+      ),
+    );
+  });
+
+  it("refuses a later commit that carries the proof unchanged, naming the proof's commit", () => {
+    const result = run(repo, ["1.2.0", `sepolia:${later}`]);
+    assert.equal(result.status, 1);
+    assert.match(
+      result.stderr,
+      new RegExp(
+        `^FAIL ${later} did not change test/live/proof\\.json; the proof it carries was committed in ${good}, so use sepolia:<that commit>$`,
         "m",
       ),
     );

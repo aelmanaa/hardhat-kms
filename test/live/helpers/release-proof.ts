@@ -1,6 +1,6 @@
 // Ties a `live-run` of `sepolia:<commit>` to the release promote.yml promotes: the commit must be
-// one of this repository's, on `main` or on the release branch of the version's line, its
-// `test/live/proof.json` must cover AWS, Google Cloud and Azure with every record as its case
+// one of this repository's, on `main` or on the release branch of the version's line, the last
+// commit to change its `test/live/proof.json`, and that proof must cover AWS, Google Cloud and Azure with every record as its case
 // expects, and the proof's `commit`, the commit the suite ran at, must be the tag's commit.
 import { spawnSync } from "node:child_process";
 
@@ -129,6 +129,14 @@ export function checkReleaseProof(cwd: string, version: string, commit: string):
   const source = git(cwd, ["show", `${proofCommit}:${PROOF_PATH}`]);
   if (source === undefined) {
     throw new Error(`${proofCommit} has no ${PROOF_PATH}`);
+  }
+  // The input names the commit that added the proof, not a later one that carries it unchanged,
+  // so the promotion record points at the proof's own commit.
+  const changed = git(cwd, ["log", "-1", "--format=%H", proofCommit, "--", PROOF_PATH]);
+  if (changed !== proofCommit) {
+    throw new Error(
+      `${proofCommit} did not change ${PROOF_PATH}; the proof it carries was committed in ${changed ?? "an unknown commit"}, so use sepolia:<that commit>`,
+    );
   }
   let proof: Proof;
   try {
