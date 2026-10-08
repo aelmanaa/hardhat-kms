@@ -5,7 +5,7 @@
 // another live send still owns.
 //
 // Every property runs a fixed seed by default, so a run, and a mutation run under Stryker, is
-// reproducible. The nightly CI run sets NONCE_MODEL_SEED=random and NONCE_MODEL_RUNS=2000.
+// reproducible. The nightly CI run sets NONCE_MODEL_SEED=random and NONCE_MODEL_RUNS=1000.
 // Replay a failure with the seed, path and replayPath that fast-check prints:
 //   NONCE_MODEL_SEED=<seed> NONCE_MODEL_PATH=<path> NONCE_MODEL_REPLAY_PATH=<replayPath> \
 //   NONCE_MODEL_UNGUARD=1 node --test test/unit/rpc/nonce-model.test.ts
