@@ -125,7 +125,7 @@ The official packages are `hardhat-kms` and the packages under the `@hardhat-kms
 
 ## Support
 
-[Supported Node.js versions](docs/user/reference/support.md) lists the versions the packages run on and where to ask a question. [Release channels and versioning](docs/user/explanation/versioning.md) covers the `latest` and `beta` tags, the Hardhat and viem ranges, and security fixes for a previous major.
+[Supported Node.js versions](docs/user/reference/support.md) lists the versions the packages run on, where to ask a question and how to report a test run. [Release channels and versioning](docs/user/explanation/versioning.md) covers the `latest` and `beta` tags, the Hardhat and viem ranges, and security fixes for a previous major.
 
 ## Contributing
 

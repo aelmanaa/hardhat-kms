@@ -23,7 +23,7 @@ Start with the [docs index](../../README.md): it lists every tutorial, guide and
 
 ## Tester reports
 
-Until 1.0.0 is published, a developer who follows a tutorial for the first time finds what the maintainers cannot: a step the docs assume, a credential setup they never used, a cloud console that changed. To test, install the version on `latest` and follow the tutorial for your cloud from a new project, with a test key on Sepolia:
+Until 1.0.0 is published, a developer who follows a tutorial for the first time finds what the maintainers cannot: a step the docs assume, a credential setup they never used, a cloud console that changed. To test, install the version on the npm `latest` tag, which the tutorial's install command gets, and follow the tutorial for your cloud from a new project, with a test key on Sepolia:
 
 - AWS KMS: [Deploy a Hardhat contract to Sepolia with AWS KMS](../tutorials/first-deploy-aws.md)
 - Google Cloud KMS: [Deploy a Hardhat contract to Sepolia with Google Cloud KMS](../tutorials/first-deploy-gcp.md)
@@ -32,11 +32,12 @@ Until 1.0.0 is published, a developer who follows a tutorial for the first time 
 Then open an issue with the [Tester report form](https://github.com/aelmanaa/hardhat-kms/issues/new?template=tester-report.yml), also when every step worked. The form asks for:
 
 - the cloud you tested;
-- the hardhat-kms and provider package versions, and the Hardhat, Node.js and package manager versions;
+- whether you finished the tutorial;
+- the hardhat-kms and provider package versions, and the Hardhat, Node.js and package manager versions. `npm ls hardhat hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure` (or `pnpm ls` with the same arguments) and `node --version` print them;
 - your operating system;
 - the step where you got stuck or that confused you, by its heading in the tutorial;
 - the command you ran and the full error text.
 
-Remove identifiers before you post. Task output, errors and debug output can contain them. Replace key ids, key ARNs and key resource names, AWS account ids, Google Cloud project ids, Azure tenant and subscription ids, vault names, and RPC URLs that contain an API key with a placeholder such as `<KEY_ARN>`. Sepolia addresses and transaction hashes are public; keep them, they help reproduce the problem.
+Never post credentials: access keys, client secrets, service account key files, API keys, or the contents of a `.env` file or the Hardhat keystore. Remove identifiers too. Task output, errors and debug output can contain them. Replace key ids, key ARNs and key resource names, AWS account ids, Google Cloud project ids, Azure tenant, subscription, client and object ids, vault names, Etherscan API keys, and RPC URLs that contain an API key with a placeholder such as `<KEY_ARN>`. Sepolia addresses and transaction hashes are public; keep them, they help reproduce the problem.
 
 The maintainers reply to each report within a week. A docs problem is fixed on `main`; a problem in the packages is fixed in a new release, which you can test again. If you agree, the 1.0.0 release notes thank you by your GitHub username.
