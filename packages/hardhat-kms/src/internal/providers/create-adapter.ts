@@ -7,7 +7,7 @@ import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, type ErrorDetails, errorName } from "../errors.ts";
 import type { KmsKeyAdapter } from "../signer/types.ts";
-import { builtinProvider } from "./registry.ts";
+import { builtinProvider, reservedProvider } from "./registry.ts";
 
 const log = coreDebug("providers");
 
@@ -125,6 +125,16 @@ export async function createKeyAdapter(
   key: KmsKeyConfig,
 ): Promise<KmsKeyAdapter> {
   log("creating the adapter for %s", key.displayId);
+  // Validation refuses these ids; this also covers a key that reached the resolved config another
+  // way, so that no plugin's handler can claim it.
+  const reserved = reservedProvider(key.provider);
+  if (reserved !== undefined) {
+    throw catalogError(
+      ERRORS.providerNotAvailable,
+      { name: reserved.name, issue: reserved.issue },
+      { provider: key.provider, operation: "create adapter", key: key.displayId },
+    );
+  }
   let adapter: unknown;
   try {
     adapter = await context.hooks.runHandlerChain(
