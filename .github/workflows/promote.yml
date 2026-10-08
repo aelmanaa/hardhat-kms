@@ -245,10 +245,12 @@ jobs:
   release-beta:
     name: Publish the GitHub Release as a prerelease
     needs: [verify, live]
-    # The live job is skipped unless live-run is fork; a skipped live job does not hold this one.
+    # The live job runs only when live-run is fork. A skipped live job lets this one run only when
+    # no live run was asked for: with fork, only a passed live job does.
     if: >-
       ${{ !cancelled() && inputs.target == 'verify' && needs.verify.result == 'success'
-      && (needs.live.result == 'success' || needs.live.result == 'skipped') }}
+      && (needs.live.result == 'success'
+      || (inputs.live-run != 'fork' && needs.live.result == 'skipped')) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
@@ -270,9 +272,12 @@ jobs:
   latest:
     name: Move latest on npm
     needs: [verify, live]
+    # The live job runs only when live-run is fork. A skipped live job lets this one run only when
+    # no live run was asked for: with fork, only a passed live job does.
     if: >-
       ${{ !cancelled() && inputs.target == 'latest' && needs.verify.result == 'success'
-      && (needs.live.result == 'success' || needs.live.result == 'skipped') }}
+      && (needs.live.result == 'success'
+      || (inputs.live-run != 'fork' && needs.live.result == 'skipped')) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     # A maintainer approves this environment; the dist-tag trusted-publisher configuration pins it.
