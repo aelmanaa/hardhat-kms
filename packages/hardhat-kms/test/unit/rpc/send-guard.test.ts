@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { getEventListeners } from "node:events";
 import { describe, it, mock } from "node:test";
 
 import { HardhatPluginError } from "hardhat/plugins";
@@ -25,7 +26,7 @@ import {
   sendLocksInUse,
   withSendLock,
 } from "../../../src/internal/rpc/send-guard.ts";
-import type { Timers } from "../../../src/internal/signer/timeout.ts";
+import { CancelledError, systemTimers, type Timers } from "../../../src/internal/signer/timeout.ts";
 import { fakeTimers } from "../../helpers/fake-timers.ts";
 
 /** A promise and the function that resolves it. */
@@ -533,6 +534,125 @@ describe("withSendLock limits", () => {
     assert.doesNotMatch(waiter.error.message, /1:0xa9/);
     held.open();
     await holder;
+    assert.equal(sendLocksInUse(), 0);
+  });
+});
+
+describe("withSendLock with a signal", () => {
+  it("takes a waiter whose signal aborts out of the queue, and keeps the others' order", async () => {
+    const timers = clockTimers();
+    const held = gate();
+    const order: string[] = [];
+    const send = async (name: string, signal?: AbortSignal): Promise<void> => {
+      await withSendLock(
+        "1:0xc1",
+        async () => {
+          order.push(name);
+          await Promise.resolve();
+        },
+        timers,
+        signal,
+      );
+    };
+    const caller = new AbortController();
+    const holder = withSendLock("1:0xc1", async () => await held.promise, timers);
+    const a = send("a");
+    const b = watch(send("b", caller.signal));
+    const c = send("c");
+    await settle();
+    const pendingBefore = timers.pending();
+    caller.abort();
+    await settle();
+    assert.ok(b.error instanceof CancelledError, String(b.error));
+    assert.equal(
+      timers.pending(),
+      pendingBefore - 2,
+      "the aborted waiter's limit and wait warning are cancelled",
+    );
+    assert.equal(getEventListeners(caller.signal, "abort").length, 0);
+    held.open();
+    await Promise.all([holder, a, c]);
+    assert.deepEqual(order, ["a", "c"]);
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("fails at once, unqueued, when the signal has already aborted", async () => {
+    const timers = clockTimers();
+    const held = gate();
+    const holder = withSendLock("1:0xc2", async () => await held.promise, timers);
+    let ran = false;
+    await assert.rejects(
+      withSendLock(
+        "1:0xc2",
+        async () => {
+          ran = true;
+          await Promise.resolve();
+        },
+        timers,
+        AbortSignal.abort(),
+      ),
+      CancelledError,
+    );
+    held.open();
+    await holder;
+    assert.equal(ran, false);
+    assert.equal(sendLocksInUse(), 0, "no waiter was left in the queue");
+  });
+
+  it("takes the lock at once when nobody holds it, whatever the signal", async () => {
+    assert.equal(
+      await withSendLock(
+        "1:0xc3",
+        async () => await Promise.resolve(7),
+        systemTimers,
+        AbortSignal.abort(),
+      ),
+      7,
+    );
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("stops listening once the waiter has the lock, and never cuts the holder short", async () => {
+    const timers = clockTimers();
+    const held = gate();
+    const inside = gate();
+    const caller = new AbortController();
+    const holder = withSendLock("1:0xc4", async () => await held.promise, timers);
+    const waiter = withSendLock(
+      "1:0xc4",
+      async () => {
+        await inside.promise;
+        return "done";
+      },
+      timers,
+      caller.signal,
+    );
+    await settle();
+    held.open();
+    await holder;
+    await settle();
+    assert.equal(getEventListeners(caller.signal, "abort").length, 0);
+    caller.abort();
+    inside.open();
+    assert.equal(await waiter, "done");
+    assert.equal(sendLocksInUse(), 0);
+  });
+
+  it("ends a library send's wait for the lock, and holds nothing", async () => {
+    const key = "1:0xc5";
+    const held = gate();
+    const holder = withSendLock(key, async () => await held.promise);
+    const caller = new AbortController();
+    const waiting = watch(
+      holdForLibrary(key, {}, async () => await Promise.resolve(3n), fakeTimers(), caller.signal),
+    );
+    await settle();
+    caller.abort();
+    await settle();
+    assert.ok(waiting.error instanceof CancelledError, String(waiting.error));
+    held.open();
+    await holder;
+    assert.equal(libraryHoldOf(key), undefined);
     assert.equal(sendLocksInUse(), 0);
   });
 });

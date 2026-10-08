@@ -1,7 +1,7 @@
 // Raw transactions and nonce reads of KMS accounts, through the network hook's handlers with a
 // fake node: the send lock, the high-water mark and the pass-through of everything else.
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import type { NetworkConnection } from "hardhat/types/network";
@@ -464,6 +464,129 @@ describe("a library account's send through the connection", () => {
     await manager.reset();
     resultOf(await sending);
     assert.deepEqual(node.raw.map(nonceOf), [0n]);
+  });
+
+  it("does not let a cancelled consume's reset end another send's hold", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    const caller = new AbortController();
+    const cancelled = await connection.kms.getAccount(COW, { signal: caller.signal });
+    caller.abort();
+    const parameters = { address: cancelled.address, chainId: 31337, client: {} };
+    await assert.rejects(cancelled.nonceManager.consume(parameters), /aborted/);
+    // viem calls reset after a consume that failed, too.
+    cancelled.nonceManager.reset(parameters);
+    await settle();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the plugin's send still waits for the holder");
+    resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+  });
+
+  it("ends a consume's wait for the lock when its signal aborts, and its reset ends no hold", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    const caller = new AbortController();
+    const waiting = await connection.kms.getAccount(COW, { signal: caller.signal });
+    const parameters = { address: waiting.address, chainId: 31337, client: {} };
+    const consuming = waiting.nonceManager.consume(parameters);
+    assert.equal(await settled(consuming), false, "the consume waits behind the holder");
+    caller.abort();
+    await assert.rejects(
+      consuming,
+      /nonceManager\.consume: the signal given to getAccount has aborted/,
+    );
+    waiting.nonceManager.reset(parameters);
+    await settle();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false, "the plugin's send still waits for the holder");
+    resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+  });
+
+  it("counts an aborted wait's reset once, so the holder's own reset still ends its hold", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    const caller = new AbortController();
+    const waiting = await connection.kms.getAccount(COW, { signal: caller.signal });
+    const parameters = { address: waiting.address, chainId: 31337, client: {} };
+    const consuming = waiting.nonceManager.consume(parameters);
+    assert.equal(await settled(consuming), false);
+    caller.abort();
+    await assert.rejects(consuming, /the signal given to getAccount has aborted/);
+    waiting.nonceManager.reset(parameters);
+    await settle();
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false);
+    // The holder's send failed: its reset ends its hold, as no owed reset is left to swallow it.
+    await holder.reset();
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n]);
+  });
+
+  it("ends an own-transport consume's wait for the lock when its signal aborts", async () => {
+    const harness = await setUp();
+    const connection = await openKnown(harness);
+    const holder = await library(connection);
+    assert.equal(await holder.consume(), 0);
+    const caller = new AbortController();
+    const waiting = await connection.kms.getAccount(COW, { signal: caller.signal });
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const consuming = waiting.nonceManager.consume({
+        address: waiting.address,
+        chainId: 31337,
+        client: HTTP_CLIENT,
+      });
+      assert.equal(await settled(consuming), false);
+      caller.abort();
+      await assert.rejects(consuming, /the signal given to getAccount has aborted/);
+    } finally {
+      warn.mock.restore();
+    }
+    resultOf((await sendRaw(harness, connection, cowRaw(0n))).response);
+  });
+
+  it("ends the hold at reset when the account's signal aborted before it signed", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const caller = new AbortController();
+    const account = await connection.kms.getAccount(COW, { signal: caller.signal });
+    const parameters = { address: account.address, chainId: 31337, client: {} };
+    assert.equal(await account.nonceManager.consume(parameters), 0);
+    const sending = send(connection, { from: COW, to: TO });
+    assert.equal(await settled(sending), false);
+    caller.abort();
+    await assert.rejects(
+      account.signTransaction({
+        type: "eip1559",
+        chainId: 31337,
+        nonce: 0,
+        gas: 21_000n,
+        maxFeePerGas: 2n,
+        maxPriorityFeePerGas: 1n,
+        to: TO,
+        value: 1n,
+      }),
+      /signTransaction: the signal given to getAccount has aborted/,
+    );
+    // viem resets the nonce manager after a send that failed.
+    account.nonceManager.reset(parameters);
+    await settle();
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [0n], "only the plugin's send went out");
   });
 
   it("ends the hold when its raw transaction fails, and its reset then ends no other hold", async () => {

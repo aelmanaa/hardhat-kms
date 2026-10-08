@@ -321,13 +321,16 @@ describe("a library account refuses, with the exact message", () => {
       ["yes", "getAccount: options must be an object"],
       [
         { ["k".repeat(100)]: true },
-        `getAccount: ${"k".repeat(64)} is not an option of getAccount; the options are rawSign and allowChainZeroAuthorization`,
+        `getAccount: ${"k".repeat(64)} is not an option of getAccount; the options are rawSign, allowChainZeroAuthorization and signal`,
       ],
       [{ rawSign: 1 }, "getAccount: options.rawSign must be a boolean"],
       [
         { allowChainZeroAuthorization: "yes" },
         "getAccount: options.allowChainZeroAuthorization must be a boolean",
       ],
+      [{ signal: "abort" }, "getAccount: options.signal must be an AbortSignal"],
+      [{ signal: null }, "getAccount: options.signal must be an AbortSignal"],
+      [{ signal: new AbortController() }, "getAccount: options.signal must be an AbortSignal"],
     ];
     for (const [options, message] of refusals) {
       await assertRefused(

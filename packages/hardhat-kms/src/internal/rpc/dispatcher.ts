@@ -1148,6 +1148,8 @@ export interface LibraryNonceRequest {
   reserve: boolean;
   /** Whether the client's transport does not go through Hardhat, such as `http(url)`. */
   ownTransport: boolean;
+  /** The account's signal: when it aborts, a `consume` waiting for the send lock stops waiting. */
+  signal?: AbortSignal | undefined;
 }
 
 /**
@@ -1215,16 +1217,21 @@ export async function libraryNonce(
     );
   }
   if (!request.ownTransport) {
-    const nonce = await holdForLibrary(key, sends, chooseForSend);
+    const nonce = await holdForLibrary(key, sends, chooseForSend, undefined, request.signal);
     log("%s: nonce %d given to a library account's send, which holds the lock", address, nonce);
     return nonce;
   }
-  return await withSendLock(key, async () => {
-    const nonce = await chooseForSend();
-    sends.reserve(address, nonce);
-    log("%s: nonce %d reserved for a library account's own transport", address, nonce);
-    return nonce;
-  });
+  return await withSendLock(
+    key,
+    async () => {
+      const nonce = await chooseForSend();
+      sends.reserve(address, nonce);
+      log("%s: nonce %d reserved for a library account's own transport", address, nonce);
+      return nonce;
+    },
+    undefined,
+    request.signal,
+  );
 }
 
 /**

@@ -74,7 +74,7 @@ The core enforces these rules on adapters:
 - The core calls `getPublicKey` once per key and caches the result; a failed call is retried on the next request. It checks the key against the `address` pin before the first signature.
 - An adapter without `getPublicKey` (a Turnkey-style API signer) is identified by the `address` pin, or by `getAddress` when the key has no pin. The core recovers the public key from the first signature and checks that it matches that address.
 - Adapters receive copies of the digest, message and typed data, which they may change. The core copies the public key an adapter returns, so an adapter may also reuse or change that array later.
-- Each call gets `requestId` and a `signal` that aborts when the key's `timeoutMs` runs out. An invalid signature gets one retry with a fresh call before the core fails.
+- Each call gets `requestId` and a `signal` that aborts when the key's `timeoutMs` runs out, or when the caller cancels (a library account's `signal` option). The core rejects the call as soon as the signal aborts, whatever the adapter does; pass the signal to the SDK so the request stops too. An invalid signature gets one retry with a fresh call before the core fails.
 
 Planned with `sendTransaction` ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)): an adapter with `sendTransaction` broadcasts on its own. For those adapters the core will skip the nonce high-water mark, reject `eth_signTransaction` and EDR or fork networks with clear errors, add an idempotency key to `SignContext` (Fireblocks' `externalTxId`), and check `from` against the receipt.
 

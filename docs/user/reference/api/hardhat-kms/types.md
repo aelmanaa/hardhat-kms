@@ -750,7 +750,8 @@ keep those sends and the plugin's own sends from one key on distinct nonces, one
 other. Not so for a client with its own transport, such as `http(url)`: only its nonce is
 reserved. These sends have no retry cache.
 
-After `connection.close()`, every method refuses before any KMS call.
+After `connection.close()`, or once the `signal` given to `getAccount` has aborted, every method
+refuses before any KMS call.
 
 #### Extended by
 
@@ -885,6 +886,16 @@ Let `signAuthorization` sign for chain 0, which makes the authorization valid on
 
 Add `sign({ hash })`, which signs a bare digest. Off by default (decision 0014); some smart
 account owners need it. A warning is printed when it is on.
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+Stops the account's KMS calls when it aborts. A KMS call in flight then rejects with
+`core.signer.cancelled` and is not retried. After that, every method of the account, and
+`getAccount` called with the same signal, refuses before any KMS call. A request that already
+reached the KMS can still be signed there; the account never returns that signature, so viem
+never sends it.
 
 ---
 
@@ -1856,7 +1867,8 @@ The address of one of the connection's KMS accounts.
 
 **options**
 
-Options; `rawSign: true` adds `sign({ hash })`.
+Options; `rawSign: true` adds `sign({ hash })`, and `signal` cancels the
+account's KMS calls.
 
 ###### Returns
 

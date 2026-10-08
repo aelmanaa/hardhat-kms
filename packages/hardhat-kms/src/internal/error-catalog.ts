@@ -707,6 +707,15 @@ export const ERRORS = {
       "The provider did not answer within the key's `timeoutMs`. The request may still complete at the provider; see the security model.",
     fix: "Check the network and the region or endpoint, or raise `timeoutMs` on the key or in `kms.defaults`.",
   },
+  signerCancelled: {
+    id: "core.signer.cancelled",
+    kind: "error",
+    group: "Signing",
+    template: "cancelled by the caller's abort signal",
+    cause:
+      "The `signal` given to `connection.kms.getAccount` aborted before or during a KMS call, so the plugin stopped waiting and returned nothing. It does not retry a cancelled call. A request that already reached the provider can still be signed there and show in its audit log, but the plugin never returns that signature.",
+    fix: "Nothing, if the abort was meant. To sign again, get a new account with a signal that has not aborted.",
+  },
   signerCallFailed: {
     id: "core.signer.provider-call-failed",
     kind: "error",
@@ -723,6 +732,15 @@ export const ERRORS = {
     template: "timed out after {timeout} ms",
     cause: "A provider call ran out of time. It is reported as `no answer within … ms`.",
     fix: "See `core.signer.no-answer`.",
+  },
+  cancelled: {
+    id: "core.signer.cancelled-reason",
+    kind: "reason",
+    group: "Signing",
+    template: "cancelled by the caller",
+    cause:
+      "The caller's abort signal stopped a provider call. It is reported as `cancelled by the caller's abort signal`.",
+    fix: "See `core.signer.cancelled`.",
   },
 
   // Public keys and addresses: reasons for core.signer.key-material and others.
@@ -1891,12 +1909,22 @@ export const ERRORS = {
       "`getAccount` or a method of the account it returned was called after `connection.close()`. A closed connection's library accounts refuse to sign, before any KMS call.",
     fix: "Call `getAccount` on an open connection, from `network.create()`, and use that account.",
   },
+  accountCancelled: {
+    id: "core.account.cancelled",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "the signal given to getAccount has aborted, so the account makes no more KMS calls. Call getAccount with a new signal to sign again",
+    cause:
+      "`getAccount`, or a method of the account it returned, was called after the `signal` passed in its options aborted. The account refuses before any KMS call and reserves no nonce.",
+    fix: "Call `getAccount` again, with a signal that has not aborted or with none.",
+  },
   accountOption: {
     id: "core.account.option",
     kind: "error",
     group: "Library accounts",
     template:
-      "{name} is not an option of getAccount; the options are rawSign and allowChainZeroAuthorization",
+      "{name} is not an option of getAccount; the options are rawSign, allowChainZeroAuthorization and signal",
     cause:
       "The options object of `getAccount` has a key the plugin does not know, often a typo. It is refused so that a misspelled option is not silently ignored.",
     fix: "Correct or remove the option.",

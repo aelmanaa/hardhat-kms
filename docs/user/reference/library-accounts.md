@@ -140,6 +140,7 @@ Measured with Hardhat 3.18.0, Node 24.16.0 and npm 11.15.0; CI repeats the insta
 | ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `rawSign`                     | `false` | Adds `sign({ hash })`, which signs a 32-byte digest as it is. A warning is printed each time such an account is made.                                              |
 | `allowChainZeroAuthorization` | `false` | Lets `signAuthorization` sign for chain 0. A chain-0 authorization is valid on every chain where the account's nonce matches, as `kms sign-auth --force` signs it. |
+| `signal`                      | none    | A Node.js `AbortSignal` that cancels the account's KMS calls when it aborts ([Cancelling with a signal](#cancelling-with-a-signal)).                               |
 
 Any other key in the options object is refused, so that a misspelled option is not silently ignored. Only the object's own properties count: an option inherited from a prototype, such as one a prototype-pollution bug sets on `Object.prototype`, is ignored.
 
@@ -171,8 +172,39 @@ Outside viem's types, the digests can differ. A string `domain.chainId`, such as
 | An authorization for another chain than the connection's                                                                   | `the authorization is for chain …, but network … is chain …`                                                  |
 | Typed data for another chain, without `kms.allowCrossChainTypedData`                                                       | `the typed data is for chain …, but network … is chain …`                                                     |
 | A value of a form viem never passes                                                                                        | `… must be …`                                                                                                 |
+| Any call after the `signal` given to `getAccount` aborted                                                                  | `the signal given to getAccount has aborted…`                                                                 |
 
 Each error is listed with its cause and fix in the [errors reference](errors.md#library-accounts).
+
+## Cancelling with a signal
+
+viem calls the account's methods with fixed arguments, so a signal cannot be passed to one call. Pass it to `getAccount` instead, and it covers every call of that account:
+
+```ts
+import "hardhat-kms";
+import { network } from "hardhat";
+
+const connection = await network.create("sepolia");
+// Gives up on the signature after 5 s, even if the key's timeoutMs is longer.
+const account = await connection.kms.getAccount("0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826", {
+  signal: AbortSignal.timeout(5000),
+});
+const signature = await account.signMessage({ message: "hello from a KMS key" });
+console.log(signature);
+```
+
+This account stops signing for good 5 s after `getAccount`, since its signal has then aborted.
+
+When the signal aborts:
+
+- A KMS call in flight is aborted: the provider's SDK gets the abort, and the method rejects with `cancelled by the caller's abort signal` ([`core.signer.cancelled`](errors.md#signing)). This error is distinct from the timeout's `no answer within … ms`. A cancelled call is not retried.
+- A signature that comes back after the abort is dropped. The account never returns it, so viem has nothing to send.
+- After that, every method of the account, and `getAccount` called with the same signal, refuses before any KMS call with `the signal given to getAccount has aborted` ([`core.account.cancelled`](errors.md#library-accounts)). `nonceManager.consume` and `get` refuse too, so no nonce is reserved. A `consume` that is waiting for the key's send lock stops waiting. To sign again, call `getAccount` with a new signal.
+- A `sendTransaction` whose transaction the account has not signed yet fails before its broadcast, and viem's `reset` then ends the nonce's hold, so the plugin's next send from the key does not wait for it. The reset after a refused `consume` ends no other send's hold. Once the account has returned the signed transaction, the abort does not stop viem from broadcasting it.
+
+The abort stops the plugin's wait, not the KMS's work. A sign request that already reached the KMS can still be signed there and show in the key's audit log, as after a timeout ([When a KMS call times out](../explanation/security-model.md#when-a-kms-call-times-out)). The key's public key lookup is shared by every caller of the key, so an abort during `getAccount` only stops that caller's wait; the lookup itself runs on, bounded by `timeoutMs`.
+
+Hardhat's `provider.request` takes no signal, so requests through `connection.provider`, such as `eth_sendTransaction` from a KMS account, cannot be cancelled this way. They stay bounded by `timeoutMs`.
 
 ### Serializers
 
