@@ -123,7 +123,7 @@ The rules:
 
 - **Key names** in `kms.keys` start with a letter and have at most 64 characters: letters, digits, `_` or `-`. They are kept simple because tasks take them as command-line arguments.
 - **`kmsAccounts`** entries are key names from `kms.keys` or inline key objects. A name must exist in `kms.keys`, and a network cannot list the same name twice. Errors and resolved configs call an inline key `<network>.kmsAccounts[<index>]`.
-- **`provider`** is `aws`, `gcp`, `azure` or a third-party provider's id. An id that looks like a misspelled built-in one, such as `AWS` or `azrue`, is an error rather than a third-party provider.
+- **`provider`** is `aws`, `gcp`, `azure` or a third-party provider's id. An id that looks like a misspelled built-in one, such as `AWS` or `azrue`, is an error rather than a third-party provider. The ids `turnkey` and `fireblocks` are reserved for planned providers and are errors until those providers ship; the message links the issue that tracks each one.
 - **Unknown fields** in the `kms` section and in built-in providers' keys are errors, so a typo such as `keyID` is caught. For a third-party provider's key, the plugin checks only `provider`, `address` and `timeoutMs`.
 - **`address`** is a `0x`-prefixed 20-byte address, all lowercase, all uppercase, or mixed case with a valid EIP-55 checksum.
 - **`timeoutMs`** is a whole number of milliseconds from 1 to 2147483647, the largest delay Node.js timers accept.

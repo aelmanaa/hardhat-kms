@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { ERRORS } from "../error-catalog.ts";
 import { catalogMessage } from "../errors.ts";
-import { BUILTIN_PROVIDERS } from "../providers/registry.ts";
+import { BUILTIN_PROVIDERS, RESERVED_PROVIDERS, reservedProvider } from "../providers/registry.ts";
+import type { ReservedProvider } from "../providers/types.ts";
 import { auditSchema } from "./audit.ts";
 import { commonKeyFields, nonEmptyString, settingSchema, timeoutSchema } from "./common.ts";
 
@@ -63,6 +64,29 @@ const misspelledProviderSchema = z
     });
   });
 
+/**
+ * A key of a reserved provider id: always refused, with the issue that tracks the provider.
+ *
+ * @param reserved - The reserved provider.
+ * @returns A schema that fails on `provider`.
+ */
+function reservedProviderSchema(reserved: ReservedProvider): z.ZodTypeAny {
+  return z
+    .object({ provider: z.string() })
+    .passthrough()
+    .superRefine((key, ctx) => {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["provider"],
+        message: catalogMessage(ERRORS.providerReserved, {
+          provider: key.provider,
+          name: reserved.name,
+          issue: reserved.issue,
+        }),
+      });
+    });
+}
+
 /** A third-party provider's key: only the shared fields are checked here; the provider checks the rest. */
 const externalKeySchema = z.object({ provider: nonEmptyString, ...commonKeyFields }).passthrough();
 
@@ -75,6 +99,15 @@ const keySchema: z.ZodTypeAny = conditionalUnionType(
           (data: unknown) => boolean,
           z.ZodTypeAny,
         ],
+    ),
+    ...Object.values(RESERVED_PROVIDERS).map(
+      (reserved): [(data: unknown) => boolean, z.ZodTypeAny] => [
+        (data) =>
+          isObject(data) &&
+          typeof data.provider === "string" &&
+          reservedProvider(data.provider) === reserved,
+        reservedProviderSchema(reserved),
+      ],
     ),
     [
       (data) =>

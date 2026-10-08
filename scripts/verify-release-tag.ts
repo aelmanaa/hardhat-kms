@@ -6,15 +6,22 @@
 // 2. The tag name is `v` + the version of `packages/hardhat-kms/package.json` at the tagged commit,
 //    and the four package manifests carry that same version.
 // 3. The version is a plain `X.Y.Z`, with no `-` prerelease tag and no `+` build metadata: only
-//    the stable line releases from `main`.
-// 4. The tagged commit is an ancestor of `origin/main`.
+//    the stable line is released.
+// 4. The tagged commit is an ancestor of `origin/main`, or of `origin/release/X.Y` for a hotfix
+//    of version X.Y.Z. The release branch name comes from the version in the manifests, which
+//    check 2 tied to the tag name; nothing the tag's pusher writes elsewhere can name a branch.
+//
+// A passing tag also gets the npm dist-tag release.yml stages it under: `beta` for a commit on
+// main, `release-X.Y` for a hotfix, so a hotfix of an older line never moves `beta` backwards.
 //
 // Usage:
-//   node scripts/verify-release-tag.ts vX.Y.Z [--keys DIR] [--main REF]
+//   node scripts/verify-release-tag.ts vX.Y.Z [--keys DIR] [--main REF] [--output FILE]
 // Exit code 0 when the tag passes, 1 when it fails or the script cannot decide. `--keys` defaults
-// to `.github/release-keys` and `--main` to `origin/main`, which must be fetched.
+// to `.github/release-keys` and `--main` to `origin/main`, which must be fetched. The release
+// branch is read from `refs/remotes/origin/release/X.Y` when it has been fetched. `--output`
+// appends `dist-tag=<tag>` to FILE (GITHUB_OUTPUT) when the tag passes.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -25,6 +32,10 @@ import { parseArgs } from "node:util";
 export const KEYS_DIRECTORY = ".github/release-keys";
 /** The ref the tagged commit must be reachable from. */
 export const MAIN_REF = "origin/main";
+/** The remote-tracking namespace of the release branches, one `release/X.Y` per hotfix line. */
+export const RELEASE_REFS = "refs/remotes/origin/release/";
+/** The npm dist-tag a release from main is staged under. */
+export const MAIN_DIST_TAG = "beta";
 /** The manifest whose version the tag name must match. */
 export const PRIMARY_MANIFEST = "packages/hardhat-kms/package.json";
 /** The four manifests that must carry the same version. */
@@ -42,6 +53,8 @@ const PUBLIC_KEY_BEGIN = "-----BEGIN PGP PUBLIC KEY BLOCK-----";
 const PUBLIC_KEY_END = "-----END PGP PUBLIC KEY BLOCK-----";
 /** A stable version: three numbers, no prerelease tag, no build metadata. */
 const STABLE_VERSION = /^\d+\.\d+\.\d+$/;
+/** The same, with the major and minor captured. */
+const STABLE_VERSION_PARTS = /^(\d+)\.(\d+)\.\d+$/;
 
 /** What the script needs to know about where it runs. */
 export interface VerifyOptions {
@@ -79,6 +92,10 @@ export type Verdict =
       version: string;
       /** The tagged commit. */
       commit: string;
+      /** The branch the commit is on: the main ref, or the release branch of the version. */
+      branch: string;
+      /** The npm dist-tag to stage under: {@link MAIN_DIST_TAG}, or `release-X.Y` for a hotfix. */
+      distTag: string;
     })
   | Failure;
 
@@ -460,6 +477,28 @@ function checkSignature(options: VerifyOptions, keysDirectory: string): Signatur
 }
 
 /**
+ * The remote-tracking ref of the release branch for a version: `origin/release/X.Y` for X.Y.Z.
+ * The name is built from the numbers of the version alone.
+ * @param version A stable `X.Y.Z` version.
+ * @returns The full ref, its short name and the npm dist-tag a hotfix on it is staged under
+ * (`release-X.Y`), or undefined when the version is not `X.Y.Z`.
+ */
+export function releaseBranch(
+  version: string,
+): { ref: string; name: string; distTag: string } | undefined {
+  const match = STABLE_VERSION_PARTS.exec(version);
+  if (match === null) {
+    return undefined;
+  }
+  const line = `${match[1]}.${match[2]}`;
+  return {
+    ref: `${RELEASE_REFS}${line}`,
+    name: `origin/release/${line}`,
+    distTag: `release-${line}`,
+  };
+}
+
+/**
  * Runs the four checks on a tag.
  * @param options The tag, the repository and the environment, see {@link VerifyOptions}.
  * @returns The verdict; it never throws for a failing tag, only when `git` or `gpg` cannot run.
@@ -501,7 +540,7 @@ export function verifyReleaseTag(options: VerifyOptions): Verdict {
   if (!STABLE_VERSION.test(primary.version)) {
     return {
       ok: false,
-      reason: `version ${primary.version} is not a stable X.Y.Z version; only stable versions release from main`,
+      reason: `version ${primary.version} is not a stable X.Y.Z version; only stable versions are released`,
     };
   }
 
@@ -509,23 +548,61 @@ export function verifyReleaseTag(options: VerifyOptions): Verdict {
   if (head.status !== 0) {
     return { ok: false, reason: `${mainRef} is not fetched; run git fetch origin main` };
   }
-  const ancestor = git(["merge-base", "--is-ancestor", commit, mainRef], cwd, env);
-  if (ancestor.status !== 0) {
-    return { ok: false, reason: `commit ${commit} of ${tag} is not on ${mainRef}` };
+  const onMain = git(["merge-base", "--is-ancestor", commit, mainRef], cwd, env);
+  if (onMain.status === 0) {
+    return {
+      ...signature,
+      version: primary.version,
+      commit,
+      branch: mainRef,
+      distTag: MAIN_DIST_TAG,
+    };
   }
 
-  return { ...signature, version: primary.version, commit };
+  // A hotfix: the commit must be on the release branch of its own version. A tag v1.0.1 is
+  // checked against origin/release/1.0 and no other branch.
+  const release = releaseBranch(primary.version);
+  if (release === undefined) {
+    return { ok: false, reason: `commit ${commit} of ${tag} is not on ${mainRef}` };
+  }
+  const releaseHead = git(
+    ["rev-parse", "--verify", "--quiet", `${release.ref}^{commit}`],
+    cwd,
+    env,
+  );
+  if (releaseHead.status === 0) {
+    const onRelease = git(["merge-base", "--is-ancestor", commit, release.ref], cwd, env);
+    if (onRelease.status === 0) {
+      return {
+        ...signature,
+        version: primary.version,
+        commit,
+        branch: release.name,
+        distTag: release.distTag,
+      };
+    }
+  }
+  return {
+    ok: false,
+    reason: `commit ${commit} of ${tag} is not on ${mainRef} or ${release.name}`,
+  };
 }
 
 function main(argv: readonly string[]): void {
   const { positionals, values } = parseArgs({
     args: [...argv],
     allowPositionals: true,
-    options: { keys: { type: "string" }, main: { type: "string" } },
+    options: {
+      keys: { type: "string" },
+      main: { type: "string" },
+      output: { type: "string" },
+    },
   });
   const tag = positionals[0];
   if (tag === undefined || positionals.length !== 1) {
-    throw new Error("usage: node scripts/verify-release-tag.ts vX.Y.Z [--keys DIR] [--main REF]");
+    throw new Error(
+      "usage: node scripts/verify-release-tag.ts vX.Y.Z [--keys DIR] [--main REF] [--output FILE]",
+    );
   }
   const cwd = process.cwd();
   const verdict = verifyReleaseTag({
@@ -541,8 +618,11 @@ function main(argv: readonly string[]): void {
     return;
   }
   process.stdout.write(
-    `${tag} passes: signed by ${verdict.signer} (${verdict.fingerprint}), version ${verdict.version} in ${MANIFESTS.length} manifests, commit ${verdict.commit} on ${values.main ?? MAIN_REF}\n`,
+    `${tag} passes: signed by ${verdict.signer} (${verdict.fingerprint}), version ${verdict.version} in ${MANIFESTS.length} manifests, commit ${verdict.commit} on ${verdict.branch}, staged under ${verdict.distTag}\n`,
   );
+  if (values.output !== undefined) {
+    appendFileSync(values.output, `dist-tag=${verdict.distTag}\n`);
+  }
 }
 
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {

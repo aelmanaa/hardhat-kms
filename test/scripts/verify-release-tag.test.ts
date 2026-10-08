@@ -3,7 +3,15 @@
 // is absent. Runs in `pnpm test`.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -15,6 +23,7 @@ import {
   importedFingerprints,
   isOnePublicKeyBlock,
   readSignature,
+  releaseBranch,
   removeKeyHome,
   verifyReleaseTag,
 } from "../../scripts/verify-release-tag.ts";
@@ -473,7 +482,7 @@ describe("verify-release-tag", { skip }, () => {
           assert.deepEqual(verify("v2.0.0-next.1"), {
             ok: false,
             reason:
-              "version 2.0.0-next.1 is not a stable X.Y.Z version; only stable versions release from main",
+              "version 2.0.0-next.1 is not a stable X.Y.Z version; only stable versions are released",
           }),
       );
     } finally {
@@ -494,7 +503,7 @@ describe("verify-release-tag", { skip }, () => {
           assert.deepEqual(verify("v1.2.3+build.7"), {
             ok: false,
             reason:
-              "version 1.2.3+build.7 is not a stable X.Y.Z version; only stable versions release from main",
+              "version 1.2.3+build.7 is not a stable X.Y.Z version; only stable versions are released",
           }),
       );
     } finally {
@@ -516,13 +525,152 @@ describe("verify-release-tag", { skip }, () => {
         () =>
           assert.deepEqual(verify("v1.2.3"), {
             ok: false,
-            reason: `commit ${commit} of v1.2.3 is not on origin/main`,
+            reason: `commit ${commit} of v1.2.3 is not on origin/main or origin/release/1.2`,
           }),
       );
     } finally {
       git(["checkout", "--quiet", "main"]);
       git(["branch", "--quiet", "-D", "unmerged"]);
     }
+  });
+
+  // Runs `check` with a commit at `version` on a new branch `name`, cut from main and pushed to
+  // origin when `push` is set, then removes the branch on both sides. `extra` names more branches
+  // to push at main for the duration, such as a release branch the commit is not on.
+  const onBranch = (
+    name: string,
+    version: string,
+    options: { push: boolean; extra?: readonly string[] },
+    check: (commit: string) => void,
+  ): void => {
+    const pushed = [...(options.push ? [name] : []), ...(options.extra ?? [])];
+    for (const branch of options.extra ?? []) {
+      git(["push", "--quiet", "origin", `main:refs/heads/${branch}`]);
+    }
+    git(["checkout", "--quiet", "-b", name, "main"]);
+    try {
+      writeManifests({ "*": version });
+      git(["commit", "--quiet", "--all", "--no-gpg-sign", "-m", `chore: version ${version}`]);
+      if (options.push) {
+        git(["push", "--quiet", "origin", name]);
+      }
+      check(git(["rev-parse", "HEAD"]).trim());
+    } finally {
+      git(["checkout", "--quiet", "main"]);
+      git(["branch", "--quiet", "-D", name]);
+      for (const branch of pushed) {
+        git(["push", "--quiet", "origin", "--delete", branch]);
+      }
+    }
+  };
+
+  it("passes a hotfix tag on the release branch of its version", () => {
+    onBranch("release/1.2", "1.2.4", { push: true }, (commit) =>
+      withTag(
+        "v1.2.4",
+        () => signWith(trustedHome, trustedKey, "v1.2.4"),
+        () => {
+          const verdict = verify("v1.2.4");
+          assert.equal(verdict.ok, true, verdict.ok ? "" : verdict.reason);
+          if (verdict.ok) {
+            assert.equal(verdict.version, "1.2.4");
+            assert.equal(verdict.commit, commit);
+            assert.equal(verdict.branch, "origin/release/1.2");
+            assert.equal(verdict.distTag, "release-1.2");
+          }
+        },
+      ),
+    );
+  });
+
+  it("names origin/main as the branch of a tag on main", () => {
+    withTag(
+      "v1.2.3",
+      () => signWith(trustedHome, trustedKey, "v1.2.3"),
+      () => {
+        const verdict = verify("v1.2.3");
+        assert.equal(verdict.ok && verdict.branch, "origin/main");
+        assert.equal(verdict.ok && verdict.distTag, "beta");
+      },
+    );
+  });
+
+  it("fails a hotfix tag on the release branch of another line", () => {
+    onBranch("release/1.1", "1.2.4", { push: true }, (commit) =>
+      withTag(
+        "v1.2.4",
+        () => signWith(trustedHome, trustedKey, "v1.2.4"),
+        () =>
+          assert.deepEqual(verify("v1.2.4"), {
+            ok: false,
+            reason: `commit ${commit} of v1.2.4 is not on origin/main or origin/release/1.2`,
+          }),
+      ),
+    );
+  });
+
+  it("fails a tag on a pushed branch that is not a release branch", () => {
+    onBranch("hotfix-1.2", "1.2.4", { push: true, extra: ["release/1.2"] }, (commit) =>
+      withTag(
+        "v1.2.4",
+        () => signWith(trustedHome, trustedKey, "v1.2.4"),
+        () =>
+          assert.deepEqual(verify("v1.2.4"), {
+            ok: false,
+            reason: `commit ${commit} of v1.2.4 is not on origin/main or origin/release/1.2`,
+          }),
+      ),
+    );
+  });
+
+  it("fails a version whose line is not the release branch the commit is on", () => {
+    // The commit is on origin/release/1.2, but version 1.3.0 belongs to release/1.3, which exists
+    // and does not hold the commit.
+    onBranch("release/1.2", "1.3.0", { push: true, extra: ["release/1.3"] }, (commit) =>
+      withTag(
+        "v1.3.0",
+        () => signWith(trustedHome, trustedKey, "v1.3.0"),
+        () =>
+          assert.deepEqual(verify("v1.3.0"), {
+            ok: false,
+            reason: `commit ${commit} of v1.3.0 is not on origin/main or origin/release/1.3`,
+          }),
+      ),
+    );
+  });
+
+  it("fails a hotfix tag whose release branch exists only locally", () => {
+    onBranch("release/1.2", "1.2.4", { push: false }, (commit) =>
+      withTag(
+        "v1.2.4",
+        () => signWith(trustedHome, trustedKey, "v1.2.4"),
+        () =>
+          assert.deepEqual(verify("v1.2.4"), {
+            ok: false,
+            reason: `commit ${commit} of v1.2.4 is not on origin/main or origin/release/1.2`,
+          }),
+      ),
+    );
+  });
+
+  it("does not read the release branch from a tag that shadows its short name", () => {
+    // A tag named origin/release/1.2 at the hotfix commit must not stand in for the branch.
+    onBranch("hotfix-1.2", "1.2.4", { push: false }, (commit) =>
+      withTag(
+        "origin/release/1.2",
+        () => git(["tag", "origin/release/1.2", commit]),
+        () =>
+          withTag(
+            "v1.2.4",
+            () => signWith(trustedHome, trustedKey, "v1.2.4"),
+            () =>
+              assert.deepEqual(verify("v1.2.4"), {
+                ok: false,
+                reason: `commit ${commit} of v1.2.4 is not on origin/main or origin/release/1.2`,
+              }),
+          ),
+      ),
+    );
   });
 
   it("fails when origin/main is not fetched", () => {
@@ -571,25 +719,56 @@ describe("verify-release-tag", { skip }, () => {
       "v1.2.3",
       () => signWith(trustedHome, trustedKey, "v1.2.3"),
       () => {
-        const passed = run(process.execPath, [script, "v1.2.3", "--keys", keys], repo, cliEnv);
+        const output = path.join(sandbox, "github-output");
+        writeFileSync(output, "earlier=line\n");
+        const passed = run(
+          process.execPath,
+          [script, "v1.2.3", "--keys", keys, "--output", output],
+          repo,
+          cliEnv,
+        );
         assert.equal(passed.status, 0, passed.stderr);
+        assert.equal(readFileSync(output, "utf8"), "earlier=line\ndist-tag=beta\n");
         assert.match(
           passed.stdout,
-          /^v1\.2\.3 passes: signed by Release Maintainer <[^>]+> \([0-9A-F]+\), version 1\.2\.3 in 4 manifests, commit [0-9a-f]{40} on origin\/main\n$/,
+          /^v1\.2\.3 passes: signed by Release Maintainer <[^>]+> \([0-9A-F]+\), version 1\.2\.3 in 4 manifests, commit [0-9a-f]{40} on origin\/main, staged under beta\n$/,
         );
         const failed = run(
           process.execPath,
-          [script, "v1.2.3", "--keys", path.join(sandbox, "no-keys")],
+          [script, "v1.2.3", "--keys", path.join(sandbox, "no-keys"), "--output", output],
           repo,
           cliEnv,
         );
         assert.equal(failed.status, 1);
         assert.match(failed.stderr, /^v1\.2\.3 fails: no release keys: /);
+        // A failing tag writes no dist-tag.
+        assert.equal(readFileSync(output, "utf8"), "earlier=line\ndist-tag=beta\n");
       },
     );
     const usage = run(process.execPath, [script], repo, cliEnv);
     assert.equal(usage.status, 1);
     assert.match(usage.stderr, /^usage: /);
+  });
+});
+
+describe("releaseBranch", () => {
+  it("names origin/release/X.Y from the major and minor of the version", () => {
+    assert.deepEqual(releaseBranch("1.0.1"), {
+      ref: "refs/remotes/origin/release/1.0",
+      name: "origin/release/1.0",
+      distTag: "release-1.0",
+    });
+    assert.deepEqual(releaseBranch("12.34.56"), {
+      ref: "refs/remotes/origin/release/12.34",
+      name: "origin/release/12.34",
+      distTag: "release-12.34",
+    });
+  });
+
+  it("names no branch for a version that is not X.Y.Z", () => {
+    for (const version of ["1.0.1-next.1", "1.0.1+build", "1.0", "../1.0.1", "1.0.1\n", ""]) {
+      assert.equal(releaseBranch(version), undefined, version);
+    }
   });
 });
 

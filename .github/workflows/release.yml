@@ -2,10 +2,11 @@
 # maintainer's steps and decision 0016 the reasons. The jobs, in order:
 # 1. verify-tag: scripts/release-trigger.ts checks the trigger and its inputs as whole strings,
 #    then scripts/verify-release-tag.ts checks the tag: signed by a key in .github/release-keys/,
-#    the version of the four manifests, no prerelease part, its commit on main.
+#    the version of the four manifests, no prerelease part, its commit on main or, for a hotfix
+#    X.Y.Z, on release/X.Y.
 # 2. gate-ci: the tagged commit has a passing ci.yml run, a ci-all-os.yml run that passed on macOS
-#    and Windows, and passing hardhat-versions.yml and sdk-floors.yml runs; for each of the last
-#    three that has no passing run on the commit, the job dispatches it on the tag and waits
+#    and Windows, and passing hardhat-versions.yml and sdk-floors.yml runs; for each of the four
+#    that has no passing run on the commit, the job dispatches it on the tag and waits
 #    (scripts/release-gate-ci.ts).
 # 3. pack: build, the package checks, the publish plan, then one tarball per package with `gitHead`
 #    set to the tagged commit, checked by scripts/check-tarballs.ts. The SHA-256 sums leave the job
@@ -15,9 +16,10 @@
 #    ALLOWED does not list (scripts/check-fresh-install.ts). It uploads nothing; both publish jobs
 #    need it.
 # 4. publish: after a maintainer approves the npm-publish environment, the same check against that
-#    output, then `npm stage publish` of the four tarballs under the beta dist-tag, over OIDC
-#    (trusted publishing, no token), with provenance. Nothing is installable until a maintainer
-#    approves the stage on npmjs.com.
+#    output, then `npm stage publish` of the four tarballs over OIDC (trusted publishing, no
+#    token), with provenance, under the dist-tag verify-tag chose: `beta` for a commit on main,
+#    `release-X.Y` for a hotfix on release/X.Y, so a hotfix never moves `beta` backwards. Nothing
+#    is installable until a maintainer approves the stage on npmjs.com.
 # 5. github-release: a draft GitHub Release with the prerelease flag, its notes from the
 #    hardhat-kms changelog.
 # A manual dispatch is always a dry run: verify-tag on the `tag` input (or, with `none`, the
@@ -60,10 +62,12 @@ jobs:
       dry-run: ${{ steps.trigger.outputs.dry-run }}
       commit: ${{ steps.verify.outputs.commit }}
       version: ${{ steps.verify.outputs.version }}
+      dist-tag: ${{ steps.verify.outputs.dist-tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The whole history: the script checks that the tagged commit is an ancestor of origin/main.
+          # The whole history: the script checks that the tagged commit is an ancestor of origin/main
+          # or of the release branch of its version.
           fetch-depth: 0
           persist-credentials: false
       # Node 24 strips the scripts' types; they import only node: modules, so nothing is installed.
@@ -93,13 +97,17 @@ jobs:
             version="$(node -p 'require("./packages/hardhat-kms/package.json").version')"
             echo "commit=$HEAD_SHA" >> "$GITHUB_OUTPUT"
             echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "dist-tag=beta" >> "$GITHUB_OUTPUT"
             echo "Dry run without a tag: the signature, tag-name and main checks did not run. Packing \`$HEAD_SHA\` at version $version." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          # Fetch the tag object itself, and main, so neither depends on how the checkout fetched them.
-          git fetch --force --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/main:refs/remotes/origin/main"
+          # Fetch the tag object itself, main and the release branches, so none depends on how the
+          # checkout fetched them. The script picks the one release branch it reads from the
+          # version at the tagged commit, never from this list.
+          git fetch --force --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/main:refs/remotes/origin/main" "+refs/heads/release/*:refs/remotes/origin/release/*"
           set -o pipefail
-          node scripts/verify-release-tag.ts "$TAG" | tee -a "$GITHUB_STEP_SUMMARY"
+          # --output appends dist-tag=, built from the verified version and branch.
+          node scripts/verify-release-tag.ts "$TAG" --output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "commit=$(git rev-parse "refs/tags/$TAG^{commit}")" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
@@ -112,7 +120,7 @@ jobs:
     timeout-minutes: 100
     permissions:
       contents: read # checks out the scripts
-      actions: write # reads the runs of the four workflows, and dispatches all but ci.yml
+      actions: write # reads the runs of the four workflows, and dispatches each one the commit lacks
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -198,7 +206,7 @@ jobs:
           {
             echo "## Publish plan"
             echo
-            echo "The plan prints changesets' default dist-tag; the publish job stages under \`beta\`."
+            echo "The plan prints changesets' default dist-tag; the publish job stages under \`beta\`, or under \`release-X.Y\` for a hotfix."
             echo
             echo '```text'
             pnpm exec changeset publish-plan 2>&1
@@ -324,7 +332,7 @@ jobs:
       - run: pnpm run test:fresh-install --summary "$GITHUB_STEP_SUMMARY"
 
   publish:
-    name: Stage to npm under beta
+    name: Stage to npm
     needs: [verify-tag, gate-ci, pack, fresh-install]
     if: github.event_name == 'push' && needs.verify-tag.outputs.dry-run == 'false'
     runs-on: ubuntu-26.04
@@ -372,10 +380,14 @@ jobs:
           npm install --global --ignore-scripts npm@12.2.0
           npm --version
           node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
-      - name: Stage the four packages under beta
+      - name: Stage the four packages under the dist-tag verify-tag chose
         env:
-          DIST_TAG: beta
+          DIST_TAG: ${{ needs.verify-tag.outputs.dist-tag }}
         run: |
+          if [[ ! "$DIST_TAG" =~ ^(beta|release-[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::dist-tag '$DIST_TAG' is neither beta nor release-X.Y"
+            exit 1
+          fi
           cd "$RUNNER_TEMP/tarballs"
           echo "## Staged under \`$DIST_TAG\`" >> "$GITHUB_STEP_SUMMARY"
           while read -r _ file; do
@@ -428,7 +440,7 @@ jobs:
           node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
       - name: npm stage publish --dry-run, and the commands a release would run
         env:
-          DIST_TAG: beta
+          DIST_TAG: ${{ needs.verify-tag.outputs.dist-tag }}
           TAG: ${{ needs.verify-tag.outputs.tag }}
         run: |
           cd "$RUNNER_TEMP/tarballs"

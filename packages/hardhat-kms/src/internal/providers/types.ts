@@ -24,3 +24,12 @@ export interface KmsProviderDescriptor {
   name: string;
   adapter: ProviderAdapterSource;
 }
+
+/** A provider id the core keeps for a first-party provider that is planned but not released. */
+export interface ReservedProvider {
+  id: string;
+  /** The provider's name in messages, for example `Turnkey`. */
+  name: string;
+  /** The issue that tracks the provider. */
+  issue: number;
+}
