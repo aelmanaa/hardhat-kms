@@ -123,6 +123,9 @@ jobs:
         shell: bash
         env:
           NODE_OPTIONS: ${{ matrix.node == '22.13.0' && '--import tsx' || '' }}
+          # The nonce model (test/unit/rpc/nonce-model.test.ts) runs 100 sequences per property on
+          # pull requests and pushes, and more at night.
+          NONCE_MODEL_RUNS: ${{ github.event_name == 'schedule' && '2000' || '' }}
         run: pnpm test
 
   # Keeps the tracking issue for failures on main: scheduled runs and dispatches without dry-run only,
