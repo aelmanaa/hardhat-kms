@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import type { TestContext } from "node:test";
 
 import type { PublicClient, WalletClient } from "@nomicfoundation/hardhat-viem/types";
+import type { KmsAccount } from "hardhat-kms/types";
 import type { EthereumProvider } from "hardhat/types/providers";
 import {
   type Address,
@@ -14,7 +15,6 @@ import {
   getAddress,
   type Hash,
   type Hex,
-  hexToBytes,
   http,
   isHex,
   parseEther,
@@ -31,8 +31,6 @@ import {
 } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
-import { authorizationDigest } from "../../packages/hardhat-kms/src/internal/crypto/digests.ts";
-import type { KmsSigner } from "../../packages/hardhat-kms/src/internal/signer/kms-signer.ts";
 import type { ProofRecord } from "./helpers/proof.ts";
 import { retryLagging } from "./helpers/retry.ts";
 import { type Case, CASES, type CaseId } from "./matrix.ts";
@@ -114,7 +112,8 @@ export interface RunOptions {
   provider: string;
   t: TestContext;
   account: Address;
-  signer: KmsSigner;
+  /** The account's library account, from `connection.kms.getAccount`: it signs the authorizations. */
+  kmsAccount: KmsAccount;
   rpc: EthereumProvider;
   publicClient: PublicClient;
   wallet: WalletClient;
@@ -393,24 +392,25 @@ export class ProviderRun {
         );
   }
 
-  /** One authorization by the KMS key, signed through the core signer. */
+  /** One authorization by the KMS key, signed through the public `getAccount` account. */
   async authorize(delegate: Address, nonce: number): Promise<SignedAuthorization> {
     // Every authorization the KMS key signs names Sepolia. Chain id 0 would make it valid on every
     // chain, so the suite never signs one.
-    const signature = await this.#options.signer.signDigest(
-      authorizationDigest({
-        chainId: BigInt(SEPOLIA_CHAIN_ID),
-        address: hexToBytes(delegate),
-        nonce: BigInt(nonce),
-      }),
-    );
+    const signed = await this.#options.kmsAccount.signAuthorization({
+      contractAddress: delegate,
+      chainId: SEPOLIA_CHAIN_ID,
+      nonce,
+    });
+    assert.equal(signed.chainId, SEPOLIA_CHAIN_ID);
+    assert.equal(signed.nonce, nonce);
+    assert.equal(getAddress(signed.address), getAddress(delegate));
     return {
       chainId: SEPOLIA_CHAIN_ID,
       address: delegate,
       nonce,
-      yParity: signature.yParity,
-      r: toHex(signature.r, { size: 32 }),
-      s: toHex(signature.s, { size: 32 }),
+      yParity: signed.yParity,
+      r: signed.r,
+      s: signed.s,
     };
   }
 

@@ -141,9 +141,9 @@ A package added later meets the same problem: its first stage cannot run over OI
 
 ## 4. Verify and promote
 
-`promote.yml` is a `workflow_dispatch` with three inputs: `version` (exact, no `v`), `target` (`verify` or `latest`) and `live-run` (`sepolia:<proof commit>`, `fork` or `none`). It runs on Linux and reads no secret; only its `latest` job has `id-token: write`.
+`promote.yml` is a `workflow_dispatch` with three inputs: `version` (exact, no `v`), `target` (`verify` or `latest`) and `live-run` (`sepolia:<proof commit>`, `fork` or `none`). It runs on Linux. Only two jobs have `id-token: write`: `latest`, for npm, and `live`, which runs only with `live-run: fork` and reads the `live-tests` environment's secrets for the three clouds. No other job reads a secret.
 
-1. Choose `live-run` by the live rule. `sepolia:<proof commit>` names the commit that added `test/live/proof.json` from the Sepolia run in [Preflight](#2-preflight); `fork` records a fork-mode run; `none` records no run.
+1. Choose `live-run` by the live rule. `sepolia:<proof commit>` names the commit that added `test/live/proof.json` from the Sepolia run in [Preflight](#2-preflight); `fork` makes the workflow run the live suite in fork mode against the packages on npm; `none` records no run.
 
    | Version | `target: verify`                   | `target: latest`                                                                     |
    | ------- | ---------------------------------- | ------------------------------------------------------------------------------------ |
@@ -151,7 +151,7 @@ A package added later meets the same problem: its first stage cannot run over OI
    | Major   | `fork` or `sepolia:<proof commit>` | `sepolia:<proof commit>`                                                             |
    | Patch   | any value                          | `sepolia:<proof commit>` if its changelog touches signing or sending, else any value |
 
-   The workflow enforces every cell except the patch row: which patches touch signing or sending is your call, recorded in the input. Until the live suite runs in Actions, both modes run on your machine at the tag commit.
+   The workflow enforces every cell except the patch row: which patches touch signing or sending is your call, recorded in the input. With `fork`, the workflow's `live` job runs the fork-mode suite with `HARDHAT_KMS_LIVE_SOURCE=registry:<version>`, so it tests the four packages installed from npm, not the checkout ([Testing](testing.md#live-tests-in-github-actions)). It waits for your approval of the `live-tests` environment: approve it only on a `Promote` run you dispatched. The Sepolia run behind `sepolia:<proof commit>` still runs before the dispatch, on your machine or with `live-tests.yml`.
 
 2. Run it with `target: verify`, from `main`:
 
@@ -159,7 +159,7 @@ A package added later meets the same problem: its first stage cannot run over OI
    gh workflow run promote.yml --ref main -f version=1.2.0 -f target=verify -f live-run=sepolia:<proof commit>
    ```
 
-   It applies the live rule first (`scripts/check-live-rule.ts`), then `scripts/check-registry-release.ts <version>` (`beta`, or `release-X.Y` for a hotfix, equals the version, the four packages have it, it is not below `latest`, it has no `-`, `npm audit signatures` reports four attestations, `gitHead` equals the tag commit), then the package checks, the consumer typecheck and the peer-install matrix with `--from-registry`, and the examples from the registry against LocalStack. On the day of a release, the Yarn 4 cases of the peer-install matrix pass only because the script exempts the four packages from Yarn's one-day age gate with the `npmPreapprovedPackages` line the [install page](../user/guides/install-before-release.md#yarn) gives users. These are the scripts `pnpm run test:registry-mode` rehearses against a local verdaccio, described in [Testing](testing.md#testing-strategy), and the only part of the promotion a maintainer can run before a version exists on npm. Green publishes the draft GitHub Release with the prerelease flag on: the beta is now announced.
+   It applies the live rule first (`scripts/check-live-rule.ts`), then `scripts/check-registry-release.ts <version>` (`beta`, or `release-X.Y` for a hotfix, equals the version, the four packages have it, it is not below `latest`, it has no `-`, `npm audit signatures` reports four attestations, `gitHead` equals the tag commit), then the package checks, the consumer typecheck and the peer-install matrix with `--from-registry`, and the examples from the registry against LocalStack. With `live-run: fork`, the `live` job then runs the fork-mode live suite against the version on npm, after your approval of the `live-tests` environment; the release jobs wait for it. On the day of a release, the Yarn 4 cases of the peer-install matrix pass only because the script exempts the four packages from Yarn's one-day age gate with the `npmPreapprovedPackages` line the [install page](../user/guides/install-before-release.md#yarn) gives users. These are the scripts `pnpm run test:registry-mode` rehearses against a local verdaccio, described in [Testing](testing.md#testing-strategy), and the only part of the promotion a maintainer can run before a version exists on npm. Green publishes the draft GitHub Release with the prerelease flag on: the beta is now announced.
 
 3. Wait 24 hours if pnpm testers are expected: pnpm 11 and 12 hold back versions younger than that unless the project lists the packages in `minimumReleaseAgeExclude`.
 4. Run it with `target: latest`:
@@ -170,7 +170,7 @@ A package added later meets the same problem: its first stage cannot run over OI
 
    Dispatch it from `main`: the `npm-latest` environment accepts only that branch. It repeats the checks on the same version, then, after approval of the `npm-latest` environment, checks again that each package has `beta` or `release-X.Y` at the version and `latest` not above it, runs `npm dist-tag add <pkg>@<version> latest` for the four packages and `gh release edit v<version> --draft=false --prerelease=false --latest`. If the registry refuses the dist-tag move over OIDC, run the four `npm dist-tag add` commands from your machine with 2FA and re-run the workflow, which finds `latest` already moved and only edits the release.
 
-Either target posts one comment on the merged Version Packages pull request with the result of the verify job, of the dist-tag move and of the release job, the `live-run` value and the run link. The run's step summary holds the full output. That comment is the record of the release.
+Either target posts one comment on the merged Version Packages pull request with the result of the verify job, of the live job (`not run` unless `live-run` is `fork`), of the dist-tag move and of the release job, the `live-run` value and the run link. The run's step summary holds the full output. That comment is the record of the release.
 
 The first version of a package lands on `latest` whatever is asked, because the registry has nothing else to point at. For 0.9.0, `latest` already points at the version after the placeholder fix in [First publish](#first-publish-090-2026-10-08), so `target: latest` is not run; the release is published with `gh release edit v0.9.0 --draft=false --prerelease=false --latest` after `verify` is green. The [acceptance test](https://github.com/aelmanaa/hardhat-kms/issues/294) then runs against 0.9.0 from the registry, and only a version that passes it gets the 1.0.0 tag. Between that 0.9.x and 1.0.0, nothing changes in `src/`, `dist/` or the published manifests other than what `pnpm run version-packages` writes, the versions and the internal version ranges; READMEs and changelogs may change.
 

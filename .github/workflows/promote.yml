@@ -9,10 +9,15 @@
 # - target verify: publishes the draft GitHub Release with the prerelease flag on.
 # - target latest: after a maintainer approves the npm-latest environment, `npm dist-tag add` for
 #   the four packages over OIDC, then the GitHub Release becomes the latest release.
+# - job live, only when live-run is fork: after the owner approves the live-tests environment, the
+#   live suite in fork mode against the four packages installed from npm at the version
+#   (HARDHAT_KMS_LIVE_SOURCE=registry:<version>), signed in to the three clouds over OIDC as in
+#   live-tests.yml. Either target then waits for it, and a failed live run stops the promotion. A
+#   Sepolia run (live-run sepolia:<commit>) still runs before the dispatch, on the maintainer's
+#   machine or in live-tests.yml; this workflow checks its value.
 # Either target comments on the merged Version Packages pull request with the result of each job
-# and the live-run value. The live suite itself runs on the maintainer's machine until it runs in
-# Actions; this workflow only records and checks the value. Dispatch it from main: the npm-latest
-# environment accepts only that branch.
+# and the live-run value. Dispatch it from main: the npm-latest environment accepts only that
+# branch.
 name: Promote
 
 on:
@@ -129,10 +134,121 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: echo "Every registry check passed for $VERSION." >> "$GITHUB_STEP_SUMMARY"
 
+  # Only when live-run is fork. The job runs in the live-tests environment, so it waits for the
+  # owner's approval on every promote run that asks for it; the three clouds trust only a token
+  # whose subject names that environment. Everything is installed, built and downloaded before the
+  # first cloud login, the published packages included: the suite then installs them from npm's
+  # cache with npm_config_offline, so no download and no install script runs with credentials.
+  live:
+    name: Live tests from npm (fork)
+    needs: verify
+    if: inputs.live-run == 'fork'
+    runs-on: ubuntu-26.04
+    environment: live-tests
+    # Counts from the start of the job, after the approval.
+    timeout-minutes: 30
+    permissions:
+      contents: read # checks out the suite
+      id-token: write # the OIDC token that the three clouds exchange for short-lived credentials
+    env:
+      HARDHAT_KMS_LIVE_NETWORK: fork
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No dependency cache: a job that can mint an OIDC token restores nothing another run saved.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run build
+      - name: Install anvil
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          version: v1.8.1 # the Foundry release of the local fork runs, as in live-tests.yml
+          cache: false
+      # Downloads solc 0.8.24 into Hardhat's compiler cache, where the suite's build finds it.
+      - name: Build the fixture project
+        run: |
+          node --input-type=module <<'EOF'
+          import path from "node:path";
+
+          import { createHardhatRuntimeEnvironment } from "hardhat/hre";
+
+          const root = path.resolve("test/live/fixture-project");
+          const hre = await createHardhatRuntimeEnvironment({ solidity: "0.8.24" }, {}, root);
+          await hre.tasks.getTask("build").run({ quiet: true });
+          EOF
+      # The same install the suite makes, once, so that npm's cache holds every package it needs.
+      - name: Download the packages from npm
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { installRegistryProject, removeScratchProject } from "./test/live/helpers/packages.ts";
+
+          const { directory, versions } = installRegistryProject(process.env.VERSION);
+          removeScratchProject(directory);
+          console.log(versions);
+          EOF
+      # The suite would skip a provider whose key is empty and still pass.
+      - name: Check that the three keys are set
+        env:
+          HARDHAT_KMS_LIVE_AWS_KEY_ID: ${{ secrets.HARDHAT_KMS_LIVE_AWS_KEY_ID }}
+          HARDHAT_KMS_LIVE_GCP_KEY: ${{ secrets.HARDHAT_KMS_LIVE_GCP_KEY }}
+          HARDHAT_KMS_LIVE_AZURE_KEY_ID: ${{ secrets.HARDHAT_KMS_LIVE_AZURE_KEY_ID }}
+        run: |
+          missing=""
+          for name in HARDHAT_KMS_LIVE_AWS_KEY_ID HARDHAT_KMS_LIVE_GCP_KEY HARDHAT_KMS_LIVE_AZURE_KEY_ID; do
+            if [ -z "$(printenv "$name" | tr -d '[:space:]')" ]; then
+              missing="${missing} ${name}"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::not set in the live-tests environment:${missing}; a live run needs all three keys"
+            exit 1
+          fi
+
+      - name: Sign in to AWS
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.LIVE_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.LIVE_AWS_REGION }}
+          audience: sts.amazonaws.com
+          mask-aws-account-id: true
+      - name: Sign in to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.LIVE_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      - name: Sign in to Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.LIVE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.LIVE_AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      # The key identifiers reach this step and the key check only, never the job's env.
+      - name: Live tests
+        env:
+          HARDHAT_KMS_LIVE_AWS_KEY_ID: ${{ secrets.HARDHAT_KMS_LIVE_AWS_KEY_ID }}
+          HARDHAT_KMS_LIVE_GCP_KEY: ${{ secrets.HARDHAT_KMS_LIVE_GCP_KEY }}
+          HARDHAT_KMS_LIVE_AZURE_KEY_ID: ${{ secrets.HARDHAT_KMS_LIVE_AZURE_KEY_ID }}
+          HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL: ${{ secrets.HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL }}
+          HARDHAT_KMS_LIVE_SOURCE: registry:${{ inputs.version }}
+          npm_config_offline: "true"
+        run: |
+          pnpm run test:live
+          echo "The fork-mode live suite passed against the npm packages at ${HARDHAT_KMS_LIVE_SOURCE#registry:}." >> "$GITHUB_STEP_SUMMARY"
+
   release-beta:
     name: Publish the GitHub Release as a prerelease
-    needs: verify
-    if: inputs.target == 'verify'
+    needs: [verify, live]
+    # The live job is skipped unless live-run is fork; a skipped live job does not hold this one.
+    if: >-
+      ${{ !cancelled() && inputs.target == 'verify' && needs.verify.result == 'success'
+      && (needs.live.result == 'success' || needs.live.result == 'skipped') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
@@ -153,8 +269,10 @@ jobs:
 
   latest:
     name: Move latest on npm
-    needs: verify
-    if: inputs.target == 'latest'
+    needs: [verify, live]
+    if: >-
+      ${{ !cancelled() && inputs.target == 'latest' && needs.verify.result == 'success'
+      && (needs.live.result == 'success' || needs.live.result == 'skipped') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     # A maintainer approves this environment; the dist-tag trusted-publisher configuration pins it.
@@ -229,7 +347,7 @@ jobs:
 
   record:
     name: Comment on the Version Packages pull request
-    needs: [verify, release-beta, latest, release-latest]
+    needs: [verify, live, release-beta, latest, release-latest]
     if: ${{ !cancelled() && needs.verify.outputs.commit != '' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -244,6 +362,7 @@ jobs:
           TARGET: ${{ inputs.target }}
           LIVE_RUN: ${{ inputs.live-run }}
           VERIFY: ${{ needs.verify.result }}
+          LIVE: ${{ inputs.live-run == 'fork' && needs.live.result || 'not run' }}
           DIST_TAG: ${{ inputs.target == 'latest' && needs.latest.result || 'not run' }}
           RELEASE: ${{ inputs.target == 'latest' && needs.release-latest.result || needs.release-beta.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -253,6 +372,6 @@ jobs:
             echo "::warning::no pull request has $COMMIT as its merge commit; nothing to comment on"
             exit 0
           fi
-          body="$(printf "Promote %s, target %s: verify %s, dist-tag move %s, GitHub Release %s.\n\nlive-run: \`%s\`\n\nRun: %s\n" \
-            "$VERSION" "$TARGET" "$VERIFY" "$DIST_TAG" "$RELEASE" "$LIVE_RUN" "$RUN_URL")"
+          body="$(printf "Promote %s, target %s: verify %s, live fork run from npm %s, dist-tag move %s, GitHub Release %s.\n\nlive-run: \`%s\`\n\nRun: %s\n" \
+            "$VERSION" "$TARGET" "$VERIFY" "$LIVE" "$DIST_TAG" "$RELEASE" "$LIVE_RUN" "$RUN_URL")"
           gh pr comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
