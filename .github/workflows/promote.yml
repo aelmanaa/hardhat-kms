@@ -368,6 +368,9 @@ jobs:
   release-latest:
     name: Mark the GitHub Release as latest
     needs: latest
+    # A Sepolia proof or live-run none skips the optional live ancestor. Override its skip,
+    # but edit the release only after npm latest succeeded and while this run is not cancelled.
+    if: ${{ !cancelled() && needs.latest.result == 'success' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     # The group of the latest job. Another promotion's latest job can run between the two jobs of

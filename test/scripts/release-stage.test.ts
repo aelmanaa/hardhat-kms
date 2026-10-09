@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 
 import { parse } from "yaml";
 
@@ -305,6 +306,34 @@ describe("release-stage.yml", () => {
 describe("promote.yml", () => {
   const workflow = readWorkflow("promote.yml");
   const jobs = new Map(jobsOf(workflow));
+
+  it("marks the release latest after npm succeeds even when the optional live ancestor skipped", () => {
+    const job = jobs.get("release-latest");
+    assert.equal(field(job, "needs"), "latest");
+    const condition = field(job, "if");
+    assert.ok(typeof condition === "string");
+    const expression = condition.replace(/^\s*\$\{\{\s*|\s*\}\}\s*$/g, "");
+    // This condition uses the JS-compatible subset of Actions expressions. Without a status
+    // function, Actions also applies success() to every ancestor, including skipped live jobs.
+    const overridesStatus = /\b(?:always|cancelled|failure|success)\s*\(/.test(expression);
+    for (const live of ["skipped", "success"]) {
+      for (const latest of ["success", "failure", "cancelled", "skipped"]) {
+        for (const cancelled of [false, true]) {
+          const result: unknown = runInNewContext(expression, {
+            cancelled: () => cancelled,
+            needs: { latest: { result: latest } },
+          });
+          assert.equal(typeof result, "boolean");
+          const defaultStatus = !cancelled && live === "success" && latest === "success";
+          assert.equal(
+            (overridesStatus || defaultStatus) && result,
+            !cancelled && latest === "success",
+            JSON.stringify({ live, latest, cancelled }),
+          );
+        }
+      }
+    }
+  });
 
   it("moves latest in one concurrency group for every version, never cancelled", () => {
     const groups = ["latest", "release-latest"].map((name) => {
