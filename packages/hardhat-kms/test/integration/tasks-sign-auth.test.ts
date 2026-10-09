@@ -585,8 +585,11 @@ describe("kms sign-auth on a Prague simulated network", () => {
     assert.equal(await sendDelegation("hardhat", {}), delegated);
   });
 
-  it("is skipped by the node when the key sends it without --self-broadcast", async () => {
+  it("is refused before signing when the key sends it without --self-broadcast (#435)", async () => {
     // The transaction uses nonce 0 first, so an authorization for nonce 0 no longer matches.
-    assert.equal(await sendDelegation("deployer", {}), "0x");
+    await assertKmsError(
+      sendDelegation("deployer", {}),
+      "eth_sendTransaction: authorizationList[0] is signed by the sender for nonce 0, but the final transaction requires nonce 1",
+    );
   });
 });

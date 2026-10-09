@@ -18,7 +18,7 @@ import {
   kmsAccountsSentence,
   type LibraryNonceRequest,
 } from "../rpc/dispatcher.ts";
-import { assembleSignedTransaction } from "../rpc/transactions.ts";
+import { assembleSignedTransaction, checkSelfAuthorizations } from "../rpc/transactions.ts";
 import { checkTypedDataChain } from "../rpc/typed-data.ts";
 import type { KmsSigner, SignerCallOptions } from "../signer/kms-signer.ts";
 import { CancelledError } from "../signer/timeout.ts";
@@ -333,6 +333,7 @@ async function signTransaction(
     );
   }
   const unsignedBytes = input.unsigned.toBytes(false);
+  checkSelfAuthorizations(input.unsigned, address, operation);
   const custom = options?.serializer;
   const serializer = custom ?? context.viem.serializeTransaction;
   const serializerName = custom === undefined ? "viem's serializeTransaction" : "the serializer";

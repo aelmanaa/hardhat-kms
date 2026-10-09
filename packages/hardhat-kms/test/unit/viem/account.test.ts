@@ -341,6 +341,40 @@ describe("connection.kms.getAccount", () => {
   });
 
   describe("refuses before any KMS call", () => {
+    it("a self-authorization invalidated by the transaction nonce (#435)", async () => {
+      const { adapter, account: kms } = await setupAccount();
+      const tuple = await VIEM_ACCOUNT.signAuthorization({
+        contractAddress: DELEGATE,
+        chainId: CHAIN_ID,
+        nonce: 1,
+      });
+      await assertRefused(
+        adapter,
+        async () =>
+          await kms.signTransaction({
+            ...EIP1559,
+            type: "eip7702",
+            nonce: 1,
+            authorizationList: [tuple],
+          }),
+        /for nonce 1, but the final transaction requires nonce 2/,
+      );
+      const right = await VIEM_ACCOUNT.signAuthorization({
+        contractAddress: DELEGATE,
+        chainId: CHAIN_ID,
+        nonce: 2,
+      });
+      const transaction: TransactionSerializable = {
+        ...EIP1559,
+        type: "eip7702",
+        nonce: 1,
+        authorizationList: [right],
+      };
+      assert.equal(
+        await kms.signTransaction(transaction),
+        await VIEM_ACCOUNT.signTransaction(transaction),
+      );
+    });
     it("a transaction for another chain, or with no chain", async () => {
       const { adapter, account: kms } = await setupAccount();
       await assertRefused(

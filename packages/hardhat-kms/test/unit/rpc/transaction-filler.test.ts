@@ -548,14 +548,50 @@ describe("HardhatTransactionFiller checks", () => {
   });
 
   it("refuses blob transactions before any request", async () => {
-    for (const field of ["blobs", "blobVersionedHashes"]) {
+    for (const extra of [
+      { blobs: [] },
+      { blobVersionedHashes: [] },
+      { maxFeePerBlobGas: "0x1" },
+      { type: "0x3" },
+    ]) {
       const { node, filler: instance } = filler(EIP1559_NODE);
       await assertKmsError(
-        instance.fill("eth_signTransaction", [{ from: FROM, to: TO, [field]: [] }]),
+        instance.fill("eth_signTransaction", [{ from: FROM, to: TO, ...extra }]),
         "eth_signTransaction: blob transactions (EIP-4844) cannot be signed",
       );
       assert.equal(node.calls.length, 0);
     }
+  });
+
+  it("reports unavailable EIP-1559 fees for authorizations without legacy fallback (#435)", async () => {
+    for (const extra of [{}, { maxFeePerGas: "0x10" }, { maxPriorityFeePerGas: "0x1" }]) {
+      const { node, filler: instance } = filler({
+        ...EIP1559_NODE,
+        eth_feeHistory: () => {
+          throw new Error("gateway down");
+        },
+      });
+      await assertKmsError(
+        instance.fill("eth_sendTransaction", [
+          {
+            from: FROM,
+            to: TO,
+            authorizationList: [authorizationWith(`0x${"11".repeat(32)}`, `0x${"22".repeat(32)}`)],
+            ...extra,
+          },
+        ]),
+        "eth_sendTransaction: fee history could not be read; EIP-7702 needs EIP-1559 fees",
+      );
+      assert.equal(node.methods().filter((method) => method === "eth_feeHistory").length, 2);
+      assert.ok(!node.methods().includes("eth_gasPrice"));
+      assert.ok(!node.methods().includes("eth_estimateGas"));
+    }
+    const { node } = await fill(EIP1559_NODE, {
+      authorizationList: [authorizationWith(`0x${"11".repeat(32)}`, `0x${"22".repeat(32)}`)],
+      maxFeePerGas: "0x10",
+      maxPriorityFeePerGas: "0x1",
+    });
+    assert.ok(!node.methods().includes("eth_feeHistory"));
   });
 
   it("refuses a transaction that is not an object, and invalid fields", async () => {

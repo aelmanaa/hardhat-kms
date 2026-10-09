@@ -145,7 +145,12 @@ export class HardhatTransactionFiller implements TransactionFiller {
     if (!isObject(first)) {
       throw catalogError(ERRORS.txNotObject, {}, { operation: method });
     }
-    if (first.blobs !== undefined || first.blobVersionedHashes !== undefined) {
+    if (
+      first.blobs !== undefined ||
+      first.blobVersionedHashes !== undefined ||
+      first.maxFeePerBlobGas !== undefined ||
+      first.type === "0x3"
+    ) {
       throw catalogError(ERRORS.txBlob, {}, { operation: method });
     }
     // A deep copy: the caller's objects, including access and authorization lists, stay as they are.
@@ -154,7 +159,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     // Hardhat estimates gas with the request's params, after the fees are filled in.
     const filledParams = [tx, ...rest];
     if (this.#settings.gasPrice === "auto") {
-      await this.#fillFees(tx);
+      await this.#fillFees(tx, method);
     } else if (
       tx.gasPrice === undefined &&
       tx.maxFeePerGas === undefined &&
@@ -198,7 +203,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
   }
 
   /** AutomaticGasPriceHandler#handle. */
-  async #fillFees(tx: Record<string, unknown>): Promise<void> {
+  async #fillFees(tx: Record<string, unknown>, method: string): Promise<void> {
     if (
       tx.gasPrice !== undefined ||
       (tx.maxFeePerGas !== undefined && tx.maxPriorityFeePerGas !== undefined)
@@ -206,6 +211,9 @@ export class HardhatTransactionFiller implements TransactionFiller {
       return;
     }
     let suggested = await this.#suggestEip1559Fees();
+    if (suggested === undefined && tx.authorizationList !== undefined) {
+      throw catalogError(ERRORS.txAuthorizationFees, {}, { operation: method });
+    }
     if (
       suggested === undefined &&
       tx.maxFeePerGas === undefined &&

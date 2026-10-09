@@ -1000,6 +1000,35 @@ export const ERRORS = {
       "The first parameter of `eth_sendTransaction` or `eth_signTransaction` is not an object.",
     fix: "Pass the transaction as an object of `eth_sendTransaction` fields.",
   },
+  txSelfAuthorizationNonce: {
+    id: "core.tx.self-authorization-nonce",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "authorizationList[{index}] is signed by the sender for nonce {nonce}, but the final transaction requires nonce {expected}; nothing was signed",
+    cause:
+      "EIP-7702 increments the sender nonce before processing authorizations. Each valid self-authorization increments it again. The authorization nonce does not match.",
+    fix: "Choose the transaction nonce explicitly and sign the self-authorization for that nonce plus 1. Use consecutive nonces for additional self-authorizations, all below 2^64 - 1.",
+  },
+  txSelfAuthorizationChain: {
+    id: "core.tx.self-authorization-chain",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "authorizationList[{index}] is signed by the sender for chain {requested}, but the transaction is for chain {chainId}; nothing was signed",
+    cause: "A self-authorization names another chain. The node would skip it.",
+    fix: "Sign the authorization for the transaction chain, or deliberately use chain 0.",
+  },
+  txAuthorizationFees: {
+    id: "core.tx.authorization-fees",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "fee history could not be read; EIP-7702 needs EIP-1559 fees. Set maxFeePerGas and maxPriorityFeePerGas explicitly",
+    cause:
+      "Automatic EIP-1559 fee estimation is unavailable for a transaction with an authorization list. A legacy gas price cannot fund an EIP-7702 transaction.",
+    fix: "Retry when the node can serve eth_feeHistory, or provide both EIP-1559 fee fields explicitly.",
+  },
   txBlob: {
     id: "core.tx.blob",
     kind: "error",

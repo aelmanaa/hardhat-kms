@@ -385,6 +385,8 @@ The task fills what the file leaves out as [`eth_signTransaction`](rpc-methods.m
 
 The fields decide the transaction type: `authorizationList` gives EIP-7702 (`0x4`), `maxFeePerGas` EIP-1559 (`0x2`), `accessList` EIP-2930 (`0x1`), and `gasPrice` alone a legacy transaction (`0x0`). Without a fee field, the network's `gasPrice` setting decides. With `"auto"`, a node that has a base fee and answers `eth_feeHistory` gets EIP-1559; otherwise the task falls back to a legacy transaction with the node's `eth_gasPrice`. A fixed `gasPrice` gives a legacy transaction. A `type` in the file states what you expect: when the fields give another type, the task fails before the KMS signs.
 
+EIP-7702 needs EIP-1559 fees; an unavailable fee history requires both fee fields to be set explicitly. A self-authorization must name chain 0 or the transaction chain, and use the final transaction nonce plus 1. Further self-authorizations need consecutive nonces. A mismatch refuses signing. Set `nonce` in the transaction file before signing its self-authorization.
+
 ## `kms sign-auth`
 
 Signs an EIP-7702 authorization that delegates the key's account to the code at `<delegate>`, and prints the signed tuple as one line of JSON. It is the entry an `eth_sendTransaction` request takes in its `authorizationList`. The task sends nothing.
