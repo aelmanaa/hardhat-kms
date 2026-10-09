@@ -828,7 +828,10 @@ describe("ConnectionSends", () => {
     assert.equal(sends.takeUncertain("0xa"), undefined);
     const off = new ConnectionSends({ highWater: false, timers: fakeTimers() });
     off.rememberUncertain("0xa", older);
-    assert.equal(off.takeUncertain("0xa"), undefined, "nothing to raise without a mark");
+    assert.equal(off.takeUncertain("0xa"), older, "kept with the mark off too (#434)");
+    off.close();
+    off.rememberUncertain("0xa", newer);
+    assert.equal(off.takeUncertain("0xa"), undefined, "nothing after close");
   });
 
   it(`drops the oldest of more than ${MAX_RETRY_ENTRIES} entries`, () => {
@@ -968,7 +971,7 @@ describe("ConnectionSends nonce reservations", () => {
     assert.equal(sends.hasReservations(COW), false, "an expired one does not count");
   });
 
-  it("resets the newest failed reservation, else the only unsigned one, else the newest", () => {
+  it("resets the newest failed reservation, else the only one, else none", () => {
     const { sends } = withClock();
     for (const nonce of [1n, 2n, 3n, 4n]) {
       sends.reserve(COW, nonce);
@@ -976,17 +979,18 @@ describe("ConnectionSends nonce reservations", () => {
     sends.signedReservation(COW, 3n);
     sends.signedReservation(COW, 4n);
     sends.failReservation(COW, 1n);
+    sends.failReservation(COW, 3n);
     sends.signedReservation(ZERO, 1n);
     sends.failReservation(ZERO, 1n);
     sends.resetReservation(COW_KEY);
-    // 1 failed: gone. Left: 2 (unsigned), 3 and 4 (signed).
-    sends.resetReservation(COW_KEY);
-    // 2, the only unsigned one: gone. Left: 3 and 4.
+    assert.equal(sends.nonceFor(COW, 3n), 5n, "3 failed last: gone; 4 stays");
     assert.equal(sends.nonceFor(COW, 0n), 5n);
     sends.resetReservation(COW_KEY);
-    assert.equal(sends.nonceFor(COW, 0n), 4n, "the newest, 4, is gone");
+    // 1 failed: gone. Left: 2 (unsigned) and 4 (signed), either of which the next reset may be.
     sends.resetReservation(COW_KEY);
-    assert.equal(sends.nonceFor(COW, 0n), 0n);
+    assert.equal(sends.nonceFor(COW, 0n), 5n, "a signed and an unsigned one: neither ends");
+    sends.releaseReservation(COW, 4n);
+    assert.equal(sends.hasReservations(COW), false, "4 reached the node, so 2 failed");
     sends.resetReservation(COW_KEY);
     sends.resetReservation(ZERO_KEY);
   });
@@ -1010,8 +1014,8 @@ describe("ConnectionSends nonce reservations", () => {
     sends.reserve(COW, 1n);
     sends.reserve(COW, 2n);
     sends.reserve(COW, 1n);
-    sends.signedReservation(COW, 2n);
-    sends.signedReservation(COW, 1n);
+    sends.failReservation(COW, 2n);
+    sends.failReservation(COW, 1n);
     sends.resetReservation(COW_KEY);
     assert.equal(sends.nonceFor(COW, 0n), 3n, "1 was reset, 2 stays");
   });
@@ -1039,6 +1043,7 @@ describe("ConnectionSends nonce reservations", () => {
     other.reserve(COW, 3n, true);
     other.reserve(COW, 4n);
     other.signedReservation(COW, 4n);
+    other.failReservation(COW, 3n);
     other.resetReservation(COW_KEY);
     assert.deepEqual(gaps(), ["1", "3"], "another reservation is above it");
     other.resetReservation(COW_KEY);
@@ -1054,7 +1059,9 @@ describe("ConnectionSends nonce reservations", () => {
     other.reserve(COW, 7n);
     other.signedReservation(COW, 7n);
     other.reserve(COW, 8n, true);
+    other.failReservation(COW, 8n);
     other.resetReservation(COW_KEY);
+    assert.equal(other.nonceFor(COW, 0n), 8n, "8 ended");
     assert.deepEqual(gaps(), ["1", "3"], "a reservation below it is no gap");
     const timers = fakeTimers();
     const KEY = `31390:${COW}`;
@@ -1192,10 +1199,10 @@ describe("ConnectionSends nonce reservations", () => {
     clock.now += 1;
     sends.reserve(COW, 3n);
     sends.reserve(COW, 4n);
+    sends.resetReservation(COW_KEY);
+    sends.resetReservation(COW_KEY);
+    sends.resetReservation(COW_KEY);
     sends.signedReservation(COW, 2n);
-    sends.resetReservation(COW_KEY);
-    sends.resetReservation(COW_KEY);
-    sends.resetReservation(COW_KEY);
     clock.now += RESERVATION_MS - 1;
     assert.equal(sends.hasReservations(COW), true, "3 and 4 stay");
     assert.equal(owed().length, 1);
@@ -1218,23 +1225,6 @@ describe("ConnectionSends nonce reservations", () => {
     clock.now += RESERVATION_MS;
     assert.equal(sends.hasReservations(COW), false);
     assert.equal(warn.mock.callCount(), 0);
-  });
-
-  it("with the mark off, counts a nonce the node took above a live reservation (#434)", () => {
-    const { sends } = withClock(false);
-    sends.recordSent(COW, 4n);
-    assert.equal(sends.nonceFor(COW, 0n), 0n, "no reservation: the pending count decides");
-    sends.reserve(COW, 1n);
-    sends.recordSent(COW, 1n);
-    assert.equal(sends.nonceFor(COW, 0n), 2n, "a nonce at the reservation is no gap's");
-    sends.recordSent(COW, 3n);
-    sends.recordSent(COW, 2n);
-    assert.equal(sends.nonceFor(COW, 0n), 4n, "3 is above the reservation");
-    assert.equal(sends.nonceFor(ZERO, 0n), 0n, "another sender's");
-    sends.releaseReservation(COW, 1n);
-    assert.equal(sends.nonceFor(COW, 0n), 0n, "with no reservation below, the node counts it");
-    sends.reserve(COW, 0n);
-    assert.equal(sends.nonceFor(COW, 0n), 1n, "a nonce once forgotten does not count again");
   });
 
   it("never counts a reservation made after a reset as its candidate (#434)", () => {
@@ -1291,42 +1281,27 @@ describe("ConnectionSends nonce reservations", () => {
     assert.match(String(warn.mock.calls[0]?.arguments[0]), /with nonce 1 after its 60 s hold/);
   });
 
-  it("with the mark off, records only a nonce above a live reservation (#434)", () => {
+  it("with the mark off, counts a nonce the node took above a live reservation (#434)", () => {
     const { sends } = withClock(false);
-    sends.recordSent(COW, 3n);
-    sends.reserve(COW, 0n);
-    assert.equal(sends.nonceFor(COW, 0n), 1n, "3 went out with no reservation below it");
-    sends.reserve(COW, 5n);
-    sends.recordSent(COW, 3n);
-    sends.releaseReservation(COW, 5n);
-    assert.equal(sends.nonceFor(COW, 0n), 4n, "3 is above 0, though not above 5");
-    const { sends: at } = withClock(false);
-    at.reserve(COW, 2n);
-    at.recordSent(COW, 2n);
-    at.reserve(COW, 0n);
-    at.releaseReservation(COW, 2n);
-    assert.equal(at.nonceFor(COW, 0n), 1n, "a nonce at the reservation is not recorded");
-  });
-
-  it("with the mark off, forgets a recorded nonce once no live reservation is below it (#434)", () => {
-    const { sends } = withClock(false);
+    sends.recordSent(COW, 4n);
+    assert.equal(sends.nonceFor(COW, 0n), 0n, "no reservation below it: the pending count decides");
     sends.reserve(COW, 1n);
-    sends.recordSent(COW, 3n);
+    assert.equal(sends.nonceFor(COW, 0n), 5n, "a reservation made later, below it");
+    sends.recordSent(COW, 7n);
+    assert.equal(sends.nonceFor(COW, 0n), 8n);
+    assert.equal(sends.nonceFor(ZERO, 0n), 0n, "another sender's");
     sends.releaseReservation(COW, 1n);
-    sends.reserve(COW, 5n);
-    assert.equal(sends.nonceFor(COW, 0n), 6n);
-    sends.releaseReservation(COW, 5n);
+    assert.equal(sends.nonceFor(COW, 0n), 0n, "with no reservation below, the node decides");
+    sends.reserve(COW, 4n);
+    assert.equal(sends.nonceFor(COW, 0n), 8n, "a reservation at 4 is below 7, not below 4");
+    sends.releaseReservation(COW, 4n);
+    sends.reserve(COW, 7n);
+    assert.equal(sends.nonceFor(COW, 0n), 8n);
+    sends.releaseReservation(COW, 7n);
     sends.reserve(COW, 0n);
-    assert.equal(sends.nonceFor(COW, 0n), 1n, "3 was forgotten while only 5 was reserved");
-    const { sends: at } = withClock(false);
-    at.reserve(COW, 1n);
-    at.recordSent(COW, 3n);
-    at.releaseReservation(COW, 1n);
-    at.reserve(COW, 3n);
-    assert.equal(at.nonceFor(COW, 0n), 4n);
-    at.releaseReservation(COW, 3n);
-    at.reserve(COW, 0n);
-    assert.equal(at.nonceFor(COW, 0n), 1n, "a reservation at 3 is not below it");
+    assert.equal(sends.nonceFor(COW, 7n), 8n, "the node does not count 7 at a pending count of 7");
+    assert.equal(sends.nonceFor(COW, 8n), 8n, "the node counts 7 at 8, and 4 too");
+    assert.equal(sends.nonceFor(COW, 0n), 1n, "both are forgotten");
   });
 
   it("forgets every reservation when the connection closes, and reserves nothing after", () => {

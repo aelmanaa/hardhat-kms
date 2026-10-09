@@ -923,26 +923,18 @@ describe("a library account's send with its own transport", () => {
     assert.deepEqual(node.raw.map(nonceOf), [0n]);
   });
 
-  it("resets an unsigned reservation before a signed one", async () => {
+  it("keeps a signed and an unsigned reservation at a reset that could be either's (#434)", async () => {
     const harness = await setUp();
     const { node, send } = harness;
     const connection = await openKnown(harness);
     const manager = await library(connection, HTTP_CLIENT);
     assert.equal(await manager.consume(), 0);
-    await manager.account.signTransaction({
-      type: "eip1559",
-      chainId: 31337,
-      nonce: 0,
-      gas: 21_000n,
-      maxFeePerGas: 2n,
-      maxPriorityFeePerGas: 1n,
-      to: TO,
-      value: 1n,
-    });
+    await signAt(manager, 0);
     assert.equal(await manager.consume(), 1);
+    // viem resets after a failed estimate (1) and after a broadcast that timed out (0) alike.
     await manager.reset();
     resultOf(await send(connection, { from: COW, to: TO }));
-    assert.deepEqual(node.raw.map(nonceOf), [1n], "0 is still reserved, 1 is free again");
+    assert.deepEqual(node.raw.map(nonceOf), [2n], "0 and 1 both stay");
   });
 
   it("is cleared by a send through the plugin with the caller's nonce at or above it", async () => {

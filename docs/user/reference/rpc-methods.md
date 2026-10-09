@@ -76,7 +76,7 @@ On an http network, a send whose caller gives no `nonce` takes the highest of:
 - one more than the highest nonce the node accepted from the account on the same connection;
 - one more than any nonce handed to a [library account](library-accounts.md#sending)'s client on the same connection that still counts.
 
-A `nonce` in the request is always used, even one that was already sent, so a replacement transaction with the same nonce and higher fees goes through, as Hardhat Ignition sends for a stuck transaction. On `edr-simulated` networks the plugin keeps no record of accepted nonces, because the node's pending count is always up to date there, except past a gap: while a nonce is kept for a library account's client, the node's pending count stops at it, so the plugin counts the nonces the node accepted above that kept nonce until it ends.
+A `nonce` in the request is always used, even one that was already sent, so a replacement transaction with the same nonce and higher fees goes through, as Hardhat Ignition sends for a stuck transaction. On `edr-simulated` networks the plugin keeps no record of accepted nonces, because the node's pending count is always up to date there, except past a gap: while a nonce is kept for a library account's client, the node's pending count stops at it, so while a nonce is kept the plugin also counts the nonces the node accepted on the same connection that its pending count has not reached.
 
 The send lock and the nonce memory have different scopes:
 

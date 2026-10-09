@@ -8,13 +8,12 @@
 // reproducible. The nightly CI run sets NONCE_MODEL_SEED=random and NONCE_MODEL_RUNS=1000.
 // Replay a failure with the seed, path and replayPath that fast-check prints:
 //   NONCE_MODEL_SEED=<seed> NONCE_MODEL_PATH=<path> NONCE_MODEL_REPLAY_PATH=<replayPath> \
-//   NONCE_MODEL_UNGUARD=1 node --test test/unit/rpc/nonce-model.test.ts
-// (NONCE_MODEL_UNGUARD=1 runs the properties that UNTIL_434 skips, too.)
+//   node --test test/unit/rpc/nonce-model.test.ts
 //
-// The orderings that fail on main today (#434) are classified into their own `-434` kinds only
-// when they match the known shape, and those kinds are skipped behind UNTIL_434. Every other
-// violation of the same invariant keeps its plain kind, which the unguarded property checks.
-// The shrunk counterexamples are fixed regression cases below.
+// The orderings that failed before #434 are classified into their own `-434` kinds when they
+// match the shape that #434 fixed, and their own properties check them. Every other violation of
+// the same invariant keeps its plain kind. The shrunk counterexamples are fixed regression cases
+// below.
 import assert from "node:assert/strict";
 import { describe, it, type TestContext } from "node:test";
 
@@ -48,11 +47,10 @@ const SEED_SETTING = env("NONCE_MODEL_SEED") ?? "445";
 const SEED = SEED_SETTING === "random" ? undefined : Number(SEED_SETTING);
 const PATH = env("NONCE_MODEL_PATH");
 const REPLAY_PATH = env("NONCE_MODEL_REPLAY_PATH");
-const UNGUARD = env("NONCE_MODEL_UNGUARD") === "1";
 /** Each property's limit: about 15 ms a sequence locally, with room for slow CI runners. */
 const PROPERTY_TIMEOUT_MS = Math.max(120_000, RUNS * 100);
 
-/** The kinds of violation the model reports. Kinds ending in `-434` are guarded (see UNTIL_434). */
+/** The kinds of violation the model reports. Kinds ending in `-434` are the shapes #434 fixed. */
 type Kind =
   /** A send signed a nonce the node already has from another send. */
   | "delivered"
@@ -652,10 +650,27 @@ function close(connection: ConnectionIndex): Step {
           send.orphaned = true;
         }
       }
+      // The hold of a library send through this connection, if one holds the lock now.
+      const hold = libraryHoldOf(lockKey(world));
+      const ours = library(world).some(
+        (send) =>
+          send.connection === connection &&
+          send.transport === "through" &&
+          !send.expired &&
+          LIVE.has(send.state) &&
+          send.nonce === hold?.nonce,
+      );
       const target = world.connections[connection];
       assert.ok(target !== undefined);
       await world.harness.close(target);
       await settle();
+      // Closing a connection ends the holds it gave, so they block no other connection's sends.
+      if (ours && hold !== undefined && libraryHoldOf(lockKey(world)) === hold) {
+        world.violations.push({
+          kind: "close-434",
+          message: `the hold of nonce ${hold.nonce} outlived the close of connection ${connection}`,
+        });
+      }
     },
     toString: () => `close(${connection})`,
   };
@@ -849,15 +864,7 @@ async function check(t: TestContext, kinds: ReadonlySet<Kind>): Promise<void> {
   );
 }
 
-/**
- * The guard on the invariants that fail on main today. #434's PR fixes each of these orderings
- * and removes this guard (and the `skip` options that use it).
- */
-const UNTIL_434: string | false = UNGUARD
-  ? false
-  : "fails until #434 (https://github.com/aelmanaa/hardhat-kms/issues/434) lands; its PR removes this guard";
-
-/** The shrunk counterexamples of the guarded kinds, as fixed regression cases. */
+/** The shrunk counterexamples of the `-434` kinds, as fixed regression cases. */
 const KNOWN_434: {
   name: string;
   kind: Kind;
@@ -881,6 +888,12 @@ const KNOWN_434: {
     kind: "close-434",
     type: "http",
     steps: [libraryConsume(0, "through"), libraryConsume(0, "through"), close(0)],
+  },
+  {
+    name: "closing a connection ends the hold its library send took",
+    kind: "close-434",
+    type: "http",
+    steps: [libraryConsume(0, "through"), close(0), pluginSend(1)],
   },
   {
     name: "the older own-transport send's reset keeps the newer send's reservation",
@@ -947,7 +960,7 @@ describe("the nonce subsystem, over random orderings of sends, resets, holds and
 
   it(
     "keeps a reservation through a plugin send that skips it and through another send's reset (#434)",
-    { timeout: PROPERTY_TIMEOUT_MS, skip: UNTIL_434 },
+    { timeout: PROPERTY_TIMEOUT_MS },
     async (t) => {
       await check(t, new Set<Kind>(["reservation-434", "gap-434"]));
     },
@@ -955,7 +968,7 @@ describe("the nonce subsystem, over random orderings of sends, resets, holds and
 
   it(
     "keeps a library send's hold through an own-transport send's reset (#434)",
-    { timeout: PROPERTY_TIMEOUT_MS, skip: UNTIL_434 },
+    { timeout: PROPERTY_TIMEOUT_MS },
     async (t) => {
       await check(t, new Set<Kind>(["reset-hold-434"]));
     },
@@ -963,7 +976,7 @@ describe("the nonce subsystem, over random orderings of sends, resets, holds and
 
   it(
     "sends nothing to the node from a connection after it closed (#434)",
-    { timeout: PROPERTY_TIMEOUT_MS, skip: UNTIL_434 },
+    { timeout: PROPERTY_TIMEOUT_MS },
     async (t) => {
       await check(t, new Set<Kind>(["close-434"]));
     },
@@ -972,28 +985,9 @@ describe("the nonce subsystem, over random orderings of sends, resets, holds and
 
 describe("the model's shrunk counterexamples (#445)", () => {
   for (const known of KNOWN_434) {
-    it(`${known.kind}: ${known.name}`, { skip: UNTIL_434 }, async (t) => {
+    it(`${known.kind}: ${known.name}`, async (t) => {
       mockGlobals(t);
       await runSequence(t, known.type, known.steps.map(checked), new Set([known.kind]));
     });
   }
-
-  it(
-    "each still fails on main, only in its own guarded kind (remove with the guard in #434)",
-    { skip: UNGUARD },
-    async (t) => {
-      // Keeps the cases honest while they are skipped: each reproduces its bug today, and in no
-      // unguarded kind, so the guard hides nothing else.
-      mockGlobals(t);
-      const unguarded = new Set<Kind>(["delivered", "uncertain", "hold", "reservation", "limit"]);
-      for (const known of KNOWN_434) {
-        await assert.rejects(
-          runSequence(t, known.type, known.steps.map(checked), new Set([known.kind])),
-          new RegExp(`${known.kind}: `),
-          known.name,
-        );
-        await runSequence(t, known.type, known.steps.map(checked), unguarded);
-      }
-    },
-  );
 });
