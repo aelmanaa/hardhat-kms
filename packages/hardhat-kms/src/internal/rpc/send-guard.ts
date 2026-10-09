@@ -361,6 +361,13 @@ function warnAboutNonceGap(key: string, nonce: bigint): void {
   );
 }
 
+/** Warns when a reset releases an ordinary reservation below a nonce the node accepted. */
+function warnAboutReservationGap(key: string, nonce: bigint): void {
+  warn(
+    `viem reset a connection.kms.getAccount send from ${describeSendKeyForWarning(key)} with nonce ${nonce}, and the plugin released its reservation after the node accepted a higher nonce. If that send never reached the node, nonce ${nonce} is a gap, and the account's later transactions are not mined until a transaction with nonce ${nonce} is. viem also resets after a timeout, when the node may have the transaction, so check the node for nonce ${nonce} first (${LOOK_UP_DOCS}), and fill the gap only if it is one, with an explicit nonce (${FILL_NONCE_DOCS}).`,
+  );
+}
+
 /**
  * Warns that reservations whose send a viem `reset` may have been for ended at their time limit.
  * The reset named no nonce and matched several reservations, so it released none of them
@@ -373,7 +380,7 @@ function warnAboutNonceGap(key: string, nonce: bigint): void {
 function warnAboutOwedReset(key: string, nonces: readonly bigint[]): void {
   const nonce = nonces.join(" or ");
   warn(
-    `viem reset one of the connection.kms.getAccount sends from ${describeSendKeyForWarning(key)} that had reserved a nonce, without saying which, so the plugin kept all their nonces. The reservation of nonce ${nonce} has now ended after ${RESERVATION_MS / 1000} s, and the account's sends through its connection can take that nonce again. If the send that failed had nonce ${nonce}, that nonce is a gap, and the account's later transactions are not mined until a transaction with it is. Check the node for nonce ${nonce} first (${LOOK_UP_DOCS}), and fill the gap only if it is one (${FILL_NONCE_DOCS}).`,
+    `viem reset one of the connection.kms.getAccount sends from ${describeSendKeyForWarning(key)} that had reserved a nonce, without saying which, so the plugin kept all their nonces. The reservation of nonce ${nonce} has now ended after ${RESERVATION_MS / 1000} s. Automatic sends may still choose a higher nonce. If the send that failed had nonce ${nonce}, that nonce is a gap, and the account's later transactions are not mined until a transaction with it is. Check the node for nonce ${nonce} first (${LOOK_UP_DOCS}), and fill the gap only if it is one, with an explicit nonce (${FILL_NONCE_DOCS}).`,
   );
 }
 
@@ -393,6 +400,7 @@ function warnAboutOwedReset(key: string, nonces: readonly bigint[]): void {
  * @param choose - Chooses the nonce, under the lock.
  * @param timers - Timer functions for the hold's limit; by default they keep the process alive.
  * @param signal - Ends the wait for the lock when it aborts, as in {@link withSendLock}.
+ * @param beforeHold - Checks that the connection is still open after asynchronous nonce selection.
  * @returns The nonce.
  */
 export async function holdForLibrary(
@@ -401,6 +409,7 @@ export async function holdForLibrary(
   choose: () => Promise<bigint>,
   timers: Timers = keepAliveTimers,
   signal?: AbortSignal,
+  beforeHold: () => void = noTimer,
 ): Promise<bigint> {
   const control: { acquired?: (nonce: bigint) => void; release?: () => void } = {};
   const acquired = new Promise<bigint>((resolve) => {
@@ -413,6 +422,7 @@ export async function holdForLibrary(
     key,
     async () => {
       const nonce = await choose();
+      beforeHold();
       const cancel = timers.setTimeout(() => {
         // Before the lock passes on: the send waiting for it must skip this nonce.
         owner.reserve(key.slice(key.indexOf(":") + 1), nonce, true);
@@ -890,8 +900,8 @@ export class ConnectionSends {
   }
 
   /**
-   * Warns about each ended reservation that a hold left at its time limit when the sender has
-   * used a higher nonce since.
+   * Warns about an ended reservation below an accepted nonce, or a reservation left by an
+   * expired hold below another nonce the sender has used.
    */
   #warnAboutGaps(
     key: string,
@@ -900,14 +910,18 @@ export class ConnectionSends {
   ): void {
     const current = libraryHolds.get(key);
     // -1n: no mark, or no hold of this connection. The ended reservations are no longer live.
+    const accepted = Array.from(this.#sentAhead.get(from) ?? new Set<bigint>());
+    accepted.push(this.#highWater.get(from) ?? -1n);
     const used = [
-      this.#highWater.get(from) ?? -1n,
+      ...accepted,
       current?.owner === this ? current.nonce : -1n,
       ...this.#live(from).keys(),
     ];
     for (const [nonce, reservation] of ended) {
       if (reservation.afterHoldLimit && used.some((other) => other > nonce)) {
         warnAboutNonceGap(key, nonce);
+      } else if (accepted.some((other) => other > nonce)) {
+        warnAboutReservationGap(key, nonce);
       }
     }
   }

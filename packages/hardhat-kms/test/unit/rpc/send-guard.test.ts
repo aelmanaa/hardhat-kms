@@ -1180,7 +1180,7 @@ describe("ConnectionSends nonce reservations", () => {
     assert.equal(owed().length, 1);
     assert.match(
       owed()[0] ?? "",
-      /from 0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826 on chain 1 that had reserved a nonce.*The reservation of nonce 0 has now ended after 60 s.*had nonce 0, .*Check the node for nonce 0 first \(https:\/\/github\.com\/aelmanaa\/hardhat-kms\/blob\/main\/docs\/user\/guides\/uncertain-sends\.md#2-look-the-transaction-up\), and fill the gap only if it is one \(https:\/\/github\.com\/aelmanaa\/hardhat-kms\/blob\/main\/docs\/user\/guides\/uncertain-sends\.md#4-fill-a-gap-or-replace-a-transaction\)\./,
+      /from 0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826 on chain 1 that had reserved a nonce.*The reservation of nonce 0 has now ended after 60 s.*had nonce 0, .*Check the node for nonce 0 first \(https:\/\/github\.com\/aelmanaa\/hardhat-kms\/blob\/main\/docs\/user\/guides\/uncertain-sends\.md#2-look-the-transaction-up\), and fill the gap only if it is one, with an explicit nonce \(https:\/\/github\.com\/aelmanaa\/hardhat-kms\/blob\/main\/docs\/user\/guides\/uncertain-sends\.md#4-fill-a-gap-or-replace-a-transaction\)\./,
     );
     sends.signedReservation(COW, 2n);
     assert.equal(sends.nonceFor(COW, 0n), 3n, "the settled reset ends no candidate");
@@ -1216,6 +1216,36 @@ describe("ConnectionSends nonce reservations", () => {
     sends.releaseReservation(COW, 4n);
     assert.equal(sends.hasReservations(COW), false);
   });
+
+  for (const highWater of [true, false]) {
+    for (const settlement of ["reset", "signature", "failure"] as const) {
+      it(`warns about an ordinary reservation gap on ${settlement}, highWater=${highWater}`, (t) => {
+        const warning = t.mock.method(console, "warn", () => undefined);
+        const sends = new ConnectionSends({ highWater, timers: fakeTimers() });
+        sends.reserve(COW, 0n);
+        if (settlement !== "reset") {
+          sends.reserve(COW, 1n);
+          sends.resetReservation(COW_KEY);
+        }
+        sends.recordSent(COW, 2n);
+        if (settlement === "reset") {
+          sends.resetReservation(COW_KEY);
+        } else if (settlement === "signature") {
+          sends.signedReservation(COW, 1n);
+        } else {
+          sends.failReservation(COW, 1n);
+        }
+        assert.equal(warning.mock.callCount(), 1);
+        const message = String(warning.mock.calls[0]?.arguments[0]);
+        assert.match(message, /with nonce 0/);
+        assert.match(message, /check the node for nonce 0 first/);
+        assert.match(message, /explicit nonce/);
+        sends.nonceFor(COW, 0n);
+        assert.equal(warning.mock.callCount(), 1, "no duplicate warning on a later nonce read");
+        sends.close();
+      });
+    }
+  }
 
   it("warns about no owed reset when a reservation expires with none owed", async (t) => {
     const warn = t.mock.method(console, "warn", () => undefined);

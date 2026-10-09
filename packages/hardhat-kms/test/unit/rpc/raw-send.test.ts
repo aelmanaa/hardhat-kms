@@ -31,6 +31,7 @@ import {
   settle,
   setUp,
   TO,
+  unknownOutcome,
 } from "../../helpers/send-harness.ts";
 import { COW_ACCOUNT } from "../../helpers/vectors.ts";
 
@@ -1512,6 +1513,7 @@ describe("a library consume waiting for the lock when its connection closes (#43
       );
       await settle();
       await harness.close(connection);
+      const readsAtClose = node.methods.length;
       held.open();
       resultOf(await sending);
       const error = await consuming;
@@ -1520,12 +1522,54 @@ describe("a library consume waiting for the lock when its connection closes (#43
         error.message,
         /nonceManager\.consume: the connection to network remote is closed/,
       );
+      assert.equal(node.methods.length, readsAtClose, "a closed consume makes no nonce RPC");
       node.onRaw = undefined;
       const other = await openKnown(harness);
       const next = send(other, { from: COW, to: TO });
       assert.equal(await settled(next), true, "no hold blocks the other connection");
       resultOf(await next);
     });
+  }
+});
+
+describe("a library consume whose nonce reads finish after its connection closes (#434)", () => {
+  for (const client of [{}, HTTP_CLIENT]) {
+    for (const method of ["eth_getTransactionCount", "eth_getTransactionByHash"]) {
+      it(`refuses after a delayed ${method} with ${JSON.stringify(client)}`, async () => {
+        const harness = await setUp();
+        const connection = await openKnown(harness);
+        const manager = await library(connection, client);
+        if (method === "eth_getTransactionByHash") {
+          harness.node.onRaw = async () => {
+            throw new Error("the gateway gave no answer");
+          };
+          await unknownOutcome(harness.send(connection, { from: COW, to: TO }));
+          harness.node.onRaw = undefined;
+        }
+        const entered = gate();
+        const returned = gate();
+        const original = connection.provider.request.bind(connection.provider);
+        connection.provider.request = async (args) => {
+          if (args.method === method) {
+            entered.open();
+            await returned.promise;
+          }
+          const result: unknown = await original(args);
+          return result;
+        };
+        const consuming = manager.consume();
+        const refused = assert.rejects(consuming, /connection to network remote is closed/);
+        await entered.promise;
+        await harness.close(connection);
+        returned.open();
+        await refused;
+        const other = await openKnown(harness);
+        const sending = harness.send(other, { from: COW, to: TO });
+        assert.equal(await settled(sending), true, "no orphaned hold blocks another connection");
+        resultOf(await sending);
+        await harness.close(other);
+      });
+    }
   }
 });
 
@@ -1543,6 +1587,28 @@ describe("a plugin send without a nonce and a reservation below it (#434)", () =
 });
 
 describe("a reset that does not say which of several own-transport sends failed (#434)", () => {
+  it("warns when a signature settles a reset below an accepted higher nonce", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    const harness = await setUp();
+    const connection = await openKnown(harness);
+    const a = await library(connection, HTTP_CLIENT);
+    const b = await library(connection, HTTP_CLIENT);
+    assert.equal(await a.consume(), 0);
+    assert.equal(await b.consume(), 1);
+    await a.reset();
+    resultOf(await harness.send(connection, { from: COW, to: TO }));
+    await signAt(b, 1);
+    resultOf(await harness.send(connection, { from: COW, to: TO }));
+    assert.deepEqual(harness.node.raw.map(nonceOf), [2n, 3n]);
+    const gaps = warn.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .filter((s) => s.includes("gap"));
+    assert.equal(gaps.length, 1);
+    assert.match(gaps[0] ?? "", /with nonce 0/);
+    assert.match(gaps[0] ?? "", /after the node accepted a higher nonce/);
+    assert.match(gaps[0] ?? "", /#2-look-the-transaction-up/);
+    assert.match(gaps[0] ?? "", /explicit nonce/);
+  });
   it("keeps both reservations when the older send's reset comes first", async () => {
     const harness = await setUp();
     const { node, send } = harness;

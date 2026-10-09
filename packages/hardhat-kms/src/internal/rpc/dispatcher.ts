@@ -1258,9 +1258,7 @@ export async function libraryNonce(
   }
   // Under the lock, as a send through the plugin does: a transaction whose broadcast got no
   // answer is looked up first, so a node whose pending count lags cannot hand out its nonce.
-  const chooseForSend = async (): Promise<bigint> => {
-    // A consume that waited for the lock while its connection closed holds and reserves nothing:
-    // a reset through the closed connection could never end its hold.
+  const requireOpen = (): void => {
     if (transactions.closed()) {
       throw catalogError(
         ERRORS.accountConnectionClosed,
@@ -1268,6 +1266,10 @@ export async function libraryNonce(
         { operation },
       );
     }
+  };
+  const chooseForSend = async (): Promise<bigint> => {
+    // A consume that waited for the lock while its connection closed holds and reserves nothing.
+    requireOpen();
     await settleUncertain(
       address,
       sends,
@@ -1286,7 +1288,14 @@ export async function libraryNonce(
     );
   }
   if (!request.ownTransport) {
-    const nonce = await holdForLibrary(key, sends, chooseForSend, undefined, request.signal);
+    const nonce = await holdForLibrary(
+      key,
+      sends,
+      chooseForSend,
+      undefined,
+      request.signal,
+      requireOpen,
+    );
     log("%s: nonce %d given to a library account's send, which holds the lock", address, nonce);
     return nonce;
   }
@@ -1294,6 +1303,7 @@ export async function libraryNonce(
     key,
     async () => {
       const nonce = await chooseForSend();
+      requireOpen();
       sends.reserve(address, nonce);
       log("%s: nonce %d reserved for a library account's own transport", address, nonce);
       return nonce;
