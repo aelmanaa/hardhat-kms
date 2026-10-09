@@ -1,12 +1,12 @@
 // Signs a KMS account's transaction the way Hardhat's LocalAccountsHandler#getSignedTransaction
 // does: fill, build the unsigned transaction, sign its hash, and rebuild it with the signature
 // (as micro-eth-signer's Transaction#signBy does).
-import { bytesToHexString } from "@nomicfoundation/hardhat-utils/hex";
+import { bytesToHexString, hexStringToBytes } from "@nomicfoundation/hardhat-utils/hex";
 import { bytesToBigInt, bytesToNumber } from "@nomicfoundation/hardhat-utils/number";
 import type { HardhatPluginError } from "hardhat/plugins";
 import { Transaction } from "micro-eth-signer";
 
-import { sameAddress, toChecksumAddress } from "../crypto/address.ts";
+import { addressFromPublicKey, sameAddress, toChecksumAddress } from "../crypto/address.ts";
 import { authorizationDigest } from "../crypto/digests.ts";
 import { type RecoverableSignature, recoverPublicKey, toLowS } from "../crypto/signature.ts";
 import { ERRORS } from "../error-catalog.ts";
@@ -84,6 +84,53 @@ function lintAuthorizations(tx: FilledTransaction): void {
   }
 }
 
+/**
+ * Refuses self-authorizations invalidated by the final transaction nonce or chain.
+ * The sender nonce advances before the list, then once for each valid self tuple.
+ *
+ * @param unsigned - The transaction with its final nonce.
+ * @param from - The sender's address.
+ * @param method - The operation for error messages.
+ */
+export function checkSelfAuthorizations(
+  unsigned: UnsignedTransaction,
+  from: string,
+  method: string,
+): void {
+  const tx = unsigned.raw;
+  if (!("authorizationList" in tx)) {
+    return;
+  }
+  let expected = tx.nonce + 1n;
+  for (const [index, item] of tx.authorizationList.entries()) {
+    const { r, s, yParity } = item;
+    if (toLowS(s) !== s) {
+      continue;
+    }
+    const digest = authorizationDigest({ ...item, address: hexStringToBytes(item.address) });
+    const key =
+      yParity === 0 || yParity === 1 ? recoverPublicKey(digest, r, s, yParity) : undefined;
+    if (key === undefined || !sameAddress(addressFromPublicKey(key), from)) {
+      continue;
+    }
+    if (item.chainId !== 0n && item.chainId !== tx.chainId) {
+      throw catalogError(
+        ERRORS.txSelfAuthorizationChain,
+        { index, requested: item.chainId, chainId: tx.chainId },
+        { operation: method },
+      );
+    }
+    if (item.nonce !== expected) {
+      throw catalogError(
+        ERRORS.txSelfAuthorizationNonce,
+        { index, nonce: item.nonce, expected },
+        { operation: method },
+      );
+    }
+    expected++;
+  }
+}
+
 /** What signing a transaction needs from the connection. */
 export interface SignTransactionInputs {
   /** The connection's transaction filler. */
@@ -141,6 +188,7 @@ export async function signTransaction(
   const unsigned = buildUnsignedTransaction(filled);
   inputs.checkUnsigned?.(unsigned);
   lintAuthorizations(filled);
+  checkSelfAuthorizations(unsigned, inputs.from, inputs.method);
   const signature = await signer.signDigest(signingHash(unsigned));
   const signed = assembleSignedTransaction(unsigned, signature, inputs.from, inputs.method);
   return { raw: signed.toHex(true), hash: `0x${signed.hash}`, nonce: filled.nonce };

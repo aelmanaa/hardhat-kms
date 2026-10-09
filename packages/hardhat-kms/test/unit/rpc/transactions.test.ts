@@ -211,9 +211,9 @@ function fillerOf(filled: FilledTransaction): TransactionFiller {
 const bytes32 = (value: bigint) => hex(value.toString(16).padStart(64, "0"));
 
 /** An authorization of TO for chain 31337, signed by cow, with its signature fields as bytes. */
-function signedAuthorization(nonce: bigint) {
-  const request = { chainId: 31337n, address: hex(TO.slice(2)), nonce };
-  const signature = secp256k1.sign(authorizationDigest(request), hex(COW_ACCOUNT.secretKey), {
+function signedAuthorization(nonce: bigint, secretKey = COW_ACCOUNT.secretKey, chainId = 31337n) {
+  const request = { chainId, address: hex(TO.slice(2)), nonce };
+  const signature = secp256k1.sign(authorizationDigest(request), hex(secretKey), {
     prehash: false,
     lowS: true,
     format: "recovered",
@@ -221,6 +221,72 @@ function signedAuthorization(nonce: bigint) {
   const parsed = secp256k1.Signature.fromBytes(signature, "recovered");
   return { request, r: parsed.r, s: parsed.s, yParity: parsed.recovery };
 }
+
+const tuple = (nonce: bigint, chainId = 31337n, secretKey = HARDHAT_ACCOUNT_0.secretKey) => {
+  const signed = signedAuthorization(nonce, secretKey, chainId);
+  return {
+    ...signed.request,
+    r: bytes32(signed.r),
+    s: bytes32(signed.s),
+    yParity: hex(`0${signed.yParity}`),
+  };
+};
+function signSelfList(list: NonNullable<FilledTransaction["authorizationList"]>, nonce = 0n) {
+  const adapter = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
+  const signer = new KmsSigner(adapter, { timeoutMs: 30_000, displayMessage: async () => {} });
+  const result = signTransaction(signer, {
+    filler: fillerOf(filledFrom(FROM, list)),
+    method: "eth_sendTransaction",
+    params: [{ from: FROM }],
+    from: FROM.toLowerCase(),
+    chooseNonce: () => nonce,
+  });
+  return { adapter, result };
+}
+describe("final self-authorization checks (#435)", () => {
+  it("refuses a self tuple after final nonce selection, without signing", async () => {
+    const { adapter, result } = signSelfList([tuple(1n)], 1n);
+    await assert.rejects(
+      result,
+      /^HardhatPluginError: eth_sendTransaction: authorizationList\[0\] is signed by the sender for nonce 1, but the final transaction requires nonce 2; nothing was signed$/,
+    );
+    assert.equal(adapter.calls.signDigest, 0);
+  });
+  it("signs consecutive self tuples, including chain zero", async () => {
+    const { adapter, result } = signSelfList([tuple(2n, 0n), tuple(3n)], 1n);
+    assert.equal((await result).nonce, 1n);
+    assert.equal(adapter.calls.signDigest, 1);
+  });
+  it("refuses duplicate self nonces", async () => {
+    const { adapter, result } = signSelfList([tuple(1n), tuple(1n)]);
+    await assert.rejects(result, /authorizationList\[1\].*requires nonce 2/);
+    assert.equal(adapter.calls.signDigest, 0);
+  });
+  it("refuses self tuples on another chain", async () => {
+    const { adapter, result } = signSelfList([tuple(1n, 1n)]);
+    await assert.rejects(
+      result,
+      /^HardhatPluginError: eth_sendTransaction: authorizationList\[0\] is signed by the sender for chain 1, but the transaction is for chain 31337; nothing was signed$/,
+    );
+    assert.equal(adapter.calls.signDigest, 0);
+  });
+  it("does not compare another authority's nonce or chain with the sender", async () => {
+    const { result } = signSelfList([tuple(40n, 1n, COW_ACCOUNT.secretKey), tuple(1n)]);
+    await result;
+  });
+  it("does not advance the self nonce for a high-S or unrecoverable tuple", async (t) => {
+    t.mock.method(console, "warn", () => {});
+    const self = tuple(1n);
+    const high = {
+      ...self,
+      s: bytes32(CURVE_ORDER - BigInt(`0x${Buffer.from(self.s).toString("hex")}`)),
+      yParity: hex(self.yParity[0] === 0 ? "01" : "00"),
+    };
+    const invalid = { ...self, r: bytes32(0n) };
+    const { result } = signSelfList([high, invalid, self]);
+    await result;
+  });
+});
 
 /** Signs a transfer with an authorization list and returns the warnings it printed. */
 async function signWithList(

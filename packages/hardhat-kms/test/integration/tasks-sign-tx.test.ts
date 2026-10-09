@@ -318,6 +318,21 @@ describe("kms sign-tx over HTTP", () => {
   });
 
   describe("refusals", () => {
+    it("refuses a self-authorization for the wrong transaction nonce (#435)", async () => {
+      await refused(
+        {
+          to: TO,
+          gas: "0xc350",
+          nonce: "0x1",
+          maxFeePerGas: "0x2",
+          maxPriorityFeePerGas: "0x1",
+          authorizationList: [RPC_AUTHORIZATION],
+        },
+        [
+          "kms sign-tx: authorizationList[0] is signed by the sender for nonce 1, but the final transaction requires nonce 2",
+        ],
+      );
+    });
     it("refuses to run without --network, before it reads the key", async () => {
       const { hre, created } = await runtime(networks);
 

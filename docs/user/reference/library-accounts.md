@@ -210,6 +210,8 @@ Hardhat's `provider.request` takes no signal, so requests through `connection.pr
 
 `signTransaction` signs the bytes of the plugin's own serializer, micro-eth-signer as in Hardhat's local accounts. First, though, it serializes the same transaction with viem's `serializeTransaction`, or with the serializer viem passes for a chain that has one, and refuses when the unsigned bytes differ. So a chain whose transactions carry fields the standard types lack, such as a fee currency, cannot sign through the account.
 
+For EIP-7702, a recoverable low-S authorization signed by this account must name chain 0 or the transaction chain. Its nonce must equal the transaction nonce plus 1, with consecutive nonces for further self-authorizations. A mismatch fails before a KMS call. Set the transaction nonce before signing its self-authorization; an automatic nonce can advance while the authorization is waiting. The plugin does not check another authority's on-chain nonce or code ([RPC checks](rpc-methods.md#supported-transaction-types)).
+
 ## Sending
 
 > [!WARNING]

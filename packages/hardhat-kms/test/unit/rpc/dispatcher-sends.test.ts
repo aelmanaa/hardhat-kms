@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import type { JsonRpcRequest } from "hardhat/types/providers";
-import { Transaction } from "micro-eth-signer";
+import { authorization, Transaction } from "micro-eth-signer";
 
 import {
   isAlreadyKnown,
@@ -125,6 +125,61 @@ describe("isUncertainAnswer", () => {
 });
 
 describe("a send through the plugin", () => {
+  it("refuses a self-authorization invalidated by the high-water nonce (#435)", async () => {
+    const fixture = await fixtureOnOwnChain();
+    accept(fixture);
+    await send(fixture);
+    const tuple = authorization.sign(
+      { chainId: fixture.chainId, address: ZERO, nonce: 1n },
+      COW_ACCOUNT.secretKey,
+    );
+    const rpcTuple = {
+      address: tuple.address,
+      chainId: `0x${tuple.chainId.toString(16)}`,
+      nonce: "0x1",
+      yParity: `0x${tuple.yParity.toString(16)}`,
+      r: `0x${tuple.r.toString(16).padStart(64, "0")}`,
+      s: `0x${tuple.s.toString(16).padStart(64, "0")}`,
+    };
+    const before = signatures(fixture);
+    await assert.rejects(
+      fixture.request("eth_sendTransaction", [
+        {
+          from: COW,
+          to: ZERO,
+          maxFeePerGas: "0x2",
+          maxPriorityFeePerGas: "0x1",
+          authorizationList: [rpcTuple],
+        },
+      ]),
+      /for nonce 1, but the final transaction requires nonce 2/,
+    );
+    assert.equal(signatures(fixture), before);
+    assert.equal(broadcasts(fixture).length, 1);
+    const right = authorization.sign(
+      { chainId: fixture.chainId, address: ZERO, nonce: 2n },
+      COW_ACCOUNT.secretKey,
+    );
+    await fixture.request("eth_sendTransaction", [
+      {
+        from: COW,
+        to: ZERO,
+        maxFeePerGas: "0x2",
+        maxPriorityFeePerGas: "0x1",
+        authorizationList: [
+          {
+            ...rpcTuple,
+            nonce: "0x2",
+            yParity: `0x${right.yParity.toString(16)}`,
+            r: `0x${right.r.toString(16).padStart(64, "0")}`,
+            s: `0x${right.s.toString(16).padStart(64, "0")}`,
+          },
+        ],
+      },
+    ]);
+    assert.equal(nonceOf(broadcasts(fixture)[1] ?? ""), 1n);
+    fixture.sends.close();
+  });
   it("broadcasts at most once per request, and a retry after no answer sends the same bytes", async () => {
     const fixture = await fixtureOnOwnChain();
     answerInTurn(fixture, noAnswer);

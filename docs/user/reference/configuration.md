@@ -48,6 +48,8 @@ deployer: {
 
 The pin is optional and recommended: with it, the plugin refuses to sign if the key id ever names another key. For keys from several providers, see [Use several keys across networks](../guides/multiple-keys.md#mix-providers).
 
+Set `chainId` on every HTTP network. The plugin checks the node's chain against it when the connection first reads the chain id, then caches that result. If the RPC endpoint changes chains, close the connection and reconnect.
+
 A network's `kmsAccounts` lists key names or inline key objects. [Use several keys across networks](../guides/multiple-keys.md) shows how to combine keys, providers and networks, and how to pick the sender. The full set of plugin config fields:
 
 | Field                          | Meaning                                                                                                                                                                                                                                                                                                                                                                              |
