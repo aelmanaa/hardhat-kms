@@ -66,6 +66,8 @@ The first limit also covers a send that nothing waits for. A send started from i
 
 The numbers 120 and 1024 are fixed, and cannot be configured in 1.0.
 
+A send whose connection closes while it waits for its KMS signature or for the account's turn is not sent. It fails with [`core.tx.connection-closed`](errors.md#transactions), and nothing reaches the node; send it again on an open connection. A send that is already being broadcast when the connection closes is not stopped.
+
 ### Which nonce a send gets
 
 On an http network, a send whose caller gives no `nonce` takes the highest of:
@@ -74,7 +76,7 @@ On an http network, a send whose caller gives no `nonce` takes the highest of:
 - one more than the highest nonce the node accepted from the account on the same connection;
 - one more than any nonce handed to a [library account](library-accounts.md#sending)'s client on the same connection that still counts.
 
-A `nonce` in the request is always used, even one that was already sent, so a replacement transaction with the same nonce and higher fees goes through, as Hardhat Ignition sends for a stuck transaction. On `edr-simulated` networks the plugin keeps no record of accepted nonces, because the node's pending count is always up to date there.
+A `nonce` in the request is always used, even one that was already sent, so a replacement transaction with the same nonce and higher fees goes through, as Hardhat Ignition sends for a stuck transaction. On `edr-simulated` networks the plugin keeps no record of accepted nonces, because the node's pending count is always up to date there, except past a gap: while a nonce is kept for a library account's client, the node's pending count stops at it, so the plugin counts the nonces the node accepted above that kept nonce until it ends.
 
 The send lock and the nonce memory have different scopes:
 

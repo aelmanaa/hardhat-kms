@@ -313,7 +313,7 @@ describe("rpc debug lines", () => {
     ]);
   });
 
-  it("logs a reset whose pending count is not a hex quantity", async () => {
+  it("logs the nonces it gives library accounts", async () => {
     nextChainId++;
     const fixture = await dispatchFixture({ chainId: nextChainId });
     const request = (ownTransport: boolean) => ({
@@ -324,34 +324,11 @@ describe("rpc debug lines", () => {
     });
     await libraryNonce(fixture.transactions, request(true));
     await libraryNonce(fixture.transactions, request(false));
-    lines();
-    fixture.answers.set("eth_getTransactionCount", () => "0xzz");
-    await resetLibraryNonce(fixture.transactions, cow, fixture.chainId);
-    assert.deepEqual(lines(), [
-      `${cow}: nonceManager.reset got a pending count that is not a hex quantity`,
-    ]);
-  });
-
-  it("logs the nonces it gives library accounts, and a reset that cannot read the count", async () => {
-    nextChainId++;
-    const fixture = await dispatchFixture({ chainId: nextChainId });
-    const request = (ownTransport: boolean) => ({
-      address: cow,
-      chainId: fixture.chainId,
-      reserve: true,
-      ownTransport,
-    });
-    await libraryNonce(fixture.transactions, request(true));
-    await libraryNonce(fixture.transactions, request(false));
-    fixture.answers.set("eth_getTransactionCount", () => {
-      throw new RangeError("no count");
-    });
     await resetLibraryNonce(fixture.transactions, cow, fixture.chainId);
     await resetLibraryNonce(fixture.transactions, cow, fixture.chainId);
     assert.deepEqual(lines(), [
       `${cow}: nonce 0n reserved for a library account's own transport`,
       `${cow}: nonce 1n given to a library account's send, which holds the lock`,
-      `${cow}: nonceManager.reset could not read the pending count (RangeError)`,
     ]);
   });
 });

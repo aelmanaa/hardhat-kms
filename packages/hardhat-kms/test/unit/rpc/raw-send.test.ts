@@ -14,6 +14,7 @@ import { hardhat } from "viem/chains";
 import {
   LIBRARY_HOLD_MS,
   MAX_SEND_LOCK_WAITERS,
+  RESERVATION_MS,
   SEND_LOCK_STALL_MS,
   sendLocksInUse,
 } from "../../../src/internal/rpc/send-guard.ts";
@@ -420,6 +421,24 @@ async function library(
     account,
     parameters,
   };
+}
+
+/** Signs a transfer with a library account, as viem does before its broadcast. */
+async function signAt(
+  manager: Awaited<ReturnType<typeof library>>,
+  nonce: number,
+  chainId = 31337,
+): Promise<void> {
+  await manager.account.signTransaction({
+    type: "eip1559",
+    chainId,
+    nonce,
+    gas: 21_000n,
+    maxFeePerGas: 2n,
+    maxPriorityFeePerGas: 1n,
+    to: TO,
+    value: 1n,
+  });
 }
 
 /** Tells, after a few turns of the event loop, whether a promise has settled. */
@@ -1089,24 +1108,26 @@ describe("a reset when a held send and own-transport reservations are both open"
     assert.deepEqual(nonces, [1n, 2n], "the plugin's send goes after Y's");
   });
 
-  it("first ends the reservations the node already has, then ends the hold", async () => {
+  it("ends the reservation the node already has, not the hold, at a reset after a timeout (#434)", async () => {
     const harness = await setUp();
     const { node, send } = harness;
     const connection = await openKnown(harness);
     const own = await library(connection, HTTP_CLIENT);
     const through = await library(connection);
     assert.equal(await own.consume(), 0);
-    // The http client broadcast X; the node's pending count shows it.
-    node.pending = 1n;
     assert.equal(await through.consume(), 1);
-    await through.reset();
+    await signAt(own, 0);
+    // The http client's broadcast of 0 gets no answer, but the node has it; viem resets.
+    node.pending = 1n;
+    await own.reset();
     const sending = send(connection, { from: COW, to: TO });
-    assert.equal(await settled(sending), true, "Y's hold ended at its reset");
+    assert.equal(await settled(sending), false, "the plugin's send still waits for the held 1");
+    resultOf((await sendRaw(harness, connection, cowRaw(1n))).response);
     resultOf(await sending);
-    assert.deepEqual(node.raw.map(nonceOf), [1n]);
+    assert.deepEqual(node.raw.map(nonceOf), [1n, 2n], "the plugin's send goes after the held 1");
   });
 
-  it("keeps the reservations when the pending count cannot be read", async () => {
+  it("reads no pending count at the reset", async () => {
     const harness = await setUp();
     const { node, send } = harness;
     const connection = await openKnown(harness);
@@ -1114,22 +1135,11 @@ describe("a reset when a held send and own-transport reservations are both open"
     const through = await library(connection);
     assert.equal(await own.consume(), 0);
     assert.equal(await through.consume(), 1);
-    let reads = 0;
-    // The fake node fails the pending read of the reset.
-    const original = Object.getOwnPropertyDescriptor(node, "pending");
-    assert.ok(original !== undefined);
-    Object.defineProperty(node, "pending", {
-      configurable: true,
-      get: () => {
-        reads++;
-        throw new Error("node down");
-      },
-    });
+    node.methods.length = 0;
     await through.reset();
-    Object.defineProperty(node, "pending", original);
-    assert.equal(reads, 1);
+    assert.deepEqual(node.methods, []);
     const sending = send(connection, { from: COW, to: TO });
-    assert.equal(await settled(sending), false, "the reset took X's reservation; Y still holds");
+    assert.equal(await settled(sending), false, "the reset took 0's reservation; 1 still holds");
     resultOf((await sendRaw(harness, connection, cowRaw(1n))).response);
     resultOf(await sending);
     assert.deepEqual(node.raw.map(nonceOf), [1n, 2n]);
@@ -1436,5 +1446,218 @@ describe("a library send's hold, whichever way its raw transaction arrives (#433
     const { forwardedParams, params } = await sendRaw(harness, plain, cowRaw(0n));
     assert.equal(forwardedParams, params);
     assert.deepEqual(node.methods, ["eth_sendRawTransaction"], "not even the chain id is read");
+  });
+});
+
+describe("a send in flight when its connection closes (#434)", () => {
+  it("is not broadcast when the connection closes while KMS signs it", async () => {
+    const harness = await setUp();
+    const { node, state, send } = harness;
+    const connection = await openKnown(harness);
+    const signing = gate();
+    state.beforeSign = async () => await signing.promise;
+    const sending = send(connection, { from: COW, to: TO });
+    await settle();
+    await harness.close(connection);
+    signing.open();
+    const error = await sending.then(
+      () => assert.fail("the send went out"),
+      (thrown: unknown) => thrown,
+    );
+    assert.ok(error instanceof Error);
+    assert.equal(error.name, "HardhatPluginError", "not SendOutcomeUnknownError");
+    assert.match(error.message, /connection to network remote closed/);
+    assert.match(error.message, /nothing was sent/);
+    assert.deepEqual(node.raw, [], "no raw transaction reached the node");
+  });
+
+  it("does not broadcast a raw transaction that waited for the lock while the connection closed", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const held = gate();
+    node.onRaw = async (raw) => {
+      await held.promise;
+      return { jsonrpc: "2.0", id: 1, result: hashOf(raw) };
+    };
+    const sending = send(connection, { from: COW, to: TO });
+    await settle();
+    const rawSending = sendRaw(harness, connection, cowRaw(1n)).then(
+      () => assert.fail("the raw transaction went out"),
+      (thrown: unknown) => thrown,
+    );
+    await settle();
+    await harness.close(connection);
+    held.open();
+    resultOf(await sending);
+    const error = await rawSending;
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /nothing was sent/);
+    assert.deepEqual(node.raw.map(nonceOf), [0n], "only the send that was already broadcasting");
+  });
+});
+
+describe("a library consume waiting for the lock when its connection closes (#434)", () => {
+  for (const [kind, client] of [
+    ["through the connection", {}],
+    ["with its own transport", HTTP_CLIENT],
+  ] as const) {
+    it(`holds and reserves nothing for a send ${kind}`, async () => {
+      const harness = await setUp();
+      const { node, send } = harness;
+      const connection = await openKnown(harness);
+      const manager = await library(connection, client);
+      const held = gate();
+      node.onRaw = async (raw) => {
+        await held.promise;
+        return { jsonrpc: "2.0", id: 1, result: hashOf(raw) };
+      };
+      const sending = send(connection, { from: COW, to: TO });
+      await settle();
+      const consuming = manager.consume().then(
+        () => assert.fail("the consume got a nonce"),
+        (thrown: unknown) => thrown,
+      );
+      await settle();
+      await harness.close(connection);
+      held.open();
+      resultOf(await sending);
+      const error = await consuming;
+      assert.ok(error instanceof Error);
+      assert.match(
+        error.message,
+        /nonceManager\.consume: the connection to network remote is closed/,
+      );
+      node.onRaw = undefined;
+      const other = await openKnown(harness);
+      const next = send(other, { from: COW, to: TO });
+      assert.equal(await settled(next), true, "no hold blocks the other connection");
+      resultOf(await next);
+    });
+  }
+});
+
+describe("a plugin send without a nonce and a reservation below it (#434)", () => {
+  it("keeps the reservation, so the next send on edr-simulated does not take its nonce", async () => {
+    const harness = await setUp("edr-simulated");
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const manager = await library(connection, HTTP_CLIENT);
+    assert.equal(await manager.consume(), 0);
+    resultOf(await send(connection, { from: COW, to: TO }));
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [1n, 2n]);
+  });
+});
+
+describe("a reset that does not say which of several own-transport sends failed (#434)", () => {
+  it("keeps both reservations when the older send's reset comes first", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const a = await library(connection, HTTP_CLIENT);
+    const b = await library(connection, HTTP_CLIENT);
+    assert.equal(await a.consume(), 0);
+    assert.equal(await b.consume(), 1);
+    // A fails at its gas estimate; viem resets with the address and chain only.
+    await a.reset();
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [2n], "B's 1 is still reserved");
+  });
+
+  it("releases the other reservation when B signs after the reset", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const a = await library(connection, HTTP_CLIENT);
+    const b = await library(connection, HTTP_CLIENT);
+    assert.equal(await a.consume(), 0);
+    assert.equal(await b.consume(), 1);
+    await a.reset();
+    await signAt(b, 1);
+    resultOf(await send(connection, { from: COW, to: TO }));
+    const [nonce] = node.raw.map(nonceOf);
+    assert.notEqual(nonce, 1n, "never B's nonce");
+    assert.equal(nonce, 2n, "B's signed 1 still counts");
+  });
+
+  it("keeps A's 0 when the newer send's reset comes first, and frees B's 1 once A signs", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const a = await library(connection, HTTP_CLIENT);
+    const b = await library(connection, HTTP_CLIENT);
+    assert.equal(await a.consume(), 0);
+    assert.equal(await b.consume(), 1);
+    // B fails first; the reset looks the same.
+    await b.reset();
+    assert.equal(await a.get(), 2, "A keeps 0, and 1 is kept too");
+    await signAt(a, 0);
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [1n], "A signed, so the reset was B's: 1 is free");
+  });
+
+  it("releases a single reservation at its reset at once", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const a = await library(connection, HTTP_CLIENT);
+    assert.equal(await a.consume(), 0);
+    await a.reset();
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n]);
+  });
+
+  it("warns once when the reservations expire with the reset still owed", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const a = await library(connection, HTTP_CLIENT);
+    const b = await library(connection, HTTP_CLIENT);
+    assert.equal(await a.consume(), 0);
+    t.mock.timers.tick(1);
+    assert.equal(await b.consume(), 1);
+    await a.reset();
+    t.mock.timers.tick(RESERVATION_MS - 1);
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [2n], "1 still counts");
+    t.mock.timers.tick(1);
+    resultOf(await send(connection, { from: COW, to: TO }));
+    resultOf(await send(connection, { from: COW, to: TO }));
+    const owed = warn.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .filter((message) => message.includes("reset one of"));
+    assert.equal(owed.length, 1, "once");
+    assert.match(owed[0] ?? "", /0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826 on chain 31337/);
+    assert.match(owed[0] ?? "", /nonce 0\b/);
+    assert.match(owed[0] ?? "", /uncertain-sends\.md#2-look-the-transaction-up/);
+    assert.match(owed[0] ?? "", /uncertain-sends\.md#4-fill-a-gap-or-replace-a-transaction/);
+  });
+
+  it("applies to a reservation the hold limit left: B's signature releases it, with the gap warning", async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const harness = await setUp("http", 31343);
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    const held = await library(connection, {}, 31343);
+    assert.equal(await held.consume(), 0);
+    t.mock.timers.tick(LIBRARY_HOLD_MS);
+    await settle();
+    const own = await library(connection, HTTP_CLIENT, 31343);
+    assert.equal(await own.consume(), 1, "it skips the reservation the limit left");
+    // One of the two fails; viem's reset does not say which.
+    await held.reset();
+    const sending = send(connection, { from: COW, to: TO });
+    resultOf(await sending);
+    assert.deepEqual(node.raw.map(nonceOf), [2n], "neither 0 nor 1 is freed");
+    await signAt(own, 1, 31343);
+    const gaps = warn.mock.calls
+      .map((call) => String(call.arguments[0]))
+      .filter((message) => message.includes("gap"));
+    assert.equal(gaps.length, 1);
+    assert.match(gaps[0] ?? "", /with nonce 0 after its 60 s hold ended/);
   });
 });

@@ -355,9 +355,25 @@ const keepAliveTimers: Timers = {
  * @param key - The lock key.
  * @param nonce - The nonce of the gap.
  */
-export function warnAboutNonceGap(key: string, nonce: bigint): void {
+function warnAboutNonceGap(key: string, nonce: bigint): void {
   warn(
     `viem reset a connection.kms.getAccount send from ${describeSendKeyForWarning(key)} with nonce ${nonce} after its ${LIBRARY_HOLD_MS / 1000} s hold ended, and the account has used a higher nonce since. If that send never reached the node, nonce ${nonce} is a gap, and the account's later transactions are not mined until a transaction with nonce ${nonce} is. viem also resets after a timeout, when the node may have the transaction, so check the node for nonce ${nonce} first (${LOOK_UP_DOCS}), and fill the gap only if it is one (${FILL_NONCE_DOCS}).`,
+  );
+}
+
+/**
+ * Warns that reservations whose send a viem `reset` may have been for ended at their time limit.
+ * The reset named no nonce and matched several reservations, so it released none of them
+ * ({@link ConnectionSends.resetReservation}). The nonces are free again for the account's sends
+ * through its connection; if the failed send had one of them, that nonce is a gap.
+ *
+ * @param key - The lock key.
+ * @param nonces - The nonces whose reservations ended.
+ */
+function warnAboutOwedReset(key: string, nonces: readonly bigint[]): void {
+  const nonce = nonces.join(" or ");
+  warn(
+    `viem reset one of the connection.kms.getAccount sends from ${describeSendKeyForWarning(key)} that had reserved a nonce, without saying which, so the plugin kept all their nonces. The reservation of nonce ${nonce} has now ended after ${RESERVATION_MS / 1000} s, and the account's sends through its connection can take that nonce again. If the send that failed had nonce ${nonce}, that nonce is a gap, and the account's later transactions are not mined until a transaction with it is. Check the node for nonce ${nonce} first (${LOOK_UP_DOCS}), and fill the gap only if it is one (${FILL_NONCE_DOCS}).`,
   );
 }
 
@@ -610,6 +626,28 @@ interface Reservation {
   failed: boolean;
   /** Whether a library send held this nonce until the hold's time limit made it a reservation. */
   afterHoldLimit: boolean;
+  /**
+   * Whether a viem `reset` that matched several unsigned reservations, and is still owed, may
+   * have been this send's ({@link ConnectionSends.resetReservation}).
+   */
+  owedCandidate: boolean;
+}
+
+/** The viem resets of a sender that released no reservation yet, since each matched several. */
+interface OwedResets {
+  /** How many. */
+  count: number;
+  /** The lock key, to name the account and the chain in warnings. */
+  key: string;
+}
+
+/**
+ * Tells whether a reservation may be the one an owed reset is for: it was unsigned when the
+ * reset came and has neither signed nor failed since. A send that signs or fails after the reset
+ * was still running, so the reset was another send's.
+ */
+function owedCandidate(reservation: Reservation): boolean {
+  return reservation.owedCandidate && !reservation.signed && !reservation.failed;
 }
 
 interface RetryEntry {
@@ -640,6 +678,14 @@ export class ConnectionSends {
   readonly #uncertain = new Map<string, SentTransaction>();
   /** By sender, in the order they were handed out: the nonces reserved for library accounts. */
   readonly #reservations = new Map<string, Map<bigint, Reservation>>();
+  /** By sender: the viem resets that have released no reservation yet. */
+  readonly #owedResets = new Map<string, OwedResets>();
+  /**
+   * By sender, with the high-water mark off: the nonces the node accepted above a live
+   * reservation. The node's pending count stops at the gap the reservation leaves, so it does not
+   * count them; {@link nonceFor} counts each while a reservation below it lives.
+   */
+  readonly #aboveReserved = new Map<string, Set<bigint>>();
   readonly #now: () => number;
   #closed = false;
 
@@ -668,9 +714,10 @@ export class ConnectionSends {
     if (mark >= nonce) {
       nonce = mark + 1n;
     }
-    for (const reserved of this.#live(from).keys()) {
-      if (reserved >= nonce) {
-        nonce = reserved + 1n;
+    const live = this.#live(from);
+    for (const used of [...live.keys(), ...this.#aboveReservedOf(from, live)]) {
+      if (used >= nonce) {
+        nonce = used + 1n;
       }
     }
     return nonce;
@@ -697,6 +744,7 @@ export class ConnectionSends {
       signed: false,
       failed: false,
       afterHoldLimit,
+      owedCandidate: false,
     });
     this.#reservations.set(from, reservations);
   }
@@ -711,6 +759,7 @@ export class ConnectionSends {
     const reservation = this.#live(from).get(nonce);
     if (reservation !== undefined) {
       reservation.signed = true;
+      this.#settleOwedResets(from);
     }
   }
 
@@ -725,6 +774,7 @@ export class ConnectionSends {
     const reservation = this.#live(from).get(nonce);
     if (reservation !== undefined) {
       reservation.failed = true;
+      this.#settleOwedResets(from);
     }
   }
 
@@ -736,6 +786,7 @@ export class ConnectionSends {
    */
   public releaseReservation(from: string, nonce: bigint): void {
     this.#reservations.get(from)?.delete(nonce);
+    this.#settleOwedResets(from);
   }
 
   /**
@@ -749,78 +800,164 @@ export class ConnectionSends {
   }
 
   /**
-   * Ends the reservations of nonces below the node's pending count: the node has a transaction
-   * with each of them, so their sends are past their broadcast.
-   *
-   * @param from - The sender's lowercase address.
-   * @param pending - The node's pending transaction count for the sender.
-   */
-  public releaseReservationsBelow(from: string, pending: bigint): void {
-    const reservations = this.#reservations.get(from) ?? new Map<bigint, Reservation>();
-    for (const reserved of reservations.keys()) {
-      if (reserved < pending) {
-        reservations.delete(reserved);
-      }
-    }
-  }
-
-  /**
    * Ends the reservations of nonces up to one that a send through the plugin used. A reservation
    * that a library send's hold left at its time limit ends only when the send used its very nonce:
    * a higher nonce says nothing about whether that library send went out, and its `reset` must
-   * still find it, to warn about the gap it leaves.
+   * still find it, to warn about the gap it leaves. The plugin's send says nothing about the
+   * library sends either, so an owed reset may have been an ended one's; one owed reset counts as
+   * settled per ended candidate.
    *
    * @param from - The sender's lowercase address.
    * @param nonce - The send's nonce.
    */
   public releaseReservationsUpTo(from: string, nonce: bigint): void {
     const reservations = this.#reservations.get(from) ?? new Map<bigint, Reservation>();
+    let candidates = 0;
     for (const [reserved, reservation] of reservations) {
       if (reservation.afterHoldLimit ? reserved === nonce : reserved <= nonce) {
         reservations.delete(reserved);
+        candidates += owedCandidate(reservation) ? 1 : 0;
+      }
+    }
+    this.#settleOwedResetsOf(from, candidates);
+  }
+
+  /**
+   * Handles a client's failed send (viem's `nonceManager.reset`), which does not say which nonce.
+   * With a reservation whose raw transaction failed, the newest such one ends. Otherwise, with
+   * unsigned reservations, the reset is owed to one of them: a reset with a single candidate ends
+   * it at once, and one with several ends none, since ending the wrong one would let a send
+   * through the plugin take a nonce that a running send still has. An owed reset is settled
+   * when the candidates left are no more than the owed resets: they all failed, so they all end.
+   * Candidates leave when they sign or fail (that send was still running), or when they end for
+   * another reason: the node has their nonce, or their time is up, which a warning reports.
+   * With only signed reservations, the newest ends.
+   *
+   * When an ended reservation was left by a library send's hold at its time limit, and the sender
+   * has used a higher nonce since (the high-water mark, another reservation, or the nonce of a
+   * hold this connection gave is above it), a warning says that its nonce may be a gap.
+   *
+   * @param key - The lock key, `chainId:address` with the sender's lowercase address.
+   */
+  public resetReservation(key: string): void {
+    const from = key.slice(key.indexOf(":") + 1);
+    const live = this.#live(from);
+    const entries = [...live].toReversed();
+    const failed = entries.find(([, reservation]) => reservation.failed);
+    const unsigned = entries.filter(([, reservation]) => !reservation.signed);
+    if (failed === undefined && unsigned.length > 0) {
+      for (const [, reservation] of unsigned) {
+        reservation.owedCandidate = true;
+      }
+      const owed = this.#owedResets.get(from) ?? { count: 0, key };
+      owed.count++;
+      this.#owedResets.set(from, owed);
+      this.#settleOwedResets(from);
+      return;
+    }
+    const chosen = failed ?? entries[0];
+    if (chosen !== undefined) {
+      live.delete(chosen[0]);
+      this.#warnAboutGaps(key, from, [chosen]);
+    }
+  }
+
+  /**
+   * Ends the candidates of the sender's owed resets when there are no more of them than owed
+   * resets: each owed reset is a distinct send's, and a candidate is the only place its send can
+   * be, so every candidate left failed.
+   */
+  #settleOwedResets(from: string): void {
+    const owed = this.#owedResets.get(from);
+    if (owed === undefined) {
+      return;
+    }
+    const live = this.#live(from);
+    const candidates = [...live].filter(([, reservation]) => owedCandidate(reservation));
+    if (candidates.length > owed.count) {
+      return;
+    }
+    this.#owedResets.delete(from);
+    for (const [nonce] of candidates) {
+      live.delete(nonce);
+    }
+    this.#warnAboutGaps(owed.key, from, candidates);
+  }
+
+  /**
+   * Warns about each ended reservation that a hold left at its time limit when the sender has
+   * used a higher nonce since.
+   */
+  #warnAboutGaps(
+    key: string,
+    from: string,
+    ended: readonly (readonly [bigint, Reservation])[],
+  ): void {
+    const current = libraryHolds.get(key);
+    // -1n: no mark, or no hold of this connection. The ended reservations are no longer live.
+    const used = [
+      this.#highWater.get(from) ?? -1n,
+      current?.owner === this ? current.nonce : -1n,
+      ...this.#live(from).keys(),
+    ];
+    for (const [nonce, reservation] of ended) {
+      if (reservation.afterHoldLimit && used.some((other) => other > nonce)) {
+        warnAboutNonceGap(key, nonce);
       }
     }
   }
 
   /**
-   * Ends one reservation after a client's send failed (viem's `nonceManager.reset`), which does
-   * not say which nonce: the newest one whose raw transaction failed, else the newest one not yet
-   * signed, else the newest one.
-   *
-   * @param from - The sender's lowercase address.
-   * @param held - The nonce a library send of this connection holds now, if any.
-   * @returns The ended reservation's nonce when it may leave a gap: a library send held it until
-   * its time limit, and the sender has used a higher nonce since (the high-water mark, another
-   * reservation or `held` is above it). Otherwise `undefined`.
+   * The nonces the node accepted above the sender's live reservations, with the mark off. One with
+   * no live reservation below it any more is forgotten: the node's pending count covers it again.
    */
-  public resetReservation(from: string, held?: bigint): bigint | undefined {
-    const live = this.#live(from);
-    const entries = [...live].toReversed();
-    const chosen =
-      entries.find(([, reservation]) => reservation.failed) ??
-      entries.find(([, reservation]) => !reservation.signed) ??
-      entries[0];
-    if (chosen === undefined) {
-      return undefined;
+  #aboveReservedOf(from: string, live: Map<bigint, Reservation>): Set<bigint> {
+    const above = this.#aboveReserved.get(from) ?? new Set<bigint>();
+    for (const nonce of above) {
+      if (![...live.keys()].some((reserved) => reserved < nonce)) {
+        above.delete(nonce);
+      }
     }
-    const [nonce, reservation] = chosen;
-    this.releaseReservation(from, nonce);
-    // -1n: no mark. The ended reservation is no longer in `live`.
-    const used = [this.#highWater.get(from) ?? -1n, held ?? -1n, ...live.keys()];
-    const above = used.some((other) => other > nonce);
-    return reservation.afterHoldLimit && above ? nonce : undefined;
+    return above;
   }
 
-  /** The sender's reservations that still count; expired ones are dropped. */
+  /**
+   * The sender's reservations that still count. Expired ones are dropped, and when an owed reset
+   * may have been for one of them, a warning names their nonces and the reset is settled.
+   */
   #live(from: string): Map<bigint, Reservation> {
     const reservations = this.#reservations.get(from) ?? new Map<bigint, Reservation>();
     const now = this.#now();
+    const expired: bigint[] = [];
     for (const [nonce, reservation] of reservations) {
       if (reservation.expiresAt <= now) {
         reservations.delete(nonce);
+        if (owedCandidate(reservation)) {
+          expired.push(nonce);
+        }
       }
     }
+    const owed = this.#owedResets.get(from);
+    if (owed !== undefined && expired.length > 0) {
+      warnAboutOwedReset(owed.key, expired);
+      this.#settleOwedResetsOf(from, expired.length);
+    }
     return reservations;
+  }
+
+  /**
+   * Counts owed resets as settled, one per candidate that ended with no sign that its send still
+   * ran: the reset may have been its. This keeps the candidates left reserved, since a settled
+   * reset never ends a reservation.
+   */
+  #settleOwedResetsOf(from: string, ended: number): void {
+    const owed = this.#owedResets.get(from);
+    if (owed !== undefined) {
+      owed.count -= ended;
+      if (owed.count <= 0) {
+        this.#owedResets.delete(from);
+      }
+    }
   }
 
   /**
@@ -842,6 +979,11 @@ export class ConnectionSends {
    */
   public recordSent(from: string, nonce: bigint): void {
     if (!this.#highWaterEnabled) {
+      if ([...this.#live(from).keys()].some((reserved) => reserved < nonce)) {
+        const above = this.#aboveReserved.get(from) ?? new Set<bigint>();
+        above.add(nonce);
+        this.#aboveReserved.set(from, above);
+      }
       return;
     }
     const mark = this.#highWater.get(from);

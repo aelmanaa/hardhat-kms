@@ -1228,6 +1228,16 @@ export const ERRORS = {
       "A `wallet_sendCalls` (EIP-5792) request named a KMS account as `from`. The plugin sends a KMS account's transactions through `eth_sendTransaction` only, so it answers this method with JSON-RPC error -32601 (method not found) and does not pass it to the node. viem's `sendCalls` sends it.",
     fix: "Pass `experimental_fallback: true` to viem's `sendCalls`: on -32601 viem sends each call with `eth_sendTransaction`, and the KMS key signs each one. Or send each call yourself with `sendTransaction`.",
   },
+  sendConnectionClosed: {
+    id: "core.tx.connection-closed",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "{method}: the connection to network {network} closed before the transaction was broadcast, so nothing was sent. Send it again on an open connection",
+    cause:
+      "`connection.close()` ran while the send waited for its KMS signature or for an earlier send from the same account. A closed connection keeps no record of the account's nonces, so the plugin does not broadcast through it: a send on another connection could take the same nonce.",
+    fix: "Wait for each send to return before you close its connection, or send again on an open connection from `network.create()`.",
+  },
   sendOutcomeUnknown: {
     id: "core.tx.outcome-unknown",
     kind: "error",
