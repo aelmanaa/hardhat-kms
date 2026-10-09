@@ -201,6 +201,8 @@ export async function dispatchFixture(options: FixtureOptions = {}): Promise<Dis
       chainId: async () => await chain.chainId(),
       sends: () => sends,
       request: read,
+      network: "remote",
+      closed: () => false,
     },
     request: async (method, params = []) =>
       await dispatch(

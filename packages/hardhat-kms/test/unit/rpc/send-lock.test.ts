@@ -461,7 +461,7 @@ describe("a send whose outcome is unknown", () => {
     assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n]);
   });
 
-  it("is not kept on a simulated network", async () => {
+  it("is looked up on a simulated network too, whose pending count stops at a gap (#434)", async () => {
     const { node, open, send } = await setUp("edr-simulated");
     const connection = await open();
     failOnce(node);
@@ -472,7 +472,7 @@ describe("a send whose outcome is unknown", () => {
       return null;
     };
     await send(connection, { from: COW, to: TO, value: "0x1" });
-    assert.equal(lookups, 0);
+    assert.equal(lookups, 1);
   });
 });
 
