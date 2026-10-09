@@ -147,7 +147,7 @@ sequenceDiagram
   H-->>C: hash
 ```
 
-The chain id comes first because the lock is keyed by it (`packages/hardhat-kms/src/internal/rpc/dispatcher.ts:628-636`). Inside the lock, a send without a caller's nonce first asks the node about the account's uncertain transaction (`dispatcher.ts:658-660`), then takes its nonce from `ConnectionSends.nonceFor`: the node's pending count, raised past the high-water mark and past every nonce reserved for a library account's client on the connection (`dispatcher.ts:669`, `packages/hardhat-kms/src/internal/rpc/send-guard.ts:579-592`). On `edr-simulated` networks the high-water mark is off; reservations still count.
+The chain id comes first because the lock is keyed by it (`packages/hardhat-kms/src/internal/rpc/dispatcher.ts:628-636`). Inside the lock, a send without a caller's nonce first asks the node about the account's uncertain transaction (`dispatcher.ts:658-660`), then takes its nonce from `ConnectionSends.nonceFor`: the node's pending count, raised past the high-water mark and past every nonce reserved for a library account's client on the connection (`dispatcher.ts:669`, `packages/hardhat-kms/src/internal/rpc/send-guard.ts:579-592`). On `edr-simulated` networks the high-water mark is off; reservations still count, and, while one lives, so do the nonces the node accepted past the pending count ([Transactions](transactions.md)).
 
 The rules that keep this safe are in [Request flow and re-entrancy rules](#request-flow-and-re-entrancy-rules) and in [Transactions](transactions.md).
 

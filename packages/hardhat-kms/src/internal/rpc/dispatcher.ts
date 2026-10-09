@@ -1,10 +1,6 @@
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
-import {
-  hexStringToBigInt,
-  hexStringToBytes,
-  isHexString,
-} from "@nomicfoundation/hardhat-utils/hex";
+import { hexStringToBigInt, hexStringToBytes } from "@nomicfoundation/hardhat-utils/hex";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import {
   rpcAddress,
@@ -38,7 +34,6 @@ import {
   libraryHoldOf,
   libraryHoldsActive,
   takeOwedLibraryReset,
-  warnAboutNonceGap,
   withSendLock,
 } from "./send-guard.ts";
 import { notPlainData, stringResult, type TransactionFiller } from "./transaction-filler.ts";
@@ -325,6 +320,10 @@ export interface ConnectionTransactions {
   sends(): ConnectionSends;
   /** Sends a read request on the connection, through the whole hook chain. */
   request(method: string, params: unknown[]): Promise<unknown>;
+  /** The connection's network name. */
+  network: string;
+  /** Whether the connection has closed: a send then broadcasts nothing. */
+  closed(): boolean;
 }
 
 /**
@@ -735,6 +734,8 @@ async function sendTransaction(
         next,
         nodeHas,
         resend: true,
+        callerNonce: kms.callerNonce,
+        transactions,
       });
     }
     if (!kms.callerNonce) {
@@ -758,6 +759,8 @@ async function sendTransaction(
       next,
       nodeHas,
       resend: false,
+      callerNonce: kms.callerNonce,
+      transactions,
     });
   });
 }
@@ -844,6 +847,21 @@ interface BroadcastContext {
   nodeHas: (hash: string) => Promise<boolean>;
   /** Whether this sends a retry entry's bytes again. */
   resend: boolean;
+  /** Whether the caller gave the nonce. */
+  callerNonce: boolean;
+  /** The connection, to check that it is still open before the broadcast. */
+  transactions: ConnectionTransactions;
+}
+
+/**
+ * Refuses a broadcast on a connection that has closed. Its send state is gone, so nothing would
+ * record the nonce, and a send on another connection could take it. Hardhat's HTTP provider still
+ * sends a request after `close()`, so the check cannot be left to it.
+ */
+function refuseIfClosed(transactions: ConnectionTransactions, method: string): void {
+  if (transactions.closed()) {
+    throw catalogError(ERRORS.sendConnectionClosed, { method, network: transactions.network });
+  }
 }
 
 /**
@@ -920,6 +938,7 @@ function minedHashOf(error: Record<string, unknown>): string | undefined {
  * Sends a signed transaction with exactly one `next(eth_sendRawTransaction)`, and sorts the
  * outcome (docs/contributor/transactions.md, "Retries after broadcast"):
  *
+ * - The connection has closed: nothing is sent, and `core.tx.connection-closed` is thrown.
  * - The node accepts it: its answer is returned as it is.
  * - Hardhat cannot connect (HHE703): nothing was sent, and Hardhat's error is rethrown as it is.
  * - The node answers with an error, returned or thrown with a JSON-RPC code: the answer is
@@ -940,11 +959,15 @@ async function broadcast(
   context: BroadcastContext,
 ): Promise<JsonRpcResponse> {
   const { address, sends, retries, next, nodeHas, resend } = context;
-  // The node has the transaction: its nonce is used.
+  refuseIfClosed(context.transactions, request.method);
+  // The node has the transaction: its nonce is used. Only a nonce the caller chose ends the
+  // reservations up to it; a nonce the plugin chose skipped them, and their sends still run.
   const nodeHasIt = (): void => {
     sends.settleUncertain(address, transaction.hash);
     sends.recordSent(address, transaction.nonce);
-    sends.releaseReservationsUpTo(address, transaction.nonce);
+    if (context.callerNonce) {
+      sends.releaseReservationsUpTo(address, transaction.nonce);
+    }
   };
   const accepted = (): JsonRpcResponse => {
     nodeHasIt();
@@ -1155,7 +1178,7 @@ async function sendRawTransaction(
     let failed = true;
     try {
       // The hold's owner learns the outcome too: its next send must count this nonce.
-      const answer = await broadcastRaw(request, raw, [sends, hold.owner], next);
+      const answer = await broadcastRaw(request, raw, [sends, hold.owner], next, transactions);
       failed = "error" in answer;
       return answer;
     } finally {
@@ -1171,7 +1194,7 @@ async function sendRawTransaction(
     key,
     request,
     next,
-    async () => await broadcastRaw(request, raw, [sends], next),
+    async () => await broadcastRaw(request, raw, [sends], next, transactions),
   );
 }
 
@@ -1235,12 +1258,24 @@ export async function libraryNonce(
   }
   // Under the lock, as a send through the plugin does: a transaction whose broadcast got no
   // answer is looked up first, so a node whose pending count lags cannot hand out its nonce.
+  const requireOpen = (): void => {
+    if (transactions.closed()) {
+      throw catalogError(
+        ERRORS.accountConnectionClosed,
+        { network: transactions.network },
+        { operation },
+      );
+    }
+  };
   const chooseForSend = async (): Promise<bigint> => {
+    // Closing clears uncertain records. A lookup already in flight can finish after close;
+    // check before starting the pending-count RPC, as well as before installing the hold.
     await settleUncertain(
       address,
       sends,
       async (hash) => await nodeHasTransaction(transactions, hash),
     );
+    requireOpen();
     return await choose();
   };
   const key = `${chainId}:${address}`;
@@ -1254,7 +1289,14 @@ export async function libraryNonce(
     );
   }
   if (!request.ownTransport) {
-    const nonce = await holdForLibrary(key, sends, chooseForSend, undefined, request.signal);
+    const nonce = await holdForLibrary(
+      key,
+      sends,
+      chooseForSend,
+      undefined,
+      request.signal,
+      requireOpen,
+    );
     log("%s: nonce %d given to a library account's send, which holds the lock", address, nonce);
     return nonce;
   }
@@ -1262,6 +1304,7 @@ export async function libraryNonce(
     key,
     async () => {
       const nonce = await chooseForSend();
+      requireOpen();
       sends.reserve(address, nonce);
       log("%s: nonce %d reserved for a library account's own transport", address, nonce);
       return nonce;
@@ -1282,14 +1325,14 @@ export async function libraryNonce(
  * order:
  *
  * 1. A reset owed by a send whose broadcast failed, which holds nothing any more, is used up.
- * 2. With no reservation of the sender on this connection, the reset is the hold's.
- * 3. With reservations and a hold, the reservations whose nonce the node already has (below its
- *    pending count) are ended first: their sends are past their broadcast and cannot fail.
- * 4. A reservation that is left takes the reset, and the hold stays. A reservation's send
- *    started before the hold took the lock, so it may well fail while the hold lasts. Ending the
- *    hold instead would let a send through the plugin take the held nonce before its raw
- *    transaction goes out. The cost of a wrong guess is the other way round: a held send that
- *    failed keeps the lock until its 60 s limit, or until the reservation's own reset comes.
+ * 2. With a live reservation of the sender on this connection, the reservations take the reset
+ *    (`ConnectionSends.resetReservation`), and a hold stays. A reservation's send started before
+ *    the hold took the lock, so it may well fail while the hold lasts, and so may one whose nonce
+ *    the node already has: viem resets after a timeout too. Ending the hold instead would let a
+ *    send through the plugin take the held nonce before its raw transaction goes out. The cost of
+ *    a wrong guess is the other way round: a held send that failed keeps the lock until its 60 s
+ *    limit, or until the reservation's own reset comes.
+ * 3. Otherwise the reset is the hold's, if this connection gave it.
  *
  * @param transactions - The connection's send state.
  * @param address - The account's lowercase address.
@@ -1310,34 +1353,15 @@ export async function resetLibraryNonce(
   }
   // Only a hold this connection gave: a reset through another connection, or through this one
   // after it closed, is never this hold's.
-  const current = libraryHoldOf(key);
-  const hold = current?.owner === sends ? current : undefined;
-  if (hold !== undefined && sends.hasReservations(address)) {
-    let count: unknown;
-    try {
-      count = await transactions.request("eth_getTransactionCount", [address, "pending"]);
-    } catch (error) {
-      log(
-        "%s: nonceManager.reset could not read the pending count (%s)",
-        address,
-        errorName(error),
-      );
-    }
-    // An answer that is not a hex quantity ends no reservation, as a failed read does.
-    // isHexString does not narrow the type; String() returns the same string.
-    if (isHexString(count)) {
-      sends.releaseReservationsBelow(address, hexStringToBigInt(String(count)));
-    } else if (count !== undefined) {
-      log("%s: nonceManager.reset got a pending count that is not a hex quantity", address);
-    }
-  }
   if (sends.hasReservations(address)) {
-    const gap = sends.resetReservation(address, hold?.nonce);
-    if (gap !== undefined) {
-      warnAboutNonceGap(key, gap);
-    }
-  } else {
-    hold?.end();
+    sends.resetReservation(key);
+    return;
+  }
+  // Only a hold this connection gave: a reset through another connection, or through this one
+  // after it closed, is never this hold's.
+  const hold = libraryHoldOf(key);
+  if (hold?.owner === sends) {
+    hold.end();
   }
 }
 
@@ -1381,7 +1405,8 @@ const SYNC_TIMEOUT_CODE = 4;
  * mark rises and the nonce's reservation ends. Any other outcome marks the reservation failed, so the client's
  * `reset` after its error ends that one; an uncertain answer or no answer also makes it the
  * uncertain transaction. Unlike {@link broadcast}, nothing is wrapped or kept for a retry: the
- * caller holds the bytes and can send them again. Every send state in `learners` records the
+ * caller holds the bytes and can send them again. On a closed connection nothing is sent, and
+ * `core.tx.connection-closed` is thrown. Every send state in `learners` records the
  * outcome; recording it twice in one changes nothing.
  */
 async function broadcastRaw(
@@ -1389,7 +1414,9 @@ async function broadcastRaw(
   raw: RawKmsTransaction,
   learners: readonly ConnectionSends[],
   next: Next,
+  transactions: ConnectionTransactions,
 ): Promise<JsonRpcResponse> {
+  refuseIfClosed(transactions, request.method);
   const { address, transaction } = raw;
   const nodeHasIt = (): void => {
     for (const sends of learners) {

@@ -165,6 +165,8 @@ export function createNetworkHandlers(
       const result: unknown = await connection.provider.request({ method, params });
       return result;
     },
+    network: connection.networkName,
+    closed: () => closed.has(connection),
   });
 
   return {

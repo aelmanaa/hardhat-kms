@@ -187,24 +187,26 @@ describe("a send through the plugin", () => {
     }
   });
 
-  it("ends the reservations up to its nonce when the node takes it", async () => {
+  it("ends the reservations up to the caller's nonce when the node takes it, and none for its own choice", async () => {
     const fixture = await fixtureOnOwnChain();
     accept(fixture);
     fixture.sends.reserve(cow, 0n);
-    // The reservation makes the send take nonce 1, and the node's answer ends it.
+    // The reservation makes the send take nonce 1; the reservation's send still runs.
     const hash = resultOf(await send(fixture));
     const [raw] = broadcasts(fixture);
     assert.ok(raw !== undefined);
     assert.equal(hash, hashOf(raw));
     assert.equal(nonceOf(raw), 1n);
-    assert.equal(fixture.sends.hasReservations(cow), false);
+    assert.equal(fixture.sends.hasReservations(cow), true, "a nonce the plugin chose ends none");
+    resultOf(await send(fixture, 0));
+    assert.equal(fixture.sends.hasReservations(cow), false, "the caller's nonce 0 ends it");
     answerInTurn(
       fixture,
       (sent) => new ErrorAnswer(-32000, "reverted", { transactionHash: hashOf(sent) }),
     );
     fixture.sends.reserve(cow, 2n);
-    await send(fixture);
-    assert.equal(fixture.sends.hasReservations(cow), false);
+    await send(fixture, 2);
+    assert.equal(fixture.sends.hasReservations(cow), false, "mined with an error ends it too");
   });
 });
 
@@ -457,28 +459,17 @@ describe("a library account's nonce", () => {
     assert.equal(fixture.sends.hasReservations(cow), false);
   });
 
-  it("does not read the pending count at a reset with reservations and no hold", async () => {
+  it("reads nothing at a reset, with or without a hold beside the reservations", async () => {
     const fixture = await fixtureOnOwnChain();
     await libraryNonce(fixture.transactions, nonceRequest(fixture, true, true));
     const reads = fixture.reads.length;
     await resetLibraryNonce(fixture.transactions, cow, fixture.chainId);
     assert.equal(fixture.reads.length, reads);
-  });
-
-  it("ends no reservation at a reset when the pending count is not a hex quantity", async () => {
-    for (const count of [7, "0xzz"]) {
-      const fixture = await fixtureOnOwnChain();
-      await libraryNonce(fixture.transactions, nonceRequest(fixture, true, true));
-      await libraryNonce(fixture.transactions, nonceRequest(fixture, true, true));
-      await libraryNonce(fixture.transactions, nonceRequest(fixture, true));
-      fixture.answers.set("eth_getTransactionCount", () => count);
-      // Of the two reservations, the reset ends one; the other stays, with the hold.
-      await resetLibraryNonce(fixture.transactions, cow, fixture.chainId);
-      assert.equal(fixture.sends.hasReservations(cow), true, String(count));
-      await resetLibraryNonce(fixture.transactions, cow, fixture.chainId);
-      await resetLibraryNonce(fixture.transactions, cow, fixture.chainId);
-      assert.equal(libraryHoldOf(`${fixture.chainId}:${cow}`), undefined);
-    }
+    await libraryNonce(fixture.transactions, nonceRequest(fixture, true, true));
+    await libraryNonce(fixture.transactions, nonceRequest(fixture, true));
+    const held = fixture.reads.length;
+    await resetLibraryNonce(fixture.transactions, cow, fixture.chainId);
+    assert.equal(fixture.reads.length, held);
   });
 
   it("does nothing at a reset with neither a hold nor a reservation", async () => {
@@ -487,16 +478,14 @@ describe("a library account's nonce", () => {
     assert.equal(fixture.sends.hasReservations(cow), false);
   });
 
-  it("reads the pending count at a reset with a hold and reservations, by its address", async () => {
+  it("lets a reservation take the reset when a hold of this connection is open too", async () => {
     const fixture = await fixtureOnOwnChain();
     await libraryNonce(fixture.transactions, nonceRequest(fixture, true, true));
     await libraryNonce(fixture.transactions, nonceRequest(fixture, true));
     await resetLibraryNonce(fixture.transactions, cow, fixture.chainId);
-    assert.deepEqual(fixture.reads.at(-1), {
-      method: "eth_getTransactionCount",
-      params: [cow, "pending"],
-    });
-    // The reservation took the reset; the hold stays until its own.
+    assert.equal(fixture.sends.hasReservations(cow), false);
+    assert.ok(libraryHoldOf(`${fixture.chainId}:${cow}`) !== undefined, "the hold stays");
+    // The hold stays until its own reset.
     await resetLibraryNonce(fixture.transactions, cow, fixture.chainId);
     assert.equal(libraryHoldOf(`${fixture.chainId}:${cow}`), undefined);
   });
