@@ -20,7 +20,7 @@ import { describe, it, type TestContext } from "node:test";
 import * as fc from "fast-check";
 import type { NetworkConnection } from "hardhat/types/network";
 import type { JsonRpcResponse } from "hardhat/types/providers";
-import { Transaction } from "micro-eth-signer";
+import { authorization, Transaction } from "micro-eth-signer";
 
 import {
   LIBRARY_HOLD_MS,
@@ -38,6 +38,7 @@ import {
   setUp,
   TO,
 } from "../../helpers/send-harness.ts";
+import { COW_ACCOUNT } from "../../helpers/vectors.ts";
 
 // An empty value, as CI sets outside its nightly run, means the default.
 const env = (name: string): string | undefined => process.env[name] || undefined;
@@ -83,7 +84,11 @@ type Kind =
    * #434, item 1: a plugin send in flight when its connection closed reached the node, or a
    * library send through the connection waiting for the lock got a hold after the close.
    */
-  | "close-434";
+  | "close-434"
+  /** An open connection forgot a broadcast needed for nonce choice or uncertain lookup. */
+  | "recorded"
+  /** An invalid self-authorization reached the node. */
+  | "self-authorization-435";
 
 type Mode = "accept" | "refuse" | "no-answer";
 type ConnectionIndex = 0 | 1;
@@ -92,6 +97,7 @@ interface PluginSend {
   kind: "plugin";
   id: number;
   connection: ConnectionIndex;
+  invalidSelfAuthorization?: boolean;
 }
 
 type LibraryState =
@@ -157,6 +163,8 @@ interface World {
   sends: Send[];
   /** The nonces the node has, by the send that broadcast them. */
   delivered: Map<bigint, Delivered>;
+  /** Hashes the connection looked up after broadcasts without answers. */
+  lookedUp: Map<NetworkConnection<string>, Set<string>>;
   type: "http" | "edr-simulated";
   mode: Mode;
   kms: { paused: boolean; gate: { promise: Promise<void>; open: () => void } };
@@ -253,6 +261,12 @@ function onRaw(world: World) {
     const send = world.sends[id];
     assert.ok(send !== undefined, `unknown transaction value ${id}`);
     if (send.kind === "plugin") {
+      if (send.invalidSelfAuthorization === true) {
+        world.violations.push({
+          kind: "self-authorization-435",
+          message: `send ${id} broadcast a self-authorization for nonce 0, which no transaction nonce can apply`,
+        });
+      }
       if (world.closed[send.connection]) {
         world.violations.push({
           kind: "close-434",
@@ -361,6 +375,9 @@ function checked(step: Step): Step {
     check: (model) => step.check(model),
     run: async (model, world) => {
       await step.run(model, world);
+      if (world.kinds.has("recorded")) {
+        await checkRecorded(world);
+      }
       assert.deepEqual(failures(world), [], `after ${step.toString()}`);
     },
     toString: () => step.toString(),
@@ -368,6 +385,157 @@ function checked(step: Step): Step {
 }
 
 const isOpen = (world: World, connection: ConnectionIndex): boolean => !world.closed[connection];
+
+/** Checks recording through nonce choice, once all requests started so far have settled. */
+async function checkRecorded(world: World): Promise<void> {
+  if (world.settled !== world.inFlight.length) {
+    return;
+  }
+  for (const connection of [0, 1] as const) {
+    if (!isOpen(world, connection)) {
+      continue;
+    }
+    const recorded = [...world.delivered.entries()].filter(
+      ([, delivered]) => delivered.recordedOn.has(connection) && !delivered.uncertain,
+    );
+    if (recorded.length === 0) {
+      continue;
+    }
+    const target = world.connections[connection];
+    assert.ok(target !== undefined);
+    const account = await target.kms.getAccount(COW);
+    const pending = world.harness.node.pending;
+    // HTTP nodes may lag even after answering a broadcast. Simulated nodes keep their real count.
+    if (world.type === "http") {
+      world.harness.node.pending = 0n;
+    }
+    try {
+      const nonce = BigInt(
+        await account.nonceManager.get({
+          address: account.address,
+          chainId: world.chainId,
+          client: {},
+        }),
+      );
+      for (const [used, delivered] of recorded) {
+        if (
+          (world.type === "http" || reservationsOn(world, connection).length > 0) &&
+          nonce <= used
+        ) {
+          world.violations.push({
+            kind: "recorded",
+            message: `connection ${connection} chose nonce ${nonce} after accepting send ${delivered.id} at nonce ${used}`,
+          });
+        }
+      }
+    } finally {
+      world.harness.node.pending = pending;
+    }
+  }
+}
+
+/** Consume through the public account with a lagging HTTP pending count, without hidden resets. */
+function inspectUncertain(connection: ConnectionIndex): Step {
+  return {
+    check: () => true,
+    run: async (model, world) => {
+      if (
+        !isOpen(world, connection) ||
+        world.settled !== world.inFlight.length ||
+        libraryHoldOf(lockKey(world)) !== undefined
+      ) {
+        return;
+      }
+      const target = world.connections[connection];
+      assert.ok(target !== undefined);
+      const known = [...world.delivered.entries()].filter(([, send]) =>
+        send.recordedOn.has(connection),
+      );
+      // A later acknowledged transaction may already cover the uncertain nonce in the high-water mark.
+      const uncertain = known.filter(
+        ([nonce, send]) =>
+          send.uncertain && !known.some(([later, other]) => later >= nonce && !other.uncertain),
+      );
+      if (uncertain.length === 0) {
+        return;
+      }
+      const pending = world.harness.node.pending;
+      if (world.type === "http") {
+        world.harness.node.pending = 0n;
+      }
+      try {
+        await libraryConsume(connection, "own").run(model, world);
+        await settle();
+        const send = world.sends.at(-1);
+        assert.ok(send?.kind === "library");
+        for (const [used, delivered] of uncertain) {
+          const raw = world.harness.node.raw.find((bytes) => valueOf(bytes) === delivered.id);
+          assert.ok(raw !== undefined);
+          if (
+            world.kinds.has("recorded") &&
+            (!world.lookedUp.get(target)?.has(hashOf(raw)) ||
+              (send.nonce !== undefined && send.nonce <= used))
+          ) {
+            world.violations.push({
+              kind: "recorded",
+              message: `connection ${connection} consumed ${send.nonce} without resolving uncertain send ${delivered.id} at nonce ${used}`,
+            });
+          }
+        }
+      } finally {
+        world.harness.node.pending = pending;
+      }
+    },
+    toString: () => `inspectUncertain(${connection})`,
+  };
+}
+
+/** A self-authorization for nonce 0 can never apply after the sender nonce increments. */
+function invalidSelfAuthorization(connection: ConnectionIndex): Step {
+  return {
+    check: () => true,
+    run: async (_model, world) => {
+      if (!isOpen(world, connection)) {
+        return;
+      }
+      const send: PluginSend = {
+        kind: "plugin",
+        id: world.sends.length,
+        connection,
+        invalidSelfAuthorization: true,
+      };
+      world.sends.push(send);
+      const target = world.connections[connection];
+      assert.ok(target !== undefined);
+      const tuple = authorization.sign(
+        { chainId: BigInt(world.chainId), address: TO, nonce: 0n },
+        COW_ACCOUNT.secretKey,
+      );
+      await start(
+        world,
+        world.harness.send(target, {
+          from: COW,
+          to: TO,
+          value: `0x${send.id.toString(16)}`,
+          gas: "0x186a0",
+          maxFeePerGas: "0x2",
+          maxPriorityFeePerGas: "0x1",
+          authorizationList: [
+            {
+              chainId: `0x${world.chainId.toString(16)}`,
+              address: tuple.address,
+              nonce: "0x0",
+              yParity: `0x${tuple.yParity.toString(16)}`,
+              r: `0x${tuple.r.toString(16).padStart(64, "0")}`,
+              s: `0x${tuple.s.toString(16).padStart(64, "0")}`,
+            },
+          ],
+        }),
+      );
+    },
+    toString: () => `invalidSelfAuthorization(${connection})`,
+  };
+}
 
 function pluginSend(connection: ConnectionIndex): Step {
   return {
@@ -683,6 +851,8 @@ const transportArb = fc.constantFrom<"through" | "own">("through", "own");
 /** Each kind of step, and how often it is drawn relative to the others. */
 const stepArbs: [fc.Arbitrary<Step>, number][] = [
   [connectionArb.map(pluginSend), 2],
+  [connectionArb.map(invalidSelfAuthorization), 1],
+  [connectionArb.map(inspectUncertain), 1],
   [fc.tuple(connectionArb, transportArb).map(([c, transport]) => libraryConsume(c, transport)), 3],
   [indexArb.map(librarySign), 1],
   [fc.tuple(indexArb, connectionArb).map(([index, c]) => libraryBroadcast(index, c)), 1],
@@ -723,6 +893,7 @@ async function newWorld(
     chainId,
     sends: [],
     delivered: new Map(),
+    lookedUp: new Map(),
     type,
     mode: "accept",
     kms: { paused: false, gate: gate() },
@@ -734,12 +905,18 @@ async function newWorld(
     tick: (ms) => t.mock.timers.tick(ms),
   };
   harness.node.onRaw = onRaw(world);
-  harness.node.lookUp = (hash) =>
-    harness.node.raw.some(
+  harness.node.lookUp = (hash, connection) => {
+    if (typeof hash === "string") {
+      const hashes = world.lookedUp.get(connection) ?? new Set<string>();
+      hashes.add(hash);
+      world.lookedUp.set(connection, hashes);
+    }
+    return harness.node.raw.some(
       (raw) => hashOf(raw) === hash && world.delivered.get(nonceOf(raw))?.id === valueOf(raw),
     )
       ? { hash }
       : null;
+  };
   harness.state.beforeSign = async () => {
     if (world.kms.paused) {
       await world.kms.gate.promise;
@@ -817,6 +994,10 @@ function mockGlobals(t: TestContext): void {
  * a lost answer meets a reservation or a hold, which random sequences of 10 steps reach rarely.
  */
 const EXAMPLES: ["http" | "edr-simulated", Step[]][] = [
+  ["http", [invalidSelfAuthorization(0)]],
+  // A node can answer a broadcast and still report a stale pending count.
+  ["http", [pluginSend(0)]],
+  ["http", [nodeMode("no-answer"), pluginSend(0), inspectUncertain(0)]],
   // An own-transport send's reset while another send holds the lock: the hold stays.
   [
     "http",
@@ -950,6 +1131,20 @@ const KNOWN_434: {
 ];
 
 describe("the nonce subsystem, over random orderings of sends, resets, holds and close (#445)", () => {
+  it(
+    "records broadcasts on open connections and looks up uncertain sends before choosing nonces",
+    { timeout: PROPERTY_TIMEOUT_MS },
+    async (t) => {
+      await check(t, new Set<Kind>(["recorded"]));
+    },
+  );
+  it(
+    "refuses self-authorizations invalidated by the chosen transaction nonce (#435)",
+    { timeout: PROPERTY_TIMEOUT_MS },
+    async (t) => {
+      await check(t, new Set<Kind>(["self-authorization-435"]));
+    },
+  );
   it(
     "never signs a nonce another live send owns, and no lock or hold outlives its limit",
     { timeout: PROPERTY_TIMEOUT_MS },

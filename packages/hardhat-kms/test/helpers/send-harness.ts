@@ -82,7 +82,7 @@ export interface FakeNode {
   /** The methods it was asked, in order. */
   methods: string[];
   /** The node's answer to eth_getTransactionByHash; it throws when this throws. */
-  lookUp: (hash: unknown) => unknown;
+  lookUp: (hash: unknown, connection: NetworkConnection<string>) => unknown;
 }
 
 /** The fake KMS adapters' shared state. */
@@ -185,7 +185,10 @@ export async function setUp(
     methods: [],
     lookUp: () => null,
   };
-  const answer = async (request: JsonRpcRequest): Promise<JsonRpcResponse> => {
+  const answer = async (
+    request: JsonRpcRequest,
+    connection: NetworkConnection<string>,
+  ): Promise<JsonRpcResponse> => {
     node.methods.push(request.method);
     const ok = (result: unknown): JsonRpcResponse => ({ jsonrpc: "2.0", id: request.id, result });
     switch (request.method) {
@@ -196,7 +199,9 @@ export async function setUp(
       case "eth_fillTransaction":
         return ok({ raw: "0x", tx: { nonce: `0x${node.pending.toString(16)}` } });
       case "eth_getTransactionByHash":
-        return ok(node.lookUp(Array.isArray(request.params) ? request.params[0] : undefined));
+        return ok(
+          node.lookUp(Array.isArray(request.params) ? request.params[0] : undefined, connection),
+        );
       case "eth_sendRawTransaction":
       case "eth_sendRawTransactionSync": {
         const [raw]: unknown[] = Array.isArray(request.params) ? request.params : [];
@@ -241,7 +246,10 @@ export async function setUp(
   ): Promise<NetworkConnection<string>> => {
     const provider = {
       request: async ({ method, params }: { method: string; params?: unknown[] }) => {
-        const response = await answer({ jsonrpc: "2.0", id: 0, method, params: params ?? [] });
+        const response = await answer(
+          { jsonrpc: "2.0", id: 0, method, params: params ?? [] },
+          connection,
+        );
         if ("error" in response) {
           throw new Error(response.error.message);
         }
@@ -272,7 +280,7 @@ export async function setUp(
       hre,
       connection,
       { jsonrpc: "2.0", id: id++, method, params: [tx] },
-      async (_context, _connection, next) => await answer(next),
+      async (_context, _connection, next) => await answer(next, connection),
     );
   };
   const send = async (connection: NetworkConnection<string>, tx: Record<string, unknown>) =>
@@ -291,7 +299,7 @@ export async function setUp(
       { jsonrpc: "2.0", id: id++, method, params },
       async (_context, _connection, next) => {
         forwarded.push(next);
-        return await answer(next);
+        return await answer(next, connection);
       },
     );
     return { response, forwarded };
