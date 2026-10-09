@@ -1152,6 +1152,9 @@ describe("ConnectionSends nonce reservations", () => {
     third.reserve(COW, 2n);
     third.signedReservation(COW, 2n);
     assert.equal(third.nonceFor(COW, 0n), 3n, "the reset counts as settled: 1 stays");
+    third.releaseReservation(COW, 2n);
+    assert.equal(third.nonceFor(COW, 0n), 2n, "1 stays on its own");
+    third.reserve(COW, 2n);
     third.reserve(COW, 4n, true);
     third.resetReservation(COW_KEY);
     third.releaseReservationsUpTo(COW, 3n);
@@ -1261,11 +1264,12 @@ describe("ConnectionSends nonce reservations", () => {
     sends.reserve(COW, 1n);
     sends.resetReservation(COW_KEY);
     sends.signedReservation(COW, 1n);
+    sends.releaseReservation(COW, 1n);
+    assert.equal(sends.hasReservations(COW), false, "1 signed, so 0 failed");
     sends.reserve(COW, 2n);
     sends.reserve(COW, 3n);
     sends.resetReservation(COW_KEY);
     assert.equal(sends.nonceFor(COW, 0n), 4n, "one reset for two candidates ends neither");
-    sends.releaseReservation(COW, 1n);
     sends.releaseReservation(COW, 3n);
     assert.equal(sends.hasReservations(COW), false, "3 reached the node, so 2 failed");
   });

@@ -715,9 +715,12 @@ export class ConnectionSends {
       nonce = mark + 1n;
     }
     const live = this.#live(from);
-    const ahead = this.#sentAheadOf(from, pending);
-    // Only a reservation leaves a gap below them. One at or above a nonce counts more anyway.
-    for (const used of [...live.keys(), ...(live.size > 0 ? ahead : [])]) {
+    // Without a reservation there is no gap, and the pending count covers every sent nonce.
+    if (live.size === 0) {
+      return nonce;
+    }
+    // One at or below a reservation changes nothing: the reservation counts more.
+    for (const used of [...live.keys(), ...this.#sentAheadOf(from, pending)]) {
       if (used >= nonce) {
         nonce = used + 1n;
       }
@@ -854,9 +857,7 @@ export class ConnectionSends {
       this.#warnAboutGaps(key, from, [failed]);
       return;
     }
-    if (entries.length === 0) {
-      return;
-    }
+    // With no reservation, the settlement below drops the owed reset at once.
     for (const [, reservation] of entries) {
       reservation.owedCandidate = true;
     }
