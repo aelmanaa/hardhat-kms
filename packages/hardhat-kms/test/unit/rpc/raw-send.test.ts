@@ -1561,8 +1561,18 @@ describe("a library consume whose nonce reads finish after its connection closes
         const refused = assert.rejects(consuming, /connection to network remote is closed/);
         await entered.promise;
         await harness.close(connection);
+        const pendingReadsAtClose = harness.node.methods.filter(
+          (read) => read === "eth_getTransactionCount",
+        ).length;
         returned.open();
         await refused;
+        if (method === "eth_getTransactionByHash") {
+          assert.equal(
+            harness.node.methods.filter((read) => read === "eth_getTransactionCount").length,
+            pendingReadsAtClose,
+            "a lookup finishing after close starts no pending-count RPC",
+          );
+        }
         const other = await openKnown(harness);
         const sending = harness.send(other, { from: COW, to: TO });
         assert.equal(await settled(sending), true, "no orphaned hold blocks another connection");

@@ -1268,13 +1268,14 @@ export async function libraryNonce(
     }
   };
   const chooseForSend = async (): Promise<bigint> => {
-    // A consume that waited for the lock while its connection closed holds and reserves nothing.
-    requireOpen();
+    // Closing clears uncertain records. A lookup already in flight can finish after close;
+    // check before starting the pending-count RPC, as well as before installing the hold.
     await settleUncertain(
       address,
       sends,
       async (hash) => await nodeHasTransaction(transactions, hash),
     );
+    requireOpen();
     return await choose();
   };
   const key = `${chainId}:${address}`;
