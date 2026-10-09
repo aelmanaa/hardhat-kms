@@ -386,9 +386,15 @@ function checked(step: Step): Step {
 
 const isOpen = (world: World, connection: ConnectionIndex): boolean => !world.closed[connection];
 
-/** Checks recording through nonce choice, once all requests started so far have settled. */
+/**
+ * Checks recording through nonce choice once requests settle. On simulated networks, a read
+ * during a hold is not a send: it ignores the held nonce, while consume must wait for the hold.
+ */
 async function checkRecorded(world: World): Promise<void> {
-  if (world.settled !== world.inFlight.length) {
+  if (
+    world.settled !== world.inFlight.length ||
+    (world.type === "edr-simulated" && libraryHoldOf(lockKey(world)) !== undefined)
+  ) {
     return;
   }
   for (const connection of [0, 1] as const) {
@@ -998,6 +1004,18 @@ const EXAMPLES: ["http" | "edr-simulated", Step[]][] = [
   // A node can answer a broadcast and still report a stale pending count.
   ["http", [pluginSend(0)]],
   ["http", [nodeMode("no-answer"), pluginSend(0), inspectUncertain(0)]],
+  // A held send's reset may go to an older reservation; reads ignore the hold, sends wait for it.
+  [
+    "edr-simulated",
+    [
+      libraryConsume(1, "own"),
+      pluginSend(1),
+      libraryConsume(1, "through"),
+      libraryReset(1),
+      pluginSend(1),
+      holdLimit,
+    ],
+  ],
   // An own-transport send's reset while another send holds the lock: the hold stays.
   [
     "http",
@@ -1183,6 +1201,23 @@ describe("the model's shrunk counterexamples (#445)", () => {
     it(`${known.kind}: ${known.name}`, async (t) => {
       mockGlobals(t);
       await runSequence(t, known.type, known.steps.map(checked), new Set([known.kind]));
+    });
+  }
+});
+
+describe("broadcast records on both connections of a library send (#445)", () => {
+  for (const mode of ["accept", "no-answer"] as const) {
+    it(`records a ${mode} broadcast on the account's connection and the sending connection`, async (t) => {
+      mockGlobals(t);
+      const sequence = [
+        libraryConsume(0, "through"),
+        librarySign(0),
+        nodeMode(mode),
+        libraryBroadcast(0, 1),
+        inspectUncertain(0),
+        inspectUncertain(1),
+      ];
+      await runSequence(t, "http", sequence.map(checked), new Set<Kind>(["recorded"]));
     });
   }
 });
