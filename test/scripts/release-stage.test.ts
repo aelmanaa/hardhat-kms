@@ -248,6 +248,7 @@ describe("release-stage.yml", () => {
           });
           writeFileSync(path.join(work, "SHA256SUMS"), `${sums.join("\n")}\n`);
           const args = [
+            "--experimental-strip-types",
             "scripts/check-tarballs.ts",
             "--dir",
             "tarballs",
@@ -261,12 +262,19 @@ describe("release-stage.yml", () => {
           if (channel === "next") {
             args.push("--channel", "next");
           }
-          const good = spawnSync(process.execPath, args, { cwd: work, encoding: "utf8" });
+          // The Node 22 CI leg preloads tsx through NODE_OPTIONS. The release job uses
+          // native stripping; its empty checkout must not inherit that workspace loader.
+          const options = {
+            cwd: work,
+            encoding: "utf8",
+            env: { ...process.env, NODE_OPTIONS: "" },
+          } as const;
+          const good = spawnSync(process.execPath, args, options);
           assert.equal(good.status, 0, good.stderr);
           assert.equal(good.stdout.trim().split("\n").length, 4);
           const file = path.join(work, "tarballs", `hardhat-kms-${version}.tgz`);
           writeFileSync(file, "swapped artifact");
-          const bad = spawnSync(process.execPath, args, { cwd: work, encoding: "utf8" });
+          const bad = spawnSync(process.execPath, args, options);
           assert.equal(bad.status, 1, bad.stderr);
           assert.match(bad.stderr, /SHA-256/);
         } finally {
