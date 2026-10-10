@@ -11,8 +11,8 @@
     "@types/node": "^22.18.0",
     "ethers": "^6.17.0",
     "hardhat": "^3.18.0",
-    "hardhat-kms": "^0.10.0",
-    "@hardhat-kms/aws": "^0.10.0",
+    "hardhat-kms": "^0.10.1",
+    "@hardhat-kms/aws": "^0.10.1",
     "typescript": "^7.0.2"
   }
 }
