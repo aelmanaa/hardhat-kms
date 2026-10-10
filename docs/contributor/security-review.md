@@ -87,6 +87,7 @@ The design these questions protect is in [Releasing](releasing.md), including [w
 .github/CODEOWNERS
 packages/*/package.json
 scripts/registry.ts
+scripts/release-packages.ts
 scripts/check-packages.ts
 scripts/check-tarballs.ts
 scripts/verify-release-tag.ts
