@@ -1,5 +1,53 @@
 # hardhat-kms
 
+## 0.10.1
+
+### Patch Changes
+
+- [#441](https://github.com/aelmanaa/hardhat-kms/pull/441) [`00bff53`](https://github.com/aelmanaa/hardhat-kms/commit/00bff531b0bfcce42ae518ed4ce60e28a6a516a6) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A send through the plugin could sign the same nonce as a `connection.kms.getAccount` send from the same KMS key. If its fees were high enough, the node then replaced the library transaction whose hash viem had already returned; otherwise one of the two failed. Four cases did this:
+  
+  - The library transaction went out through a second connection. That connection learned its nonce, but the account's own connection did not, so with a node that reports a lagging pending count, the next send there took the same nonce. The account's connection now records the outcome too, including a broadcast that got no answer.
+  - The library send took longer than 60 s to broadcast. The plugin released the nonce, and the send waiting behind it took it. The plugin now keeps that nonce from its own sends for up to 60 s more, and the warning no longer says that the node refuses one of the two transactions.
+  - A transaction from the same account and with the same nonce, but signed for another chain, released the nonce. It now passes on unchanged.
+  - The library transaction went out through a connection to the same chain that has no KMS keys. The plugin did not see it, so its sends waited up to 60 s and could then take the same nonce. Such a connection now ends the wait while a library send holds a nonce.
+  
+  What should I do? In most cases, nothing. One case needs action: a library send that takes over 60 s and then fails before its transaction reaches the node leaves its nonce unused, while the plugin's later sends from that connection have taken higher nonces. On a live node those later transactions are not mined until the gap is filled. A warning now names the nonce. viem also resets after a timeout, when the node may have the transaction, so first check the node for that nonce, as in [Look the transaction up](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/uncertain-sends.md#2-look-the-transaction-up). If no transaction has it, fill the gap by sending a transaction with that `nonce`, as in [Fill a gap or replace a transaction](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/uncertain-sends.md#4-fill-a-gap-or-replace-a-transaction). Sending a `getAccount` account through `custom(connection.provider)` of its own connection remains the recommended setup.
+  
+  Issue: [#433](https://github.com/aelmanaa/hardhat-kms/issues/433)
+
+- [#456](https://github.com/aelmanaa/hardhat-kms/pull/456) [`5addc7f`](https://github.com/aelmanaa/hardhat-kms/commit/5addc7f4f0cdb24e8bde8ea49432a1f322249a24) Thanks [@aelmanaa](https://github.com/aelmanaa)! - Promotion to npm `latest` now also marks the GitHub release as Latest when the optional fork-test job is skipped. Previously, a promotion using a Sepolia proof could leave the GitHub release marked as a prerelease after all four npm tags moved successfully.
+  
+  Issue: [#455](https://github.com/aelmanaa/hardhat-kms/issues/455)
+
+- [#454](https://github.com/aelmanaa/hardhat-kms/pull/454) [`c2dd7f0`](https://github.com/aelmanaa/hardhat-kms/commit/c2dd7f0c59be9bd9153d276251fc110ad3c8ebe0) Thanks [@aelmanaa](https://github.com/aelmanaa)! - Three cases let a send through the plugin sign a nonce that another send from the same KMS key still had:
+  
+  - A send that was waiting for its KMS signature when its connection closed was still broadcast, through a connection that no longer recorded its nonce. A send on a new connection could then take the same nonce. Such a send now fails with `core.tx.connection-closed` and nothing is sent. Before, a close at the wrong moment could also make it fail with `SendOutcomeUnknownError`, which says the transaction may still be mined, although nothing was sent. A send that is already being broadcast when the connection closes is not stopped. A `connection.kms.getAccount` send that was waiting for its turn or its nonce RPC when the connection closed now fails with `core.account.connection-closed` instead of taking a nonce that blocked the account's sends on every connection for 60 s.
+  - A send through the plugin that skipped a nonce kept for a `connection.kms.getAccount` client with its own transport, such as `http(url)`, ended that nonce's reservation once the node took it, although the client had not sent it yet. On `edr-simulated` with interval mining, the next send then took that nonce. A send whose nonce the plugin chose now ends no reservation; one with a `nonce` you set, equal to it or higher, still does. On `edr-simulated`, while a nonce is kept, the nonces the node accepted past its pending count now count for the next send too, since the pending count stops at the gap; and a broadcast that got no answer is looked up before the next send, as on other networks.
+  - viem's `reset` names neither the send nor the nonce. With two such clients sending at once, the older one can fail first, and its `reset` ended the newer one's reservation, so the next send through the plugin took the newer one's nonce. When a `reset` could be for several such sends, the plugin now ends none of their reservations until the sends that sign show which ones failed, or until their 60 s are up. This covers a send that already signed, whose broadcast timed out: before, a `reset` ended an unsigned reservation first. A reservation whose nonce the node already has no longer lets a `reset` end the hold of a send through the connection: viem also resets after a timeout, when the node may have the transaction.
+  
+  What should I do? In most cases, nothing. A warning names a possible gap when a reset releases a kept nonce below one the node accepted, or when kept nonces expire with a reset still unexplained. Automatic sends may still choose higher nonces after the reservation ends. Fill a confirmed gap with an explicit nonce. If the send that failed had one of them, that nonce is a gap: check the node for it first, as in [Look the transaction up](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/uncertain-sends.md#2-look-the-transaction-up), and if no transaction has it, send one with that `nonce`, as in [Fill a gap or replace a transaction](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/uncertain-sends.md#4-fill-a-gap-or-replace-a-transaction). Sending a `getAccount` account through `custom(connection.provider)` of its own connection remains the recommended setup.
+  
+  Issue: [#434](https://github.com/aelmanaa/hardhat-kms/issues/434)
+
+- [#457](https://github.com/aelmanaa/hardhat-kms/pull/457) [`05de3c7`](https://github.com/aelmanaa/hardhat-kms/commit/05de3c73b5d1d4960120b811f21e3769ec17c214) Thanks [@aelmanaa](https://github.com/aelmanaa)! - KMS transaction signing now refuses a self-authorization whose nonce or chain does not match the final transaction. The RPC send path also refuses `type: "0x3"` and `maxFeePerBlobGas`. EIP-7702 requests whose automatic fee estimation fails report that EIP-1559 fees are needed.
+  
+  What should I do? Set the transaction nonce explicitly before signing a self-authorization. Use that nonce plus 1 for the first self-authorization and consecutive nonces for additional ones. If fee history is unavailable, set both `maxFeePerGas` and `maxPriorityFeePerGas`.
+  
+  Issue: [#435](https://github.com/aelmanaa/hardhat-kms/issues/435)
+
+- [#438](https://github.com/aelmanaa/hardhat-kms/pull/438) [`be76f29`](https://github.com/aelmanaa/hardhat-kms/commit/be76f290390645a5a136bc19dd02422830584040) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `kms sign-tx` no longer repeats part of a file that is not JSON in its error. The JSON parser's message quoted the text around the error, so passing a `.env` file by mistake printed the start of a secret. The error now names only the line and column, for example `the transaction file .env is not valid JSON at line 1, column 1`.
+  
+  `kms sign --data --from-file` and `kms verify --data --from-file` had the same problem with a large integer: the error quoted about 16 digits of it. It now names the key instead, for example `a number at key "chainId" is above 2^53 - 1`.
+  
+  Two other signing errors changed:
+  
+  - A provider plugin that returns a signature as `{ r, s }` with values that are not `bigint`, such as JavaScript numbers, now gets `r and s must be bigints` in the signer's `invalid signature` error, after one fresh request. Before, a high `s` ended in a `TypeError`.
+  - When the EIP-712 encoder refuses typed data, the error cuts the encoder's message, which can quote a whole value, to 200 characters ending in `...`.
+  
+  What should I do? Nothing.
+  
+  Issue: [#436](https://github.com/aelmanaa/hardhat-kms/issues/436)
+
 ## 0.10.0
 
 ### Minor Changes

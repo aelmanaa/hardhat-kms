@@ -1,5 +1,12 @@
 # @hardhat-kms/gcp
 
+## 0.10.1
+
+### Patch Changes
+
+- Updated dependencies [[`00bff53`](https://github.com/aelmanaa/hardhat-kms/commit/00bff531b0bfcce42ae518ed4ce60e28a6a516a6), [`5addc7f`](https://github.com/aelmanaa/hardhat-kms/commit/5addc7f4f0cdb24e8bde8ea49432a1f322249a24), [`c2dd7f0`](https://github.com/aelmanaa/hardhat-kms/commit/c2dd7f0c59be9bd9153d276251fc110ad3c8ebe0), [`05de3c7`](https://github.com/aelmanaa/hardhat-kms/commit/05de3c73b5d1d4960120b811f21e3769ec17c214), [`be76f29`](https://github.com/aelmanaa/hardhat-kms/commit/be76f290390645a5a136bc19dd02422830584040)]:
+  - hardhat-kms@0.10.1
+
 ## 0.10.0
 
 ### Patch Changes
