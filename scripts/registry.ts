@@ -3,15 +3,10 @@
 // packages at that exact version instead of the tarballs they pack, and
 // scripts/check-registry-release.ts runs only in this mode. `--registry <url>` points every npm
 // call at another registry, for a rehearsal against a local one before a release.
+import { PACKAGES } from "./release-packages.ts";
 import { resolvedVersion } from "./temporary-install.ts";
 
-/** The published packages, in the order the scripts install and report them. */
-export const PACKAGES: readonly string[] = [
-  "hardhat-kms",
-  "@hardhat-kms/aws",
-  "@hardhat-kms/gcp",
-  "@hardhat-kms/azure",
-];
+export { PACKAGES } from "./release-packages.ts";
 
 /** An exact `major.minor.patch` version, with an optional prerelease such as `1.0.0-beta.1`. */
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;

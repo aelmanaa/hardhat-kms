@@ -221,6 +221,8 @@ Some of the four packages were approved and some were not. Either approve the re
 
 ### Run failed before `publish`
 
+The publish jobs install no workspace dependencies. Their sparse checkout contains the tarball checker, the release-channel rules and the ordered package list, all of which use only Node built-ins. Tests run the checker from these checkouts without `node_modules`, on stable and next artifacts, and reject a changed tarball. Keep this test when changing the checker’s imports.
+
 Nothing reached npm, so the tag can move. Fix through a pull request, merge, delete the remote tag (the `protect-tags` ruleset, `.github/ruleset-protect-tags.json`, lets only a repository admin delete one), re-sign at the new commit, verify, push:
 
 ```sh

@@ -6,7 +6,7 @@
 // - the file name is a plain `*.tgz` name and the file exists in the directory;
 // - its SHA-256 equals the listed sum;
 // - its package/package.json names the package expected at that position (the core first, then
-//   the providers, as scripts/registry.ts lists them), at the release version, with `gitHead` set
+//   the providers, as scripts/release-packages.ts lists them), at the release version, with `gitHead` set
 //   to the tagged commit.
 // The directory must hold no other tarball, and the version must belong to the channel: a stable
 // X.Y.Z by default, an X.Y.Z-next.N with `--channel next` (scripts/release-channel.ts).
@@ -21,8 +21,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { PACKAGES } from "./registry.ts";
 import { CHANNELS, type Channel, parseChannel } from "./release-channel.ts";
+import { PACKAGES } from "./release-packages.ts";
 
 /** One line of a `sha256sum` listing. */
 export interface SumLine {

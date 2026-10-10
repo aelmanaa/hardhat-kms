@@ -3,8 +3,10 @@
 // that checks out only some scripts checks out each script it runs and every script those import.
 // Runs in `pnpm test`, with no network.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -200,6 +202,87 @@ describe("release-stage.yml", () => {
     }
     assert.deepEqual(missing, []);
   });
+
+  for (const jobName of ["publish", "publish-dry-run"]) {
+    for (const channel of ["stable", "next"]) {
+      it(`runs ${jobName}'s ${channel} tarball check without installed dependencies`, () => {
+        const job = jobsOf(stage).find(([name]) => name === jobName)?.[1];
+        const steps = field(job, "steps");
+        assert.ok(Array.isArray(steps));
+        const sparse = steps
+          .map((step: unknown) => field(field(step, "with"), "sparse-checkout"))
+          .find((value: unknown) => typeof value === "string");
+        assert.equal(typeof sparse, "string");
+        const work = mkdtempSync(path.join(tmpdir(), "release-sparse-check-"));
+        try {
+          mkdirSync(path.join(work, "scripts"));
+          for (const file of String(sparse)
+            .split("\n")
+            .filter((line) => line !== "")) {
+            copyFileSync(path.join(ROOT, file), path.join(work, file));
+          }
+          mkdirSync(path.join(work, "tarballs"));
+          const version = channel === "stable" ? "1.2.0" : "2.0.0-next.0";
+          const commit = "1".repeat(40);
+          const packages = [
+            "hardhat-kms",
+            "@hardhat-kms/aws",
+            "@hardhat-kms/gcp",
+            "@hardhat-kms/azure",
+          ];
+          const sums = packages.map((name, index) => {
+            const source = `source-${index}`;
+            mkdirSync(path.join(work, source, "package"), { recursive: true });
+            writeFileSync(
+              path.join(work, source, "package/package.json"),
+              JSON.stringify({ name, version, gitHead: commit }),
+            );
+            const file = `${name.replace("@", "").replace("/", "-")}-${version}.tgz`;
+            execFileSync("tar", ["-czf", `tarballs/${file}`, "-C", source, "package"], {
+              cwd: work,
+            });
+            const sum = createHash("sha256")
+              .update(readFileSync(path.join(work, "tarballs", file)))
+              .digest("hex");
+            return `${sum}  ${file}`;
+          });
+          writeFileSync(path.join(work, "SHA256SUMS"), `${sums.join("\n")}\n`);
+          const args = [
+            "--experimental-strip-types",
+            "scripts/check-tarballs.ts",
+            "--dir",
+            "tarballs",
+            "--sums",
+            "SHA256SUMS",
+            "--version",
+            version,
+            "--commit",
+            commit,
+          ];
+          if (channel === "next") {
+            args.push("--channel", "next");
+          }
+          // The Node 22 CI leg preloads tsx through NODE_OPTIONS. The release job uses
+          // native stripping; its empty checkout must not inherit that workspace loader.
+          const options = {
+            cwd: work,
+            encoding: "utf8",
+            env: { ...process.env, NODE_OPTIONS: "" },
+          } as const;
+          const good = spawnSync(process.execPath, args, options);
+          assert.equal(good.status, 0, good.stderr);
+          assert.equal(good.stdout.trim().split("\n").length, 4);
+          const file = path.join(work, "tarballs", `hardhat-kms-${version}.tgz`);
+          writeFileSync(file, "swapped artifact");
+          const bad = spawnSync(process.execPath, args, options);
+          assert.equal(bad.status, 1, bad.stderr);
+          assert.match(bad.stderr, /SHA-256/);
+        } finally {
+          rmSync(work, { recursive: true, force: true });
+        }
+      });
+    }
+  }
 
   /** The `run` scripts of every step of release-stage.yml, with the step's job and env. */
   const runs = jobsOf(stage).flatMap(([job, value]) => {
