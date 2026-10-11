@@ -75,6 +75,8 @@ Use `serviceAccount:<email>` as the member for a service account. `roles/cloudkm
 
 The [0.10.1 acceptance run](https://github.com/aelmanaa/hardhat-kms/issues/466#issuecomment-6101797583) on 2026-10-10 signed and deployed on Sepolia with a fresh service account holding only these two roles on the key, through impersonated ADC without a quota project. It also verified the contract, returned the funds and removed the test identity and grants.
 
+A separate permission test on 2026-10-11 confirmed that an identity holding only `roles/cloudkms.admin` was refused public-key access. Replacing that role with the two roles above allowed the published 0.10.1 packages to read the public key and sign a message ([test record](https://github.com/aelmanaa/hardhat-kms/issues/43#issuecomment-6112117413)).
+
 ## 3. Install the plugin and configure the key
 
 ::: code-group
