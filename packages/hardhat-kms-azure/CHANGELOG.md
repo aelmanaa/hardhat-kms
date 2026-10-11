@@ -1,5 +1,19 @@
 # @hardhat-kms/azure
 
+## 1.0.0
+
+### Patch Changes
+
+- [#471](https://github.com/aelmanaa/hardhat-kms/pull/471) [`6044e7b`](https://github.com/aelmanaa/hardhat-kms/commit/6044e7b61efbb3ef02914e5df31d8c680ed23bc6) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The setup guides record live tests of the documented key-scoped signing roles. The Azure guide also records deletion and recovery of a key with two versions.
+  
+  Issue: [#43](https://github.com/aelmanaa/hardhat-kms/issues/43)
+
+- [#472](https://github.com/aelmanaa/hardhat-kms/pull/472) [`557c47b`](https://github.com/aelmanaa/hardhat-kms/commit/557c47bb0fd38c3f5a261008b180e727f4b200eb) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The Azure setup guide records a live Managed HSM test with a key-scoped custom role limited to public-key reads and signing.
+  
+  Issue: [#43](https://github.com/aelmanaa/hardhat-kms/issues/43)
+- Updated dependencies [[`c207494`](https://github.com/aelmanaa/hardhat-kms/commit/c207494cc0aede97e810c2fe5268a09d6b8d4c9d), [`8ce3648`](https://github.com/aelmanaa/hardhat-kms/commit/8ce3648ed7ead36abf3d4b30a75f55f68364b929), [`e05ee84`](https://github.com/aelmanaa/hardhat-kms/commit/e05ee848fd8d042cca2dd8b3ac49824b24fc3c09)]:
+  - hardhat-kms@1.0.0
+
 ## 0.10.1
 
 ### Patch Changes
