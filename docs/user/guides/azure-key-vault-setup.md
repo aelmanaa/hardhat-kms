@@ -102,14 +102,14 @@ az ad sp show --id <application id> --query id --output tsv
 az identity show --resource-group my-rg --name <identity name> --query principalId --output tsv
 ```
 
-The Key Vault Ethereum Signer role alone has not yet been checked against real Key Vault: the plugin's live tests ran with an identity that has wider permissions.
+On 2026-10-11, the published 0.10.1 packages read the public key and signed a message with an isolated service principal holding only this custom role on the key. Both versions of a two-version key passed. Deleting the key made both versions unavailable; recovering it restored signing with both ([test record](https://github.com/aelmanaa/hardhat-kms/issues/43#issuecomment-6112117413)). This test used a standard Key Vault, not Managed HSM.
 
 If you cannot create a custom role, the built-in role with the fewest permissions that still covers both is **Key Vault Crypto User** (`12338af0-0e69-4776-bea7-57ae8d297424`). Assign it the same way, with `--role "Key Vault Crypto User"`. It also holds seven data actions the plugin does not use: `encrypt`, `decrypt`, `wrap`, `unwrap`, `verify`, `update` and `backup` ([Azure built-in roles](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/security#key-vault-crypto-user)):
 
 - `update` changes the key's attributes, so it can disable the key or change its permitted operations ([`az keyvault key set-attributes`](https://learn.microsoft.com/cli/azure/keyvault/key#az-keyvault-key-set-attributes)).
 - `backup` writes a copy of the key that can be restored into another vault in the same subscription and geography. Whoever can restore that copy can sign as the key's address, and disabling or deleting the original does not stop it ([Back up a key](key-loss.md#back-up-a-key)).
 
-The [0.10.1 acceptance run](https://github.com/aelmanaa/hardhat-kms/issues/466#issuecomment-6101797837) on 2026-10-10 signed and deployed on Sepolia with a fresh service principal holding only Key Vault Crypto User on the key. This checks the built-in role; the custom Key Vault Ethereum Signer role's live check remains open under [#43](https://github.com/aelmanaa/hardhat-kms/issues/43).
+The [0.10.1 acceptance run](https://github.com/aelmanaa/hardhat-kms/issues/466#issuecomment-6101797837) on 2026-10-10 signed and deployed on Sepolia with a fresh service principal holding only Key Vault Crypto User on the key.
 
 Creating the key in step 1 needs a broader role, such as Key Vault Crypto Officer, which the identity that only signs should not have.
 
