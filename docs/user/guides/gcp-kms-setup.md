@@ -73,7 +73,7 @@ done
 
 Use `serviceAccount:<email>` as the member for a service account. `roles/cloudkms.signerVerifier` also holds both permissions in one role, plus `useToVerify`, which the plugin does not use. The permissions in each role are listed in [Cloud KMS permissions and roles](https://cloud.google.com/kms/docs/reference/permissions-and-roles).
 
-These two roles alone have not yet been checked against real Cloud KMS: the plugin's live tests ran with an identity that has wider permissions.
+The [0.10.1 acceptance run](https://github.com/aelmanaa/hardhat-kms/issues/466#issuecomment-6101797583) on 2026-10-10 signed and deployed on Sepolia with a fresh service account holding only these two roles on the key, through impersonated ADC without a quota project. It also verified the contract, returned the funds and removed the test identity and grants.
 
 ## 3. Install the plugin and configure the key
 

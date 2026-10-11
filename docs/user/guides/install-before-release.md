@@ -67,14 +67,15 @@ The command names `hardhat` because the plugin packages list it as a peer depend
 
 ### If the install stops
 
-Find the message in the table, then follow the section for your package manager:
+Find the message in the table, then follow the section for your package manager. A release-age gate can also select an older version without failing:
 
 | Package manager     | What you see                                                    | Fix                                                                                                                                      |
 | ------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | npm 11 and 12       | A warning, or blocked install scripts, for `esbuild` and others | None: the plugin needs none of these scripts ([npm](#npm)).                                                                              |
 | pnpm 11 and later   | `ERR_PNPM_IGNORED_BUILDS`                                       | List the packages it names under `allowBuilds` in `pnpm-workspace.yaml` with the value `false`, then run `pnpm install` ([pnpm](#pnpm)). |
 | Yarn 4              | `HHE22` from `yarn hardhat`                                     | Set `nodeLinker: node-modules` in `.yarnrc.yml`, then run `yarn install` again ([Yarn](#yarn)).                                          |
-| Yarn 4.15 and later | `YN0016` on the day of a release                                | Approve the plugin packages with `npmPreapprovedPackages` in `.yarnrc.yml`; delete the line after a day ([Yarn](#yarn)).                 |
+| pnpm 11 and later   | An older version during the release-age window                  | Check the installed versions. To select a newer release now, use a package-scoped `minimumReleaseAgeExclude` ([pnpm](#pnpm)).            |
+| Yarn 4.15 and later | An older version, or `YN0016`, during the release-age window    | Check the installed versions. To select a newer release now, use `npmPreapprovedPackages` ([Yarn](#yarn)).                               |
 | Yarn 4.14 and later | `YN0004` for `esbuild` and `protobufjs`                         | None: the plugin needs neither script ([Yarn](#yarn)).                                                                                   |
 
 ### npm
@@ -95,7 +96,17 @@ If pnpm names other packages, add each one under `allowBuilds` with the value `f
 
 pnpm 10 prints the same list as a warning and installs; it needs no change.
 
-pnpm 11 and later also write the new packages into `minimumReleaseAgeExclude` in `pnpm-workspace.yaml` when they were published less than a day ago. Those lines only let that version past pnpm's release-age check; you can keep or delete them.
+pnpm 11 and later have a one-day release-age gate by default. If an older version satisfies the dependency range, pnpm can install it while the newer version is too young. Check with `pnpm list hardhat-kms @hardhat-kms/aws`; use your provider's package name for another cloud.
+
+To select a newly published release now, add these package-scoped exceptions to `pnpm-workspace.yaml`, then run `pnpm add` again. Other dependencies keep their release-age gate. Remove the exceptions after the intended release is old enough for your configured gate:
+
+```yaml
+minimumReleaseAgeExclude:
+  - hardhat-kms
+  - "@hardhat-kms/*"
+```
+
+For an acceptance test or another exact-version install, name the version in both package specs, such as `hardhat-kms@0.10.1 @hardhat-kms/aws@0.10.1`. The [pnpm settings](https://pnpm.io/settings/dependency-resolution#minimumreleaseage) also allow version-specific exceptions.
 
 ### Yarn
 
@@ -107,11 +118,15 @@ Yarn 4 needs `nodeLinker: node-modules` in `.yarnrc.yml`, next to `package.json`
 nodeLinker: node-modules
 ```
 
-From Yarn 4.15, Yarn skips versions published less than a day ago (`npmMinimalAgeGate`, 1440 minutes by default). On the day of a release, the install then fails with `YN0016` ("The version for tag "latest" is quarantined"). Add this line to `.yarnrc.yml` too, and delete it after a day. Yarn 4.10 to 4.14 accept it but do not need it; Yarn 4.9 and earlier refuse it as an unknown setting.
+From Yarn 4.15, Yarn skips versions younger than its `npmMinimalAgeGate` (1440 minutes by default). It can select an older version or fail with `YN0016` when no eligible version satisfies the request. Check with `yarn why hardhat-kms` and `yarn why @hardhat-kms/aws`; use your provider's package name for another cloud.
+
+To select a newly published release now, add this line to `.yarnrc.yml` and run `yarn add` again. Other packages keep their gates. Remove the line after the intended release is old enough for your configured gate. Yarn 4.10 to 4.14 accept it but do not need it; Yarn 4.9 and earlier refuse it as an unknown setting:
 
 ```yaml
 npmPreapprovedPackages: ["hardhat-kms", "@hardhat-kms/*"]
 ```
+
+For an exact-version install, name the same version in both package specs, such as `hardhat-kms@0.10.1 @hardhat-kms/aws@0.10.1`. [Yarn's settings](https://yarnpkg.com/configuration/yarnrc#npmPreapprovedPackages) describe the package gates and exceptions.
 
 Yarn 4.14 and later run no install scripts by default and print `YN0004` for `esbuild` and `protobufjs`; the plugin needs neither.
 

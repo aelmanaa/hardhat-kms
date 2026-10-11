@@ -467,7 +467,9 @@ az role assignment create --role "Key Vault Crypto User" \
   --scope "$KEY_SCOPE"
 ```
 
-Two caveats for this role. Signing with only Key Vault Crypto User is not checked live yet. And it can do more than sign: `update` can disable the key or change its permitted operations, and `backup` writes a copy of the key. Whoever can restore that copy into a vault can sign as the key's address ([Back up a key](../guides/key-loss.md#back-up-a-key)). To grant only `read` and `sign`, create the [custom role](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) and pass its name to `--role` instead.
+The [0.10.1 acceptance run](https://github.com/aelmanaa/hardhat-kms/issues/466#issuecomment-6101797837) on 2026-10-10 signed and deployed on Sepolia with a fresh service principal holding only Key Vault Crypto User on the key. It also verified the contract, returned the funds and removed the test identity and resources.
+
+This role can do more than sign: `update` can disable the key or change its permitted operations, and `backup` writes a copy of the key. Whoever can restore that copy into a vault can sign as the key's address ([Back up a key](../guides/key-loss.md#back-up-a-key)). To grant only `read` and `sign`, create the [custom role](../guides/azure-key-vault-setup.md#vaults-that-use-azure-rbac) and pass its name to `--role` instead. That custom role's live check remains open under [#43](https://github.com/aelmanaa/hardhat-kms/issues/43).
 
 To check the assignments without changing anything, list them. The list includes the roles inherited from the vault, the resource group and the subscription:
 

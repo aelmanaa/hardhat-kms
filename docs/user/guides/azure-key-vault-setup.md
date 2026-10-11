@@ -109,6 +109,8 @@ If you cannot create a custom role, the built-in role with the fewest permission
 - `update` changes the key's attributes, so it can disable the key or change its permitted operations ([`az keyvault key set-attributes`](https://learn.microsoft.com/cli/azure/keyvault/key#az-keyvault-key-set-attributes)).
 - `backup` writes a copy of the key that can be restored into another vault in the same subscription and geography. Whoever can restore that copy can sign as the key's address, and disabling or deleting the original does not stop it ([Back up a key](key-loss.md#back-up-a-key)).
 
+The [0.10.1 acceptance run](https://github.com/aelmanaa/hardhat-kms/issues/466#issuecomment-6101797837) on 2026-10-10 signed and deployed on Sepolia with a fresh service principal holding only Key Vault Crypto User on the key. This checks the built-in role; the custom Key Vault Ethereum Signer role's live check remains open under [#43](https://github.com/aelmanaa/hardhat-kms/issues/43).
+
 Creating the key in step 1 needs a broader role, such as Key Vault Crypto Officer, which the identity that only signs should not have.
 
 ### Vaults that use access policies
