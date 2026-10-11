@@ -154,6 +154,8 @@ az keyvault role assignment create \
   --scope /keys/deployer
 ```
 
+On 2026-10-11, the published 0.10.1 packages read the address of an `EC-HSM` key on `P-256K` and signed a message with a fresh service principal holding only this custom role on the key. Local signature verification passed, and a key-attribute update was refused with HTTP 403 ([test record](https://github.com/aelmanaa/hardhat-kms/issues/43)).
+
 To use the built-in role instead, pass `--role "Managed HSM Crypto User"`. An identity with it can delete the key, or back it up and restore the copy.
 
 ## 3. Sign in
