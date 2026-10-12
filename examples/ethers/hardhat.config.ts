@@ -1,10 +1,9 @@
 import hardhatKmsAws from "@hardhat-kms/aws";
 import hardhatEthers from "@nomicfoundation/hardhat-ethers";
-import hardhatTypechain from "@nomicfoundation/hardhat-typechain";
 import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
-  plugins: [hardhatKmsAws, hardhatEthers, hardhatTypechain],
+  plugins: [hardhatKmsAws, hardhatEthers],
   solidity: "0.8.24",
   kms: {
     keys: {
