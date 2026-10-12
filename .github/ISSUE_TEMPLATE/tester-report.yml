@@ -72,4 +72,4 @@ body:
     attributes:
       label: Release notes
       options:
-        - label: The 1.0.0 release notes may thank me by my GitHub username.
+        - label: A release note may thank me by my GitHub username.
