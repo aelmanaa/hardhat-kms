@@ -19,7 +19,7 @@ The Hardhat and viem ranges, the release channels and how long a previous major 
 
 ## Questions
 
-Start with the [docs index](../../README.md): it lists every tutorial, guide and reference page, and the [errors reference](errors.md) explains each error message. If the docs do not answer the question, open an issue with the Question form, which adds the `question` label. When the repository enables GitHub Discussions, this section will link them. Report a vulnerability privately as [SECURITY.md](../../../SECURITY.md) says, never in an issue.
+Start with the [docs index](../../README.md): it lists every tutorial, guide and reference page, and the [errors reference](errors.md) explains each error message. If the docs do not answer your question, ask in [GitHub Discussions Q&A](https://github.com/aelmanaa/hardhat-kms/discussions/categories/q-a). Report a vulnerability privately as [SECURITY.md](../../../SECURITY.md) says, never in a public discussion or issue.
 
 ## Tester reports
 
