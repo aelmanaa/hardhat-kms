@@ -163,6 +163,7 @@ Take the hashes from a block explorer's page for the key's address, or from Hard
 
 ```ts
 import { readFileSync } from "node:fs";
+
 import { network } from "hardhat";
 import type { KmsHistoryReport } from "hardhat-kms/types";
 

@@ -1,8 +1,8 @@
 # A config that loads
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],

@@ -12,8 +12,8 @@ Audience: Users configuring the plugin.
 Keys are declared once under `kms.keys` and referenced by name from any network. Each provider's keys need its [provider package](#provider-packages) in `plugins`. This example uses one AWS KMS key, so it lists `@hardhat-kms/aws`, which loads `hardhat-kms` itself:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],
@@ -165,9 +165,9 @@ The resolved types are exported from `hardhat-kms/types`. Narrow a resolved key 
 hardhat-kms works next to `@nomicfoundation/hardhat-ledger`. List hardhat-ledger first:
 
 ```ts
+import hardhatKmsAws from "@hardhat-kms/aws";
 import hardhatLedger from "@nomicfoundation/hardhat-ledger";
 import { defineConfig } from "hardhat/config";
-import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
   plugins: [hardhatLedger, hardhatKmsAws],

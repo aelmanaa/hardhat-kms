@@ -4,8 +4,8 @@ It also has an invalid address pin, which loading it would report; it is not loa
 the only problem.
 
 ```ts
-import { defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],

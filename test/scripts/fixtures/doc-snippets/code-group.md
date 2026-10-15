@@ -6,8 +6,8 @@ second fails the typecheck.
 ::: code-group
 
 ```ts [Valid]
-import { defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],
@@ -15,8 +15,8 @@ export default defineConfig({
 ```
 
 ```ts [Type error]
-import { defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],

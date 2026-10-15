@@ -203,8 +203,8 @@ Read the key from a configuration variable, which the workflow fills from the en
 ::: code-group
 
 ```ts [AWS KMS]
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],
@@ -227,8 +227,8 @@ export default defineConfig({
 ```
 
 ```ts [Google Cloud KMS]
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsGcp from "@hardhat-kms/gcp";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsGcp],
@@ -249,8 +249,8 @@ export default defineConfig({
 ```
 
 ```ts [Azure Key Vault]
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAzure from "@hardhat-kms/azure";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAzure],

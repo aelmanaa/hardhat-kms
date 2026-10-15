@@ -202,8 +202,8 @@ pnpm 11 and later need an `allowBuilds` entry, and Yarn 4 needs `nodeLinker: nod
 `@hardhat-kms/azure` brings the Azure SDK (`@azure/keyvault-keys` and `@azure/identity`) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAzure from "@hardhat-kms/azure";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAzure],
@@ -318,8 +318,8 @@ Creating the setting needs `Microsoft.Insights/diagnosticSettings/write` on the 
 Then give the plugin the workspace id, the GUID that `az monitor log-analytics workspace show --resource-group my-rg --workspace-name kms-audit --query customerId -o tsv` prints. It is not the workspace's resource id or name:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAzure from "@hardhat-kms/azure";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAzure],
