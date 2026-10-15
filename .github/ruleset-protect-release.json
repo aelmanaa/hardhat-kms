@@ -1,0 +1,89 @@
+{
+  "name": "protect-release",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/release/*"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "required_linear_history"
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "require_extra_approval_for_unattributed_changes": false,
+        "required_review_thread_resolution": true,
+        "allowed_merge_methods": ["squash"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": true,
+        "required_status_checks": [
+          {
+            "context": "Lint, format and typecheck"
+          },
+          {
+            "context": "Coverage"
+          },
+          {
+            "context": "Package checks"
+          },
+          {
+            "context": "Workflow security (zizmor)"
+          },
+          {
+            "context": "Test (Linux, Node 22.13.0)"
+          },
+          {
+            "context": "Test (Linux, Node 24.0.0)"
+          },
+          {
+            "context": "Test (Linux, Node 26.0.0)"
+          },
+          {
+            "context": "Consumer typecheck (TypeScript 5.9.3)"
+          },
+          {
+            "context": "Consumer typecheck (TypeScript 6.0.3)"
+          },
+          {
+            "context": "Consumer typecheck (TypeScript 7.0.2)"
+          },
+          {
+            "context": "Links an issue"
+          },
+          {
+            "context": "Changeset"
+          },
+          {
+            "context": "Docs"
+          },
+          {
+            "context": "LocalStack (AWS KMS)"
+          },
+          {
+            "context": "Security checklist"
+          }
+        ]
+      }
+    }
+  ]
+}

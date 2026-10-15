@@ -45,7 +45,7 @@ Issues that affect what gets signed, keys or secrets also get `security`. New is
 - `main` only changes through pull requests (squash merge). The pre-push hook refuses direct pushes to `main`.
 - Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org) (checked by the commit-msg hook).
 - A pull request that changes how the plugin signs or sends, or what gets published and how (the two lists of paths in [Security review](docs/contributor/security-review.md)), carries the items of each list it touches from the security checklist of the pull request template, with every item ticked. A CI check enforces it.
-- Every user-facing change needs a changeset: `pnpm changeset`. See [Changesets](#changesets) for what to write in it.
+- Every user-facing change to a published package needs a changeset: `pnpm changeset`. See [Changesets](#changesets) for what to write in it.
 - The pre-commit hook formats (oxfmt) and lints (oxlint) staged files and typechecks the project.
 
 ### Changesets
@@ -62,6 +62,7 @@ A changeset is a release note. From 0.9.0, its text becomes the `CHANGELOG.md` e
 - A security fix names the advisory and the affected version range.
 - Which bump: `patch` for a fix or a docs-only change to a published file, such as a package README; `minor` for a new task, option, config key or provider capability; `major` for a removed or renamed one, a dropped Hardhat major or an error code removed from the catalogue. The four packages are one fixed group and get the same version, so name only the packages whose changelog should carry the entry.
 - A change under `packages/` with nothing to tell users, such as tests or an internal refactor, gets an empty changeset: `pnpm changeset add --empty`. A pull request that changes `packages/` carries one or the other.
+- A changeset describes the published packages. A pull request that changes nothing under `packages/` carries no changeset, not even an empty one. That covers CI and release workflows, scripts, tests outside `packages/`, the examples and the docs under `docs/`. A change of this kind that users can see, such as how a release is marked on GitHub, is documented in `docs/user`, not in a package changelog.
 - Before committing, reread the entry and ask what makes it read as generated. The usual answers are a dash, an "instead of" tail, and a colon-joined list of internals.
 
 An entry that follows the rules:

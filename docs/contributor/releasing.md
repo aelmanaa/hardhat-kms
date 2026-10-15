@@ -139,6 +139,10 @@ A trusted-publisher configuration lives in a package's settings, so it cannot ex
 
 A package added later meets the same problem: its first stage cannot run over OIDC, and `release.yml` has no token path. Plan that first publish in its own issue, starting from this record.
 
+### Restage of 0.10.1 (2026-10-10)
+
+The first `v0.10.1` tag pointed at `82d636d`, the Version Packages merge ([#448](https://github.com/aelmanaa/hardhat-kms/pull/448)). Its release run stopped after the `npm-publish` approval and before any npm call ([#463](https://github.com/aelmanaa/hardhat-kms/issues/463)). The tarball checker imported `yaml` through a helper, and the publish job installs no workspace dependencies. Nothing was staged and no dist-tag moved, so [Run failed before `publish`](#run-failed-before-publish) applied. The fix merged as `90d1b96` ([#464](https://github.com/aelmanaa/hardhat-kms/pull/464)), the maintainer deleted the tag and signed it again at `90d1b96`, and the second run staged the four packages. So `v0.10.1` points at `90d1b96`, and the published `gitHead` of all four packages is `90d1b96`, not the version merge. `git log --oneline 82d636d..90d1b96` lists the one commit of #464, and `git diff --stat 82d636d 90d1b96 -- packages` prints nothing, so the new tag carries the packages of the version merge.
+
 ## 4. Verify and promote
 
 `promote.yml` is a `workflow_dispatch` with three inputs: `version` (exact, no `v`), `target` (`verify` or `latest`) and `live-run` (`sepolia:<proof commit>`, `fork` or `none`). It runs on Linux. Only two jobs have `id-token: write`: `latest`, for npm, and `live`, which runs only with `live-run: fork` and reads the `live-tests` environment's secrets for the three clouds. No other job reads a secret.
@@ -176,13 +180,28 @@ A package added later meets the same problem: its first stage cannot run over OI
 
 Either target posts one comment on the merged Version Packages pull request with the result of the verify job, of the live job (`not run` unless `live-run` is `fork`), of the dist-tag move and of the release job, the `live-run` value and the run link. The run's step summary holds the full output. That comment is the record of the release.
 
-The first version of a package lands on `latest` whatever is asked, because the registry has nothing else to point at. For 0.9.0, `latest` already points at the version after the placeholder fix in [First publish](#first-publish-090-2026-10-08), so `target: latest` is not run; the release is published with `gh release edit v0.9.0 --draft=false --prerelease=false --latest` after `verify` is green. The [acceptance test](https://github.com/aelmanaa/hardhat-kms/issues/294) then runs against 0.9.0 from the registry, and only a version that passes it gets the 1.0.0 tag. Between that 0.9.x and 1.0.0, nothing changes in `src/`, `dist/` or the published manifests other than what `pnpm run version-packages` writes, the versions and the internal version ranges; READMEs and changelogs may change. That does not carry a proof over: 1.0.0 is a major, so `target: latest` needs `sepolia:<proof commit>`, and the proof must have tested the `v1.0.0` tag commit. Run the Sepolia suite at that tag and merge its `test/live/proof.json` before promoting; a 0.10.x proof is refused.
+The first version of a package lands on `latest` whatever is asked, because the registry has nothing else to point at. For 0.9.0, `latest` already pointed at the version after the placeholder fix in [First publish](#first-publish-090-2026-10-08), so `target: latest` was not run; the release was published with `gh release edit v0.9.0 --draft=false --prerelease=false --latest` after `verify` was green.
+
+How 1.0.0 was accepted: the [acceptance test](https://github.com/aelmanaa/hardhat-kms/issues/294) passed against 0.10.1 from the registry ([#466](https://github.com/aelmanaa/hardhat-kms/issues/466)), not against 0.9.0. The 0.9.0 attempt ([#402](https://github.com/aelmanaa/hardhat-kms/issues/402)) did not finish, and later signing and sending fixes needed a new baseline. The source did change between 0.9.0 and 0.10.1: `git diff --stat v0.9.0 v0.10.1 -- packages/hardhat-kms/src` lists 19 files. 1.0.0 is 0.10.1 with new versions and changelogs: between `v0.10.1` (`90d1b96`) and `v1.0.0` (`551bd13`, the Version Packages merge [#469](https://github.com/aelmanaa/hardhat-kms/pull/469)), the only changes under `packages/` are the four `version` fields and the four `CHANGELOG.md` files.
+
+The rule that still holds: a major needs its own proof. `target: latest` for a major needs `sepolia:<proof commit>`, and the proof must have tested the tag commit of that major. Run the Sepolia suite at the tag and merge its `test/live/proof.json` before promoting; a proof of an earlier version is refused, even when the source is the same.
 
 ## 5. Hotfix on an older line
 
 A hotfix line lives on a branch named `release/<major>.<minor>`: `release/1.0` carries 1.0.1, 1.0.2 and so on.
 
-Before the first hotfix, extend the ruleset that protects `main` to `refs/heads/release/*`: require a pull request with review and the required checks, block force pushes and deletion, and restrict who can create a matching branch. The reachability check and the `ci.yml` run on the tag are only as strong as the branch: the dispatched run executes the `ci.yml` of the tagged commit.
+The reachability check and the `ci.yml` run on the tag are only as strong as the branch: the dispatched run executes the `ci.yml` of the tagged commit. So before the first `release/*` branch exists, a repository admin applies two rulesets. GitHub lets a bypass actor skip every rule of a ruleset, so branch creation, which only an admin may do, is a ruleset of its own:
+
+- [ ] `protect-release` (`.github/ruleset-protect-release.json`) targets `refs/heads/release/*`, with no bypass actor.
+- [ ] It requires a pull request, squash merge only, with resolved review threads, as on `main`.
+- [ ] It requires the same status checks as `protect-main`, with the branch up to date. `ci.yml` and `pr-hygiene.yml` run on pull requests into any branch, so every check reports.
+- [ ] It does not enforce the status checks when a branch is created (`do_not_enforce_on_create: true`). The tagged commit that a new `release/X.Y` starts from has no `Links an issue` or `Security checklist` run, since those jobs run only on pull requests, and with no bypass actor the push that creates the branch would otherwise be refused.
+- [ ] Unverified: GitHub's docs do not say whether the pull request rule refuses a push that creates a branch. Check it on the first `release/*` push after applying the ruleset. If the push is refused, disable `protect-release`, push the branch, and enable it again.
+- [ ] It blocks force pushes (`non_fast_forward`) and deletion, and requires a linear history.
+- [ ] `create-release-branch` (`.github/ruleset-create-release-branch.json`) restricts creating a `refs/heads/release/*` branch, with only the repository admin role as bypass actor.
+- [ ] Both are live: `gh api repos/aelmanaa/hardhat-kms/rulesets` lists them, and each one's include list is `refs/heads/release/*`.
+
+To apply a file, use the repository's Rulesets settings (Import a ruleset), or `gh api -X POST repos/aelmanaa/hardhat-kms/rulesets --input <file>`. When the required checks of `protect-main` change, change `protect-release` in the same pull request.
 
 1. Branch `release/1.0` from the last tag of that line (`git switch -c release/1.0 v1.0.0`) and push it.
 2. Open a pull request into `release/1.0` that cherry-picks the fix with its changeset.
@@ -233,6 +252,8 @@ git tag -s v1.2.0 -m v1.2.0 <fixed-sha>
 git verify-tag v1.2.0
 git push origin v1.2.0
 ```
+
+Move the tag only to a commit with the same packages as the version merge: `git diff --stat <version merge> <fixed-sha> -- packages` must print nothing. A change under `packages/` merged in between, the fix's own or another pull request's, would ship in that version with no changelog entry. If there is one, leave the tag deleted, let the Version Packages pull request take the pending changesets, and release the version it writes; the abandoned number is never published. Record a restage under [Cut a release](#3-cut-a-release), as for 0.10.1 ([Restage of 0.10.1](#restage-of-0101-2026-10-10)).
 
 Re-create the tag with `-s`, as above. `git tag -f` with `--no-sign`, or with `-a` or `-m` on a machine where `tag.gpgsign` is unset, replaces the signed tag with an unsigned annotated one, which the script refuses with `tag v1.2.0 is annotated but has no OpenPGP signature; re-create it with git tag -s`. Once anything reached npm, the tag is frozen and the fix is a new version.
 
@@ -335,4 +356,4 @@ Also in [AGENTS.md](../../AGENTS.md):
 
 - Never tag, publish, approve an environment or a stage, move a dist-tag, or dispatch `promote.yml`. Those are maintainer actions on a hardware key or a WebAuthn device. A dry run of `release.yml` or `release-next.yml` publishes nothing, and an agent may run it on its branch to check a change to the release path.
 - Versions change only through `pnpm run version-packages`, on the Version Packages pull request. Never edit a manifest's `version` by hand.
-- Every user-facing change carries a changeset written as a release note, to the rules in [CONTRIBUTING.md](../../CONTRIBUTING.md#changesets).
+- Every user-facing change to a published package carries a changeset written as a release note, to the rules in [CONTRIBUTING.md](../../CONTRIBUTING.md#changesets). A pull request that changes nothing under `packages/`, such as a CI, release tooling, example or docs change, carries no changeset, not even an empty one.
