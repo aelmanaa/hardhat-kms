@@ -149,7 +149,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
       first.blobs !== undefined ||
       first.blobVersionedHashes !== undefined ||
       first.maxFeePerBlobGas !== undefined ||
-      first.type === "0x3"
+      isBlobType(first.type)
     ) {
       throw catalogError(ERRORS.txBlob, {}, { operation: method });
     }
@@ -385,6 +385,25 @@ export class HardhatTransactionFiller implements TransactionFiller {
     }
     return hexStringToNumber(gasLimit);
   }
+}
+
+/** Type 3 as a hex quantity or a decimal string, either case, any leading zeros; or viem's name. */
+const BLOB_TYPE = /^(?:(?:0x)?0*3|eip4844)$/i;
+
+/**
+ * Whether a request's `type` asks for a blob transaction (EIP-4844, type 3), in any form a
+ * JSON-RPC caller can pass: a hex quantity in either case, with or without leading zeros, a
+ * number, a bigint, a decimal string or viem's name. Strings are trimmed first. Every other
+ * value is ignored, as Hardhat's local accounts do: the fields decide the type.
+ *
+ * @param type - The request's `type`.
+ * @returns Whether it is type 3.
+ */
+export function isBlobType(type: unknown): boolean {
+  if (typeof type === "string") {
+    return BLOB_TYPE.test(type.trim());
+  }
+  return type === 3 || type === 3n;
 }
 
 /**

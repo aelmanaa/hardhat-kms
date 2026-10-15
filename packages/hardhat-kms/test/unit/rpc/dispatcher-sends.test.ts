@@ -125,6 +125,35 @@ describe("isUncertainAnswer", () => {
 });
 
 describe("a send through the plugin", () => {
+  it("refuses type 3 in every spelling before any node request or signature (#484)", async () => {
+    const fixture = await fixtureOnOwnChain();
+    accept(fixture);
+    for (const type of ["0x3", "0x03", "0X3", 3, 3n, "3", "eip4844"]) {
+      for (const method of ["eth_sendTransaction", "eth_signTransaction"]) {
+        const reads = fixture.reads.length;
+        await assert.rejects(
+          fixture.request(method, [{ from: COW, to: ZERO, type }]),
+          (error: unknown) => {
+            assert.ok(error instanceof Error);
+            assert.equal(
+              error.message,
+              `${method}: blob transactions (EIP-4844) cannot be signed with KMS accounts; send them from another account`,
+            );
+            return true;
+          },
+        );
+        assert.deepEqual(
+          fixture.reads.slice(reads).filter((read) => read.method !== "eth_chainId"),
+          [],
+          String(type),
+        );
+      }
+    }
+    assert.equal(signatures(fixture), 0);
+    assert.equal(broadcasts(fixture).length, 0);
+    fixture.sends.close();
+  });
+
   it("refuses a self-authorization invalidated by the high-water nonce (#435)", async () => {
     const fixture = await fixtureOnOwnChain();
     accept(fixture);

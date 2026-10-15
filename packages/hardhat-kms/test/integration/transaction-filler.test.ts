@@ -182,6 +182,16 @@ describe("transaction filling matches Hardhat's local accounts", () => {
     assert.equal(await compare("local", { from: FROM, to: TO, gasPrice: "0x3b9aca00" }), "legacy");
   });
 
+  it("ignores a requested type other than 3: the fields decide, as in Hardhat (#484)", async () => {
+    for (const type of ["0x2", "0x0", 2]) {
+      assert.equal(
+        await compare("local", { from: FROM, to: TO, gasPrice: "0x3b9aca00", type }),
+        "legacy",
+      );
+    }
+    assert.equal(await compare("local", { from: FROM, to: TO, type: "0x0" }), "eip1559");
+  });
+
   it("fills an EIP-2930 transaction with an access list and a gas price", async () => {
     const accessList = [{ address: TO, storageKeys: [`0x${"00".repeat(31)}01`] }];
     assert.equal(

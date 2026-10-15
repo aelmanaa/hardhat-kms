@@ -1036,7 +1036,7 @@ export const ERRORS = {
     template:
       "blob transactions (EIP-4844) cannot be signed with KMS accounts; send them from another account",
     cause:
-      "The transaction has blobs, blob versioned hashes, `maxFeePerBlobGas` or type `0x3`. The plugin does not sign blob transactions.",
+      'The transaction has blobs, blob versioned hashes, `maxFeePerBlobGas` or type 3 (`0x3` in any case or with leading zeros, the number 3, `"3"` or `eip4844`). The plugin does not sign blob transactions. It ignores every other `type`, as Hardhat does: the fields decide.',
     fix: "Send blob transactions from another account.",
   },
   txNoGas: {

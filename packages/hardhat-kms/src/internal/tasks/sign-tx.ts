@@ -9,7 +9,11 @@ import { sameAddress, toChecksumAddress } from "../crypto/address.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, errorName } from "../errors.ts";
 import { createConnectionChain } from "../rpc/chain-id.ts";
-import { createTransactionFiller, type UnsignedTransaction } from "../rpc/transaction-filler.ts";
+import {
+  createTransactionFiller,
+  isBlobType,
+  type UnsignedTransaction,
+} from "../rpc/transaction-filler.ts";
 import { type SignedTransaction, signTransaction } from "../rpc/transactions.ts";
 import { jsonErrorOffset, lineAndColumn } from "./json-position.ts";
 import { printLine, printNote, withNamedSigner } from "./keys.ts";
@@ -217,11 +221,10 @@ function checkFields(tx: Record<string, unknown>): string | undefined {
   if (typeof tx.type !== "string" || !/^0x[0-9a-fA-F]+$/.test(tx.type)) {
     throw catalogError(ERRORS.txFileTypeNotQuantity, {}, { operation: OPERATION });
   }
-  const number = Number.parseInt(tx.type, 16);
-  if (number === 3) {
+  if (isBlobType(tx.type)) {
     throw catalogError(ERRORS.txBlob, {}, { operation: OPERATION });
   }
-  const type = TYPES[number];
+  const type = TYPES[Number.parseInt(tx.type, 16)];
   if (type === undefined) {
     throw catalogError(ERRORS.txFileUnsupportedType, { type: tx.type }, { operation: OPERATION });
   }
