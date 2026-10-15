@@ -195,6 +195,8 @@ The reachability check and the `ci.yml` run on the tag are only as strong as the
 - [ ] `protect-release` (`.github/ruleset-protect-release.json`) targets `refs/heads/release/*`, with no bypass actor.
 - [ ] It requires a pull request, squash merge only, with resolved review threads, as on `main`.
 - [ ] It requires the same status checks as `protect-main`, with the branch up to date. `ci.yml` and `pr-hygiene.yml` run on pull requests into any branch, so every check reports.
+- [ ] It does not enforce the status checks when a branch is created (`do_not_enforce_on_create: true`). The tagged commit that a new `release/X.Y` starts from has no `Links an issue` or `Security checklist` run, since those jobs run only on pull requests, and with no bypass actor the push that creates the branch would otherwise be refused.
+- [ ] Unverified: GitHub's docs do not say whether the pull request rule refuses a push that creates a branch. Check it on the first `release/*` push after applying the ruleset. If the push is refused, disable `protect-release`, push the branch, and enable it again.
 - [ ] It blocks force pushes (`non_fast_forward`) and deletion, and requires a linear history.
 - [ ] `create-release-branch` (`.github/ruleset-create-release-branch.json`) restricts creating a `refs/heads/release/*` branch, with only the repository admin role as bypass actor.
 - [ ] Both are live: `gh api repos/aelmanaa/hardhat-kms/rulesets` lists them, and each one's include list is `refs/heads/release/*`.
