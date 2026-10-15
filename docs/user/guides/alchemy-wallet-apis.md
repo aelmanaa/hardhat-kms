@@ -208,7 +208,20 @@ Each `signed by the key` line prints `true`. Each signature is usually one KMS s
 
 A send needs an Alchemy API key, and a gas sponsorship policy if Alchemy pays the gas. Both come from the Alchemy dashboard ([Sponsor gas](https://www.alchemy.com/docs/wallets/transactions/sponsor-gas)). Keep the API key out of the config and out of git: this script reads it, and the policy id, from environment variables.
 
-`sendCalls` runs `prepareCalls`, `signPreparedCalls` and `sendPreparedCalls` in turn. On the first send on a chain, the KMS key signs the authorization and the user operation; after that, only the user operation:
+`sendCalls` runs `prepareCalls`, `signPreparedCalls` and `sendPreparedCalls` in turn. On the first send on a chain, the KMS key signs the authorization and the user operation; after that, only the user operation.
+
+> [!WARNING]
+> In a send, the KMS key signs what Alchemy's server returns from `prepareCalls`: the user operation hash in the signature request, and on the first send the EIP-7702 authorization. `@alchemy/wallet-apis` 5.3.0 signs that hash as returned. It does not recompute the hash or compare it with the calls you passed (`signPreparedCalls` in `src/actions/signPreparedCalls.ts` hands each request to `signSignatureRequest` in `src/actions/signSignatureRequest.ts`, which signs it). Once the address is delegated, a signature over a user operation hash authorizes spending from the address.
+>
+> `sendCalls` signs right after `prepareCalls`, with no point to check in between. To check first, call `prepareCalls`, then `signPreparedCalls` and `sendPreparedCalls` yourself. On a first send `prepareCalls` returns an `array` holding the authorization and the user operation. Before `signPreparedCalls`, verify:
+>
+> - The user operation hash. Recompute it with viem's `getUserOperationHash` for EntryPoint v0.7 at `0x0000000071727De22E5E9d8BAf0edAc6f37da032` from the returned user operation (`data`), and compare it with the hash in `signatureRequest.data.raw`. Decode the user operation's `callData` and check that its calls are the ones you asked for, in order.
+> - The paymaster, when you pass a policy id. The user operation names a paymaster and `feePayment.sponsored` is `true`. Without one, the account pays the gas.
+> - The delegate, on a first send. The authorization's `data.address` is the delegate you expect, such as `0x77021100bD87b7008E5E1989d0eB38555d0d0000`, and its `chainId` is your chain's.
+>
+> A built-in check is planned in [#495](https://github.com/aelmanaa/hardhat-kms/issues/495).
+
+The script below calls `sendCalls` and does none of these checks:
 
 <!-- docs-check: skip -->
 
