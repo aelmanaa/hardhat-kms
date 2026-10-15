@@ -433,7 +433,9 @@ export const CASES: readonly Case[] = [
     type: "eip1559",
     covers: ["call/eip1559", "payable-call/eip1559"],
     expect: OK,
-    gas: 50_000n,
+    // Two add(1) calls back to back, the second filled while the first is pending (#492). The title
+    // stays as the committed proof's run had it until the next proof re-renders the page.
+    gas: 100_000n,
     title: "`add(1)` with 1 wei",
   },
   {

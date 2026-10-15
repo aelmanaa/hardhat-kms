@@ -4,7 +4,9 @@
 // handlers-array.js, handlers/gas/{automatic-gas-price,fixed-gas-price,automatic-gas,fixed-gas,
 // multiplied-gas-estimation}-handler.js and handlers/accounts/local-accounts.js
 // (#modifyRequest and #getSignedTransaction). The differential test in
-// test/integration/transaction-filler.test.ts fails when the two drift apart.
+// test/integration/transaction-filler.test.ts fails when the two drift apart. The deliberate
+// differences are listed in docs/contributor/transactions.md; one is that gas is estimated at the
+// pending block (#492).
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
@@ -82,6 +84,18 @@ const BASE_FEE_FULL_BLOCKS = 3n;
 const REWARD_PERCENTILE = 50;
 // The JSON-RPC error code of a method the node does not have.
 const METHOD_NOT_FOUND = -32601;
+// The JSON-RPC error code of params the node does not accept.
+const INVALID_PARAMS = -32602;
+// The JSON-RPC error code of a reverted call (geth, Erigon, reth, Nethermind).
+const EXECUTION_REVERTED = 3;
+// geth's answer when it has no pending block (eth/api_backend.go, -32000).
+const PENDING_UNAVAILABLE = /pending (?:state|block) is not available/i;
+// A revert or another execution failure, which is never a refusal of the tag.
+const REVERT = /revert/i;
+const EXECUTION = /execution/i;
+// Another node's refusal: a message that names `pending` together with one of these words.
+const PENDING = /pending/i;
+const REFUSAL = /tag|block|support|not available/i;
 // MultipliedGasEstimation: the share of the latest block's gas limit that is cached as the cap.
 const BLOCK_GAS_LIMIT_SAFETY_FACTOR = 0.95;
 
@@ -101,6 +115,29 @@ function isInternalCallOutOfGas(error: Error): boolean {
     error.name === "InternalCallOutOfGasError" ||
     (isObject(data) && data.reason === "InternalCallOutOfGas")
   );
+}
+
+/**
+ * Tells whether a failed `eth_estimateGas` at the `pending` block is the node refusing the block
+ * tag. Never for an error with code 3 or a message that says revert. Otherwise a known refusal
+ * (JSON-RPC code -32602, or geth's "pending state is not available" or "pending block is not
+ * available"), or a message that does not mention execution and names `pending` together with
+ * "tag", "block", "support" or "not available", as other nodes word it. A timeout or anything else
+ * is not a refusal.
+ */
+function refusesPendingTag(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code: unknown = Reflect.get(error, "code");
+  const { message } = error;
+  if (code === EXECUTION_REVERTED || REVERT.test(message)) {
+    return false;
+  }
+  if (code === INVALID_PARAMS || PENDING_UNAVAILABLE.test(message)) {
+    return true;
+  }
+  return !EXECUTION.test(message) && PENDING.test(message) && REFUSAL.test(message);
 }
 
 /**
@@ -170,7 +207,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     if (tx.gas === undefined) {
       tx.gas =
         this.#settings.gas === "auto"
-          ? await this.#estimateGas(filledParams)
+          ? await this.#estimateGas(filledParams, await this.#estimateTag(tx, method))
           : numberToHexString(this.#settings.gas);
     }
     // The node got r and s as quantities; Hardhat's schema wants them as 32 bytes.
@@ -195,11 +232,28 @@ export class HardhatTransactionFiller implements TransactionFiller {
   }
 
   async #pendingNonce(from: Uint8Array, method: string): Promise<bigint> {
-    const count = await this.#request("eth_getTransactionCount", [
-      bytesToHexString(from),
-      "pending",
-    ]);
+    return await this.#pendingCount(bytesToHexString(from), method);
+  }
+
+  async #pendingCount(from: unknown, method: string): Promise<bigint> {
+    const count = await this.#request("eth_getTransactionCount", [from, "pending"]);
     return hexStringToBigInt(stringResult(count, "eth_getTransactionCount", method));
+  }
+
+  /**
+   * The block tag to estimate at. A transaction without a nonce takes the pending count, so it is
+   * estimated at `pending`, the state that count describes (#492). So is one whose nonce is at or
+   * above the pending count. A caller's nonce below it replaces a pending transaction: the pending
+   * state already holds the one it replaces, whose effects (such as the account nonce a
+   * self-sponsored EIP-7702 authorization is checked against) the replacement must not see, so it
+   * is estimated without a tag, as Hardhat does.
+   */
+  async #estimateTag(tx: Record<string, unknown>, method: string): Promise<"pending" | undefined> {
+    const nonce = quantityOf(tx.nonce);
+    if (nonce === undefined) {
+      return "pending";
+    }
+    return nonce < (await this.#pendingCount(tx.from, method)) ? undefined : "pending";
   }
 
   /** AutomaticGasPriceHandler#handle. */
@@ -332,11 +386,34 @@ export class HardhatTransactionFiller implements TransactionFiller {
     }
   }
 
-  /** MultipliedGasEstimation#getMultipliedGasEstimation. */
-  async #estimateGas(params: unknown[]): Promise<string> {
+  /**
+   * `eth_estimateGas` at the `pending` block, the state the pending nonce counts. Hardhat, viem and
+   * ethers send no block tag, so most nodes use `latest`. A node whose `latest` lags the account's
+   * pending transactions then simulates with a stale nonce and skips a self-sponsored EIP-7702
+   * authorization, which EIP-7702 ignores rather than fails: the estimate is too low and the
+   * transaction runs out of gas (#492). When the node refuses the tag, or the tag is undefined (a
+   * replacement), the request is sent as Hardhat sends it.
+   */
+  async #requestEstimate(params: unknown[], tag: "pending" | undefined): Promise<unknown> {
+    if (tag === undefined) {
+      return await this.#request("eth_estimateGas", params);
+    }
+    const [tx] = params;
+    try {
+      return await this.#request("eth_estimateGas", [tx, tag]);
+    } catch (error) {
+      if (!refusesPendingTag(error)) {
+        throw error;
+      }
+      return await this.#request("eth_estimateGas", params);
+    }
+  }
+
+  /** MultipliedGasEstimation#getMultipliedGasEstimation, with the estimate at `tag`. */
+  async #estimateGas(params: unknown[], tag: "pending" | undefined): Promise<string> {
     try {
       const estimate = stringResult(
-        await this.#request("eth_estimateGas", params),
+        await this.#requestEstimate(params, tag),
         "eth_estimateGas",
         "eth_estimateGas",
       );

@@ -129,6 +129,14 @@ export interface RunOptions {
   onNudge: () => void;
 }
 
+/**
+ * Gas limits for the transactions whose authorization nonce the suite reads at the latest receipt.
+ * The estimate of a backend a block behind would skip the authorization (#492). On Sepolia the
+ * v1.0.1 run used 71032 gas for `delegate-and-call`, 19816 for `clear-delegation` and 31816 to
+ * clear the throwaway's delegation.
+ */
+const AUTHORIZATION_NONCE_GAS = { delegateAndCall: 100_000n, clear: 60_000n } as const;
+
 /** One provider's run: its state between cases, and what it recorded. */
 export class ProviderRun {
   readonly records: ProofRecord[] = [];
@@ -504,7 +512,7 @@ export class ProviderRun {
   }
 
   /** `add(1)` with 1 wei: the count and the contract's balance must both grow by 1. */
-  async callAdd(id: CaseId, type: "legacy" | "eip2930" | "eip1559"): Promise<void> {
+  async callAdd(id: CaseId, type: "legacy" | "eip2930"): Promise<void> {
     const { wallet, gasPrice } = this.#options;
     const contract = this.#need(this.#contract, "LiveCheck");
     const add = {
@@ -514,16 +522,13 @@ export class ProviderRun {
       args: [1n],
       value: 1n,
     } as const;
-    const hash =
-      type === "eip1559"
-        ? await wallet.writeContract(add)
-        : await wallet.writeContract({
-            ...add,
-            gasPrice,
-            ...(type === "eip2930"
-              ? { accessList: [{ address: contract, storageKeys: [COUNT_SLOT] }] }
-              : {}),
-          });
+    const hash = await wallet.writeContract({
+      ...add,
+      gasPrice,
+      ...(type === "eip2930"
+        ? { accessList: [{ address: contract, storageKeys: [COUNT_SLOT] }] }
+        : {}),
+    });
     const receipt = await this.mined(id, "add(1) with 1 wei", hash, { value: 1n });
     if (type === "legacy") {
       // EIP-155: a legacy transaction signs over the chain id, which its v carries as
@@ -553,6 +558,64 @@ export class ProviderRun {
       await this.#balanceAt(contract, receipt.blockNumber),
       this.#contractBalance,
       "LiveCheck did not receive the 1 wei",
+    );
+  }
+
+  /**
+   * Two `add(1)` calls with 1 wei, back to back: the plugin fills the second while the first is
+   * still pending, so the second's nonce and gas estimate must count the first (#492). On the fork,
+   * automine is off until both are sent, so the first is pending there too.
+   */
+  async callAddBackToBack(): Promise<void> {
+    const { wallet, rpc, forkUrl } = this.#options;
+    const contract = this.#need(this.#contract, "LiveCheck");
+    const add = {
+      address: contract,
+      abi: LIVE_CHECK_ABI,
+      functionName: "add",
+      args: [1n],
+      value: 1n,
+    } as const;
+    const onFork = forkUrl !== undefined;
+    const hashes: Hash[] = [];
+    if (onFork) {
+      await rpc.request({ method: "evm_setAutomine", params: [false] });
+    }
+    try {
+      hashes.push(await wallet.writeContract(add), await wallet.writeContract(add));
+      if (onFork) {
+        await rpc.request({ method: "evm_mine" });
+      }
+    } finally {
+      if (onFork) {
+        await rpc.request({ method: "evm_setAutomine", params: [true] });
+      }
+    }
+    const [first, second] = hashes;
+    assert.ok(first !== undefined && second !== undefined);
+    await this.mined("call-eip1559", "add(1) with 1 wei", first, { value: 1n });
+    const receipt = await this.mined(
+      "call-eip1559",
+      "add(1) with 1 wei, filled while the first was pending",
+      second,
+      { value: 1n },
+    );
+    assert.equal(
+      (await this.#transaction(second)).nonce,
+      (await this.#transaction(first)).nonce + 1,
+      "the second add(1) did not take the nonce after the first",
+    );
+    this.#count += 2n;
+    this.#contractBalance += 2n;
+    assert.equal(
+      await this.#countAt(contract, receipt.blockNumber),
+      this.#count,
+      "the two adds did not both count",
+    );
+    assert.equal(
+      await this.#balanceAt(contract, receipt.blockNumber),
+      this.#contractBalance,
+      "LiveCheck did not receive both 1 wei",
     );
   }
 
@@ -666,6 +729,10 @@ export class ProviderRun {
       await wallet.sendTransaction({
         to: account,
         nonce,
+        // Explicit, like every self-sponsored authorization here: a backend a block behind would
+        // estimate with the account's older nonce, skip the authorization and give too little gas
+        // (#492). 71897 was the estimate on Sepolia.
+        gas: AUTHORIZATION_NONCE_GAS.delegateAndCall,
         value: 1n,
         data: encodeFunctionData({ abi: LIVE_CHECK_ABI, functionName: "add", args: [1n] }),
         authorizationList: [authorization],
@@ -825,6 +892,8 @@ export class ProviderRun {
       "clear the throwaway key's delegation",
       await wallet.sendTransaction({
         to: throwaway.address,
+        // The throwaway's nonce was read at the latest receipt; a lagging backend would skip it.
+        gas: AUTHORIZATION_NONCE_GAS.clear,
         authorizationList: [
           await throwaway.signAuthorization({
             chainId: SEPOLIA_CHAIN_ID,
@@ -918,6 +987,7 @@ export class ProviderRun {
       await wallet.sendTransaction({
         to: account,
         nonce,
+        gas: AUTHORIZATION_NONCE_GAS.clear,
         value: 1n,
         authorizationList: [await this.authorize(zeroAddress, nonce + 1)],
       }),
@@ -976,7 +1046,7 @@ const STEPS: Record<CaseId, (run: ProviderRun) => Promise<void>> = {
     await run.callAdd("call-eip2930", "eip2930");
   },
   "call-eip1559": async (run) => {
-    await run.callAdd("call-eip1559", "eip1559");
+    await run.callAddBackToBack();
   },
   "revert-eip1559": async (run) => {
     await run.revert("revert-eip1559", "eip1559");
