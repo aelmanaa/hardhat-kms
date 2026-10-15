@@ -1,5 +1,13 @@
 # hardhat-kms
 
+## 1.0.1
+
+### Patch Changes
+
+- [#488](https://github.com/aelmanaa/hardhat-kms/pull/488) [`f4d5550`](https://github.com/aelmanaa/hardhat-kms/commit/f4d55503075d06099a8634902e9688accfafaa26) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `eth_sendTransaction` and `eth_signTransaction` from a KMS account now refuse type 3 in every form with `core.tx.blob`, before any request to the node: `"0x03"`, `"0X3"`, the number `3`, a bigint, `"3"` and `"eip4844"`, with or without surrounding whitespace, not only `"0x3"`. These were signed as legacy or EIP-1559 transactions before. Every other `type` is still ignored, as in Hardhat.
+  
+  Issue: [#484](https://github.com/aelmanaa/hardhat-kms/issues/484)
+
 ## 1.0.0
 
 ### Major Changes
