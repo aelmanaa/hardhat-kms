@@ -88,7 +88,13 @@ type Kind =
   /** An open connection forgot a broadcast needed for nonce choice or uncertain lookup. */
   | "recorded"
   /** An invalid self-authorization reached the node. */
-  | "self-authorization-435";
+  | "self-authorization-435"
+  /**
+   * #489: after the node's pending count fell (a dropped transaction or a revert), a plugin send
+   * on edr-simulated signed above the lowest nonce at or above the pending count that the node
+   * lacks and that no library send was given: a gap.
+   */
+  | "gap-489";
 
 type Mode = "accept" | "refuse" | "no-answer";
 type ConnectionIndex = 0 | 1;
@@ -98,6 +104,10 @@ interface PluginSend {
   id: number;
   connection: ConnectionIndex;
   invalidSelfAuthorization?: boolean;
+  /** The highest {@link lowestFree} between its start and its broadcast, which it may sign. */
+  lowest?: bigint;
+  /** Its transaction reached the node. */
+  broadcast?: boolean;
 }
 
 type LibraryState =
@@ -179,6 +189,10 @@ interface World {
   kinds: ReadonlySet<Kind>;
   /** Ticks the global setTimeout mock. */
   tick: (ms: number) => void;
+  /** The node's transactions at the last `evm_snapshot`, until a revert uses it. */
+  snapshot?: Map<bigint, Delivered>;
+  /** The node's pending count has fallen in this sequence. */
+  fell: boolean;
 }
 
 const LIVE: ReadonlySet<LibraryState> = new Set(["consumed", "signing", "signed", "broadcasting"]);
@@ -190,6 +204,33 @@ function pendingOf(world: World): bigint {
     pending++;
   }
   return pending;
+}
+
+/**
+ * The lowest nonce at or above the pending count that the node lacks and that no library send was
+ * given, on any connection and in any state. A plugin send after a fall signs at most this nonce:
+ * the plugin may skip a nonce only for a transaction or a reservation it knows of, and every
+ * reservation is a library send's nonce.
+ */
+function lowestFree(world: World): bigint {
+  const given = new Set(
+    library(world).flatMap((send) => (send.nonce === undefined ? [] : [send.nonce])),
+  );
+  let nonce = pendingOf(world);
+  while (world.delivered.has(nonce) || given.has(nonce)) {
+    nonce++;
+  }
+  return nonce;
+}
+
+/** Raises the bound of every plugin send not yet broadcast to the current {@link lowestFree}. */
+function trackLowest(world: World): void {
+  const lowest = lowestFree(world);
+  for (const send of world.sends) {
+    if (send.kind === "plugin" && send.broadcast !== true && (send.lowest ?? -1n) < lowest) {
+      send.lowest = lowest;
+    }
+  }
 }
 
 /** The send lock's key of the model's account on the world's chain. */
@@ -274,6 +315,19 @@ function onRaw(world: World) {
         });
       } else {
         checkClaim(world, send, nonce, `plugin send ${id} broadcast`);
+        trackLowest(world);
+        send.broadcast = true;
+        if (
+          world.type === "edr-simulated" &&
+          world.fell &&
+          send.lowest !== undefined &&
+          nonce > send.lowest
+        ) {
+          world.violations.push({
+            kind: "gap-489",
+            message: `plugin send ${id} on connection ${send.connection} signed nonce ${nonce} after a fall, where ${send.lowest} was free`,
+          });
+        }
       }
     }
     if (world.mode === "refuse") {
@@ -375,6 +429,7 @@ function checked(step: Step): Step {
     check: (model) => step.check(model),
     run: async (model, world) => {
       await step.run(model, world);
+      trackLowest(world);
       if (world.kinds.has("recorded")) {
         await checkRecorded(world);
       }
@@ -385,6 +440,14 @@ function checked(step: Step): Step {
 }
 
 const isOpen = (world: World, connection: ConnectionIndex): boolean => !world.closed[connection];
+
+/**
+ * Whether a chosen nonce ignores a recorded one at `used`: it is not above it. After the pending
+ * count fell on edr-simulated, a lower nonce the node no longer has is the right choice, so only
+ * `used` itself is.
+ */
+const reuses = (world: World, nonce: bigint, used: bigint): boolean =>
+  world.type === "edr-simulated" && world.fell ? nonce === used : nonce <= used;
 
 /**
  * Checks recording through nonce choice once requests settle. On simulated networks, a read
@@ -426,7 +489,7 @@ async function checkRecorded(world: World): Promise<void> {
       for (const [used, delivered] of recorded) {
         if (
           (world.type === "http" || reservationsOn(world, connection).length > 0) &&
-          nonce <= used
+          reuses(world, nonce, used)
         ) {
           world.violations.push({
             kind: "recorded",
@@ -438,6 +501,22 @@ async function checkRecorded(world: World): Promise<void> {
       world.harness.node.pending = pending;
     }
   }
+}
+
+/**
+ * The lowest pending count a lagging HTTP node may report to a connection that must still not
+ * sign a nonce below it: one above the highest counted nonce the connection did not record. The
+ * connection cannot know a nonce another connection or an own transport sent, so a lag below it
+ * would test nothing the plugin promises.
+ */
+function laggedPending(world: World, connection: ConnectionIndex): bigint {
+  let lagged = 0n;
+  for (const [nonce, delivered] of world.delivered) {
+    if (nonce < pendingOf(world) && !delivered.recordedOn.has(connection) && nonce >= lagged) {
+      lagged = nonce + 1n;
+    }
+  }
+  return lagged;
 }
 
 /** Consume through the public account with a lagging HTTP pending count, without hidden resets. */
@@ -467,7 +546,7 @@ function inspectUncertain(connection: ConnectionIndex): Step {
       }
       const pending = world.harness.node.pending;
       if (world.type === "http") {
-        world.harness.node.pending = 0n;
+        world.harness.node.pending = laggedPending(world, connection);
       }
       try {
         await libraryConsume(connection, "own").run(model, world);
@@ -480,7 +559,7 @@ function inspectUncertain(connection: ConnectionIndex): Step {
           if (
             world.kinds.has("recorded") &&
             (!world.lookedUp.get(target)?.has(hashOf(raw)) ||
-              (send.nonce !== undefined && send.nonce <= used))
+              (send.nonce !== undefined && reuses(world, send.nonce, used)))
           ) {
             world.violations.push({
               kind: "recorded",
@@ -550,7 +629,12 @@ function pluginSend(connection: ConnectionIndex): Step {
       if (!isOpen(world, connection)) {
         return;
       }
-      const send: PluginSend = { kind: "plugin", id: world.sends.length, connection };
+      const send: PluginSend = {
+        kind: "plugin",
+        id: world.sends.length,
+        connection,
+        lowest: lowestFree(world),
+      };
       world.sends.push(send);
       const target = world.connections[connection];
       assert.ok(target !== undefined);
@@ -850,6 +934,74 @@ function close(connection: ConnectionIndex): Step {
   };
 }
 
+/** Whether every request the sequence started has settled, so no send is between its steps. */
+const quiet = (world: World): boolean => world.settled === world.inFlight.length;
+
+/** Sets the node's pending count from its transactions, and notes a fall. */
+function nodeChanged(world: World, before: bigint): void {
+  world.harness.node.pending = pendingOf(world);
+  if (world.harness.node.pending < before) {
+    world.fell = true;
+  }
+}
+
+/**
+ * `hardhat_dropTransaction` of the transaction at the index-th nonce below the pending count: the
+ * pending count falls to it, and the node keeps the transactions above it. On edr-simulated only;
+ * a step while a request is in flight is skipped, since that send chose its nonce before.
+ */
+function drop(index: number): Step {
+  return {
+    check: () => true,
+    run: async (_model, world) => {
+      const before = pendingOf(world);
+      const counted = [...world.delivered.keys()]
+        .filter((nonce) => nonce < before)
+        .toSorted((a, b) => (a < b ? -1 : 1));
+      const nonce = counted[index % Math.max(counted.length, 1)];
+      if (world.type !== "edr-simulated" || !quiet(world) || nonce === undefined) {
+        return;
+      }
+      world.delivered.delete(nonce);
+      nodeChanged(world, before);
+      await Promise.resolve();
+    },
+    toString: () => `drop(${index})`,
+  };
+}
+
+/** `evm_snapshot`: the node's transactions now, queued ones included. On edr-simulated only. */
+const snapshot: Step = {
+  check: () => true,
+  run: async (_model, world) => {
+    if (world.type === "edr-simulated" && quiet(world)) {
+      world.snapshot = new Map(world.delivered);
+    }
+    await Promise.resolve();
+  },
+  toString: () => "snapshot",
+};
+
+/**
+ * `evm_revert` to the last snapshot, which it uses up: the node has exactly the transactions it
+ * had then, so a transaction queued at the snapshot comes back. On edr-simulated only.
+ */
+const revert: Step = {
+  check: () => true,
+  run: async (_model, world) => {
+    const saved = world.snapshot;
+    if (world.type !== "edr-simulated" || !quiet(world) || saved === undefined) {
+      return;
+    }
+    const before = pendingOf(world);
+    world.delivered = new Map(saved);
+    delete world.snapshot;
+    nodeChanged(world, before);
+    await Promise.resolve();
+  },
+  toString: () => "revert",
+};
+
 const connectionArb = fc.constantFrom<ConnectionIndex>(0, 1);
 const indexArb = fc.nat({ max: 2 });
 const transportArb = fc.constantFrom<"through" | "own">("through", "own");
@@ -868,6 +1020,9 @@ const stepArbs: [fc.Arbitrary<Step>, number][] = [
   [fc.boolean().map(kms), 1],
   [fc.constant(holdLimit), 1],
   [connectionArb.map(close), 1],
+  [fc.nat({ max: 3 }).map(drop), 1],
+  [fc.constant(snapshot), 1],
+  [fc.constant(revert), 1],
 ];
 
 const steps = fc.commands(
@@ -909,6 +1064,7 @@ async function newWorld(
     violations: [],
     kinds,
     tick: (ms) => t.mock.timers.tick(ms),
+    fell: false,
   };
   harness.node.onRaw = onRaw(world);
   harness.node.lookUp = (hash, connection) => {
@@ -996,6 +1152,53 @@ function mockGlobals(t: TestContext): void {
 }
 
 /**
+ * The falls of #489 on edr-simulated, from the QA of #488: each must sign no nonce the node holds
+ * and leave no gap.
+ */
+const KNOWN_489: { name: string; steps: Step[] }[] = [
+  {
+    name: "a dropped transaction below a reservation, with a queued one above it",
+    steps: [
+      pluginSend(0),
+      pluginSend(0),
+      pluginSend(0),
+      libraryConsume(0, "own"),
+      pluginSend(0),
+      drop(1),
+      pluginSend(0),
+      pluginSend(0),
+    ],
+  },
+  {
+    name: "a revert to a snapshot that holds a queued transaction",
+    steps: [
+      libraryConsume(0, "own"),
+      pluginSend(0),
+      snapshot,
+      librarySign(0),
+      libraryBroadcast(0, 0),
+      pluginSend(0),
+      revert,
+      libraryConsume(0, "own"),
+      pluginSend(0),
+    ],
+  },
+  {
+    name: "a reservation that outlives a revert",
+    steps: [
+      snapshot,
+      pluginSend(0),
+      pluginSend(0),
+      libraryConsume(0, "own"),
+      revert,
+      pluginSend(0),
+      pluginSend(0),
+      pluginSend(0),
+    ],
+  },
+];
+
+/**
  * Sequences every run tries before the random ones: the orderings where a reset, a hold limit or
  * a lost answer meets a reservation or a hold, which random sequences of 10 steps reach rarely.
  */
@@ -1035,6 +1238,7 @@ const EXAMPLES: ["http" | "edr-simulated", Step[]][] = [
     "http",
     [libraryConsume(0, "through"), holdLimit, nodeMode("no-answer"), pluginSend(0), pluginSend(0)],
   ],
+  ...KNOWN_489.map((known): ["edr-simulated", Step[]] => ["edr-simulated", known.steps]),
 ];
 
 /**
@@ -1194,6 +1398,27 @@ describe("the nonce subsystem, over random orderings of sends, resets, holds and
       await check(t, new Set<Kind>(["close-434"]));
     },
   );
+});
+
+describe("the falls of the pending count (#489)", () => {
+  it(
+    "after a drop or a revert, leaves no gap a plugin send could fill",
+    { timeout: PROPERTY_TIMEOUT_MS },
+    async (t) => {
+      await check(t, new Set<Kind>(["gap-489"]));
+    },
+  );
+  for (const known of KNOWN_489) {
+    it(`signs no held nonce and leaves no gap: ${known.name}`, async (t) => {
+      mockGlobals(t);
+      await runSequence(
+        t,
+        "edr-simulated",
+        known.steps.map(checked),
+        new Set<Kind>(["delivered", "uncertain", "gap-434", "gap-489", "hold", "reservation"]),
+      );
+    });
+  }
 });
 
 describe("the model's shrunk counterexamples (#445)", () => {

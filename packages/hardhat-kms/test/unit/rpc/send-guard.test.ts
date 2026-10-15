@@ -19,6 +19,7 @@ import {
   libraryHoldOf,
   libraryHoldsActive,
   MAX_SEND_LOCK_WAITERS,
+  MAX_SENT_RECORDS,
   RESERVATION_MS,
   takeOwedLibraryReset,
   RETRY_TTL_MS,
@@ -731,10 +732,10 @@ describe("ConnectionSends", () => {
   it("chooses max(pending, highWater + 1) and only raises the mark", () => {
     const sends = new ConnectionSends({ highWater: true, timers: fakeTimers() });
     assert.equal(sends.nonceFor("0xa", 3n), 3n, "no mark yet: the pending count");
-    sends.recordSent("0xa", 3n);
+    sends.recordSent("0xa", 3n, "0x03");
     assert.equal(sends.nonceFor("0xa", 3n), 4n, "the node lags");
     assert.equal(sends.nonceFor("0xa", 9n), 9n, "the node is ahead");
-    sends.recordSent("0xa", 1n);
+    sends.recordSent("0xa", 1n, "0x01");
     assert.equal(sends.nonceFor("0xa", 0n), 4n, "a lower nonce does not lower the mark");
     assert.equal(sends.nonceFor("0xb", 0n), 0n, "each sender has its own mark");
     sends.close();
@@ -743,7 +744,7 @@ describe("ConnectionSends", () => {
 
   it("keeps no mark when the high-water mark is off", () => {
     const sends = new ConnectionSends({ highWater: false });
-    sends.recordSent("0xa", 5n);
+    sends.recordSent("0xa", 5n, "0x05");
     assert.equal(sends.nonceFor("0xa", 0n), 0n);
   });
 
@@ -889,10 +890,10 @@ describe("ConnectionSends", () => {
     assert.equal(sends.takeRetry("a2"), undefined);
     assert.equal(sends.takeRetry("b"), b);
     assert.equal(sends.highWaterOf("0xa"), undefined);
-    sends.recordSent("0xa", 2n);
+    sends.recordSent("0xa", 2n, "0x02");
     assert.equal(sends.highWaterOf("0xa"), 2n);
     const off = new ConnectionSends({ highWater: false, timers });
-    off.recordSent("0xa", 2n);
+    off.recordSent("0xa", 2n, "0x02");
     assert.equal(off.highWaterOf("0xa"), undefined);
   });
 });
@@ -916,7 +917,7 @@ describe("ConnectionSends nonce reservations", () => {
     sends.reserve(COW, 5n);
     assert.equal(sends.nonceFor(COW, 0n), 6n);
     assert.equal(sends.nonceFor(COW, 9n), 9n);
-    sends.recordSent(COW, 7n);
+    sends.recordSent(COW, 7n, "0x07");
     assert.equal(sends.nonceFor(COW, 0n), 8n);
     assert.equal(sends.nonceFor(ZERO, 2n), 2n, "another sender's reservations do not count");
   });
@@ -1032,11 +1033,11 @@ describe("ConnectionSends nonce reservations", () => {
     sends.resetReservation(COW_KEY);
     assert.deepEqual(gaps(), [], "nothing above it: no gap");
     sends.reserve(COW, 0n, true);
-    sends.recordSent(COW, 0n);
+    sends.recordSent(COW, 0n, "0x00");
     sends.resetReservation(COW_KEY);
     assert.deepEqual(gaps(), [], "a mark at its own nonce is no gap");
     sends.reserve(COW, 1n, true);
-    sends.recordSent(COW, 2n);
+    sends.recordSent(COW, 2n, "0x02");
     sends.resetReservation(COW_KEY);
     assert.deepEqual(gaps(), ["1"], "the mark is above it");
     const { sends: other } = withClock(false);
@@ -1227,7 +1228,7 @@ describe("ConnectionSends nonce reservations", () => {
           sends.reserve(COW, 1n);
           sends.resetReservation(COW_KEY);
         }
-        sends.recordSent(COW, 2n);
+        sends.recordSent(COW, 2n, "0x02");
         if (settlement === "reset") {
           sends.resetReservation(COW_KEY);
         } else if (settlement === "signature") {
@@ -1325,7 +1326,7 @@ describe("ConnectionSends nonce reservations", () => {
     const { sends } = withClock();
     sends.reserve(COW, 1n, true);
     sends.signedReservation(COW, 1n);
-    sends.recordSent(COW, 2n);
+    sends.recordSent(COW, 2n, "0x02");
     sends.resetReservation(COW_KEY);
     assert.equal(sends.hasReservations(COW), false);
     assert.match(String(warn.mock.calls[0]?.arguments[0]), /with nonce 1 after its 60 s hold/);
@@ -1333,11 +1334,11 @@ describe("ConnectionSends nonce reservations", () => {
 
   it("with the mark off, counts a nonce the node took above a live reservation (#434)", () => {
     const { sends } = withClock(false);
-    sends.recordSent(COW, 4n);
+    sends.recordSent(COW, 4n, "0x04");
     assert.equal(sends.nonceFor(COW, 0n), 0n, "no reservation below it: the pending count decides");
     sends.reserve(COW, 1n);
     assert.equal(sends.nonceFor(COW, 0n), 5n, "a reservation made later, below it");
-    sends.recordSent(COW, 7n);
+    sends.recordSent(COW, 7n, "0x07");
     assert.equal(sends.nonceFor(COW, 0n), 8n);
     assert.equal(sends.nonceFor(ZERO, 0n), 0n, "another sender's");
     sends.releaseReservation(COW, 1n);
@@ -1351,7 +1352,11 @@ describe("ConnectionSends nonce reservations", () => {
     sends.reserve(COW, 0n);
     assert.equal(sends.nonceFor(COW, 7n), 8n, "the node does not count 7 at a pending count of 7");
     assert.equal(sends.nonceFor(COW, 8n), 8n, "the node counts 7 at 8, and 4 too");
-    assert.equal(sends.nonceFor(COW, 0n), 1n, "both are forgotten");
+    assert.equal(
+      sends.nonceFor(COW, 0n),
+      8n,
+      "a read without lookups keeps both: after a fall the node may hold them again",
+    );
   });
 
   it("forgets every reservation when the connection closes, and reserves nothing after", () => {
@@ -1361,6 +1366,332 @@ describe("ConnectionSends nonce reservations", () => {
     assert.equal(sends.nonceFor(COW, 0n), 0n);
     sends.reserve(COW, 1n);
     assert.equal(sends.nonceFor(COW, 0n), 0n);
+  });
+});
+
+/** A transaction hash for a nonce, in the #489 tests. */
+function hash(nonce: bigint): string {
+  return `0x${nonce.toString(16).padStart(64, "0")}`;
+}
+
+/**
+ * A fake node's answers to `eth_getTransactionByHash`: `true` when it has the transaction,
+ * `false` when it does not, `undefined` when the lookup fails. Each lookup is counted.
+ */
+function node(held: Iterable<bigint> = [], failing: Iterable<bigint> = []) {
+  const has = new Set([...held].map(hash));
+  const fails = new Set([...failing].map(hash));
+  const lookedUp: string[] = [];
+  return {
+    has,
+    lookedUp,
+    lookUp: async (asked: string): Promise<boolean | undefined> => {
+      await Promise.resolve();
+      lookedUp.push(asked);
+      return fails.has(asked) ? undefined : has.has(asked);
+    },
+  };
+}
+
+describe("ConnectionSends after the pending count falls (#489)", () => {
+  const COW = "0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
+
+  /** A send through the plugin: the nonce choice, then the node takes the transaction. */
+  async function send(
+    sends: ConnectionSends,
+    pending: bigint,
+    fake: ReturnType<typeof node>,
+  ): Promise<bigint> {
+    const nonce = await sends.chooseNonce(COW, pending, fake.lookUp);
+    sends.recordSent(COW, nonce, hash(nonce));
+    fake.has.add(hash(nonce));
+    return nonce;
+  }
+
+  it("takes the first nonce the node no longer has after a fall (the #489 repro)", async () => {
+    const { sends } = withClock(false);
+    for (let nonce = 0n; nonce < 5n; nonce++) {
+      sends.recordSent(COW, nonce, hash(nonce));
+    }
+    sends.reserve(COW, 0n);
+    // A reset: the node has none of them.
+    const fake = node();
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 1n);
+    assert.deepEqual(fake.lookedUp, [1n, 2n, 3n, 4n].map(hash), "each above the count, once");
+  });
+
+  it("keeps a nonce whose transaction the node still has, or whose lookup fails", async () => {
+    const { sends } = withClock(false);
+    for (let nonce = 0n; nonce < 5n; nonce++) {
+      sends.recordSent(COW, nonce, hash(nonce));
+    }
+    sends.reserve(COW, 0n);
+    const fake = node([1n, 3n], [2n]);
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 4n, "1 held, 2 unknown, 3 held");
+    assert.equal(sends.nonceFor(COW, 0n), 5n, "a read without lookups keeps every record");
+  });
+
+  it("does not move a reservation that outlives a fall, and fills below it", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    assert.equal(await send(sends, 0n, fake), 0n);
+    assert.equal(await send(sends, 1n, fake), 1n);
+    assert.equal(await send(sends, 2n, fake), 2n);
+    assert.equal(await sends.chooseNonce(COW, 3n, fake.lookUp), 3n);
+    sends.reserve(COW, 3n);
+    // hardhat_reset: the node has nothing, and the library client still has nonce 3.
+    fake.has.clear();
+    assert.equal(sends.nonceFor(COW, 0n), 0n, "a read after the fall");
+    assert.deepEqual(
+      [await send(sends, 0n, fake), await send(sends, 1n, fake), await send(sends, 2n, fake)],
+      [0n, 1n, 2n],
+    );
+    assert.equal(await send(sends, 3n, fake), 4n, "3 is still reserved");
+    assert.equal(sends.hasReservations(COW), true);
+  });
+
+  it("never takes a nonce the node still holds after a dropped transaction", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    for (const pending of [0n, 1n, 2n]) {
+      await send(sends, pending, fake);
+    }
+    assert.equal(await sends.chooseNonce(COW, 3n, fake.lookUp), 3n);
+    sends.reserve(COW, 3n);
+    assert.equal(await send(sends, 3n, fake), 4n);
+    // hardhat_dropTransaction(1): the node keeps 2 and 4, and its pending count falls to 1.
+    fake.has.delete(hash(1n));
+    assert.equal(await send(sends, 1n, fake), 1n);
+    assert.equal(await send(sends, 3n, fake), 5n, "3 reserved, 4 held");
+  });
+
+  it("never takes a nonce a revert brings back, even one recorded below the pending count", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    // A library client on its own transport takes 0; the plugin sends 1 past it.
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 0n);
+    sends.reserve(COW, 0n);
+    assert.equal(await send(sends, 0n, fake), 1n);
+    // evm_snapshot; the library's 0 reaches the node, which now counts 0 and 1.
+    fake.has.add(hash(0n));
+    assert.equal(await send(sends, 2n, fake), 2n);
+    // evm_revert: the node has the queued 1 again, and nothing else.
+    fake.has.clear();
+    fake.has.add(hash(1n));
+    const library = await sends.chooseNonce(COW, 0n, fake.lookUp);
+    assert.equal(library, 2n, "0 is still reserved and 1 is held");
+    sends.reserve(COW, library);
+    assert.equal(await send(sends, 0n, fake), 3n);
+  });
+
+  it("looks a nonce up again before it takes it, so a revert that restores it counts", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 0n);
+    sends.reserve(COW, 0n);
+    assert.equal(await send(sends, 0n, fake), 1n);
+    assert.equal(await send(sends, 0n, fake), 2n);
+    fake.has.delete(hash(2n));
+    fake.has.delete(hash(1n));
+    sends.reserve(COW, 1n);
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 2n, "1 reserved, 2 gone");
+    // A revert brings 2 back before the send that would take it.
+    fake.has.add(hash(2n));
+    fake.lookedUp.length = 0;
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 3n, "2 is held again");
+    assert.deepEqual(fake.lookedUp, [hash(2n)]);
+  });
+
+  it("sees a fall through its newest record when the pending count does not fall", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 0n);
+    sends.reserve(COW, 0n);
+    assert.equal(await send(sends, 0n, fake), 1n);
+    assert.equal(await send(sends, 0n, fake), 2n);
+    // A revert to before both sends: the pending count stays 0, and the reservation outlives it.
+    fake.has.clear();
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 1n);
+  });
+
+  it("asks the node nothing without a reservation, and nothing with the mark on", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    for (let pending = 0n; pending < 3n; pending++) {
+      await send(sends, pending, fake);
+    }
+    fake.has.clear();
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 0n);
+    assert.deepEqual(fake.lookedUp, []);
+    const { sends: http } = withClock(true);
+    http.recordSent(COW, 4n, hash(4n));
+    http.reserve(COW, 0n);
+    assert.equal(await http.chooseNonce(COW, 0n, fake.lookUp), 5n, "the mark decides, as before");
+    assert.deepEqual(fake.lookedUp, []);
+    assert.equal(http.sentRecords(COW), 0);
+  });
+
+  it("keeps a bounded record after many sends, none of it counted as sent ahead", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    for (let pending = 0n; pending < 1000n; pending++) {
+      assert.equal(await send(sends, pending, fake), pending);
+    }
+    assert.ok(sends.sentRecords(COW) <= MAX_SENT_RECORDS, `${sends.sentRecords(COW)} records`);
+    // No queued transaction: a reservation at the pending count is the only nonce to skip.
+    sends.reserve(COW, 1000n);
+    assert.equal(sends.nonceFor(COW, 1000n), 1001n);
+    assert.equal(await sends.chooseNonce(COW, 1000n, fake.lookUp), 1001n);
+  });
+
+  it("does not fill a nonce whose record it dropped to stay bounded", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    const total = BigInt(MAX_SENT_RECORDS) + 2n;
+    for (let pending = 0n; pending < total; pending++) {
+      await send(sends, pending, fake);
+    }
+    // 0 and 1 left the record. A fall to 0 with 0 reserved: the node may still hold 1.
+    fake.has.clear();
+    fake.has.add(hash(1n));
+    sends.reserve(COW, 0n);
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 2n);
+  });
+
+  it("sees a fall through a record at the pending count, with the newest still held", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 0n);
+    sends.reserve(COW, 0n);
+    assert.equal(await send(sends, 0n, fake), 1n);
+    assert.equal(await send(sends, 0n, fake), 2n);
+    // The library's 0 reaches the node, then hardhat_dropTransaction(1): the count falls to 1.
+    fake.has.delete(hash(1n));
+    assert.equal(await sends.chooseNonce(COW, 1n, fake.lookUp), 1n);
+  });
+
+  it("looks each record up once per fall", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    for (const pending of [0n, 1n, 2n]) {
+      await send(sends, pending, fake);
+    }
+    fake.has.clear();
+    // The fall is seen with no reservation: nothing is looked up yet.
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 0n);
+    sends.reserve(COW, 0n);
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 1n);
+    assert.deepEqual(fake.lookedUp, [1n, 2n].map(hash));
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 1n);
+    assert.deepEqual(fake.lookedUp, [1n, 2n, 1n].map(hash), "only the gone nonce it takes");
+  });
+
+  it("returns to the rule before the fall once nothing above the pending count may be held", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    for (const pending of [0n, 1n, 2n]) {
+      await send(sends, pending, fake);
+    }
+    fake.has.clear();
+    assert.equal(await send(sends, 0n, fake), 0n);
+    assert.equal(await send(sends, 1n, fake), 1n);
+    assert.equal(await sends.chooseNonce(COW, 2n, fake.lookUp), 2n);
+    // A library client takes 2 and 4: before a fall, a send goes past both, not between them.
+    sends.reserve(COW, 2n);
+    sends.reserve(COW, 4n);
+    assert.equal(sends.nonceFor(COW, 2n), 5n);
+  });
+
+  it("before a fall, goes past held records only, and looks the nonce it takes up again", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    for (const pending of [0n, 1n, 2n]) {
+      await send(sends, pending, fake);
+    }
+    assert.equal(await sends.chooseNonce(COW, 3n, fake.lookUp), 3n);
+    sends.reserve(COW, 3n);
+    fake.has.clear();
+    assert.equal(await send(sends, 0n, fake), 0n, "1 and 2 are gone");
+    sends.releaseReservation(COW, 3n);
+    assert.equal(await sends.chooseNonce(COW, 1n, fake.lookUp), 1n);
+    sends.reserve(COW, 1n);
+    fake.lookedUp.length = 0;
+    assert.equal(await sends.chooseNonce(COW, 1n, fake.lookUp), 2n, "2 is gone");
+    assert.deepEqual(fake.lookedUp, [hash(0n), hash(2n)], "the newest record, then 2 again");
+  });
+
+  it("returns the pending count when the reservation ends during a lookup", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 0n);
+    sends.reserve(COW, 0n);
+    assert.equal(await send(sends, 0n, fake), 1n);
+    assert.equal(await send(sends, 0n, fake), 2n);
+    const lookUp = async (asked: string): Promise<boolean | undefined> => {
+      sends.releaseReservation(COW, 0n);
+      return await fake.lookUp(asked);
+    };
+    // 1 and 2 are still held, so without the reservation the pending count is the nonce.
+    assert.equal(await sends.chooseNonce(COW, 0n, lookUp), 0n);
+  });
+
+  it("skips a nonce at the highest one whose record it dropped, and takes the next", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    assert.equal(await send(sends, 0n, fake), 0n);
+    assert.equal(await sends.chooseNonce(COW, 1n, fake.lookUp), 1n);
+    sends.reserve(COW, 1n);
+    // Past the reservation at 1 until the record is full, so the first record (0) is dropped.
+    for (let sent = 1; sent <= MAX_SENT_RECORDS; sent++) {
+      await send(sends, 1n, fake);
+    }
+    assert.equal(sends.sentRecords(COW), MAX_SENT_RECORDS);
+    // hardhat_reset, and a library client takes 0 again: 1, which no record has, is free.
+    sends.releaseReservation(COW, 1n);
+    fake.has.clear();
+    sends.reserve(COW, 0n);
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 1n);
+  });
+
+  it("keeps the rule after a fall while a record above the pending count may be held", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    for (const pending of [0n, 1n, 2n]) {
+      await send(sends, pending, fake);
+    }
+    // hardhat_dropTransaction(0) and (1): the node keeps 2, queued.
+    fake.has.delete(hash(0n));
+    fake.has.delete(hash(1n));
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 0n);
+    sends.reserve(COW, 0n);
+    sends.reserve(COW, 3n);
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 1n, "below 2, between the two");
+  });
+
+  it("does not warn about a gap below a record the node no longer has", async (t) => {
+    const warning = t.mock.method(console, "warn", () => undefined);
+    const { sends } = withClock(false);
+    const fake = node();
+    for (const pending of [0n, 1n, 2n]) {
+      await send(sends, pending, fake);
+    }
+    fake.has.clear();
+    sends.reserve(COW, 0n);
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 1n, "1 and 2 are gone");
+    sends.resetReservation(`1:${COW}`);
+    assert.equal(sends.hasReservations(COW), false);
+    assert.equal(warning.mock.callCount(), 0);
+    sends.recordSent(COW, 2n, hash(2n));
+    sends.reserve(COW, 1n);
+    sends.resetReservation(`1:${COW}`);
+    assert.equal(warning.mock.callCount(), 1, "a held record above it is a gap");
+  });
+
+  it("forgets the records when the connection closes", async () => {
+    const { sends } = withClock(false);
+    await send(sends, 0n, node());
+    sends.close();
+    assert.equal(sends.sentRecords(COW), 0);
   });
 });
 

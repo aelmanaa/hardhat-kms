@@ -749,7 +749,14 @@ async function sendTransaction(
           method: request.method,
           params: kms.params,
           from: address,
-          chooseNonce: kms.callerNonce ? undefined : (pending) => sends.nonceFor(address, pending),
+          chooseNonce: kms.callerNonce
+            ? undefined
+            : async (pending) =>
+                await sends.chooseNonce(
+                  address,
+                  pending,
+                  async (hash) => await lookUpTransaction(transactions, hash),
+                ),
         }),
     );
     return await broadcast(request, signed, {
@@ -782,7 +789,7 @@ async function settleUncertain(
     return;
   }
   if (await nodeHas(uncertain.hash)) {
-    sends.recordSent(address, uncertain.nonce);
+    sends.recordSent(address, uncertain.nonce, uncertain.hash);
   } else {
     sends.dropRetriesOf(uncertain.hash);
   }
@@ -796,13 +803,25 @@ async function nodeHasTransaction(
   transactions: ConnectionTransactions,
   hash: string,
 ): Promise<boolean> {
-  let known = false;
+  return (await lookUpTransaction(transactions, hash)) === true;
+}
+
+/**
+ * Asks the node with `eth_getTransactionByHash` whether it has a transaction.
+ *
+ * @returns Whether it has, or `undefined` when the lookup failed.
+ */
+async function lookUpTransaction(
+  transactions: ConnectionTransactions,
+  hash: string,
+): Promise<boolean | undefined> {
+  let known: boolean | undefined;
   try {
     known = isObject(await transactions.request("eth_getTransactionByHash", [hash]));
   } catch (error) {
     log("looking up transaction %s failed (%s)", hash, errorName(error));
   }
-  log("transaction %s is %s the node", hash, known ? "known to" : "not known to");
+  log("transaction %s is %s the node", hash, known === true ? "known to" : "not known to");
   return known;
 }
 
@@ -964,7 +983,7 @@ async function broadcast(
   // reservations up to it; a nonce the plugin chose skipped them, and their sends still run.
   const nodeHasIt = (): void => {
     sends.settleUncertain(address, transaction.hash);
-    sends.recordSent(address, transaction.nonce);
+    sends.recordSent(address, transaction.nonce, transaction.hash);
     if (context.callerNonce) {
       sends.releaseReservationsUpTo(address, transaction.nonce);
     }
@@ -1276,7 +1295,11 @@ export async function libraryNonce(
       async (hash) => await nodeHasTransaction(transactions, hash),
     );
     requireOpen();
-    return await choose();
+    return await sends.chooseNonce(
+      address,
+      await pending(),
+      async (hash) => await lookUpTransaction(transactions, hash),
+    );
   };
   const key = `${chainId}:${address}`;
   // A failure holds and reserves nothing. viem's reset after it stays in the account's nonce
@@ -1421,7 +1444,7 @@ async function broadcastRaw(
   const nodeHasIt = (): void => {
     for (const sends of learners) {
       sends.settleUncertain(address, transaction.hash);
-      sends.recordSent(address, transaction.nonce);
+      sends.recordSent(address, transaction.nonce, transaction.hash);
       sends.releaseReservation(address, transaction.nonce);
     }
   };
