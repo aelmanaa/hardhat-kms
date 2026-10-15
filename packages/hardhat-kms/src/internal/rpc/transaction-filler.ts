@@ -4,7 +4,9 @@
 // handlers-array.js, handlers/gas/{automatic-gas-price,fixed-gas-price,automatic-gas,fixed-gas,
 // multiplied-gas-estimation}-handler.js and handlers/accounts/local-accounts.js
 // (#modifyRequest and #getSignedTransaction). The differential test in
-// test/integration/transaction-filler.test.ts fails when the two drift apart.
+// test/integration/transaction-filler.test.ts fails when the two drift apart. The deliberate
+// differences are listed in docs/contributor/transactions.md; one is that gas is estimated at the
+// pending block (#492).
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
@@ -82,6 +84,10 @@ const BASE_FEE_FULL_BLOCKS = 3n;
 const REWARD_PERCENTILE = 50;
 // The JSON-RPC error code of a method the node does not have.
 const METHOD_NOT_FOUND = -32601;
+// The JSON-RPC error code of params the node does not accept.
+const INVALID_PARAMS = -32602;
+// A node's message about the `pending` block tag.
+const PENDING = /pending/i;
 // MultipliedGasEstimation: the share of the latest block's gas limit that is cached as the cap.
 const BLOCK_GAS_LIMIT_SAFETY_FACTOR = 0.95;
 
@@ -100,6 +106,18 @@ function isInternalCallOutOfGas(error: Error): boolean {
   return (
     error.name === "InternalCallOutOfGasError" ||
     (isObject(data) && data.reason === "InternalCallOutOfGas")
+  );
+}
+
+/**
+ * Tells whether a failed `eth_estimateGas` at the `pending` block is the node refusing the block
+ * tag: an Error with JSON-RPC code -32602 (invalid params), or one whose message names `pending`.
+ * An execution failure, a timeout or any other error is not.
+ */
+function refusesPendingTag(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (Reflect.get(error, "code") === INVALID_PARAMS || PENDING.test(error.message))
   );
 }
 
@@ -332,11 +350,31 @@ export class HardhatTransactionFiller implements TransactionFiller {
     }
   }
 
-  /** MultipliedGasEstimation#getMultipliedGasEstimation. */
+  /**
+   * `eth_estimateGas` at the `pending` block, the state the pending nonce counts. Hardhat, viem and
+   * ethers send no block tag, so the node uses `latest`. A node whose `latest` lags the account's
+   * pending transactions then simulates with a stale nonce and skips a self-sponsored EIP-7702
+   * authorization, which EIP-7702 ignores rather than fails: the estimate is too low and the
+   * transaction runs out of gas (#492). When the node refuses the tag, the request is sent again
+   * as Hardhat sends it.
+   */
+  async #requestEstimate(params: unknown[]): Promise<unknown> {
+    const [tx] = params;
+    try {
+      return await this.#request("eth_estimateGas", [tx, "pending"]);
+    } catch (error) {
+      if (!refusesPendingTag(error)) {
+        throw error;
+      }
+      return await this.#request("eth_estimateGas", params);
+    }
+  }
+
+  /** MultipliedGasEstimation#getMultipliedGasEstimation, with the estimate at `pending`. */
   async #estimateGas(params: unknown[]): Promise<string> {
     try {
       const estimate = stringResult(
-        await this.#request("eth_estimateGas", params),
+        await this.#requestEstimate(params),
         "eth_estimateGas",
         "eth_estimateGas",
       );

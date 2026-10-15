@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
+import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import { HardhatPluginError } from "hardhat/plugins";
 import { addr, Transaction } from "micro-eth-signer";
 
@@ -21,6 +22,9 @@ import { HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
 const FROM = HARDHAT_ACCOUNT_0.address;
 const TO = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8";
 const CHAIN = 31337n;
+
+/** A number as a JSON-RPC quantity. */
+const quantity = (value: bigint) => `0x${value.toString(16)}`;
 
 type Answer = unknown;
 type Handler = (params: unknown[] | undefined) => Answer;
@@ -137,9 +141,10 @@ describe("HardhatTransactionFiller fees", () => {
       method: "eth_feeHistory",
       params: ["0x1", "latest", [50]],
     });
-    // The estimate sees the filled fees.
+    // The estimate sees the filled fees, at the pending block.
     assert.deepEqual(node.calls[2]?.params, [
       { from: FROM, to: TO, maxFeePerGas: "0x51", maxPriorityFeePerGas: "0x2" },
+      "pending",
     ]);
   });
 
@@ -500,6 +505,191 @@ describe("HardhatTransactionFiller gas", () => {
   });
 });
 
+// Live run 38801021811 (#492): the GCP account had nonce 126 on a node one block behind and 127
+// on the chain, and signed a self-sponsored EIP-7702 delegate-and-call with authorization nonce
+// 128. On the lagging state the authorization's nonce does not match, so the node skips it and
+// estimates a plain call: 20184 gas. With the authorization applied, the call needs 71897.
+const LAGGING_NONCE = { latest: 126n, pending: 127n } as const;
+const AUTHORIZATION_NONCE = 128n;
+const SKIPPED_ESTIMATE = 20184n;
+const APPLIED_ESTIMATE = 71897n;
+// add(1), as the live suite's LiveCheck takes it.
+const ADD_ONE = `0x1003e2d2${"0".repeat(63)}1`;
+
+/** The account's nonce at a block tag on the lagging node; a tag it does not know has none. */
+function laggingNonce(tag: unknown): bigint | undefined {
+  if (tag === "pending") {
+    return LAGGING_NONCE.pending;
+  }
+  return tag === undefined || tag === "latest" ? LAGGING_NONCE.latest : undefined;
+}
+
+/** Whether an estimate request carries an authorization with this nonce. */
+function hasAuthorizationNonce(tx: unknown, nonce: bigint): boolean {
+  const list: unknown = isObject(tx) ? tx.authorizationList : undefined;
+  return (
+    Array.isArray(list) &&
+    list.some((item: unknown) => isObject(item) && item.nonce === quantity(nonce))
+  );
+}
+
+/**
+ * A node whose `latest` state is one block behind its `pending` state. Its estimate applies a
+ * self-sponsored authorization only when the authorization's nonce is the account's nonce at the
+ * estimate's block tag plus one, as EIP-7702 does once the transaction has raised the nonce. A
+ * request without a block tag gets `latest`, as on a real node.
+ */
+const LAGGING_NODE: Record<string, Handler> = {
+  ...EIP1559_NODE,
+  eth_getTransactionCount: (params) => quantity(laggingNonce(params?.[1]) ?? 0n),
+  eth_estimateGas: (params) => {
+    const nonce = laggingNonce(params?.[1]);
+    const applied = nonce !== undefined && hasAuthorizationNonce(params?.[0], nonce + 1n);
+    return quantity(applied ? APPLIED_ESTIMATE : SKIPPED_ESTIMATE);
+  },
+};
+
+/** The lagging run's delegate-and-call: to itself, 1 wei, add(1), authorization nonce 128. */
+const DELEGATE_AND_CALL = {
+  to: FROM,
+  value: "0x1",
+  data: ADD_ONE,
+  authorizationList: [
+    {
+      chainId: "0xaa36a7",
+      address: TO,
+      nonce: quantity(AUTHORIZATION_NONCE),
+      yParity: "0x1",
+      r: `0x${"cd".repeat(32)}`,
+      s: `0x${"1b".repeat(32)}`,
+    },
+  ],
+};
+
+/** The `eth_estimateGas` requests a node received. */
+const estimatesOf = (node: ReturnType<typeof fakeNode>) =>
+  node.calls.filter((call) => call.method === "eth_estimateGas");
+
+/** A JSON-RPC error as Hardhat's http provider throws it: an Error with the node's code. */
+const rpcError = (message: string, code: number): Error =>
+  Object.assign(new Error(message), { code });
+
+describe("HardhatTransactionFiller estimates at the pending block (#492)", () => {
+  it("covers a self-sponsored authorization when the latest block lags the pending one", async () => {
+    const { node, filled } = await fill(LAGGING_NODE, DELEGATE_AND_CALL);
+    assert.equal(filled.nonce, LAGGING_NONCE.pending);
+    assert.equal(filled.gas, APPLIED_ESTIMATE);
+    assert.deepEqual(
+      estimatesOf(node).map((call) => call.params?.[1]),
+      ["pending"],
+    );
+    // The stub is faithful: without a block tag it gives the lagging run's estimate.
+    assert.equal(
+      LAGGING_NODE.eth_estimateGas?.([estimatesOf(node)[0]?.params?.[0]]),
+      quantity(SKIPPED_ESTIMATE),
+    );
+  });
+
+  it("estimates every other type with the pending tag, the same gas when pending equals latest", async () => {
+    // A node that ignores the tag: pending and latest are the same state.
+    const requests: Record<string, unknown>[] = [
+      {},
+      { gasPrice: "0x64" },
+      { gasPrice: "0x64", accessList: [{ address: TO, storageKeys: [] }] },
+      { maxFeePerGas: "0x64", maxPriorityFeePerGas: "0x1" },
+      { to: null, data: "0x6000" },
+    ];
+    for (const request of requests) {
+      const { node, filled } = await fill(
+        { ...EIP1559_NODE, eth_estimateGas: () => "0x5a3c" },
+        request,
+      );
+      assert.equal(filled.gas, 0x5a3cn);
+      const [estimate, ...others] = estimatesOf(node);
+      assert.deepEqual(others, []);
+      const [tx, tag, ...rest] = estimate?.params ?? [];
+      assert.equal(tag, "pending");
+      assert.deepEqual(rest, []);
+      assert.ok(isObject(tx) && tx.from === FROM);
+    }
+  });
+
+  it("estimates again without a block tag when the node refuses pending", async () => {
+    const rejections = [
+      rpcError("invalid argument 1: unsupported block tag", -32602),
+      rpcError("Pending block is not available", -32000),
+      new Error("eth_estimateGas does not support the PENDING tag"),
+    ];
+    for (const rejection of rejections) {
+      const { node, filled } = await fill(
+        {
+          ...EIP1559_NODE,
+          eth_estimateGas: (params) => {
+            if (params?.[1] === "pending") {
+              throw rejection;
+            }
+            return "0x5a3c";
+          },
+        },
+        {},
+      );
+      assert.equal(filled.gas, 0x5a3cn, rejection.message);
+      const [first, second, ...others] = estimatesOf(node);
+      assert.deepEqual(others, []);
+      assert.equal(first?.params?.length, 2);
+      assert.deepEqual(second?.params, [first?.params?.[0]], "the fallback is the request as is");
+    }
+  });
+
+  it("handles a failure of the fallback estimate as before", async () => {
+    const refused = rpcError("invalid params", -32602);
+    const reverted = await fill(
+      {
+        ...EIP1559_NODE,
+        eth_estimateGas: (params) => {
+          throw params?.[1] === "pending" ? refused : new Error("Execution error: reverted");
+        },
+      },
+      {},
+    );
+    assert.equal(reverted.filled.gas, 28_500_000n);
+    const other = new Error("insufficient funds");
+    await assert.rejects(
+      fill(
+        {
+          ...EIP1559_NODE,
+          eth_estimateGas: (params) => {
+            throw params?.[1] === "pending" ? refused : other;
+          },
+        },
+        {},
+      ),
+      (thrown: unknown) => thrown === other,
+    );
+  });
+
+  it("does not estimate again after any other failure of the pending estimate", async () => {
+    const failures: unknown[] = [
+      rpcError("execution reverted", 3),
+      rpcError("gas required exceeds allowance", -32000),
+      new HardhatError(HardhatError.ERRORS.CORE.NETWORK.NETWORK_TIMEOUT),
+      // Not an Error: only an Error from the node counts as a refusal.
+      { code: -32602, message: "pending" },
+    ];
+    for (const failure of failures) {
+      const { node, filler: instance } = filler({
+        ...EIP1559_NODE,
+        eth_estimateGas: async () => await Promise.reject(failure),
+      });
+      await assert.rejects(
+        instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]),
+        (thrown: unknown) => thrown === failure,
+      );
+      assert.equal(estimatesOf(node).length, 1);
+    }
+  });
+});
+
 describe("HardhatTransactionFiller checks", () => {
   it("reads the pending nonce, or keeps the caller's", async () => {
     const { node, filled } = await fill(EIP1559_NODE, {});
@@ -669,8 +859,6 @@ describe("HardhatTransactionFiller checks", () => {
 
 const hex = (value: string) => new Uint8Array(Buffer.from(value.slice(2), "hex"));
 
-/** A number as a JSON-RPC quantity. */
-const quantity = (value: bigint) => `0x${value.toString(16)}`;
 /** A number as 32 bytes. */
 const word = (value: bigint) => `0x${value.toString(16).padStart(64, "0")}`;
 
