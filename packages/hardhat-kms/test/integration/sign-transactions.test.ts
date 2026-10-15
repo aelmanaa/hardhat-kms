@@ -5,6 +5,7 @@ import { after, before, describe, it, mock } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import hardhatEthers from "@nomicfoundation/hardhat-ethers";
 import hardhatViem from "@nomicfoundation/hardhat-viem";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import { HardhatPluginError } from "hardhat/plugins";
@@ -577,7 +578,7 @@ describe("sending from a KMS account on a simulated network", () => {
 
   async function connect(hardfork?: string) {
     const hre = await createHardhatRuntimeEnvironment({
-      plugins: [hardhatKms, hardhatViem],
+      plugins: [hardhatKms, hardhatViem, hardhatEthers],
       kms: { keys: { cow: vaultKey("cow") }, simulatedBalance: ONE_ETHER },
       networks: {
         local: {
@@ -627,6 +628,84 @@ describe("sending from a KMS account on a simulated network", () => {
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     assert.equal(receipt.status, "success");
     assert.equal(getAddress(receipt.from), COW);
+  });
+
+  /** The block number and cow's nonce, which must not move when a send is refused. */
+  async function chainState(provider: {
+    request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+  }): Promise<unknown[]> {
+    return [
+      await provider.request({ method: "eth_blockNumber" }),
+      await provider.request({ method: "eth_getTransactionCount", params: [COW, "pending"] }),
+    ];
+  }
+
+  describe("a requested type that disagrees with the fee fields (#496)", () => {
+    it("refuses viem's legacy type with EIP-1559 fees, and mines nothing", async () => {
+      const { viem, provider } = await connect();
+      const wallet = await viem.getWalletClient(COW);
+      const initial = await chainState(provider);
+      // viem's types forbid EIP-1559 fees on a legacy request, but a JSON-RPC account sends them.
+      const request = {
+        to: getAddress(TO),
+        value: 1n,
+        type: "legacy",
+        maxFeePerGas: 10n ** 10n,
+        maxPriorityFeePerGas: 1n,
+      };
+      await assert.rejects(
+        async () => {
+          const result: unknown = Reflect.apply(wallet.sendTransaction, wallet, [request]);
+          return await Promise.resolve(result);
+        },
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.ok(
+            error.message.includes(
+              "the transaction asks for type 0x0 (legacy), but its fields make it type 0x2 (eip1559); nothing was signed",
+            ),
+            error.message,
+          );
+          return true;
+        },
+      );
+      assert.deepEqual(await chainState(provider), initial);
+    });
+
+    it("refuses an ethers JsonRpcSigner's type 2 with a gasPrice, and mines nothing", async () => {
+      const { ethers, provider } = await connect();
+      const browser = new ethers.BrowserProvider(provider);
+      try {
+        const signer = await browser.getSigner(COW);
+        const initial = await chainState(provider);
+        await assert.rejects(
+          signer.sendTransaction({ to: TO, value: 1n, type: 2, gasPrice: 10n ** 10n }),
+          (error: unknown) => {
+            assert.ok(error instanceof Error);
+            assert.ok(
+              error.message.includes(
+                "the transaction asks for type 0x2 (eip1559), but its fields make it type 0x0 (legacy); nothing was signed",
+              ),
+              error.message,
+            );
+            return true;
+          },
+        );
+        assert.deepEqual(await chainState(provider), initial);
+      } finally {
+        browser.destroy();
+      }
+    });
+
+    it("still mines viem's legacy type with no fees: the filler chooses them", async () => {
+      const { viem } = await connect();
+      const wallet = await viem.getWalletClient(COW);
+      const publicClient = await viem.getPublicClient();
+      const hash = await wallet.sendTransaction({ to: getAddress(TO), value: 1n, type: "legacy" });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      assert.equal(receipt.status, "success");
+      assert.equal(getAddress(receipt.from), COW);
+    });
   });
 
   describe("EIP-7702 authorizations from viem (#140)", () => {

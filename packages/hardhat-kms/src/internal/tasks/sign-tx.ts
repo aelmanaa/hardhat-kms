@@ -11,7 +11,9 @@ import { catalogError, errorName } from "../errors.ts";
 import { createConnectionChain } from "../rpc/chain-id.ts";
 import {
   createTransactionFiller,
+  describeType,
   isBlobType,
+  SIGNED_TYPES,
   type UnsignedTransaction,
 } from "../rpc/transaction-filler.ts";
 import { type SignedTransaction, signTransaction } from "../rpc/transactions.ts";
@@ -78,25 +80,6 @@ const QUANTITY_FIELDS = [
 
 /** The name of a field that other tools use, and the `eth_sendTransaction` name for it. */
 const RENAMED_FIELDS: Readonly<Record<string, string>> = { gasLimit: "gas", input: "data" };
-
-/** The micro-eth-signer type of each `type` the task signs. */
-const TYPES: Readonly<Record<number, string>> = {
-  0: "legacy",
-  1: "eip2930",
-  2: "eip1559",
-  4: "eip7702",
-};
-
-/**
- * Names a transaction type by its number and micro-eth-signer's name, such as `0x2 (eip1559)`.
- *
- * @param name - micro-eth-signer's name of the type.
- * @returns The description.
- */
-function describeType(name: string): string {
-  const number = Object.entries(TYPES).find(([, type]) => type === name)?.[0];
-  return number === undefined ? name : `0x${number} (${name})`;
-}
 
 /**
  * Reads the transaction file: a JSON object with `eth_sendTransaction` field names.
@@ -224,7 +207,7 @@ function checkFields(tx: Record<string, unknown>): string | undefined {
   if (isBlobType(tx.type)) {
     throw catalogError(ERRORS.txBlob, {}, { operation: OPERATION });
   }
-  const type = TYPES[Number.parseInt(tx.type, 16)];
+  const type = SIGNED_TYPES[Number.parseInt(tx.type, 16)];
   if (type === undefined) {
     throw catalogError(ERRORS.txFileUnsupportedType, { type: tx.type }, { operation: OPERATION });
   }

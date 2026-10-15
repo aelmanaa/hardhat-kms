@@ -1036,8 +1036,28 @@ export const ERRORS = {
     template:
       "blob transactions (EIP-4844) cannot be signed with KMS accounts; send them from another account",
     cause:
-      'The transaction has blobs, blob versioned hashes, `maxFeePerBlobGas` or type 3 (`0x3` in any case or with leading zeros, the number 3, `"3"` or `eip4844`, with or without surrounding whitespace). The plugin does not sign blob transactions. It ignores every other `type`, as Hardhat does: the fields decide.',
+      'The transaction has blobs, blob versioned hashes, `maxFeePerBlobGas` or type 3 (`0x3` in any case or with leading zeros, the number 3, `"3"` or `eip4844`, with or without surrounding whitespace). The plugin does not sign blob transactions. This check runs before the checks of `core.tx.unsupported-type` and `core.tx.type-mismatch`.',
     fix: "Send blob transactions from another account.",
+  },
+  txUnsupportedType: {
+    id: "core.tx.unsupported-type",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "transaction type {type} is not supported; KMS accounts sign types 0x0, 0x1, 0x2 and 0x4. Nothing was signed.",
+    cause:
+      "The transaction's `type` is a number other than 0, 1, 2, 3 or 4, such as `0x7e`, a chain-specific deposit type. A `type` counts as a number when it is a hex quantity (either case, any leading zeros), a decimal string, a non-negative integer or a bigint, with or without surrounding whitespace. Any other `type`, such as viem's `\"legacy\"`, is ignored: the fields decide. The check runs before any request to the node.",
+    fix: "Send the transaction from another account, or as type `0x0`, `0x1`, `0x2` or `0x4`.",
+  },
+  txRequestTypeMismatch: {
+    id: "core.tx.type-mismatch",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "the transaction asks for type {requested}, but its fields make it type {actual}; nothing was signed. Set the fee fields of type {requested}, add accessList: [] for type 0x1, or remove type.",
+    cause:
+      "The transaction's `type` disagrees with the fee fields the caller set: `gasPrice`, `maxFeePerGas` or `maxPriorityFeePerGas`. The fields make it type 0x4 with an `authorizationList`, else 0x2 with an EIP-1559 fee field, else 0x1 with an `accessList`, else 0x0. For example, type `0x2` with `gasPrice` would be signed as legacy. A `type` with no fee field is not checked: the plugin fills the fees and the type follows them. The check runs before any request to the node.",
+    fix: "Set the fee fields of the type asked for (and `accessList: []` for type 0x1), or remove `type` to let the fields decide.",
   },
   txNoGas: {
     id: "core.tx.no-gas",
