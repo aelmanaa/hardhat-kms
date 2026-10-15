@@ -118,7 +118,7 @@ To check whether such a transaction arrived, and to fill or replace a nonce, fol
 | EIP-7702        | Supported with a pre-signed `authorizationList`.        |
 | EIP-4844 (blob) | Not supported. Hardhat core does not support it either. |
 
-The fields decide the type, as in Hardhat: `authorizationList` gives EIP-7702, `maxFeePerGas` EIP-1559, `accessList` EIP-2930, and anything else legacy. With the network's default `gasPrice: "auto"`, a request without fee fields gets EIP-1559 fees when the node supports them. A transaction with `blobs`, `blobVersionedHashes`, `maxFeePerBlobGas` or `type: "0x3"` from a KMS account fails before any request to the node.
+The fields decide the type, as in Hardhat: `authorizationList` gives EIP-7702, `maxFeePerGas` EIP-1559, `accessList` EIP-2930, and anything else legacy. With the network's default `gasPrice: "auto"`, a request without fee fields gets EIP-1559 fees when the node supports them. A transaction with `blobs`, `blobVersionedHashes`, `maxFeePerBlobGas` or type 3 from a KMS account fails before any request to the node. Type 3 counts in any form: a hex quantity in either case and with any leading zeros (`"0x3"`, `"0x03"`, `"0X3"`), a number, a bigint, the decimal string `"3"` or `"eip4844"`, with or without surrounding whitespace. Every other `type` is ignored, as in Hardhat: a request whose `type` disagrees with its fields is signed as the fields say.
 
 If automatic EIP-1559 fee estimation is unavailable for an EIP-7702 transaction, the request fails with a fee-history error. Retry or set both `maxFeePerGas` and `maxPriorityFeePerGas` explicitly.
 

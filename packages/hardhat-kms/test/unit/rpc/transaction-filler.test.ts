@@ -563,6 +563,60 @@ describe("HardhatTransactionFiller checks", () => {
     }
   });
 
+  it("refuses type 3 in every spelling, before any request (#484)", async () => {
+    for (const type of [
+      "0x03",
+      "0X3",
+      "0x0003",
+      " 0x3",
+      "0x3 ",
+      "0x3\n",
+      3,
+      3n,
+      "3",
+      "03",
+      "eip4844",
+      "EIP4844",
+    ]) {
+      for (const method of ["eth_sendTransaction", "eth_signTransaction"]) {
+        const { node, filler: instance } = filler(EIP1559_NODE);
+        await assertKmsError(
+          instance.fill(method, [{ from: FROM, to: TO, type }]),
+          `${method}: blob transactions (EIP-4844) cannot be signed`,
+        );
+        assert.equal(node.calls.length, 0, String(type));
+      }
+    }
+  });
+
+  it("ignores every other type: the fields decide (#484)", async () => {
+    for (const type of [
+      "0x2",
+      "0x30",
+      "0x13",
+      "0x",
+      "x3",
+      "13",
+      "30",
+      "0x 3",
+      "eip4844x",
+      "xeip4844",
+      "eip1559",
+      2,
+      13,
+      2n,
+      true,
+      null,
+      undefined,
+      [3],
+      ["eip4844"],
+    ]) {
+      const { node, filled } = await fill(EIP1559_NODE, { type, gasPrice: "0x5" });
+      assert.equal(buildUnsignedTransaction(filled).type, "legacy", String(type));
+      assert.ok(node.calls.length > 0);
+    }
+  });
+
   it("reports unavailable EIP-1559 fees for authorizations without legacy fallback (#435)", async () => {
     for (const extra of [{}, { maxFeePerGas: "0x10" }, { maxPriorityFeePerGas: "0x1" }]) {
       const { node, filler: instance } = filler({
