@@ -32,6 +32,11 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      # The examples ask for Hardhat by their own range, so they stay copyable. A Dependabot bump
+      # of the catalog can leave them locked to the older version, and each example then loads
+      # two Hardhat copies (#482). pnpm lists the changes and says to run `pnpm dedupe`.
+      - name: Lockfile has no duplicate copies (run `pnpm dedupe` to fix)
+        run: pnpm dedupe --check --ignore-scripts
       - run: pnpm run check
 
   docs:
