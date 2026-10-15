@@ -235,15 +235,15 @@ jobs:
     # pull request deletes every changeset and a Dependabot pull request carries none, so both skip
     # the job; a skipped required check passes. changesets/action names the branch of a Version
     # Packages pull request changeset-release/<base branch> (changeset-release/main, or
-    # changeset-release/release/1.0 for a hotfix), so every changeset-release/ head skips, but only
-    # from this repository, since a fork names its own branches. Push and merge-queue runs have no
-    # head branch, so they skip too.
+    # changeset-release/release/1.0 for a hotfix into release/1.0), so only a head of that name for
+    # its own base skips, and only from this repository, since a fork names its own branches. Push
+    # and merge-queue runs have no head branch, so they skip too.
     name: Changeset
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     if: >-
       github.event_name == 'pull_request' &&
-      !(startsWith(github.head_ref, 'changeset-release/') &&
+      !(github.head_ref == format('changeset-release/{0}', github.base_ref) &&
         github.event.pull_request.head.repo.full_name == github.repository) &&
       github.event.pull_request.user.login != 'dependabot[bot]'
     steps:

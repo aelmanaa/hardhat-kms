@@ -179,10 +179,18 @@ describe("check-changeset-scope on git repositories", () => {
     sandbox = mkdtempSync(path.join(tmpdir(), "changeset-scope-test-"));
     repo = path.join(sandbox, "repo");
     mkdirSync(repo);
+    // The Node 22 CI leg loads TypeScript through `NODE_OPTIONS=--import tsx`, which Node resolves
+    // from the child's working directory. The scratch repository has no `node_modules`, so the
+    // script's process gets the workspace's copy by URL. Any other option stays.
+    const tsx = /(?:^|\s)--import(?:=|\s+)tsx(?=\s|$)/g;
+    const nodeOptions = process.env["NODE_OPTIONS"] ?? "";
     env = {
       ...process.env,
       GIT_CONFIG_GLOBAL: path.join(sandbox, "no-global-gitconfig"),
       GIT_CONFIG_NOSYSTEM: "1",
+      NODE_OPTIONS: tsx.test(nodeOptions)
+        ? nodeOptions.replaceAll(tsx, ` --import ${import.meta.resolve("tsx")} `).trim()
+        : nodeOptions,
     };
     git(["init", "--quiet", "--initial-branch=main"]);
     write("packages/hardhat-kms/src/index.ts", "export {};\n");
@@ -297,10 +305,10 @@ describe("the Changeset job of ci.yml", () => {
     base: field(field(step, "env"), "BASE_REF"),
   }));
 
-  it("skips every changeset-release/ head from this repository, and only those", () => {
+  it("skips only changeset-release/<base branch> from this repository, the Version Packages head", () => {
     assert.equal(
       field(job, "if"),
-      "github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'changeset-release/') &&\n" +
+      "github.event_name == 'pull_request' && !(github.head_ref == format('changeset-release/{0}', github.base_ref) &&\n" +
         "  github.event.pull_request.head.repo.full_name == github.repository) &&\n" +
         "github.event.pull_request.user.login != 'dependabot[bot]'",
     );
