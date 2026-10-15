@@ -1260,6 +1260,22 @@ describe("ConnectionSends nonce reservations", () => {
     assert.equal(warn.mock.callCount(), 0);
   });
 
+  it("keeps a reservation signed before a reset a candidate when it signs again (#434)", () => {
+    const { sends } = withClock();
+    sends.reserve(COW, 0n);
+    sends.reserve(COW, 1n);
+    sends.signedReservation(COW, 0n);
+    sends.resetReservation(COW_KEY);
+    // 0 had signed before the reset, so signing again says nothing new: viem resets after a
+    // broadcast that timed out too. Both stay candidates, and the one reset ends neither.
+    sends.signedReservation(COW, 0n);
+    assert.equal(sends.nonceFor(COW, 0n), 2n, "0 and 1 both stay");
+    sends.signedReservation(COW, 1n);
+    assert.equal(sends.nonceFor(COW, 0n), 2n, "1 signed after the reset; 0 is the candidate");
+    sends.releaseReservation(COW, 1n);
+    assert.equal(sends.hasReservations(COW), false, "0 failed, and its reset ends it");
+  });
+
   it("never counts a reservation made after a reset as its candidate (#434)", () => {
     const { sends } = withClock();
     sends.reserve(COW, 0n);
