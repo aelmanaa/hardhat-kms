@@ -498,7 +498,7 @@ const BLOB_TYPE_NAME = /^eip4844$/i;
  * @param type - The request's `type`.
  * @returns Its number, or undefined.
  */
-export function typeNumber(type: unknown): bigint | undefined {
+function typeNumber(type: unknown): bigint | undefined {
   if (typeof type === "string") {
     const text = type.trim();
     return QUANTITY_TYPE.test(text) ? BigInt(text) : undefined;
