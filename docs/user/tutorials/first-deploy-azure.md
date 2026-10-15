@@ -80,9 +80,9 @@ Register the provider: in `hardhat.config.ts`, import it and add it to `plugins`
 <!-- docs-check: skip -->
 
 ```ts
+import hardhatKmsAzure from "@hardhat-kms/azure";
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAzure from "@hardhat-kms/azure";
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin, hardhatKmsAzure],
@@ -199,9 +199,9 @@ A real deployer should not be able to create or delete keys. The tutorial does n
 Replace `hardhat.config.ts` with the file below. Compared with the template, it keeps `hardhatKmsAzure` in `plugins` from step 1, adds a `kms` section with the key, gives the `sepolia` network `kmsAccounts` instead of `accounts`, so no private key is in the project, sets the network's `chainId` and turns Etherscan verification off. The key id comes from the variable `AZURE_KEY_ID`, so the vault name stays out of the file:
 
 ```ts
+import hardhatKmsAzure from "@hardhat-kms/azure";
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAzure from "@hardhat-kms/azure";
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin, hardhatKmsAzure],

@@ -25,8 +25,8 @@ npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
 Add `@hardhat-kms/aws` to `plugins`. It loads `hardhat-kms` itself.
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],

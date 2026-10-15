@@ -139,8 +139,8 @@ Add the provider package to `plugins` in `hardhat.config.ts`. It loads `hardhat-
 ::: code-group
 
 ```ts [AWS KMS]
-import { defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],
@@ -148,8 +148,8 @@ export default defineConfig({
 ```
 
 ```ts [Google Cloud KMS]
-import { defineConfig } from "hardhat/config";
 import hardhatKmsGcp from "@hardhat-kms/gcp";
+import { defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsGcp],
@@ -157,8 +157,8 @@ export default defineConfig({
 ```
 
 ```ts [Azure Key Vault]
-import { defineConfig } from "hardhat/config";
 import hardhatKmsAzure from "@hardhat-kms/azure";
+import { defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAzure],

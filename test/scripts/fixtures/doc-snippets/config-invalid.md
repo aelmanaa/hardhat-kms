@@ -3,8 +3,8 @@
 An address pin that is not an address, as an earlier configuration reference had:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],
@@ -22,8 +22,8 @@ export default defineConfig({
 A network that names a key `kms.keys` does not declare:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],
@@ -43,8 +43,8 @@ A skipped fragment is not loaded:
 <!-- docs-check: skip -->
 
 ```ts
-import { defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],

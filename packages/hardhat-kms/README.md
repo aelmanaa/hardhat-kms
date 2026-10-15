@@ -34,8 +34,8 @@ The command names every required peer dependency, so the same list works with ya
 This `hardhat.config.ts` attaches one AWS KMS key to Sepolia:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],

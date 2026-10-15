@@ -79,9 +79,9 @@ Register the provider: in `hardhat.config.ts`, import it and add it to `plugins`
 <!-- docs-check: skip -->
 
 ```ts
+import hardhatKmsAws from "@hardhat-kms/aws";
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin, hardhatKmsAws],
@@ -138,9 +138,9 @@ A production deployer should have only `kms:GetPublicKey`, to derive the address
 Replace `hardhat.config.ts` with the file below. Compared with the template, it keeps `hardhatKmsAws` in `plugins` from step 1, adds a `kms` section with the key, gives the `sepolia` network `kmsAccounts` instead of `accounts`, so no private key is in the project, sets the network's `chainId` and turns Etherscan verification off:
 
 ```ts
+import hardhatKmsAws from "@hardhat-kms/aws";
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin, hardhatKmsAws],

@@ -105,8 +105,8 @@ pnpm 11 and later need an `allowBuilds` entry, and Yarn 4 needs `nodeLinker: nod
 `@hardhat-kms/aws` brings the AWS SDK (`@aws-sdk/client-kms`) with it, so there is nothing else to install. Add it to `plugins`; it loads `hardhat-kms` itself:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],
@@ -168,8 +168,8 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 On a laptop, a key often signs through an SSO profile. In CI, the job exports access keys to the environment, and with today's AWS SDK a profile in the config makes it skip them ([Never set a profile and environment keys together](../reference/credentials.md#aws)). Take `profile` from a configuration variable with an empty default, so each environment sets only what it needs. Take `region` the same way when the key lives in a region other than the profile's:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],

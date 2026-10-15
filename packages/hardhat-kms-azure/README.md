@@ -25,8 +25,8 @@ npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/azure
 Add `@hardhat-kms/azure` to `plugins`. It loads `hardhat-kms` itself.
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAzure from "@hardhat-kms/azure";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAzure],

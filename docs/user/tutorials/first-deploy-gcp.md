@@ -80,9 +80,9 @@ Register the provider: in `hardhat.config.ts`, import it and add it to `plugins`
 <!-- docs-check: skip -->
 
 ```ts
+import hardhatKmsGcp from "@hardhat-kms/gcp";
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsGcp from "@hardhat-kms/gcp";
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin, hardhatKmsGcp],
@@ -200,9 +200,9 @@ If the deployer then gets `PERMISSION_DENIED` about `serviceusage.services.use`,
 Replace `hardhat.config.ts` with the file below. Compared with the template, it keeps `hardhatKmsGcp` in `plugins` from step 1, adds a `kms` section with the key, gives the `sepolia` network `kmsAccounts` instead of `accounts`, so no private key is in the project, sets the network's `chainId` and turns Etherscan verification off. The key's project and location come from the variables you set in step 2, so the project ID stays out of the file:
 
 ```ts
+import hardhatKmsGcp from "@hardhat-kms/gcp";
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsGcp from "@hardhat-kms/gcp";
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin, hardhatKmsGcp],

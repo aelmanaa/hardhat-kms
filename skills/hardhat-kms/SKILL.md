@@ -33,8 +33,8 @@ For Google Cloud or Azure, replace `@hardhat-kms/aws` with the package from the 
 Declare each key once under `kms.keys` and attach it to networks by name with `kmsAccounts`. Merge this into the project's existing `hardhat.config.ts`: add the provider to its `plugins` and keep its other plugins and networks.
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],
@@ -73,8 +73,8 @@ npx hardhat kms accounts
 It lists each configured key with its provider, key id and address, and prints `address` lines to paste. Before a first deploy, `npx hardhat --network sepolia kms accounts --check-sign` also has each key sign a test message, which proves the credentials may sign. Add the address to the key's entry in `kms.keys`. Merge this into your existing config: only the `address` line is new, and the plugins and networks stay as they are:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],

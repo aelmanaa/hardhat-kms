@@ -98,8 +98,8 @@ Save it as `scripts/check-alchemy-owner.ts`:
 ```ts
 // The project's hardhat.config.ts loads the plugin's types; the import makes the file stand alone.
 import "hardhat-kms";
-import hre from "hardhat";
 import { alchemyWalletTransport, createSmartWalletClient } from "@alchemy/wallet-apis";
+import hre from "hardhat";
 import {
   createPublicClient,
   custom,
@@ -214,8 +214,8 @@ A send needs an Alchemy API key, and a gas sponsorship policy if Alchemy pays th
 
 ```ts
 import "hardhat-kms";
-import hre from "hardhat";
 import { alchemyWalletTransport, createSmartWalletClient } from "@alchemy/wallet-apis";
+import hre from "hardhat";
 import { sepolia } from "viem/chains";
 
 const apiKey = process.env.ALCHEMY_API_KEY;

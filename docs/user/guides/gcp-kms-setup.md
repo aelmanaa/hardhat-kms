@@ -104,8 +104,8 @@ pnpm 11 and later need an `allowBuilds` entry, and Yarn 4 needs `nodeLinker: nod
 Add the plugin to `plugins`; it loads `hardhat-kms` itself:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsGcp from "@hardhat-kms/gcp";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsGcp],

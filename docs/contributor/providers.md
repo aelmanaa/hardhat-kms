@@ -101,13 +101,13 @@ The registry also lists `RESERVED_PROVIDERS`: the ids of first-party providers t
 A third-party provider ships as its own Hardhat plugin. It adds its key types and handles its keys in the `kms` hook:
 
 ```ts
-import type { HardhatPlugin } from "hardhat/types/plugins";
 import type {
   ExternalKmsKeyConfig,
   KmsHooks,
   KmsKeyAdapter,
   KmsKeyCommonUserConfig,
 } from "hardhat-kms/types";
+import type { HardhatPlugin } from "hardhat/types/plugins";
 
 declare module "hardhat-kms/types" {
   interface KmsProviderUserConfigs {
@@ -163,11 +163,16 @@ The chain runs in `packages/hardhat-kms/src/internal/providers/create-adapter.ts
 `kms history` reads a key's sign events from its provider's audit log ([tasks reference](../user/reference/tasks.md#kms-history), [decision 0013](decisions/0013-history-from-cloud-logs.md)). A provider plugin adds a reader with a second, optional method of the `kms` hook, `readSignHistory`. It and its types are stable from 1.0 with the rest of the hook. A provider without a reader still signs; only `kms history` fails for its keys, with an error that names the provider. The types are exported from `hardhat-kms/types`:
 
 ```ts
-import type { HookContext } from "hardhat/types/hooks";
 import type { KmsKeyConfig } from "hardhat-kms/types";
+import type { HookContext } from "hardhat/types/hooks";
 
 type KmsHistoryField =
-  "principal" | "sourceIp" | "userAgent" | "requestId" | "keyVersion" | "digest";
+  | "principal"
+  | "sourceIp"
+  | "userAgent"
+  | "requestId"
+  | "keyVersion"
+  | "digest";
 
 interface KmsHistoryRequest {
   key: KmsKeyConfig; // the whole key: every version, even when the config pins one
@@ -223,9 +228,9 @@ interface KmsHooks {
 A reader for the `myvault` provider of the example above:
 
 ```ts
-import type { HardhatPlugin } from "hardhat/types/plugins";
 import { auditLogAccessDenied } from "hardhat-kms/provider-utils";
 import type { KmsHistoryEvent, KmsHistoryRequest, KmsHooks } from "hardhat-kms/types";
+import type { HardhatPlugin } from "hardhat/types/plugins";
 
 // The plugin's own code: queries the vault's audit log, passing request.signal to each call, and
 // maps each entry to an event. `stopped` is true when it stopped paging before the range's end.

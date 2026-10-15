@@ -3,8 +3,8 @@
 A config that writes to stdout and loads:
 
 ```ts
-import { defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { defineConfig } from "hardhat/config";
 
 console.log("[]");
 
@@ -17,8 +17,8 @@ export default defineConfig({
 A config that writes to stdout and fails Hardhat's validation:
 
 ```ts
-import { defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { defineConfig } from "hardhat/config";
 
 console.log("loading the config");
 

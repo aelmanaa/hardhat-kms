@@ -80,8 +80,8 @@ Foundry has no Azure Key Vault signer in a release yet: Foundry 1.8.4, the lates
 To keep the choice in `hardhat.config.ts`, point each key at the same variables with `configVariable()`:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws],

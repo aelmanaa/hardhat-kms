@@ -27,9 +27,9 @@ You need a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [G
 Declare each key once under `kms.keys`, and list it by name in the `kmsAccounts` of every network that uses it:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAzure from "@hardhat-kms/azure";
 import hardhatKmsGcp from "@hardhat-kms/gcp";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsGcp, hardhatKmsAzure],
@@ -67,10 +67,10 @@ Each provider's keys need its provider package in `plugins`: `@hardhat-kms/aws`,
 With a key on each of the three clouds, all three packages go in `plugins`. Here `deployer` signs on Sepolia, on Arbitrum One and on a local fork of Sepolia, and `ops` signs on Sepolia only:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsAws from "@hardhat-kms/aws";
 import hardhatKmsAzure from "@hardhat-kms/azure";
 import hardhatKmsGcp from "@hardhat-kms/gcp";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsAws, hardhatKmsGcp, hardhatKmsAzure],
@@ -143,8 +143,8 @@ Pass the same wallet client to `viem.deployContract` as `{ client: { wallet: ops
 A network can have `accounts` and `kmsAccounts` together. Its local accounts then come first in `eth_accounts`, so the libraries' default sender is the first local account. Choose the KMS key by address, as above:
 
 ```ts
-import { configVariable, defineConfig } from "hardhat/config";
 import hardhatKmsGcp from "@hardhat-kms/gcp";
+import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatKmsGcp],
@@ -177,9 +177,9 @@ hardhat-kms also works next to `@nomicfoundation/hardhat-ledger`. List hardhat-l
 Here a KMS key deploys from CI, and a Ledger address holds the roles a person approves on the device:
 
 ```ts
+import hardhatKmsAws from "@hardhat-kms/aws";
 import hardhatLedger from "@nomicfoundation/hardhat-ledger";
 import { configVariable, defineConfig } from "hardhat/config";
-import hardhatKmsAws from "@hardhat-kms/aws";
 
 export default defineConfig({
   plugins: [hardhatLedger, hardhatKmsAws],
