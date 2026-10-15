@@ -619,6 +619,14 @@ describe("HardhatTransactionFiller estimates at the pending block (#492)", () =>
       rpcError("invalid argument 1: unsupported block tag", -32602),
       rpcError("Pending block is not available", -32000),
       new Error("pending state is not available"),
+      // geth's message is known even when it mentions execution.
+      rpcError("pending state is not available for execution", -32000),
+      // Other nodes' wording: pending together with tag, block, support or not available.
+      rpcError("eth_estimateGas does not support the pending tag", -32000),
+      rpcError("unknown pending tag", -32000),
+      rpcError("no pending block", -32000),
+      rpcError("pending is unsupported", -32000),
+      rpcError("pending is not available here", -32000),
     ];
     for (const rejection of rejections) {
       const { node, filled } = await fill(
@@ -681,8 +689,13 @@ describe("HardhatTransactionFiller estimates at the pending block (#492)", () =>
       rpcError("Transaction reverted: pending block is not available", -32602),
       // Code 3 is a revert, whatever the message says.
       rpcError("pending block is not available", 3),
-      // Another message that names pending is not a refusal.
-      rpcError("eth_estimateGas does not support the pending tag", -32000),
+      rpcError("execution reverted: pending", 3),
+      rpcError("execution reverted: pending withdrawal", -32000),
+      // An execution failure that names pending and a block is not a refusal.
+      rpcError("execution failed: pending block", -32000),
+      // pending without a refusal word, or a refusal word without pending, is not one either.
+      rpcError("too many pending transactions", -32000),
+      rpcError("block tag not supported", -32000),
     ];
     for (const failure of failures) {
       const { node, filler: instance } = filler({

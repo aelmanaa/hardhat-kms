@@ -90,7 +90,12 @@ const INVALID_PARAMS = -32602;
 const EXECUTION_REVERTED = 3;
 // geth's answer when it has no pending block (eth/api_backend.go, -32000).
 const PENDING_UNAVAILABLE = /pending (?:state|block) is not available/i;
+// A revert or another execution failure, which is never a refusal of the tag.
 const REVERT = /revert/i;
+const EXECUTION = /execution/i;
+// Another node's refusal: a message that names `pending` together with one of these words.
+const PENDING = /pending/i;
+const REFUSAL = /tag|block|support|not available/i;
 // MultipliedGasEstimation: the share of the latest block's gas limit that is cached as the cap.
 const BLOCK_GAS_LIMIT_SAFETY_FACTOR = 0.95;
 
@@ -114,19 +119,25 @@ function isInternalCallOutOfGas(error: Error): boolean {
 
 /**
  * Tells whether a failed `eth_estimateGas` at the `pending` block is the node refusing the block
- * tag: an Error with JSON-RPC code -32602 (invalid params), or geth's "pending state is not
- * available" or "pending block is not available". A revert (code 3, or a message that says
- * revert), a timeout or any other error is not, whatever its message says about `pending`.
+ * tag. Never for an error with code 3 or a message that says revert. Otherwise a known refusal
+ * (JSON-RPC code -32602, or geth's "pending state is not available" or "pending block is not
+ * available"), or a message that does not mention execution and names `pending` together with
+ * "tag", "block", "support" or "not available", as other nodes word it. A timeout or anything else
+ * is not a refusal.
  */
 function refusesPendingTag(error: unknown): boolean {
-  if (!(error instanceof Error) || REVERT.test(error.message)) {
+  if (!(error instanceof Error)) {
     return false;
   }
   const code: unknown = Reflect.get(error, "code");
-  return (
-    code === INVALID_PARAMS ||
-    (code !== EXECUTION_REVERTED && PENDING_UNAVAILABLE.test(error.message))
-  );
+  const { message } = error;
+  if (code === EXECUTION_REVERTED || REVERT.test(message)) {
+    return false;
+  }
+  if (code === INVALID_PARAMS || PENDING_UNAVAILABLE.test(message)) {
+    return true;
+  }
+  return !EXECUTION.test(message) && PENDING.test(message) && REFUSAL.test(message);
 }
 
 /**
