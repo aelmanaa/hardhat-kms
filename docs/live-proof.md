@@ -85,7 +85,7 @@ Cases:
 | `revert-eip2930`         | fork | an unknown selector to `LiveCheck`, with an access list and a gas limit of 50,000                                                |
 | `call-legacy`            | live | `add(1)` with 1 wei                                                                                                              |
 | `call-eip2930`           | live | `add(1)` with 1 wei, with an access list                                                                                         |
-| `call-eip1559`           | live | two `add(1)` calls with 1 wei, back to back: the second is filled while the first is pending                                     |
+| `call-eip1559`           | live | `add(1)` with 1 wei                                                                                                              |
 | `replace-legacy`         | fork | replace a pending 1 wei self-send                                                                                                |
 | `replace-eip2930`        | fork | replace a pending 1 wei self-send, with an access list                                                                           |
 | `replace-eip1559`        | fork | replace a pending 1 wei self-send                                                                                                |

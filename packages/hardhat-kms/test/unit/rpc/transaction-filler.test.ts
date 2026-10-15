@@ -618,7 +618,7 @@ describe("HardhatTransactionFiller estimates at the pending block (#492)", () =>
     const rejections = [
       rpcError("invalid argument 1: unsupported block tag", -32602),
       rpcError("Pending block is not available", -32000),
-      new Error("eth_estimateGas does not support the PENDING tag"),
+      new Error("pending state is not available"),
     ];
     for (const rejection of rejections) {
       const { node, filled } = await fill(
@@ -674,7 +674,15 @@ describe("HardhatTransactionFiller estimates at the pending block (#492)", () =>
       rpcError("gas required exceeds allowance", -32000),
       new HardhatError(HardhatError.ERRORS.CORE.NETWORK.NETWORK_TIMEOUT),
       // Not an Error: only an Error from the node counts as a refusal.
-      { code: -32602, message: "pending" },
+      { code: -32602, message: "pending block is not available" },
+      // A revert whose reason mentions pending is a revert, with any code.
+      rpcError("execution reverted: withdrawal pending", 3),
+      rpcError("execution reverted: pending state is not available", -32000),
+      rpcError("Transaction reverted: pending block is not available", -32602),
+      // Code 3 is a revert, whatever the message says.
+      rpcError("pending block is not available", 3),
+      // Another message that names pending is not a refusal.
+      rpcError("eth_estimateGas does not support the pending tag", -32000),
     ];
     for (const failure of failures) {
       const { node, filler: instance } = filler({
@@ -685,8 +693,78 @@ describe("HardhatTransactionFiller estimates at the pending block (#492)", () =>
         instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]),
         (thrown: unknown) => thrown === failure,
       );
-      assert.equal(estimatesOf(node).length, 1);
+      assert.equal(estimatesOf(node).length, 1, String(Reflect.get(Object(failure), "message")));
     }
+  });
+
+  it("estimates a replacement without a block tag, and a caller's later nonce at pending", async () => {
+    // The pending count is 7: nonce 6 replaces a pending transaction; 7 and 8 do not.
+    for (const [nonce, params] of [
+      ["0x6", 1],
+      ["0x7", 2],
+      ["0x8", 2],
+    ] as const) {
+      const { node, filled } = await fill(EIP1559_NODE, { nonce });
+      assert.equal(filled.nonce, BigInt(nonce));
+      const [estimate, ...others] = estimatesOf(node);
+      assert.deepEqual(others, []);
+      assert.equal(estimate?.params?.length, params, nonce);
+      if (params === 2) {
+        assert.equal(estimate?.params?.[1], "pending");
+      }
+      // The count is read once, before the estimate, for the sender.
+      const counts = node.calls.filter((call) => call.method === "eth_getTransactionCount");
+      assert.deepEqual(counts, [{ method: "eth_getTransactionCount", params: [FROM, "pending"] }]);
+      assert.ok(
+        node.methods().indexOf("eth_getTransactionCount") <
+          node.methods().indexOf("eth_estimateGas"),
+      );
+    }
+  });
+
+  it("estimates the lagging run's replacement as before (#492)", async () => {
+    // Nonce 126 replaces the pending transaction the lagging node counts at pending: its
+    // authorization, nonce 127, only matches the state without that transaction.
+    const replacement = {
+      ...DELEGATE_AND_CALL,
+      nonce: quantity(LAGGING_NONCE.latest),
+      authorizationList: [{ ...DELEGATE_AND_CALL.authorizationList[0], nonce: quantity(127n) }],
+    };
+    const { node, filled } = await fill(LAGGING_NODE, replacement);
+    assert.equal(filled.gas, APPLIED_ESTIMATE);
+    assert.deepEqual(
+      estimatesOf(node).map((call) => call.params?.length),
+      [1],
+    );
+  });
+
+  it("reads no pending count for the estimate without a caller's nonce, or with fixed gas", async () => {
+    const plain = await fill(EIP1559_NODE, {});
+    assert.deepEqual(plain.node.methods().slice(0, 4), [
+      "eth_getBlockByNumber",
+      "eth_feeHistory",
+      "eth_estimateGas",
+      "eth_getTransactionCount",
+    ]);
+    // A nonce that is not a quantity is left to the schema, which refuses it after the estimate.
+    const { node, filler: instance } = filler(EIP1559_NODE);
+    await assert.rejects(instance.fill("eth_sendTransaction", [{ from: FROM, to: TO, nonce: 6 }]));
+    assert.ok(!node.methods().includes("eth_getTransactionCount"));
+    assert.equal(estimatesOf(node)[0]?.params?.[1], "pending");
+    const fixed = await fill(EIP1559_NODE, { nonce: "0x6" }, { gas: 50000n });
+    assert.ok(!fixed.node.methods().includes("eth_getTransactionCount"));
+  });
+
+  it("refuses a pending count that is not a string before estimating a caller's nonce", async () => {
+    const { node, filler: instance } = filler({
+      ...EIP1559_NODE,
+      eth_getTransactionCount: () => 7,
+    });
+    await assertKmsError(
+      instance.fill("eth_signTransaction", [{ from: FROM, to: TO, nonce: "0x6" }]),
+      "eth_signTransaction: the node's eth_getTransactionCount answer is not a string",
+    );
+    assert.ok(!node.methods().includes("eth_estimateGas"));
   });
 });
 
@@ -698,7 +776,8 @@ describe("HardhatTransactionFiller checks", () => {
       method: "eth_getTransactionCount",
       params: [FROM.toLowerCase(), "pending"],
     });
-    const given = await fill(EIP1559_NODE, { nonce: "0x2" });
+    // With a gas, the caller's nonce needs no count: none for the estimate (#492), none to fill.
+    const given = await fill(EIP1559_NODE, { nonce: "0x2", gas: "0x5208" });
     assert.equal(given.filled.nonce, 2n);
     assert.ok(!given.node.methods().includes("eth_getTransactionCount"));
     await assertKmsError(

@@ -165,3 +165,58 @@ it("estimates again without a block tag on a node that refuses pending, as befor
     await connection.close();
   }
 });
+
+it("estimates a replacement of a pending self-sponsored EIP-7702 transaction without a block tag", async () => {
+  const tags: unknown[] = [];
+  const connection = await connect(false, tags);
+  const request = requestOn(connection);
+  try {
+    await request("evm_setAutomine", [false]);
+    await request("hardhat_setCode", [DELEGATE, COUNTER]);
+    const account = await connection.kms.getAccount(COW);
+    // The transaction takes nonce 0, so its own authorization takes nonce 1.
+    const signed = await account.signAuthorization({
+      contractAddress: DELEGATE,
+      chainId: 31337,
+      nonce: 1,
+    });
+    const delegateAndCall = (maxFeePerGas: bigint) => ({
+      from: COW,
+      to: COW,
+      value: "0x1",
+      data: ADD_ONE,
+      maxFeePerGas: `0x${maxFeePerGas.toString(16)}`,
+      maxPriorityFeePerGas: `0x${(maxFeePerGas / 2n).toString(16)}`,
+      authorizationList: [
+        {
+          chainId: "0x7a69",
+          address: DELEGATE,
+          nonce: "0x1",
+          yParity: `0x${(signed.yParity ?? 0).toString(16)}`,
+          r: signed.r,
+          s: signed.s,
+        },
+      ],
+    });
+    const original = await request("eth_sendTransaction", [delegateAndCall(4_000_000_000n)]);
+    // A fee bump with the same nonce: the pending state already holds the original, so its
+    // authorization would be skipped there.
+    const replacement = await request("eth_sendTransaction", [
+      { ...delegateAndCall(8_000_000_000n), nonce: "0x0" },
+    ]);
+    await request("evm_mine");
+    assert.equal(await request("eth_getTransactionReceipt", [original]), null);
+    const receipt = await request("eth_getTransactionReceipt", [replacement]);
+    assert.equal(
+      field(receipt, "status"),
+      "0x1",
+      `the replacement failed with ${String(field(receipt, "gasUsed"))} gas used`,
+    );
+    // The original is estimated at pending, the replacement as Hardhat estimates it.
+    assert.deepEqual(tags, ["pending", "none"]);
+    assert.equal(await request("eth_getCode", [COW, "latest"]), `0xef0100${DELEGATE.slice(2)}`);
+    assert.equal(BigInt(String(await request("eth_getStorageAt", [COW, "0x0", "latest"]))), 1n);
+  } finally {
+    await connection.close();
+  }
+});

@@ -86,8 +86,11 @@ const REWARD_PERCENTILE = 50;
 const METHOD_NOT_FOUND = -32601;
 // The JSON-RPC error code of params the node does not accept.
 const INVALID_PARAMS = -32602;
-// A node's message about the `pending` block tag.
-const PENDING = /pending/i;
+// The JSON-RPC error code of a reverted call (geth, Erigon, reth, Nethermind).
+const EXECUTION_REVERTED = 3;
+// geth's answer when it has no pending block (eth/api_backend.go, -32000).
+const PENDING_UNAVAILABLE = /pending (?:state|block) is not available/i;
+const REVERT = /revert/i;
 // MultipliedGasEstimation: the share of the latest block's gas limit that is cached as the cap.
 const BLOCK_GAS_LIMIT_SAFETY_FACTOR = 0.95;
 
@@ -111,13 +114,18 @@ function isInternalCallOutOfGas(error: Error): boolean {
 
 /**
  * Tells whether a failed `eth_estimateGas` at the `pending` block is the node refusing the block
- * tag: an Error with JSON-RPC code -32602 (invalid params), or one whose message names `pending`.
- * An execution failure, a timeout or any other error is not.
+ * tag: an Error with JSON-RPC code -32602 (invalid params), or geth's "pending state is not
+ * available" or "pending block is not available". A revert (code 3, or a message that says
+ * revert), a timeout or any other error is not, whatever its message says about `pending`.
  */
 function refusesPendingTag(error: unknown): boolean {
+  if (!(error instanceof Error) || REVERT.test(error.message)) {
+    return false;
+  }
+  const code: unknown = Reflect.get(error, "code");
   return (
-    error instanceof Error &&
-    (Reflect.get(error, "code") === INVALID_PARAMS || PENDING.test(error.message))
+    code === INVALID_PARAMS ||
+    (code !== EXECUTION_REVERTED && PENDING_UNAVAILABLE.test(error.message))
   );
 }
 
@@ -188,7 +196,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     if (tx.gas === undefined) {
       tx.gas =
         this.#settings.gas === "auto"
-          ? await this.#estimateGas(filledParams)
+          ? await this.#estimateGas(filledParams, await this.#estimateTag(tx, method))
           : numberToHexString(this.#settings.gas);
     }
     // The node got r and s as quantities; Hardhat's schema wants them as 32 bytes.
@@ -213,11 +221,28 @@ export class HardhatTransactionFiller implements TransactionFiller {
   }
 
   async #pendingNonce(from: Uint8Array, method: string): Promise<bigint> {
-    const count = await this.#request("eth_getTransactionCount", [
-      bytesToHexString(from),
-      "pending",
-    ]);
+    return await this.#pendingCount(bytesToHexString(from), method);
+  }
+
+  async #pendingCount(from: unknown, method: string): Promise<bigint> {
+    const count = await this.#request("eth_getTransactionCount", [from, "pending"]);
     return hexStringToBigInt(stringResult(count, "eth_getTransactionCount", method));
+  }
+
+  /**
+   * The block tag to estimate at. A transaction without a nonce takes the pending count, so it is
+   * estimated at `pending`, the state that count describes (#492). So is one whose nonce is at or
+   * above the pending count. A caller's nonce below it replaces a pending transaction: the pending
+   * state already holds the one it replaces, whose effects (such as the account nonce a
+   * self-sponsored EIP-7702 authorization is checked against) the replacement must not see, so it
+   * is estimated without a tag, as Hardhat does.
+   */
+  async #estimateTag(tx: Record<string, unknown>, method: string): Promise<"pending" | undefined> {
+    const nonce = quantityOf(tx.nonce);
+    if (nonce === undefined) {
+      return "pending";
+    }
+    return nonce < (await this.#pendingCount(tx.from, method)) ? undefined : "pending";
   }
 
   /** AutomaticGasPriceHandler#handle. */
@@ -352,16 +377,19 @@ export class HardhatTransactionFiller implements TransactionFiller {
 
   /**
    * `eth_estimateGas` at the `pending` block, the state the pending nonce counts. Hardhat, viem and
-   * ethers send no block tag, so the node uses `latest`. A node whose `latest` lags the account's
+   * ethers send no block tag, so most nodes use `latest`. A node whose `latest` lags the account's
    * pending transactions then simulates with a stale nonce and skips a self-sponsored EIP-7702
    * authorization, which EIP-7702 ignores rather than fails: the estimate is too low and the
-   * transaction runs out of gas (#492). When the node refuses the tag, the request is sent again
-   * as Hardhat sends it.
+   * transaction runs out of gas (#492). When the node refuses the tag, or the tag is undefined (a
+   * replacement), the request is sent as Hardhat sends it.
    */
-  async #requestEstimate(params: unknown[]): Promise<unknown> {
+  async #requestEstimate(params: unknown[], tag: "pending" | undefined): Promise<unknown> {
+    if (tag === undefined) {
+      return await this.#request("eth_estimateGas", params);
+    }
     const [tx] = params;
     try {
-      return await this.#request("eth_estimateGas", [tx, "pending"]);
+      return await this.#request("eth_estimateGas", [tx, tag]);
     } catch (error) {
       if (!refusesPendingTag(error)) {
         throw error;
@@ -370,11 +398,11 @@ export class HardhatTransactionFiller implements TransactionFiller {
     }
   }
 
-  /** MultipliedGasEstimation#getMultipliedGasEstimation, with the estimate at `pending`. */
-  async #estimateGas(params: unknown[]): Promise<string> {
+  /** MultipliedGasEstimation#getMultipliedGasEstimation, with the estimate at `tag`. */
+  async #estimateGas(params: unknown[], tag: "pending" | undefined): Promise<string> {
     try {
       const estimate = stringResult(
-        await this.#requestEstimate(params),
+        await this.#requestEstimate(params, tag),
         "eth_estimateGas",
         "eth_estimateGas",
       );
