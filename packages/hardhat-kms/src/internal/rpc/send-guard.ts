@@ -2,6 +2,7 @@
 // See "Nonces and the send lock" and "Retries after broadcast" in docs/contributor/transactions.md.
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import { max } from "@nomicfoundation/hardhat-utils/bigint";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import { PLUGIN_ID } from "../constants.ts";
@@ -22,6 +23,12 @@ export const RESERVATION_MS = 60_000;
 
 /** The most retry entries a connection keeps; a new entry beyond it drops the oldest. */
 export const MAX_RETRY_ENTRIES = 256;
+
+/**
+ * The most sent transactions a connection records per sender with the high-water mark off; a new
+ * record beyond it drops the one made first.
+ */
+export const MAX_SENT_RECORDS = 256;
 
 /**
  * The error of a send whose outcome is unknown: the transaction was handed to the node, but no
@@ -665,6 +672,44 @@ interface RetryEntry {
   cancel: () => void;
 }
 
+/**
+ * Asks the node whether it has a transaction: `true` when it has, `false` when it has not, and
+ * `undefined` when the lookup failed.
+ */
+export type LookUpTransaction = (hash: string) => Promise<boolean | undefined>;
+
+/**
+ * The transactions the node accepted from a sender at one nonce, recorded with the high-water
+ * mark off. A nonce can have several: a replacement with the caller's nonce, or a send after the
+ * node lost the first one. A revert can bring back any of them.
+ */
+interface SentRecord {
+  /** Every hash recorded at this nonce, to look them up after the pending count falls. */
+  readonly hashes: string[];
+  /** The hash recorded last. */
+  newest: string;
+  /** Whether it was recorded or looked up since the last fall of the pending count. */
+  fresh: boolean;
+  /** Whether the last lookup found the node without any of them. Such a record is looked up again before its nonce is taken. */
+  gone: boolean;
+}
+
+/** A sender's sent transactions and what the nonce choice saw of its pending count. */
+interface SentRecords {
+  /** By nonce, with at most {@link MAX_SENT_RECORDS} hashes in all. */
+  readonly byNonce: Map<bigint, SentRecord>;
+  /** How many hashes `byNonce` holds. */
+  hashes: number;
+  /** The nonce recorded last; -1n when none was. */
+  latest: bigint;
+  /** The pending count of the last nonce choice for a send; -1n before the first. */
+  observed: bigint;
+  /** Whether a fall was seen and the node may still hold a nonce above the pending count. */
+  afterFall: boolean;
+  /** One above the highest nonce whose record was dropped to stay within the limit; 0n when none was. */
+  droppedBelow: bigint;
+}
+
 /** What the send state of a connection needs. */
 export interface ConnectionSendsOptions {
   /** Whether to keep a nonce high-water mark; off on `edr-simulated` networks. */
@@ -691,11 +736,13 @@ export class ConnectionSends {
   /** By sender: the viem resets that have released no reservation yet. */
   readonly #owedResets = new Map<string, OwedResets>();
   /**
-   * By sender, with the high-water mark off: the nonces the node accepted that its pending count
-   * has not reached yet. A live reservation leaves a gap, and the pending count stops at it, so
-   * {@link nonceFor} counts them while the sender has a live reservation.
+   * By sender, with the high-water mark off: the transactions the node accepted, by nonce. A live
+   * reservation leaves a gap, and the pending count stops at it, so the nonce choice counts the
+   * ones at or above the pending count while the sender has a live reservation. The ones below it
+   * are kept too: after the pending count falls, the node may hold any of them again (a revert
+   * restores a queued transaction), and their hashes say which.
    */
-  readonly #sentAhead = new Map<string, Set<bigint>>();
+  readonly #sent = new Map<string, SentRecords>();
   readonly #now: () => number;
   #closed = false;
 
@@ -709,13 +756,17 @@ export class ConnectionSends {
   }
 
   /**
-   * Chooses the nonce of a send whose caller gave none: `max(pending, highWater + 1, highest
-   * reservation + 1)`, so a node that lags on its pending count does not get a nonce that was
-   * already used, and a send never takes a nonce a library account's client was handed.
+   * Reads the nonce a send whose caller gave none would take, without asking the node anything:
+   * `max(pending, highWater + 1, highest reservation + 1)`, so a node that lags on its pending
+   * count does not get a nonce that was already used, and a send never takes a nonce a library
+   * account's client was handed. With the mark off and a live reservation, the nonces the node
+   * accepted at or above the pending count count too. After the pending count fell, it is the
+   * lowest nonce at or above the pending count that no live reservation and no recorded
+   * transaction uses ({@link chooseNonce}); with no lookup, every record counts as held.
    *
    * @param from - The sender's lowercase address.
    * @param pending - The node's pending transaction count for the sender.
-   * @returns The nonce to sign.
+   * @returns The nonce.
    */
   public nonceFor(from: string, pending: bigint): bigint {
     let nonce = pending;
@@ -729,13 +780,141 @@ export class ConnectionSends {
     if (live.size === 0) {
       return nonce;
     }
-    // One at or below a reservation changes nothing: the reservation counts more.
-    for (const used of [...live.keys(), ...this.#sentAheadOf(from, pending)]) {
-      if (used >= nonce) {
-        nonce = used + 1n;
+    return this.#pick(from, nonce, live, false);
+  }
+
+  /**
+   * Chooses the nonce of a send whose caller gave none, under the sender's send lock: as
+   * {@link nonceFor}, after asking the node about the transactions it may no longer have. With the
+   * high-water mark on, it is {@link nonceFor}.
+   *
+   * With the mark off, the pending count has fallen when it is below the one the last choice saw,
+   * when a transaction recorded since the last fall has the pending count's nonce, or, while a
+   * reservation lives, when the node no longer has the transaction recorded last. A record made before the last fall is
+   * looked up before it counts, and a record the node did not have is looked up again before its
+   * nonce is taken, since a revert can bring it back. A failed lookup counts as held: a gap is
+   * acceptable, signing a nonce the node still holds is not. Without a live reservation it asks
+   * nothing and returns the pending count.
+   *
+   * @param from - The sender's lowercase address.
+   * @param pending - The node's pending transaction count for the sender.
+   * @param lookUp - Asks the node whether it has a transaction.
+   * @returns The nonce to sign.
+   */
+  public async chooseNonce(
+    from: string,
+    pending: bigint,
+    lookUp: LookUpTransaction,
+  ): Promise<bigint> {
+    if (this.#highWaterEnabled) {
+      return this.nonceFor(from, pending);
+    }
+    const records = this.#recordsOf(from);
+    const { byNonce } = records;
+    // The node has no transaction with the pending count's nonce, so a fresh record of it fell.
+    const atPending = byNonce.get(pending);
+    let fell = pending < records.observed || (atPending?.fresh === true && !atPending.gone);
+    records.observed = pending;
+    const latest = byNonce.get(records.latest);
+    if (!fell && latest?.fresh === true && !latest.gone && this.#live(from).size > 0) {
+      fell = (await lookUp(latest.newest)) === false;
+    }
+    if (fell) {
+      records.afterFall = true;
+      for (const record of byNonce.values()) {
+        record.fresh = false;
       }
     }
-    return nonce;
+    if (this.#live(from).size === 0) {
+      return this.#noReservation(records, pending);
+    }
+    const checked = new Set<bigint>();
+    for (const [nonce, record] of byNonce) {
+      if (nonce > pending && !record.fresh) {
+        await this.#check(record, lookUp);
+        checked.add(nonce);
+      }
+    }
+    for (;;) {
+      const nonce = this.#pick(from, pending, this.#live(from), true);
+      const record = byNonce.get(nonce);
+      if (record?.gone !== true || checked.has(nonce)) {
+        return nonce;
+      }
+      // Gone at an earlier lookup: a revert since may have brought it back.
+      await this.#check(record, lookUp);
+      checked.add(nonce);
+    }
+  }
+
+  /**
+   * Looks a record's hashes up, and notes whether the node has none of them. One the node has, or
+   * whose lookup fails, makes the nonce held.
+   */
+  async #check(record: SentRecord, lookUp: LookUpTransaction): Promise<void> {
+    let gone = true;
+    for (const hash of record.hashes) {
+      if ((await lookUp(hash)) !== false) {
+        gone = false;
+        break;
+      }
+    }
+    record.fresh = true;
+    record.gone = gone;
+  }
+
+  /**
+   * The nonce with no live reservation: the pending count. A fall stops counting once no record
+   * above the pending count may be held.
+   */
+  #noReservation(records: SentRecords, pending: bigint): bigint {
+    records.afterFall &&= [...records.byNonce].some(
+      ([nonce, record]) => nonce > pending && !record.gone,
+    );
+    return pending;
+  }
+
+  /**
+   * The nonce for a sender with live reservations. Before a fall, or with the mark on: past every
+   * live reservation and every record at or above the pending count that counts as held. After a
+   * fall: the lowest nonce at or above the pending count that no live reservation uses, that no
+   * held record uses and, above the pending count, whose record was not dropped to stay within
+   * the limit. The pending count itself the node does not have. A record counts as held when
+   * `checked` is false, and otherwise unless its last lookup found it gone.
+   */
+  #pick(from: string, start: bigint, live: Map<bigint, Reservation>, checked: boolean): bigint {
+    const records = this.#sent.get(from);
+    const held = (record: SentRecord): boolean => !checked || !record.gone;
+    if (records === undefined || !(records.afterFall || start < records.observed)) {
+      const used = [...live.keys()];
+      if (records !== undefined) {
+        for (const [nonce, record] of records.byNonce) {
+          if (held(record)) {
+            used.push(nonce);
+          }
+        }
+      }
+      // max(start, highest used + 1): one below the start, or below a reservation, changes nothing.
+      let nonce = start;
+      for (const other of used) {
+        if (other >= nonce) {
+          nonce = other + 1n;
+        }
+      }
+      return nonce;
+    }
+    for (let nonce = start; ; nonce++) {
+      if (live.has(nonce)) {
+        continue;
+      }
+      const record = records.byNonce.get(nonce);
+      if (
+        nonce === start ||
+        (record === undefined ? nonce >= records.droppedBelow : !held(record))
+      ) {
+        return nonce;
+      }
+    }
   }
 
   /**
@@ -910,8 +1089,15 @@ export class ConnectionSends {
   ): void {
     const current = libraryHolds.get(key);
     // -1n: no mark, or no hold of this connection. The ended reservations are no longer live.
-    const accepted = Array.from(this.#sentAhead.get(from) ?? new Set<bigint>());
-    accepted.push(this.#highWater.get(from) ?? -1n);
+    const accepted = [this.#highWater.get(from) ?? -1n];
+    const sent = this.#sent.get(from);
+    if (sent !== undefined) {
+      for (const [nonce, record] of sent.byNonce) {
+        if (!record.gone) {
+          accepted.push(nonce);
+        }
+      }
+    }
     const used = [
       ...accepted,
       current?.owner === this ? current.nonce : -1n,
@@ -926,18 +1112,21 @@ export class ConnectionSends {
     }
   }
 
-  /**
-   * The nonces the node accepted that its pending count has not reached, with the mark off. One
-   * below the pending count is forgotten: the node counts it.
-   */
-  #sentAheadOf(from: string, pending: bigint): Set<bigint> {
-    const sent = this.#sentAhead.get(from) ?? new Set<bigint>();
-    for (const nonce of sent) {
-      if (nonce < pending) {
-        sent.delete(nonce);
-      }
+  /** The sender's sent records, created empty when it has none. */
+  #recordsOf(from: string): SentRecords {
+    let records = this.#sent.get(from);
+    if (records === undefined) {
+      records = {
+        byNonce: new Map(),
+        hashes: 0,
+        latest: -1n,
+        observed: -1n,
+        afterFall: false,
+        droppedBelow: 0n,
+      };
+      this.#sent.set(from, records);
     }
-    return sent;
+    return records;
   }
 
   /**
@@ -991,16 +1180,52 @@ export class ConnectionSends {
   }
 
   /**
-   * Records a nonce the node accepted: `highWater = max(highWater, nonce)`.
+   * Counts the hashes in the sender's sent records. Tests use it to check that the record stays bounded.
+   *
+   * @param from - The sender's lowercase address.
+   * @returns How many transactions are recorded; always 0 with the high-water mark on.
+   */
+  public sentRecords(from: string): number {
+    return this.#sent.get(from)?.hashes ?? 0;
+  }
+
+  /**
+   * Records a transaction the node accepted: `highWater = max(highWater, nonce)`. With the mark
+   * off, its nonce and hash, next to the hashes recorded before at that nonce; beyond
+   * {@link MAX_SENT_RECORDS} hashes, the nonce recorded first is dropped with all its hashes, and after a fall
+   * {@link chooseNonce} takes no nonce above the pending count up to the highest dropped one.
    *
    * @param from - The sender's lowercase address.
    * @param nonce - The nonce of the accepted transaction.
+   * @param hash - Its hash.
    */
-  public recordSent(from: string, nonce: bigint): void {
+  public recordSent(from: string, nonce: bigint, hash: string): void {
     if (!this.#highWaterEnabled) {
-      const sent = this.#sentAhead.get(from) ?? new Set<bigint>();
-      sent.add(nonce);
-      this.#sentAhead.set(from, sent);
+      const records = this.#recordsOf(from);
+      const { byNonce } = records;
+      const record = byNonce.get(nonce);
+      if (record === undefined) {
+        byNonce.set(nonce, { hashes: [hash], newest: hash, fresh: true, gone: false });
+        records.hashes++;
+      } else {
+        if (!record.hashes.includes(hash)) {
+          record.hashes.push(hash);
+          records.hashes++;
+        }
+        record.newest = hash;
+        record.fresh = true;
+        record.gone = false;
+      }
+      records.latest = nonce;
+      // The nonce recorded first goes, with all its hashes; one recorded again keeps its place.
+      for (const [oldest, dropped] of byNonce) {
+        if (records.hashes <= MAX_SENT_RECORDS) {
+          break;
+        }
+        byNonce.delete(oldest);
+        records.hashes -= dropped.hashes.length;
+        records.droppedBelow = max(records.droppedBelow, oldest + 1n);
+      }
       return;
     }
     const mark = this.#highWater.get(from);
@@ -1132,6 +1357,7 @@ export class ConnectionSends {
     }
     this.#retries.clear();
     this.#highWater.clear();
+    this.#sent.clear();
     this.#uncertain.clear();
     this.#reservations.clear();
     endLibraryHoldsOf(this);

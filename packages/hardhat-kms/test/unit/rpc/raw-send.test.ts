@@ -35,6 +35,14 @@ import {
 } from "../../helpers/send-harness.ts";
 import { COW_ACCOUNT } from "../../helpers/vectors.ts";
 
+/**
+ * Makes the fake node answer `eth_getTransactionByHash` for every raw transaction it received, as
+ * an edr-simulated node does for the transactions it holds.
+ */
+function knowsWhatItReceived({ node }: SendHarness): void {
+  node.lookUp = (hash) => (node.raw.some((raw) => hashOf(raw) === hash) ? { hash } : null);
+}
+
 /** Hardhat's second default account, which is not a KMS account here. */
 const OTHER_SECRET = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 const OTHER = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
@@ -943,14 +951,16 @@ describe("a library account's send with its own transport", () => {
     const { node, send } = harness;
     const connection = await openKnown(harness);
     const manager = await library(connection, HTTP_CLIENT);
+    knowsWhatItReceived(harness);
     assert.equal(await manager.consume(), 0);
     assert.equal(await manager.consume(), 1);
     resultOf(await send(connection, { from: COW, to: TO, nonce: "0x0" }));
+    node.pending = 1n;
     resultOf(await send(connection, { from: COW, to: TO }));
     assert.deepEqual(node.raw.map(nonceOf), [0n, 2n], "1 still counts");
     resultOf(await send(connection, { from: COW, to: TO, nonce: "0x5" }));
     resultOf(await send(connection, { from: COW, to: TO }));
-    assert.deepEqual(node.raw.map(nonceOf), [0n, 2n, 5n, 0n], "both cleared; the node decides");
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 2n, 5n, 1n], "both cleared; the node decides");
   });
 
   it("ends the reservation of a raw transaction that does reach the node through the connection", async () => {
@@ -1589,11 +1599,33 @@ describe("a plugin send without a nonce and a reservation below it (#434)", () =
     const { node, send } = harness;
     const connection = await openKnown(harness);
     const manager = await library(connection, HTTP_CLIENT);
+    knowsWhatItReceived(harness);
     assert.equal(await manager.consume(), 0);
     resultOf(await send(connection, { from: COW, to: TO }));
     resultOf(await send(connection, { from: COW, to: TO }));
     assert.deepEqual(node.raw.map(nonceOf), [1n, 2n]);
   });
+
+  for (const by of ["plugin", "library"] as const) {
+    it(`after the node loses its transactions, a ${by} send fills below a reservation that outlives it (#489)`, async () => {
+      const harness = await setUp("edr-simulated");
+      const { node, send } = harness;
+      const connection = await openKnown(harness);
+      const first = await library(connection, HTTP_CLIENT);
+      knowsWhatItReceived(harness);
+      assert.equal(await first.consume(), 0);
+      resultOf(await send(connection, { from: COW, to: TO }));
+      // A revert: the node no longer has the plugin's 1, and the first client still has 0.
+      node.lookUp = () => null;
+      if (by === "plugin") {
+        resultOf(await send(connection, { from: COW, to: TO }));
+        assert.deepEqual(node.raw.map(nonceOf), [1n, 1n]);
+      } else {
+        const second = await library(connection, HTTP_CLIENT);
+        assert.equal(await second.consume(), 1);
+      }
+    });
+  }
 });
 
 describe("a reset that does not say which of several own-transport sends failed (#434)", () => {

@@ -143,9 +143,9 @@ export interface SignTransactionInputs {
   from: string;
   /**
    * Chooses the nonce from the filled one, when the caller gave none. Sends use it for the nonce
-   * high-water mark; without it, the filled nonce is signed.
+   * high-water mark and the reservations; without it, the filled nonce is signed.
    */
-  chooseNonce?: ((filled: bigint) => bigint) | undefined;
+  chooseNonce?: ((filled: bigint) => bigint | Promise<bigint>) | undefined;
   /**
    * Checks the unsigned transaction before the KMS signs it, and throws to refuse it. The
    * `kms sign-tx` task checks a requested `type` with it.
@@ -176,7 +176,7 @@ export async function signTransaction(
 ): Promise<SignedTransaction> {
   let filled = await inputs.filler.fill(inputs.method, inputs.params);
   if (inputs.chooseNonce !== undefined) {
-    filled = { ...filled, nonce: inputs.chooseNonce(filled.nonce) };
+    filled = { ...filled, nonce: await inputs.chooseNonce(filled.nonce) };
   }
   if (!sameAddress(bytesToHexString(filled.from), inputs.from)) {
     throw catalogError(
