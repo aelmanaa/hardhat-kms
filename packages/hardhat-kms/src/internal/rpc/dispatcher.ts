@@ -773,25 +773,24 @@ async function sendTransaction(
 }
 
 /**
- * Asks the node about the sender's last transaction whose broadcast got no answer. If the node
- * has it, the high-water mark rises to its nonce, so a node whose pending count lags cannot give
- * that nonce to the next send, which could replace the first transaction. If the node does not
- * have it, or the lookup fails, the mark stays and the node's pending count decides; the next
- * send may then take its nonce, so its retry entry is dropped and a retry of it signs afresh.
+ * Asks the node about each of the sender's transactions whose broadcast got no answer, the one
+ * kept first first, with or without the caller's nonce (#506). If the node has one, the
+ * high-water mark rises to its nonce, so a node whose pending count lags cannot give that nonce
+ * to the next send, which could replace that transaction. If the node does not have it, or the
+ * lookup fails, the mark stays for it and the node's pending count decides; the next send may
+ * then take its nonce, so its retry entry is dropped and a retry of it signs afresh.
  */
 async function settleUncertain(
   address: string,
   sends: ConnectionSends,
   nodeHas: (hash: string) => Promise<boolean>,
 ): Promise<void> {
-  const uncertain = sends.takeUncertain(address);
-  if (uncertain === undefined) {
-    return;
-  }
-  if (await nodeHas(uncertain.hash)) {
-    sends.recordSent(address, uncertain.nonce, uncertain.hash);
-  } else {
-    sends.dropRetriesOf(uncertain.hash);
+  for (const uncertain of sends.takeUncertain(address)) {
+    if (await nodeHas(uncertain.hash)) {
+      sends.recordSent(address, uncertain.nonce, uncertain.hash);
+    } else {
+      sends.dropRetriesOf(uncertain.hash);
+    }
   }
 }
 

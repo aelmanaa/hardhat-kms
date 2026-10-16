@@ -321,8 +321,11 @@ function onRaw(world: World) {
           message: `plugin send ${id} reached the node with nonce ${nonce} after connection ${send.connection} closed`,
         });
       } else if (send.replaces !== undefined) {
-        // A replacement the caller asked for: the node's transaction at the nonce goes.
-        world.delivered.delete(nonce);
+        // A replacement the caller asked for: unless the node refuses it, the node's transaction
+        // at the nonce goes, also when no answer comes back.
+        if (world.mode !== "refuse") {
+          world.delivered.delete(nonce);
+        }
       } else {
         checkClaim(world, send, nonce, `plugin send ${id} broadcast`);
         trackLowest(world);
@@ -984,12 +987,12 @@ function drop(index: number): Step {
 
 /**
  * A plugin send with the caller's nonce at the index-th nonce the node holds, as Ignition replaces
- * a stuck transaction: the node keeps the new one. It runs only on edr-simulated, only in the
- * `accept` node mode (so neither a refused nor an unanswered replacement), only while no request
- * is in flight, and only while no library send holds a nonce. A caller's nonce ends the
- * reservations up to it, which the model does not follow. An unanswered replacement overwrites
- * the connection's one uncertain record, which can lead to a duplicate on a lagging HTTP node;
- * that case is not modelled until #506 is fixed.
+ * a stuck transaction: the node keeps the new one, unless it refuses it. It runs on both network
+ * types and in every node mode, only while no request is in flight. An accepted caller's nonce
+ * ends the reservations up to it, which the model does not follow, so in the `accept` mode it
+ * runs only while no library send holds a nonce. A refused or unanswered one ends none. An
+ * unanswered one is kept next to the connection's earlier uncertain transactions (#506), so the
+ * next send still counts a transaction the node has above a lagging pending count.
  */
 function replace(index: number): Step {
   return {
@@ -998,11 +1001,9 @@ function replace(index: number): Step {
       const held = [...world.delivered.keys()].toSorted((a, b) => (a < b ? -1 : 1));
       const nonce = held[index % Math.max(held.length, 1)];
       if (
-        world.type !== "edr-simulated" ||
-        world.mode !== "accept" ||
         !quiet(world) ||
         nonce === undefined ||
-        library(world).some((send) => LIVE.has(send.state)) ||
+        (world.mode === "accept" && library(world).some((send) => LIVE.has(send.state))) ||
         !isOpen(world, 0)
       ) {
         return;
@@ -1289,6 +1290,34 @@ const KNOWN_489: { name: string; steps: Step[] }[] = [
 ];
 
 /**
+ * #506: an unanswered send, then an unanswered caller-nonce send at another nonce. The next send
+ * must count the first send's nonce while the node's pending count is below it: lagged by
+ * `inspectUncertain`, or stopped at a reservation's gap. Only the first send's uncertain record
+ * tells it the node has that nonce. Random sequences rarely reach this order, so every run tries
+ * these first.
+ */
+const KNOWN_506: Step[][] = [
+  [pluginSend(0), nodeMode("no-answer"), pluginSend(0), replace(0), inspectUncertain(0)],
+  [
+    pluginSend(0),
+    libraryConsume(0, "own"),
+    nodeMode("no-answer"),
+    pluginSend(0),
+    replace(0),
+    nodeMode("accept"),
+    pluginSend(0),
+  ],
+  [
+    pluginSend(0),
+    libraryConsume(0, "own"),
+    nodeMode("no-answer"),
+    pluginSend(0),
+    replace(0),
+    inspectUncertain(0),
+  ],
+];
+
+/**
  * Sequences every run tries before the random ones: the orderings where a reset, a hold limit or
  * a lost answer meets a reservation or a hold, which random sequences of 10 steps reach rarely.
  */
@@ -1329,6 +1358,7 @@ const EXAMPLES: ["http" | "edr-simulated", Step[]][] = [
     [libraryConsume(0, "through"), holdLimit, nodeMode("no-answer"), pluginSend(0), pluginSend(0)],
   ],
   ...KNOWN_489.map((known): ["edr-simulated", Step[]] => ["edr-simulated", known.steps]),
+  ...KNOWN_506.map((sequence): ["http", Step[]] => ["http", sequence]),
 ];
 
 /**
@@ -1506,6 +1536,20 @@ describe("the falls of the pending count (#489)", () => {
         "edr-simulated",
         known.steps.map(checked),
         new Set<Kind>(["delivered", "uncertain", "gap-434", "gap-489", "hold", "reservation"]),
+      );
+    });
+  }
+});
+
+describe("an unanswered caller-nonce send after an unanswered send (#506)", () => {
+  for (const [index, sequence] of KNOWN_506.entries()) {
+    it(`keeps the first send's nonce on a lagging HTTP node (${index})`, async (t) => {
+      mockGlobals(t);
+      await runSequence(
+        t,
+        "http",
+        sequence.map(checked),
+        new Set<Kind>(["delivered", "uncertain", "recorded", "reservation"]),
       );
     });
   }

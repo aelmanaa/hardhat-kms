@@ -242,6 +242,22 @@ describe("a KMS account's raw transaction", () => {
     });
   }
 
+  it("does not hide an earlier send of the account's that got no answer either (#506)", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO }));
+    const [first] = node.raw;
+    assert.ok(first !== undefined);
+    failOnce(node);
+    await assert.rejects(sendRaw(harness, connection, cowRaw(3n)), /socket hang up/);
+    // The node has the first transaction only, and its pending count lags at 0.
+    node.lookUp = (hash) => (hash === hashOf(first) ? { hash } : null);
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x2" }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 3n, 1n]);
+  });
+
   it("passes on unchanged after a refused connection, and keeps nothing", async () => {
     const harness = await setUp();
     const { node, send } = harness;

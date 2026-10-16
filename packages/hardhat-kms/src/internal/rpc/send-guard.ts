@@ -31,6 +31,13 @@ export const MAX_RETRY_ENTRIES = 256;
 export const MAX_SENT_RECORDS = 256;
 
 /**
+ * The most uncertain transactions a connection keeps per sender. A new one beyond it settles the
+ * one kept first as if the node had it: its nonce counts as used, so the bound can leave a gap but
+ * never lets a send reuse a nonce the node may have.
+ */
+export const MAX_UNCERTAIN_RECORDS = 256;
+
+/**
  * The error of a send whose outcome is unknown: the transaction was handed to the node, but no
  * answer came back. Its JSON-RPC code is -32000, the generic server error, so clients read it as
  * an RPC error and not as an unknown (-1) or internal (-32603) error, which some retry layers
@@ -729,8 +736,11 @@ export class ConnectionSends {
   readonly #timers: Timers;
   readonly #highWater = new Map<string, bigint>();
   readonly #retries = new Map<string, RetryEntry>();
-  /** By sender: the last transaction whose broadcast had no answer, still to be looked up. */
-  readonly #uncertain = new Map<string, SentTransaction>();
+  /**
+   * By sender, then by hash, oldest first: the transactions whose broadcast had no answer, still
+   * to be looked up. Every one is kept, at any nonce (#506): the node may have any of them.
+   */
+  readonly #uncertain = new Map<string, Map<string, SentTransaction>>();
   /** By sender, in the order they were handed out: the nonces reserved for library accounts. */
   readonly #reservations = new Map<string, Map<bigint, Reservation>>();
   /** By sender: the viem resets that have released no reservation yet. */
@@ -1307,9 +1317,12 @@ export class ConnectionSends {
 
   /**
    * Remembers a transaction whose broadcast got no answer, so that the sender's next send can
-   * ask the node whether it has it. A newer one replaces it. With the high-water mark off too:
-   * the node's pending count stops at a reservation's gap, so a transaction the node has past it
-   * must be recorded ({@link recordSent}).
+   * ask the node whether it has it. It is kept next to the sender's earlier uncertain
+   * transactions, whatever their nonces, and with the caller's nonce too: a newer one never hides
+   * an older one the node may have (#506). The same transaction again becomes the newest. Beyond
+   * {@link MAX_UNCERTAIN_RECORDS}, the one kept first is recorded as sent ({@link recordSent})
+   * without a lookup. With the high-water mark off too: the node's pending count stops at a
+   * reservation's gap, so a transaction the node has past it must be recorded.
    *
    * @param from - The sender's lowercase address.
    * @param transaction - The transaction.
@@ -1318,32 +1331,45 @@ export class ConnectionSends {
     if (this.#closed) {
       return;
     }
-    this.#uncertain.set(from, transaction);
+    let kept = this.#uncertain.get(from);
+    if (kept === undefined) {
+      kept = new Map();
+      this.#uncertain.set(from, kept);
+    }
+    // Deleted first, so it counts as the newest.
+    kept.delete(transaction.hash);
+    kept.set(transaction.hash, transaction);
+    for (const [hash, oldest] of kept) {
+      if (kept.size <= MAX_UNCERTAIN_RECORDS) {
+        break;
+      }
+      kept.delete(hash);
+      // Not looked up, so counted as the node's: a gap at worst, never a reused nonce.
+      this.recordSent(from, oldest.nonce, oldest.hash);
+    }
   }
 
   /**
-   * Takes the sender's uncertain transaction, if there is one. It is removed.
+   * Takes the sender's uncertain transactions. They are removed.
    *
    * @param from - The sender's lowercase address.
-   * @returns The transaction, or `undefined`.
+   * @returns The transactions, the one kept first first; empty when there is none.
    */
-  public takeUncertain(from: string): SentTransaction | undefined {
-    const transaction = this.#uncertain.get(from);
+  public takeUncertain(from: string): SentTransaction[] {
+    const kept = this.#uncertain.get(from);
     this.#uncertain.delete(from);
-    return transaction;
+    return kept === undefined ? [] : [...kept.values()];
   }
 
   /**
-   * Forgets the sender's uncertain transaction when it is the one with this hash: the node has
-   * answered for it since.
+   * Forgets the sender's uncertain transaction with this hash, if there is one: the node has
+   * answered for it since. The others stay.
    *
    * @param from - The sender's lowercase address.
    * @param hash - The transaction hash.
    */
   public settleUncertain(from: string, hash: string): void {
-    if (this.#uncertain.get(from)?.hash === hash) {
-      this.#uncertain.delete(from);
-    }
+    this.#uncertain.get(from)?.delete(hash);
   }
 
   /**

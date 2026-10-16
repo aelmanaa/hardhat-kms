@@ -461,6 +461,52 @@ describe("a send whose outcome is unknown", () => {
     assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n]);
   });
 
+  for (const [what, callerNonce] of [
+    ["at another nonce", 1],
+    ["replacing it at its nonce", 0],
+  ] as const) {
+    it(`is not hidden by a caller-nonce send ${what} that also gets no answer (#506)`, async () => {
+      const { node, open, send } = await setUp();
+      const connection = await open();
+      failOnce(node);
+      await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
+      failOnce(node);
+      await unknownOutcome(send(connection, { ...withNonce(callerNonce), gasPrice: "0x9" }));
+      const [first, second] = node.raw.map(hashOf);
+      // The node has the first transaction only, and its pending count lags at 0.
+      const looked: unknown[] = [];
+      node.lookUp = (asked) => {
+        looked.push(asked);
+        return asked === first ? { hash: asked } : null;
+      };
+      resultOf(await send(connection, { from: COW, to: TO, value: "0x2" }));
+      assert.equal(nonceOf(node.raw.at(-1) ?? ""), 1n, "not the nonce of the transaction it has");
+      assert.deepEqual(looked, [first, second], "both looked up, oldest first");
+    });
+  }
+
+  it("settles a caller-nonce replacement the node took instead of the first (#506)", async () => {
+    const { node, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
+    failOnce(node);
+    await unknownOutcome(send(connection, { ...withNonce(0), gasPrice: "0x9" }));
+    const [first, second] = node.raw.map(hashOf);
+    const looked: unknown[] = [];
+    node.lookUp = (asked) => {
+      looked.push(asked);
+      return asked === second ? { hash: asked } : null;
+    };
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x2" }));
+    assert.deepEqual(looked, [first, second]);
+    // The node has none of the first's bytes, so its retry is signed afresh, past both sends.
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x1" }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n, 2n]);
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x3" }));
+    assert.deepEqual(looked, [first, second], "settled: nothing is looked up again");
+  });
+
   it("is looked up on a simulated network too, whose pending count stops at a gap (#434)", async () => {
     const { node, open, send } = await setUp("edr-simulated");
     const connection = await open();
