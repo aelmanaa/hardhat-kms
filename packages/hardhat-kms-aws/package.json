@@ -1,6 +1,6 @@
 {
   "name": "@hardhat-kms/aws",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "AWS KMS signer for Hardhat 3 (hardhat-kms provider): secp256k1 keys never leave KMS; signing history from CloudTrail.",
   "keywords": [
     "hardhat-plugin",
