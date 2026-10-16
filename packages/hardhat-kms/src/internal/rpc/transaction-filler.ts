@@ -4,7 +4,9 @@
 // handlers-array.js, handlers/gas/{automatic-gas-price,fixed-gas-price,automatic-gas,fixed-gas,
 // multiplied-gas-estimation}-handler.js and handlers/accounts/local-accounts.js
 // (#modifyRequest and #getSignedTransaction). The differential test in
-// test/integration/transaction-filler.test.ts fails when the two drift apart.
+// test/integration/transaction-filler.test.ts fails when the two drift apart. The deliberate
+// differences are listed in docs/contributor/transactions.md; one is that gas is estimated at the
+// pending block (#492).
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
@@ -82,6 +84,18 @@ const BASE_FEE_FULL_BLOCKS = 3n;
 const REWARD_PERCENTILE = 50;
 // The JSON-RPC error code of a method the node does not have.
 const METHOD_NOT_FOUND = -32601;
+// The JSON-RPC error code of params the node does not accept.
+const INVALID_PARAMS = -32602;
+// The JSON-RPC error code of a reverted call (geth, Erigon, reth, Nethermind).
+const EXECUTION_REVERTED = 3;
+// geth's answer when it has no pending block (eth/api_backend.go, -32000).
+const PENDING_UNAVAILABLE = /pending (?:state|block) is not available/i;
+// A revert or another execution failure, which is never a refusal of the tag.
+const REVERT = /revert/i;
+const EXECUTION = /execution/i;
+// Another node's refusal: a message that names `pending` together with one of these words.
+const PENDING = /pending/i;
+const REFUSAL = /tag|block|support|not available/i;
 // MultipliedGasEstimation: the share of the latest block's gas limit that is cached as the cap.
 const BLOCK_GAS_LIMIT_SAFETY_FACTOR = 0.95;
 
@@ -101,6 +115,29 @@ function isInternalCallOutOfGas(error: Error): boolean {
     error.name === "InternalCallOutOfGasError" ||
     (isObject(data) && data.reason === "InternalCallOutOfGas")
   );
+}
+
+/**
+ * Tells whether a failed `eth_estimateGas` at the `pending` block is the node refusing the block
+ * tag. Never for an error with code 3 or a message that says revert. Otherwise a known refusal
+ * (JSON-RPC code -32602, or geth's "pending state is not available" or "pending block is not
+ * available"), or a message that does not mention execution and names `pending` together with
+ * "tag", "block", "support" or "not available", as other nodes word it. A timeout or anything else
+ * is not a refusal.
+ */
+function refusesPendingTag(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code: unknown = Reflect.get(error, "code");
+  const { message } = error;
+  if (code === EXECUTION_REVERTED || REVERT.test(message)) {
+    return false;
+  }
+  if (code === INVALID_PARAMS || PENDING_UNAVAILABLE.test(message)) {
+    return true;
+  }
+  return !EXECUTION.test(message) && PENDING.test(message) && REFUSAL.test(message);
 }
 
 /**
@@ -155,6 +192,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     }
     // A deep copy: the caller's objects, including access and authorization lists, stay as they are.
     const tx: Record<string, unknown> = first;
+    applyRequestedType(tx, method);
     canonicalAuthorizationSignatures(tx, method);
     // Hardhat estimates gas with the request's params, after the fees are filled in.
     const filledParams = [tx, ...rest];
@@ -170,7 +208,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     if (tx.gas === undefined) {
       tx.gas =
         this.#settings.gas === "auto"
-          ? await this.#estimateGas(filledParams)
+          ? await this.#estimateGas(filledParams, await this.#estimateTag(tx, method))
           : numberToHexString(this.#settings.gas);
     }
     // The node got r and s as quantities; Hardhat's schema wants them as 32 bytes.
@@ -195,11 +233,28 @@ export class HardhatTransactionFiller implements TransactionFiller {
   }
 
   async #pendingNonce(from: Uint8Array, method: string): Promise<bigint> {
-    const count = await this.#request("eth_getTransactionCount", [
-      bytesToHexString(from),
-      "pending",
-    ]);
+    return await this.#pendingCount(bytesToHexString(from), method);
+  }
+
+  async #pendingCount(from: unknown, method: string): Promise<bigint> {
+    const count = await this.#request("eth_getTransactionCount", [from, "pending"]);
     return hexStringToBigInt(stringResult(count, "eth_getTransactionCount", method));
+  }
+
+  /**
+   * The block tag to estimate at. A transaction without a nonce takes the pending count, so it is
+   * estimated at `pending`, the state that count describes (#492). So is one whose nonce is at or
+   * above the pending count. A caller's nonce below it replaces a pending transaction: the pending
+   * state already holds the one it replaces, whose effects (such as the account nonce a
+   * self-sponsored EIP-7702 authorization is checked against) the replacement must not see, so it
+   * is estimated without a tag, as Hardhat does.
+   */
+  async #estimateTag(tx: Record<string, unknown>, method: string): Promise<"pending" | undefined> {
+    const nonce = quantityOf(tx.nonce);
+    if (nonce === undefined) {
+      return "pending";
+    }
+    return nonce < (await this.#pendingCount(tx.from, method)) ? undefined : "pending";
   }
 
   /** AutomaticGasPriceHandler#handle. */
@@ -332,11 +387,34 @@ export class HardhatTransactionFiller implements TransactionFiller {
     }
   }
 
-  /** MultipliedGasEstimation#getMultipliedGasEstimation. */
-  async #estimateGas(params: unknown[]): Promise<string> {
+  /**
+   * `eth_estimateGas` at the `pending` block, the state the pending nonce counts. Hardhat, viem and
+   * ethers send no block tag, so most nodes use `latest`. A node whose `latest` lags the account's
+   * pending transactions then simulates with a stale nonce and skips a self-sponsored EIP-7702
+   * authorization, which EIP-7702 ignores rather than fails: the estimate is too low and the
+   * transaction runs out of gas (#492). When the node refuses the tag, or the tag is undefined (a
+   * replacement), the request is sent as Hardhat sends it.
+   */
+  async #requestEstimate(params: unknown[], tag: "pending" | undefined): Promise<unknown> {
+    if (tag === undefined) {
+      return await this.#request("eth_estimateGas", params);
+    }
+    const [tx] = params;
+    try {
+      return await this.#request("eth_estimateGas", [tx, tag]);
+    } catch (error) {
+      if (!refusesPendingTag(error)) {
+        throw error;
+      }
+      return await this.#request("eth_estimateGas", params);
+    }
+  }
+
+  /** MultipliedGasEstimation#getMultipliedGasEstimation, with the estimate at `tag`. */
+  async #estimateGas(params: unknown[], tag: "pending" | undefined): Promise<string> {
     try {
       const estimate = stringResult(
-        await this.#request("eth_estimateGas", params),
+        await this.#requestEstimate(params, tag),
         "eth_estimateGas",
         "eth_estimateGas",
       );
@@ -387,23 +465,154 @@ export class HardhatTransactionFiller implements TransactionFiller {
   }
 }
 
-/** Type 3 as a hex quantity or a decimal string, either case, any leading zeros; or viem's name. */
-const BLOB_TYPE = /^(?:(?:0x)?0*3|eip4844)$/i;
+/** micro-eth-signer's name of a transaction type that KMS accounts sign. */
+type SignedTypeName = "legacy" | "eip2930" | "eip1559" | "eip7702";
+
+/** The transaction types KMS accounts sign, by number, with micro-eth-signer's names. */
+export const SIGNED_TYPES: Readonly<Record<number, SignedTypeName>> = {
+  0: "legacy",
+  1: "eip2930",
+  2: "eip1559",
+  4: "eip7702",
+};
 
 /**
- * Whether a request's `type` asks for a blob transaction (EIP-4844, type 3), in any form a
- * JSON-RPC caller can pass: a hex quantity in either case, with or without leading zeros, a
- * number, a bigint, a decimal string or viem's name. Strings are trimmed first. Every other
- * value is ignored, as Hardhat's local accounts do: the fields decide the type.
+ * Names a transaction type by its number and micro-eth-signer's name, such as `0x2 (eip1559)`.
+ *
+ * @param name - micro-eth-signer's name of the type.
+ * @returns The description.
+ */
+export function describeType(name: string): string {
+  const number = Object.entries(SIGNED_TYPES).find(([, type]) => type === name)?.[0];
+  return number === undefined ? name : `0x${number} (${name})`;
+}
+
+// A type as a hex quantity (either case, any leading zeros) or a decimal string, once trimmed.
+const QUANTITY_TYPE = /^(?:0x[0-9a-f]+|[0-9]+)$/i;
+// viem's name of type 3.
+const BLOB_TYPE_NAME = /^eip4844$/i;
+
+/**
+ * The number of a request's `type`, in any numeric form a JSON-RPC caller can pass: a hex
+ * quantity in either case, with or without leading zeros, a decimal string, a non-negative
+ * integer or a non-negative bigint. Strings are trimmed first. Any other value, such as viem's
+ * `"legacy"`, is not a number: the fields decide the type, as Hardhat's local accounts do.
+ *
+ * @param type - The request's `type`.
+ * @returns Its number, or undefined.
+ */
+function typeNumber(type: unknown): bigint | undefined {
+  if (typeof type === "string") {
+    const text = type.trim();
+    return QUANTITY_TYPE.test(text) ? BigInt(text) : undefined;
+  }
+  if (typeof type === "number") {
+    return Number.isSafeInteger(type) && type >= 0 ? BigInt(type) : undefined;
+  }
+  return typeof type === "bigint" && type >= 0n ? type : undefined;
+}
+
+/**
+ * Whether a request's `type` asks for a blob transaction (EIP-4844, type 3): the number 3 in any
+ * form {@link typeNumber} reads, or viem's name, trimmed and in either case.
  *
  * @param type - The request's `type`.
  * @returns Whether it is type 3.
  */
 export function isBlobType(type: unknown): boolean {
-  if (typeof type === "string") {
-    return BLOB_TYPE.test(type.trim());
+  return typeNumber(type) === 3n || (typeof type === "string" && BLOB_TYPE_NAME.test(type.trim()));
+}
+
+/**
+ * The type a request's own fields give, as {@link buildUnsignedTransaction} picks it once the
+ * fees are filled: EIP-7702 with an authorization list, else EIP-1559 with an EIP-1559 fee field,
+ * else EIP-2930 with an access list, else legacy. Only called when the caller set a fee field,
+ * which the fill never changes into a field of another type.
+ *
+ * @param tx - The request's transaction.
+ * @returns micro-eth-signer's name of the type.
+ */
+function fieldsType(tx: Record<string, unknown>): SignedTypeName {
+  if (tx.authorizationList !== undefined) {
+    return "eip7702";
   }
-  return type === 3 || type === 3n;
+  if (tx.maxFeePerGas !== undefined || tx.maxPriorityFeePerGas !== undefined) {
+    return "eip1559";
+  }
+  return tx.accessList === undefined ? "legacy" : "eip2930";
+}
+
+// The fields that decide a transaction's type, apart from `type`.
+const TYPE_FIELDS = [
+  "gasPrice",
+  "maxFeePerGas",
+  "maxPriorityFeePerGas",
+  "accessList",
+  "authorizationList",
+] as const;
+
+// What to change in a request that asks for each type but has the fee fields of another.
+const TYPE_FIXES: Readonly<Record<SignedTypeName, string>> = {
+  legacy:
+    "Set gasPrice instead of the EIP-1559 fee fields, with no accessList or authorizationList, or remove type.",
+  eip2930:
+    "Set gasPrice instead of the EIP-1559 fee fields, with no authorizationList, or remove type.",
+  eip1559:
+    "Set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, with no authorizationList, or remove type.",
+  eip7702:
+    "Add an authorizationList and set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, or remove type.",
+};
+
+/**
+ * Applies a request's `type` (#496), before any request to the node. A number other than 0, 1, 2
+ * and 4 is refused (type 3 is refused before, as a blob transaction). When the caller set a fee
+ * field, a type other than the one the fields give is refused, except type 1 with `gasPrice` and
+ * no `accessList`: that is a valid EIP-2930 transaction with an empty access list, which viem's
+ * `eip2930` and ethers' `type: 1` send, so the list is set to `[]`. A `type` with no fee field is
+ * not checked: the fill chooses the fees and the type follows them, as Hardhat's local accounts
+ * do. A `type` that is not a number is ignored, and so is any `type` when a field that decides the
+ * type is `null`, which the schema refuses with its own error.
+ *
+ * @param tx - The copied transaction; its `accessList` may be set.
+ * @param method - The RPC method, for error messages.
+ */
+function applyRequestedType(tx: Record<string, unknown>, method: string): void {
+  const requested = typeNumber(tx.type);
+  if (requested === undefined) {
+    return;
+  }
+  const name = SIGNED_TYPES[Number(requested)];
+  if (name === undefined) {
+    throw catalogError(
+      ERRORS.txUnsupportedType,
+      { type: `0x${requested.toString(16)}` },
+      { operation: method },
+    );
+  }
+  if (
+    TYPE_FIELDS.some((field) => tx[field] === null) ||
+    (tx.gasPrice === undefined &&
+      tx.maxFeePerGas === undefined &&
+      tx.maxPriorityFeePerGas === undefined)
+  ) {
+    return;
+  }
+  const actual = fieldsType(tx);
+  if (name === "eip2930" && actual === "legacy") {
+    tx.accessList = [];
+    return;
+  }
+  if (actual !== name) {
+    throw catalogError(
+      ERRORS.txRequestTypeMismatch,
+      {
+        requested: describeType(name),
+        actual: describeType(actual),
+        hint: TYPE_FIXES[name],
+      },
+      { operation: method },
+    );
+  }
 }
 
 /**

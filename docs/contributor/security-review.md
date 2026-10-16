@@ -25,6 +25,8 @@ packages/hardhat-kms/src/internal/signer/**
 packages/hardhat-kms/src/internal/rpc/**
 packages/hardhat-kms/src/internal/providers/**
 packages/hardhat-kms/src/internal/viem/**
+packages/hardhat-kms/src/internal/alchemy/**
+packages/hardhat-kms/src/alchemy.ts
 packages/hardhat-kms/src/internal/vendor/**
 packages/hardhat-kms/src/internal/hook-handlers/network.ts
 packages/hardhat-kms/src/internal/tasks/sign.ts
@@ -45,15 +47,15 @@ packages/hardhat-kms-gcp/src/internal/wire.ts
 
 What each group decides:
 
-| Area                    | Paths                                                                                                                    |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Key identity            | the three adapters and their `kms` hook handlers, `providers/`, `config/`, the AWS client settings, the Azure credential |
-| Signed bytes            | `crypto/`, `vendor/`, `rpc/transactions.ts`, `rpc/transaction-filler.ts`, `rpc/typed-data.ts`, `viem/`, the sign tasks   |
-| Checks on each response | `signer/kms-signer.ts`, `provider-utils.ts`, the GCP wire checksums                                                      |
-| Timeouts                | `signer/timeout.ts`, the adapters                                                                                        |
-| Sending and retries     | `rpc/dispatcher.ts`, `rpc/send-guard.ts`, `rpc/chain-id.ts`                                                              |
-| Lifecycle               | `hook-handlers/network.ts`, `signer/key-cache.ts`                                                                        |
-| Errors and logs         | `errors.ts`, `error-catalog.ts`, `debug.ts`, `warnings.ts`, `config/identifiers.ts` (masking)                            |
+| Area                    | Paths                                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Key identity            | the three adapters and their `kms` hook handlers, `providers/`, `config/`, the AWS client settings, the Azure credential                         |
+| Signed bytes            | `crypto/`, `vendor/`, `rpc/transactions.ts`, `rpc/transaction-filler.ts`, `rpc/typed-data.ts`, `viem/`, `alchemy/`, `alchemy.ts`, the sign tasks |
+| Checks on each response | `signer/kms-signer.ts`, `provider-utils.ts`, the GCP wire checksums                                                                              |
+| Timeouts                | `signer/timeout.ts`, the adapters                                                                                                                |
+| Sending and retries     | `rpc/dispatcher.ts`, `rpc/send-guard.ts`, `rpc/chain-id.ts`                                                                                      |
+| Lifecycle               | `hook-handlers/network.ts`, `signer/key-cache.ts`                                                                                                |
+| Errors and logs         | `errors.ts`, `error-catalog.ts`, `debug.ts`, `warnings.ts`, `config/identifiers.ts` (masking)                                                    |
 
 Tests and docs are not listed; they do not run when the plugin signs or sends.
 

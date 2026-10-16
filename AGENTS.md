@@ -49,7 +49,7 @@ Pages:
 - The `kms` tasks (list accounts, sign, verify, read a key's sign events from the provider's audit log): [docs/user/reference/tasks.md](docs/user/reference/tasks.md)
 - What an error message means and how to fix it, by message text or id: [docs/user/reference/errors.md](docs/user/reference/errors.md)
 - A viem account for a KMS key in library code (`connection.kms.getAccount`, for viem's `signAuthorization`, smart-account owners and scripts), what it refuses, and why its sends bypass the send lock: [docs/user/reference/library-accounts.md](docs/user/reference/library-accounts.md)
-- The TypeScript API of `hardhat-kms`, `hardhat-kms/types` and `hardhat-kms/provider-utils`, generated from TSDoc: [docs/user/reference/api/README.md](docs/user/reference/api/README.md)
+- The TypeScript API of `hardhat-kms`, `hardhat-kms/types`, `hardhat-kms/provider-utils` and `hardhat-kms/alchemy`, generated from TSDoc: [docs/user/reference/api/README.md](docs/user/reference/api/README.md)
 - Which Node.js versions the published packages run on, and when a line is dropped: [docs/user/reference/support.md](docs/user/reference/support.md)
 - Install the packages with npm, pnpm or Yarn (each one's settings, the google-gax override, registering the plugin, a build from the repository for testers): [docs/user/guides/install-before-release.md](docs/user/guides/install-before-release.md)
 - Set up an AWS KMS key (key spec, IAM policy, the `@hardhat-kms/aws` package, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
@@ -65,7 +65,7 @@ Pages:
 - Send a KMS address's balance back before deleting the key (the `scripts/return-funds.ts` script the tutorials run, and what it refuses): [docs/user/guides/return-funds.md](docs/user/guides/return-funds.md)
 - A send failed with no clear answer (`-32000`, a gateway timeout), a transaction is not mined, or a nonce gap: look it up, compare the pending and latest counts, fill or replace a nonce: [docs/user/guides/uncertain-sends.md](docs/user/guides/uncertain-sends.md)
 - Complete projects to copy, which deploy and call a contract with viem, ethers or Ignition: [examples/README.md](examples/README.md)
-- Use a KMS key as the signer of an Alchemy Wallet APIs smart wallet (`connection.kms.getAccount` as the `@alchemy/wallet-apis` signer, what the key signs for EIP-7702 and user operations, a check script that sends nothing, a sponsored send): [docs/user/guides/alchemy-wallet-apis.md](docs/user/guides/alchemy-wallet-apis.md)
+- Use a KMS key as the signer of an Alchemy Wallet APIs smart wallet (`connection.kms.getAccount` as the `@alchemy/wallet-apis` signer, what the key signs for EIP-7702 and user operations, a check script that sends nothing, a sponsored send that runs `checkPreparedCalls` from `hardhat-kms/alchemy` before signing): [docs/user/guides/alchemy-wallet-apis.md](docs/user/guides/alchemy-wallet-apis.md)
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - How hardhat-kms compares with the Hardhat 2 `hardhat-kms-signer` packages and their forks (last release, Hardhat major, cloud, how each plugs in): [docs/user/explanation/other-kms-signers.md](docs/user/explanation/other-kms-signers.md)
 - A KMS key or a private key in `.env` or the Hardhat keystore (what each protects against, what neither does, cost and latency per signature): [docs/user/explanation/kms-or-env-key.md](docs/user/explanation/kms-or-env-key.md)
@@ -107,7 +107,7 @@ pnpm run docs:site:check        # build the docs site from docs/ and check its o
 
 Where things are:
 
-- `packages/hardhat-kms`: the core plugin. Its public entry points are `hardhat-kms`, `hardhat-kms/types` (config and provider types) and `hardhat-kms/provider-utils` (helpers for provider plugins, `@experimental`).
+- `packages/hardhat-kms`: the core plugin. Its public entry points are `hardhat-kms`, `hardhat-kms/types` (config and provider types), `hardhat-kms/provider-utils` (helpers for provider plugins, `@experimental`) and `hardhat-kms/alchemy` (`checkPreparedCalls`, which checks an Alchemy Wallet APIs prepared call before the key signs it; needs viem).
 - `packages/hardhat-kms-aws`: the AWS KMS provider plugin, which depends on `@aws-sdk/client-kms`.
 - `packages/hardhat-kms-azure`: the Azure Key Vault provider plugin, which depends on `@azure/keyvault-keys` and `@azure/identity`.
 - `packages/hardhat-kms-gcp`: the Google Cloud KMS provider plugin, which depends on `@google-cloud/kms`.
@@ -152,6 +152,7 @@ Decision records:
 - [0015: npm names: an unscoped core and scoped providers](docs/contributor/decisions/0015-npm-names.md)
 - [0016: Release from a signed tag, stage to `beta`, promote by dist-tag](docs/contributor/decisions/0016-release-process.md)
 - [0017: The docs site lives at aelmanaa.github.io/hardhat-kms](docs/contributor/decisions/0017-docs-hostname.md)
+- [0018: Refuse a requested type that disagrees with the caller's fee fields](docs/contributor/decisions/0018-refuse-requested-type-mismatch.md)
 
 Rules for every change:
 

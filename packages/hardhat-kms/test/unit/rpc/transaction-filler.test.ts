@@ -3,12 +3,14 @@ import { describe, it } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { HardhatError } from "@nomicfoundation/hardhat-errors";
+import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 import { HardhatPluginError } from "hardhat/plugins";
 import { addr, Transaction } from "micro-eth-signer";
 
 import {
   buildUnsignedTransaction,
   checkFeeFields,
+  describeType,
   type FilledTransaction,
   type FillSettings,
   HardhatTransactionFiller,
@@ -21,6 +23,9 @@ import { HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
 const FROM = HARDHAT_ACCOUNT_0.address;
 const TO = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8";
 const CHAIN = 31337n;
+
+/** A number as a JSON-RPC quantity. */
+const quantity = (value: bigint) => `0x${value.toString(16)}`;
 
 type Answer = unknown;
 type Handler = (params: unknown[] | undefined) => Answer;
@@ -137,9 +142,10 @@ describe("HardhatTransactionFiller fees", () => {
       method: "eth_feeHistory",
       params: ["0x1", "latest", [50]],
     });
-    // The estimate sees the filled fees.
+    // The estimate sees the filled fees, at the pending block.
     assert.deepEqual(node.calls[2]?.params, [
       { from: FROM, to: TO, maxFeePerGas: "0x51", maxPriorityFeePerGas: "0x2" },
+      "pending",
     ]);
   });
 
@@ -500,6 +506,282 @@ describe("HardhatTransactionFiller gas", () => {
   });
 });
 
+// Live run 38801021811 (#492): the GCP account had nonce 126 on a node one block behind and 127
+// on the chain, and signed a self-sponsored EIP-7702 delegate-and-call with authorization nonce
+// 128. On the lagging state the authorization's nonce does not match, so the node skips it and
+// estimates a plain call: 20184 gas. With the authorization applied, the call needs 71897.
+const LAGGING_NONCE = { latest: 126n, pending: 127n } as const;
+const AUTHORIZATION_NONCE = 128n;
+const SKIPPED_ESTIMATE = 20184n;
+const APPLIED_ESTIMATE = 71897n;
+// add(1), as the live suite's LiveCheck takes it.
+const ADD_ONE = `0x1003e2d2${"0".repeat(63)}1`;
+
+/** The account's nonce at a block tag on the lagging node; a tag it does not know has none. */
+function laggingNonce(tag: unknown): bigint | undefined {
+  if (tag === "pending") {
+    return LAGGING_NONCE.pending;
+  }
+  return tag === undefined || tag === "latest" ? LAGGING_NONCE.latest : undefined;
+}
+
+/** Whether an estimate request carries an authorization with this nonce. */
+function hasAuthorizationNonce(tx: unknown, nonce: bigint): boolean {
+  const list: unknown = isObject(tx) ? tx.authorizationList : undefined;
+  return (
+    Array.isArray(list) &&
+    list.some((item: unknown) => isObject(item) && item.nonce === quantity(nonce))
+  );
+}
+
+/**
+ * A node whose `latest` state is one block behind its `pending` state. Its estimate applies a
+ * self-sponsored authorization only when the authorization's nonce is the account's nonce at the
+ * estimate's block tag plus one, as EIP-7702 does once the transaction has raised the nonce. A
+ * request without a block tag gets `latest`, as on a real node.
+ */
+const LAGGING_NODE: Record<string, Handler> = {
+  ...EIP1559_NODE,
+  eth_getTransactionCount: (params) => quantity(laggingNonce(params?.[1]) ?? 0n),
+  eth_estimateGas: (params) => {
+    const nonce = laggingNonce(params?.[1]);
+    const applied = nonce !== undefined && hasAuthorizationNonce(params?.[0], nonce + 1n);
+    return quantity(applied ? APPLIED_ESTIMATE : SKIPPED_ESTIMATE);
+  },
+};
+
+/** The lagging run's delegate-and-call: to itself, 1 wei, add(1), authorization nonce 128. */
+const DELEGATE_AND_CALL = {
+  to: FROM,
+  value: "0x1",
+  data: ADD_ONE,
+  authorizationList: [
+    {
+      chainId: "0xaa36a7",
+      address: TO,
+      nonce: quantity(AUTHORIZATION_NONCE),
+      yParity: "0x1",
+      r: `0x${"cd".repeat(32)}`,
+      s: `0x${"1b".repeat(32)}`,
+    },
+  ],
+};
+
+/** The `eth_estimateGas` requests a node received. */
+const estimatesOf = (node: ReturnType<typeof fakeNode>) =>
+  node.calls.filter((call) => call.method === "eth_estimateGas");
+
+/** A JSON-RPC error as Hardhat's http provider throws it: an Error with the node's code. */
+const rpcError = (message: string, code: number): Error =>
+  Object.assign(new Error(message), { code });
+
+describe("HardhatTransactionFiller estimates at the pending block (#492)", () => {
+  it("covers a self-sponsored authorization when the latest block lags the pending one", async () => {
+    const { node, filled } = await fill(LAGGING_NODE, DELEGATE_AND_CALL);
+    assert.equal(filled.nonce, LAGGING_NONCE.pending);
+    assert.equal(filled.gas, APPLIED_ESTIMATE);
+    assert.deepEqual(
+      estimatesOf(node).map((call) => call.params?.[1]),
+      ["pending"],
+    );
+    // The stub is faithful: without a block tag it gives the lagging run's estimate.
+    assert.equal(
+      LAGGING_NODE.eth_estimateGas?.([estimatesOf(node)[0]?.params?.[0]]),
+      quantity(SKIPPED_ESTIMATE),
+    );
+  });
+
+  it("estimates every other type with the pending tag, the same gas when pending equals latest", async () => {
+    // A node that ignores the tag: pending and latest are the same state.
+    const requests: Record<string, unknown>[] = [
+      {},
+      { gasPrice: "0x64" },
+      { gasPrice: "0x64", accessList: [{ address: TO, storageKeys: [] }] },
+      { maxFeePerGas: "0x64", maxPriorityFeePerGas: "0x1" },
+      { to: null, data: "0x6000" },
+    ];
+    for (const request of requests) {
+      const { node, filled } = await fill(
+        { ...EIP1559_NODE, eth_estimateGas: () => "0x5a3c" },
+        request,
+      );
+      assert.equal(filled.gas, 0x5a3cn);
+      const [estimate, ...others] = estimatesOf(node);
+      assert.deepEqual(others, []);
+      const [tx, tag, ...rest] = estimate?.params ?? [];
+      assert.equal(tag, "pending");
+      assert.deepEqual(rest, []);
+      assert.ok(isObject(tx) && tx.from === FROM);
+    }
+  });
+
+  it("estimates again without a block tag when the node refuses pending", async () => {
+    const rejections = [
+      rpcError("invalid argument 1: unsupported block tag", -32602),
+      rpcError("Pending block is not available", -32000),
+      new Error("pending state is not available"),
+      // geth's message is known even when it mentions execution.
+      rpcError("pending state is not available for execution", -32000),
+      // Other nodes' wording: pending together with tag, block, support or not available.
+      rpcError("eth_estimateGas does not support the pending tag", -32000),
+      rpcError("unknown pending tag", -32000),
+      rpcError("no pending block", -32000),
+      rpcError("pending is unsupported", -32000),
+      rpcError("pending is not available here", -32000),
+    ];
+    for (const rejection of rejections) {
+      const { node, filled } = await fill(
+        {
+          ...EIP1559_NODE,
+          eth_estimateGas: (params) => {
+            if (params?.[1] === "pending") {
+              throw rejection;
+            }
+            return "0x5a3c";
+          },
+        },
+        {},
+      );
+      assert.equal(filled.gas, 0x5a3cn, rejection.message);
+      const [first, second, ...others] = estimatesOf(node);
+      assert.deepEqual(others, []);
+      assert.equal(first?.params?.length, 2);
+      assert.deepEqual(second?.params, [first?.params?.[0]], "the fallback is the request as is");
+    }
+  });
+
+  it("handles a failure of the fallback estimate as before", async () => {
+    const refused = rpcError("invalid params", -32602);
+    const reverted = await fill(
+      {
+        ...EIP1559_NODE,
+        eth_estimateGas: (params) => {
+          throw params?.[1] === "pending" ? refused : new Error("Execution error: reverted");
+        },
+      },
+      {},
+    );
+    assert.equal(reverted.filled.gas, 28_500_000n);
+    const other = new Error("insufficient funds");
+    await assert.rejects(
+      fill(
+        {
+          ...EIP1559_NODE,
+          eth_estimateGas: (params) => {
+            throw params?.[1] === "pending" ? refused : other;
+          },
+        },
+        {},
+      ),
+      (thrown: unknown) => thrown === other,
+    );
+  });
+
+  it("does not estimate again after any other failure of the pending estimate", async () => {
+    const failures: unknown[] = [
+      rpcError("execution reverted", 3),
+      rpcError("gas required exceeds allowance", -32000),
+      new HardhatError(HardhatError.ERRORS.CORE.NETWORK.NETWORK_TIMEOUT),
+      // Not an Error: only an Error from the node counts as a refusal.
+      { code: -32602, message: "pending block is not available" },
+      // A revert whose reason mentions pending is a revert, with any code.
+      rpcError("execution reverted: withdrawal pending", 3),
+      rpcError("execution reverted: pending state is not available", -32000),
+      rpcError("Transaction reverted: pending block is not available", -32602),
+      // Code 3 is a revert, whatever the message says.
+      rpcError("pending block is not available", 3),
+      rpcError("execution reverted: pending", 3),
+      rpcError("execution reverted: pending withdrawal", -32000),
+      // An execution failure that names pending and a block is not a refusal.
+      rpcError("execution failed: pending block", -32000),
+      // pending without a refusal word, or a refusal word without pending, is not one either.
+      rpcError("too many pending transactions", -32000),
+      rpcError("block tag not supported", -32000),
+    ];
+    for (const failure of failures) {
+      const { node, filler: instance } = filler({
+        ...EIP1559_NODE,
+        eth_estimateGas: async () => await Promise.reject(failure),
+      });
+      await assert.rejects(
+        instance.fill("eth_sendTransaction", [{ from: FROM, to: TO }]),
+        (thrown: unknown) => thrown === failure,
+      );
+      assert.equal(estimatesOf(node).length, 1, String(Reflect.get(Object(failure), "message")));
+    }
+  });
+
+  it("estimates a replacement without a block tag, and a caller's later nonce at pending", async () => {
+    // The pending count is 7: nonce 6 replaces a pending transaction; 7 and 8 do not.
+    for (const [nonce, params] of [
+      ["0x6", 1],
+      ["0x7", 2],
+      ["0x8", 2],
+    ] as const) {
+      const { node, filled } = await fill(EIP1559_NODE, { nonce });
+      assert.equal(filled.nonce, BigInt(nonce));
+      const [estimate, ...others] = estimatesOf(node);
+      assert.deepEqual(others, []);
+      assert.equal(estimate?.params?.length, params, nonce);
+      if (params === 2) {
+        assert.equal(estimate?.params?.[1], "pending");
+      }
+      // The count is read once, before the estimate, for the sender.
+      const counts = node.calls.filter((call) => call.method === "eth_getTransactionCount");
+      assert.deepEqual(counts, [{ method: "eth_getTransactionCount", params: [FROM, "pending"] }]);
+      assert.ok(
+        node.methods().indexOf("eth_getTransactionCount") <
+          node.methods().indexOf("eth_estimateGas"),
+      );
+    }
+  });
+
+  it("estimates the lagging run's replacement as before (#492)", async () => {
+    // Nonce 126 replaces the pending transaction the lagging node counts at pending: its
+    // authorization, nonce 127, only matches the state without that transaction.
+    const replacement = {
+      ...DELEGATE_AND_CALL,
+      nonce: quantity(LAGGING_NONCE.latest),
+      authorizationList: [{ ...DELEGATE_AND_CALL.authorizationList[0], nonce: quantity(127n) }],
+    };
+    const { node, filled } = await fill(LAGGING_NODE, replacement);
+    assert.equal(filled.gas, APPLIED_ESTIMATE);
+    assert.deepEqual(
+      estimatesOf(node).map((call) => call.params?.length),
+      [1],
+    );
+  });
+
+  it("reads no pending count for the estimate without a caller's nonce, or with fixed gas", async () => {
+    const plain = await fill(EIP1559_NODE, {});
+    assert.deepEqual(plain.node.methods().slice(0, 4), [
+      "eth_getBlockByNumber",
+      "eth_feeHistory",
+      "eth_estimateGas",
+      "eth_getTransactionCount",
+    ]);
+    // A nonce that is not a quantity is left to the schema, which refuses it after the estimate.
+    const { node, filler: instance } = filler(EIP1559_NODE);
+    await assert.rejects(instance.fill("eth_sendTransaction", [{ from: FROM, to: TO, nonce: 6 }]));
+    assert.ok(!node.methods().includes("eth_getTransactionCount"));
+    assert.equal(estimatesOf(node)[0]?.params?.[1], "pending");
+    const fixed = await fill(EIP1559_NODE, { nonce: "0x6" }, { gas: 50000n });
+    assert.ok(!fixed.node.methods().includes("eth_getTransactionCount"));
+  });
+
+  it("refuses a pending count that is not a string before estimating a caller's nonce", async () => {
+    const { node, filler: instance } = filler({
+      ...EIP1559_NODE,
+      eth_getTransactionCount: () => 7,
+    });
+    await assertKmsError(
+      instance.fill("eth_signTransaction", [{ from: FROM, to: TO, nonce: "0x6" }]),
+      "eth_signTransaction: the node's eth_getTransactionCount answer is not a string",
+    );
+    assert.ok(!node.methods().includes("eth_estimateGas"));
+  });
+});
+
 describe("HardhatTransactionFiller checks", () => {
   it("reads the pending nonce, or keeps the caller's", async () => {
     const { node, filled } = await fill(EIP1559_NODE, {});
@@ -508,7 +790,8 @@ describe("HardhatTransactionFiller checks", () => {
       method: "eth_getTransactionCount",
       params: [FROM.toLowerCase(), "pending"],
     });
-    const given = await fill(EIP1559_NODE, { nonce: "0x2" });
+    // With a gas, the caller's nonce needs no count: none for the estimate (#492), none to fill.
+    const given = await fill(EIP1559_NODE, { nonce: "0x2", gas: "0x5208" });
     assert.equal(given.filled.nonce, 2n);
     assert.ok(!given.node.methods().includes("eth_getTransactionCount"));
     await assertKmsError(
@@ -577,6 +860,7 @@ describe("HardhatTransactionFiller checks", () => {
       "03",
       "eip4844",
       "EIP4844",
+      " eip4844\n",
     ]) {
       for (const method of ["eth_sendTransaction", "eth_signTransaction"]) {
         const { node, filler: instance } = filler(EIP1559_NODE);
@@ -589,26 +873,27 @@ describe("HardhatTransactionFiller checks", () => {
     }
   });
 
-  it("ignores every other type: the fields decide (#484)", async () => {
+  it("ignores a type that is not a quantity: the fields decide (#484, #496)", async () => {
     for (const type of [
-      "0x2",
-      "0x30",
-      "0x13",
       "0x",
       "x3",
-      "13",
-      "30",
       "0x 3",
+      "0x2x",
+      "2x",
       "eip4844x",
       "xeip4844",
+      "legacy",
       "eip1559",
-      2,
-      13,
-      2n,
+      "",
+      -1,
+      -2n,
+      2.5,
+      Number.NaN,
       true,
       null,
       undefined,
       [3],
+      [2],
       ["eip4844"],
     ]) {
       const { node, filled } = await fill(EIP1559_NODE, { type, gasPrice: "0x5" });
@@ -617,6 +902,19 @@ describe("HardhatTransactionFiller checks", () => {
     }
   });
 
+  it("refuses type 3 with fee fields as a blob transaction, not as a mismatch (#496)", async () => {
+    for (const extra of [
+      { gasPrice: "0x5" },
+      { maxFeePerGas: "0x50", maxPriorityFeePerGas: "0x1" },
+    ]) {
+      const { node, filler: instance } = filler(EIP1559_NODE);
+      await assertKmsError(
+        instance.fill("eth_sendTransaction", [{ from: FROM, to: TO, type: "0x3", ...extra }]),
+        "eth_sendTransaction: blob transactions (EIP-4844) cannot be signed",
+      );
+      assert.equal(node.calls.length, 0);
+    }
+  });
   it("reports unavailable EIP-1559 fees for authorizations without legacy fallback (#435)", async () => {
     for (const extra of [{}, { maxFeePerGas: "0x10" }, { maxPriorityFeePerGas: "0x1" }]) {
       const { node, filler: instance } = filler({
@@ -667,10 +965,183 @@ describe("HardhatTransactionFiller checks", () => {
   });
 });
 
+/** The message of a send whose type disagrees with its fee fields (#496). */
+const mismatch = (method: string, requested: string, actual: string) =>
+  `${method}: the transaction asks for type ${requested}, but its fields make it type ${actual}. Nothing was signed. ${FIXES[requested] ?? "no fix"}`;
+
+/** The fix each mismatch message gives, by the type asked for. */
+const FIXES: Record<string, string> = {
+  "0x0 (legacy)":
+    "Set gasPrice instead of the EIP-1559 fee fields, with no accessList or authorizationList, or remove type.",
+  "0x1 (eip2930)":
+    "Set gasPrice instead of the EIP-1559 fee fields, with no authorizationList, or remove type.",
+  "0x2 (eip1559)":
+    "Set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, with no authorizationList, or remove type.",
+  "0x4 (eip7702)":
+    "Add an authorizationList and set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, or remove type.",
+};
+
+/** The message of a send whose type the plugin does not sign (#496). */
+const unsupported = (type: string) => (method: string) =>
+  `${method}: transaction type ${type} is not supported; KMS accounts sign types 0x0, 0x1, 0x2 and 0x4. Nothing was signed.`;
+
+describe("describeType", () => {
+  it("names a type by its number and name, or by its name alone when it has no number here", () => {
+    assert.equal(describeType("legacy"), "0x0 (legacy)");
+    assert.equal(describeType("eip7702"), "0x4 (eip7702)");
+    assert.equal(describeType("eip4844"), "eip4844");
+  });
+});
+
+describe("HardhatTransactionFiller requested type (#496)", () => {
+  const EIP1559_FEES = { maxFeePerGas: "0x50", maxPriorityFeePerGas: "0x1" };
+  const AUTHORIZATIONS = {
+    authorizationList: [authorizationWith(`0x${"11".repeat(32)}`, `0x${"22".repeat(32)}`)],
+  };
+  const METHODS = ["eth_sendTransaction", "eth_signTransaction"];
+
+  async function assertRefused(
+    tx: Record<string, unknown>,
+    message: (method: string) => string,
+  ): Promise<void> {
+    for (const method of METHODS) {
+      const { node, filler: instance } = filler(EIP1559_NODE);
+      await assert.rejects(
+        instance.fill(method, [{ from: FROM, to: TO, ...tx }]),
+        (error: unknown) => {
+          assert.ok(error instanceof HardhatPluginError, String(error));
+          assert.equal(error.message, message(method));
+          return true;
+        },
+      );
+      assert.deepEqual(node.methods(), [], String(tx.type));
+    }
+  }
+
+  it("refuses a type that disagrees with the caller's fee fields, before any request", async () => {
+    const cases: [Record<string, unknown>, string, string][] = [
+      // The four requests of the issue.
+      [{ type: "0x0", ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)"],
+      [{ type: "0x2", gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)"],
+      [{ type: "0x1", gasPrice: "0x5", ...AUTHORIZATIONS }, "0x1 (eip2930)", "0x4 (eip7702)"],
+      [{ type: "0x4", ...EIP1559_FEES }, "0x4 (eip7702)", "0x2 (eip1559)"],
+      // Each field that decides the type, on its own.
+      [{ type: "0x0", maxFeePerGas: "0x50" }, "0x0 (legacy)", "0x2 (eip1559)"],
+      [{ type: "0x0", maxPriorityFeePerGas: "0x1" }, "0x0 (legacy)", "0x2 (eip1559)"],
+      [{ type: "0x0", gasPrice: "0x5", accessList: [] }, "0x0 (legacy)", "0x1 (eip2930)"],
+      [{ type: "0x2", gasPrice: "0x5", accessList: [] }, "0x2 (eip1559)", "0x1 (eip2930)"],
+      [{ type: "0x1", ...EIP1559_FEES, accessList: [] }, "0x1 (eip2930)", "0x2 (eip1559)"],
+      [{ type: "0x2", ...EIP1559_FEES, ...AUTHORIZATIONS }, "0x2 (eip1559)", "0x4 (eip7702)"],
+      [{ type: "0x0", gasPrice: "0x5", ...AUTHORIZATIONS }, "0x0 (legacy)", "0x4 (eip7702)"],
+      [{ type: "0x4", gasPrice: "0x5" }, "0x4 (eip7702)", "0x0 (legacy)"],
+      // The other forms of the type.
+      [{ type: 0, ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)"],
+      [{ type: 0n, ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)"],
+      [{ type: 2n, gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)"],
+      [{ type: " 0X02 ", gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)"],
+      [{ type: "0x00", ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)"],
+      [{ type: "1", maxFeePerGas: "0x50" }, "0x1 (eip2930)", "0x2 (eip1559)"],
+    ];
+    for (const [tx, requested, actual] of cases) {
+      await assertRefused(tx, (method) => mismatch(method, requested, actual));
+    }
+  });
+
+  it("signs a type that agrees with the fields, in every form", async () => {
+    const cases: [string, Record<string, unknown>, unknown[]][] = [
+      ["legacy", { gasPrice: "0x5" }, ["0x0", "0x00", "0X0", " 0x0\n", 0, 0n, "0"]],
+      ["eip2930", { gasPrice: "0x5", accessList: [] }, ["0x1", "0x01", 1, 1n, "1"]],
+      ["eip1559", EIP1559_FEES, ["0x2", "0x002", 2, 2n, "2"]],
+      ["eip1559", { maxPriorityFeePerGas: "0x1" }, ["0x2", 2]],
+      ["eip1559", { maxFeePerGas: "0x50", accessList: [] }, ["0x2", 2n]],
+      ["eip7702", { ...EIP1559_FEES, ...AUTHORIZATIONS }, ["0x4", "0x04", 4, 4n, "4"]],
+    ];
+    for (const [expected, fields, types] of cases) {
+      for (const type of types) {
+        const { filled } = await fill(EIP1559_NODE, { type, ...fields });
+        assert.equal(buildUnsignedTransaction(filled).type, expected, String(type));
+      }
+    }
+  });
+
+  it("signs type 1 with a gasPrice and no access list as EIP-2930 with an empty list", async () => {
+    for (const type of ["0x1", 1, 1n, "1"]) {
+      const tx = { from: FROM, to: TO, type, gasPrice: "0x5" };
+      const { node, filler: instance } = filler(EIP1559_NODE);
+      const filled = await instance.fill("eth_signTransaction", [tx]);
+      const unsigned = buildUnsignedTransaction(filled);
+      assert.equal(unsigned.type, "eip2930", String(type));
+      assert.deepEqual(filled.accessList, []);
+      assert.equal(filled.gasPrice, 5n);
+      assert.equal("accessList" in tx, false, "the caller's transaction is kept");
+      const estimate = node.calls.find((call) => call.method === "eth_estimateGas");
+      const sent: unknown = estimate?.params?.[0];
+      assert.ok(isObject(sent));
+      assert.deepEqual(sent.accessList, [], "the estimate is of the transaction signed");
+    }
+  });
+
+  it("leaves a null fee or list field to the schema's error, not a mismatch", async () => {
+    for (const extra of [
+      { type: "0x0", gasPrice: "0x5", maxFeePerGas: null },
+      { type: "0x2", maxFeePerGas: "0x50", accessList: null, authorizationList: null },
+      { type: "0x1", gasPrice: "0x5", accessList: null },
+      { type: "0x2", gasPrice: null, maxFeePerGas: "0x50" },
+      { type: "0x0", gasPrice: "0x5", maxPriorityFeePerGas: null },
+      { type: "0x0", gasPrice: "0x5", authorizationList: null },
+    ]) {
+      const { filler: instance } = filler(EIP1559_NODE);
+      await assert.rejects(
+        instance.fill("eth_sendTransaction", [{ from: FROM, to: TO, ...extra }]),
+        (error: unknown) => {
+          assert.ok(error instanceof Error, String(error));
+          assert.doesNotMatch(error.message, /asks for type/, JSON.stringify(extra));
+          assert.doesNotMatch(error.message, /make it type/);
+          return true;
+        },
+      );
+    }
+  });
+
+  it("lets the filled fees decide when the caller set none, as today", async () => {
+    for (const extra of [
+      { type: "0x0" },
+      { type: "0x2" },
+      { type: 0 },
+      { type: "0x1", accessList: [] },
+      { type: "0x0", accessList: [] },
+      { type: "0x0", ...AUTHORIZATIONS },
+    ]) {
+      const { filled } = await fill(EIP1559_NODE, extra);
+      assert.notEqual(filled.maxFeePerGas, undefined, JSON.stringify(extra));
+      assert.equal(filled.gasPrice, undefined);
+    }
+    const { filled } = await fill(EIP1559_NODE, { type: "0x2" }, { gasPrice: 7n });
+    assert.equal(buildUnsignedTransaction(filled).type, "legacy");
+  });
+
+  it("refuses a type it does not sign, with or without fee fields, before any request", async () => {
+    for (const [type, shown] of [
+      ["0x5", "0x5"],
+      ["0x05", "0x5"],
+      [5, "0x5"],
+      [5n, "0x5"],
+      ["5", "0x5"],
+      ["0x7e", "0x7e"],
+      ["0x7E", "0x7e"],
+      [126, "0x7e"],
+      ["0x10000000000000000", "0x10000000000000000"],
+      [2n ** 64n, "0x10000000000000000"],
+    ] as const) {
+      for (const extra of [{}, { gasPrice: "0x5" }, EIP1559_FEES]) {
+        await assertRefused({ type, ...extra }, unsupported(shown));
+      }
+    }
+  });
+});
+
 const hex = (value: string) => new Uint8Array(Buffer.from(value.slice(2), "hex"));
 
-/** A number as a JSON-RPC quantity. */
-const quantity = (value: bigint) => `0x${value.toString(16)}`;
 /** A number as 32 bytes. */
 const word = (value: bigint) => `0x${value.toString(16).padStart(64, "0")}`;
 

@@ -1,6 +1,6 @@
 ---
 title: API reference
-description: "The TypeScript API of hardhat-kms: the plugin export, the config types and the helpers for provider plugins."
+description: "The TypeScript API of hardhat-kms: the plugin export, the config types, the helpers for provider plugins and the Alchemy prepared-call check."
 ---
 
 # API reference
@@ -14,5 +14,6 @@ The plugin is configured, not called: [Configuration](../configuration.md) descr
 ## Modules
 
 - [hardhat-kms](hardhat-kms.md)
+- [hardhat-kms/alchemy](hardhat-kms/alchemy.md)
 - [hardhat-kms/provider-utils](hardhat-kms/provider-utils.md)
 - [hardhat-kms/types](hardhat-kms/types.md)
