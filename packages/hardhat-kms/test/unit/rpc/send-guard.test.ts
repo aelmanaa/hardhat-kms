@@ -1537,7 +1537,10 @@ describe("ConnectionSends after the pending count falls (#489)", () => {
     for (let pending = 0n; pending < 1000n; pending++) {
       assert.equal(await send(sends, pending, fake), pending);
     }
-    assert.ok(sends.sentRecords(COW) <= MAX_SENT_RECORDS, `${sends.sentRecords(COW)} records`);
+    assert.equal(sends.sentRecords(COW), MAX_SENT_RECORDS);
+    // A dropped nonce recorded again is a new record: the next oldest goes, and the count holds.
+    sends.recordSent(COW, 0n, "0xagain");
+    assert.equal(sends.sentRecords(COW), MAX_SENT_RECORDS);
     // No queued transaction: a reservation at the pending count is the only nonce to skip.
     sends.reserve(COW, 1000n);
     assert.equal(sends.nonceFor(COW, 1000n), 1001n);
@@ -1568,6 +1571,19 @@ describe("ConnectionSends after the pending count falls (#489)", () => {
     // The library's 0 reaches the node, then hardhat_dropTransaction(1): the count falls to 1.
     fake.has.delete(hash(1n));
     assert.equal(await sends.chooseNonce(COW, 1n, fake.lookUp), 1n);
+  });
+
+  it("sees a fall through the pending count alone when no record of its own was lost", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 0n);
+    sends.reserve(COW, 0n);
+    assert.equal(await send(sends, 0n, fake), 1n);
+    // The library's 0 reaches the node on its own transport, and the count is 2.
+    assert.equal(await send(sends, 2n, fake), 2n);
+    // hardhat_dropTransaction of the library's 0: the count falls to 0, and 1 and 2 stay.
+    sends.reserve(COW, 5n);
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 3n, "not past 5");
   });
 
   it("looks each record up once per fall", async () => {
@@ -1685,6 +1701,50 @@ describe("ConnectionSends after the pending count falls (#489)", () => {
     sends.reserve(COW, 1n);
     sends.resetReservation(`1:${COW}`);
     assert.equal(warning.mock.callCount(), 1, "a held record above it is a gap");
+  });
+
+  it("keeps every hash at a nonce, so a revert that restores the first one counts", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    for (const pending of [0n, 1n, 2n]) {
+      await send(sends, pending, fake);
+    }
+    assert.equal(await sends.chooseNonce(COW, 3n, fake.lookUp), 3n);
+    sends.reserve(COW, 3n);
+    assert.equal(await send(sends, 3n, fake), 4n);
+    const snapshot = new Set(fake.has);
+    // hardhat_dropTransaction of the queued 4: a second transaction takes 4.
+    fake.has.delete(hash(4n));
+    assert.equal(await sends.chooseNonce(COW, 3n, fake.lookUp), 4n);
+    sends.recordSent(COW, 4n, "0xsecond");
+    fake.has.add("0xsecond");
+    // evm_revert: the first transaction at 4 is back, the second is gone.
+    fake.has.clear();
+    for (const held of snapshot) {
+      fake.has.add(held);
+    }
+    fake.lookedUp.length = 0;
+    assert.equal(await sends.chooseNonce(COW, 3n, fake.lookUp), 5n);
+    assert.deepEqual(
+      fake.lookedUp,
+      ["0xsecond", hash(4n)],
+      "the newest, then each until one is held",
+    );
+    assert.equal(sends.sentRecords(COW), 5, "both hashes count toward the limit");
+  });
+
+  it("keeps the hash a caller-nonce replacement replaced, for a revert that restores it", async () => {
+    const { sends } = withClock(false);
+    const fake = node();
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 0n);
+    sends.reserve(COW, 0n);
+    assert.equal(await send(sends, 0n, fake), 1n);
+    // evm_snapshot, then a replacement with the caller's nonce 1 and a higher fee.
+    sends.recordSent(COW, 1n, "0xreplacement");
+    sends.recordSent(COW, 1n, "0xreplacement");
+    assert.equal(sends.sentRecords(COW), 2, "a hash recorded twice counts once");
+    // evm_revert: the original at 1 is back.
+    assert.equal(await sends.chooseNonce(COW, 0n, fake.lookUp), 2n);
   });
 
   it("forgets the records when the connection closes", async () => {

@@ -678,20 +678,28 @@ interface RetryEntry {
  */
 export type LookUpTransaction = (hash: string) => Promise<boolean | undefined>;
 
-/** A transaction the node accepted from a sender, recorded with the high-water mark off. */
+/**
+ * The transactions the node accepted from a sender at one nonce, recorded with the high-water
+ * mark off. A nonce can have several: a replacement with the caller's nonce, or a send after the
+ * node lost the first one. A revert can bring back any of them.
+ */
 interface SentRecord {
-  /** Its hash, to look it up after the pending count falls. */
-  readonly hash: string;
+  /** Every hash recorded at this nonce, to look them up after the pending count falls. */
+  readonly hashes: string[];
+  /** The hash recorded last. */
+  newest: string;
   /** Whether it was recorded or looked up since the last fall of the pending count. */
   fresh: boolean;
-  /** Whether the last lookup found the node without it. Such a record is looked up again before its nonce is taken. */
+  /** Whether the last lookup found the node without any of them. Such a record is looked up again before its nonce is taken. */
   gone: boolean;
 }
 
 /** A sender's sent transactions and what the nonce choice saw of its pending count. */
 interface SentRecords {
-  /** By nonce, at most {@link MAX_SENT_RECORDS}. */
+  /** By nonce, with at most {@link MAX_SENT_RECORDS} hashes in all. */
   readonly byNonce: Map<bigint, SentRecord>;
+  /** How many hashes `byNonce` holds. */
+  hashes: number;
   /** The nonce recorded last; -1n when none was. */
   latest: bigint;
   /** The pending count of the last nonce choice for a send; -1n before the first. */
@@ -809,7 +817,7 @@ export class ConnectionSends {
     records.observed = pending;
     const latest = byNonce.get(records.latest);
     if (!fell && latest?.fresh === true && !latest.gone && this.#live(from).size > 0) {
-      fell = (await lookUp(latest.hash)) === false;
+      fell = (await lookUp(latest.newest)) === false;
     }
     if (fell) {
       records.afterFall = true;
@@ -839,11 +847,20 @@ export class ConnectionSends {
     }
   }
 
-  /** Looks a record up, and notes whether the node had it; a failed lookup counts as held. */
+  /**
+   * Looks a record's hashes up, and notes whether the node has none of them. One the node has, or
+   * whose lookup fails, makes the nonce held.
+   */
   async #check(record: SentRecord, lookUp: LookUpTransaction): Promise<void> {
-    const known = await lookUp(record.hash);
+    let gone = true;
+    for (const hash of record.hashes) {
+      if ((await lookUp(hash)) !== false) {
+        gone = false;
+        break;
+      }
+    }
     record.fresh = true;
-    record.gone = known === false;
+    record.gone = gone;
   }
 
   /**
@@ -1101,6 +1118,7 @@ export class ConnectionSends {
     if (records === undefined) {
       records = {
         byNonce: new Map(),
+        hashes: 0,
         latest: -1n,
         observed: -1n,
         afterFall: false,
@@ -1162,19 +1180,19 @@ export class ConnectionSends {
   }
 
   /**
-   * Counts the sender's sent records. Tests use it to check that the record stays bounded.
+   * Counts the hashes in the sender's sent records. Tests use it to check that the record stays bounded.
    *
    * @param from - The sender's lowercase address.
    * @returns How many transactions are recorded; always 0 with the high-water mark on.
    */
   public sentRecords(from: string): number {
-    return this.#sent.get(from)?.byNonce.size ?? 0;
+    return this.#sent.get(from)?.hashes ?? 0;
   }
 
   /**
    * Records a transaction the node accepted: `highWater = max(highWater, nonce)`. With the mark
-   * off, its nonce and hash, replacing an older record of the nonce; beyond
-   * {@link MAX_SENT_RECORDS}, the record made first is dropped, and after a fall
+   * off, its nonce and hash, next to the hashes recorded before at that nonce; beyond
+   * {@link MAX_SENT_RECORDS} hashes, the nonce recorded first is dropped with all its hashes, and after a fall
    * {@link chooseNonce} takes no nonce above the pending count up to the highest dropped one.
    *
    * @param from - The sender's lowercase address.
@@ -1185,14 +1203,27 @@ export class ConnectionSends {
     if (!this.#highWaterEnabled) {
       const records = this.#recordsOf(from);
       const { byNonce } = records;
-      byNonce.set(nonce, { hash, fresh: true, gone: false });
+      const record = byNonce.get(nonce);
+      if (record === undefined) {
+        byNonce.set(nonce, { hashes: [hash], newest: hash, fresh: true, gone: false });
+        records.hashes++;
+      } else {
+        if (!record.hashes.includes(hash)) {
+          record.hashes.push(hash);
+          records.hashes++;
+        }
+        record.newest = hash;
+        record.fresh = true;
+        record.gone = false;
+      }
       records.latest = nonce;
-      // The record made first goes; a nonce recorded again keeps its first place.
-      for (const [oldest] of byNonce) {
-        if (byNonce.size <= MAX_SENT_RECORDS) {
+      // The nonce recorded first goes, with all its hashes; one recorded again keeps its place.
+      for (const [oldest, dropped] of byNonce) {
+        if (records.hashes <= MAX_SENT_RECORDS) {
           break;
         }
         byNonce.delete(oldest);
+        records.hashes -= dropped.hashes.length;
         records.droppedBelow = max(records.droppedBelow, oldest + 1n);
       }
       return;

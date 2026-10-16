@@ -108,6 +108,8 @@ interface PluginSend {
   lowest?: bigint;
   /** Its transaction reached the node. */
   broadcast?: boolean;
+  /** The caller's nonce: a replacement of the node's transaction at it. */
+  replaces?: bigint;
 }
 
 type LibraryState =
@@ -193,6 +195,11 @@ interface World {
   snapshot?: Map<bigint, Delivered>;
   /** The node's pending count has fallen in this sequence. */
   fell: boolean;
+  /**
+   * Nonces whose queued transaction a drop removed without a fall. The plugin may still count
+   * them, a gap the pending count cannot show it.
+   */
+  stale: Set<bigint>;
 }
 
 const LIVE: ReadonlySet<LibraryState> = new Set(["consumed", "signing", "signed", "broadcasting"]);
@@ -217,7 +224,7 @@ function lowestFree(world: World): bigint {
     library(world).flatMap((send) => (send.nonce === undefined ? [] : [send.nonce])),
   );
   let nonce = pendingOf(world);
-  while (world.delivered.has(nonce) || given.has(nonce)) {
+  while (world.delivered.has(nonce) || given.has(nonce) || world.stale.has(nonce)) {
     nonce++;
   }
   return nonce;
@@ -313,6 +320,9 @@ function onRaw(world: World) {
           kind: "close-434",
           message: `plugin send ${id} reached the node with nonce ${nonce} after connection ${send.connection} closed`,
         });
+      } else if (send.replaces !== undefined) {
+        // A replacement the caller asked for: the node's transaction at the nonce goes.
+        world.delivered.delete(nonce);
       } else {
         checkClaim(world, send, nonce, `plugin send ${id} broadcast`);
         trackLowest(world);
@@ -946,27 +956,75 @@ function nodeChanged(world: World, before: bigint): void {
 }
 
 /**
- * `hardhat_dropTransaction` of the transaction at the index-th nonce below the pending count: the
- * pending count falls to it, and the node keeps the transactions above it. On edr-simulated only;
- * a step while a request is in flight is skipped, since that send chose its nonce before.
+ * `hardhat_dropTransaction` of the transaction at the index-th nonce the node holds. Below the
+ * pending count, the count falls to it and the node keeps the transactions above it; above it, a
+ * queued transaction goes and the count stays. On edr-simulated only; a step while a request is
+ * in flight is skipped, since that send chose its nonce before.
  */
 function drop(index: number): Step {
   return {
     check: () => true,
     run: async (_model, world) => {
       const before = pendingOf(world);
-      const counted = [...world.delivered.keys()]
-        .filter((nonce) => nonce < before)
-        .toSorted((a, b) => (a < b ? -1 : 1));
-      const nonce = counted[index % Math.max(counted.length, 1)];
+      const held = [...world.delivered.keys()].toSorted((a, b) => (a < b ? -1 : 1));
+      const nonce = held[index % Math.max(held.length, 1)];
       if (world.type !== "edr-simulated" || !quiet(world) || nonce === undefined) {
         return;
       }
       world.delivered.delete(nonce);
+      if (nonce > before) {
+        world.stale.add(nonce);
+      }
       nodeChanged(world, before);
       await Promise.resolve();
     },
     toString: () => `drop(${index})`,
+  };
+}
+
+/**
+ * A plugin send with the caller's nonce at the index-th nonce the node holds, as Ignition replaces
+ * a stuck transaction: the node keeps the new one. On edr-simulated only, while the node answers,
+ * no request is in flight and no library send holds a nonce: a caller's nonce ends the
+ * reservations up to it, which the model does not follow, and a replacement without an answer
+ * would replace the connection's one uncertain record, a limit the uncertain-send docs state.
+ */
+function replace(index: number): Step {
+  return {
+    check: () => true,
+    run: async (_model, world) => {
+      const held = [...world.delivered.keys()].toSorted((a, b) => (a < b ? -1 : 1));
+      const nonce = held[index % Math.max(held.length, 1)];
+      if (
+        world.type !== "edr-simulated" ||
+        world.mode !== "accept" ||
+        !quiet(world) ||
+        nonce === undefined ||
+        library(world).some((send) => LIVE.has(send.state)) ||
+        !isOpen(world, 0)
+      ) {
+        return;
+      }
+      const send: PluginSend = {
+        kind: "plugin",
+        id: world.sends.length,
+        connection: 0,
+        replaces: nonce,
+      };
+      world.sends.push(send);
+      const target = world.connections[0];
+      assert.ok(target !== undefined);
+      await start(
+        world,
+        world.harness.send(target, {
+          from: COW,
+          to: TO,
+          value: `0x${send.id.toString(16)}`,
+          nonce: `0x${nonce.toString(16)}`,
+        }),
+      );
+    },
+    toString: () => `replace(${index})`,
   };
 }
 
@@ -1021,6 +1079,7 @@ const stepArbs: [fc.Arbitrary<Step>, number][] = [
   [fc.constant(holdLimit), 1],
   [connectionArb.map(close), 1],
   [fc.nat({ max: 3 }).map(drop), 1],
+  [fc.nat({ max: 3 }).map(replace), 1],
   [fc.constant(snapshot), 1],
   [fc.constant(revert), 1],
 ];
@@ -1065,6 +1124,7 @@ async function newWorld(
     kinds,
     tick: (ms) => t.mock.timers.tick(ms),
     fell: false,
+    stale: new Set(),
   };
   harness.node.onRaw = onRaw(world);
   harness.node.lookUp = (hash, connection) => {
@@ -1178,6 +1238,34 @@ const KNOWN_489: { name: string; steps: Step[] }[] = [
       librarySign(0),
       libraryBroadcast(0, 0),
       pluginSend(0),
+      revert,
+      libraryConsume(0, "own"),
+      pluginSend(0),
+    ],
+  },
+  {
+    name: "a revert that restores a dropped queued transaction a second one replaced",
+    steps: [
+      pluginSend(0),
+      pluginSend(0),
+      pluginSend(0),
+      libraryConsume(0, "own"),
+      pluginSend(0),
+      snapshot,
+      drop(3),
+      pluginSend(0),
+      revert,
+      pluginSend(0),
+    ],
+  },
+  {
+    name: "a revert that restores a transaction a caller-nonce replacement replaced",
+    steps: [
+      libraryConsume(0, "own"),
+      pluginSend(0),
+      libraryReset(0),
+      snapshot,
+      replace(0),
       revert,
       libraryConsume(0, "own"),
       pluginSend(0),

@@ -61,9 +61,15 @@ async function library(connection: NetworkConnection) {
 }
 
 /** Sends a transaction through the plugin and returns its hash and nonce. */
-async function pluginSend(connection: NetworkConnection): Promise<{ hash: string; nonce: number }> {
+async function pluginSend(
+  connection: NetworkConnection,
+  fields: Record<string, string> = {},
+): Promise<{ hash: string; nonce: number }> {
   const hash = String(
-    await connection.provider.request({ method: "eth_sendTransaction", params: [TX] }),
+    await connection.provider.request({
+      method: "eth_sendTransaction",
+      params: [{ ...TX, ...fields }],
+    }),
   );
   return { hash, nonce: await nonceOf(connection, hash) };
 }
@@ -170,6 +176,50 @@ it("after evm_revert, plugin sends below a reservation that outlives it are mine
     await lib.send(3);
     assert.equal((await pluginSend(connection)).nonce, 4);
     assert.equal(await pending(connection), 5, "every nonce is mined once");
+  } finally {
+    await connection.close();
+  }
+});
+
+it("after a revert restores a dropped transaction that a second one replaced, never takes its nonce", async () => {
+  const connection = await connect(false);
+  try {
+    for (let nonce = 0; nonce < 3; nonce++) {
+      assert.equal((await pluginSend(connection)).nonce, nonce);
+    }
+    const lib = await library(connection);
+    assert.equal(await lib.consume(), 3);
+    const first = await pluginSend(connection);
+    assert.equal(first.nonce, 4);
+    const snapshot: unknown = await connection.provider.request({ method: "evm_snapshot" });
+    await connection.provider.request({ method: "hardhat_dropTransaction", params: [first.hash] });
+    const second = await pluginSend(connection, { value: "0x1" });
+    assert.equal(second.nonce, 4, "the node lacks 4");
+    await connection.provider.request({ method: "evm_revert", params: [snapshot] });
+    const next = await pluginSend(connection, { gasPrice: "0x77359400" });
+    assert.equal(next.nonce, 5, "the restored transaction at 4 still counts");
+    assert.equal(await nonceOf(connection, first.hash), 4, "it is not replaced");
+  } finally {
+    await connection.close();
+  }
+});
+
+it("after a revert restores a transaction that a caller-nonce replacement replaced, never takes its nonce", async () => {
+  const connection = await connect(false);
+  try {
+    const lib = await library(connection);
+    assert.equal(await lib.consume(), 0);
+    const original = await pluginSend(connection);
+    assert.equal(original.nonce, 1);
+    const snapshot: unknown = await connection.provider.request({ method: "evm_snapshot" });
+    const replacement = await pluginSend(connection, { nonce: "0x1", gasPrice: "0x77359400" });
+    assert.equal(replacement.nonce, 1);
+    await connection.provider.request({ method: "evm_revert", params: [snapshot] });
+    // The replacement's nonce ended the reservation of 0; the library client takes 0 again.
+    assert.equal(await lib.consume(), 0);
+    const next = await pluginSend(connection, { gasPrice: "0xb2d05e00" });
+    assert.equal(next.nonce, 2, "the restored transaction at 1 still counts");
+    assert.equal(await nonceOf(connection, original.hash), 1, "it is not replaced");
   } finally {
     await connection.close();
   }
