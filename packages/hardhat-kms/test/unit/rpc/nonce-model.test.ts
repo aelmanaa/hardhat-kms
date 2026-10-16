@@ -984,10 +984,12 @@ function drop(index: number): Step {
 
 /**
  * A plugin send with the caller's nonce at the index-th nonce the node holds, as Ignition replaces
- * a stuck transaction: the node keeps the new one. On edr-simulated only, while the node answers,
- * no request is in flight and no library send holds a nonce: a caller's nonce ends the
- * reservations up to it, which the model does not follow, and a replacement without an answer
- * would replace the connection's one uncertain record, a limit the uncertain-send docs state.
+ * a stuck transaction: the node keeps the new one. It runs only on edr-simulated, only in the
+ * `accept` node mode (so neither a refused nor an unanswered replacement), only while no request
+ * is in flight, and only while no library send holds a nonce. A caller's nonce ends the
+ * reservations up to it, which the model does not follow. An unanswered replacement overwrites
+ * the connection's one uncertain record, which can lead to a duplicate on a lagging HTTP node;
+ * that case is not modelled until #506 is fixed.
  */
 function replace(index: number): Step {
   return {
