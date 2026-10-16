@@ -20,7 +20,7 @@ Before any node request, after the type-3 check, the filler reads `type` as a nu
 
 Type 1 with `gasPrice` and no `accessList` is not a mismatch. An EIP-2930 transaction with an empty access list is valid, and viem's `eip2930` and ethers' `type: 1` send exactly this request for `sendTransaction`, deploys and contract calls; viem's local accounts and ethers' `Wallet` sign it as type 1. The filler sets `accessList: []` on its copy and signs type 1. Refusing it would make users of both libraries add `accessList: []` by hand for a request that already says what it means.
 
-A `type` with no fee field is not checked, a `type` that is not a number (`"legacy"`, `"eip1559"`) is ignored, as before, and a request whose fee or list field is `null` fails before the mismatch check, with `core.tx.null-field` ([#504](https://github.com/aelmanaa/hardhat-kms/issues/504)). There is no setting to turn the check off.
+A `type` with no fee field is not checked, a `type` that is not a number (`"legacy"`, `"eip1559"`) is ignored, as before, and a request whose fee or list field is `null` fails before the mismatch check, with `core.tx.null-field` ([#504](https://github.com/aelmanaa/hardhat-kms/issues/504)), where the schema refused it before. The exception is the one `null` the automatic fee fill replaces, as Hardhat does: a lone `null` `maxFeePerGas` or `maxPriorityFeePerGas` with no `gasPrice` and the other EIP-1559 field absent. It still signs, and counts as an EIP-1559 fee field for the check, so `type: "0x0"` with `maxFeePerGas: null`, which was signed as type 2, is a mismatch. There is no setting to turn the check off.
 
 ## Consequences
 

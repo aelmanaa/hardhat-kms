@@ -995,9 +995,10 @@ describe("HardhatTransactionFiller requested type (#496)", () => {
   async function assertRefused(
     tx: Record<string, unknown>,
     message: (method: string) => string,
+    settings: Partial<FillSettings> = {},
   ): Promise<void> {
     for (const method of METHODS) {
-      const { node, filler: instance } = filler(EIP1559_NODE);
+      const { node, filler: instance } = filler(EIP1559_NODE, settings);
       await assert.rejects(
         instance.fill(method, [{ from: FROM, to: TO, ...tx }]),
         (error: unknown) => {
@@ -1184,7 +1185,9 @@ describe("HardhatTransactionFiller requested type (#496)", () => {
       // Without a type, with no other fee field, and with a type that is not a number.
       [{ gasPrice: null }, "gasPrice"],
       [{ maxFeePerGas: null, maxPriorityFeePerGas: "0x1" }, "maxFeePerGas"],
-      [{ maxPriorityFeePerGas: null }, "maxPriorityFeePerGas"],
+      [{ maxFeePerGas: null, maxPriorityFeePerGas: null }, "maxFeePerGas"],
+      [{ gasPrice: "0x5", maxPriorityFeePerGas: null }, "maxPriorityFeePerGas"],
+      [{ maxFeePerGas: "0x50", maxPriorityFeePerGas: null }, "maxPriorityFeePerGas"],
       [{ accessList: null }, "accessList"],
       [{ authorizationList: null }, "authorizationList"],
       [{ type: "0x2", authorizationList: null }, "authorizationList"],
@@ -1193,6 +1196,54 @@ describe("HardhatTransactionFiller requested type (#496)", () => {
     for (const [tx, field] of cases) {
       await assertRefused(tx, nullField(field));
     }
+  });
+
+  it("refuses a lone null EIP-1559 fee field when the gasPrice setting is fixed, as the schema did", async () => {
+    for (const [tx, field] of [
+      [{ maxFeePerGas: null }, "maxFeePerGas"],
+      [{ type: "0x2", maxPriorityFeePerGas: null }, "maxPriorityFeePerGas"],
+    ] as const) {
+      await assertRefused(tx, nullField(field), { gasPrice: 7n });
+    }
+  });
+
+  it("fills a lone null EIP-1559 fee field with automatic fees, like an absent one, as before", async () => {
+    const { filled: absent } = await fill(EIP1559_NODE, {});
+    const cases: [Record<string, unknown>, string][] = [
+      [{ maxFeePerGas: null }, "eip1559"],
+      [{ maxPriorityFeePerGas: null }, "eip1559"],
+      [{ type: "0x2", maxFeePerGas: null }, "eip1559"],
+      [{ type: "eip1559", maxPriorityFeePerGas: null }, "eip1559"],
+      [{ type: "legacy", maxFeePerGas: null }, "eip1559"],
+      [{ type: "0x4", maxFeePerGas: null, ...AUTHORIZATIONS }, "eip7702"],
+      [{ maxPriorityFeePerGas: null, ...AUTHORIZATIONS }, "eip7702"],
+    ];
+    for (const [extra, expected] of cases) {
+      const { filled } = await fill(EIP1559_NODE, extra);
+      const label = JSON.stringify(extra);
+      assert.equal(filled.maxFeePerGas, absent.maxFeePerGas, label);
+      assert.equal(filled.maxPriorityFeePerGas, absent.maxPriorityFeePerGas, label);
+      assert.equal(buildUnsignedTransaction(filled).type, expected, label);
+    }
+  });
+
+  it("refuses a lone null EIP-1559 fee field with a type the fill contradicts", async () => {
+    await assertRefused({ type: "0x0", maxFeePerGas: null }, (method) =>
+      mismatch(
+        method,
+        "0x0 (legacy)",
+        "0x2 (eip1559)",
+        "Set gasPrice instead of maxFeePerGas, or remove type.",
+      ),
+    );
+    await assertRefused({ type: "0x1", maxPriorityFeePerGas: null }, (method) =>
+      mismatch(
+        method,
+        "0x1 (eip2930)",
+        "0x2 (eip1559)",
+        "Set gasPrice instead of maxPriorityFeePerGas, or remove type.",
+      ),
+    );
   });
 
   it("refuses an unsupported type before a null field", async () => {

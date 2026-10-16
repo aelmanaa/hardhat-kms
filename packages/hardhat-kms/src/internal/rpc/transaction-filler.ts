@@ -192,7 +192,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     }
     // A deep copy: the caller's objects, including access and authorization lists, stay as they are.
     const tx: Record<string, unknown> = first;
-    applyRequestedType(tx, method);
+    applyRequestedType(tx, method, this.#settings.gasPrice === "auto");
     canonicalAuthorizationSignatures(tx, method);
     // Hardhat estimates gas with the request's params, after the fees are filled in.
     const filledParams = [tx, ...rest];
@@ -604,15 +604,42 @@ function typeFix(name: SignedTypeName, tx: Record<string, unknown>): string {
 }
 
 /**
+ * Whether the automatic fee fill replaces a `null` in `field` with a suggested fee, as Hardhat
+ * does: only a lone EIP-1559 fee field, with no `gasPrice` and the other EIP-1559 field absent.
+ * Any other `null` reaches the schema, which refuses it.
+ *
+ * @param tx - The request's transaction.
+ * @param field - A field that decides the type.
+ * @param autoFees - Whether the network's `gasPrice` setting is `"auto"`.
+ * @returns Whether the fill replaces the field's `null`.
+ */
+function feeFillReplaces(tx: Record<string, unknown>, field: string, autoFees: boolean): boolean {
+  if (!autoFees || tx.gasPrice !== undefined) {
+    return false;
+  }
+  if (field === "maxFeePerGas") {
+    return tx.maxPriorityFeePerGas === undefined;
+  }
+  return field === "maxPriorityFeePerGas" && tx.maxFeePerGas === undefined;
+}
+
+/**
  * Refuses a `null` in a field that decides the type (#504), before any request to the node, with
- * an error that names the field. The schema refuses it too, but only after the fill, and in its
- * own words.
+ * an error that names the field. Only a `null` the schema would refuse after the fill is refused;
+ * one the automatic fee fill replaces (see {@link feeFillReplaces}) is kept, and signs as before.
  *
  * @param tx - The request's transaction.
  * @param method - The RPC method, for the error message.
+ * @param autoFees - Whether the network's `gasPrice` setting is `"auto"`.
  */
-function refuseNullTypeFields(tx: Record<string, unknown>, method: string): void {
-  const field = TYPE_FIELDS.find((name) => tx[name] === null);
+function refuseNullTypeFields(
+  tx: Record<string, unknown>,
+  method: string,
+  autoFees: boolean,
+): void {
+  const field = TYPE_FIELDS.find(
+    (name) => tx[name] === null && !feeFillReplaces(tx, name, autoFees),
+  );
   if (field !== undefined) {
     throw catalogError(ERRORS.txNullField, { field }, { operation: method });
   }
@@ -626,12 +653,15 @@ function refuseNullTypeFields(tx: Record<string, unknown>, method: string): void
  * `eip2930` and ethers' `type: 1` send, so the list is set to `[]`. A `type` with no fee field is
  * not checked: the fill chooses the fees and the type follows them, as Hardhat's local accounts
  * do. A `type` that is not a number is ignored. A `null` field that decides the type is refused,
- * with or without a `type`, after the unsupported type and before the mismatch.
+ * with or without a `type`, after the unsupported type and before the mismatch, unless the fee
+ * fill replaces it. Such a lone `null` EIP-1559 fee field counts as an EIP-1559 fee field here,
+ * since the fill makes it one: `type: "0x0"` with `maxFeePerGas: null` is a mismatch.
  *
  * @param tx - The copied transaction; its `accessList` may be set.
  * @param method - The RPC method, for error messages.
+ * @param autoFees - Whether the network's `gasPrice` setting is `"auto"`.
  */
-function applyRequestedType(tx: Record<string, unknown>, method: string): void {
+function applyRequestedType(tx: Record<string, unknown>, method: string, autoFees: boolean): void {
   const requested = typeNumber(tx.type);
   // Without a number, the lookup is of NaN, which has no type.
   const name: SignedTypeName | undefined = SIGNED_TYPES[Number(requested)];
@@ -642,7 +672,7 @@ function applyRequestedType(tx: Record<string, unknown>, method: string): void {
       { operation: method },
     );
   }
-  refuseNullTypeFields(tx, method);
+  refuseNullTypeFields(tx, method, autoFees);
   if (
     name === undefined ||
     (tx.gasPrice === undefined &&
