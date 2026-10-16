@@ -190,9 +190,9 @@ export class HardhatTransactionFiller implements TransactionFiller {
     ) {
       throw catalogError(ERRORS.txBlob, {}, { operation: method });
     }
-    checkRequestedType(first, method);
     // A deep copy: the caller's objects, including access and authorization lists, stay as they are.
     const tx: Record<string, unknown> = first;
+    applyRequestedType(tx, method);
     canonicalAuthorizationSignatures(tx, method);
     // Hardhat estimates gas with the request's params, after the fees are filled in.
     const filledParams = [tx, ...rest];
@@ -465,8 +465,11 @@ export class HardhatTransactionFiller implements TransactionFiller {
   }
 }
 
+/** micro-eth-signer's name of a transaction type that KMS accounts sign. */
+type SignedTypeName = "legacy" | "eip2930" | "eip1559" | "eip7702";
+
 /** The transaction types KMS accounts sign, by number, with micro-eth-signer's names. */
-export const SIGNED_TYPES: Readonly<Record<number, string>> = {
+export const SIGNED_TYPES: Readonly<Record<number, SignedTypeName>> = {
   0: "legacy",
   1: "eip2930",
   2: "eip1559",
@@ -529,7 +532,7 @@ export function isBlobType(type: unknown): boolean {
  * @param tx - The request's transaction.
  * @returns micro-eth-signer's name of the type.
  */
-function fieldsType(tx: Record<string, unknown>): string {
+function fieldsType(tx: Record<string, unknown>): SignedTypeName {
   if (tx.authorizationList !== undefined) {
     return "eip7702";
   }
@@ -539,17 +542,41 @@ function fieldsType(tx: Record<string, unknown>): string {
   return tx.accessList === undefined ? "legacy" : "eip2930";
 }
 
+// The fields that decide a transaction's type, apart from `type`.
+const TYPE_FIELDS = [
+  "gasPrice",
+  "maxFeePerGas",
+  "maxPriorityFeePerGas",
+  "accessList",
+  "authorizationList",
+] as const;
+
+// What to change in a request that asks for each type but has the fee fields of another.
+const TYPE_FIXES: Readonly<Record<SignedTypeName, string>> = {
+  legacy:
+    "Set gasPrice instead of the EIP-1559 fee fields, with no accessList or authorizationList, or remove type.",
+  eip2930:
+    "Set gasPrice instead of the EIP-1559 fee fields, with no authorizationList, or remove type.",
+  eip1559:
+    "Set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, with no authorizationList, or remove type.",
+  eip7702:
+    "Add an authorizationList and set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, or remove type.",
+};
+
 /**
- * Refuses a request whose `type` cannot be signed as written (#496), before any request to the
- * node: a number other than 0, 1, 2 and 4 (type 3 is refused before, as a blob transaction), or,
- * when the caller set a fee field, a type other than the one the fields give. A `type` with no
- * fee field is not checked: the fill chooses the fees and the type follows them, as Hardhat's local
- * accounts do. A `type` that is not a number is ignored.
+ * Applies a request's `type` (#496), before any request to the node. A number other than 0, 1, 2
+ * and 4 is refused (type 3 is refused before, as a blob transaction). When the caller set a fee
+ * field, a type other than the one the fields give is refused, except type 1 with `gasPrice` and
+ * no `accessList`: that is a valid EIP-2930 transaction with an empty access list, which viem's
+ * `eip2930` and ethers' `type: 1` send, so the list is set to `[]`. A `type` with no fee field is
+ * not checked: the fill chooses the fees and the type follows them, as Hardhat's local accounts
+ * do. A `type` that is not a number is ignored, and so is any `type` when a field that decides the
+ * type is `null`, which the schema refuses with its own error.
  *
- * @param tx - The request's transaction.
+ * @param tx - The copied transaction; its `accessList` may be set.
  * @param method - The RPC method, for error messages.
  */
-function checkRequestedType(tx: Record<string, unknown>, method: string): void {
+function applyRequestedType(tx: Record<string, unknown>, method: string): void {
   const requested = typeNumber(tx.type);
   if (requested === undefined) {
     return;
@@ -563,17 +590,26 @@ function checkRequestedType(tx: Record<string, unknown>, method: string): void {
     );
   }
   if (
-    tx.gasPrice === undefined &&
-    tx.maxFeePerGas === undefined &&
-    tx.maxPriorityFeePerGas === undefined
+    TYPE_FIELDS.some((field) => tx[field] === null) ||
+    (tx.gasPrice === undefined &&
+      tx.maxFeePerGas === undefined &&
+      tx.maxPriorityFeePerGas === undefined)
   ) {
     return;
   }
   const actual = fieldsType(tx);
+  if (name === "eip2930" && actual === "legacy") {
+    tx.accessList = [];
+    return;
+  }
   if (actual !== name) {
     throw catalogError(
       ERRORS.txRequestTypeMismatch,
-      { requested: describeType(name), actual: describeType(actual) },
+      {
+        requested: describeType(name),
+        actual: describeType(actual),
+        hint: TYPE_FIXES[name],
+      },
       { operation: method },
     );
   }

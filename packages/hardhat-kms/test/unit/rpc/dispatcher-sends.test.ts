@@ -160,11 +160,11 @@ describe("a send through the plugin", () => {
     const cases: [Record<string, unknown>, string][] = [
       [
         { type: "0x0", maxFeePerGas: "0x10", maxPriorityFeePerGas: "0x1" },
-        "the transaction asks for type 0x0 (legacy), but its fields make it type 0x2 (eip1559); nothing was signed.",
+        "the transaction asks for type 0x0 (legacy), but its fields make it type 0x2 (eip1559). Nothing was signed.",
       ],
       [
         { type: 2, gasPrice: "0x10" },
-        "the transaction asks for type 0x2 (eip1559), but its fields make it type 0x0 (legacy); nothing was signed.",
+        "the transaction asks for type 0x2 (eip1559), but its fields make it type 0x0 (legacy). Nothing was signed.",
       ],
       [{ type: "0x7e" }, "transaction type 0x7e is not supported;"],
     ];

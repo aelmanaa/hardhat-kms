@@ -967,7 +967,19 @@ describe("HardhatTransactionFiller checks", () => {
 
 /** The message of a send whose type disagrees with its fee fields (#496). */
 const mismatch = (method: string, requested: string, actual: string) =>
-  `${method}: the transaction asks for type ${requested}, but its fields make it type ${actual}; nothing was signed. Set the fee fields of type ${requested}, add accessList: [] for type 0x1, or remove type.`;
+  `${method}: the transaction asks for type ${requested}, but its fields make it type ${actual}. Nothing was signed. ${FIXES[requested] ?? "no fix"}`;
+
+/** The fix each mismatch message gives, by the type asked for. */
+const FIXES: Record<string, string> = {
+  "0x0 (legacy)":
+    "Set gasPrice instead of the EIP-1559 fee fields, with no accessList or authorizationList, or remove type.",
+  "0x1 (eip2930)":
+    "Set gasPrice instead of the EIP-1559 fee fields, with no authorizationList, or remove type.",
+  "0x2 (eip1559)":
+    "Set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, with no authorizationList, or remove type.",
+  "0x4 (eip7702)":
+    "Add an authorizationList and set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, or remove type.",
+};
 
 /** The message of a send whose type the plugin does not sign (#496). */
 const unsupported = (type: string) => (method: string) =>
@@ -1011,7 +1023,7 @@ describe("HardhatTransactionFiller requested type (#496)", () => {
       // The four requests of the issue.
       [{ type: "0x0", ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)"],
       [{ type: "0x2", gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)"],
-      [{ type: "0x1", gasPrice: "0x5" }, "0x1 (eip2930)", "0x0 (legacy)"],
+      [{ type: "0x1", gasPrice: "0x5", ...AUTHORIZATIONS }, "0x1 (eip2930)", "0x4 (eip7702)"],
       [{ type: "0x4", ...EIP1559_FEES }, "0x4 (eip7702)", "0x2 (eip1559)"],
       // Each field that decides the type, on its own.
       [{ type: "0x0", maxFeePerGas: "0x50" }, "0x0 (legacy)", "0x2 (eip1559)"],
@@ -1028,7 +1040,7 @@ describe("HardhatTransactionFiller requested type (#496)", () => {
       [{ type: 2n, gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)"],
       [{ type: " 0X02 ", gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)"],
       [{ type: "0x00", ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)"],
-      [{ type: "1", gasPrice: "0x5" }, "0x1 (eip2930)", "0x0 (legacy)"],
+      [{ type: "1", maxFeePerGas: "0x50" }, "0x1 (eip2930)", "0x2 (eip1559)"],
     ];
     for (const [tx, requested, actual] of cases) {
       await assertRefused(tx, (method) => mismatch(method, requested, actual));
@@ -1049,6 +1061,45 @@ describe("HardhatTransactionFiller requested type (#496)", () => {
         const { filled } = await fill(EIP1559_NODE, { type, ...fields });
         assert.equal(buildUnsignedTransaction(filled).type, expected, String(type));
       }
+    }
+  });
+
+  it("signs type 1 with a gasPrice and no access list as EIP-2930 with an empty list", async () => {
+    for (const type of ["0x1", 1, 1n, "1"]) {
+      const tx = { from: FROM, to: TO, type, gasPrice: "0x5" };
+      const { node, filler: instance } = filler(EIP1559_NODE);
+      const filled = await instance.fill("eth_signTransaction", [tx]);
+      const unsigned = buildUnsignedTransaction(filled);
+      assert.equal(unsigned.type, "eip2930", String(type));
+      assert.deepEqual(filled.accessList, []);
+      assert.equal(filled.gasPrice, 5n);
+      assert.equal("accessList" in tx, false, "the caller's transaction is kept");
+      const estimate = node.calls.find((call) => call.method === "eth_estimateGas");
+      const sent: unknown = estimate?.params?.[0];
+      assert.ok(isObject(sent));
+      assert.deepEqual(sent.accessList, [], "the estimate is of the transaction signed");
+    }
+  });
+
+  it("leaves a null fee or list field to the schema's error, not a mismatch", async () => {
+    for (const extra of [
+      { type: "0x0", gasPrice: "0x5", maxFeePerGas: null },
+      { type: "0x2", maxFeePerGas: "0x50", accessList: null, authorizationList: null },
+      { type: "0x1", gasPrice: "0x5", accessList: null },
+      { type: "0x2", gasPrice: null, maxFeePerGas: "0x50" },
+      { type: "0x0", gasPrice: "0x5", maxPriorityFeePerGas: null },
+      { type: "0x0", gasPrice: "0x5", authorizationList: null },
+    ]) {
+      const { filler: instance } = filler(EIP1559_NODE);
+      await assert.rejects(
+        instance.fill("eth_sendTransaction", [{ from: FROM, to: TO, ...extra }]),
+        (error: unknown) => {
+          assert.ok(error instanceof Error, String(error));
+          assert.doesNotMatch(error.message, /asks for type/, JSON.stringify(extra));
+          assert.doesNotMatch(error.message, /make it type/);
+          return true;
+        },
+      );
     }
   });
 

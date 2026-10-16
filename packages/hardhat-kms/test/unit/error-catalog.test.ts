@@ -60,16 +60,16 @@ describe("the core error catalogue", () => {
     assert.deepEqual(placeholders(ERRORS.txRequestTypeMismatch.template), [
       "requested",
       "actual",
-      "requested",
+      "hint",
     ]);
     assert.deepEqual(placeholders(ERRORS.txUnsupportedType.template), ["type"]);
     assert.equal(
       catalogError(
         ERRORS.txRequestTypeMismatch,
-        { requested: "0x2 (eip1559)", actual: "0x0 (legacy)" },
+        { requested: "0x2 (eip1559)", actual: "0x0 (legacy)", hint: "Set maxFeePerGas." },
         { operation: "eth_sendTransaction" },
       ).message,
-      "eth_sendTransaction: the transaction asks for type 0x2 (eip1559), but its fields make it type 0x0 (legacy); nothing was signed. Set the fee fields of type 0x2 (eip1559), add accessList: [] for type 0x1, or remove type.",
+      "eth_sendTransaction: the transaction asks for type 0x2 (eip1559), but its fields make it type 0x0 (legacy). Nothing was signed. Set maxFeePerGas.",
     );
     assert.equal(
       catalogError(ERRORS.txUnsupportedType, { type: "0x7e" }, { operation: "eth_signTransaction" })

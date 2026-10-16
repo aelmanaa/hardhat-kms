@@ -662,7 +662,7 @@ describe("sending from a KMS account on a simulated network", () => {
           assert.ok(error instanceof Error);
           assert.ok(
             error.message.includes(
-              "the transaction asks for type 0x0 (legacy), but its fields make it type 0x2 (eip1559); nothing was signed",
+              "the transaction asks for type 0x0 (legacy), but its fields make it type 0x2 (eip1559). Nothing was signed",
             ),
             error.message,
           );
@@ -684,7 +684,7 @@ describe("sending from a KMS account on a simulated network", () => {
             assert.ok(error instanceof Error);
             assert.ok(
               error.message.includes(
-                "the transaction asks for type 0x2 (eip1559), but its fields make it type 0x0 (legacy); nothing was signed",
+                "the transaction asks for type 0x2 (eip1559), but its fields make it type 0x0 (legacy). Nothing was signed",
               ),
               error.message,
             );
@@ -692,6 +692,42 @@ describe("sending from a KMS account on a simulated network", () => {
           },
         );
         assert.deepEqual(await chainState(provider), initial);
+      } finally {
+        browser.destroy();
+      }
+    });
+
+    it("mines viem's eip2930 type with a gasPrice and no access list as type 1", async () => {
+      const { viem } = await connect();
+      const wallet = await viem.getWalletClient(COW);
+      const publicClient = await viem.getPublicClient();
+      const hash = await wallet.sendTransaction({
+        to: getAddress(TO),
+        value: 1n,
+        type: "eip2930",
+        gasPrice: 10n ** 10n,
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      assert.equal(receipt.status, "success");
+      assert.equal(receipt.type, "eip2930");
+      const transaction = await publicClient.getTransaction({ hash });
+      assert.deepEqual(transaction.accessList, []);
+    });
+
+    it("mines an ethers JsonRpcSigner's type 1 with a gasPrice and no access list as type 1", async () => {
+      const { ethers, provider } = await connect();
+      const browser = new ethers.BrowserProvider(provider);
+      try {
+        const signer = await browser.getSigner(COW);
+        const response = await signer.sendTransaction({
+          to: TO,
+          value: 1n,
+          type: 1,
+          gasPrice: 10n ** 10n,
+        });
+        const receipt = await response.wait();
+        assert.equal(receipt?.status, 1);
+        assert.equal(receipt.type, 1);
       } finally {
         browser.destroy();
       }

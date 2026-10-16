@@ -194,6 +194,30 @@ describe("transaction filling matches Hardhat's local accounts", () => {
     for (const type of ["0x0", "0x2", 2]) {
       assert.equal(await compare("local", { from: FROM, to: TO, type }), "eip1559");
     }
+    for (const type of ["0x1", "0x01", 1]) {
+      assert.equal(
+        await compare("local", {
+          from: FROM,
+          to: TO,
+          gasPrice: "0x3b9aca00",
+          accessList: ACCESS_LIST,
+          type,
+        }),
+        "eip2930",
+      );
+    }
+    for (const type of ["0x2", "0x02", 2]) {
+      assert.equal(
+        await compare("local", {
+          from: FROM,
+          to: TO,
+          maxFeePerGas: "0x77359400",
+          maxPriorityFeePerGas: "0x3b9aca00",
+          type,
+        }),
+        "eip1559",
+      );
+    }
   });
 
   it("fills an EIP-2930 transaction with an access list and a gas price", async () => {
@@ -225,6 +249,13 @@ describe("transaction filling matches Hardhat's local accounts", () => {
       },
     ];
     assert.equal(await compare("local", { from: FROM, to: FROM, authorizationList }), "eip7702");
+    // A type that agrees with the fields (#496).
+    for (const type of ["0x4", 4]) {
+      assert.equal(
+        await compare("local", { from: FROM, to: FROM, authorizationList, type }),
+        "eip7702",
+      );
+    }
     assert.equal(
       await compare("local", { from: FROM, to: FROM, authorizationList, accessList: ACCESS_LIST }),
       "eip7702",
