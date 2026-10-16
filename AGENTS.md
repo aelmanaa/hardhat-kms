@@ -152,6 +152,7 @@ Decision records:
 - [0015: npm names: an unscoped core and scoped providers](docs/contributor/decisions/0015-npm-names.md)
 - [0016: Release from a signed tag, stage to `beta`, promote by dist-tag](docs/contributor/decisions/0016-release-process.md)
 - [0017: The docs site lives at aelmanaa.github.io/hardhat-kms](docs/contributor/decisions/0017-docs-hostname.md)
+- [0018: Refuse a requested type that disagrees with the caller's fee fields](docs/contributor/decisions/0018-refuse-requested-type-mismatch.md)
 
 Rules for every change:
 

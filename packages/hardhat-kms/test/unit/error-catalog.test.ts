@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { ENTRIES, ERRORS } from "../../src/internal/error-catalog.ts";
+import { catalogError } from "../../src/internal/errors.ts";
 
 const PLACEHOLDER = /\{([A-Za-z][A-Za-z0-9]*)\}/g;
+
+/** The placeholders of a template, in order. */
+const placeholders = (template: string) =>
+  [...template.matchAll(PLACEHOLDER)].map((match) => match[1]);
 
 describe("the core error catalogue", () => {
   it("lists every entry once", () => {
@@ -47,5 +52,29 @@ describe("the core error catalogue", () => {
         assert.doesNotMatch(name, /^(?:key|keyId|arn|url|secret|token|password)$/i, entry.id);
       }
     }
+  });
+
+  it("names the two types of a refused send and nothing else from the request (#496)", () => {
+    assert.equal(ERRORS.txRequestTypeMismatch.id, "core.tx.type-mismatch");
+    assert.equal(ERRORS.txUnsupportedType.id, "core.tx.unsupported-type");
+    assert.deepEqual(placeholders(ERRORS.txRequestTypeMismatch.template), [
+      "requested",
+      "actual",
+      "hint",
+    ]);
+    assert.deepEqual(placeholders(ERRORS.txUnsupportedType.template), ["type"]);
+    assert.equal(
+      catalogError(
+        ERRORS.txRequestTypeMismatch,
+        { requested: "0x2 (eip1559)", actual: "0x0 (legacy)", hint: "Set maxFeePerGas." },
+        { operation: "eth_sendTransaction" },
+      ).message,
+      "eth_sendTransaction: the transaction asks for type 0x2 (eip1559), but its fields make it type 0x0 (legacy). Nothing was signed. Set maxFeePerGas.",
+    );
+    assert.equal(
+      catalogError(ERRORS.txUnsupportedType, { type: "0x7e" }, { operation: "eth_signTransaction" })
+        .message,
+      "eth_signTransaction: transaction type 0x7e is not supported; KMS accounts sign types 0x0, 0x1, 0x2 and 0x4. Nothing was signed.",
+    );
   });
 });
