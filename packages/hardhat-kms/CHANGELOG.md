@@ -1,5 +1,43 @@
 # hardhat-kms
 
+## 1.1.0
+
+### Minor Changes
+
+- [#505](https://github.com/aelmanaa/hardhat-kms/pull/505) [`57858e0`](https://github.com/aelmanaa/hardhat-kms/commit/57858e0f212d9d39f98f7a7a31e562cd9756569c) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The new `hardhat-kms/alchemy` entry point exports `checkPreparedCalls`. It checks what `prepareCalls` of `@alchemy/wallet-apis` returned before a KMS key signs it. It recomputes the EntryPoint v0.7 user operation hash with your chain id and decodes the Modular Account v2 calls. It refuses the response unless the calls match yours exactly, the sender is the key's address, the signature request is `personal_sign` over that hash, a paymaster pays when a policy is set, and any EIP-7702 authorization names your pinned delegate without re-delegating the account. Without a policy, it requires a `maxGasCost` in wei and refuses a user operation whose gas limits times `maxFeePerGas` exceed it. With an `accountNonce`, it also requires the authorization to be for that nonce. Each refusal has an error in the catalogue under `core.alchemy`. The entry point needs viem, as `connection.kms.getAccount` does.
+  
+  Issue: [#495](https://github.com/aelmanaa/hardhat-kms/issues/495)
+
+- [#503](https://github.com/aelmanaa/hardhat-kms/pull/503) [`9122630`](https://github.com/aelmanaa/hardhat-kms/commit/912263054a517dffa7f642a74f7fca3877f73e38) Thanks [@aelmanaa](https://github.com/aelmanaa)! - On `edr-simulated` networks, a send from a KMS account without a `nonce` now fills the nonces the node lost after its pending count falls, as after `evm_revert`, `hardhat_reset` or `hardhat_dropTransaction`. A library account's reserved nonce still counts after the fall. A send now takes the lowest nonce at or above the new pending count that no reserved nonce uses and at which the node holds none of the transactions sent on the connection. The plugin asks the node with `eth_getTransactionByHash` about every transaction it recorded at that nonce. A nonce whose lookup fails is skipped.
+  
+  Before, a reserved nonce or a transaction the node no longer held made the next send skip ahead. That left a nonce gap, and later transactions waited behind it.
+  
+  What should I do? Nothing. Sends on `http` networks are unchanged.
+  
+  Issue: [#489](https://github.com/aelmanaa/hardhat-kms/issues/489)
+
+- [#502](https://github.com/aelmanaa/hardhat-kms/pull/502) [`0675660`](https://github.com/aelmanaa/hardhat-kms/commit/0675660e5e0566df25a9507f702ce0a12487341b) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `eth_sendTransaction` and `eth_signTransaction` from a KMS account now refuse a `type` they cannot sign as written, before any request to the node. A request that sets `gasPrice`, `maxFeePerGas` or `maxPriorityFeePerGas` and a `type` those fields contradict fails with `core.tx.type-mismatch`; before, it was signed as the type the fields give. For example, `type: "0x2"` with `gasPrice` was signed as legacy, `type: "0x0"` with `maxFeePerGas` as EIP-1559, and `type: "0x4"` without an `authorizationList` as EIP-1559. The message says what to change: set the fee fields of the type you ask for, add an `authorizationList` for type 4, or remove `type`. `type: "0x1"` with `gasPrice` and no `accessList`, as viem's `eip2930` and ethers' `type: 1` send it, is now signed as an EIP-2930 transaction with an empty access list instead of as legacy. A numeric `type` other than 0 to 4 now fails with `core.tx.unsupported-type` instead of being ignored, for example Celo's fee-currency type `0x7b` or zkSync's `0x71`, which were signed as plain transactions without their chain-specific fields. A `type` with no fee field, such as viem's `type: "legacy"` without fees, signs as before.
+  
+  Issue: [#496](https://github.com/aelmanaa/hardhat-kms/issues/496)
+
+### Patch Changes
+
+- [#498](https://github.com/aelmanaa/hardhat-kms/pull/498) [`a03068b`](https://github.com/aelmanaa/hardhat-kms/commit/a03068bd3b542b924fd7f4a59ceec65357d1fdeb) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `eth_sendTransaction` and `eth_signTransaction` from a KMS account now estimate gas at the `pending` block. A self-sponsored EIP-7702 transaction could be signed with too little gas and run out of gas. This happened when the account had another transaction pending, or when a load-balanced RPC answered from a node a block behind. A request whose `nonce` replaces a pending transaction is estimated without a block tag, as before. When a node refuses the `pending` tag, the plugin estimates again without it.
+  
+  Issue: [#492](https://github.com/aelmanaa/hardhat-kms/issues/492)
+
+- [#508](https://github.com/aelmanaa/hardhat-kms/pull/508) [`ef40620`](https://github.com/aelmanaa/hardhat-kms/commit/ef406206da9b7cd4d2488f61f878bd0de0a51684) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A send from a KMS account without a `nonce` no longer reuses the nonce of an earlier transaction that got no answer when a later one, sent with a `nonce` or as a raw transaction, got no answer either. Before, the plugin remembered only the last such transaction on the connection. If the node had the earlier one but its pending count lagged, as behind a load balancer, the next send took that nonce. With higher fees, a Geth node then replaced the earlier transaction without an error.
+  
+  The plugin now remembers every transaction that got no answer, up to 256 per account and connection, and the next send without a `nonce` asks the node about each of them. A lookup that fails now counts as the node having the transaction, as on `edr-simulated`; before, it counted as not known, and the next send could take the same nonce. Beyond 256, the oldest counts as in the node too. In both cases later sends skip the nonce: at worst a nonce gap, never a reused nonce.
+  
+  What should I do? Nothing.
+  
+  Issue: [#506](https://github.com/aelmanaa/hardhat-kms/issues/506)
+
+- [#507](https://github.com/aelmanaa/hardhat-kms/pull/507) [`a4a8536`](https://github.com/aelmanaa/hardhat-kms/commit/a4a8536058b7f5cbc24c9a28f0b264ffd2fe282e) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The `core.tx.type-mismatch` message now names only the fields the request sets. For example, `type: "0x4"` with `maxFeePerGas` and `maxPriorityFeePerGas` now says "Add an authorizationList, or remove type.", and `type: "0x0"` with `gasPrice` and an `accessList` says "Remove accessList, or remove type.". A `null` `gasPrice`, `maxFeePerGas`, `maxPriorityFeePerGas`, `accessList` or `authorizationList` in `eth_sendTransaction` or `eth_signTransaction` now fails with `core.tx.null-field`, which names the field, before any request to the node. Before, it failed with a raw schema error. With automatic fees (the default), a lone `null` `maxFeePerGas` or `maxPriorityFeePerGas`, with no `gasPrice` and the other EIP-1559 field left out, is still filled like an absent field, as Hardhat does. Requests whose numeric `type` contradicts their fee fields once such a `null` is filled, which signed before, now fail with `core.tx.type-mismatch`, as they do with a value in place of the `null`. For example, `type: "0x0"` with `maxFeePerGas: null` was signed as type 2, and `type: "0x2"` with `maxFeePerGas: null` and an `authorizationList` was signed as type 4.
+  
+  Issue: [#504](https://github.com/aelmanaa/hardhat-kms/issues/504)
+
 ## 1.0.1
 
 ### Patch Changes
