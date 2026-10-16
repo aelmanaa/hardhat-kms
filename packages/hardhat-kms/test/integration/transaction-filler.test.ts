@@ -182,14 +182,42 @@ describe("transaction filling matches Hardhat's local accounts", () => {
     assert.equal(await compare("local", { from: FROM, to: TO, gasPrice: "0x3b9aca00" }), "legacy");
   });
 
-  it("ignores a requested type other than 3: the fields decide, as in Hardhat (#484)", async () => {
-    for (const type of ["0x2", "0x0", 2]) {
+  it("signs as Hardhat a requested type that agrees with the fee fields, or a type without fee fields (#484, #496)", async () => {
+    // A type that disagrees with the caller's fee fields is refused, a deliberate difference
+    // from Hardhat that the unit tests cover.
+    for (const type of ["0x0", "0x00", 0]) {
       assert.equal(
         await compare("local", { from: FROM, to: TO, gasPrice: "0x3b9aca00", type }),
         "legacy",
       );
     }
-    assert.equal(await compare("local", { from: FROM, to: TO, type: "0x0" }), "eip1559");
+    for (const type of ["0x0", "0x2", 2]) {
+      assert.equal(await compare("local", { from: FROM, to: TO, type }), "eip1559");
+    }
+    for (const type of ["0x1", "0x01", 1]) {
+      assert.equal(
+        await compare("local", {
+          from: FROM,
+          to: TO,
+          gasPrice: "0x3b9aca00",
+          accessList: ACCESS_LIST,
+          type,
+        }),
+        "eip2930",
+      );
+    }
+    for (const type of ["0x2", "0x02", 2]) {
+      assert.equal(
+        await compare("local", {
+          from: FROM,
+          to: TO,
+          maxFeePerGas: "0x77359400",
+          maxPriorityFeePerGas: "0x3b9aca00",
+          type,
+        }),
+        "eip1559",
+      );
+    }
   });
 
   it("fills an EIP-2930 transaction with an access list and a gas price", async () => {
@@ -221,6 +249,13 @@ describe("transaction filling matches Hardhat's local accounts", () => {
       },
     ];
     assert.equal(await compare("local", { from: FROM, to: FROM, authorizationList }), "eip7702");
+    // A type that agrees with the fields (#496).
+    for (const type of ["0x4", 4]) {
+      assert.equal(
+        await compare("local", { from: FROM, to: FROM, authorizationList, type }),
+        "eip7702",
+      );
+    }
     assert.equal(
       await compare("local", { from: FROM, to: FROM, authorizationList, accessList: ACCESS_LIST }),
       "eip7702",

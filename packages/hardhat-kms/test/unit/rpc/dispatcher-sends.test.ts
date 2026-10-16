@@ -154,6 +154,44 @@ describe("a send through the plugin", () => {
     fixture.sends.close();
   });
 
+  it("refuses a type that disagrees with the fee fields, or that it does not sign, before any node request or signature (#496)", async () => {
+    const fixture = await fixtureOnOwnChain();
+    accept(fixture);
+    const cases: [Record<string, unknown>, string][] = [
+      [
+        { type: "0x0", maxFeePerGas: "0x10", maxPriorityFeePerGas: "0x1" },
+        "the transaction asks for type 0x0 (legacy), but its fields make it type 0x2 (eip1559). Nothing was signed.",
+      ],
+      [
+        { type: 2, gasPrice: "0x10" },
+        "the transaction asks for type 0x2 (eip1559), but its fields make it type 0x0 (legacy). Nothing was signed.",
+      ],
+      [{ type: "0x7e" }, "transaction type 0x7e is not supported;"],
+    ];
+    for (const [fields, message] of cases) {
+      for (const method of ["eth_sendTransaction", "eth_signTransaction"]) {
+        const reads = fixture.reads.length;
+        const forwarded = fixture.forwarded.length;
+        await assert.rejects(
+          fixture.request(method, [{ from: COW, to: ZERO, ...fields }]),
+          (error: unknown) => {
+            assert.ok(error instanceof Error);
+            assert.ok(error.message.startsWith(`${method}: ${message}`), error.message);
+            return true;
+          },
+        );
+        assert.deepEqual(
+          fixture.reads.slice(reads).filter((read) => read.method !== "eth_chainId"),
+          [],
+          JSON.stringify(fields),
+        );
+        assert.deepEqual(fixture.forwarded.slice(forwarded), [], JSON.stringify(fields));
+      }
+    }
+    assert.equal(signatures(fixture), 0);
+    fixture.sends.close();
+  });
+
   it("refuses a self-authorization invalidated by the high-water nonce (#435)", async () => {
     const fixture = await fixtureOnOwnChain();
     accept(fixture);
