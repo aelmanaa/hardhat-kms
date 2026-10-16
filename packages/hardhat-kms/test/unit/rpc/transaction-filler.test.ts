@@ -965,21 +965,13 @@ describe("HardhatTransactionFiller checks", () => {
   });
 });
 
-/** The message of a send whose type disagrees with its fee fields (#496). */
-const mismatch = (method: string, requested: string, actual: string) =>
-  `${method}: the transaction asks for type ${requested}, but its fields make it type ${actual}. Nothing was signed. ${FIXES[requested] ?? "no fix"}`;
+/** The message of a send whose type disagrees with its fee fields (#496), with its hint (#504). */
+const mismatch = (method: string, requested: string, actual: string, hint: string) =>
+  `${method}: the transaction asks for type ${requested}, but its fields make it type ${actual}. Nothing was signed. ${hint}`;
 
-/** The fix each mismatch message gives, by the type asked for. */
-const FIXES: Record<string, string> = {
-  "0x0 (legacy)":
-    "Set gasPrice instead of the EIP-1559 fee fields, with no accessList or authorizationList, or remove type.",
-  "0x1 (eip2930)":
-    "Set gasPrice instead of the EIP-1559 fee fields, with no authorizationList, or remove type.",
-  "0x2 (eip1559)":
-    "Set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, with no authorizationList, or remove type.",
-  "0x4 (eip7702)":
-    "Add an authorizationList and set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, or remove type.",
-};
+/** The message of a send with a `null` field that decides the type (#504). */
+const nullField = (field: string) => (method: string) =>
+  `${method}: the transaction's ${field} is null; set a value or leave the field out. Nothing was signed.`;
 
 /** The message of a send whose type the plugin does not sign (#496). */
 const unsupported = (type: string) => (method: string) =>
@@ -1019,31 +1011,128 @@ describe("HardhatTransactionFiller requested type (#496)", () => {
   }
 
   it("refuses a type that disagrees with the caller's fee fields, before any request", async () => {
-    const cases: [Record<string, unknown>, string, string][] = [
+    const TO_GAS_PRICE =
+      "Set gasPrice instead of maxFeePerGas and maxPriorityFeePerGas, or remove type.";
+    const TO_EIP1559 =
+      "Set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, or remove type.";
+    const NO_AUTHORIZATIONS = "Remove authorizationList, or remove type.";
+    const cases: [Record<string, unknown>, string, string, string][] = [
       // The four requests of the issue.
-      [{ type: "0x0", ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)"],
-      [{ type: "0x2", gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)"],
-      [{ type: "0x1", gasPrice: "0x5", ...AUTHORIZATIONS }, "0x1 (eip2930)", "0x4 (eip7702)"],
-      [{ type: "0x4", ...EIP1559_FEES }, "0x4 (eip7702)", "0x2 (eip1559)"],
+      [{ type: "0x0", ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)", TO_GAS_PRICE],
+      [{ type: "0x2", gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)", TO_EIP1559],
+      [
+        { type: "0x1", gasPrice: "0x5", ...AUTHORIZATIONS },
+        "0x1 (eip2930)",
+        "0x4 (eip7702)",
+        NO_AUTHORIZATIONS,
+      ],
+      [
+        { type: "0x4", ...EIP1559_FEES },
+        "0x4 (eip7702)",
+        "0x2 (eip1559)",
+        "Add an authorizationList, or remove type.",
+      ],
       // Each field that decides the type, on its own.
-      [{ type: "0x0", maxFeePerGas: "0x50" }, "0x0 (legacy)", "0x2 (eip1559)"],
-      [{ type: "0x0", maxPriorityFeePerGas: "0x1" }, "0x0 (legacy)", "0x2 (eip1559)"],
-      [{ type: "0x0", gasPrice: "0x5", accessList: [] }, "0x0 (legacy)", "0x1 (eip2930)"],
-      [{ type: "0x2", gasPrice: "0x5", accessList: [] }, "0x2 (eip1559)", "0x1 (eip2930)"],
-      [{ type: "0x1", ...EIP1559_FEES, accessList: [] }, "0x1 (eip2930)", "0x2 (eip1559)"],
-      [{ type: "0x2", ...EIP1559_FEES, ...AUTHORIZATIONS }, "0x2 (eip1559)", "0x4 (eip7702)"],
-      [{ type: "0x0", gasPrice: "0x5", ...AUTHORIZATIONS }, "0x0 (legacy)", "0x4 (eip7702)"],
-      [{ type: "0x4", gasPrice: "0x5" }, "0x4 (eip7702)", "0x0 (legacy)"],
+      [
+        { type: "0x0", maxFeePerGas: "0x50" },
+        "0x0 (legacy)",
+        "0x2 (eip1559)",
+        "Set gasPrice instead of maxFeePerGas, or remove type.",
+      ],
+      [
+        { type: "0x0", maxPriorityFeePerGas: "0x1" },
+        "0x0 (legacy)",
+        "0x2 (eip1559)",
+        "Set gasPrice instead of maxPriorityFeePerGas, or remove type.",
+      ],
+      [
+        { type: "0x0", gasPrice: "0x5", accessList: [] },
+        "0x0 (legacy)",
+        "0x1 (eip2930)",
+        "Remove accessList, or remove type.",
+      ],
+      [
+        { type: "0x2", gasPrice: "0x5", accessList: [] },
+        "0x2 (eip1559)",
+        "0x1 (eip2930)",
+        TO_EIP1559,
+      ],
+      [
+        { type: "0x1", ...EIP1559_FEES, accessList: [] },
+        "0x1 (eip2930)",
+        "0x2 (eip1559)",
+        TO_GAS_PRICE,
+      ],
+      [
+        { type: "0x2", ...EIP1559_FEES, ...AUTHORIZATIONS },
+        "0x2 (eip1559)",
+        "0x4 (eip7702)",
+        NO_AUTHORIZATIONS,
+      ],
+      [
+        { type: "0x0", gasPrice: "0x5", ...AUTHORIZATIONS },
+        "0x0 (legacy)",
+        "0x4 (eip7702)",
+        NO_AUTHORIZATIONS,
+      ],
+      [
+        { type: "0x4", gasPrice: "0x5" },
+        "0x4 (eip7702)",
+        "0x0 (legacy)",
+        "Add an authorizationList, set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, or remove type.",
+      ],
+      // Fields of both kinds: the hint names only the fields set (#504).
+      [
+        { type: "0x0", gasPrice: "0x5", maxFeePerGas: "0x50" },
+        "0x0 (legacy)",
+        "0x2 (eip1559)",
+        "Remove maxFeePerGas, or remove type.",
+      ],
+      [
+        { type: "0x1", gasPrice: "0x5", maxPriorityFeePerGas: "0x1", accessList: [] },
+        "0x1 (eip2930)",
+        "0x2 (eip1559)",
+        "Remove maxPriorityFeePerGas, or remove type.",
+      ],
+      [
+        { type: "0x0", maxFeePerGas: "0x50", accessList: [], ...AUTHORIZATIONS },
+        "0x0 (legacy)",
+        "0x4 (eip7702)",
+        "Set gasPrice instead of maxFeePerGas, remove accessList, remove authorizationList, or remove type.",
+      ],
+      [
+        { type: "0x1", maxFeePerGas: "0x50", accessList: [], ...AUTHORIZATIONS },
+        "0x1 (eip2930)",
+        "0x4 (eip7702)",
+        "Set gasPrice instead of maxFeePerGas, remove authorizationList, or remove type.",
+      ],
+      [
+        { type: "0x2", gasPrice: "0x5", maxFeePerGas: "0x50", ...AUTHORIZATIONS },
+        "0x2 (eip1559)",
+        "0x4 (eip7702)",
+        "Remove gasPrice, remove authorizationList, or remove type.",
+      ],
+      [
+        { type: "0x4", gasPrice: "0x5", maxFeePerGas: "0x50", accessList: [] },
+        "0x4 (eip7702)",
+        "0x2 (eip1559)",
+        "Add an authorizationList, remove gasPrice, or remove type.",
+      ],
       // The other forms of the type.
-      [{ type: 0, ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)"],
-      [{ type: 0n, ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)"],
-      [{ type: 2n, gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)"],
-      [{ type: " 0X02 ", gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)"],
-      [{ type: "0x00", ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)"],
-      [{ type: "1", maxFeePerGas: "0x50" }, "0x1 (eip2930)", "0x2 (eip1559)"],
+      [{ type: 0, ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)", TO_GAS_PRICE],
+      [{ type: 0n, ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)", TO_GAS_PRICE],
+      [{ type: 2n, gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)", TO_EIP1559],
+      [{ type: " 0X02 ", gasPrice: "0x5" }, "0x2 (eip1559)", "0x0 (legacy)", TO_EIP1559],
+      [{ type: "0x00", ...EIP1559_FEES }, "0x0 (legacy)", "0x2 (eip1559)", TO_GAS_PRICE],
+      [
+        { type: "1", maxFeePerGas: "0x50" },
+        "0x1 (eip2930)",
+        "0x2 (eip1559)",
+        "Set gasPrice instead of maxFeePerGas, or remove type.",
+      ],
     ];
-    for (const [tx, requested, actual] of cases) {
-      await assertRefused(tx, (method) => mismatch(method, requested, actual));
+    for (const [tx, requested, actual, hint] of cases) {
+      await assertRefused(tx, (method) => mismatch(method, requested, actual, hint));
     }
   });
 
@@ -1081,26 +1170,33 @@ describe("HardhatTransactionFiller requested type (#496)", () => {
     }
   });
 
-  it("leaves a null fee or list field to the schema's error, not a mismatch", async () => {
-    for (const extra of [
-      { type: "0x0", gasPrice: "0x5", maxFeePerGas: null },
-      { type: "0x2", maxFeePerGas: "0x50", accessList: null, authorizationList: null },
-      { type: "0x1", gasPrice: "0x5", accessList: null },
-      { type: "0x2", gasPrice: null, maxFeePerGas: "0x50" },
-      { type: "0x0", gasPrice: "0x5", maxPriorityFeePerGas: null },
-      { type: "0x0", gasPrice: "0x5", authorizationList: null },
-    ]) {
-      const { filler: instance } = filler(EIP1559_NODE);
-      await assert.rejects(
-        instance.fill("eth_sendTransaction", [{ from: FROM, to: TO, ...extra }]),
-        (error: unknown) => {
-          assert.ok(error instanceof Error, String(error));
-          assert.doesNotMatch(error.message, /asks for type/, JSON.stringify(extra));
-          assert.doesNotMatch(error.message, /make it type/);
-          return true;
-        },
-      );
+  it("refuses a null fee or list field with an error that names it, before any request", async () => {
+    const cases: [Record<string, unknown>, string][] = [
+      [{ type: "0x0", gasPrice: "0x5", maxFeePerGas: null }, "maxFeePerGas"],
+      [
+        { type: "0x2", maxFeePerGas: "0x50", accessList: null, authorizationList: null },
+        "accessList",
+      ],
+      [{ type: "0x1", gasPrice: "0x5", accessList: null }, "accessList"],
+      [{ type: "0x2", gasPrice: null, maxFeePerGas: "0x50" }, "gasPrice"],
+      [{ type: "0x0", gasPrice: "0x5", maxPriorityFeePerGas: null }, "maxPriorityFeePerGas"],
+      [{ type: "0x0", gasPrice: "0x5", authorizationList: null }, "authorizationList"],
+      // Without a type, with no other fee field, and with a type that is not a number.
+      [{ gasPrice: null }, "gasPrice"],
+      [{ maxFeePerGas: null, maxPriorityFeePerGas: "0x1" }, "maxFeePerGas"],
+      [{ maxPriorityFeePerGas: null }, "maxPriorityFeePerGas"],
+      [{ accessList: null }, "accessList"],
+      [{ authorizationList: null }, "authorizationList"],
+      [{ type: "0x2", authorizationList: null }, "authorizationList"],
+      [{ type: "legacy", gasPrice: null }, "gasPrice"],
+    ];
+    for (const [tx, field] of cases) {
+      await assertRefused(tx, nullField(field));
     }
+  });
+
+  it("refuses an unsupported type before a null field", async () => {
+    await assertRefused({ type: "0x7e", gasPrice: null }, unsupported("0x7e"));
   });
 
   it("lets the filled fees decide when the caller set none, as today", async () => {

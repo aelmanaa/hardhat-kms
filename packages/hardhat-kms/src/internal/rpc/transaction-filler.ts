@@ -551,17 +551,72 @@ const TYPE_FIELDS = [
   "authorizationList",
 ] as const;
 
-// What to change in a request that asks for each type but has the fee fields of another.
-const TYPE_FIXES: Readonly<Record<SignedTypeName, string>> = {
-  legacy:
-    "Set gasPrice instead of the EIP-1559 fee fields, with no accessList or authorizationList, or remove type.",
-  eip2930:
-    "Set gasPrice instead of the EIP-1559 fee fields, with no authorizationList, or remove type.",
-  eip1559:
-    "Set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, with no authorizationList, or remove type.",
-  eip7702:
-    "Add an authorizationList and set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice, or remove type.",
-};
+/** Names fields in prose: `a`, `a and b`. */
+function fieldNames(fields: readonly string[]): string {
+  return fields.join(" and ");
+}
+
+/**
+ * What to change in a request that asks for one type but has the fields of another (#504): only
+ * the fields the caller set are named. Every mismatch has at least one change, as the type the
+ * fields give differs from the one asked for.
+ *
+ * @param name - micro-eth-signer's name of the type asked for.
+ * @param tx - The request's transaction, with no `null` field that decides the type.
+ * @returns The hint, a sentence.
+ */
+function typeFix(name: SignedTypeName, tx: Record<string, unknown>): string {
+  const isSet = (field: string): boolean => tx[field] !== undefined;
+  const eip1559Fees = ["maxFeePerGas", "maxPriorityFeePerGas"].filter(isSet);
+  const changes: string[] = [];
+  if (name === "legacy" || name === "eip2930") {
+    if (eip1559Fees.length > 0) {
+      changes.push(
+        isSet("gasPrice")
+          ? `remove ${fieldNames(eip1559Fees)}`
+          : `set gasPrice instead of ${fieldNames(eip1559Fees)}`,
+      );
+    }
+    if (name === "legacy" && isSet("accessList")) {
+      changes.push("remove accessList");
+    }
+    if (isSet("authorizationList")) {
+      changes.push("remove authorizationList");
+    }
+  } else {
+    // A request for type 4 whose fields disagree has no authorizationList.
+    if (name === "eip7702") {
+      changes.push("add an authorizationList");
+    }
+    if (isSet("gasPrice")) {
+      changes.push(
+        eip1559Fees.length > 0
+          ? "remove gasPrice"
+          : "set maxFeePerGas and maxPriorityFeePerGas instead of gasPrice",
+      );
+    }
+    if (isSet("authorizationList")) {
+      changes.push("remove authorizationList");
+    }
+  }
+  const text = `${changes.join(", ")}, or remove type.`;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Refuses a `null` in a field that decides the type (#504), before any request to the node, with
+ * an error that names the field. The schema refuses it too, but only after the fill, and in its
+ * own words.
+ *
+ * @param tx - The request's transaction.
+ * @param method - The RPC method, for the error message.
+ */
+function refuseNullTypeFields(tx: Record<string, unknown>, method: string): void {
+  const field = TYPE_FIELDS.find((name) => tx[name] === null);
+  if (field !== undefined) {
+    throw catalogError(ERRORS.txNullField, { field }, { operation: method });
+  }
+}
 
 /**
  * Applies a request's `type` (#496), before any request to the node. A number other than 0, 1, 2
@@ -570,27 +625,26 @@ const TYPE_FIXES: Readonly<Record<SignedTypeName, string>> = {
  * no `accessList`: that is a valid EIP-2930 transaction with an empty access list, which viem's
  * `eip2930` and ethers' `type: 1` send, so the list is set to `[]`. A `type` with no fee field is
  * not checked: the fill chooses the fees and the type follows them, as Hardhat's local accounts
- * do. A `type` that is not a number is ignored, and so is any `type` when a field that decides the
- * type is `null`, which the schema refuses with its own error.
+ * do. A `type` that is not a number is ignored. A `null` field that decides the type is refused,
+ * with or without a `type`, after the unsupported type and before the mismatch.
  *
  * @param tx - The copied transaction; its `accessList` may be set.
  * @param method - The RPC method, for error messages.
  */
 function applyRequestedType(tx: Record<string, unknown>, method: string): void {
   const requested = typeNumber(tx.type);
-  if (requested === undefined) {
-    return;
-  }
-  const name = SIGNED_TYPES[Number(requested)];
-  if (name === undefined) {
+  // Without a number, the lookup is of NaN, which has no type.
+  const name: SignedTypeName | undefined = SIGNED_TYPES[Number(requested)];
+  if (requested !== undefined && name === undefined) {
     throw catalogError(
       ERRORS.txUnsupportedType,
       { type: `0x${requested.toString(16)}` },
       { operation: method },
     );
   }
+  refuseNullTypeFields(tx, method);
   if (
-    TYPE_FIELDS.some((field) => tx[field] === null) ||
+    name === undefined ||
     (tx.gasPrice === undefined &&
       tx.maxFeePerGas === undefined &&
       tx.maxPriorityFeePerGas === undefined)
@@ -608,7 +662,7 @@ function applyRequestedType(tx: Record<string, unknown>, method: string): void {
       {
         requested: describeType(name),
         actual: describeType(actual),
-        hint: TYPE_FIXES[name],
+        hint: typeFix(name, tx),
       },
       { operation: method },
     );
