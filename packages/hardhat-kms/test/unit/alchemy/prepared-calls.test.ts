@@ -44,6 +44,7 @@ const LATER: PreparedCallsExpectation = {
   delegate: DELEGATE,
   accountCode: DELEGATED_CODE,
   sponsored: false,
+  maxGasCost: 10n ** 18n,
 };
 
 const FIRST: PreparedCallsExpectation = {
@@ -126,6 +127,8 @@ const withData = (field: string, value: unknown): object => ({
   ...LATER_SEND.prepared,
   data: { ...LATER_SEND.prepared.data, [field]: value },
 });
+const TEXT =
+  "the user operation asks for personal_sign over a text message, not over a raw 32-byte hash";
 const asks = (type: string): string =>
   `the user operation asks for a ${type} signature; only personal_sign over a raw 32-byte hash is accepted`;
 const withRequest = (signatureRequest: unknown): object => ({
@@ -134,6 +137,11 @@ const withRequest = (signatureRequest: unknown): object => ({
 });
 const differ = (index: number, field: string): string =>
   `call ${String(index)} of the user operation has another ${field} than the call you requested`;
+
+const over = (cost: bigint, max: bigint): string =>
+  `the user operation may cost the account up to ${String(cost)} wei in gas, more than maxGasCost ${String(max)} wei`;
+const withNonce = (nonce: unknown): object =>
+  first({}, { ...AUTHORIZATION, data: { ...AUTHORIZATION.data, nonce } });
 
 describe("checkPreparedCalls", () => {
   describe("accepts", () => {
@@ -169,7 +177,11 @@ describe("checkPreparedCalls", () => {
     });
 
     it("a paymaster when no policy is set", () => {
-      checkPreparedCalls(FIRST_SEND.prepared, { ...FIRST, sponsored: false });
+      checkPreparedCalls(FIRST_SEND.prepared, {
+        ...FIRST,
+        sponsored: false,
+        maxGasCost: 10n ** 18n,
+      });
     });
 
     it("one call encoded as execute", () => {
@@ -289,6 +301,9 @@ describe("checkPreparedCalls", () => {
       const sender = { ...LATER };
       Reflect.set(sender, "sender", 1);
       refuses(LATER_SEND.prepared, sender, input("sender", address));
+      // An object whose text is the address is not an address.
+      Reflect.set(sender, "sender", { toString: () => SENDER });
+      refuses(LATER_SEND.prepared, sender, input("sender", address));
       refuses(LATER_SEND.prepared, { ...LATER, delegate: "owner" }, input("delegate", address));
       refuses(
         LATER_SEND.prepared,
@@ -313,6 +328,34 @@ describe("checkPreparedCalls", () => {
         Reflect.set(expected, "accountCode", accountCode);
         refuses(LATER_SEND.prepared, expected, input("accountCode", code));
       }
+    });
+
+    it("a gas cap that is missing without a policy, negative or not a bigint", () => {
+      const cap = input(
+        "maxGasCost",
+        "a non-negative bigint in wei, required when sponsored is false",
+      );
+      refuses(LATER_SEND.prepared, { ...LATER, maxGasCost: undefined }, cap);
+      const { maxGasCost: _, ...noCap } = LATER;
+      refuses(LATER_SEND.prepared, noCap, cap);
+      refuses(LATER_SEND.prepared, { ...LATER, maxGasCost: -1n }, cap);
+      refuses(FIRST_SEND.prepared, { ...FIRST, maxGasCost: -1n }, cap);
+      const asNumber = { ...FIRST };
+      Reflect.set(asNumber, "maxGasCost", 1e18);
+      refuses(FIRST_SEND.prepared, asNumber, cap);
+    });
+
+    it("an account nonce that is not a non-negative integer", () => {
+      const nonce = input(
+        "accountNonce",
+        "a non-negative integer, as getTransactionCount returns it",
+      );
+      for (const accountNonce of [-1, 1.5, Number.NaN, -1n]) {
+        refuses(FIRST_SEND.prepared, { ...FIRST, accountNonce }, nonce);
+      }
+      const asString = { ...FIRST };
+      Reflect.set(asString, "accountNonce", "0");
+      refuses(FIRST_SEND.prepared, asString, nonce);
     });
 
     it("sponsored that is not a boolean", () => {
@@ -399,6 +442,7 @@ describe("checkPreparedCalls", () => {
       refuses({ ...LATER_SEND.prepared, data: undefined }, LATER, malformed("data"));
       refuses(withData("sender", "0x1234"), LATER, malformed("sender"));
       refuses(withData("sender", 1), LATER, malformed("sender"));
+      refuses(withData("sender", { toString: () => SENDER }), LATER, malformed("sender"));
       refuses(withData("callData", "34fcd5be"), LATER, malformed("callData"));
     });
 
@@ -468,14 +512,10 @@ describe("checkPreparedCalls", () => {
       refuses(
         withRequest({ type: "personal_sign", data: "hello", rawPayload: "0x00" }),
         LATER,
-        asks("personal_sign"),
+        TEXT,
       );
-      refuses(
-        withRequest({ type: "personal_sign", data: { raw: 1 } }),
-        LATER,
-        asks("personal_sign"),
-      );
-      refuses(withRequest({ type: "personal_sign", data: null }), LATER, asks("personal_sign"));
+      refuses(withRequest({ type: "personal_sign", data: { raw: 1 } }), LATER, TEXT);
+      refuses(withRequest({ type: "personal_sign", data: null }), LATER, TEXT);
     });
 
     it("no request, or one of an unknown type", () => {
@@ -679,6 +719,83 @@ describe("checkPreparedCalls", () => {
         feePayment: { ...FIRST_OPERATION.feePayment, sponsored: "true" },
       };
       refuses({ type: "array", data: [AUTHORIZATION, truthy] }, FIRST, notSponsored);
+    });
+  });
+
+  describe("bounds the gas the account pays", () => {
+    const laterData = LATER_SEND.prepared.data;
+    const laterCost =
+      (laterData.callGasLimit + laterData.verificationGasLimit + laterData.preVerificationGas) *
+      laterData.maxFeePerGas;
+    const firstData = FIRST_OPERATION.data;
+    const firstCost = (postOp: bigint): bigint =>
+      (firstData.callGasLimit +
+        firstData.verificationGasLimit +
+        firstData.preVerificationGas +
+        firstData.paymasterVerificationGasLimit +
+        postOp) *
+      firstData.maxFeePerGas;
+
+    it("accepts a cost at the cap and refuses one above it", () => {
+      checkPreparedCalls(LATER_SEND.prepared, { ...LATER, maxGasCost: laterCost });
+      refuses(
+        LATER_SEND.prepared,
+        { ...LATER, maxGasCost: laterCost - 1n },
+        over(laterCost, laterCost - 1n),
+      );
+      refuses(LATER_SEND.prepared, { ...LATER, maxGasCost: 0n }, over(laterCost, 0n));
+    });
+
+    it("counts the paymaster's gas limits, and checks the cap when a policy is set too", () => {
+      const cost = firstCost(0n);
+      checkPreparedCalls(FIRST_SEND.prepared, { ...FIRST, maxGasCost: cost });
+      refuses(FIRST_SEND.prepared, { ...FIRST, maxGasCost: cost - 1n }, over(cost, cost - 1n));
+      const withPostOp = first({ paymasterPostOpGasLimit: 5n });
+      checkPreparedCalls(withPostOp, { ...FIRST, maxGasCost: firstCost(5n) });
+      refuses(
+        withPostOp,
+        { ...FIRST, maxGasCost: firstCost(5n) - 1n },
+        over(firstCost(5n), firstCost(5n) - 1n),
+      );
+    });
+
+    it("refuses a higher gas price or larger limits than the cap allows", () => {
+      const pricey = later({ maxFeePerGas: LATER_SEND.prepared.data.maxFeePerGas * 1000n });
+      refuses(pricey, { ...LATER, maxGasCost: laterCost }, over(laterCost * 1000n, laterCost));
+      const heavy = later({
+        preVerificationGas: LATER_SEND.prepared.data.preVerificationGas + 10n,
+      });
+      const heavyCost = laterCost + 10n * LATER_SEND.prepared.data.maxFeePerGas;
+      refuses(heavy, { ...LATER, maxGasCost: laterCost }, over(heavyCost, laterCost));
+    });
+  });
+
+  describe("checks the authorization's nonce when the account's nonce is given", () => {
+    it("accepts the account's nonce, as a number or a bigint", () => {
+      checkPreparedCalls(FIRST_SEND.prepared, { ...FIRST, accountNonce: 0 });
+      checkPreparedCalls(FIRST_SEND.prepared, { ...FIRST, accountNonce: 0n });
+      checkPreparedCalls(withNonce(7), { ...FIRST, accountNonce: 7n });
+    });
+
+    it("leaves the nonce unchecked without accountNonce", () => {
+      checkPreparedCalls(withNonce(7), FIRST);
+    });
+
+    it("refuses another nonce", () => {
+      const message = "the authorization is for nonce 0, not the account's nonce 1";
+      refuses(FIRST_SEND.prepared, { ...FIRST, accountNonce: 1 }, message);
+      refuses(FIRST_SEND.prepared, { ...FIRST, accountNonce: 1n }, message);
+      refuses(
+        withNonce(8),
+        { ...FIRST, accountNonce: 7 },
+        "the authorization is for nonce 8, not the account's nonce 7",
+      );
+    });
+
+    it("refuses an authorization nonce that is not a non-negative integer", () => {
+      for (const nonce of ["0x0", -1, 1.5, undefined]) {
+        refuses(withNonce(nonce), FIRST, "the prepared authorization has no valid nonce");
+      }
     });
   });
 

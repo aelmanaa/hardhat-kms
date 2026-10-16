@@ -27,6 +27,15 @@ What you asked `prepareCalls` for, and what the key's account looks like on chai
 The account's code now, as `getCode` returns it: `undefined` or `0x` when it has none, or
 `0xef0100` and the delegate's address when it is delegated.
 
+##### accountNonce?
+
+> `readonly` `optional` **accountNonce?**: `number` \| `bigint`
+
+The account's nonce now, as `getTransactionCount` returns it. When it is given, an
+authorization must be for this nonce. Without it, the authorization's nonce is not checked: a
+wrong one only makes the send fail, but a later one leaves a signed delegation to `delegate`
+that anyone can apply once the account reaches that nonce.
+
 ##### calls
 
 > `readonly` **calls**: readonly [`RequestedCall`](#requestedcall)[]
@@ -45,6 +54,16 @@ Your chain's id. The user operation hash is computed with it, not with the retur
 
 The only contract the account may be delegated to, such as Modular Account v2 v1.1.0 at
 `0x77021100bD87b7008E5E1989d0eB38555d0d0000`.
+
+##### maxGasCost?
+
+> `readonly` `optional` **maxGasCost?**: `bigint`
+
+The most the user operation may cost the account, in wei: its gas limits (call,
+verification, pre-verification and any paymaster limits) times `maxFeePerGas`, which is what
+EntryPoint v0.7 takes from the account up front. Required when `sponsored` is `false`, since
+the account then pays the bundler whatever gas price and limits the response names. Checked
+whenever it is given.
 
 ##### sender
 
@@ -103,11 +122,14 @@ EIP-7702 `authorization`, and requires:
 - `callData` that is Modular Account v2 `execute` or `executeBatch`, optionally behind the
   `executeUserOp` selector `0x8dd7712f`, with exactly your calls, in order;
 - with `sponsored`, a paymaster and `feePayment.sponsored`;
+- a maximum gas cost no higher than `maxGasCost`, which is required without `sponsored`;
 - an authorization only to `delegate`, and only when the account has no code or is already
-  delegated to `delegate`; without one, the account must already be delegated to `delegate`.
+  delegated to `delegate`; without one, the account must already be delegated to `delegate`;
+- with `accountNonce`, an authorization for that nonce.
 
 Call it between `prepareCalls` and `signPreparedCalls`. It reads no chain state itself: pass the
-account's code, read with `getCode` just before `prepareCalls`.
+account's code and nonce, read with `getCode` and `getTransactionCount` just before
+`prepareCalls`.
 
 #### Parameters
 

@@ -219,12 +219,13 @@ A send needs an Alchemy API key, and a gas sponsorship policy if Alchemy pays th
 > - The sender and chain. The user operation's `data.sender` is the key's address, and the prepared call's `chainId` is your chain's.
 > - The user operation hash. Recompute it with viem's `getUserOperationHash` for EntryPoint v0.7 at `0x0000000071727De22E5E9d8BAf0edAc6f37da032`, from the returned user operation (`data`) and your own chain id, not the returned one. It must equal `signatureRequest.data.raw`.
 > - The calls. Modular Account v2 encodes calls as `execute(target, value, data)` or `executeBatch((target, value, data)[])`, sometimes behind the `executeUserOp` selector `0x8dd7712f`; Alchemy's own example encodes a single call as `executeBatch`. Compare the decoded calls with yours exactly: the count, the order, and each `to`, `value` and `data`. Compare `to` with `isAddressEqual`, and count a missing `value` as 0 and missing `data` as `0x`. Any other function of the account, such as `upgradeToAndCall`, and any unknown selector is a mismatch.
-> - The paymaster, when you pass a policy id. The user operation names a paymaster and `feePayment.sponsored` is `true`. Without one, the account pays the gas.
-> - The delegate. On a first send, the authorization's `data.address` is the delegate you expect, such as `0x77021100bD87b7008E5E1989d0eB38555d0d0000`, and its `chainId` is your chain's. The address's code is empty or already delegates to that contract, so the authorization never moves the account to another delegate. On a later send, the code delegates to that contract.
+> - The paymaster, when you pass a policy id. The user operation names a paymaster and `feePayment.sponsored` is `true`.
+> - The gas cost, when you pass no policy id. The account then pays whatever gas price and limits the response names: EntryPoint v0.7 takes the sum of the gas limits (call, verification, pre-verification and any paymaster limits) times `maxFeePerGas` up front, and the bundler keeps what the user operation is charged. Set a cap in wei and refuse a response above it.
+> - The delegate. On a first send, the authorization's `data.address` is the delegate you expect, such as `0x77021100bD87b7008E5E1989d0eB38555d0d0000`, and its `chainId` is your chain's. The address's code is empty or already delegates to that contract, so the authorization never moves the account to another delegate. On a later send, the code delegates to that contract. The authorization's `data.nonce` is the address's nonce now: a later nonce would leave a signed delegation that anyone can apply once the address reaches it.
 >
 > `checkPreparedCalls` from `hardhat-kms/alchemy` makes each of these checks, and the script below calls it before signing. It throws an error from the `core.alchemy` group of the [error reference](../reference/errors.md) when a check fails, and nothing is signed.
 
-`checkPreparedCalls` needs hardhat-kms 1.1.0 or later, and viem, as `getAccount` does ([API reference](../reference/api/hardhat-kms/alchemy.md)). It reads no chain state, so the script reads the address's code with `getCode` before `prepareCalls`. Leave `sponsored` at `true` only when the client or `prepareCalls` has a policy id.
+`checkPreparedCalls` needs hardhat-kms 1.1.0 or later, and viem, as `getAccount` does ([API reference](../reference/api/hardhat-kms/alchemy.md)). It reads no chain state, so the script reads the address's code with `getCode` and its nonce with `getTransactionCount` before `prepareCalls`. Pass `accountNonce` so the authorization's nonce is checked; without it, the check leaves the nonce alone. Leave `sponsored` at `true` only when the client or `prepareCalls` has a policy id. Without a policy, pass `sponsored: false` and `maxGasCost`, the most in wei you accept the account to pay for gas, such as `parseEther("0.001")`; the check requires it.
 
 <!-- docs-check: skip -->
 
@@ -262,6 +263,7 @@ const calls: { to: Address; value: bigint; data: Hex }[] = [
 ];
 
 const accountCode = await publicClient.getCode({ address: owner.address });
+const accountNonce = await publicClient.getTransactionCount({ address: owner.address });
 const prepared = await client.prepareCalls({ calls });
 // Throws before anything is signed unless the key would sign exactly these calls.
 checkPreparedCalls(prepared, {
@@ -270,6 +272,7 @@ checkPreparedCalls(prepared, {
   chainId: sepolia.id,
   delegate: DELEGATE,
   accountCode,
+  accountNonce,
   sponsored: true,
 });
 const signed = await client.signPreparedCalls(prepared);

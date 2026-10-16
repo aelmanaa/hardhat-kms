@@ -2101,7 +2101,7 @@ export const ERRORS = {
     template: "checkPreparedCalls: the expected {field} is not valid. Expected {expected}",
     cause:
       "An argument of `checkPreparedCalls` that describes what you asked for is missing or malformed.",
-    fix: "Pass the calls you gave `prepareCalls`, the key's address as `sender`, your chain's id, the delegate you pinned, the account's code from `getCode`, and `sponsored: true` only when you passed a policy id.",
+    fix: "Pass the calls you gave `prepareCalls`, the key's address as `sender`, your chain's id, the delegate you pinned, the account's code from `getCode`, `sponsored: true` only when you passed a policy id, and `maxGasCost` in wei when you did not.",
   },
   alchemyResponseType: {
     id: "core.alchemy.response-type",
@@ -2129,7 +2129,17 @@ export const ERRORS = {
     template:
       "the user operation asks for a {type} signature; only personal_sign over a raw 32-byte hash is accepted",
     cause:
-      "The signature request is `eth_signTypedData_v4`, a text message, or missing. The SDK would sign typed data as given, and the check cannot tie it to your calls.",
+      "The signature request is `eth_signTypedData_v4`, another type, or missing. The SDK would sign typed data as given, and the check cannot tie it to your calls.",
+    fix: "Do not sign it.",
+  },
+  alchemySignatureText: {
+    id: "core.alchemy.signature-text",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template:
+      "the user operation asks for personal_sign over a text message, not over a raw 32-byte hash",
+    cause:
+      "The `personal_sign` request's `data` is a string, or an object without a hex `raw` hash. The check can only tie a raw user operation hash to your calls.",
     fix: "Do not sign it.",
   },
   alchemyChain: {
@@ -2223,6 +2233,25 @@ export const ERRORS = {
     cause:
       "You passed `sponsored: true` for a gas sponsorship policy, and the response's `feePayment.sponsored` is `false`.",
     fix: "Check the policy id and its rules in the Alchemy dashboard, or prepare the calls without a policy and pass `sponsored: false` to pay the gas from the account.",
+  },
+  alchemyGasCost: {
+    id: "core.alchemy.gas-cost",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template:
+      "the user operation may cost the account up to {cost} wei in gas, more than maxGasCost {max} wei",
+    cause:
+      "The response's gas limits (call, verification, pre-verification and paymaster) times its `maxFeePerGas` exceed the `maxGasCost` you passed. EntryPoint v0.7 takes that amount from the account up front when no paymaster pays, and the bundler keeps what the user operation is charged.",
+    fix: "Do not sign it. Prepare the calls again when fees are lower, or raise `maxGasCost` if the cost is one you accept.",
+  },
+  alchemyAuthNonce: {
+    id: "core.alchemy.auth-nonce",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "the authorization is for nonce {returned}, not the account's nonce {expected}",
+    cause:
+      "The EIP-7702 authorization in the response names another nonce than the `accountNonce` you passed. Another transaction from the account may have moved the nonce, or the response asks for a delegation that could be applied later.",
+    fix: "Read the account's nonce again just before `prepareCalls`, and prepare the calls again.",
   },
   alchemyDelegate: {
     id: "core.alchemy.delegate",

@@ -53,6 +53,21 @@ export interface PreparedCallsExpectation {
   readonly accountCode: KmsHex | undefined;
   /** Whether you passed a gas sponsorship policy id to the client or to `prepareCalls`. */
   readonly sponsored: boolean;
+  /**
+   * The most the user operation may cost the account, in wei: its gas limits (call,
+   * verification, pre-verification and any paymaster limits) times `maxFeePerGas`, which is what
+   * EntryPoint v0.7 takes from the account up front. Required when `sponsored` is `false`, since
+   * the account then pays the bundler whatever gas price and limits the response names. Checked
+   * whenever it is given.
+   */
+  readonly maxGasCost?: bigint | undefined;
+  /**
+   * The account's nonce now, as `getTransactionCount` returns it. When it is given, an
+   * authorization must be for this nonce. Without it, the authorization's nonce is not checked: a
+   * wrong one only makes the send fail, but a later one leaves a signed delegation to `delegate`
+   * that anyone can apply once the account reaches that nonce.
+   */
+  readonly accountNonce?: number | bigint | undefined;
 }
 
 /** The selector `executeUserOp` puts before the account call in EntryPoint v0.7 callData. */
@@ -114,11 +129,14 @@ interface Call {
  * - `callData` that is Modular Account v2 `execute` or `executeBatch`, optionally behind the
  *   `executeUserOp` selector `0x8dd7712f`, with exactly your calls, in order;
  * - with `sponsored`, a paymaster and `feePayment.sponsored`;
+ * - a maximum gas cost no higher than `maxGasCost`, which is required without `sponsored`;
  * - an authorization only to `delegate`, and only when the account has no code or is already
- *   delegated to `delegate`; without one, the account must already be delegated to `delegate`.
+ *   delegated to `delegate`; without one, the account must already be delegated to `delegate`;
+ * - with `accountNonce`, an authorization for that nonce.
  *
  * Call it between `prepareCalls` and `signPreparedCalls`. It reads no chain state itself: pass the
- * account's code, read with `getCode` just before `prepareCalls`.
+ * account's code and nonce, read with `getCode` and `getTransactionCount` just before
+ * `prepareCalls`.
  *
  * @param prepared - What `client.prepareCalls(...)` returned, unchanged.
  * @param expected - What you asked for.
@@ -142,11 +160,36 @@ export function checkPreparedCalls(prepared: unknown, expected: PreparedCallsExp
   if (typeof expected.sponsored !== "boolean") {
     throw catalogError(ERRORS.alchemyInput, { field: "sponsored", expected: "true or false" });
   }
+  const maxGasCost = expected.maxGasCost;
+  if (
+    (maxGasCost === undefined && !expected.sponsored) ||
+    (maxGasCost !== undefined && (typeof maxGasCost !== "bigint" || maxGasCost < 0n))
+  ) {
+    throw catalogError(ERRORS.alchemyInput, {
+      field: "maxGasCost",
+      expected: "a non-negative bigint in wei, required when sponsored is false",
+    });
+  }
+  const accountNonce = expected.accountNonce;
+  if (
+    accountNonce !== undefined &&
+    !(typeof accountNonce === "bigint"
+      ? accountNonce >= 0n
+      : Number.isSafeInteger(accountNonce) && accountNonce >= 0)
+  ) {
+    throw catalogError(ERRORS.alchemyInput, {
+      field: "accountNonce",
+      expected: "a non-negative integer, as getTransactionCount returns it",
+    });
+  }
 
   const { userOperation, authorization } = splitPrepared(prepared);
   const operation = readUserOperation(userOperation);
-  if (operation.signatureType !== "personal_sign" || !isHex(operation.hash)) {
+  if (operation.signatureType !== "personal_sign") {
     throw catalogError(ERRORS.alchemySignatureRequest, { type: operation.signatureType });
+  }
+  if (!isHex(operation.hash)) {
+    throw catalogError(ERRORS.alchemySignatureText, {});
   }
   if (operation.chainId !== chainId) {
     throw catalogError(ERRORS.alchemyChain, {
@@ -181,7 +224,19 @@ export function checkPreparedCalls(prepared: unknown, expected: PreparedCallsExp
       throw catalogError(ERRORS.alchemyNotSponsored, {});
     }
   }
-  checkDelegation(authorization, { chainId, delegate, accountCode });
+  // What EntryPoint v0.7 takes from the account up front; without a cap, nothing to compare.
+  const gas =
+    op.callGasLimit +
+    op.verificationGasLimit +
+    op.preVerificationGas +
+    (op.paymasterVerificationGasLimit ?? 0n) +
+    (op.paymasterPostOpGasLimit ?? 0n);
+  const cost = gas * op.maxFeePerGas;
+  const cap = maxGasCost ?? cost;
+  if (cost > cap) {
+    throw catalogError(ERRORS.alchemyGasCost, { cost, max: cap });
+  }
+  checkDelegation(authorization, { chainId, delegate, accountCode, accountNonce });
 }
 
 /** Reads the requested calls: at least one, each with an address, a value and hex data. */
@@ -229,8 +284,7 @@ function readExpectedAddress(value: unknown, field: string): Address {
 
 /** The value as an address, if it is one: lowercase, or with a valid EIP-55 checksum. */
 function addressOf(value: unknown): Address | undefined {
-  const text = String(value);
-  return isAddress(text) ? text : undefined;
+  return typeof value === "string" && isAddress(value) ? value : undefined;
 }
 
 /** Reads the account's code; `0x` and `undefined` both mean no code. */
@@ -474,7 +528,12 @@ function compareCalls(decoded: readonly Call[], requested: readonly Call[]): voi
  */
 function checkDelegation(
   authorization: Fields | undefined,
-  expected: { chainId: number; delegate: Address; accountCode: Hex },
+  expected: {
+    chainId: number;
+    delegate: Address;
+    accountCode: Hex;
+    accountNonce: number | bigint | undefined;
+  },
 ): void {
   const current = delegatedTo(expected.accountCode);
   if (current !== undefined && !isAddressEqual(current, expected.delegate)) {
@@ -495,6 +554,10 @@ function checkDelegation(
   if (address === undefined) {
     throw catalogError(ERRORS.alchemyMalformed, { part: "authorization", field: "address" });
   }
+  const nonce: unknown = isObject(data) ? data.nonce : undefined;
+  if (!Number.isSafeInteger(nonce) || Number(nonce) < 0) {
+    throw catalogError(ERRORS.alchemyMalformed, { part: "authorization", field: "nonce" });
+  }
   if (chainId !== expected.chainId) {
     throw catalogError(ERRORS.alchemyChain, {
       part: "authorization",
@@ -504,6 +567,15 @@ function checkDelegation(
   }
   if (!isAddressEqual(address, expected.delegate)) {
     throw catalogError(ERRORS.alchemyDelegate, { returned: address, expected: expected.delegate });
+  }
+  if (
+    expected.accountNonce !== undefined &&
+    BigInt(Number(nonce)) !== BigInt(expected.accountNonce)
+  ) {
+    throw catalogError(ERRORS.alchemyAuthNonce, {
+      returned: Number(nonce),
+      expected: expected.accountNonce,
+    });
   }
 }
 
