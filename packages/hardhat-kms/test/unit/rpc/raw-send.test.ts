@@ -1259,6 +1259,32 @@ describe("a library send's hold, whichever way its raw transaction arrives (#433
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
   });
 
+  it("keeps an earlier unanswered send of the connection it goes through when it gets no answer (#506)", async () => {
+    const harness = await setUp();
+    const { node, send } = harness;
+    const connection = await openKnown(harness);
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO }));
+    const [first] = node.raw;
+    assert.ok(first !== undefined);
+    // Another connection, which does not know the first send, gives a library send nonce 0.
+    const owner = await openKnown(harness);
+    const manager = await library(owner);
+    assert.equal(await manager.consume(), 0);
+    failOnce(node);
+    await assert.rejects(sendRaw(harness, connection, cowRaw(0n)), /socket hang up/);
+    await manager.reset();
+    // The node has the first send only, and its pending count lags at 0.
+    const looked: unknown[] = [];
+    node.lookUp = (hash) => {
+      looked.push(hash);
+      return hash === hashOf(first) ? { hash } : null;
+    };
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x2" }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n, 1n], "not the nonce the node has");
+    assert.deepEqual(looked, [hashOf(first), hashOf(cowRaw(0n))], "both looked up");
+  });
+
   it("reserves the held nonce when the hold reaches its time limit, so a waiting send skips it", async (t) => {
     const warn = t.mock.method(console, "warn", () => undefined);
     // The hold's limit runs on the global setTimeout, which this mock drives.

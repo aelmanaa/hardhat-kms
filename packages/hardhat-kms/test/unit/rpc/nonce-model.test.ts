@@ -1031,6 +1031,25 @@ function replace(index: number): Step {
   };
 }
 
+/**
+ * An unanswered plugin send, then an unanswered caller-nonce send at the index-th nonce the node
+ * holds (#506), as one step: random sequences of single steps rarely put them in this order. The
+ * node mode stays `no-answer`.
+ */
+function unansweredPair(index: number): Step {
+  return {
+    check: () => true,
+    run: async (model, world) => {
+      await nodeMode("no-answer").run(model, world);
+      await pluginSend(0).run(model, world);
+      await settle();
+      await replace(index).run(model, world);
+      await settle();
+    },
+    toString: () => `unansweredPair(${index})`,
+  };
+}
+
 /** `evm_snapshot`: the node's transactions now, queued ones included. On edr-simulated only. */
 const snapshot: Step = {
   check: () => true,
@@ -1083,6 +1102,7 @@ const stepArbs: [fc.Arbitrary<Step>, number][] = [
   [connectionArb.map(close), 1],
   [fc.nat({ max: 3 }).map(drop), 1],
   [fc.nat({ max: 3 }).map(replace), 1],
+  [fc.nat({ max: 3 }).map(unansweredPair), 1],
   [fc.constant(snapshot), 1],
   [fc.constant(revert), 1],
 ];
@@ -1293,8 +1313,8 @@ const KNOWN_489: { name: string; steps: Step[] }[] = [
  * #506: an unanswered send, then an unanswered caller-nonce send at another nonce. The next send
  * must count the first send's nonce while the node's pending count is below it: lagged by
  * `inspectUncertain`, or stopped at a reservation's gap. Only the first send's uncertain record
- * tells it the node has that nonce. Random sequences rarely reach this order, so every run tries
- * these first.
+ * tells it the node has that nonce. Every run tries these first; `unansweredPair` lets random
+ * sequences reach the same order.
  */
 const KNOWN_506: Step[][] = [
   [pluginSend(0), nodeMode("no-answer"), pluginSend(0), replace(0), inspectUncertain(0)],

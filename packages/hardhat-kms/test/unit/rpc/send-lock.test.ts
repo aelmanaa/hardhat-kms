@@ -412,21 +412,32 @@ describe("a send whose outcome is unknown", () => {
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 2n], "the lost answer's nonce is not reused");
   });
 
-  it("keeps the mark when the node does not have it, or the lookup fails", async () => {
-    for (const lookUp of [
-      () => null,
-      () => {
-        throw new Error("lookup failed");
-      },
-    ]) {
-      const { node, open, send } = await setUp();
-      const connection = await open();
-      failOnce(node);
-      await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
-      node.lookUp = lookUp;
-      await send(connection, { from: COW, to: TO, value: "0x2" });
-      assert.deepEqual(node.raw.map(nonceOf), [0n, 0n]);
-    }
+  it("keeps the mark when the node does not have it", async () => {
+    const { node, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
+    node.lookUp = () => null;
+    await send(connection, { from: COW, to: TO, value: "0x2" });
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 0n]);
+  });
+
+  it("counts it as the node's when the lookup fails, so its nonce is not reused", async () => {
+    const { node, open, send } = await setUp();
+    const connection = await open();
+    failOnce(node);
+    await unknownOutcome(send(connection, { from: COW, to: TO, value: "0x1" }));
+    let lookups = 0;
+    node.lookUp = () => {
+      lookups++;
+      throw new Error("lookup failed");
+    };
+    // The node's pending count lags at 0: a gap at worst, never the same nonce.
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x2" }));
+    // A later send took a higher nonce, and the node may not have the bytes: signed afresh.
+    resultOf(await send(connection, { from: COW, to: TO, value: "0x1" }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 2n]);
+    assert.equal(lookups, 2, "one for the uncertain send, one for its retry's bytes");
   });
 
   it("is looked up only by a send without the caller's nonce", async () => {

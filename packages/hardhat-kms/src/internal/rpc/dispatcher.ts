@@ -739,7 +739,11 @@ async function sendTransaction(
       });
     }
     if (!kms.callerNonce) {
-      await settleUncertain(address, sends, nodeHas);
+      await settleUncertain(
+        address,
+        sends,
+        async (hash) => await lookUpTransaction(transactions, hash),
+      );
     }
     const signed = await accounts.signWith(
       kms.key,
@@ -774,22 +778,23 @@ async function sendTransaction(
 
 /**
  * Asks the node about each of the sender's transactions whose broadcast got no answer, the one
- * kept first first, with or without the caller's nonce (#506). If the node has one, the
- * high-water mark rises to its nonce, so a node whose pending count lags cannot give that nonce
- * to the next send, which could replace that transaction. If the node does not have it, or the
- * lookup fails, the mark stays for it and the node's pending count decides; the next send may
- * then take its nonce, so its retry entry is dropped and a retry of it signs afresh.
+ * kept first first, with or without the caller's nonce (#506). If the node has one, or the lookup
+ * fails, the high-water mark rises to its nonce, so a node whose pending count lags cannot give
+ * that nonce to the next send, which could replace that transaction: a failed lookup can leave a
+ * gap, never a reused nonce. If the node does not have it, the mark stays for it and the node's
+ * pending count decides; the next send may then take its nonce, so its retry entry is dropped and
+ * a retry of it signs afresh.
  */
 async function settleUncertain(
   address: string,
   sends: ConnectionSends,
-  nodeHas: (hash: string) => Promise<boolean>,
+  lookUp: (hash: string) => Promise<boolean | undefined>,
 ): Promise<void> {
   for (const uncertain of sends.takeUncertain(address)) {
-    if (await nodeHas(uncertain.hash)) {
-      sends.recordSent(address, uncertain.nonce, uncertain.hash);
-    } else {
+    if ((await lookUp(uncertain.hash)) === false) {
       sends.dropRetriesOf(uncertain.hash);
+    } else {
+      sends.recordSent(address, uncertain.nonce, uncertain.hash);
     }
   }
 }
@@ -1291,7 +1296,7 @@ export async function libraryNonce(
     await settleUncertain(
       address,
       sends,
-      async (hash) => await nodeHasTransaction(transactions, hash),
+      async (hash) => await lookUpTransaction(transactions, hash),
     );
     requireOpen();
     return await sends.chooseNonce(
