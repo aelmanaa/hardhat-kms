@@ -1049,6 +1049,16 @@ export const ERRORS = {
       "The transaction's `type` is a number other than 0, 1, 2, 3 or 4, such as a chain-specific type: Celo's fee-currency type `0x7b` (viem's Celo formatter sends it when `feeCurrency` is set), zkSync's EIP-712 type `0x71`, or the OP Stack deposit type `0x7e`. Before, such a request was signed as a plain transaction of the type its fee fields give, without its chain-specific fields. A `type` counts as a number when it is a hex quantity (either case, any leading zeros), a decimal string, a non-negative integer or a bigint, with or without surrounding whitespace. Any other `type`, such as viem's `\"legacy\"`, is ignored: the fields decide. The check runs before any request to the node.",
     fix: "Send the transaction from another account, or as type `0x0`, `0x1`, `0x2` or `0x4`.",
   },
+  txNullField: {
+    id: "core.tx.null-field",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "the transaction's {field} is null; set a value or leave the field out. Nothing was signed.",
+    cause:
+      'The transaction sets `gasPrice`, `maxFeePerGas`, `maxPriorityFeePerGas`, `accessList` or `authorizationList` to `null`, and the fill would not replace it. These fields take a value or are left out; `null` is neither. Before, such a request failed with a raw schema error. One `null` is still accepted, as Hardhat accepts it: with the network\'s `gasPrice` set to `"auto"`, no `gasPrice` and the other EIP-1559 field left out, a `null` `maxFeePerGas` or `maxPriorityFeePerGas` is filled like an absent one. The check runs after those of `core.tx.blob` and `core.tx.unsupported-type`, and before `core.tx.type-mismatch` and any request to the node. `{field}` is the first such field, in that order.',
+    fix: "Set the field to a value, or leave it out to let the plugin fill it.",
+  },
   txRequestTypeMismatch: {
     id: "core.tx.type-mismatch",
     kind: "error",
@@ -1056,7 +1066,7 @@ export const ERRORS = {
     template:
       "the transaction asks for type {requested}, but its fields make it type {actual}. Nothing was signed. {hint}",
     cause:
-      "The transaction's `type` disagrees with the fee fields the caller set: `gasPrice`, `maxFeePerGas` or `maxPriorityFeePerGas`. The fields make it type 0x4 with an `authorizationList`, else 0x2 with an EIP-1559 fee field, else 0x1 with an `accessList`, else 0x0. For example, type `0x2` with `gasPrice` would be signed as legacy. Type `0x1` with `gasPrice` and no `accessList` is not a mismatch: it is signed as type 0x1 with an empty access list. A `type` with no fee field is not checked: the plugin fills the fees and the type follows them. Neither is a request with a `null` fee or list field, which fails validation instead. The check runs before any request to the node. `{hint}` says what to change for the type asked for.",
+      'The transaction\'s `type` disagrees with the fee fields the caller set: `gasPrice`, `maxFeePerGas` or `maxPriorityFeePerGas`. The fields make it type 0x4 with an `authorizationList`, else 0x2 with an EIP-1559 fee field, else 0x1 with an `accessList`, else 0x0. For example, type `0x2` with `gasPrice` would be signed as legacy. Type `0x1` with `gasPrice` and no `accessList` is not a mismatch: it is signed as type 0x1 with an empty access list. A `type` with no fee field is not checked: the plugin fills the fees and the type follows them. A `null` fee or list field fails earlier, with `core.tx.null-field`, except a lone `null` EIP-1559 fee field that the automatic fee fill replaces: it counts as an EIP-1559 fee field, so `type: "0x0"` with `maxFeePerGas: null` is a mismatch. The check runs before any request to the node. `{hint}` says what to change, naming only the fields the transaction sets.',
     fix: "Set the fee fields of the type asked for (`gasPrice` for 0x0 and 0x1, `maxFeePerGas` and `maxPriorityFeePerGas` for 0x2 and 0x4), add an `authorizationList` for type 0x4, or remove `type` to let the fields decide.",
   },
   txNoGas: {
