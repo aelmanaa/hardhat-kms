@@ -26,7 +26,7 @@ You are in one of these cases:
 - The send failed with an answer from a gateway that its backend timed out: code `-32603`, or a message saying that the request timed out or that a deadline was exceeded. The plugin passes that answer on unchanged, so it carries no hash.
 - A transaction stays unmined, or later transactions from the account do not get mined.
 
-[Parallel sends and failed broadcasts](../reference/rpc-methods.md#parallel-sends-and-failed-broadcasts) explains what the plugin does in each case. The rule that matters here: the plugin remembers its nonces only per connection, and a lookup that fails counts as "not known", so a later send can reuse the nonce of a transaction that did reach the node.
+[Parallel sends and failed broadcasts](../reference/rpc-methods.md#parallel-sends-and-failed-broadcasts) explains what the plugin does in each case. The rule that matters here: the plugin remembers its nonces only per connection, and a lookup that answers "not known" lets the node's pending count decide, so a later send can reuse the nonce of a transaction that reached the node after that answer. A lookup that fails counts as "known": the next send skips the nonce, which can leave a gap.
 
 ## 1. Get the transaction hash
 

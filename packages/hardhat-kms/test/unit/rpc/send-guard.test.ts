@@ -20,6 +20,7 @@ import {
   libraryHoldsActive,
   MAX_SEND_LOCK_WAITERS,
   MAX_SENT_RECORDS,
+  MAX_UNCERTAIN_RECORDS,
   RESERVATION_MS,
   takeOwedLibraryReset,
   RETRY_TTL_MS,
@@ -810,29 +811,69 @@ describe("ConnectionSends", () => {
     sends.rememberUncertain("0xa", transaction);
     assert.equal(timers.pending(), 0);
     assert.equal(sends.takeRetry("key"), undefined);
-    assert.equal(sends.takeUncertain("0xa"), undefined);
+    assert.deepEqual(sends.takeUncertain("0xa"), []);
   });
 
-  it("keeps one uncertain transaction per sender, until taken or settled", () => {
+  it("keeps every uncertain transaction per sender, oldest first, until taken or settled (#506)", () => {
     const sends = new ConnectionSends({ highWater: true, timers: fakeTimers() });
     const older = { raw: "0x01", hash: "0x02", nonce: 0n };
     const newer = { raw: "0x03", hash: "0x04", nonce: 1n };
+    const sameNonce = { raw: "0x05", hash: "0x06", nonce: 0n };
     sends.rememberUncertain("0xa", older);
     sends.rememberUncertain("0xa", newer);
-    assert.equal(sends.takeUncertain("0xa"), newer);
-    assert.equal(sends.takeUncertain("0xa"), undefined);
+    sends.rememberUncertain("0xa", sameNonce);
+    sends.rememberUncertain("0xb", newer);
+    assert.deepEqual(sends.takeUncertain("0xa"), [older, newer, sameNonce]);
+    assert.deepEqual(sends.takeUncertain("0xa"), []);
+    assert.deepEqual(sends.takeUncertain("0xb"), [newer], "per sender");
     sends.rememberUncertain("0xa", older);
+    sends.rememberUncertain("0xa", newer);
     sends.settleUncertain("0xa", newer.hash);
-    assert.equal(sends.takeUncertain("0xa"), older, "another hash does not settle it");
+    sends.settleUncertain("0xb", older.hash);
+    assert.deepEqual(sends.takeUncertain("0xa"), [older], "only that hash is settled");
     sends.rememberUncertain("0xa", older);
     sends.settleUncertain("0xa", older.hash);
-    assert.equal(sends.takeUncertain("0xa"), undefined);
+    assert.deepEqual(sends.takeUncertain("0xa"), []);
+    assert.equal(sends.highWaterOf("0xa"), undefined, "nothing is counted as sent");
     const off = new ConnectionSends({ highWater: false, timers: fakeTimers() });
     off.rememberUncertain("0xa", older);
-    assert.equal(off.takeUncertain("0xa"), older, "kept with the mark off too (#434)");
+    assert.deepEqual(off.takeUncertain("0xa"), [older], "kept with the mark off too (#434)");
     off.close();
     off.rememberUncertain("0xa", newer);
-    assert.equal(off.takeUncertain("0xa"), undefined, "nothing after close");
+    assert.deepEqual(off.takeUncertain("0xa"), [], "nothing after close");
+  });
+
+  it(`counts the oldest of more than ${MAX_UNCERTAIN_RECORDS} uncertain transactions as sent`, () => {
+    const sends = new ConnectionSends({ highWater: true, timers: fakeTimers() });
+    const kept = Array.from({ length: MAX_UNCERTAIN_RECORDS + 2 }, (_, index) => ({
+      raw: "0x01",
+      hash: `0x${index.toString(16).padStart(2, "0")}`,
+      // Nonces in no order: the oldest is evicted, not the lowest.
+      nonce: BigInt((index * 7) % 23),
+    }));
+    for (const transaction of kept.slice(0, MAX_UNCERTAIN_RECORDS)) {
+      sends.rememberUncertain("0xa", transaction);
+    }
+    const [first, second] = kept;
+    assert.ok(first !== undefined && second !== undefined);
+    // The same transaction again is the newest, and takes no room.
+    sends.rememberUncertain("0xa", first);
+    assert.equal(sends.highWaterOf("0xa"), undefined, "nothing evicted yet");
+    sends.rememberUncertain("0xa", kept.at(-2) ?? first);
+    assert.equal(sends.highWaterOf("0xa"), second.nonce, "the oldest counts as sent");
+    sends.rememberUncertain("0xa", kept.at(-1) ?? first);
+    const left = sends.takeUncertain("0xa");
+    assert.equal(left.length, MAX_UNCERTAIN_RECORDS);
+    assert.deepEqual(left, [...kept.slice(3, MAX_UNCERTAIN_RECORDS), first, ...kept.slice(-2)]);
+    // The third went too; the mark is the higher of the two nonces.
+    const third = kept[2];
+    assert.ok(third !== undefined);
+    assert.equal(sends.highWaterOf("0xa"), second.nonce > third.nonce ? second.nonce : third.nonce);
+    const off = new ConnectionSends({ highWater: false, timers: fakeTimers() });
+    for (const transaction of kept) {
+      off.rememberUncertain("0xa", transaction);
+    }
+    assert.equal(off.sentRecords("0xa"), 2, "recorded with the mark off too");
   });
 
   it(`drops the oldest of more than ${MAX_RETRY_ENTRIES} entries`, () => {
@@ -873,7 +914,7 @@ describe("ConnectionSends", () => {
     const sends = new ConnectionSends({ highWater: true, timers: fakeTimers() });
     sends.rememberUncertain("0xa", { raw: "0x01", hash: "0x02", nonce: 0n });
     sends.close();
-    assert.equal(sends.takeUncertain("0xa"), undefined);
+    assert.deepEqual(sends.takeUncertain("0xa"), []);
   });
 
   it("drops every retry entry of a hash, and reports the mark only when it is on", () => {
