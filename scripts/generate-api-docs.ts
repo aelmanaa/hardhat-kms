@@ -122,9 +122,11 @@ export function checkProviderExports(): void {
  */
 const API_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "README.md":
-    "The TypeScript API of hardhat-kms: the plugin export, the config types and the helpers for provider plugins.",
+    "The TypeScript API of hardhat-kms: the plugin export, the config types, the helpers for provider plugins and the Alchemy prepared-call check.",
   "hardhat-kms.md":
     "The hardhat-kms entry point: the plugin as its default export, which adds the kms config section and each network's kmsAccounts.",
+  "hardhat-kms/alchemy.md":
+    "The hardhat-kms/alchemy entry point: checkPreparedCalls, which checks an Alchemy Wallet APIs prepared call before a KMS key signs it.",
   "hardhat-kms/provider-utils.md":
     "Helpers for writing a KMS provider plugin for hardhat-kms, the same ones the AWS, Google Cloud and Azure packages use; experimental.",
   "hardhat-kms/types.md":

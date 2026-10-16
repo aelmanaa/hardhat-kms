@@ -12,6 +12,7 @@
     "src/internal/crypto/**/*.ts",
     "src/internal/signer/**/*.ts",
     "!src/internal/signer/types.ts",
+    "src/internal/alchemy/**/*.ts",
     "src/internal/viem/**/*.ts",
     "!src/internal/viem/types.ts",
     "src/internal/rpc/send-guard.ts",

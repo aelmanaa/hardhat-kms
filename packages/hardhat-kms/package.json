@@ -51,6 +51,10 @@
       "types": "./dist/src/provider-utils.d.ts",
       "default": "./dist/src/provider-utils.js"
     },
+    "./alchemy": {
+      "types": "./dist/src/alchemy.d.ts",
+      "default": "./dist/src/alchemy.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

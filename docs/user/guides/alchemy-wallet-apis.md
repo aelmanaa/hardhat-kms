@@ -12,7 +12,7 @@ You need a working KMS key setup, such as [Set up an AWS KMS key](aws-kms-setup.
 > [!NOTE]
 > Audience: users who want a KMS key to own a smart wallet through Alchemy's Wallet APIs.
 >
-> Checked with `@alchemy/wallet-apis` 5.3.0 on 2026-10-08, with viem 2.57.1 and Hardhat 3.18.0. The script in [step 3](#3-check-the-signatures-without-sending) ran on that date with an AWS KMS key on Sepolia: the authorization, a `personal_sign` over an example user operation hash and a typed-data signature each recovered to the key's address, and nothing was sent. The send in [step 4](#4-send-a-call) needs an Alchemy API key and was not run. This repository does not install `@alchemy/wallet-apis`, so its checks do not typecheck the scripts in steps 3 and 4; a later release of the package can change the calls they make.
+> Checked with `@alchemy/wallet-apis` 5.3.0 on 2026-10-08, with viem 2.57.1 and Hardhat 3.18.0. The script in [step 3](#3-check-the-signatures-without-sending) ran on that date with an AWS KMS key on Sepolia: the authorization, a `personal_sign` over an example user operation hash and a typed-data signature each recovered to the key's address, and nothing was sent. The send in [step 4](#4-send-a-call) needs an Alchemy API key and was not run. Its `checkPreparedCalls` call is tested against responses that `prepareCalls` of `@alchemy/wallet-apis` 5.3.0 decoded, on 2026-10-16. This repository does not install `@alchemy/wallet-apis`, so its checks do not typecheck the scripts in steps 3 and 4; a later release of the package can change the calls they make.
 
 `connection.kms.getAccount` returns a viem `LocalAccount` for a KMS key ([Library accounts reference](../reference/library-accounts.md)). `@alchemy/wallet-apis` takes a `LocalAccount` as the signer of a smart wallet, so the KMS key can be that signer with no adapter. The plugin adds nothing Alchemy-specific.
 
@@ -218,13 +218,13 @@ A send needs an Alchemy API key, and a gas sponsorship policy if Alchemy pays th
 > - The signature request type. Require `signatureRequest.type` to be `"personal_sign"` with `data` in the form `{ raw }`, and refuse anything else. The response may instead ask for `eth_signTypedData_v4`, which the SDK also signs as given.
 > - The sender and chain. The user operation's `data.sender` is the key's address, and the prepared call's `chainId` is your chain's.
 > - The user operation hash. Recompute it with viem's `getUserOperationHash` for EntryPoint v0.7 at `0x0000000071727De22E5E9d8BAf0edAc6f37da032`, from the returned user operation (`data`) and your own chain id, not the returned one. It must equal `signatureRequest.data.raw`.
-> - The calls. Modular Account v2 encodes one call as `execute(target, value, data)` and several as `executeBatch((target, value, data)[])`, sometimes behind the `executeUserOp` selector `0x8dd7712f`. Decode `callData` with that ABI, or with `decodeCallsMAv2(callData, address)` from `@alchemy/smart-accounts` (a separate install). Compare the result with your calls exactly: the count, the order, and each `to`, `value` and `data`. `decodeCallsMAv2` turns calldata it does not recognize into one call to the account itself, so anything else is a mismatch.
+> - The calls. Modular Account v2 encodes calls as `execute(target, value, data)` or `executeBatch((target, value, data)[])`, sometimes behind the `executeUserOp` selector `0x8dd7712f`; Alchemy's own example encodes a single call as `executeBatch`. Compare the decoded calls with yours exactly: the count, the order, and each `to`, `value` and `data`. Compare `to` with `isAddressEqual`, and count a missing `value` as 0 and missing `data` as `0x`. Any other function of the account, such as `upgradeToAndCall`, and any unknown selector is a mismatch.
 > - The paymaster, when you pass a policy id. The user operation names a paymaster and `feePayment.sponsored` is `true`. Without one, the account pays the gas.
-> - The delegate, on a first send. The authorization's `data.address` is the delegate you expect, such as `0x77021100bD87b7008E5E1989d0eB38555d0d0000`, and its `chainId` is your chain's.
+> - The delegate. On a first send, the authorization's `data.address` is the delegate you expect, such as `0x77021100bD87b7008E5E1989d0eB38555d0d0000`, and its `chainId` is your chain's. The address's code is empty or already delegates to that contract, so the authorization never moves the account to another delegate. On a later send, the code delegates to that contract.
 >
-> A built-in check is planned in [#495](https://github.com/aelmanaa/hardhat-kms/issues/495).
+> `checkPreparedCalls` from `hardhat-kms/alchemy` makes each of these checks, and the script below calls it before signing. It throws an error from the `core.alchemy` group of the [error reference](../reference/errors.md) when a check fails, and nothing is signed.
 
-The script below calls `sendCalls` and does none of these checks:
+`checkPreparedCalls` needs hardhat-kms 1.1.0 or later, and viem, as `getAccount` does ([API reference](../reference/api/hardhat-kms/alchemy.md)). It reads no chain state, so the script reads the address's code with `getCode` before `prepareCalls`. Leave `sponsored` at `true` only when the client or `prepareCalls` has a policy id.
 
 <!-- docs-check: skip -->
 
@@ -232,7 +232,12 @@ The script below calls `sendCalls` and does none of these checks:
 import "hardhat-kms";
 import { alchemyWalletTransport, createSmartWalletClient } from "@alchemy/wallet-apis";
 import hre from "hardhat";
+import { checkPreparedCalls } from "hardhat-kms/alchemy";
+import { createPublicClient, custom, type Address, type Hex } from "viem";
 import { sepolia } from "viem/chains";
+
+// The only delegate the key may sign an authorization for: Modular Account v2 v1.1.0, the default.
+const DELEGATE: Address = "0x77021100bD87b7008E5E1989d0eB38555d0d0000";
 
 const apiKey = process.env.ALCHEMY_API_KEY;
 const policyId = process.env.ALCHEMY_POLICY_ID;
@@ -242,17 +247,33 @@ if (apiKey === undefined || policyId === undefined || ownerAddress === undefined
 }
 
 const connection = await hre.network.create("sepolia");
+const owner = await connection.kms.getAccount(ownerAddress);
 const client = createSmartWalletClient({
-  signer: await connection.kms.getAccount(ownerAddress),
+  signer: owner,
   transport: alchemyWalletTransport({ apiKey }),
   chain: sepolia,
   paymaster: { policyId },
 });
+const publicClient = createPublicClient({ chain: sepolia, transport: custom(connection.provider) });
 
 // A call with no data and no value to the zero address, as in Alchemy's own example.
-const { id } = await client.sendCalls({
-  calls: [{ to: "0x0000000000000000000000000000000000000000", value: 0n, data: "0x" }],
+const calls: { to: Address; value: bigint; data: Hex }[] = [
+  { to: "0x0000000000000000000000000000000000000000", value: 0n, data: "0x" },
+];
+
+const accountCode = await publicClient.getCode({ address: owner.address });
+const prepared = await client.prepareCalls({ calls });
+// Throws before anything is signed unless the key would sign exactly these calls.
+checkPreparedCalls(prepared, {
+  calls,
+  sender: owner.address,
+  chainId: sepolia.id,
+  delegate: DELEGATE,
+  accountCode,
+  sponsored: true,
 });
+const signed = await client.signPreparedCalls(prepared);
+const { id } = await client.sendPreparedCalls(signed);
 const status = await client.waitForCallsStatus({ id, timeout: 60_000 });
 console.log("transaction:", status.receipts?.[0]?.transactionHash);
 

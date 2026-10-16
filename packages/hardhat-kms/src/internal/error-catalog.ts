@@ -2092,6 +2092,175 @@ export const ERRORS = {
     fix: "Open an issue at https://github.com/aelmanaa/hardhat-kms/issues with the message and the stack trace.",
   },
 
+  // Alchemy Wallet APIs: checkPreparedCalls, from hardhat-kms/alchemy. Each refusal comes before
+  // anything is signed; the message names the field, never the API key or the policy id.
+  alchemyInput: {
+    id: "core.alchemy.input",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "checkPreparedCalls: the expected {field} is not valid. Expected {expected}",
+    cause:
+      "An argument of `checkPreparedCalls` that describes what you asked for is missing or malformed.",
+    fix: "Pass the calls you gave `prepareCalls`, the key's address as `sender`, your chain's id, the delegate you pinned, the account's code from `getCode`, and `sponsored: true` only when you passed a policy id.",
+  },
+  alchemyResponseType: {
+    id: "core.alchemy.response-type",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template:
+      "the prepared calls are {type}; only a user-operation-v070, or an array of one user-operation-v070 and at most one authorization, is accepted",
+    cause:
+      "`prepareCalls` returned another kind of response, such as `paymaster-permit` (ERC-20 gas), a lone `authorization` (undelegation) or an EntryPoint v0.6 user operation. The check cannot rebuild what those ask the key to sign.",
+    fix: "Do not sign it. Prepare plain calls for an EIP-7702 account, with the gas paid by the account or by a policy.",
+  },
+  alchemyMalformed: {
+    id: "core.alchemy.malformed",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "the prepared {part} has no valid {field}",
+    cause:
+      "A field of the response is missing or has the wrong type. `checkPreparedCalls` reads the object that `prepareCalls` of `@alchemy/wallet-apis` returns, with bigint quantities and a number chain id, not the raw JSON-RPC response.",
+    fix: "Pass the result of `client.prepareCalls(...)` unchanged. If you did, the response format has changed: do not sign it, and open an issue at https://github.com/aelmanaa/hardhat-kms/issues.",
+  },
+  alchemySignatureRequest: {
+    id: "core.alchemy.signature-request",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template:
+      "the user operation asks for a {type} signature; only personal_sign over a raw 32-byte hash is accepted",
+    cause:
+      "The signature request is `eth_signTypedData_v4`, a text message, or missing. The SDK would sign typed data as given, and the check cannot tie it to your calls.",
+    fix: "Do not sign it.",
+  },
+  alchemyChain: {
+    id: "core.alchemy.chain",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "the prepared {part} is for chain {returned}, not chain {expected}",
+    cause:
+      "The response names another chain than the one you pass. The SDK signs an authorization for the chain the response names.",
+    fix: "Do not sign it. Check the client's `chain` and the `chainId` you pass to `checkPreparedCalls`.",
+  },
+  alchemySender: {
+    id: "core.alchemy.sender",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "the user operation's sender is {returned}, not {expected}",
+    cause:
+      "The user operation would run from another account than the key's address, for example because the client was given an `account`.",
+    fix: "Do not sign it. Pass the key's address as `sender`, and leave the client's `account` unset for an EIP-7702 account.",
+  },
+  alchemyFactory: {
+    id: "core.alchemy.factory",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "the user operation names a factory; an EIP-7702 account is never deployed by one",
+    cause:
+      "The user operation has `factory` or `factoryData`. An EIP-7702 account is the key's own address, delegated by an authorization, so its user operations have no factory.",
+    fix: "Do not sign it.",
+  },
+  alchemyHash: {
+    id: "core.alchemy.hash",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template:
+      "the hash in the signature request is not the EntryPoint v0.7 hash of the returned user operation on chain {chainId}",
+    cause:
+      "The key would sign a hash that does not belong to the user operation in the response, so the calls the check reads are not what the signature authorizes.",
+    fix: "Do not sign it, and report it to Alchemy with the time of the call.",
+  },
+  alchemyCallsFunction: {
+    id: "core.alchemy.calls-function",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template:
+      "the user operation's callData is not a Modular Account v2 execute or executeBatch call",
+    cause:
+      "`callData` calls another function of the account, such as `upgradeToAndCall`, a selector the account does not have, or does not decode.",
+    fix: "Do not sign it. Only plain calls are accepted.",
+  },
+  alchemyCallsEncoding: {
+    id: "core.alchemy.calls-encoding",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "the user operation's callData is not the standard encoding of its {name} call",
+    cause:
+      "`callData` decodes, but encoding the decoded call again gives other bytes: it has extra bytes or non-standard offsets.",
+    fix: "Do not sign it.",
+  },
+  alchemyCallsCount: {
+    id: "core.alchemy.calls-count",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "the user operation makes {returned} calls, and you requested {expected}",
+    cause: "The prepared calls add or drop calls.",
+    fix: "Do not sign it. Check that the `calls` you pass to `checkPreparedCalls` are the ones you gave `prepareCalls`.",
+  },
+  alchemyCallsDiffer: {
+    id: "core.alchemy.calls-differ",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "call {index} of the user operation has another {field} than the call you requested",
+    cause:
+      "A prepared call goes to another address, sends another value or carries other data than the requested call at the same position. A missing `value` counts as 0 and missing `data` as `0x`.",
+    fix: "Do not sign it. Check that the `calls` you pass to `checkPreparedCalls` are the ones you gave `prepareCalls`, in the same order.",
+  },
+  alchemyNoPaymaster: {
+    id: "core.alchemy.no-paymaster",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template:
+      "a policy is set, but the user operation names no paymaster, so the account would pay the gas",
+    cause:
+      "You passed `sponsored: true` for a gas sponsorship policy, and the response has no `paymaster`: the policy id is wrong, its rules refused the user operation, or its budget is spent.",
+    fix: "Check the policy id and its rules in the Alchemy dashboard, or prepare the calls without a policy and pass `sponsored: false` to pay the gas from the account.",
+  },
+  alchemyNotSponsored: {
+    id: "core.alchemy.not-sponsored",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "a policy is set, but the response's feePayment says the gas is not sponsored",
+    cause:
+      "You passed `sponsored: true` for a gas sponsorship policy, and the response's `feePayment.sponsored` is `false`.",
+    fix: "Check the policy id and its rules in the Alchemy dashboard, or prepare the calls without a policy and pass `sponsored: false` to pay the gas from the account.",
+  },
+  alchemyDelegate: {
+    id: "core.alchemy.delegate",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "the authorization delegates the account to {returned}, not to {expected}",
+    cause:
+      "The EIP-7702 authorization in the response names another contract than the delegate you pinned. Alchemy may request an authorization to a delegate it recorded for the account without reading the chain.",
+    fix: "Do not sign it. If you meant to move to that delegate, change the `delegate` you pass.",
+  },
+  alchemyDelegatedElsewhere: {
+    id: "core.alchemy.delegated-elsewhere",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "the account is delegated to {current}, not to {expected}",
+    cause:
+      "The account's code is an EIP-7702 delegation to another contract. Signing would run the user operation under that contract, or, with an authorization, re-delegate the account.",
+    fix: "Clear the other delegation first, or change the `delegate` you pass if that contract is the one you trust.",
+  },
+  alchemyAccountCode: {
+    id: "core.alchemy.account-code",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "the account has contract code that is not an EIP-7702 delegation",
+    cause:
+      "`accountCode` is neither empty nor `0xef0100` followed by an address, so the address holds a contract, not a key's account.",
+    fix: "Pass the code of the key's own address, read with `getCode` on the chain you send on.",
+  },
+  alchemyNotDelegated: {
+    id: "core.alchemy.not-delegated",
+    kind: "error",
+    group: "Alchemy Wallet APIs",
+    template: "the account has no delegation, and the response has no authorization",
+    cause:
+      "The key's address has no code, so the user operation cannot run as a smart account without an authorization, and the response has none.",
+    fix: "Read the account's code again just before `prepareCalls`, then prepare the calls again.",
+  },
+
   // Internal: only a bug or a broken install reaches these. They are plain `Error`s.
   identifierPartMissing: {
     id: "core.internal.identifier-part",
