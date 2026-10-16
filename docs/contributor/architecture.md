@@ -204,6 +204,7 @@ packages/hardhat-kms/src/
   type-extensions.ts        augments HardhatUserConfig/HardhatConfig (kms) + Http/Edr Network(User)Config (kmsAccounts); no named exports
   types.ts                  public provider-author types (exported via the "hardhat-kms/types" subpath)
   provider-utils.ts         helpers for provider plugins (the "hardhat-kms/provider-utils" subpath, @experimental)
+  alchemy.ts                checkPreparedCalls (the "hardhat-kms/alchemy" subpath; needs viem)
   internal/
     config/                 zod v3 schema rooted at HardhatUserConfig; conditionalUnionType on `provider`; superRefine for named-key refs
                             (path ["networks", n, "kmsAccounts", i]); pure resolve; key-identity.ts: when two keys are one KMS key
