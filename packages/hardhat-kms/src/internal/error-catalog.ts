@@ -2239,9 +2239,9 @@ export const ERRORS = {
     kind: "error",
     group: "Alchemy Wallet APIs",
     template:
-      "the user operation may cost the account up to {cost} wei in gas, more than maxGasCost {max} wei",
+      "the user operation's maximum gas cost is {cost} wei, which exceeds maxGasCost {max} wei",
     cause:
-      "The response's gas limits (call, verification, pre-verification and paymaster) times its `maxFeePerGas` exceed the `maxGasCost` you passed. EntryPoint v0.7 takes that amount from the account up front when no paymaster pays, and the bundler keeps what the user operation is charged.",
+      "The response's gas limits (call, verification, pre-verification and paymaster) times its `maxFeePerGas` exceed the `maxGasCost` you passed. When no paymaster pays, EntryPoint v0.7 takes that amount from the account up front, and the bundler keeps what the user operation is charged.",
     fix: "Do not sign it. Prepare the calls again when fees are lower, or raise `maxGasCost` if the cost is one you accept.",
   },
   alchemyAuthNonce: {

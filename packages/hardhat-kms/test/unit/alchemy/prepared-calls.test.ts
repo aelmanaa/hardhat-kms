@@ -139,7 +139,7 @@ const differ = (index: number, field: string): string =>
   `call ${String(index)} of the user operation has another ${field} than the call you requested`;
 
 const over = (cost: bigint, max: bigint): string =>
-  `the user operation may cost the account up to ${String(cost)} wei in gas, more than maxGasCost ${String(max)} wei`;
+  `the user operation's maximum gas cost is ${String(cost)} wei, which exceeds maxGasCost ${String(max)} wei`;
 const withNonce = (nonce: unknown): object =>
   first({}, { ...AUTHORIZATION, data: { ...AUTHORIZATION.data, nonce } });
 
