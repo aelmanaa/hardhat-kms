@@ -1244,6 +1244,14 @@ describe("HardhatTransactionFiller requested type (#496)", () => {
         "Set gasPrice instead of maxPriorityFeePerGas, or remove type.",
       ),
     );
+    await assertRefused({ type: "0x2", maxFeePerGas: null, ...AUTHORIZATIONS }, (method) =>
+      mismatch(
+        method,
+        "0x2 (eip1559)",
+        "0x4 (eip7702)",
+        "Remove authorizationList, or remove type.",
+      ),
+    );
   });
 
   it("refuses an unsupported type before a null field", async () => {

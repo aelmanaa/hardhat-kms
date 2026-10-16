@@ -562,7 +562,8 @@ function fieldNames(fields: readonly string[]): string {
  * fields give differs from the one asked for.
  *
  * @param name - micro-eth-signer's name of the type asked for.
- * @param tx - The request's transaction, with no `null` field that decides the type.
+ * @param tx - The request's transaction. Its only `null` field that decides the type, if any, is a
+ *   lone EIP-1559 fee field the fill replaces, which counts as set.
  * @returns The hint, a sentence.
  */
 function typeFix(name: SignedTypeName, tx: Record<string, unknown>): string {
