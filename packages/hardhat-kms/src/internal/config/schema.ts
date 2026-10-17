@@ -42,12 +42,16 @@ function editDistance(a: string, b: string): number {
  * third-party ids such as `kms` or `hsm` stay valid.
  *
  * @param provider - A provider id that is not built in.
+ * @param ids - The ids to compare with: every built-in id unless a caller narrows them, as `--kms`
+ * does to the providers it reads variables for.
  * @returns The built-in id, or `undefined`.
  */
-export function builtinLookalike(provider: string): string | undefined {
-  return Object.keys(BUILTIN_PROVIDERS).find(
-    (id) => id === provider.toLowerCase() || editDistance(id, provider.toLowerCase()) <= 1,
-  );
+export function builtinLookalike(
+  provider: string,
+  ids: readonly string[] = Object.keys(BUILTIN_PROVIDERS),
+): string | undefined {
+  // The same id in another case is at distance 0 from the lowercased id.
+  return ids.find((id) => editDistance(id, provider.toLowerCase()) <= 1);
 }
 
 const misspelledProviderSchema = z

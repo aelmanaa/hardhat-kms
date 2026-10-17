@@ -1,6 +1,7 @@
 import { awsProvider } from "./aws/descriptor.ts";
 import { azureProvider } from "./azure/descriptor.ts";
 import { gcpProvider } from "./gcp/descriptor.ts";
+import { turnkeyProvider } from "./turnkey/descriptor.ts";
 import type { KmsProviderDescriptor, ReservedProvider } from "./types.ts";
 
 function freezeDescriptor(descriptor: KmsProviderDescriptor): KmsProviderDescriptor {
@@ -17,6 +18,7 @@ export const BUILTIN_PROVIDERS: Readonly<Record<string, KmsProviderDescriptor>> 
   aws: freezeDescriptor(awsProvider),
   gcp: freezeDescriptor(gcpProvider),
   azure: freezeDescriptor(azureProvider),
+  turnkey: freezeDescriptor(turnkeyProvider),
 });
 
 /**
@@ -35,14 +37,13 @@ export function builtinProvider(id: string): KmsProviderDescriptor | undefined {
  * and the later core release cannot collide with one.
  */
 export const RESERVED_PROVIDERS: Readonly<Record<string, ReservedProvider>> = Object.freeze({
-  turnkey: Object.freeze({ id: "turnkey", name: "Turnkey", issue: 54 }),
   fireblocks: Object.freeze({ id: "fireblocks", name: "Fireblocks", issue: 55 }),
   pkcs11: Object.freeze({ id: "pkcs11", name: "PKCS#11 HSM", issue: 57 }),
 });
 
 /**
- * Finds the reserved provider an id names, in any case, so that `Turnkey` is refused as well as
- * `turnkey`.
+ * Finds the reserved provider an id names, in any case, so that `Fireblocks` is refused as well as
+ * `fireblocks`.
  *
  * @param id - The provider id from a key's config.
  * @returns The reserved provider, or `undefined` when the id is not reserved.

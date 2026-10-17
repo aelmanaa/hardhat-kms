@@ -10,13 +10,15 @@ import {
 
 describe("provider registry", () => {
   it("lists the first-party providers and where each adapter comes from", () => {
-    assert.deepEqual(Object.keys(BUILTIN_PROVIDERS), ["aws", "gcp", "azure"]);
+    assert.deepEqual(Object.keys(BUILTIN_PROVIDERS), ["aws", "gcp", "azure", "turnkey"]);
     for (const [id, provider] of Object.entries(BUILTIN_PROVIDERS)) {
       assert.equal(provider.id, id);
     }
     assert.deepEqual(builtinProvider("aws")?.adapter, { package: "@hardhat-kms/aws" });
     assert.deepEqual(builtinProvider("gcp")?.adapter, { package: "@hardhat-kms/gcp" });
     assert.deepEqual(builtinProvider("azure")?.adapter, { package: "@hardhat-kms/azure" });
+    assert.deepEqual(builtinProvider("turnkey")?.adapter, { package: "@hardhat-kms/turnkey" });
+    assert.equal(builtinProvider("turnkey")?.name, "Turnkey");
   });
 
   it("returns nothing for third-party ids and Object.prototype names", () => {
@@ -32,15 +34,13 @@ describe("provider registry", () => {
     }
   });
 
-  it("reserves turnkey, fireblocks and pkcs11, in any case, with their tracking issues", () => {
-    assert.deepEqual(Object.keys(RESERVED_PROVIDERS), ["turnkey", "fireblocks", "pkcs11"]);
-    assert.deepEqual(reservedProvider("turnkey"), { id: "turnkey", name: "Turnkey", issue: 54 });
+  it("reserves fireblocks and pkcs11, in any case, with their tracking issues, and no longer turnkey", () => {
+    assert.deepEqual(Object.keys(RESERVED_PROVIDERS), ["fireblocks", "pkcs11"]);
     assert.deepEqual(reservedProvider("fireblocks"), {
       id: "fireblocks",
       name: "Fireblocks",
       issue: 55,
     });
-    assert.equal(reservedProvider("Turnkey"), RESERVED_PROVIDERS.turnkey);
     assert.equal(reservedProvider("FIREBLOCKS"), RESERVED_PROVIDERS.fireblocks);
     assert.deepEqual(reservedProvider("pkcs11"), { id: "pkcs11", name: "PKCS#11 HSM", issue: 57 });
     assert.equal(reservedProvider("PKCS11"), RESERVED_PROVIDERS.pkcs11);
@@ -52,7 +52,10 @@ describe("provider registry", () => {
     for (const id of [
       "aws",
       "myvault",
+      "turnkey",
+      "Turnkey",
       "turnkeys",
+      "fireblock",
       "pkcs",
       "pkcs#11",
       "constructor",

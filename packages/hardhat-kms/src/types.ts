@@ -92,6 +92,28 @@ export interface AzureKmsKeyComponentsUserConfig extends KmsKeyCommonUserConfig 
 export type AzureKmsKeyUserConfig = AzureKmsKeyIdUserConfig | AzureKmsKeyComponentsUserConfig;
 
 /**
+ * A Turnkey wallet account, signed with through Turnkey's API with an API key. The core validates
+ * these keys. Signing with them needs the `@hardhat-kms/turnkey` provider package.
+ */
+export interface TurnkeyKmsKeyUserConfig extends KmsKeyCommonUserConfig {
+  provider: "turnkey";
+  /**
+   * The organization or sub-organization that holds the wallet account: a UUID, literal or a
+   * configuration variable.
+   */
+  organizationId: KmsIdentifierUserConfig;
+  /** The wallet account's address. Required: the plugin signs with it and pins the key to it. */
+  address: string;
+  /**
+   * The API key's private key. Only `configVariable(NAME)`, without a `default` or a `format`: a literal string
+   * fails validation, so the key is never written in the config.
+   */
+  apiPrivateKey: ConfigurationVariable;
+  /** The API key's public key, literal or a configuration variable. Optional. */
+  apiPublicKey?: KmsIdentifierUserConfig;
+}
+
+/**
  * Key config types by provider id. Third-party providers augment this interface:
  *
  * ```ts
@@ -106,6 +128,7 @@ export interface KmsProviderUserConfigs {
   aws: AwsKmsKeyUserConfig;
   gcp: GcpKmsKeyUserConfig;
   azure: AzureKmsKeyUserConfig;
+  turnkey: TurnkeyKmsKeyUserConfig;
 }
 
 /** A key of any registered provider. */
@@ -201,6 +224,22 @@ export interface AzureKmsKeyConfig extends KmsKeyCommonConfig {
   keyId: KmsIdentifier;
 }
 
+/** A resolved Turnkey key. */
+export interface TurnkeyKmsKeyConfig extends KmsKeyCommonConfig {
+  provider: "turnkey";
+  /** The checksummed address of the wallet account. Always set for a Turnkey key. */
+  address: string;
+  /** The organization id, checked to be a UUID when read. */
+  organizationId: KmsIdentifier;
+  /**
+   * The API key's private key. Its `display` is the variable's name; never print or log the value
+   * that `get()` returns.
+   */
+  apiPrivateKey: KmsIdentifier;
+  /** The API key's public key, when the config sets one. */
+  apiPublicKey?: KmsIdentifier;
+}
+
 /**
  * A resolved key of a third-party provider. The plugin validates only the fields every key shares;
  * the rest of `userConfig` is left to the provider. Configuration variables inside `userConfig`
@@ -220,6 +259,7 @@ export interface KmsProviderConfigs {
   aws: AwsKmsKeyConfig;
   gcp: GcpKmsKeyConfig;
   azure: AzureKmsKeyConfig;
+  turnkey: TurnkeyKmsKeyConfig;
 }
 
 /** A resolved key of any registered provider. Narrow it with `key.provider === "aws"`. */

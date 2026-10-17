@@ -168,7 +168,7 @@ export function parseKmsOption(option: string): EnvProvider[] {
   for (const id of ids) {
     const provider = PROVIDERS.find((candidate) => candidate === id);
     if (provider === undefined) {
-      const meant = builtinLookalike(id);
+      const meant = builtinLookalike(id, PROVIDERS);
       throw meant === undefined
         ? catalogError(ERRORS.kmsOptionUnknown, { provider: id })
         : catalogError(ERRORS.kmsOptionUnknownSuggested, { provider: id, suggestion: meant });

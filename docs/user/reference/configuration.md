@@ -70,11 +70,12 @@ When the `default` network has KMS keys, from `kmsAccounts` or from `--kms` with
 
 The accepted key forms are a superset of Foundry's.
 
-| Provider | Key forms                                                                                                                                                                                                        |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `aws`    | `keyId` as a key id, key ARN, alias name or alias ARN. Optional `region` and `profile`, each literal or a configuration variable, and `endpoint`.                                                                |
-| `gcp`    | Either `keyVersionName`, or the components `projectId`, `location`, `keyRing`, `keyName`, `keyVersion`. The version is always required and never auto-selected.                                                  |
-| `azure`  | Either `keyId` (the full URL, versioned or not, including `*.managedhsm.azure.net`), or `vaultUrl` + `keyName` + optional `keyVersion`. An unversioned key is resolved once and the resulting version is pinned. |
+| Provider  | Key forms                                                                                                                                                                                                        |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aws`     | `keyId` as a key id, key ARN, alias name or alias ARN. Optional `region` and `profile`, each literal or a configuration variable, and `endpoint`.                                                                |
+| `gcp`     | Either `keyVersionName`, or the components `projectId`, `location`, `keyRing`, `keyName`, `keyVersion`. The version is always required and never auto-selected.                                                  |
+| `azure`   | Either `keyId` (the full URL, versioned or not, including `*.managedhsm.azure.net`), or `vaultUrl` + `keyName` + optional `keyVersion`. An unversioned key is resolved once and the resulting version is pinned. |
+| `turnkey` | `organizationId`, `address` and `apiPrivateKey`, all required, and an optional `apiPublicKey`. Validation only: no released package signs with these keys yet.                                                   |
 
 AWS resolves the region in this order: the region inside an ARN, then `key.region`, then `defaults.aws.region`, then the SDK's own chain. A configured region that conflicts with the ARN's region is an error. `AWS_ENDPOINT_URL_KMS` (useful for LocalStack) is left to the AWS SDK, which honours it.
 
@@ -84,6 +85,15 @@ An AWS key's `region` and `profile`, and `kms.defaults.aws.region`, take a liter
 - An empty value means the field is unset. An empty `region` falls through to `defaults.aws.region`, then to the SDK's chain. An empty `profile` leaves the credentials to the SDK's chain, environment keys included.
 - An unset variable without a `default` fails when the key is first used, with Hardhat's error that names the variable. Write `configVariable("AWS_KMS_PROFILE", { default: "" })` to make the profile optional: a laptop sets the variable, CI leaves it unset. [One config for a laptop and CI](../guides/aws-kms-setup.md#one-config-for-a-laptop-and-ci) shows the pattern.
 - Errors and `kms accounts` show the variable as `<VARIABLE_NAME>`. `kms history` masks its value as `<hidden>`, except a value shorter than 6 characters ([security model](../explanation/security-model.md#audit-logs)). `--show-ids` prints the values in both tasks.
+
+A Turnkey key names a wallet account in a Turnkey organization, and the API key that signs with it:
+
+- `organizationId` is the organization or sub-organization that holds the account: a UUID, literal or a configuration variable.
+- `address` is required. It is the wallet account's address, and the key's pin.
+- `apiPrivateKey` takes `configVariable(NAME)` only, without a `default` or a `format`, so the API private key is never written in the config. A literal string fails validation. Set the variable in the environment or in `hardhat-keystore`.
+- `apiPublicKey` is optional, literal or a configuration variable.
+
+The plugin validates Turnkey keys and resolves them. No package that signs with them is released yet, so a Turnkey key fails when it is first used, with `core.provider.package-missing`. Its display id is `turnkey:<organizationId>/<address>`, with an organization id from a variable shown as `<VARIABLE_NAME>` unless `--show-ids` is given. The API keys are never shown, even with `--show-ids`.
 
 `--kms aws` keys have no `region` of their own, so they use `kms.defaults.aws.region`, including one from a configuration variable.
 
@@ -125,7 +135,7 @@ The rules:
 
 - **Key names** in `kms.keys` start with a letter and have at most 64 characters: letters, digits, `_` or `-`. They are kept simple because tasks take them as command-line arguments.
 - **`kmsAccounts`** entries are key names from `kms.keys` or inline key objects. A name must exist in `kms.keys`, and a network cannot list the same name twice. Errors and resolved configs call an inline key `<network>.kmsAccounts[<index>]`.
-- **`provider`** is `aws`, `gcp`, `azure` or a third-party provider's id. An id that looks like a misspelled built-in one, such as `AWS` or `azrue`, is an error rather than a third-party provider. The ids `turnkey`, `fireblocks` and `pkcs11` are reserved for planned providers and are errors until those providers ship; the message links the issue that tracks each one.
+- **`provider`** is `aws`, `gcp`, `azure`, `turnkey` or a third-party provider's id. An id that looks like a misspelled built-in one, such as `AWS`, `azrue` or `Turnkey`, is an error rather than a third-party provider. The ids `fireblocks` and `pkcs11` are reserved for planned providers and are errors until those providers ship; the message links the issue that tracks each one.
 - **Unknown fields** in the `kms` section and in built-in providers' keys are errors, so a typo such as `keyID` is caught. For a third-party provider's key, the plugin checks only `provider`, `address` and `timeoutMs`.
 - **`address`** is a `0x`-prefixed 20-byte address, all lowercase, all uppercase, or mixed case with a valid EIP-55 checksum.
 - **`timeoutMs`** is a whole number of milliseconds from 1 to 2147483647, the largest delay Node.js timers accept.
@@ -137,14 +147,15 @@ Key identifiers are checked against the formats below. A literal value is checke
 invalid value for kms.keys.ops.keyId (<AZURE_KEY_ID>): expected an https URL on an Azure Key Vault or Managed HSM host (for example `*.vault.azure.net`) with the path /keys/<name> or /keys/<name>/<version>
 ```
 
-| Field                | Accepted format                                                                                                                                                                                                            |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AWS `keyId`          | A key id (lowercase `1234abcd-…` or `mrk-…`), an alias name (`alias/…`), a key ARN or an alias ARN. ARNs may use any AWS partition, such as `aws`, `aws-cn` or `aws-us-gov`.                                               |
-| AWS `region`         | Must match the region inside an ARN `keyId` when both are set. Checked when the config loads if both are literals, and when the key is first used if either comes from a configuration variable.                           |
-| GCP `keyVersionName` | `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>`, where `<n>` is a positive integer.                                                                                                         |
-| GCP components       | `projectId`, `location`, `keyRing` and `keyName` use letters, digits, `_`, `.`, `:` or `-`, and cannot be `.` or `..`. `keyVersion` is a positive integer, as a number or a string. Set either the name or the components. |
-| Azure `keyId`        | `https://<vault>/keys/<name>` or `https://<vault>/keys/<name>/<version>`.                                                                                                                                                  |
-| Azure `vaultUrl`     | `https://<vault>` with no path. Set either `keyId`, or `vaultUrl` with `keyName` and an optional `keyVersion`.                                                                                                             |
+| Field                    | Accepted format                                                                                                                                                                                                            |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AWS `keyId`              | A key id (lowercase `1234abcd-…` or `mrk-…`), an alias name (`alias/…`), a key ARN or an alias ARN. ARNs may use any AWS partition, such as `aws`, `aws-cn` or `aws-us-gov`.                                               |
+| AWS `region`             | Must match the region inside an ARN `keyId` when both are set. Checked when the config loads if both are literals, and when the key is first used if either comes from a configuration variable.                           |
+| GCP `keyVersionName`     | `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>`, where `<n>` is a positive integer.                                                                                                         |
+| GCP components           | `projectId`, `location`, `keyRing` and `keyName` use letters, digits, `_`, `.`, `:` or `-`, and cannot be `.` or `..`. `keyVersion` is a positive integer, as a number or a string. Set either the name or the components. |
+| Azure `keyId`            | `https://<vault>/keys/<name>` or `https://<vault>/keys/<name>/<version>`.                                                                                                                                                  |
+| Azure `vaultUrl`         | `https://<vault>` with no path. Set either `keyId`, or `vaultUrl` with `keyName` and an optional `keyVersion`.                                                                                                             |
+| Turnkey `organizationId` | A UUID, such as `f81d4fae-7dec-11d0-a765-00a0c91e6bf6`, in any case.                                                                                                                                                       |
 
 An Azure key name has 1 to 127 letters, digits or `-`, and a key version has letters and digits only. `<vault>` must be a Key Vault or Managed HSM host in the public cloud or a sovereign cloud: `*.vault.azure.net`, `*.managedhsm.azure.net`, `*.vault.azure.cn`, `*.managedhsm.azure.cn`, `*.vault.usgovcloudapi.net`, `*.managedhsm.usgovcloudapi.net`, `*.vault.microsoftazure.de` or `*.managedhsm.microsoftazure.de`. The plugin rejects other hosts, non-default ports, `http`, backslashes, and URLs with credentials, a query or a fragment, so a key id cannot send signing requests to another server. This applies to values from configuration variables too.
 

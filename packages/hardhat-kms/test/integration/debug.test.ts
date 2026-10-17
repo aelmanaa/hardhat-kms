@@ -14,13 +14,24 @@ const SECRETS = {
   HHKMS_DEBUG_AZURE_VAULT: "https://hhkms-secret-vault.vault.azure.net",
   HHKMS_DEBUG_VAULT_TOKEN: "hhkms-secret-token",
   HHKMS_DEBUG_RPC_URL: "https://rpc.example/v2/hhkms-secret-rpc-key",
+  HHKMS_DEBUG_TURNKEY_API_PRIVATE_KEY: "hhkms-secret-turnkey-api-private-key",
+  HHKMS_DEBUG_TURNKEY_API_PUBLIC_KEY: "hhkms-secret-turnkey-api-public-key",
 };
+// Not a secret: `--show-ids` prints it, and only then.
+const TURNKEY_ORGANIZATION = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6";
+const PIN = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
 describe("debug output", () => {
   it("logs config, providers and signing without any planted secret", () => {
     const result = spawnSync(process.execPath, [path.join(here, "../fixtures/debug-run.ts")], {
       encoding: "utf8",
-      env: { ...process.env, ...SECRETS, DEBUG: "hardhat:kms:*", DEBUG_COLORS: "no" },
+      env: {
+        ...process.env,
+        ...SECRETS,
+        HHKMS_DEBUG_TURNKEY_ORGANIZATION: TURNKEY_ORGANIZATION,
+        DEBUG: "hardhat:kms:*",
+        DEBUG_COLORS: "no",
+      },
       timeout: 60_000,
     });
     assert.equal(result.status, 0, result.stderr);
@@ -50,6 +61,29 @@ describe("debug output", () => {
     assert.ok(
       !output.toLowerCase().includes("hhkms-secret"),
       `a planted secret leaked into:\n${output}`,
+    );
+
+    // `kms accounts` on the Turnkey keys, four times: table and --json, each without and with
+    // --show-ids. Only --show-ids reveals the organization id, and never an API key.
+    const printed = result.stdout;
+    const masked = `turnkey:<HHKMS_DEBUG_TURNKEY_ORGANIZATION>/${PIN}`;
+    const shown = `turnkey:${TURNKEY_ORGANIZATION}/${PIN}`;
+    assert.ok(output.includes(`hardhat:kms:providers creating the adapter for ${masked}`), output);
+    assert.ok(!output.includes(TURNKEY_ORGANIZATION), output);
+    for (const expected of [
+      `"keyId": "${masked}"`,
+      `"keyId": "${shown}"`,
+      "Turnkey keys need the @hardhat-kms/turnkey plugin",
+      "turnkeyClaimed",
+    ]) {
+      assert.ok(printed.includes(expected), `expected "${expected}" in:\n${printed}`);
+    }
+    // The table and the JSON report of each run without --show-ids, and the error of each run.
+    assert.match(printed, /^turnkey +turnkey +kms\.keys +FAILED /m);
+    assert.ok(printed.includes(`"signCheck": "ok"`), printed);
+    assert.ok(
+      !printed.toLowerCase().includes("hhkms-secret"),
+      `a planted secret leaked into:\n${printed}`,
     );
   });
 });
