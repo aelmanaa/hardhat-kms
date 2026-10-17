@@ -41,13 +41,25 @@ export const addressSchema: z.ZodEffects<z.ZodString> = z.string().superRefine((
 export const identifierSchema: typeof sensitiveStringSchema = sensitiveStringSchema;
 
 /**
- * A secret, such as a Turnkey key's API private key: only `configVariable(...)`, and without a
- * `default`. A literal string, or a variable with a `default`, would put the secret in the config
- * file. The error never contains the value.
+ * The only configuration variable a secret accepts: a name, and no `default` and no `format`
+ * other than Hardhat's own `{variable}`. A `default`, or text around `{variable}` in a `format`,
+ * would put the secret in the config file. Strict, so an object that only looks like a variable
+ * and carries another field is refused too.
+ */
+const secretVariableSchema = z
+  .object({
+    _type: z.literal("ConfigurationVariable"),
+    name: z.string(),
+    format: z.literal("{variable}").optional(),
+  })
+  .strict();
+
+/**
+ * A secret, such as a Turnkey key's API private key: only `configVariable(NAME)`. The error never
+ * contains the value, a `default` or a `format`.
  */
 export const secretSchema: z.ZodEffects<z.ZodUnknown> = z.unknown().superRefine((data, ctx) => {
-  const variable = configurationVariableSchema.safeParse(data);
-  if (!variable.success || variable.data.default !== undefined) {
+  if (!secretVariableSchema.safeParse(data).success) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: catalogMessage(ERRORS.secretVariable, {}),

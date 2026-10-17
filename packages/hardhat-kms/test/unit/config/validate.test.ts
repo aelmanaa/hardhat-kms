@@ -434,9 +434,9 @@ describe("validateKmsUserConfig: Turnkey keys", () => {
       [
         turnkey({ apiPrivateKey: "0x1234" }),
         "apiPrivateKey",
-        "Expected `configVariable(...)` without a `default`. A secret cannot be written in the config",
+        "Expected `configVariable(NAME)` without a `default` or a `format`. A secret cannot be written in the config",
       ],
-      [withoutPrivateKey, "apiPrivateKey", "Expected `configVariable(...)` without a `default`"],
+      [withoutPrivateKey, "apiPrivateKey", "Expected `configVariable(NAME)` without a `default`"],
       [
         withoutAddress,
         "address",
@@ -470,11 +470,19 @@ describe("validateKmsUserConfig: Turnkey keys", () => {
     }
   });
 
-  it("refuses an API private key in any form but a variable without a default", () => {
+  it("refuses an API private key in any form but a variable without a default or a format", () => {
     const secret = "hhkms-secret-api-private-key";
+    const variable = { _type: "ConfigurationVariable", name: "TURNKEY_API_PRIVATE_KEY" } as const;
     for (const apiPrivateKey of [
       secret,
       configVariable("TURNKEY_API_PRIVATE_KEY", { default: secret }),
+      // Text around `{variable}` is written in the config, and so is a format without it.
+      configVariable("TURNKEY_API_PRIVATE_KEY", { format: `${secret}{variable}` }),
+      configVariable("TURNKEY_API_PRIVATE_KEY", { format: `{variable}${secret}` }),
+      { ...variable, format: secret },
+      { ...variable, format: "{variable}", value: secret },
+      { ...variable, value: secret },
+      { _type: "ConfigurationVariable", format: "{variable}" },
       { value: secret },
       [secret],
       42,
@@ -487,6 +495,16 @@ describe("validateKmsUserConfig: Turnkey keys", () => {
         JSON.stringify(errors),
       );
       assert.ok(!JSON.stringify(errors).includes(secret), JSON.stringify(errors));
+    }
+  });
+
+  it("accepts a variable with Hardhat's own format, or with none", () => {
+    for (const apiPrivateKey of [
+      configVariable("TURNKEY_API_PRIVATE_KEY"),
+      configVariable("TURNKEY_API_PRIVATE_KEY", { format: "{variable}" }),
+      { _type: "ConfigurationVariable", name: "TURNKEY_API_PRIVATE_KEY" },
+    ]) {
+      assert.deepEqual(validate(inKeys(turnkey({ apiPrivateKey }))), []);
     }
   });
 });

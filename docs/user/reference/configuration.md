@@ -90,7 +90,7 @@ A Turnkey key names a wallet account in a Turnkey organization, and the API key 
 
 - `organizationId` is the organization or sub-organization that holds the account: a UUID, literal or a configuration variable.
 - `address` is required. It is the wallet account's address, and the key's pin.
-- `apiPrivateKey` takes `configVariable(...)` only, without a `default`, so the API private key is never written in the config. A literal string fails validation. Set the variable in the environment or in `hardhat-keystore`.
+- `apiPrivateKey` takes `configVariable(NAME)` only, without a `default` or a `format`, so the API private key is never written in the config. A literal string fails validation. Set the variable in the environment or in `hardhat-keystore`.
 - `apiPublicKey` is optional, literal or a configuration variable.
 
 The plugin validates Turnkey keys and resolves them. No package that signs with them is released yet, so a Turnkey key fails when it is first used, with `core.provider.package-missing`. Its display id is `turnkey:<organizationId>/<address>`, with an organization id from a variable shown as `<VARIABLE_NAME>` unless `--show-ids` is given. The API keys are never shown, even with `--show-ids`.

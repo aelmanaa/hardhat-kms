@@ -315,9 +315,9 @@ export const ERRORS = {
     kind: "validation",
     group: "Configuration",
     template:
-      "Expected `configVariable(...)` without a `default`. A secret cannot be written in the config",
+      "Expected `configVariable(NAME)` without a `default` or a `format`. A secret cannot be written in the config",
     cause:
-      "A secret field, such as a Turnkey key's `apiPrivateKey`, is a literal string, a configuration variable with a `default`, or another value.",
+      "A secret field, such as a Turnkey key's `apiPrivateKey`, is a literal string, a configuration variable with a `default` or with a `format` other than `{variable}`, or another value.",
     fix: 'Write `configVariable("TURNKEY_API_PRIVATE_KEY")`, and set the variable in the environment or in `hardhat-keystore`.',
   },
   // Configuration: values read when a key is first used.

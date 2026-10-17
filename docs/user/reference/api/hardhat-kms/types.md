@@ -2560,7 +2560,7 @@ The wallet account's address. Required: the plugin signs with it and pins the ke
 
 > **apiPrivateKey**: `ConfigurationVariable`
 
-The API key's private key. Only `configVariable(...)`, without a `default`: a literal string
+The API key's private key. Only `configVariable(NAME)`, without a `default` or a `format`: a literal string
 fails validation, so the key is never written in the config.
 
 ##### apiPublicKey?
