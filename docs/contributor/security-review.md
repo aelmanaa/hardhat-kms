@@ -43,6 +43,10 @@ packages/hardhat-kms-*/src/internal/hook-handlers/kms.ts
 packages/hardhat-kms-aws/src/internal/client-settings.ts
 packages/hardhat-kms-azure/src/internal/credential.ts
 packages/hardhat-kms-gcp/src/internal/wire.ts
+packages/hardhat-kms-turnkey/src/internal/activity.ts
+packages/hardhat-kms-turnkey/src/internal/client.ts
+packages/hardhat-kms-turnkey/src/internal/payload.ts
+packages/hardhat-kms-turnkey/src/internal/stamp.ts
 ```
 
 What each group decides:

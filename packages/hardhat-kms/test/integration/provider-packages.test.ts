@@ -12,9 +12,9 @@ const packages = new URL("../../../", import.meta.url);
 
 /**
  * Built-in providers whose package is not written yet. Each entry blocks a release: remove it in
- * the pull request that adds the package. `turnkey`: `@hardhat-kms/turnkey` is #511.
+ * the pull request that adds the package.
  */
-const PENDING_PACKAGES: ReadonlySet<string> = new Set(["turnkey"]);
+const PENDING_PACKAGES: ReadonlySet<string> = new Set<string>();
 
 async function workspacePackageNames(): Promise<Set<string>> {
   const names = new Set<string>();
@@ -56,6 +56,6 @@ describe("built-in provider packages", () => {
     for (const id of PENDING_PACKAGES) {
       assert.ok(Object.hasOwn(BUILTIN_PROVIDERS, id), id);
     }
-    assert.deepEqual([...PENDING_PACKAGES], ["turnkey"]);
+    assert.deepEqual([...PENDING_PACKAGES], []);
   });
 });

@@ -36,6 +36,7 @@ const packages = [
   "packages/hardhat-kms-aws",
   "packages/hardhat-kms-azure",
   "packages/hardhat-kms-gcp",
+  "packages/hardhat-kms-turnkey",
 ].map((directory) => path.join(root, directory));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";

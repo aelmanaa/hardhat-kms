@@ -83,6 +83,7 @@ export const CATALOGUED_DIRECTORIES: readonly string[] = [
   "packages/hardhat-kms-aws",
   "packages/hardhat-kms-azure",
   "packages/hardhat-kms-gcp",
+  "packages/hardhat-kms-turnkey",
 ];
 
 /**
