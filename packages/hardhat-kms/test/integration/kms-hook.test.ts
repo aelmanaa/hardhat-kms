@@ -125,7 +125,7 @@ describe("kms hook", () => {
       ["turnkey", "Turnkey", 54],
       ["fireblocks", "Fireblocks", 55],
       ["TurnKey", "Turnkey", 54],
-      ["pkcs11", "PKCS#11", 57],
+      ["pkcs11", "PKCS#11 HSM", 57],
     ] as const) {
       // Validation refuses these ids, so change a resolved key at run time, as another plugin's
       // config hook could. No provider config type has these ids, hence Reflect.set.

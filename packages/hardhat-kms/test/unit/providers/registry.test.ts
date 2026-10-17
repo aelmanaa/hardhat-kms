@@ -42,8 +42,13 @@ describe("provider registry", () => {
     });
     assert.equal(reservedProvider("Turnkey"), RESERVED_PROVIDERS.turnkey);
     assert.equal(reservedProvider("FIREBLOCKS"), RESERVED_PROVIDERS.fireblocks);
-    assert.deepEqual(reservedProvider("pkcs11"), { id: "pkcs11", name: "PKCS#11", issue: 57 });
+    assert.deepEqual(reservedProvider("pkcs11"), { id: "pkcs11", name: "PKCS#11 HSM", issue: 57 });
     assert.equal(reservedProvider("PKCS11"), RESERVED_PROVIDERS.pkcs11);
+    assert.equal(reservedProvider("PkCs11"), RESERVED_PROVIDERS.pkcs11);
+    for (const provider of Object.values(RESERVED_PROVIDERS)) {
+      assert.ok(Object.isFrozen(provider), provider.id);
+    }
+    assert.ok(Object.isFrozen(RESERVED_PROVIDERS));
     for (const id of [
       "aws",
       "myvault",
