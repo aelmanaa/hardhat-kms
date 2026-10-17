@@ -17,7 +17,7 @@ const UUID = /^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
  * @param value - The value, trimmed when it comes from a configuration variable.
  * @returns Whether it is a UUID.
  */
-export function isTurnkeyOrganizationId(value: string): boolean {
+function isTurnkeyOrganizationId(value: string): boolean {
   return UUID.test(value);
 }
 
