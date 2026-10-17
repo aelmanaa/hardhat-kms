@@ -1756,6 +1756,7 @@ Resolved settings shared by every key.
 - [`AwsKmsKeyConfig`](#awskmskeyconfig)
 - [`GcpKmsKeyConfig`](#gcpkmskeyconfig)
 - [`AzureKmsKeyConfig`](#azurekmskeyconfig)
+- [`TurnkeyKmsKeyConfig`](#turnkeykmskeyconfig)
 - [`ExternalKmsKeyConfig`](#externalkmskeyconfig)
 
 #### Properties
@@ -1796,6 +1797,7 @@ Settings shared by every key, whatever its provider.
 - [`GcpKmsKeyComponentsUserConfig`](#gcpkmskeycomponentsuserconfig)
 - [`AzureKmsKeyIdUserConfig`](#azurekmskeyiduserconfig)
 - [`AzureKmsKeyComponentsUserConfig`](#azurekmskeycomponentsuserconfig)
+- [`TurnkeyKmsKeyUserConfig`](#turnkeykmskeyuserconfig)
 
 #### Properties
 
@@ -1995,6 +1997,10 @@ Resolved key config types by provider id. A third-party provider that augments
 
 > **gcp**: [`GcpKmsKeyConfig`](#gcpkmskeyconfig)
 
+##### turnkey
+
+> **turnkey**: [`TurnkeyKmsKeyConfig`](#turnkeykmskeyconfig)
+
 ---
 
 ### KmsProviderUserConfigs
@@ -2022,6 +2028,10 @@ declare module "hardhat-kms/types" {
 ##### gcp
 
 > **gcp**: [`GcpKmsKeyUserConfig`](#gcpkmskeyuserconfig)
+
+##### turnkey
+
+> **turnkey**: [`TurnkeyKmsKeyUserConfig`](#turnkeykmskeyuserconfig)
 
 ---
 
@@ -2448,6 +2458,137 @@ Shows a status line to the user (for example while waiting for an approval).
 ###### Returns
 
 `Promise`\<`void`\>
+
+---
+
+### TurnkeyKmsKeyConfig
+
+A resolved Turnkey key.
+
+#### Extends
+
+- [`KmsKeyCommonConfig`](#kmskeycommonconfig)
+
+#### Properties
+
+##### address
+
+> **address**: `string`
+
+The checksummed address of the wallet account. Always set for a Turnkey key.
+
+###### Overrides
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+
+##### apiPrivateKey
+
+> **apiPrivateKey**: [`KmsIdentifier`](#kmsidentifier)
+
+The API key's private key. Its `display` is the variable's name; never print or log the value
+that `get()` returns.
+
+##### apiPublicKey?
+
+> `optional` **apiPublicKey?**: [`KmsIdentifier`](#kmsidentifier)
+
+The API key's public key, when the config sets one.
+
+##### displayId
+
+> **displayId**: `string`
+
+A description of the key that is safe to print, such as `aws:alias/deployer`. It never contains
+a configuration variable's value.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`displayId`](#displayid-5)
+
+##### name
+
+> **name**: `string`
+
+The key's name in `kms.keys`, or `<network>.kmsAccounts[<index>]` for an inline key.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`name`](#name-6)
+
+##### organizationId
+
+> **organizationId**: [`KmsIdentifier`](#kmsidentifier)
+
+The organization id, checked to be a UUID when read.
+
+##### provider
+
+> **provider**: `"turnkey"`
+
+##### timeoutMs
+
+> **timeoutMs**: `number`
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-9)
+
+---
+
+### TurnkeyKmsKeyUserConfig
+
+A Turnkey wallet account, signed with through Turnkey's API with an API key. The core validates
+these keys. Signing with them needs the `@hardhat-kms/turnkey` provider package.
+
+#### Extends
+
+- [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig)
+
+#### Properties
+
+##### address
+
+> **address**: `string`
+
+The wallet account's address. Required: the plugin signs with it and pins the key to it.
+
+###### Overrides
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+
+##### apiPrivateKey
+
+> **apiPrivateKey**: `ConfigurationVariable`
+
+The API key's private key. Only `configVariable(...)`, without a `default`: a literal string
+fails validation, so the key is never written in the config.
+
+##### apiPublicKey?
+
+> `optional` **apiPublicKey?**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
+
+The API key's public key, literal or a configuration variable. Optional.
+
+##### organizationId
+
+> **organizationId**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
+
+The organization or sub-organization that holds the wallet account: a UUID, literal or a
+configuration variable.
+
+##### provider
+
+> **provider**: `"turnkey"`
+
+##### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defaults.timeoutMs`.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-10)
 
 ---
 

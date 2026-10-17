@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import { HardhatPluginError } from "hardhat/plugins";
 import type { HardhatPlugin } from "hardhat/types/plugins";
@@ -40,6 +41,12 @@ const keysValue: unknown = {
   gcp: {
     provider: "gcp",
     keyVersionName: "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1",
+  },
+  turnkey: {
+    provider: "turnkey",
+    organizationId: "f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+    address: HARDHAT_ACCOUNT_0.address,
+    apiPrivateKey: configVariable("HHKMS_TEST_TURNKEY_API_PRIVATE_KEY"),
   },
 };
 // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- providers this package does not know
@@ -94,6 +101,23 @@ describe("kms hook", () => {
     ]);
   });
 
+  it("loads a Turnkey key without a Turnkey plugin, and names the package at first use", async () => {
+    const hre = await runtime([hardhatKms]);
+    const turnkey = key(hre, "turnkey");
+
+    assert.equal(
+      turnkey.displayId,
+      `turnkey:f81d4fae-7dec-11d0-a765-00a0c91e6bf6/${HARDHAT_ACCOUNT_0.address}`,
+    );
+    // The API private key variable is unset: the missing package is reported before anything
+    // reads it.
+    await assertPluginError(createKeyAdapter(hre, turnkey), [
+      `turnkey, create adapter, key ${turnkey.displayId}:`,
+      "Turnkey keys need the @hardhat-kms/turnkey plugin",
+      "`npm install --save-dev @hardhat-kms/turnkey`",
+    ]);
+  });
+
   it("fails clearly when no plugin provides the key's provider", async () => {
     const hre = await runtime();
 
@@ -113,7 +137,7 @@ describe("kms hook", () => {
     hre.hooks.registerHandlers("kms", {
       createKeyAdapter: async (context, reservedKey, next) => {
         const provider: string = reservedKey.provider;
-        if (["turnkey", "fireblocks", "pkcs11"].includes(provider.toLowerCase())) {
+        if (["fireblocks", "pkcs11"].includes(provider.toLowerCase())) {
           claimed.push(provider);
           return fakeAdapter({ secretKey });
         }
@@ -122,9 +146,8 @@ describe("kms hook", () => {
     });
     const vault = key(hre, "vault");
     for (const [provider, name, issue] of [
-      ["turnkey", "Turnkey", 54],
       ["fireblocks", "Fireblocks", 55],
-      ["TurnKey", "Turnkey", 54],
+      ["FireBlocks", "Fireblocks", 55],
       ["pkcs11", "PKCS#11 HSM", 57],
     ] as const) {
       // Validation refuses these ids, so change a resolved key at run time, as another plugin's

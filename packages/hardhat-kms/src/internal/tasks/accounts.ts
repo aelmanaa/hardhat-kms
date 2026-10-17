@@ -429,6 +429,9 @@ async function revealedId(key: KmsKeyConfig): Promise<string> {
     if (key.provider === "aws" || key.provider === "azure") {
       return `${key.provider}:${await key.keyId.get()}`;
     }
+    if (key.provider === "turnkey") {
+      return `turnkey:${await key.organizationId.get()}/${key.address}`;
+    }
   } catch {
     // The variable is unset or invalid; the key's own error says so.
   }
