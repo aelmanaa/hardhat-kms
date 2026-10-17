@@ -1,5 +1,12 @@
 # @hardhat-kms/aws
 
+## 1.1.1
+
+### Patch Changes
+
+- Updated dependencies [[`fab818f`](https://github.com/aelmanaa/hardhat-kms/commit/fab818fdc97795ba134aa491343cb087fc4f03d5)]:
+  - hardhat-kms@1.1.1
+
 ## 1.1.0
 
 ### Patch Changes
