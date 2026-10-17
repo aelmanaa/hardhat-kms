@@ -221,7 +221,7 @@ importers:
   examples/ethers:
     devDependencies:
       '@hardhat-kms/aws':
-        specifier: ^1.1.0
+        specifier: ^1.1.1
         version: link:../../packages/hardhat-kms-aws
       '@nomicfoundation/hardhat-ethers':
         specifier: ^4.2.0
@@ -236,7 +236,7 @@ importers:
         specifier: ^3.18.0
         version: 3.18.1
       hardhat-kms:
-        specifier: ^1.1.0
+        specifier: ^1.1.1
         version: link:../../packages/hardhat-kms
       typescript:
         specifier: ^7.0.2
@@ -245,7 +245,7 @@ importers:
   examples/ignition:
     devDependencies:
       '@hardhat-kms/aws':
-        specifier: ^1.1.0
+        specifier: ^1.1.1
         version: link:../../packages/hardhat-kms-aws
       '@nomicfoundation/hardhat-ignition':
         specifier: ^3.1.8
@@ -263,7 +263,7 @@ importers:
         specifier: ^3.18.0
         version: 3.18.1
       hardhat-kms:
-        specifier: ^1.1.0
+        specifier: ^1.1.1
         version: link:../../packages/hardhat-kms
       typescript:
         specifier: ^7.0.2
@@ -275,7 +275,7 @@ importers:
   examples/viem:
     devDependencies:
       '@hardhat-kms/aws':
-        specifier: ^1.1.0
+        specifier: ^1.1.1
         version: link:../../packages/hardhat-kms-aws
       '@nomicfoundation/hardhat-viem':
         specifier: ^3.0.9
@@ -287,7 +287,7 @@ importers:
         specifier: ^3.18.0
         version: 3.18.1
       hardhat-kms:
-        specifier: ^1.1.0
+        specifier: ^1.1.1
         version: link:../../packages/hardhat-kms
       typescript:
         specifier: ^7.0.2
