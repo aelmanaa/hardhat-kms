@@ -100,12 +100,14 @@ describe("validateKmsUserConfig", () => {
     );
   });
 
-  it("rejects the reserved turnkey and fireblocks ids and names their tracking issues", () => {
+  it("rejects the reserved turnkey, fireblocks and pkcs11 ids and names their tracking issues", () => {
     for (const [provider, name, issue] of [
       ["turnkey", "Turnkey", 54],
       ["fireblocks", "Fireblocks", 55],
       ["Turnkey", "Turnkey", 54],
       ["FIREBLOCKS", "Fireblocks", 55],
+      ["pkcs11", "PKCS#11 HSM", 57],
+      ["PKCS11", "PKCS#11 HSM", 57],
     ] as const) {
       const config = { kms: { keys: { a: { provider, vaultId: "v" } } } };
       assertError(

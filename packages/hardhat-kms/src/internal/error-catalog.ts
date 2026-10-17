@@ -98,7 +98,7 @@ export const ERRORS = {
     template:
       'Provider "{provider}" is reserved for the planned {name} provider, which is not released yet (https://github.com/aelmanaa/hardhat-kms/issues/{issue})',
     cause:
-      "A key's `provider` is `turnkey` or `fireblocks`, in any case. hardhat-kms keeps these ids for its planned Turnkey and Fireblocks providers, so no other plugin can use them.",
+      "A key's `provider` is one of the ids that hardhat-kms reserves for its planned providers, in any case. No other plugin can use these ids. The provider contract lists them.",
     fix: "Follow the linked issue for the release, or use another provider. A third-party provider needs an id of its own.",
   },
   keyShape: {
@@ -525,7 +525,7 @@ export const ERRORS = {
     template:
       "signing with {name} keys is not available yet (https://github.com/aelmanaa/hardhat-kms/issues/{issue})",
     cause:
-      "The provider is planned, but its adapter is not released yet. A key with a reserved id such as `turnkey` gets this error too when it reaches the resolved config without validation, for example through another plugin's config hook.",
+      "The provider is planned, but its adapter is not released yet. A key with a reserved provider id gets this error too when it reaches the resolved config without validation, for example through another plugin's config hook.",
     fix: "Follow the linked issue, or use another provider.",
   },
   providerPackageMissing: {
