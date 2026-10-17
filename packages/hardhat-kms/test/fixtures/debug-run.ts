@@ -127,3 +127,35 @@ await unsetProfile.profile?.get().catch(() => undefined);
 // --kms, with the planted AWS key id in Foundry's variable.
 process.env.AWS_KMS_KEY_ID = process.env.HHKMS_DEBUG_AWS_KEY_ID;
 await createHardhatRuntimeEnvironment({ plugins: [hardhatKms] }, { kms: "aws" });
+
+// Turnkey keys with planted API keys. No plugin claims `turnkey`. The adapter of
+// `turnkeyClaimed` reads both API keys, as the Turnkey package will. `kms accounts` lists both,
+// with and without --json and --show-ids, and checks that the claimed key can sign.
+const turnkeyKey = {
+  provider: "turnkey",
+  organizationId: configVariable("HHKMS_DEBUG_TURNKEY_ORGANIZATION"),
+  address: HARDHAT_ACCOUNT_0.address,
+  apiPrivateKey: configVariable("HHKMS_DEBUG_TURNKEY_API_PRIVATE_KEY"),
+  apiPublicKey: configVariable("HHKMS_DEBUG_TURNKEY_API_PUBLIC_KEY"),
+} as const;
+const turnkeyHre = await createHardhatRuntimeEnvironment({
+  plugins: [hardhatKms],
+  kms: { keys: { turnkey: turnkeyKey, turnkeyClaimed: turnkeyKey } },
+});
+turnkeyHre.hooks.registerHandlers("kms", {
+  createKeyAdapter: async (context, key, next) => {
+    if (key.name !== "turnkeyClaimed" || key.provider !== "turnkey") {
+      return await next(context, key);
+    }
+    await key.apiPrivateKey.get();
+    await key.apiPublicKey?.get();
+    return fakeAdapter({ secretKey });
+  },
+});
+for (const json of [false, true]) {
+  for (const showIds of [false, true]) {
+    await turnkeyHre.tasks
+      .getTask(["kms", "accounts"])
+      .run({ json, showIds, balances: false, checkSign: true });
+  }
+}

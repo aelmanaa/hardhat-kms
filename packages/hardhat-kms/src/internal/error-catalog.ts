@@ -88,7 +88,7 @@ export const ERRORS = {
     group: "Configuration",
     template: 'Unknown provider "{provider}". Did you mean "{suggestion}"?',
     cause:
-      "A key's `provider` matches a built-in provider id (`aws`, `gcp`, `azure`) in another case, or is one edit away from one, such as `AWS` or `gpc`.",
+      "A key's `provider` matches a built-in provider id (`aws`, `gcp`, `azure`, `turnkey`) in another case, or is one edit away from one, such as `AWS`, `gpc` or `turnky`.",
     fix: "Use the id the message suggests. A third-party provider needs an id that does not look like a built-in one.",
   },
   providerReserved: {
@@ -292,6 +292,34 @@ export const ERRORS = {
     cause: "A Google Cloud key's `keyVersion` string is not a positive integer.",
     fix: 'Use the version number, such as `"1"`.',
   },
+  turnkeyOrganizationId: {
+    id: "core.config.turnkey-organization-id",
+    kind: "validation",
+    group: "Configuration",
+    template:
+      "Expected a Turnkey organization id, a UUID such as 00000000-0000-0000-0000-000000000000",
+    cause: "A Turnkey key's `organizationId` is not a UUID.",
+    fix: "Use the id of the organization or sub-organization that holds the wallet account.",
+  },
+  turnkeyAddressRequired: {
+    id: "core.config.turnkey-address-required",
+    kind: "validation",
+    group: "Configuration",
+    template: "A Turnkey key needs `address`, the address of the wallet account that signs",
+    cause:
+      "A Turnkey key has no `address`. The plugin signs with the account this address names, and checks every signature against it.",
+    fix: "Add `address` with the Ethereum address of the Turnkey wallet account.",
+  },
+  secretVariable: {
+    id: "core.config.secret-variable",
+    kind: "validation",
+    group: "Configuration",
+    template:
+      "Expected `configVariable(...)` without a `default`. A secret cannot be written in the config",
+    cause:
+      "A secret field, such as a Turnkey key's `apiPrivateKey`, is a literal string, a configuration variable with a `default`, or another value.",
+    fix: 'Write `configVariable("TURNKEY_API_PRIVATE_KEY")`, and set the variable in the environment or in `hardhat-keystore`.',
+  },
   // Configuration: values read when a key is first used.
   invalidValue: {
     id: "core.config.invalid-value",
@@ -364,6 +392,15 @@ export const ERRORS = {
     template: "expected a positive integer version",
     cause: "A Google Cloud `keyVersion` is not a positive integer.",
     fix: "Use the version number, such as `1`.",
+  },
+  turnkeyOrganizationIdReason: {
+    id: "core.config.turnkey-organization-id-reason",
+    kind: "reason",
+    group: "Configuration",
+    template: "expected a Turnkey organization id, a UUID",
+    cause:
+      "The configuration variable of a Turnkey key's `organizationId` holds something other than a UUID.",
+    fix: "Set the variable to the id of the organization or sub-organization that holds the wallet account.",
   },
 
   // The --kms option.

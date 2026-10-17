@@ -100,11 +100,9 @@ describe("validateKmsUserConfig", () => {
     );
   });
 
-  it("rejects the reserved turnkey, fireblocks and pkcs11 ids and names their tracking issues", () => {
+  it("rejects the reserved fireblocks and pkcs11 ids and names their tracking issues", () => {
     for (const [provider, name, issue] of [
-      ["turnkey", "Turnkey", 54],
       ["fireblocks", "Fireblocks", 55],
-      ["Turnkey", "Turnkey", 54],
       ["FIREBLOCKS", "Fireblocks", 55],
       ["pkcs11", "PKCS#11 HSM", 57],
       ["PKCS11", "PKCS#11 HSM", 57],
@@ -144,6 +142,10 @@ describe("validateKmsUserConfig", () => {
       ["aw", "aws"],
       ["azurre", "azure"],
       ["Azure", "azure"],
+      ["Turnkey", "turnkey"],
+      ["TURNKEY", "turnkey"],
+      ["turnky", "turnkey"],
+      ["turnkye", "turnkey"],
     ] as const) {
       assertError(
         { kms: { keys: { a: { provider } } } },
@@ -392,5 +394,99 @@ describe("validateKmsUserConfig", () => {
       "bigint amount of wei",
       1,
     );
+  });
+});
+
+const inKeys = (key: unknown) => ({ kms: { keys: { a: key } } });
+const inline = (key: unknown) => ({ networks: { sepolia: { kmsAccounts: [key] } } });
+
+describe("validateKmsUserConfig: Turnkey keys", () => {
+  const ORGANIZATION_ID = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6";
+  const turnkey = (fields: Record<string, unknown> = {}): Record<string, unknown> => ({
+    provider: "turnkey",
+    organizationId: ORGANIZATION_ID,
+    address: ADDRESS,
+    apiPrivateKey: configVariable("TURNKEY_API_PRIVATE_KEY"),
+    ...fields,
+  });
+
+  it("accepts a key with an organization, an address and an API private key variable", () => {
+    for (const key of [
+      turnkey(),
+      turnkey({ organizationId: ORGANIZATION_ID.toUpperCase() }),
+      turnkey({
+        organizationId: configVariable("TURNKEY_ORGANIZATION_ID"),
+        apiPublicKey: configVariable("TURNKEY_API_PUBLIC_KEY"),
+        timeoutMs: 10_000,
+      }),
+      turnkey({ apiPublicKey: "02abcdef", address: ADDRESS.toLowerCase() }),
+    ]) {
+      assert.deepEqual(validate(inKeys(key)), []);
+      assert.deepEqual(validate(inline(key)), []);
+    }
+  });
+
+  it("fails each missing or invalid field at its path, in kms.keys and in kmsAccounts", () => {
+    const { address: _address, ...withoutAddress } = turnkey();
+    const { organizationId: _organization, ...withoutOrganization } = turnkey();
+    const { apiPrivateKey: _private, ...withoutPrivateKey } = turnkey();
+    for (const [key, field, message] of [
+      [
+        turnkey({ apiPrivateKey: "0x1234" }),
+        "apiPrivateKey",
+        "Expected `configVariable(...)` without a `default`. A secret cannot be written in the config",
+      ],
+      [withoutPrivateKey, "apiPrivateKey", "Expected `configVariable(...)` without a `default`"],
+      [
+        withoutAddress,
+        "address",
+        "A Turnkey key needs `address`, the address of the wallet account that signs",
+      ],
+      [turnkey({ address: "0x1234" }), "address", "Expected a 0x-prefixed 20-byte address"],
+      [withoutOrganization, "organizationId", "Expected a string or a Configuration Variable"],
+      [
+        turnkey({ organizationId: "test-organization" }),
+        "organizationId",
+        "Expected a Turnkey organization id, a UUID such as 00000000-0000-0000-0000-000000000000",
+      ],
+      [turnkey({ organizationId: ` ${ORGANIZATION_ID}` }), "organizationId", "a UUID"],
+      [turnkey({ organizationId: `${ORGANIZATION_ID}0` }), "organizationId", "a UUID"],
+      [turnkey({ apiPublicKey: 42 }), "apiPublicKey", "Expected a string or a Configuration"],
+      [turnkey({ timeoutMs: 0 }), "timeoutMs", "at least 1"],
+    ] as const) {
+      assertError(inKeys(key), `kms.keys.a.${field}`, message, 1);
+      assertError(inline(key), `networks.sepolia.kmsAccounts.0.${field}`, message, 1);
+    }
+  });
+
+  it("rejects unknown fields, such as apiKey or baseUrl", () => {
+    for (const field of ["apiKey", "baseUrl", "walletId"]) {
+      assertError(
+        inKeys(turnkey({ [field]: "x" })),
+        "kms.keys.a",
+        `Unrecognized key(s) in object: '${field}'`,
+        1,
+      );
+    }
+  });
+
+  it("refuses an API private key in any form but a variable without a default", () => {
+    const secret = "hhkms-secret-api-private-key";
+    for (const apiPrivateKey of [
+      secret,
+      configVariable("TURNKEY_API_PRIVATE_KEY", { default: secret }),
+      { value: secret },
+      [secret],
+      42,
+      null,
+    ]) {
+      const errors = validate(inKeys(turnkey({ apiPrivateKey })));
+      assert.deepEqual(
+        errors.map((error) => error.path),
+        ["kms.keys.a.apiPrivateKey"],
+        JSON.stringify(errors),
+      );
+      assert.ok(!JSON.stringify(errors).includes(secret), JSON.stringify(errors));
+    }
   });
 });

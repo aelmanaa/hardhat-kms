@@ -16,6 +16,8 @@ import type {
 } from "../../../src/types.ts";
 import { fakeResolver } from "../../helpers/config-variables.ts";
 
+const ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+
 const resolver = fakeResolver({
   AWS_KMS_KEY_ID: "alias/secret-name",
   GCP_PROJECT_ID: "secret-project",
@@ -135,6 +137,10 @@ describe("resolveKmsConfig", () => {
     assert.throws(
       () => BUILTIN_PROVIDERS.azure?.resolve(awsUserKey, context),
       /Expected a "azure" key/,
+    );
+    assert.throws(
+      () => BUILTIN_PROVIDERS.turnkey?.resolve(awsUserKey, context),
+      /Expected a "turnkey" key, got "aws"/,
     );
   });
 
@@ -264,8 +270,12 @@ describe("resolveKmsConfig", () => {
   });
 });
 
-// Compiles only if `provider` narrows the union: `keyVersionName` exists on GCP keys alone.
+// Compiles only if `provider` narrows the union: `keyVersionName` exists on GCP keys alone, and
+// `organizationId` on Turnkey keys alone.
 function describeKey(k: KmsKeyConfig): string {
+  if (k.provider === "turnkey") {
+    return `turnkey:${k.organizationId.display}/${k.address}`;
+  }
   return k.provider === "gcp" ? k.keyVersionName.display : `${k.provider}:${k.keyId.display}`;
 }
 
@@ -279,7 +289,11 @@ const resolveWith = (
   return resolved;
 };
 const getOf = async (k: KmsKeyConfig): Promise<string> =>
-  await (k.provider === "gcp" ? k.keyVersionName.get() : k.keyId.get());
+  await (k.provider === "gcp"
+    ? k.keyVersionName.get()
+    : k.provider === "turnkey"
+      ? k.organizationId.get()
+      : k.keyId.get());
 
 const awsVariableConfig = (region: string | undefined): HardhatUserConfig => ({
   kms: {
@@ -388,6 +402,85 @@ describe("values from configuration variables", () => {
         "attacker",
       );
     }
+  });
+
+  it("resolves a Turnkey key: checksummed pin, display id and API keys by variable name", async () => {
+    const organization = "F81D4FAE-7DEC-11D0-A765-00A0C91E6BF6";
+    const values = {
+      TK_ORG: ` ${organization} `,
+      TK_PRIVATE: "hhkms-secret-api-private-key",
+      TK_PUBLIC: "hhkms-secret-api-public-key",
+    };
+    const fromVariables = resolveWith(
+      {
+        kms: {
+          keys: {
+            a: {
+              provider: "turnkey",
+              organizationId: configVariable("TK_ORG"),
+              address: ADDRESS.toLowerCase(),
+              apiPrivateKey: configVariable("TK_PRIVATE"),
+              apiPublicKey: configVariable("TK_PUBLIC"),
+            },
+          },
+        },
+      },
+      values,
+    );
+    assert.ok(fromVariables.provider === "turnkey");
+    assert.equal(fromVariables.address, ADDRESS);
+    assert.equal(fromVariables.displayId, `turnkey:<TK_ORG>/${ADDRESS}`);
+    assert.equal(fromVariables.timeoutMs, 30_000);
+    assert.equal(await fromVariables.organizationId.get(), organization);
+    assert.equal(fromVariables.apiPrivateKey.display, "<TK_PRIVATE>");
+    assert.equal(await fromVariables.apiPrivateKey.get(), values.TK_PRIVATE);
+    assert.equal(fromVariables.apiPublicKey?.display, "<TK_PUBLIC>");
+    assert.equal(await fromVariables.apiPublicKey?.get(), values.TK_PUBLIC);
+    assert.ok(!JSON.stringify(fromVariables).includes("hhkms-secret"));
+
+    const literal = resolveWith(
+      {
+        kms: {
+          keys: {
+            a: {
+              provider: "turnkey",
+              organizationId: organization,
+              address: ADDRESS,
+              apiPrivateKey: configVariable("TK_PRIVATE"),
+              timeoutMs: 5,
+            },
+          },
+        },
+      },
+      values,
+    );
+    assert.ok(literal.provider === "turnkey");
+    assert.equal(literal.displayId, `turnkey:${organization}/${ADDRESS}`);
+    assert.equal(literal.timeoutMs, 5);
+    assert.equal(literal.apiPublicKey, undefined);
+    assert.ok(!Object.hasOwn(literal, "apiPublicKey"));
+  });
+
+  it("checks a Turnkey organization id from a variable when read", async () => {
+    const config: HardhatUserConfig = {
+      kms: {
+        keys: {
+          a: {
+            provider: "turnkey",
+            organizationId: configVariable("TK_ORG"),
+            address: ADDRESS,
+            apiPrivateKey: configVariable("TK_PRIVATE"),
+          },
+        },
+      },
+    };
+    await assertRejectsWithout(
+      resolveWith(config, { TK_ORG: "hhkms-secret-organization" }),
+      [
+        "invalid value for kms.keys.a.organizationId (<TK_ORG>): expected a Turnkey organization id, a UUID",
+      ],
+      "hhkms-secret",
+    );
   });
 
   it("names the network path for inline keys", async () => {

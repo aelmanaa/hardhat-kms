@@ -40,6 +40,21 @@ export const addressSchema: z.ZodEffects<z.ZodString> = z.string().superRefine((
 /** A value that can be a literal string or a configuration variable. */
 export const identifierSchema: typeof sensitiveStringSchema = sensitiveStringSchema;
 
+/**
+ * A secret, such as a Turnkey key's API private key: only `configVariable(...)`, and without a
+ * `default`. A literal string, or a variable with a `default`, would put the secret in the config
+ * file. The error never contains the value.
+ */
+export const secretSchema: z.ZodEffects<z.ZodUnknown> = z.unknown().superRefine((data, ctx) => {
+  const variable = configurationVariableSchema.safeParse(data);
+  if (!variable.success || variable.data.default !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: catalogMessage(ERRORS.secretVariable, {}),
+    });
+  }
+});
+
 /** Fields every key accepts, whatever its provider. */
 export const commonKeyFields: {
   address: z.ZodOptional<typeof addressSchema>;

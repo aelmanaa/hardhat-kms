@@ -44,7 +44,11 @@ async function assertKmsError(
 }
 
 const idOf = (key: KmsKeyConfig): Promise<string> =>
-  key.provider === "gcp" ? key.keyVersionName.get() : key.keyId.get();
+  key.provider === "gcp"
+    ? key.keyVersionName.get()
+    : key.provider === "turnkey"
+      ? key.organizationId.get()
+      : key.keyId.get();
 
 describe("parseKmsOption", () => {
   it("reads a comma-separated list of built-in providers", () => {
@@ -62,10 +66,13 @@ describe("parseKmsOption", () => {
       () => parseKmsOption("awz"),
       ['--kms awz: unknown provider. Did you mean "aws"?'],
     );
-    await assertKmsError(
-      () => parseKmsOption("turnkey"),
-      ["--kms turnkey: unknown provider. Expected aws, gcp or azure"],
-    );
+    // Turnkey is built in, but `--kms` reads no Turnkey variables, so it never suggests turnkey.
+    for (const id of ["turnkey", "Turnkey", "turnky"]) {
+      await assertKmsError(
+        () => parseKmsOption(id),
+        [`--kms ${id}: unknown provider. Expected aws, gcp or azure`],
+      );
+    }
   });
 });
 
