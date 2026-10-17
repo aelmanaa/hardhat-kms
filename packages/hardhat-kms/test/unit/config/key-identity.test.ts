@@ -7,6 +7,7 @@ import type {
   AzureKmsKeyConfig,
   GcpKmsKeyConfig,
   KmsIdentifier,
+  TurnkeyKmsKeyConfig,
 } from "../../../src/types.ts";
 
 const identifier = (value: string): KmsIdentifier => ({
@@ -37,6 +38,24 @@ function gcp(keyVersionName: string): GcpKmsKeyConfig {
 function azure(keyId: string): AzureKmsKeyConfig {
   return { ...common, provider: "azure", keyId: identifier(keyId) };
 }
+
+function turnkey(
+  organizationId: string,
+  address: string,
+  apiPrivateKey = "TURNKEY_API_PRIVATE_KEY",
+): TurnkeyKmsKeyConfig {
+  return {
+    ...common,
+    provider: "turnkey",
+    address,
+    organizationId: identifier(organizationId),
+    apiPrivateKey: identifier(apiPrivateKey),
+  };
+}
+
+const ORGANIZATION = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6";
+const ACCOUNT = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+const OTHER_ACCOUNT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
 const ALIAS_ARN = "arn:aws:kms:eu-west-1:111122223333:alias/deployer";
 const KEY_ARN = "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab";
@@ -96,5 +115,23 @@ describe("keyIdentity", () => {
   it("tells apart providers that share an identifier", async () => {
     const id = "https://v.vault.azure.net/keys/a";
     assert.notEqual(await keyIdentity(azure(id)), await keyIdentity(gcp(id)));
+  });
+
+  it("gives one identity to a Turnkey account, whatever the API key or the case of the organization", async () => {
+    assert.equal(
+      await keyIdentity(turnkey(ORGANIZATION, ACCOUNT, "FIRST_KEY")),
+      await keyIdentity(turnkey(ORGANIZATION.toUpperCase(), ACCOUNT, "SECOND_KEY")),
+    );
+  });
+
+  it("tells apart two Turnkey accounts, and one account in two organizations", async () => {
+    assert.notEqual(
+      await keyIdentity(turnkey(ORGANIZATION, ACCOUNT)),
+      await keyIdentity(turnkey(ORGANIZATION, OTHER_ACCOUNT)),
+    );
+    assert.notEqual(
+      await keyIdentity(turnkey(ORGANIZATION, ACCOUNT)),
+      await keyIdentity(turnkey("00000000-0000-0000-0000-000000000000", ACCOUNT)),
+    );
   });
 });

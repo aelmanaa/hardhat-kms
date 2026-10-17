@@ -19,10 +19,11 @@ import type {
   KmsIdentifier,
   KmsKeyConfig,
   KmsKeyUserConfig,
+  TurnkeyKmsKeyConfig,
 } from "../../../src/types.ts";
 import { fakeAdapter } from "../../helpers/fake-adapter.ts";
 import { fakeTimers } from "../../helpers/fake-timers.ts";
-import { COW_ACCOUNT } from "../../helpers/vectors.ts";
+import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
 
 const secretKey = new Uint8Array(Buffer.from(COW_ACCOUNT.secretKey, "hex"));
 
@@ -477,6 +478,30 @@ function azureKey(changes: Partial<AzureKmsKeyConfig> = {}): AzureKmsKeyConfig {
   };
 }
 
+/** A Turnkey API public key from a variable that must not be read. */
+function publicKey(): KmsIdentifier {
+  return variable("TURNKEY_API_PUBLIC_KEY", noRead);
+}
+
+/** An API key that config resolution did not build, so it has no comparison form. */
+function handMadeKey(): KmsIdentifier {
+  return { get: noRead, display: "<KEY>" };
+}
+
+/** A new Turnkey key whose API keys come from variables that must not be read. */
+function turnkeyKey(changes: Partial<TurnkeyKmsKeyConfig> = {}): TurnkeyKmsKeyConfig {
+  return {
+    provider: "turnkey",
+    name: "turnkey",
+    displayId: `turnkey:f81d4fae-7dec-11d0-a765-00a0c91e6bf6/${COW_ACCOUNT.address}`,
+    address: COW_ACCOUNT.address,
+    organizationId: literal("f81d4fae-7dec-11d0-a765-00a0c91e6bf6"),
+    apiPrivateKey: variable("TURNKEY_API_PRIVATE_KEY", noRead),
+    timeoutMs: 1000,
+    ...changes,
+  };
+}
+
 /**
  * A runtime whose `kms` hook serves every key with a fake adapter. Like the real adapters, it
  * reads a first-party key's identifier, so an unreadable identifier fails adapter creation.
@@ -525,6 +550,34 @@ describe("SignerCache identity", () => {
     );
     assert.equal(state.created, 1);
     assert.equal(state.getPublicKey, 1);
+  });
+
+  it("shares a signer between copies of a Turnkey key, reading neither API key", async () => {
+    const { context, state } = await identitySetUp();
+    const cache = new SignerCache(fakeTimers());
+
+    assert.equal(
+      await cache.signerFor(context, turnkeyKey()),
+      await cache.signerFor(context, turnkeyKey()),
+    );
+    assert.equal(
+      await cache.signerFor(context, turnkeyKey({ apiPublicKey: publicKey() })),
+      await cache.signerFor(context, turnkeyKey({ apiPublicKey: publicKey() })),
+    );
+    assert.equal(state.created, 2);
+  });
+
+  it("gives a Turnkey key whose API keys config resolution did not build its own signer", async () => {
+    const { context, state } = await identitySetUp();
+    const cache = new SignerCache(fakeTimers());
+
+    for (const changes of [{ apiPrivateKey: handMadeKey() }, { apiPublicKey: handMadeKey() }]) {
+      assert.notEqual(
+        await cache.signerFor(context, turnkeyKey(changes)),
+        await cache.signerFor(context, turnkeyKey(changes)),
+      );
+    }
+    assert.equal(state.created, 4);
   });
 
   it("shares signers between copies of Google Cloud and Azure keys", async () => {
@@ -591,6 +644,23 @@ describe("SignerCache identity", () => {
       azureKey(),
       azureKey({ keyId: literal("https://other.vault.azure.net/keys/k") }),
     ],
+    "a Turnkey organization": [
+      turnkeyKey(),
+      turnkeyKey({ organizationId: literal("00000000-0000-0000-0000-000000000000") }),
+    ],
+    "a Turnkey API private key": [
+      turnkeyKey(),
+      turnkeyKey({ apiPrivateKey: variable("OTHER_API_PRIVATE_KEY", noRead) }),
+    ],
+    "a Turnkey API public key": [
+      turnkeyKey({ apiPublicKey: variable("TURNKEY_API_PUBLIC_KEY", noRead) }),
+      turnkeyKey({ apiPublicKey: variable("OTHER_API_PUBLIC_KEY", noRead) }),
+    ],
+    "a Turnkey API public key set or not": [
+      turnkeyKey(),
+      turnkeyKey({ apiPublicKey: variable("TURNKEY_API_PUBLIC_KEY", noRead) }),
+    ],
+    "a Turnkey address": [turnkeyKey(), turnkeyKey({ address: HARDHAT_ACCOUNT_0.address })],
   };
   for (const [setting, [first, second]] of Object.entries(variants)) {
     it(`gives keys that differ only in ${setting} separate signers`, async () => {
