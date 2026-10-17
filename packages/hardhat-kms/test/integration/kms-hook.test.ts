@@ -113,7 +113,7 @@ describe("kms hook", () => {
     hre.hooks.registerHandlers("kms", {
       createKeyAdapter: async (context, reservedKey, next) => {
         const provider: string = reservedKey.provider;
-        if (["turnkey", "fireblocks"].includes(provider.toLowerCase())) {
+        if (["turnkey", "fireblocks", "pkcs11"].includes(provider.toLowerCase())) {
           claimed.push(provider);
           return fakeAdapter({ secretKey });
         }
@@ -125,6 +125,7 @@ describe("kms hook", () => {
       ["turnkey", "Turnkey", 54],
       ["fireblocks", "Fireblocks", 55],
       ["TurnKey", "Turnkey", 54],
+      ["pkcs11", "PKCS#11", 57],
     ] as const) {
       // Validation refuses these ids, so change a resolved key at run time, as another plugin's
       // config hook could. No provider config type has these ids, hence Reflect.set.

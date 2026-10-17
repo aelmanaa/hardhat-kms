@@ -32,8 +32,8 @@ describe("provider registry", () => {
     }
   });
 
-  it("reserves turnkey and fireblocks, in any case, with their tracking issues", () => {
-    assert.deepEqual(Object.keys(RESERVED_PROVIDERS), ["turnkey", "fireblocks"]);
+  it("reserves turnkey, fireblocks and pkcs11, in any case, with their tracking issues", () => {
+    assert.deepEqual(Object.keys(RESERVED_PROVIDERS), ["turnkey", "fireblocks", "pkcs11"]);
     assert.deepEqual(reservedProvider("turnkey"), { id: "turnkey", name: "Turnkey", issue: 54 });
     assert.deepEqual(reservedProvider("fireblocks"), {
       id: "fireblocks",
@@ -42,7 +42,17 @@ describe("provider registry", () => {
     });
     assert.equal(reservedProvider("Turnkey"), RESERVED_PROVIDERS.turnkey);
     assert.equal(reservedProvider("FIREBLOCKS"), RESERVED_PROVIDERS.fireblocks);
-    for (const id of ["aws", "myvault", "turnkeys", "constructor", "__proto__"]) {
+    assert.deepEqual(reservedProvider("pkcs11"), { id: "pkcs11", name: "PKCS#11", issue: 57 });
+    assert.equal(reservedProvider("PKCS11"), RESERVED_PROVIDERS.pkcs11);
+    for (const id of [
+      "aws",
+      "myvault",
+      "turnkeys",
+      "pkcs",
+      "pkcs#11",
+      "constructor",
+      "__proto__",
+    ]) {
       assert.equal(reservedProvider(id), undefined, id);
     }
     for (const id of Object.keys(RESERVED_PROVIDERS)) {

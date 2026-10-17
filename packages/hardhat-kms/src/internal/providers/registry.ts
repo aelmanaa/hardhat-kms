@@ -37,6 +37,7 @@ export function builtinProvider(id: string): KmsProviderDescriptor | undefined {
 export const RESERVED_PROVIDERS: Readonly<Record<string, ReservedProvider>> = Object.freeze({
   turnkey: Object.freeze({ id: "turnkey", name: "Turnkey", issue: 54 }),
   fireblocks: Object.freeze({ id: "fireblocks", name: "Fireblocks", issue: 55 }),
+  pkcs11: Object.freeze({ id: "pkcs11", name: "PKCS#11", issue: 57 }),
 });
 
 /**

@@ -98,7 +98,7 @@ export const ERRORS = {
     template:
       'Provider "{provider}" is reserved for the planned {name} provider, which is not released yet (https://github.com/aelmanaa/hardhat-kms/issues/{issue})',
     cause:
-      "A key's `provider` is `turnkey` or `fireblocks`, in any case. hardhat-kms keeps these ids for its planned Turnkey and Fireblocks providers, so no other plugin can use them.",
+      "A key's `provider` is `turnkey`, `fireblocks` or `pkcs11`, in any case. hardhat-kms keeps these ids for its planned Turnkey, Fireblocks and PKCS#11 providers, so no other plugin can use them.",
     fix: "Follow the linked issue for the release, or use another provider. A third-party provider needs an id of its own.",
   },
   keyShape: {
