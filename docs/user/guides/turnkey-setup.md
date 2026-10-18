@@ -83,7 +83,7 @@ Each signature is one activity, with the account's checksummed address as `signW
 
 Turnkey answers a transaction with the whole signed transaction. The plugin decodes it, refuses it unless its type and every field equal the transaction it sent (`turnkey.sign.transaction-mismatch`), and keeps only the signature. It then checks the signature against its own transaction and sends that transaction, never Turnkey's bytes.
 
-Before `@hardhat-kms/turnkey` 1.2, transactions were sent as a 32-byte digest, like an EIP-7702 authorization. If your policies allow only `SIGN_RAW_PAYLOAD`, add the second policy below: without it, Turnkey refuses every transaction with a 403. Or keep the digest, as below.
+If your policies allow only `SIGN_RAW_PAYLOAD`, as a policy written for Foundry may, add the second policy below: without it, Turnkey refuses every transaction with a 403. Or sign transactions as a digest, as below.
 
 ### Transactions as a digest, as Foundry signs them
 
@@ -110,7 +110,7 @@ export default defineConfig({
 });
 ```
 
-The key's transactions then go through `sign_raw_payload` with `PAYLOAD_ENCODING_HEXADECIMAL` and `HASH_FUNCTION_NO_OP`, like an EIP-7702 authorization, and match the first policy's `NO_OP` clause. Turnkey sees only the hash, so `eth.tx.*` policies do not apply to them. The default, `"transaction"`, is what lets a policy limit the recipient, the chain or the value; keep it unless the policy is shared with Foundry. Messages and typed data are sent the same way in both modes. See [`transactionSigning`](../reference/configuration.md).
+The key's transactions then go through `sign_raw_payload` with `PAYLOAD_ENCODING_HEXADECIMAL` and `HASH_FUNCTION_NO_OP`, like an EIP-7702 authorization, and match the first policy's `NO_OP` clause. Turnkey sees only the hash, so `eth.tx.*` policies do not apply to them. Turnkey cannot tell such a transaction from an EIP-7702 authorization or a `kms sign --no-hash` digest, since all three are `HEXADECIMAL` with `NO_OP`: a policy cannot allow one and deny the others, and a `NO_OP` grant lets the key sign any 32-byte digest, an authorization included. The default, `"transaction"`, is what lets a policy limit the recipient, the chain or the value; keep it unless the policy is shared with Foundry. Messages and typed data are sent the same way in both modes. See [`transactionSigning`](../reference/configuration.md).
 
 ### The policies
 
@@ -311,6 +311,7 @@ The fields:
 - `address`: required. The plugin signs with it as `signWith`, and it is the key's pin: the plugin checks every signature against it. A key without it fails with `core.config.turnkey-address-required`. Foundry reads `TURNKEY_ADDRESS` from the environment; here the address is written in the config, so changing the environment cannot change which account signs.
 - `apiPrivateKey`: the API private key, as `configVariable(NAME)` only ([step 5](#5-store-the-api-private-key)).
 - `apiPublicKey`: optional, literal or a configuration variable. The plugin derives the public key from the private key, as Foundry does. When you set it, the plugin checks that the two match before it sends any request, and fails with `turnkey.credential.public-key-mismatch` if they do not.
+- `transactionSigning`: optional, `"transaction"` (the default) or `"digest"`. It decides whether a transaction reaches Turnkey as a `sign_transaction` activity or as a `NO_OP` digest ([Transactions as a digest](#transactions-as-a-digest-as-foundry-signs-them)).
 - `timeoutMs`: optional, as for every key. It bounds the whole signature, including the wait for an activity Turnkey has not finished.
 
 Any other field is an error at the key's path, such as `Config error in config.kms.keys.deployer: Unrecognized key(s) in object: 'baseUrl'`, as for the other providers. There is no `baseUrl`: the plugin always calls `https://api.turnkey.com`. The [configuration reference](../reference/configuration.md#key-forms-per-provider) lists the fields.
@@ -325,13 +326,15 @@ Each successful signature counts toward the organization's monthly quota, 25 on 
 
 `npx hardhat kms accounts` lists the key without calling Turnkey, and shows `not checked` in its `PIN` column: the plugin cannot read a Turnkey account's public key, so the address it shows is the pin. `npx hardhat kms address deployer` prints the pin and a note on standard error that it is not checked yet. Neither spends a signature. `npx hardhat kms public-key deployer` fails, since the provider returns no public key ([`kms address`](../reference/tasks.md#kms-address)).
 
+For the same reason, `connection.kms.getAccount` fails with `core.signer.address-only` for a Turnkey key until that key has signed once in the run: the library account needs the public key, and the plugin learns it from the first signature. Sign once first, for example with `personal_sign` or a transaction, then call `getAccount`. To sign an EIP-7702 authorization without a library account, use [`kms sign-auth`](../reference/tasks.md#kms-sign-auth) ([Library accounts](../reference/library-accounts.md)).
+
 To check the key, the policy and the pin together, sign once:
 
 ```sh
 npx hardhat kms accounts --check-sign
 ```
 
-The key signs a random EIP-191 message, sent with `HASH_FUNCTION_KECCAK256`, so this one signature checks the first policy's message clause. Success shows `matches` in the `PIN` column and `ok` in the `SIGN` column: Turnkey accepted the API key, a policy allowed the request, and the signature recovers to the pinned address. It spends one signature of the quota for each Turnkey key it lists ([`kms accounts`](../reference/tasks.md#kms-accounts)).
+The key signs a random EIP-191 message, sent with `HASH_FUNCTION_KECCAK256`, so this one signature checks the first policy's message clause. Success shows `matches` in the `PIN` column and `ok` in the `SIGN` column: Turnkey accepted the API key, a policy allowed the request, and the signature recovers to the pinned address. It spends one signature of the quota for each Turnkey account it lists: keys that name the same organization and address are listed, and checked, once ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
 To check the typed-data and digest clauses as well, sign one of each, for example `npx hardhat kms sign --data --from-file --network sepolia deployer permit.json` and `npx hardhat kms sign --no-hash deployer <digest>` ([`kms sign`](../reference/tasks.md#kms-sign)). To check the second policy, sign a transaction without sending it, for example `npx hardhat --network sepolia kms sign-tx deployer tx.json` ([`kms sign-tx`](../reference/tasks.md#kms-sign-tx)). That is three more signatures.
 
@@ -394,7 +397,7 @@ Turnkey keeps every activity, with its parameters and result, and "all users hav
 
 - A message's activity holds the EIP-191 message itself, hex-encoded, since the plugin sends the message and Turnkey hashes it. Foundry sends only the hash.
 - A typed-data activity holds the typed data as JSON, which policies can also read as `eth.eip_712` ([Policy language](https://docs.turnkey.com/features/policies/language#eip-712)).
-- A transaction's activity holds the unsigned transaction and, once it completes, the signed transaction. Turnkey parses it, so policies can read its fields as `eth.tx.*`. Anyone who can read the activity can broadcast that signed transaction, including one from an activity the plugin gave up on: [reject a pending activity](#reject-the-pending-activity).
+- A transaction's activity holds the unsigned transaction and, once it completes, the signed transaction. For a key with `transactionSigning: "digest"`, it holds only the transaction's 32-byte digest, which nobody can broadcast, and `eth.tx.*` does not apply. Turnkey parses it, so policies can read its fields as `eth.tx.*`. Anyone who can read the activity can broadcast that signed transaction, including one from an activity the plugin gave up on: [reject a pending activity](#reject-the-pending-activity).
 - An EIP-7702 authorization's activity holds only its 32-byte digest.
 
 Do not sign a message you would not show every user of the organization.

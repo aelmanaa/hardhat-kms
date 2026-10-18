@@ -419,7 +419,7 @@ export const ERRORS = {
     template:
       '--kms {provider}: unknown provider. Did you mean "{suggestion}"? Expected aws, gcp or azure',
     cause: "`--kms` names a provider that is close to a built-in one, such as `AWS` or `gpc`.",
-    fix: "Use the suggested id. `--kms` reads only the built-in providers' variables.",
+    fix: "Use the suggested id. `--kms` reads only the variables of `aws`, `gcp` and `azure`.",
   },
   kmsOptionUnknown: {
     id: "core.kms-option.unknown-provider",
@@ -427,7 +427,7 @@ export const ERRORS = {
     group: "The `--kms` option",
     template: "--kms {provider}: unknown provider. Expected aws, gcp or azure",
     cause:
-      "`--kms` names a provider other than `aws`, `gcp` and `azure`. Third-party providers are configured in `kms.keys` only.",
+      "`--kms` names a provider other than `aws`, `gcp` and `azure`, such as `turnkey`. `--kms` reads only the variables of these three providers. Turnkey keys and third-party providers' keys are configured in `kms.keys` only.",
     fix: "Use `aws`, `gcp` or `azure`, or configure the key in the Hardhat config.",
   },
   kmsOptionListedTwice: {
