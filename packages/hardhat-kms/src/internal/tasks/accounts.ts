@@ -7,6 +7,7 @@ import type { Result } from "hardhat/types/utils";
 import { errorResult, successfulResult } from "hardhat/utils/result";
 
 import type { KmsIdentifier, KmsKeyConfig } from "../../types.ts";
+import { identifierComparisonForm } from "../config/identifiers.ts";
 import { keyIdentity } from "../config/key-identity.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, catalogMessage, errorName } from "../errors.ts";
@@ -303,15 +304,34 @@ async function identityOf(key: KmsKeyConfig): Promise<string | undefined> {
 }
 
 /**
- * Lists each KMS key once: keys with the same identity and the same pin are one entry, under the
- * first name, with the others in `otherNames`. Keys of third-party providers, and keys whose
- * identifier cannot be read, are never merged; reading them fails again when they are resolved.
+ * What else keeps two entries for one KMS key apart in the list: a Turnkey key's API keys, by
+ * their comparison forms (a variable's name, never its value), and its `transactionSigning`. The
+ * API key decides which user asks and which policies apply, so `--check-sign` checks each one.
+ */
+function listedSettings(key: KmsKeyConfig): string {
+  if (key.provider !== "turnkey") {
+    return "";
+  }
+  return JSON.stringify([
+    identifierComparisonForm(key.apiPrivateKey),
+    key.apiPublicKey === undefined ? null : identifierComparisonForm(key.apiPublicKey),
+    key.transactionSigning,
+  ]);
+}
+
+/**
+ * Lists each KMS key once: keys with the same identity, the same pin and, for Turnkey, the same
+ * API keys and `transactionSigning` are one entry, under the first name, with the others in
+ * `otherNames`. Keys of third-party providers, and keys whose identifier cannot be read, are never
+ * merged; reading them fails again when they are resolved.
  */
 async function distinctKeys(keys: TaskKey[]): Promise<ListedKey[]> {
   const identities = await Promise.all(
     keys.map(async ({ key }) => {
       const identity = await identityOf(key);
-      return identity === undefined ? undefined : `${identity}\0${key.address ?? ""}`;
+      return identity === undefined
+        ? undefined
+        : `${identity}\0${key.address ?? ""}\0${listedSettings(key)}`;
     }),
   );
   const listed: ListedKey[] = [];

@@ -617,7 +617,7 @@ describe("kms accounts", () => {
     assert.match(shown.accounts[0]?.error ?? "", /HHKMS_TEST_REGION/);
   });
 
-  it("lists two Turnkey keys for one account once, whatever API key each uses", async () => {
+  it("lists Turnkey keys for one account once only when they use one API key and one mode", async () => {
     process.env.HHKMS_TEST_TURNKEY_ORGANIZATION = "F81D4FAE-7DEC-11D0-A765-00A0C91E6BF6";
     const turnkey = {
       provider: "turnkey",
@@ -628,15 +628,26 @@ describe("kms accounts", () => {
     const { hre } = await runtime({
       keys: {
         first: turnkey,
+        // The organization by a variable, in another case: the same key.
         second: {
           ...turnkey,
           organizationId: configVariable("HHKMS_TEST_TURNKEY_ORGANIZATION"),
-          apiPrivateKey: configVariable("HHKMS_TEST_TURNKEY_SECOND_KEY"),
+          transactionSigning: "transaction",
         },
+        // Another API user, whose policies may differ: a row of its own, checked on its own.
+        otherUser: { ...turnkey, apiPrivateKey: configVariable("HHKMS_TEST_TURNKEY_SECOND_KEY") },
+        otherPublicKey: { ...turnkey, apiPublicKey: configVariable("HHKMS_TEST_TURNKEY_PUBLIC") },
+        digest: { ...turnkey, transactionSigning: "digest" },
         // Another account in the same organization: a row of its own.
         other: { ...turnkey, address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" },
       },
-      adapters: { first: () => closableAdapter(), other: () => closableAdapter() },
+      adapters: {
+        first: () => closableAdapter(),
+        otherUser: () => closableAdapter(),
+        otherPublicKey: () => closableAdapter(),
+        digest: () => closableAdapter(),
+        other: () => closableAdapter(),
+      },
     });
 
     const run = await accounts(hre);
@@ -645,6 +656,9 @@ describe("kms accounts", () => {
       run.accounts.map((entry) => [entry.name, entry.otherNames.map(({ name }) => name)]),
       [
         ["first", ["second"]],
+        ["otherUser", []],
+        ["otherPublicKey", []],
+        ["digest", []],
         ["other", []],
       ],
     );
@@ -717,6 +731,7 @@ describe("kms accounts", () => {
         keys: {
           plain: { provider: "aws", keyId: "alias/deployer" },
           pinned: { provider: "aws", keyId: "alias/deployer", address: HARDHAT_ACCOUNT_0.address },
+          otherPin: { provider: "aws", keyId: "alias/deployer", address: COW_ACCOUNT.address },
           elsewhere: { provider: "aws", keyId: "alias/deployer", region: "eu-west-1" },
           vaultA: vaultKey("same"),
           vaultB: vaultKey("same"),
@@ -724,6 +739,7 @@ describe("kms accounts", () => {
         adapters: {
           plain: () => closableAdapter(),
           pinned: () => closableAdapter(),
+          otherPin: () => closableAdapter(),
           elsewhere: () => closableAdapter(),
           vaultA: () => closableAdapter(),
           vaultB: () => closableAdapter(),
@@ -734,7 +750,7 @@ describe("kms accounts", () => {
 
       assert.deepEqual(
         run.accounts.map((entry) => entry.name),
-        ["plain", "pinned", "elsewhere", "vaultA", "vaultB"],
+        ["plain", "pinned", "otherPin", "elsewhere", "vaultA", "vaultB"],
       );
     });
   });
