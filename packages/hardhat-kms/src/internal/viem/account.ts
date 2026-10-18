@@ -85,7 +85,7 @@ export interface AccountConnection {
      * Keeps a nonce held whose transaction the provider may still sign after the account gave up
      * on it (#537), before viem's `reset` for the failed send ends its hold or reservation.
      */
-    outstanding(address: string, nonce: bigint): void;
+    outstanding(address: string, nonce: bigint, copyHash?: string): void;
     /** Ends the hold or the reservation of a send that failed. */
     reset(address: string, chainId: bigint): Promise<void>;
   };
@@ -385,13 +385,14 @@ async function signTransaction(
       }
       throw error;
     }
+    const assembled = assembleSignedTransaction(input.unsigned, signature, address, operation);
     // The provider keeps a copy of the signed transaction: its nonce stays held until a
     // transaction with it reaches the node through the connection (#537).
     const copy = providerCopyOf(signature);
     if (copy !== undefined) {
-      connection.nonces.outstanding(address.toLowerCase(), copy.nonce);
+      connection.nonces.outstanding(address.toLowerCase(), copy.nonce, `0x${assembled.hash}`);
     }
-    return assembleSignedTransaction(input.unsigned, signature, address, operation);
+    return assembled;
   });
   // After the signature: a reservation whose transaction was signed is the one most likely sent.
   connection.nonces.signed(address.toLowerCase(), input.unsigned.raw.nonce);

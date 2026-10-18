@@ -273,6 +273,17 @@ export class KmsSigner {
   }
 
   /**
+   * Whether the provider keeps what `signTransaction` signs for it (#537): the adapter sets
+   * `signTransactionOutlivesAbort` and has `signTransaction`. Callers then keep transaction nonces
+   * held, and sign them under the send lock.
+   *
+   * @returns Whether it does.
+   */
+  public keepsSignedTransactions(): boolean {
+    return this.#outlivesAbort && this.#adapter.signTransaction !== undefined;
+  }
+
+  /**
    * Describes the key.
    *
    * @returns The provider, pinned id and display id.

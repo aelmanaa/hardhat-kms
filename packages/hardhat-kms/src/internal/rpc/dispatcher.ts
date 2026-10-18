@@ -746,8 +746,8 @@ async function sendTransaction(
           params: kms.params,
           from: address,
           // Under the send lock, before it passes on: the next send must skip the nonce (#537).
-          holdNonce: (nonce) => {
-            sends.holdOutstanding(address, nonce);
+          holdNonce: (nonce, copyHash) => {
+            sends.holdOutstanding(address, nonce, copyHash);
           },
           // Again after the uncertain lookups, the fill and the nonce choice, which all await.
           beforeSign: () => {
@@ -778,12 +778,16 @@ async function sendTransaction(
 }
 
 /**
- * Signs a KMS account's transaction for `eth_signTransaction` under the send lock for its chain
- * and address, as a send does up to its signature (#537): the uncertain transactions are looked up
- * first, and the nonce is the one a send would take now, past the mark, the reservations and the
- * held nonces. Nothing is broadcast, and the mark does not move (rule 5). Under the lock, a send
- * or another `eth_signTransaction` cannot take the nonce while the KMS signs it: with a provider
- * that keeps what it signs (Turnkey), its nonce is then held, and the next one skips it.
+ * Signs a KMS account's transaction for `eth_signTransaction`. It never broadcasts and never moves
+ * the mark (rule 5). Without the caller's nonce it takes the nonce a send would take
+ * (`ConnectionSends.nonceFor`): past the mark, the reservations and the held nonces.
+ *
+ * For a key whose provider keeps what it signs (`keepsSignedTransactions`, Turnkey), it runs under
+ * the send lock, as a send does up to its signature (#537): the uncertain transactions are looked
+ * up first, the nonce is chosen as a send's, and it is held from the signature on, so a send or
+ * another `eth_signTransaction` cannot take it while the KMS signs it. Any other key takes no lock
+ * and has no stall limit, as before: its signed transaction exists only in the caller's hands, so
+ * signatures at one nonce cost nothing, and serializing them would only make them wait.
  */
 async function signOnly(
   accounts: ConnectionAccounts,
@@ -791,9 +795,27 @@ async function signOnly(
   kms: KmsTransaction,
   transactions: ConnectionTransactions,
 ): Promise<JsonRpcResponse> {
-  const chainId = await transactions.chainId();
   const sends = transactions.sends();
   const { address } = kms;
+  const keeps = await accounts.signWith(
+    kms.key,
+    async (signer) => await Promise.resolve(signer.keepsSignedTransactions()),
+  );
+  if (!keeps) {
+    const signed = await accounts.signWith(
+      kms.key,
+      async (signer) =>
+        await signTransaction(signer, {
+          filler: transactions.filler(),
+          method: request.method,
+          params: kms.params,
+          from: address,
+          chooseNonce: kms.callerNonce ? undefined : (pending) => sends.nonceFor(address, pending),
+        }),
+    );
+    return response(request, signed.raw);
+  }
+  const chainId = await transactions.chainId();
   const lookUp = async (hash: string): Promise<boolean | undefined> =>
     await lookUpTransaction(transactions, hash);
   return await withSendLock(`${chainId}:${address}`, async () => {
@@ -810,10 +832,10 @@ async function signOnly(
           from: address,
           chooseNonce: kms.callerNonce
             ? undefined
-            : async (pending) => await chooseSendNonce(address, sends, pending, lookUp),
+            : async (pending) => await sends.chooseNonce(address, pending, lookUp),
           // The provider may still sign it, or keeps its copy: the next send skips it (#537).
-          holdNonce: (nonce) => {
-            sends.holdOutstanding(address, nonce);
+          holdNonce: (nonce, copyHash) => {
+            sends.holdOutstanding(address, nonce, copyHash);
           },
         }),
     );
@@ -822,9 +844,9 @@ async function signOnly(
 }
 
 /**
- * Chooses the nonce of a send, or of an `eth_signTransaction`, without the caller's nonce
- * (`ConnectionSends.chooseNonce`), and warns when held nonces put it above the node's pending
- * count: the transaction then waits behind them until transactions with those nonces are mined.
+ * Chooses the nonce of a send without the caller's nonce (`ConnectionSends.chooseNonce`), and warns
+ * when held nonces put it above the node's pending count: the node cannot mine the send until
+ * transactions with those nonces are.
  */
 async function chooseSendNonce(
   address: string,
@@ -1122,7 +1144,7 @@ async function broadcast(
       return accepted();
     }
     sends.settleUncertain(address, transaction.hash);
-    refuseProviderCopy(request, transaction, error, sends, address);
+    await refuseProviderCopy(request, transaction, error, context);
     return passOn();
   }
   // The node has these very bytes. With a provider copy too: it is the same transaction (#537).
@@ -1144,7 +1166,7 @@ async function broadcast(
     return accepted();
   }
   sends.settleUncertain(address, transaction.hash);
-  refuseProviderCopy(request, transaction, error, sends, address);
+  await refuseProviderCopy(request, transaction, error, context);
   return passOn();
 }
 
@@ -1152,37 +1174,37 @@ async function broadcast(
  * Handles a broadcast the node refused for certain, when the provider keeps a copy of the signed
  * transaction (#537); without a copy it does nothing, and the node's answer goes on as before.
  *
- * - "nonce too low": the nonce is used on chain, so the copy can never be valid. The hold of the
- *   nonce ends, and the node's answer goes on.
- * - Anything else, such as too few funds or too low a fee: the copy can become valid once the
- *   cause goes away. The nonce stays held (it was held at the signature), and the send fails with
- *   `core.tx.refused-provider-copy`, which names the refusal's kind and code, never the node's
- *   text (allow-listed error fields).
+ * - The node's mined transaction count (`eth_getTransactionCount` at `latest`) is above the
+ *   nonce: the nonce is used on chain, so the copy can never be valid, whatever the node's message
+ *   says (Geth's "nonce too low", Nethermind's `OldNonce`). The hold ends, and the answer goes on.
+ *   The pending count is not enough: a transaction in the pool can still be dropped. A failed
+ *   count keeps the hold.
+ * - Otherwise the copy can become valid once the cause goes away. The nonce stays held (it was
+ *   held at the signature), and the send fails with `core.tx.refused-provider-copy`, which names
+ *   a fixed kind of refusal and the node's code, never the node's text (allow-listed error fields).
  *
  * "already known" never gets here: the node has the transaction, and the send succeeds.
  */
-function refuseProviderCopy(
+async function refuseProviderCopy(
   request: JsonRpcRequest,
   transaction: SentTransaction,
   error: Record<string, unknown>,
-  sends: ConnectionSends,
-  address: string,
-): void {
+  context: BroadcastContext,
+): Promise<void> {
   const copy = transaction.providerCopy;
   if (copy === undefined) {
     return;
   }
-  const { code, message } = error;
-  const text = String(message);
-  if (/\bnonce too low\b/i.test(text)) {
-    sends.releaseOutstanding(address, copy.nonce);
+  if (await minedPast(context.transactions, context.address, copy.nonce)) {
+    context.sends.releaseOutstanding(context.address, copy.nonce);
     return;
   }
+  const { code, message } = error;
   throw catalogError(
     ERRORS.txRefusedProviderCopy,
     {
       nonce: copy.nonce,
-      reason: refusalKind(text),
+      reason: refusalKind(String(message)),
       // A number only: anything else from the node prints as NaN.
       code: String(Number(code)),
       who: copy.who,
@@ -1192,12 +1214,39 @@ function refuseProviderCopy(
   );
 }
 
-/** The kind of a node's refusal, in fixed words: the node's own text is never shown. */
+/** Whether the node's mined transaction count for the sender is above a nonce; `false` on failure. */
+async function minedPast(
+  transactions: ConnectionTransactions,
+  address: string,
+  nonce: bigint,
+): Promise<boolean> {
+  try {
+    const count: unknown = await transactions.request("eth_getTransactionCount", [
+      address,
+      "latest",
+    ]);
+    return typeof count === "string" && hexStringToBigInt(count) > nonce;
+  } catch (error) {
+    log("counting the mined transactions of %s failed (%s)", address, errorName(error));
+    return false;
+  }
+}
+
+/**
+ * The kind of a node's refusal, in fixed words: the node's own text is never shown. Only messages
+ * from client source: Geth's `core.ErrInsufficientFunds` ("insufficient funds for gas * price +
+ * value"), `txpool.ErrUnderpriced` ("transaction underpriced"), `txpool.ErrReplaceUnderpriced`
+ * ("replacement transaction underpriced") and `core.ErrFeeCapTooLow` ("max fee per gas less than
+ * block base fee"). Anything else is `refused`.
+ */
 function refusalKind(message: string): string {
-  if (/insufficient funds/i.test(message)) {
+  if (message.includes("insufficient funds")) {
     return "insufficient funds";
   }
-  if (/underpriced|fee too low|fee cap|less than (?:the )?(?:block )?base fee/i.test(message)) {
+  if (
+    message.includes("underpriced") ||
+    message.includes("max fee per gas less than block base fee")
+  ) {
     return "fee too low";
   }
   return "refused";

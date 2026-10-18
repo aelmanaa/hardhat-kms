@@ -2159,9 +2159,46 @@ describe("ConnectionSends outstanding nonces (#537)", () => {
     assert.equal(sends.nonceFor(COW, 0n), 6n, "the mark keeps the recorded nonces used");
   });
 
-  it("ends the hold when a transaction with the nonce is recorded with the mark off too", () => {
+  it("with the mark off, ends the hold for the copy itself, and for another transaction once the pending count passes", async () => {
+    const { sends } = withClock(false);
+    sends.holdOutstanding(COW, 0n, "0xc0");
+    sends.recordSent(COW, 0n, "0xc0");
+    assert.deepEqual(sends.outstandingNonces(COW), [], "the copy reached the node");
+
+    sends.holdOutstanding(COW, 1n, "0xc1");
+    sends.holdOutstanding(COW, 2n);
+    sends.recordSent(COW, 1n, "0x01");
+    sends.recordSent(COW, 2n, "0x02");
+    assert.deepEqual(
+      sends.outstandingNonces(COW),
+      [1n, 2n],
+      "replaced: held until the node passes",
+    );
+    // The node dropped the replacements: the copies are still valid, so the nonces stay skipped.
+    assert.equal(sends.nonceFor(COW, 1n), 3n);
+    assert.equal(await sends.chooseNonce(COW, 2n, notKnown), 3n);
+    assert.deepEqual(sends.outstandingNonces(COW), [2n], "the pending count passed nonce 1");
+    sends.holdOutstanding(COW, 5n);
+    sends.nonceFor(COW, 9n);
+    assert.deepEqual(sends.outstandingNonces(COW), [5n], "a hold not replaced stays");
+  });
+
+  it("with the mark off, leaves a hold to the pending count once a second copy joins it", () => {
     const { sends } = withClock(false);
     sends.holdOutstanding(COW, 0n);
+    sends.holdOutstanding(COW, 0n, "0xc0");
+    sends.recordSent(COW, 0n, "0xc0");
+    assert.deepEqual(sends.outstandingNonces(COW), [0n], "the first copy was never broadcast");
+    sends.holdOutstanding(COW, 1n, "0xc1");
+    sends.holdOutstanding(COW, 1n, "0xd1");
+    sends.recordSent(COW, 1n, "0xd1");
+    sends.nonceFor(COW, 1n);
+    assert.deepEqual(sends.outstandingNonces(COW), [1n], "the pending count passed nonce 0 only");
+  });
+
+  it("with the mark on, ends the hold at any transaction recorded at the nonce", () => {
+    const { sends } = withClock();
+    sends.holdOutstanding(COW, 0n, "0xc0");
     sends.recordSent(COW, 0n, "0x00");
     assert.deepEqual(sends.outstandingNonces(COW), []);
   });

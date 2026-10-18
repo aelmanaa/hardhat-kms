@@ -68,7 +68,7 @@ describe("the send lock", () => {
     assert.equal(node.raw.length, 2);
   });
 
-  it("makes eth_signTransaction wait for a send that holds the lock, and leaves the mark alone (#537)", async () => {
+  it("lets eth_signTransaction of a key without the flag run while a send holds the lock, and leaves the mark alone", async () => {
     const { node, open, send, request } = await setUp();
     const connection = await open();
     resultOf(await send(connection, { from: COW, to: TO }));
@@ -80,22 +80,14 @@ describe("the send lock", () => {
     const sending = send(connection, { from: COW, to: TO });
     await settle();
     assert.equal(node.raw.length, 2, "the second send is broadcasting, holding the lock");
-    let signedAt: bigint | undefined;
-    const signing = request(connection, "eth_signTransaction", { from: COW, to: TO }).then(
-      (answer) => {
-        const raw = resultOf(answer);
-        assert.ok(typeof raw === "string");
-        signedAt = nonceOf(raw);
-        return signedAt;
-      },
+    const signed = resultOf(
+      await request(connection, "eth_signTransaction", { from: COW, to: TO }),
     );
-    await settle();
-    assert.equal(signedAt, undefined, "eth_signTransaction waits for the lock");
+    assert.ok(typeof signed === "string");
+    // The nonce a send would take now: past the mark, which the first send raised to 0 (#537).
+    assert.equal(nonceOf(signed), 1n);
     held.open();
     resultOf(await sending);
-    await signing;
-    // The nonce a send would take, past the two sends; it moves nothing.
-    assert.equal(signedAt, 2n);
     node.onRaw = undefined;
     resultOf(await send(connection, { from: COW, to: TO }));
     assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 2n]);

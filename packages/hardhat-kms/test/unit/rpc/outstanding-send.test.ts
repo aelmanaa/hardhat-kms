@@ -28,6 +28,7 @@ import {
 } from "../../helpers/send-harness.ts";
 
 const TIMEOUT_MS = 1000;
+const COW_CHECKSUM = "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826";
 const HTTP_CLIENT = { transport: { type: "http" } };
 
 /** A chain id per test: the send locks are process-global, keyed by chain. */
@@ -131,6 +132,22 @@ describe("a send whose signature the provider may still complete (#537)", () => 
       (error: unknown) => error,
     );
     assert.equal(outstandingNonce(refused), undefined, String(refused));
+    harness.node.pending = 2n;
+    resultOf(await harness.send(connection, transfer(4)));
+    assert.deepEqual(harness.node.raw.map(nonceOf), [1n, 2n]);
+  });
+
+  it("on edr-simulated, keeps the nonce held after a replacement the node then drops", async (t) => {
+    const { harness, connection } = await harnessFor(t, "edr-simulated");
+    hangOn(harness, 1n, "sent");
+    assertOutstanding(await timedOut(t, harness.send(connection, transfer(1))), 0n);
+    harness.state.hang = undefined;
+    // The caller's replacement at nonce 0 reaches the node, which drops it again.
+    resultOf(await harness.send(connection, { ...withNonce(0), value: "0x2" }));
+    harness.node.raw.length = 0;
+    resultOf(await harness.send(connection, transfer(3)));
+    assert.deepEqual(harness.node.raw.map(nonceOf), [1n], "the never-broadcast copy still holds 0");
+    // Once the node's pending count passes 0, the hold ends.
     harness.node.pending = 2n;
     resultOf(await harness.send(connection, transfer(4)));
     assert.deepEqual(harness.node.raw.map(nonceOf), [1n, 2n]);
@@ -246,9 +263,10 @@ describe("a send whose signature the provider may still complete (#537)", () => 
   it("names the kind and code of a refusal, never the node's text", async (t) => {
     for (const [message, code, kind] of [
       ["replacement transaction underpriced: planted", -32000, "fee too low"],
-      ["max fee per gas less than block base fee", -32003, "fee too low"],
-      ["max fee per gas less than base fee", -32003, "fee too low"],
-      ["transaction fee cap exceeded", -32000, "fee too low"],
+      ["transaction underpriced", -32000, "fee too low"],
+      ["max fee per gas less than block base fee: planted", -32003, "fee too low"],
+      ["max fee per gas less than base fee", -32003, "refused"],
+      ["tx fee (1.00 ether) exceeds the configured cap (planted)", -32000, "refused"],
       ["exceeds block gas limit, planted", 3, "refused"],
     ] as const) {
       const { harness, connection } = await harnessFor(t);
@@ -263,21 +281,41 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     }
   });
 
-  it("ends the hold when the node says the nonce is too low: the copy can never be valid", async (t) => {
-    const { harness, connection } = await harnessFor(t);
-    refuse(harness.node, "nonce too low: next nonce 1, tx nonce 0");
-    const response = await harness.send(connection, transfer(1)).catch((error: unknown) => error);
-    assert.ok(!(response instanceof HardhatPluginError), String(response));
-    harness.node.onRaw = undefined;
-    resultOf(await harness.send(connection, transfer(2)));
-    assert.deepEqual(harness.node.raw.map(nonceOf), [0n, 0n]);
+  it("ends the hold when the node has mined past the nonce, whatever its message", async (t) => {
+    for (const message of ["nonce too low", "OldNonce", "transaction already imported"]) {
+      const { harness, connection } = await harnessFor(t);
+      harness.node.onRaw = async () => {
+        // Another transaction at nonce 0 was mined: the copy can never be valid.
+        harness.node.pending = 1n;
+        return await Promise.resolve({
+          jsonrpc: "2.0" as const,
+          id: 1,
+          error: { code: -32000, message },
+        });
+      };
+      const response = await harness.send(connection, transfer(1)).catch((error: unknown) => error);
+      assert.ok(!(response instanceof HardhatPluginError), String(response));
+      harness.node.onRaw = undefined;
+      resultOf(await harness.send(connection, transfer(2)));
+      assert.deepEqual(harness.node.raw.map(nonceOf), [0n, 1n]);
+    }
   });
 
-  it("passes a 'nonce too low' on when the connection closed during the broadcast", async (t) => {
+  it("keeps the hold of a refused copy while the node has not mined past its nonce", async (t) => {
+    const { harness, connection } = await harnessFor(t);
+    refuse(harness.node, "nonce too low");
+    await assert.rejects(harness.send(connection, transfer(1)), /\(refused, code -32000\)/);
+    harness.node.onRaw = undefined;
+    resultOf(await harness.send(connection, transfer(2)));
+    assert.deepEqual(harness.node.raw.map(nonceOf), [0n, 1n]);
+  });
+
+  it("passes a refusal past a mined nonce on when the connection closed during the broadcast", async (t) => {
     const { harness, connection } = await harnessFor(t);
     const answer = gate();
     harness.node.onRaw = async () => {
       await answer.promise;
+      harness.node.pending = 1n;
       return { jsonrpc: "2.0" as const, id: 1, error: { code: -32000, message: "nonce too low" } };
     };
     const sending = harness.send(connection, transfer(1)).catch((error: unknown) => error);
@@ -330,19 +368,20 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     assert.deepEqual(harness.node.raw.map(nonceOf), [0n, 0n]);
   });
 
-  it("warns when held nonces put a send above the node's pending count", async (t) => {
+  it("warns when held nonces put a send, not an eth_signTransaction, above the pending count", async (t) => {
     const { harness, connection } = await harnessFor(t);
     for (const value of [1, 2]) {
       resultOf(await harness.request(connection, "eth_signTransaction", transfer(value)));
     }
     const calls = (): { arguments: unknown[] }[] => warnings.get(t)?.mock.calls ?? [];
-    assert.equal(calls().length, 1, "the second signature skipped nonce 0, and warned");
+    assert.equal(calls().length, 0, "signatures alone do not warn");
     resultOf(await harness.send(connection, transfer(3)));
+    assert.equal(calls().length, 1);
     assert.deepEqual(harness.node.raw.map(nonceOf), [2n]);
     const last = String(calls().at(-1)?.arguments[0]);
     assert.ok(
       last.includes(
-        `takes nonce 2, because this connection holds nonce 0, 1: the provider may sign, or keeps signed, a transaction at each`,
+        `the send from ${COW_CHECKSUM} takes nonce 2, above nonce 0, 1, which this connection holds because the provider may sign, or keeps signed, a transaction at each. The node cannot mine this send until transactions with nonce 0, 1 are:`,
       ),
       last,
     );
@@ -410,6 +449,25 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     const raw = resultOf(await signOnly);
     assert.ok(typeof raw === "string");
     assert.deepEqual([...harness.node.raw.map(nonceOf), nonceOf(raw)], [0n, 1n]);
+  });
+
+  it("signs parallel eth_signTransaction calls of a key without the flag in parallel, all at one nonce", async (t) => {
+    const { harness, connection } = await harnessFor(t, "http", false);
+    let active = 0;
+    let most = 0;
+    harness.state.beforeSign = async () => {
+      active++;
+      most = Math.max(most, active);
+      await settle();
+      active--;
+    };
+    const signed = await Promise.all(
+      Array.from({ length: 20 }, async (_, value) =>
+        String(resultOf(await harness.request(connection, "eth_signTransaction", transfer(value)))),
+      ),
+    );
+    assert.ok(most > 1, `the signatures overlapped: at most ${most} at once`);
+    assert.deepEqual(new Set(signed.map(nonceOf)), new Set([0n]), "no lock and no hold");
   });
 
   it("gives two parallel eth_signTransaction calls distinct nonces (#537)", async (t) => {

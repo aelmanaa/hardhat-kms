@@ -193,7 +193,7 @@ export interface SignTransactionInputs {
    * as for `kms sign-tx`, which sends nothing afterwards, no nonce is held and the error does not
    * describe a hold.
    */
-  holdNonce?: ((nonce: bigint) => void) | undefined;
+  holdNonce?: ((nonce: bigint, copyHash?: string) => void) | undefined;
   /**
    * Runs right before the KMS is asked to sign, after the fill and the nonce choice, and throws to
    * refuse; sends check there that their connection is still open.
@@ -257,10 +257,12 @@ export async function signTransaction(
     }
     throw error;
   }
+  // Assembled first: a signature that does not recover to the sender makes no valid copy.
+  const signed = assembleSignedTransaction(unsigned, signature, inputs.from, inputs.method);
+  const hash = `0x${signed.hash}`;
   const providerCopy = providerCopyOf(signature);
   if (providerCopy !== undefined) {
-    inputs.holdNonce?.(providerCopy.nonce);
+    inputs.holdNonce?.(providerCopy.nonce, hash);
   }
-  const signed = assembleSignedTransaction(unsigned, signature, inputs.from, inputs.method);
-  return { raw: signed.toHex(true), hash: `0x${signed.hash}`, nonce: filled.nonce, providerCopy };
+  return { raw: signed.toHex(true), hash, nonce: filled.nonce, providerCopy };
 }

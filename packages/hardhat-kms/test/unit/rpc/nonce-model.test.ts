@@ -116,6 +116,17 @@ type Kind =
   | "gap-489";
 
 type Mode = "accept" | "refuse" | "no-answer";
+
+/** A nonce a connection holds (#537). */
+interface Held {
+  /** The send whose provider copy it is; `undefined` when no signature came back. */
+  owner: number | undefined;
+  /**
+   * On edr-simulated: another transaction at the nonce reached the node, so the plugin ends the
+   * hold once the pending count passes it. Until then a send may or may not sign the nonce.
+   */
+  replaced: boolean;
+}
 /**
  * What an outstanding signature does after its request was sent (#537): wait for the key's
  * timeout (`sent`), fail at once as an activity that needs approval (`fails`), or fail after the
@@ -234,7 +245,7 @@ interface World {
    * By connection: the nonces of transactions the provider may still sign (#537), until a
    * transaction with the nonce is recorded on the connection.
    */
-  outstanding: [Set<bigint>, Set<bigint>];
+  outstanding: [Map<bigint, Held>, Map<bigint, Held>];
 }
 
 const LIVE: ReadonlySet<LibraryState> = new Set(["consumed", "signing", "signed", "broadcasting"]);
@@ -258,8 +269,8 @@ function lowestFree(world: World): bigint {
   const given = new Set([
     ...library(world).flatMap((send) => (send.nonce === undefined ? [] : [send.nonce])),
     // A nonce the provider may still sign is skipped on its connection (#537).
-    ...world.outstanding[0],
-    ...world.outstanding[1],
+    ...world.outstanding[0].keys(),
+    ...world.outstanding[1].keys(),
   ]);
   let nonce = pendingOf(world);
   while (world.delivered.has(nonce) || given.has(nonce) || world.stale.has(nonce)) {
@@ -292,7 +303,8 @@ const valueOf = (raw: string): number => Number(Transaction.fromHex(raw, false).
  */
 function checkClaim(world: World, claimer: Send, nonce: bigint, step: string): void {
   // A connection forgets its holds when it closes (docs/contributor/transactions.md).
-  if (isOpen(world, claimer.connection) && world.outstanding[claimer.connection].has(nonce)) {
+  const held = world.outstanding[claimer.connection].get(nonce);
+  if (isOpen(world, claimer.connection) && held !== undefined && !held.replaced) {
     world.violations.push({
       kind: "outstanding",
       message: `${step}: send ${claimer.id} on connection ${claimer.connection} signed nonce ${nonce}, which the provider may still sign for another send (#537)`,
@@ -391,7 +403,7 @@ function onRaw(world: World) {
     // Every key's adapter keeps a copy of what it signs, so a signature that reached the node
     // holds its nonce on its connection until the node takes it there (#537).
     if (send.kind === "plugin") {
-      holdSigned(world, send.connection, nonce);
+      holdSigned(world, send.connection, nonce, send.id);
     }
     if (world.mode === "refuse") {
       if (send.kind === "library") {
@@ -434,7 +446,7 @@ function deliver(world: World, send: Send, nonce: bigint): void {
   // provider; the hold is only for copies that were never broadcast. Without an answer the hold
   // ends when a lookup finds the transaction (the node's lookUp below).
   for (const connection of world.mode === "no-answer" ? [] : recordedOn) {
-    world.outstanding[connection].delete(nonce);
+    recordHeld(world, connection, nonce, send.id);
   }
   if (!world.delivered.has(nonce)) {
     const pastReservation = [...recordedOn].some((connection) =>
@@ -807,7 +819,7 @@ function librarySign(index: number): Step {
             send.state = "sign-failed";
             throw error;
           }
-          holdSigned(world, send.connection, nonce);
+          holdSigned(world, send.connection, nonce, send.id);
           send.state = "signed";
         })(send.nonce),
       );
@@ -820,9 +832,43 @@ function librarySign(index: number): Step {
  * Holds the nonce of a signature that completed on an open connection: the provider keeps a copy
  * (#537). A delivery recorded on the connection ends it.
  */
-function holdSigned(world: World, connection: ConnectionIndex, nonce: bigint): void {
-  if (isOpen(world, connection)) {
-    world.outstanding[connection].add(nonce);
+function holdSigned(
+  world: World,
+  connection: ConnectionIndex,
+  nonce: bigint,
+  owner: number | undefined,
+): void {
+  if (!isOpen(world, connection)) {
+    return;
+  }
+  const existing = world.outstanding[connection].get(nonce);
+  if (existing === undefined) {
+    world.outstanding[connection].set(nonce, { owner, replaced: false });
+  } else if (existing.owner !== owner) {
+    // Several copies at the nonce: none of them alone ends the hold.
+    existing.owner = undefined;
+  }
+}
+
+/**
+ * A connection records a transaction at a held nonce. On http the mark keeps the nonce used, so
+ * the hold ends; on edr-simulated it ends for the copy itself, and another transaction only
+ * replaces it (#537).
+ */
+function recordHeld(
+  world: World,
+  connection: ConnectionIndex,
+  nonce: bigint,
+  sender: number,
+): void {
+  const held = world.outstanding[connection].get(nonce);
+  if (held === undefined) {
+    return;
+  }
+  if (world.type === "http" || held.owner === sender) {
+    world.outstanding[connection].delete(nonce);
+  } else {
+    held.replaced = true;
   }
 }
 
@@ -834,9 +880,7 @@ function noteOutstanding(world: World, send: Send, error: unknown, step: string)
   const nonce = outstandingNonce(error);
   if (nonce !== undefined) {
     checkClaim(world, send, nonce, step);
-    if (isOpen(world, send.connection)) {
-      world.outstanding[send.connection].add(nonce);
-    }
+    holdSigned(world, send.connection, nonce, undefined);
   }
 }
 
@@ -906,12 +950,12 @@ function librarySignOutstanding(index: number, outcome: Outcome = "sent"): Step 
           } catch (error) {
             send.state = "sign-failed";
             const held = outstandingNonce(error);
-            if (held !== undefined && isOpen(world, send.connection)) {
-              world.outstanding[send.connection].add(held);
+            if (held !== undefined) {
+              holdSigned(world, send.connection, held, undefined);
             }
             throw error;
           }
-          holdSigned(world, send.connection, nonce);
+          holdSigned(world, send.connection, nonce, send.id);
           send.state = "signed";
         })(send.nonce),
       );
@@ -962,12 +1006,12 @@ function signOnly(connection: ConnectionIndex, outcome?: Outcome): Step {
             const raw = resultOf(response);
             assert.ok(typeof raw === "string");
             claim(nonceOf(raw));
-            holdSigned(world, connection, nonceOf(raw));
+            holdSigned(world, connection, nonceOf(raw), send.id);
           } catch (error) {
             const nonce = outstandingNonce(error);
             if (nonce !== undefined) {
               claim(nonce);
-              holdSigned(world, connection, nonce);
+              holdSigned(world, connection, nonce, undefined);
             }
             throw error;
           }
@@ -1390,7 +1434,7 @@ async function newWorld(
     fell: false,
     stale: new Set(),
     hangs: new Map(),
-    outstanding: [new Set(), new Set()],
+    outstanding: [new Map(), new Map()],
   };
   harness.state.hang = (transaction) => world.hangs.get(transaction.value);
   harness.node.onRaw = onRaw(world);
@@ -1409,7 +1453,7 @@ async function newWorld(
     // The connection records the transaction it looked up, which ends its hold of the nonce.
     const index = world.connections.indexOf(connection);
     if (index === 0 || index === 1) {
-      world.outstanding[index].delete(nonceOf(found));
+      recordHeld(world, index, nonceOf(found), valueOf(found));
     }
     return { hash };
   };
