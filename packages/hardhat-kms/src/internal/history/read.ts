@@ -54,17 +54,29 @@ const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_.]{0,63}$/;
 const DIGEST = /^0x[0-9a-f]{64}$/;
 const KEY_VERSION = /^[A-Za-z0-9._-]{1,64}$/;
 
-/** Explains why no reader claimed a key: its provider package is missing, or no plugin reads it. */
-function noReaderError(key: KmsKeyConfig, details: ErrorDetails): Error {
-  const provider = builtinProvider(key.provider);
-  if (provider !== undefined && "package" in provider.adapter) {
-    return catalogError(
-      ERRORS.historyNoReaderBuiltin,
-      { name: provider.name, package: provider.adapter.package },
-      details,
-    );
+/**
+ * Explains why no reader claimed a key: its provider package has no reader yet, the package is
+ * missing, or no plugin reads the provider.
+ *
+ * @param providerId - The key's provider id.
+ * @param details - The provider, the operation and the key, for the message's prefix.
+ * @returns The error to throw.
+ */
+export function noReaderError(providerId: string, details: ErrorDetails): HardhatPluginError {
+  const provider = builtinProvider(providerId);
+  if (provider === undefined || !("package" in provider.adapter)) {
+    return catalogError(ERRORS.historyNoReader, { provider: providerId }, details);
   }
-  return catalogError(ERRORS.historyNoReader, { provider: key.provider }, details);
+  const params = { name: provider.name, package: provider.adapter.package };
+  if (provider.adapter.historyReader) {
+    return catalogError(ERRORS.historyNoReaderBuiltin, params, details);
+  }
+  // No key: a Turnkey display id holds the organization id and the address, and the message does
+  // not depend on the key.
+  return catalogError(ERRORS.historyUnsupported, params, {
+    provider: details.provider,
+    operation: details.operation,
+  });
 }
 
 /**
@@ -128,7 +140,7 @@ export async function readSignHistory(
           [{ ...request, signal }],
           async (_finalContext, finalRequest) => {
             log("%s: no plugin reads this provider's audit log", finalRequest.key.displayId);
-            unclaimed = noReaderError(finalRequest.key, details);
+            unclaimed = noReaderError(finalRequest.key.provider, details);
             return await Promise.reject(unclaimed);
           },
         ),

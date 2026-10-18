@@ -257,6 +257,32 @@ describe("kms history", () => {
     );
   });
 
+  it("says a Turnkey key cannot be read yet, without naming its organization or address", async () => {
+    const organizationId = "0f1e2d3c-4b5a-4697-8877-665544332211";
+    const address = "0x1111111111111111111111111111111111111111";
+    const hre = await runtime({
+      keys: {
+        signer: {
+          provider: "turnkey",
+          organizationId,
+          address,
+          apiPrivateKey: configVariable("HHKMS_HISTORY_KEY_ID"),
+        },
+      },
+    });
+
+    const run = await history(hre, { key: "signer" });
+
+    assertPluginError(
+      run.error,
+      "turnkey, history: kms history does not read Turnkey keys yet: @hardhat-kms/turnkey signs with them but has no audit log reader. Read the key's activity with Turnkey's own tools",
+    );
+    assert.ok(run.error instanceof Error);
+    assert.ok(!run.error.message.includes(organizationId));
+    assert.ok(!run.error.message.includes(address.slice(2)));
+    assert.equal(run.stdout, "");
+  });
+
   it("passes keys along the chain: each reader reads only its own provider", async () => {
     const aws = fakeHistoryReader("aws", (request) => answerIn(request, { requestId: "from-aws" }));
     const vault = fakeHistoryReader("myvault", (request) =>

@@ -14,10 +14,22 @@ describe("provider registry", () => {
     for (const [id, provider] of Object.entries(BUILTIN_PROVIDERS)) {
       assert.equal(provider.id, id);
     }
-    assert.deepEqual(builtinProvider("aws")?.adapter, { package: "@hardhat-kms/aws" });
-    assert.deepEqual(builtinProvider("gcp")?.adapter, { package: "@hardhat-kms/gcp" });
-    assert.deepEqual(builtinProvider("azure")?.adapter, { package: "@hardhat-kms/azure" });
-    assert.deepEqual(builtinProvider("turnkey")?.adapter, { package: "@hardhat-kms/turnkey" });
+    assert.deepEqual(builtinProvider("aws")?.adapter, {
+      package: "@hardhat-kms/aws",
+      historyReader: true,
+    });
+    assert.deepEqual(builtinProvider("gcp")?.adapter, {
+      package: "@hardhat-kms/gcp",
+      historyReader: true,
+    });
+    assert.deepEqual(builtinProvider("azure")?.adapter, {
+      package: "@hardhat-kms/azure",
+      historyReader: true,
+    });
+    assert.deepEqual(builtinProvider("turnkey")?.adapter, {
+      package: "@hardhat-kms/turnkey",
+      historyReader: false,
+    });
     assert.equal(builtinProvider("turnkey")?.name, "Turnkey");
   });
 

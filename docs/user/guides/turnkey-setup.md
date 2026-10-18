@@ -357,7 +357,7 @@ Turnkey keeps every activity, with its parameters and result, and "all users hav
 
 Do not sign a message you would not show every user of the organization.
 
-`kms history` does not read Turnkey's activity log yet. For a Turnkey key it fails with `core.history.no-reader-builtin`, whose advice to install `@hardhat-kms/turnkey` does not apply. Read the activities in the dashboard, or with Turnkey's `list_activities` query.
+`kms history` does not read Turnkey's activity log yet. For a Turnkey key it fails with `core.history.unsupported`. Read the activities in the dashboard, or with Turnkey's `list_activities` query.
 
 ## Errors
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { parseHistoryResult } from "../../../src/internal/history/read.ts";
+import { noReaderError, parseHistoryResult } from "../../../src/internal/history/read.ts";
 import type { KmsHistoryRequest } from "../../../src/types.ts";
 import { historyEvent, historyResult } from "../../helpers/fake-history-reader.ts";
 
@@ -504,5 +504,41 @@ describe("parseHistoryResult", () => {
     assert.deepEqual(problemsOf({ ...historyResult(), notes: [1] }), [
       "notes[0] must be an object",
     ]);
+  });
+});
+
+/** The details `kms history` passes for a key named `k` of this provider. */
+function details(provider: string) {
+  return { provider, operation: "history", key: `${provider}:k` };
+}
+
+describe("noReaderError", () => {
+  it("says kms history does not read a built-in provider whose package has no reader, without the key", () => {
+    assert.equal(
+      noReaderError("turnkey", details("turnkey")).message,
+      "turnkey, history: kms history does not read Turnkey keys yet: @hardhat-kms/turnkey signs with them but has no audit log reader. Read the key's activity with Turnkey's own tools",
+    );
+  });
+
+  it("names the package of a built-in provider with a reader", () => {
+    for (const { id, name } of [
+      { id: "aws", name: "AWS KMS" },
+      { id: "gcp", name: "Google Cloud KMS" },
+      { id: "azure", name: "Azure Key Vault" },
+    ]) {
+      assert.equal(
+        noReaderError(id, details(id)).message,
+        `${id}, history, key ${id}:k: no installed plugin reads ${name} audit logs. The reader ships in @hardhat-kms/${id}; install or update it to the same version as hardhat-kms, and add it to \`plugins\` in your Hardhat config`,
+      );
+    }
+  });
+
+  it("names a third-party provider, and Object.prototype names, as such", () => {
+    for (const id of ["myvault", "constructor"]) {
+      assert.equal(
+        noReaderError(id, details(id)).message,
+        `${id}, history, key ${id}:k: no plugin reads the audit log of "${id}" keys, so kms history cannot list this key's sign events`,
+      );
+    }
   });
 });

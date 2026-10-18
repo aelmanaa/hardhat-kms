@@ -11,5 +11,5 @@ export const turnkeyProvider: KmsProviderDescriptor = {
       ? resolveTurnkeyKey(key, context)
       : wrongProvider("turnkey", key.provider),
   name: "Turnkey",
-  adapter: { package: "@hardhat-kms/turnkey" },
+  adapter: { package: "@hardhat-kms/turnkey", historyReader: false },
 };

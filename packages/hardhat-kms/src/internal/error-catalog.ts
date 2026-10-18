@@ -1917,6 +1917,16 @@ export const ERRORS = {
       "The key's provider is built in, but its provider package is not in `plugins`, or it is a version without a history reader.",
     fix: "Install the package the message names, at the same version as hardhat-kms, and add its plugin to `plugins`.",
   },
+  historyUnsupported: {
+    id: "core.history.unsupported",
+    kind: "error",
+    group: "History",
+    template:
+      "kms history does not read {name} keys yet: {package} signs with them but has no audit log reader. Read the key's activity with {name}'s own tools",
+    cause:
+      "The key's provider is built in, but its provider package has no history reader in this release, so installing or updating the package does not help.",
+    fix: "Read the key's sign events with the provider's own tools: for Turnkey, the activities in the dashboard or the `list_activities` query.",
+  },
   historyReadFailed: {
     id: "core.history.read-failed",
     kind: "error",

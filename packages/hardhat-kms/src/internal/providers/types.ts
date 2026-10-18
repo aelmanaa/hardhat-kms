@@ -5,8 +5,11 @@ import type { KeyResolveContext } from "../config/key-common.ts";
 
 /** Where a first-party provider's adapter comes from. */
 type ProviderAdapterSource =
-  /** The npm package whose plugin adds the adapter through the `kms` hook. */
-  | { package: string }
+  /**
+   * The npm package whose plugin adds the adapter through the `kms` hook. `historyReader` says
+   * whether the package also reads the provider's audit log for `kms history`.
+   */
+  | { package: string; historyReader: boolean }
   /** The adapter is not written yet; the issue tracks it. */
   | { issue: number };
 
