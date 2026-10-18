@@ -812,7 +812,7 @@ describe("a Turnkey transaction that Turnkey has not finished when the plugin gi
         assert.ok(error instanceof Error);
         assert.match(
           error.message,
-          /^turnkey, sign transaction, key turnkey:<HHKMS_TEST_TURNKEY_ORGANIZATION>\/0x[0-9a-fA-F]{40}: no answer within 1300 ms\. The request reached the provider, and Turnkey may still sign this transaction \(activity 00000000-0000-4000-8000-[0-9]{12}\); anyone who can read it there can then broadcast it with nonce 0\. Reject the activity in the Turnkey dashboard while it is pending; then, or if it completed, send a replacement transaction with nonce 0, before any other transaction from this account\. Until a transaction with nonce 0 reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 0/,
+          /^turnkey, sign transaction, key turnkey:<HHKMS_TEST_TURNKEY_ORGANIZATION>\/0x[0-9a-fA-F]{40}: no answer within 1300 ms\. The request reached the provider, and Turnkey may still sign this transaction \(activity 00000000-0000-4000-8000-[0-9]{12}\); anyone who can read it there can then broadcast it with nonce 0\. Reject the activity in the Turnkey dashboard while it is pending; then, or if it completed, send a replacement transaction with nonce 0, before any other transaction from this account\. Until nonce 0 is mined, the provider's copy itself reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 0/,
         );
         assert.ok(!error.message.includes(ORGANIZATION));
         return true;

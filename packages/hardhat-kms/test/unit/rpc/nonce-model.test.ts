@@ -224,6 +224,21 @@ interface World {
   tick: (ms: number) => void;
   /** The node's transactions at the last `evm_snapshot`, until a revert uses it. */
   snapshot?: Map<bigint, Delivered>;
+  /** The node's mined count at the last `evm_snapshot`. */
+  snapshotMined?: bigint;
+  /**
+   * The node's mined transaction count (`latest`): the `mine` step mines every transaction below
+   * the pending count. A drop takes only a pool transaction, at or above it (#537).
+   */
+  mined: bigint;
+  /** The node's `latest` count read fails while set (#537). */
+  latestFails: boolean;
+  /**
+   * By connection: held nonces the plugin may have ended because they were mined (#537). A revert
+   * can bring such a nonce back, which the plugin does not see; a send may then sign it (a known
+   * limit on local networks), and the nonce may also still be held.
+   */
+  minedHolds: [Set<bigint>, Set<bigint>];
   /** The node's pending count has fallen in this sequence. */
   fell: boolean;
   /**
@@ -266,6 +281,9 @@ function lowestFree(world: World): bigint {
     // A nonce the provider may still sign is skipped on its connection (#537).
     ...world.outstanding[0].keys(),
     ...world.outstanding[1].keys(),
+    // The plugin ends these only at its next nonce choice, and not if the read fails.
+    ...world.minedHolds[0],
+    ...world.minedHolds[1],
   ]);
   let nonce = pendingOf(world);
   while (world.delivered.has(nonce) || given.has(nonce) || world.stale.has(nonce)) {
@@ -849,8 +867,7 @@ function holdSigned(
  * A connection records a transaction at a held nonce. On http the mark keeps the nonce used, so
  * the hold ends; on edr-simulated it ends for the copy itself only. Another transaction stands in
  * for the copy while the node keeps it, and the node can drop it, so the plugin ends that hold only
- * once the nonce is mined (#537). The model's node never reports a nonce mined (its `latest` count
- * is 0, since drops and reverts can take any transaction back), so such a hold never ends here.
+ * once the nonce is mined (#537): the `mine` step moves it to the connection's `minedHolds`.
  */
 function recordHeld(
   world: World,
@@ -1182,6 +1199,7 @@ function close(connection: ConnectionIndex): Step {
       }
       world.closed[connection] = true;
       world.outstanding[connection].clear();
+      world.minedHolds[connection].clear();
       for (const send of library(world)) {
         if (send.connection === connection) {
           send.orphaned = true;
@@ -1235,7 +1253,10 @@ function drop(index: number): Step {
     check: () => true,
     run: async (_model, world) => {
       const before = pendingOf(world);
-      const held = [...world.delivered.keys()].toSorted((a, b) => (a < b ? -1 : 1));
+      // Only pool transactions: a mined one cannot be dropped.
+      const held = [...world.delivered.keys()]
+        .filter((nonce) => nonce >= world.mined)
+        .toSorted((a, b) => (a < b ? -1 : 1));
       const nonce = held[index % Math.max(held.length, 1)];
       if (world.type !== "edr-simulated" || !quiet(world) || nonce === undefined) {
         return;
@@ -1322,6 +1343,7 @@ const snapshot: Step = {
   run: async (_model, world) => {
     if (world.type === "edr-simulated" && quiet(world)) {
       world.snapshot = new Map(world.delivered);
+      world.snapshotMined = world.mined;
     }
     await Promise.resolve();
   },
@@ -1341,12 +1363,49 @@ const revert: Step = {
     }
     const before = pendingOf(world);
     world.delivered = new Map(saved);
+    world.mined = world.snapshotMined ?? 0n;
     delete world.snapshot;
     nodeChanged(world, before);
     await Promise.resolve();
   },
   toString: () => "revert",
 };
+
+/**
+ * Mines every transaction below the pending count (#537): the node's `latest` count rises to it.
+ * The plugin ends the holds below it at its next nonce choice, so the model stops checking them.
+ */
+const mine: Step = {
+  check: () => true,
+  run: async (_model, world) => {
+    if (!quiet(world)) {
+      return;
+    }
+    world.mined = pendingOf(world);
+    for (const connection of [0, 1] as const) {
+      for (const nonce of world.outstanding[connection].keys()) {
+        if (nonce < world.mined) {
+          world.outstanding[connection].delete(nonce);
+          world.minedHolds[connection].add(nonce);
+        }
+      }
+    }
+    await Promise.resolve();
+  },
+  toString: () => "mine",
+};
+
+/** Makes the node's `latest` count read fail, or answer again (#537). */
+function latestFails(fails: boolean): Step {
+  return {
+    check: () => true,
+    run: async (_model, world) => {
+      world.latestFails = fails;
+      await Promise.resolve();
+    },
+    toString: () => `latestFails(${fails})`,
+  };
+}
 
 const connectionArb = fc.constantFrom<ConnectionIndex>(0, 1);
 const indexArb = fc.nat({ max: 2 });
@@ -1384,6 +1443,8 @@ const stepArbs: [fc.Arbitrary<Step>, number][] = [
   [fc.nat({ max: 3 }).map(replace), 1],
   [fc.nat({ max: 3 }).map(unansweredPair), 1],
   [fc.constant(snapshot), 1],
+  [fc.constant(mine), 1],
+  [fc.boolean().map(latestFails), 1],
   [fc.constant(revert), 1],
 ];
 
@@ -1429,12 +1490,20 @@ async function newWorld(
     fell: false,
     stale: new Set(),
     hangs: new Map(),
+    mined: 0n,
+    latestFails: false,
+    minedHolds: [new Set(), new Set()],
     outstanding: [new Map(), new Map()],
   };
   harness.state.hang = (transaction) => world.hangs.get(transaction.value);
-  // Nothing counts as mined: a drop or a revert can take any transaction back (#537).
-  harness.node.count = (tag) =>
-    tag === "latest" ? "0x0" : `0x${harness.node.pending.toString(16)}`;
+  // The `mine` step sets the mined count; `latestFails` makes its read fail (#537).
+  harness.node.count = (tag) => {
+    if (tag !== "latest") {
+      return `0x${harness.node.pending.toString(16)}`;
+    }
+    assert.ok(!world.latestFails, "the node's latest count read failed");
+    return `0x${world.mined.toString(16)}`;
+  };
   harness.node.onRaw = onRaw(world);
   harness.node.lookUp = (hash, connection) => {
     if (typeof hash === "string") {
@@ -1727,6 +1796,21 @@ const KNOWN_537: { name: string; type: "http" | "edr-simulated"; steps: Step[] }
       libraryBroadcast(0, 0),
       pluginSend(0),
       drop(0),
+      pluginSend(0),
+    ],
+  },
+  {
+    name: "a stand-in at a held nonce that is mined ends the hold, unless the mined count fails",
+    type: "edr-simulated",
+    steps: [
+      outstandingSend(0, "sent"),
+      libraryConsume(1, "through"),
+      librarySign(0),
+      libraryBroadcast(0, 0),
+      latestFails(true),
+      mine,
+      pluginSend(0),
+      latestFails(false),
       pluginSend(0),
     ],
   },

@@ -1218,15 +1218,41 @@ async function refuseProviderCopy(
   );
 }
 
-/** The node's mined transaction count for the sender (`latest`), or `undefined` on failure. */
+/** A JSON-RPC quantity of at most 64 bits: `0x`, then hex digits without leading zeros. */
+const QUANTITY = /^0x(?:0|[1-9a-f][0-9a-f]{0,15})$/i;
+
+/**
+ * The node's transaction count for the sender at a block tag, or `undefined` when the request
+ * fails or the answer is not a quantity of at most 64 bits.
+ */
+async function transactionCount(
+  transactions: ConnectionTransactions,
+  address: string,
+  tag: "latest" | "pending",
+): Promise<bigint | undefined> {
+  const count: unknown = await transactions
+    .request("eth_getTransactionCount", [address, tag])
+    .catch(() => undefined);
+  return typeof count === "string" && QUANTITY.test(count) ? BigInt(count) : undefined;
+}
+
+/**
+ * The node's mined transaction count for the sender (`latest`), trusted only when the node's
+ * pending count, read after it, is not below it, as it never is on a consistent node; otherwise
+ * `undefined`. Every caller treats `undefined` as nothing mined: a failed, malformed or
+ * inconsistent answer must never end a hold (#537).
+ */
 async function minedCount(
   transactions: ConnectionTransactions,
   address: string,
 ): Promise<bigint | undefined> {
-  const count: unknown = await transactions
-    .request("eth_getTransactionCount", [address, "latest"])
-    .catch(() => undefined);
-  return typeof count === "string" ? hexStringToBigInt(count) : undefined;
+  const mined = await transactionCount(transactions, address, "latest");
+  if (mined === undefined) {
+    return undefined;
+  }
+  const pending = await transactionCount(transactions, address, "pending");
+  // A failed pending count trusts nothing: no mined count is at or below -1.
+  return mined <= (pending ?? -1n) ? mined : undefined;
 }
 
 /**

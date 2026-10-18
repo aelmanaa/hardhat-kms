@@ -356,7 +356,7 @@ To check the typed-data and digest clauses as well, sign one of each, for exampl
 For a transaction the plugin therefore keeps its nonce held instead of signing it again, and says so:
 
 ```text
-turnkey, sign transaction, key turnkey:<TURNKEY_ORGANIZATION_ID>/0x…: no answer within 30000 ms. The request reached the provider, and Turnkey may still sign this transaction (activity 00000000-0000-0000-0000-000000000000); anyone who can read it there can then broadcast it with nonce 7. Reject the activity in the Turnkey dashboard while it is pending; then, or if it completed, send a replacement transaction with nonce 7, before any other transaction from this account. Until a transaction with nonce 7 reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 7, so they wait behind a gap that the replacement fills
+turnkey, sign transaction, key turnkey:<TURNKEY_ORGANIZATION_ID>/0x…: no answer within 30000 ms. The request reached the provider, and Turnkey may still sign this transaction (activity 00000000-0000-0000-0000-000000000000); anyone who can read it there can then broadcast it with nonce 7. Reject the activity in the Turnkey dashboard while it is pending; then, or if it completed, send a replacement transaction with nonce 7, before any other transaction from this account. Until nonce 7 is mined, the provider's copy itself reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 7, so they wait behind a gap that the replacement fills
 ```
 
 The message starts with the cause: `no answer within … ms`, `cancelled by the caller's abort signal`, or the Turnkey error, such as `Turnkey holds activity … until it gets more approvals`. It shows the activity id only when it is a UUID. If the request timed out before Turnkey answered at all, the message says the id is not known: look for the account's newest `sign_transaction` activity instead.
@@ -364,8 +364,9 @@ The message starts with the cause: `no answer within … ms`, `cancelled by the 
 What the plugin does until you settle it:
 
 - The script's later sends from the account through the same network connection skip the nonce. Each takes a later nonce, which leaves a gap: a live network keeps those transactions queued until a transaction with the held nonce is mined, and Hardhat's simulated network refuses them with "nonce too high".
-- The hold ends when a transaction with that nonce reaches the node through the connection, for example the replacement below, or when the connection closes. It does not end when you reject the activity, which the plugin cannot see.
+- The hold ends once nonce N is mined, for example by the replacement below, when Turnkey's copy itself reaches the node through the connection, or when the connection closes. On a live network a replacement accepted through the connection ends it at once. It does not end when you reject the activity, which the plugin cannot see.
 - Another network connection, and the next run of the script, do not see the hold and can sign the nonce again. Settle the activity first.
+- On a local network, `evm_revert` and `hardhat_reset` can undo the mined transaction that ended a hold. The plugin does not restore the hold, so a later send can sign that nonce while Turnkey's copy is valid again. Settle the activity before you revert.
 
 To settle it, open the activity in the Turnkey dashboard, or read it with `get_activity` ([Reject the pending activity](#reject-the-pending-activity)):
 

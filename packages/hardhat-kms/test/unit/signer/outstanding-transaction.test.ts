@@ -34,7 +34,7 @@ const TRANSACTION: TransactionToSign = {
   nonce: 7n,
 };
 const HOLD =
-  ". Until a transaction with nonce 7 reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 7, so they wait behind a gap that the replacement fills";
+  ". Until nonce 7 is mined, the provider's copy itself reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 7, so they wait behind a gap that the replacement fills";
 
 /** What the fake's signing methods do before they never answer. */
 interface Behaviour {
@@ -256,7 +256,7 @@ describe("a transaction the provider may still sign after a timeout or abort (#5
     assertOutstanding(error);
     assert.equal(
       error.message,
-      `turnkey, sign transaction, key fake-key-1: no answer within 1300 ms. The request reached the provider, and Turnkey may still sign this transaction (activity ${ID}); anyone who can read it there can then broadcast it with nonce 7. Reject the activity in the Turnkey dashboard while it is pending; then, or if it completed, send a replacement transaction with nonce 7, before any other transaction from this account. Until a transaction with nonce 7 reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 7, so they wait behind a gap that the replacement fills`,
+      `turnkey, sign transaction, key fake-key-1: no answer within 1300 ms. The request reached the provider, and Turnkey may still sign this transaction (activity ${ID}); anyone who can read it there can then broadcast it with nonce 7. Reject the activity in the Turnkey dashboard while it is pending; then, or if it completed, send a replacement transaction with nonce 7, before any other transaction from this account. Until nonce 7 is mined, the provider's copy itself reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 7, so they wait behind a gap that the replacement fills`,
     );
   });
 

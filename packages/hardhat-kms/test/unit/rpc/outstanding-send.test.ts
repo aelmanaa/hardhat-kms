@@ -270,7 +270,7 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     assert.ok(error instanceof HardhatPluginError, String(error));
     assert.equal(
       error.message,
-      `eth_sendTransaction: the node refused the transaction with nonce 0 (insufficient funds, code -32000), but the provider keeps it signed (request ${PENDING_REQUEST_ID}), and anyone who can read it there can broadcast it once the node would take it. This connection's sends from the account skip nonce 0 until a transaction with it reaches the node through the connection. Fix the cause, such as the account's funds or the fees, then send a replacement transaction with nonce 0, or broadcast that signed transaction`,
+      `eth_sendTransaction: the node refused the transaction with nonce 0 (insufficient funds, code -32000), but the provider keeps it signed (request ${PENDING_REQUEST_ID}), and anyone who can read it there can broadcast it once the node would take it. This connection's sends from the account skip nonce 0 until it is mined, or the provider's copy itself reaches the node through the connection. Fix the cause, such as the account's funds or the fees, then send a replacement transaction with nonce 0, or broadcast that signed transaction`,
     );
     harness.node.onRaw = undefined;
     resultOf(await harness.send(connection, transfer(2)));
@@ -304,16 +304,22 @@ describe("a send whose signature the provider may still complete (#537)", () => 
       const tags: unknown[] = [];
       harness.node.count = (tag) => {
         tags.push(tag);
-        // Another transaction at nonce 0 was mined, but the pool still counts as pending 0.
-        return tag === "latest" ? "0x1" : `0x${harness.node.pending.toString(16)}`;
+        return `0x${harness.node.pending.toString(16)}`;
       };
-      refuse(harness.node, message);
+      harness.node.onRaw = async () => {
+        // Another transaction at nonce 0 was mined meanwhile.
+        harness.node.pending = 1n;
+        return await Promise.resolve({
+          jsonrpc: "2.0" as const,
+          id: 1,
+          error: { code: -32000, message },
+        });
+      };
       const response = await harness.send(connection, transfer(1)).catch((error: unknown) => error);
       assert.ok(!(response instanceof HardhatPluginError), String(response));
       assert.ok(tags.includes("latest"), JSON.stringify(tags));
       // The hold below the mined count ended: the next send reads no mined count.
       harness.node.onRaw = undefined;
-      harness.node.pending = 1n;
       tags.length = 0;
       resultOf(await harness.send(connection, transfer(2)));
       assert.ok(!tags.includes("latest"), JSON.stringify(tags));
@@ -582,6 +588,143 @@ async function library(connection: NetworkConnection<string>, chainId: number, c
       }),
   };
 }
+
+/**
+ * Answers to `eth_getTransactionCount` at `latest` that must end no hold: a failed read, a value
+ * that is not a quantity, one too large, or one above the pending count (#537).
+ */
+const BAD_MINED_COUNTS: [string, (pending: bigint) => unknown][] = [
+  ["a failed read", () => assert.fail("the node did not answer")],
+  ["a number", () => 5],
+  ["null", () => null],
+  ["text", () => "five"],
+  ["hex with a leading zero", () => "0x05"],
+  ["hex without 0x", () => "5"],
+  ["more than 64 bits", () => `0x1${"0".repeat(16)}`],
+  ["text before a quantity", () => "junk0x1"],
+  ["text after a quantity", () => "0x1junk"],
+  ["a count above the pending count", (pending) => `0x${(pending + 5n).toString(16)}`],
+];
+
+/** Holds nonce 0 after a timed-out signature, then makes `latest` answer `bad`. */
+async function heldWithBadCount(
+  t: TestContext,
+  bad: (pending: bigint) => unknown,
+  type: "http" | "edr-simulated" = "http",
+) {
+  const setup = await harnessFor(t, type);
+  const { harness, connection } = setup;
+  hangOn(harness, 99n, "sent");
+  assertOutstanding(await timedOut(t, harness.send(connection, transfer(99))), 0n);
+  const signed: bigint[] = [];
+  harness.state.hang = (transaction) => {
+    signed.push(transaction.nonce);
+    return undefined;
+  };
+  const latest: unknown[] = [];
+  harness.node.count = (tag) => {
+    latest.push(tag);
+    if (tag === "pending") {
+      return `0x${harness.node.pending.toString(16)}`;
+    }
+    assert.equal(tag, "latest", "only the pending and the mined counts are read");
+    return bad(harness.node.pending);
+  };
+  return { ...setup, signed, latest };
+}
+
+describe("a failed or untrusted mined count frees no held nonce (#537)", () => {
+  for (const [name, bad] of BAD_MINED_COUNTS) {
+    for (const type of ["http", "edr-simulated"] as const) {
+      it(`keeps the hold for a send after ${name}, on ${type}`, async (t) => {
+        const { harness, connection, signed, latest } = await heldWithBadCount(t, bad, type);
+        resultOf(await harness.send(connection, transfer(1)));
+        assert.ok(latest.includes("latest"), "the mined count was read");
+        assert.deepEqual(signed, [1n], "nothing was signed at the held nonce 0");
+        assert.deepEqual(harness.node.raw.map(nonceOf), [1n]);
+      });
+    }
+
+    it(`keeps the hold for a flagged eth_signTransaction after ${name}`, async (t) => {
+      const { harness, connection, signed, latest } = await heldWithBadCount(t, bad);
+      const raw = resultOf(await harness.request(connection, "eth_signTransaction", transfer(1)));
+      assert.ok(latest.includes("latest"));
+      assert.equal(nonceOf(String(raw)), 1n);
+      assert.deepEqual(signed, [1n]);
+    });
+
+    it(`keeps the hold for a library consume after ${name}`, async (t) => {
+      const { connection, chainId, latest } = await heldWithBadCount(t, bad);
+      const account = await connection.kms.getAccount(COW);
+      const parameters = { address: account.address, chainId, client: HTTP_CLIENT };
+      assert.equal(await account.nonceManager.consume(parameters), 1);
+      assert.ok(latest.includes("latest"));
+    });
+  }
+
+  it("reads the pending count to check the mined count only when the mined count is a quantity", async (t) => {
+    const { harness, connection, latest } = await heldWithBadCount(t, () => "five");
+    resultOf(await harness.send(connection, transfer(1)));
+    // The mined count, then the send's own fill: no pending read for an unusable mined count.
+    assert.deepEqual(latest, ["latest", "pending"]);
+  });
+
+  it("keeps the hold when the mined count is an array that reads as a quantity", async (t) => {
+    const { harness, connection, latest } = await heldWithBadCount(t, () => ["0x1"]);
+    harness.node.pending = 1n;
+    resultOf(await harness.send(connection, transfer(1)));
+    latest.length = 0;
+    resultOf(await harness.send(connection, transfer(2)));
+    assert.ok(latest.includes("latest"), "nonce 0 is still held, so the mined count is read");
+  });
+
+  it("ends the hold once a consistent mined count passes the nonce", async (t) => {
+    const { harness, connection, signed, latest } = await heldWithBadCount(t, (pending) =>
+      pending > 0n ? "0x1" : "0x0",
+    );
+    harness.node.pending = 1n;
+    resultOf(await harness.send(connection, transfer(1)));
+    assert.deepEqual(signed, [1n]);
+    // The hold ended: the next send reads no mined count.
+    latest.length = 0;
+    harness.node.pending = 2n;
+    resultOf(await harness.send(connection, transfer(2)));
+    assert.ok(!latest.includes("latest"), JSON.stringify(latest));
+  });
+
+  it("trusts no mined count when the pending count read fails", async (t) => {
+    const { harness, connection, signed } = await heldWithBadCount(t, () => "0x1");
+    let pendingFails = true;
+    harness.node.count = (tag) => {
+      if (tag === "latest") {
+        return "0x1";
+      }
+      // Only the mined count's check fails; the send's fill reads the count as usual.
+      if (pendingFails) {
+        pendingFails = false;
+        assert.fail("no pending count");
+      }
+      return `0x${harness.node.pending.toString(16)}`;
+    };
+    harness.node.pending = 1n;
+    resultOf(await harness.send(connection, transfer(1)));
+    // The node lost that send and reports nothing mined: nonce 0 must still be held.
+    harness.node.count = () => "0x0";
+    harness.node.pending = 0n;
+    resultOf(await harness.send(connection, transfer(2)));
+    assert.ok(!signed.includes(0n), `nothing was signed at the held nonce 0: ${signed.join(", ")}`);
+  });
+
+  it("keeps the hold of a refused copy when the mined count is untrusted", async (t) => {
+    for (const [, bad] of BAD_MINED_COUNTS) {
+      const { harness, connection } = await harnessFor(t);
+      harness.node.count = (tag) =>
+        tag === "latest" ? bad(harness.node.pending) : `0x${harness.node.pending.toString(16)}`;
+      refuse(harness.node, "nonce too low");
+      await assert.rejects(harness.send(connection, transfer(1)), /\(refused, code -32000\)/);
+    }
+  });
+});
 
 describe("a library account's transaction the provider may still complete (#537)", () => {
   for (const [name, client] of [

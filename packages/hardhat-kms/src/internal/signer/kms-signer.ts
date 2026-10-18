@@ -645,7 +645,7 @@ export class KmsSigner {
           nonce,
           reject: words.reject,
           hold: holdsNonce
-            ? `. Until a transaction with nonce ${nonce} reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce ${nonce}, so they wait behind a gap that the replacement fills`
+            ? `. Until nonce ${nonce} is mined, the provider's copy itself reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce ${nonce}, so they wait behind a gap that the replacement fills`
             : "",
         },
         // The operation as Turnkey's own transaction errors name it, not the signer's `sign`.
