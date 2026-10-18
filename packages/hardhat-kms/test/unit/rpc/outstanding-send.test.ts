@@ -147,10 +147,27 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     harness.node.raw.length = 0;
     resultOf(await harness.send(connection, transfer(3)));
     assert.deepEqual(harness.node.raw.map(nonceOf), [1n], "the never-broadcast copy still holds 0");
-    // Once the node's pending count passes 0, the hold ends.
+    // A pending count past 0 is not enough: the node could drop that pool transaction again.
     harness.node.pending = 2n;
+    const tags: unknown[] = [];
+    harness.node.count = (tag) => {
+      tags.push(tag);
+      return tag === "latest" ? "0x0" : `0x${harness.node.pending.toString(16)}`;
+    };
     resultOf(await harness.send(connection, transfer(4)));
-    assert.deepEqual(harness.node.raw.map(nonceOf), [1n, 2n]);
+    assert.ok(tags.includes("latest"), "the mined count is read while a nonce is held");
+    // Once a transaction at nonce 0 is mined, the hold ends, and the count is no longer read.
+    harness.node.count = (tag) => {
+      tags.push(tag);
+      return tag === "latest" ? "0x1" : `0x${harness.node.pending.toString(16)}`;
+    };
+    harness.node.pending = 3n;
+    resultOf(await harness.send(connection, transfer(5)));
+    harness.node.pending = 4n;
+    tags.length = 0;
+    resultOf(await harness.send(connection, transfer(6)));
+    assert.ok(!tags.includes("latest"), JSON.stringify(tags));
+    assert.deepEqual(harness.node.raw.map(nonceOf), [1n, 2n, 3n, 4n]);
   });
 
   it("releases the nonce when the request never left", async (t) => {
@@ -288,12 +305,18 @@ describe("a send whose signature the provider may still complete (#537)", () => 
       harness.node.count = (tag) => {
         tags.push(tag);
         // Another transaction at nonce 0 was mined, but the pool still counts as pending 0.
-        return tag === "latest" ? "0x1" : "0x0";
+        return tag === "latest" ? "0x1" : `0x${harness.node.pending.toString(16)}`;
       };
       refuse(harness.node, message);
       const response = await harness.send(connection, transfer(1)).catch((error: unknown) => error);
       assert.ok(!(response instanceof HardhatPluginError), String(response));
       assert.ok(tags.includes("latest"), JSON.stringify(tags));
+      // The hold below the mined count ended: the next send reads no mined count.
+      harness.node.onRaw = undefined;
+      harness.node.pending = 1n;
+      tags.length = 0;
+      resultOf(await harness.send(connection, transfer(2)));
+      assert.ok(!tags.includes("latest"), JSON.stringify(tags));
     }
   });
 

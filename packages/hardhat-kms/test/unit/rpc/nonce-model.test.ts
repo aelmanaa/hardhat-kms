@@ -119,13 +119,8 @@ type Mode = "accept" | "refuse" | "no-answer";
 
 /** A nonce a connection holds (#537). */
 interface Held {
-  /** The send whose provider copy it is; `undefined` when no signature came back. */
+  /** The send whose provider copy it is; `undefined` when no signature came back, or several. */
   owner: number | undefined;
-  /**
-   * On edr-simulated: another transaction at the nonce reached the node, so the plugin ends the
-   * hold once the pending count passes it. Until then a send may or may not sign the nonce.
-   */
-  replaced: boolean;
 }
 /**
  * What an outstanding signature does after its request was sent (#537): wait for the key's
@@ -304,7 +299,7 @@ const valueOf = (raw: string): number => Number(Transaction.fromHex(raw, false).
 function checkClaim(world: World, claimer: Send, nonce: bigint, step: string): void {
   // A connection forgets its holds when it closes (docs/contributor/transactions.md).
   const held = world.outstanding[claimer.connection].get(nonce);
-  if (isOpen(world, claimer.connection) && held !== undefined && !held.replaced) {
+  if (isOpen(world, claimer.connection) && held !== undefined) {
     world.violations.push({
       kind: "outstanding",
       message: `${step}: send ${claimer.id} on connection ${claimer.connection} signed nonce ${nonce}, which the provider may still sign for another send (#537)`,
@@ -843,7 +838,7 @@ function holdSigned(
   }
   const existing = world.outstanding[connection].get(nonce);
   if (existing === undefined) {
-    world.outstanding[connection].set(nonce, { owner, replaced: false });
+    world.outstanding[connection].set(nonce, { owner });
   } else if (existing.owner !== owner) {
     // Several copies at the nonce: none of them alone ends the hold.
     existing.owner = undefined;
@@ -852,8 +847,10 @@ function holdSigned(
 
 /**
  * A connection records a transaction at a held nonce. On http the mark keeps the nonce used, so
- * the hold ends; on edr-simulated it ends for the copy itself, and another transaction only
- * replaces it (#537).
+ * the hold ends; on edr-simulated it ends for the copy itself only. Another transaction stands in
+ * for the copy while the node keeps it, and the node can drop it, so the plugin ends that hold only
+ * once the nonce is mined (#537). The model's node never reports a nonce mined (its `latest` count
+ * is 0, since drops and reverts can take any transaction back), so such a hold never ends here.
  */
 function recordHeld(
   world: World,
@@ -867,8 +864,6 @@ function recordHeld(
   }
   if (world.type === "http" || held.owner === sender) {
     world.outstanding[connection].delete(nonce);
-  } else {
-    held.replaced = true;
   }
 }
 
@@ -1437,6 +1432,9 @@ async function newWorld(
     outstanding: [new Map(), new Map()],
   };
   harness.state.hang = (transaction) => world.hangs.get(transaction.value);
+  // Nothing counts as mined: a drop or a revert can take any transaction back (#537).
+  harness.node.count = (tag) =>
+    tag === "latest" ? "0x0" : `0x${harness.node.pending.toString(16)}`;
   harness.node.onRaw = onRaw(world);
   harness.node.lookUp = (hash, connection) => {
     if (typeof hash === "string") {
@@ -1715,6 +1713,21 @@ const KNOWN_537: { name: string; type: "http" | "edr-simulated"; steps: Step[] }
       signOnly(0),
       pluginSend(0),
       outstandingSend(0, "sent"),
+    ],
+  },
+  {
+    // QA4: a transaction at a nonce held for a timed-out copy (no hash) reaches the node from
+    // another send, passes the pending count, and is dropped: the copy is still valid (#537).
+    name: "a stand-in at a held nonce that the node drops leaves the nonce held",
+    type: "edr-simulated",
+    steps: [
+      outstandingSend(0, "sent"),
+      libraryConsume(1, "through"),
+      librarySign(0),
+      libraryBroadcast(0, 0),
+      pluginSend(0),
+      drop(0),
+      pluginSend(0),
     ],
   },
   {

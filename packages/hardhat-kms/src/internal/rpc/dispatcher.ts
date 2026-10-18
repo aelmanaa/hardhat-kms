@@ -736,6 +736,7 @@ async function sendTransaction(
         sends,
         async (hash) => await lookUpTransaction(transactions, hash),
       );
+      await settleMinedHolds(transactions, sends, address);
     }
     const signed = await accounts.signWith(
       kms.key,
@@ -821,6 +822,7 @@ async function signOnly(
   return await withSendLock(`${chainId}:${address}`, async () => {
     if (!kms.callerNonce) {
       await settleUncertain(address, sends, lookUp);
+      await settleMinedHolds(transactions, sends, address);
     }
     const signed = await accounts.signWith(
       kms.key,
@@ -1176,10 +1178,9 @@ async function broadcast(
  *
  * - The node's mined transaction count (`eth_getTransactionCount` at `latest`) is above the
  *   nonce: the nonce is used on chain, so the copy cannot be valid, whatever the node's message
- *   says (Geth's "nonce too low", Nethermind's `OldNonce`). The answer goes on. The hold stays,
- *   at no cost while the node's count is past it, in case a revert brings the nonce back. The
- *   pending count is not enough: a transaction in the pool can still be dropped. A failed count
- *   counts as not past.
+ *   says (Geth's "nonce too low", Nethermind's `OldNonce`). The answer goes on, and the holds
+ *   below the mined count end. The pending count is not enough: a transaction in the pool can
+ *   still be dropped. A failed count counts as not past.
  * - Otherwise the copy can become valid once the cause goes away. The nonce stays held (it was
  *   held at the signature), and the send fails with `core.tx.refused-provider-copy`, which names
  *   a fixed kind of refusal and the node's code, never the node's text (allow-listed error fields).
@@ -1196,7 +1197,10 @@ async function refuseProviderCopy(
   if (copy === undefined) {
     return;
   }
-  if (await minedPast(context.transactions, context.address, copy.nonce)) {
+  // A failed count counts as 0: nothing mined.
+  const mined = (await minedCount(context.transactions, context.address)) ?? 0n;
+  if (mined > copy.nonce) {
+    context.sends.settleMined(context.address, mined);
     return;
   }
   const { code, message } = error;
@@ -1214,16 +1218,31 @@ async function refuseProviderCopy(
   );
 }
 
-/** Whether the node's mined transaction count for the sender is above a nonce; `false` on failure. */
-async function minedPast(
+/** The node's mined transaction count for the sender (`latest`), or `undefined` on failure. */
+async function minedCount(
   transactions: ConnectionTransactions,
   address: string,
-  nonce: bigint,
-): Promise<boolean> {
+): Promise<bigint | undefined> {
   const count: unknown = await transactions
     .request("eth_getTransactionCount", [address, "latest"])
     .catch(() => undefined);
-  return typeof count === "string" && hexStringToBigInt(count) > nonce;
+  return typeof count === "string" ? hexStringToBigInt(count) : undefined;
+}
+
+/**
+ * Ends the sender's holds below the node's mined count (#537), before a nonce choice. It asks the
+ * node only while the sender holds a nonce. A failed count ends nothing.
+ */
+async function settleMinedHolds(
+  transactions: ConnectionTransactions,
+  sends: ConnectionSends,
+  address: string,
+): Promise<void> {
+  if (sends.outstandingNonces(address).length === 0) {
+    return;
+  }
+  // A failed count counts as 0, which ends no hold.
+  sends.settleMined(address, (await minedCount(transactions, address)) ?? 0n);
 }
 
 /**
@@ -1464,6 +1483,7 @@ export async function libraryNonce(
       sends,
       async (hash) => await lookUpTransaction(transactions, hash),
     );
+    await settleMinedHolds(transactions, sends, address);
     requireOpen();
     return await sends.chooseNonce(
       address,

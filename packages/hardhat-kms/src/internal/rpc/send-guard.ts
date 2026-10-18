@@ -690,12 +690,6 @@ interface HeldCopy {
    * own transaction. `undefined` when no signature came back, or when there are several copies.
    */
   copyHash: string | undefined;
-  /**
-   * With the high-water mark off: another transaction at the nonce reached the node, so the hold
-   * ends once the node's pending count passes the nonce. If the node drops that transaction first,
-   * the provider's copy, never broadcast, is still valid, and the nonce stays held.
-   */
-  replaced: boolean;
 }
 
 /** The viem resets of a sender that released no reservation yet, since each matched several. */
@@ -827,7 +821,6 @@ export class ConnectionSends {
    * @returns The nonce.
    */
   public nonceFor(from: string, pending: bigint): bigint {
-    this.#settleReplaced(from, pending);
     let nonce = pending;
     // -1n: no mark yet. recordSent keeps none when the mark is off.
     const mark = this.#highWater.get(from) ?? -1n;
@@ -852,16 +845,21 @@ export class ConnectionSends {
   }
 
   /**
-   * With the high-water mark off, ends the holds of nonces that another transaction replaced and
-   * that the node's pending count has passed: the node reports the nonce used.
+   * Ends the holds of nonces below the node's mined transaction count (`latest`, never the pending
+   * count, which counts pool transactions the node can still drop): a mined transaction uses the
+   * nonce, so no copy at it can be valid. Callers read the count only while the sender holds a
+   * nonce, so a hold left below the pending count does not make every later choice look it up.
+   *
+   * @param from - The sender's lowercase address.
+   * @param mined - The node's mined transaction count for the sender.
    */
-  #settleReplaced(from: string, pending: bigint): void {
+  public settleMined(from: string, mined: bigint): void {
     const held = this.#outstanding.get(from);
     if (held === undefined) {
       return;
     }
-    for (const [nonce, copy] of held) {
-      if (copy.replaced && nonce < pending) {
+    for (const nonce of held.keys()) {
+      if (nonce < mined) {
         held.delete(nonce);
       }
     }
@@ -890,7 +888,6 @@ export class ConnectionSends {
     pending: bigint,
     lookUp: LookUpTransaction,
   ): Promise<bigint> {
-    this.#settleReplaced(from, pending);
     if (this.#highWaterEnabled) {
       return this.nonceFor(from, pending);
     }
@@ -1046,7 +1043,7 @@ export class ConnectionSends {
     const held = this.#outstanding.get(from) ?? new Map<bigint, HeldCopy>();
     const existing = held.get(nonce);
     if (existing === undefined) {
-      held.set(nonce, { copyHash, replaced: false });
+      held.set(nonce, { copyHash });
     } else {
       // A second copy at the nonce, such as a replacement the provider also signed: the first one,
       // never broadcast, may still be valid, so no single transaction ends the hold any more.
@@ -1325,16 +1322,15 @@ export class ConnectionSends {
   public recordSent(from: string, nonce: bigint, hash: string): void {
     // The node has a transaction at the nonce. With the mark on, the mark keeps the nonce used for
     // good, so the hold ends. With it off, it ends for the provider's copy itself, which the node
-    // took and so made public; another transaction only replaces the copy while the node keeps it,
-    // so that hold ends once the pending count passes the nonce (#537).
+    // took and so made public. Another transaction only stands in for the copy while the node
+    // keeps it, and the node can drop it from its pool, so that hold ends only once the nonce is
+    // mined (settleMined, #537).
     const held = this.#outstanding.get(from);
     const copy = held?.get(nonce);
     if (copy !== undefined) {
       if (this.#highWaterEnabled || copy.copyHash === hash) {
         // Stryker disable next-line OptionalChaining: copy came from held, so held is defined
         held?.delete(nonce);
-      } else {
-        copy.replaced = true;
       }
     }
     if (!this.#highWaterEnabled) {

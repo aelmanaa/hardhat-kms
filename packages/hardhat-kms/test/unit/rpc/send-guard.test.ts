@@ -2159,7 +2159,7 @@ describe("ConnectionSends outstanding nonces (#537)", () => {
     assert.equal(sends.nonceFor(COW, 0n), 6n, "the mark keeps the recorded nonces used");
   });
 
-  it("with the mark off, ends the hold for the copy itself, and for another transaction once the pending count passes", async () => {
+  it("with the mark off, ends the hold for the copy itself, and for another transaction only once mined", async () => {
     const { sends } = withClock(false);
     sends.holdOutstanding(COW, 0n, "0xc0");
     sends.recordSent(COW, 0n, "0xc0");
@@ -2169,21 +2169,32 @@ describe("ConnectionSends outstanding nonces (#537)", () => {
     sends.holdOutstanding(COW, 2n);
     sends.recordSent(COW, 1n, "0x01");
     sends.recordSent(COW, 2n, "0x02");
-    assert.deepEqual(
-      sends.outstandingNonces(COW),
-      [1n, 2n],
-      "replaced: held until the node passes",
-    );
-    // The node dropped the replacements: the copies are still valid, so the nonces stay skipped.
-    assert.equal(sends.nonceFor(COW, 1n), 3n);
-    assert.equal(await sends.chooseNonce(COW, 2n, notKnown), 3n);
-    assert.deepEqual(sends.outstandingNonces(COW), [2n], "the pending count passed nonce 1");
-    sends.holdOutstanding(COW, 5n);
-    sends.nonceFor(COW, 9n);
-    assert.deepEqual(sends.outstandingNonces(COW), [5n], "a hold not replaced stays");
+    assert.deepEqual(sends.outstandingNonces(COW), [1n, 2n], "another transaction stands in");
+    // The pending count passes them, but the node can still drop those pool transactions.
+    await sends.chooseNonce(COW, 3n, notKnown);
+    sends.nonceFor(COW, 3n);
+    assert.deepEqual(sends.outstandingNonces(COW), [1n, 2n]);
+    sends.settleMined(COW, 2n);
+    assert.deepEqual(sends.outstandingNonces(COW), [2n], "nonce 1 is mined");
+    sends.settleMined(COW, 2n);
+    sends.settleMined(ZERO, 9n);
+    assert.deepEqual(sends.outstandingNonces(COW), [2n]);
+    sends.settleMined(COW, 3n);
+    assert.deepEqual(sends.outstandingNonces(COW), []);
   });
 
-  it("with the mark off, leaves a hold to the pending count once a second copy joins it", () => {
+  it("keeps a timed-out copy held when its replacement leaves the pool (QA4 repro)", async () => {
+    const { sends } = withClock(false);
+    const A = COW;
+    sends.holdOutstanding(A, 5n);
+    sends.recordSent(A, 5n, "0xr5");
+    assert.equal(await sends.chooseNonce(A, 6n, notKnown), 6n);
+    // The replacement R leaves the pool: the node's pending count falls back to 5.
+    assert.equal(await sends.chooseNonce(A, 5n, notKnown), 6n, "the never-broadcast copy holds 5");
+    assert.deepEqual(sends.outstandingNonces(A), [5n]);
+  });
+
+  it("with the mark off, ends a hold with a second copy only once mined", () => {
     const { sends } = withClock(false);
     sends.holdOutstanding(COW, 0n);
     sends.holdOutstanding(COW, 0n, "0xc0");
@@ -2193,8 +2204,9 @@ describe("ConnectionSends outstanding nonces (#537)", () => {
     sends.holdOutstanding(COW, 1n, "0xd1");
     // The first copy reached the node, but the second one, never broadcast, may still be valid.
     sends.recordSent(COW, 1n, "0xc1");
-    sends.nonceFor(COW, 1n);
-    assert.deepEqual(sends.outstandingNonces(COW), [1n], "the pending count passed nonce 0 only");
+    assert.deepEqual(sends.outstandingNonces(COW), [0n, 1n]);
+    sends.settleMined(COW, 1n);
+    assert.deepEqual(sends.outstandingNonces(COW), [1n], "nonce 0 is mined");
   });
 
   it("with the mark on, ends the hold at any transaction recorded at the nonce", () => {
