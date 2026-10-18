@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
+import { debugLines } from "../../helpers/debug-lines.ts";
 import { ADDRESS, CHAIN_ID, setup } from "../../helpers/library-account.ts";
 
 // A logger reads DEBUG when it is created, and account.ts creates its logger when it loads, so
@@ -17,13 +18,7 @@ let restore: (() => void) | undefined;
 
 /** The account's debug lines written so far, without the namespace and the time since the last. */
 function lines(): string[] {
-  return written
-    .join("")
-    .split("\n")
-    .flatMap((line) => {
-      const match = /hardhat:kms:account (.*?)(?: \+\d+\w+)?$/.exec(line);
-      return match?.[1] === undefined ? [] : [match[1]];
-    });
+  return debugLines(written.join(""), "hardhat:kms:account");
 }
 
 describe("library account debug lines", () => {
