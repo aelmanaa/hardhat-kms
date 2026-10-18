@@ -1726,6 +1726,36 @@ Signs an EIP-191 message; `digest` is what the core expects to be signed.
 
 `Promise`\<[`SignatureOutput`](#signatureoutput)\>
 
+##### signTransaction()?
+
+> `optional` **signTransaction**(`request`: \{ `chainId`: `bigint`; `digest`: `Uint8Array`; `type`: `number`; `unsigned`: `Uint8Array`; \}, `ctx`: [`SignContext`](#signcontext)): `Promise`\<[`SignatureOutput`](#signatureoutput)\>
+
+Signs a transaction, for providers whose policies read its fields. The core calls it for
+every transaction when present, and `signDigest` otherwise. It does not count as a signing
+method on its own: an adapter with it still needs `signDigest`, `signMessage` or
+`signTypedData`.
+
+The core keeps the final say over what gets signed. It verifies the returned signature
+against its own `digest` and broadcasts its own transaction, never one the provider returns,
+so return only the signature.
+
+###### Parameters
+
+| Parameter          | Type                                                                                           | Description                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------ | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `request`          | \{ `chainId`: `bigint`; `digest`: `Uint8Array`; `type`: `number`; `unsigned`: `Uint8Array`; \} | `unsigned` is the core's unsigned serialized transaction: the EIP-2718 type byte and payload for a typed transaction, or the RLP list for a legacy one. `digest` is its keccak-256, the hash the signature must sign. `type` is the EIP-2718 type number (0 for legacy) and `chainId` the chain the transaction is for. The arrays are copies the adapter may change. |
+| `request.chainId`  | `bigint`                                                                                       | -                                                                                                                                                                                                                                                                                                                                                                     |
+| `request.digest`   | `Uint8Array`                                                                                   | -                                                                                                                                                                                                                                                                                                                                                                     |
+| `request.type`     | `number`                                                                                       | -                                                                                                                                                                                                                                                                                                                                                                     |
+| `request.unsigned` | `Uint8Array`                                                                                   | -                                                                                                                                                                                                                                                                                                                                                                     |
+| `ctx`              | [`SignContext`](#signcontext)                                                                  | The call's context.                                                                                                                                                                                                                                                                                                                                                   |
+
+###### Returns
+
+`Promise`\<[`SignatureOutput`](#signatureoutput)\>
+
+The signature over `digest`.
+
 ##### signTypedData()?
 
 > `optional` **signTypedData**(`request`: \{ `digest`: `Uint8Array`; `typedData`: [`TypedData`](#typeddata); \}, `ctx`: [`SignContext`](#signcontext)): `Promise`\<[`SignatureOutput`](#signatureoutput)\>

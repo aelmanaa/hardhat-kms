@@ -1,6 +1,7 @@
 // Signs a KMS account's transaction the way Hardhat's LocalAccountsHandler#getSignedTransaction
 // does: fill, build the unsigned transaction, sign its hash, and rebuild it with the signature
-// (as micro-eth-signer's Transaction#signBy does).
+// (as micro-eth-signer's Transaction#signBy does). The signer computes the hash from the unsigned
+// bytes and gives the adapter's `signTransaction`, when it has one, the bytes and the hash.
 import { bytesToHexString, hexStringToBytes } from "@nomicfoundation/hardhat-utils/hex";
 import { bytesToBigInt, bytesToNumber } from "@nomicfoundation/hardhat-utils/number";
 import type { HardhatPluginError } from "hardhat/plugins";
@@ -11,15 +12,39 @@ import { authorizationDigest } from "../crypto/digests.ts";
 import { type RecoverableSignature, recoverPublicKey, toLowS } from "../crypto/signature.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
-import type { KmsSigner } from "../signer/kms-signer.ts";
+import type { KmsSigner, TransactionToSign } from "../signer/kms-signer.ts";
 import { warn } from "../warnings.ts";
 import {
   buildUnsignedTransaction,
   type FilledTransaction,
-  signingHash,
   type TransactionFiller,
   type UnsignedTransaction,
 } from "./transaction-filler.ts";
+
+/** The EIP-2718 type number of each of micro-eth-signer's transaction types. */
+const TYPE_NUMBERS: Readonly<Record<UnsignedTransaction["type"], number>> = {
+  legacy: 0,
+  eip2930: 1,
+  eip1559: 2,
+  eip4844: 3,
+  eip7702: 4,
+};
+
+/**
+ * What the signer signs for an unsigned transaction: its unsigned serialized form, its type number
+ * and its chain id. The caller adds the signature to this same unsigned transaction with
+ * {@link assembleSignedTransaction}.
+ *
+ * @param unsigned - The unsigned transaction.
+ * @param chainId - Its chain id.
+ * @returns The signer's request.
+ */
+export function transactionToSign(
+  unsigned: UnsignedTransaction,
+  chainId: bigint,
+): TransactionToSign {
+  return { unsigned: unsigned.toBytes(false), type: TYPE_NUMBERS[unsigned.type], chainId };
+}
 
 /**
  * Adds a signature to an unsigned transaction, then checks that the signed transaction recovers
@@ -189,7 +214,7 @@ export async function signTransaction(
   inputs.checkUnsigned?.(unsigned);
   lintAuthorizations(filled);
   checkSelfAuthorizations(unsigned, inputs.from, inputs.method);
-  const signature = await signer.signDigest(signingHash(unsigned));
+  const signature = await signer.signTransaction(transactionToSign(unsigned, filled.chainId));
   const signed = assembleSignedTransaction(unsigned, signature, inputs.from, inputs.method);
   return { raw: signed.toHex(true), hash: `0x${signed.hash}`, nonce: filled.nonce };
 }
