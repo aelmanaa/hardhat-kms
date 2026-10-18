@@ -8,7 +8,8 @@ import type { ErrorEntry } from "hardhat-kms/provider-utils";
  *
  * No message quotes Turnkey's response: its `message` can name organizations. A message carries at
  * most the HTTP status and Turnkey's `turnkeyErrorCode` when that code matches
- * `^[A-Z][A-Z0-9_]{0,63}$`. Only `turnkey.activity.approval-needed` carries the activity id.
+ * `^[A-Z][A-Z0-9_]{0,63}$`. Only `turnkey.activity.approval-needed` carries the activity id here;
+ * the core's `core.signer.transaction-outstanding` carries it too, from `ctx.requestSent` (#537).
  */
 
 /** The @hardhat-kms/turnkey error catalogue. */
@@ -137,8 +138,8 @@ export const ERRORS = {
     template:
       "Turnkey holds {activity} until it gets {need}. The plugin does not wait for approvals, and the activity stays pending in Turnkey. Reject it in the Turnkey dashboard, so that nobody approves it later",
     cause:
-      "A policy on the key requires consensus (`ACTIVITY_STATUS_CONSENSUS_NEEDED`) or another authenticator (`ACTIVITY_STATUS_AUTHENTICATORS_NEEDED`). The plugin fails at once. The activity stays in Turnkey: if someone approves it later, a signature exists for a request the plugin gave up on, with a nonce the plugin may use again. The message shows the activity id when it is a UUID, so that the activity can be found.",
-    fix: "Reject the pending activity in the Turnkey dashboard. To sign with this key from the plugin, use a policy that allows these requests without approval.",
+      "A policy on the key requires consensus (`ACTIVITY_STATUS_CONSENSUS_NEEDED`) or another authenticator (`ACTIVITY_STATUS_AUTHENTICATORS_NEEDED`). The plugin fails at once. The activity stays in Turnkey: if someone approves it later, a signature exists for a request the plugin gave up on. For a transaction the core then fails with `core.signer.transaction-outstanding`, which starts with this message and keeps the transaction's nonce held. The message shows the activity id when it is a UUID, so that the activity can be found.",
+    fix: "Reject the pending activity in the Turnkey dashboard. For a transaction, then send a replacement with the nonce the message names. To sign with this key from the plugin, use a policy that allows these requests without approval.",
   },
   activityFailed: {
     id: "turnkey.activity.failed",

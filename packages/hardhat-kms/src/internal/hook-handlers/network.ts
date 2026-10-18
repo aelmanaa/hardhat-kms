@@ -183,6 +183,9 @@ export function createNetworkHandlers(
             signed: (address, nonce) => {
               sendsOf(connection).signedReservation(address, nonce);
             },
+            outstanding: (address, nonce, copyHash) => {
+              sendsOf(connection).holdOutstanding(address, nonce, copyHash);
+            },
             reset: async (address, chainId) => {
               await resetLibraryNonce(transactionsOf(connection), address, chainId);
             },

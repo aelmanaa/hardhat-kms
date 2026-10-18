@@ -61,21 +61,34 @@ export function turnkeyKey(
   };
 }
 
-/** A call context with its own controller; `messages` collects the status lines. */
-export function signContext(): SignContext & {
+/**
+ * A call context with its own controller; `messages` collects the status lines, and `sent` the
+ * ids passed to `requestSent`, `null` for a call without one, and `refused` for each
+ * `requestRefused`, each with what `onSent` returned.
+ */
+export function signContext(onSent: () => unknown = () => undefined): SignContext & {
   controller: AbortController;
   messages: string[];
+  sent: Array<[string | null, unknown]>;
 } {
   const controller = new AbortController();
   const messages: string[] = [];
+  const sent: Array<[string | null, unknown]> = [];
   return {
     controller,
     messages,
+    sent,
     signal: controller.signal,
     requestId: "req-1",
     displayMessage: async (message) => {
       messages.push(message);
       await Promise.resolve();
+    },
+    requestSent: (id) => {
+      sent.push([id ?? null, onSent()]);
+    },
+    requestRefused: () => {
+      sent.push(["refused", onSent()]);
     },
   };
 }

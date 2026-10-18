@@ -130,11 +130,20 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
     ctx: SignContext,
   ) => Promise<SignatureOutput>;
 
+  /**
+   * Set with `signTransaction` (#537): Turnkey keeps working on a `sign_transaction` activity
+   * after the plugin stops waiting, and stores the signed transaction, which every user of the
+   * organization can read and broadcast. The core then keeps the nonce held. A digest-mode key's
+   * activity holds only a hash, so the flag stays unset.
+   */
+  declare public readonly signTransactionOutlivesAbort?: boolean;
+
   public constructor(key: TurnkeyKmsKeyConfig, transport: Transport) {
     this.#key = key;
     this.#transport = transport;
     if (key.transactionSigning === "transaction") {
       this.signTransaction = async (request, ctx) => await this.#signTransaction(request, ctx);
+      this.signTransactionOutlivesAbort = true;
     }
   }
 
@@ -229,8 +238,20 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
       requestId: ctx.requestId,
       forbiddenHint: request.forbiddenHint,
     };
-    const answer = await session.client.send(request.path, body, requestContext);
+    // The core keeps a transaction's nonce held if the call ends after this (#537).
+    const answer = await session.client.send(request.path, body, {
+      ...requestContext,
+      sent: () => {
+        ctx.requestSent?.();
+      },
+      // Only a refused submission frees the nonce: a failed poll leaves an activity behind.
+      refused: () => {
+        ctx.requestRefused?.();
+      },
+    });
     let activity = this.#activityOf(answer.body, session, undefined, request);
+    // The id the error of a later timeout names, so that the user can find the activity.
+    ctx.requestSent?.(activity.id);
     log("%s: activity %s", ctx.requestId, activity.status);
     const poll = JSON.stringify({
       organizationId: session.organizationId,
@@ -242,7 +263,7 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
         activity.status !== "ACTIVITY_STATUS_PENDING" &&
         activity.status !== "ACTIVITY_STATUS_CREATED"
       ) {
-        return this.#outcome(activity, request);
+        return this.#outcome(activity, request, ctx);
       }
       if (polls === 1) {
         // Still running after the first poll: say why the call takes longer, once.
@@ -257,9 +278,9 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
   }
 
   /** The signature of an activity that ended, or the error that explains why there is none. */
-  #outcome(activity: FinalActivity, request: SignRequest): SignatureOutput {
+  #outcome(activity: FinalActivity, request: SignRequest, ctx: SignContext): SignatureOutput {
     if (activity.status !== "ACTIVITY_STATUS_COMPLETED") {
-      throw this.#failure(activity, request.operation);
+      throw this.#failure(activity, request.operation, ctx);
     }
     const signature = request.read(activity.result);
     if ("kind" in signature) {
@@ -272,13 +293,17 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
   #failure(
     activity: Exclude<FinalActivity, { status: "ACTIVITY_STATUS_COMPLETED" }>,
     operation: string,
+    ctx: SignContext,
   ): Error {
     if (activity.status === "ACTIVITY_STATUS_REJECTED") {
+      // Ended without a signature: the transaction's nonce is free again (#537).
+      ctx.requestRefused?.();
       return this.#error(operation, ERRORS.activityRejected, {
         code: failureCode(activity.failure),
       });
     }
     if (activity.status === "ACTIVITY_STATUS_FAILED") {
+      ctx.requestRefused?.();
       return this.#error(operation, ERRORS.activityFailed, {
         code: failureCode(activity.failure),
       });

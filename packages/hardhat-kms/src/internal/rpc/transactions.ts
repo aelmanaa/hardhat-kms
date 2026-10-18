@@ -12,7 +12,13 @@ import { authorizationDigest } from "../crypto/digests.ts";
 import { type RecoverableSignature, recoverPublicKey, toLowS } from "../crypto/signature.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
-import type { KmsSigner, TransactionToSign } from "../signer/kms-signer.ts";
+import {
+  type KmsSigner,
+  outstandingNonce,
+  type ProviderCopy,
+  providerCopyOf,
+  type TransactionToSign,
+} from "../signer/kms-signer.ts";
 import { warn } from "../warnings.ts";
 import {
   buildUnsignedTransaction,
@@ -31,8 +37,8 @@ const TYPE_NUMBERS: Readonly<Record<UnsignedTransaction["type"], number>> = {
 };
 
 /**
- * What the signer signs for an unsigned transaction: its unsigned serialized form, its type number
- * and its chain id. The caller adds the signature to this same unsigned transaction with
+ * What the signer signs for an unsigned transaction: its unsigned serialized form, its type number,
+ * its chain id and its nonce. The caller adds the signature to this same unsigned transaction with
  * {@link assembleSignedTransaction}.
  *
  * @param unsigned - The unsigned transaction.
@@ -43,7 +49,12 @@ export function transactionToSign(
   unsigned: UnsignedTransaction,
   chainId: bigint,
 ): TransactionToSign {
-  return { unsigned: unsigned.toBytes(false), type: TYPE_NUMBERS[unsigned.type], chainId };
+  return {
+    unsigned: unsigned.toBytes(false),
+    type: TYPE_NUMBERS[unsigned.type],
+    chainId,
+    nonce: unsigned.raw.nonce,
+  };
 }
 
 /**
@@ -176,6 +187,18 @@ export interface SignTransactionInputs {
    * `kms sign-tx` task checks a requested `type` with it.
    */
   checkUnsigned?: ((unsigned: UnsignedTransaction) => void) | undefined;
+  /**
+   * Keeps a nonce held when the provider may still sign the transaction after a timeout or an
+   * abort (`core.signer.transaction-outstanding`); called before that error is thrown. Without it,
+   * as for `kms sign-tx`, which sends nothing afterwards, no nonce is held and the error does not
+   * describe a hold.
+   */
+  holdNonce?: ((nonce: bigint, copyHash?: string) => void) | undefined;
+  /**
+   * Runs right before the KMS is asked to sign, after the fill and the nonce choice, and throws to
+   * refuse; sends check there that their connection is still open.
+   */
+  beforeSign?: (() => void) | undefined;
 }
 
 /** A signed transaction. */
@@ -186,10 +209,17 @@ export interface SignedTransaction {
   hash: string;
   /** Its nonce. */
   nonce: bigint;
+  /**
+   * Set when the provider keeps a copy of the signed transaction (#537), whose nonce `holdNonce`
+   * was then given: a broadcast that the node refuses leaves that copy valid later.
+   */
+  providerCopy?: ProviderCopy | undefined;
 }
 
 /**
- * Fills, signs and checks a KMS account's transaction.
+ * Fills, signs and checks a KMS account's transaction. When the provider keeps a copy of the
+ * signed transaction (`providerCopyOf`), the nonce goes to `holdNonce` right after the signature,
+ * so it stays held until a transaction with it reaches the node.
  *
  * @param signer - The KMS account's signer.
  * @param inputs - The filler, the request and the sender.
@@ -214,7 +244,25 @@ export async function signTransaction(
   inputs.checkUnsigned?.(unsigned);
   lintAuthorizations(filled);
   checkSelfAuthorizations(unsigned, inputs.from, inputs.method);
-  const signature = await signer.signTransaction(transactionToSign(unsigned, filled.chainId));
+  inputs.beforeSign?.();
+  let signature: RecoverableSignature;
+  try {
+    signature = await signer.signTransaction(transactionToSign(unsigned, filled.chainId), {
+      holdsNonce: inputs.holdNonce !== undefined,
+    });
+  } catch (error) {
+    const nonce = outstandingNonce(error);
+    if (nonce !== undefined) {
+      inputs.holdNonce?.(nonce);
+    }
+    throw error;
+  }
+  // Assembled first: a signature that does not recover to the sender makes no valid copy.
   const signed = assembleSignedTransaction(unsigned, signature, inputs.from, inputs.method);
-  return { raw: signed.toHex(true), hash: `0x${signed.hash}`, nonce: filled.nonce };
+  const hash = `0x${signed.hash}`;
+  const providerCopy = providerCopyOf(signature);
+  if (providerCopy !== undefined) {
+    inputs.holdNonce?.(providerCopy.nonce, hash);
+  }
+  return { raw: signed.toHex(true), hash, nonce: filled.nonce, providerCopy };
 }

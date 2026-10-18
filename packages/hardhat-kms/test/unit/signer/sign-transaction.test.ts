@@ -242,7 +242,7 @@ describe("the adapter's signTransaction", () => {
         expectedAddress: FROM,
       });
       await assertRefused(
-        kms.signTransaction({ unsigned, type: 2, chainId: 31337n }),
+        kms.signTransaction({ unsigned, type: 2, chainId: 31337n, nonce: 0n }),
         invalidSignature(catalogMessage(ERRORS.signatureNoRecovery, {})),
       );
     });
@@ -275,7 +275,7 @@ describe("the adapter's signTransaction", () => {
       const kms = new KmsSigner(adapter, options);
       const bytes = new Uint8Array(unsigned);
 
-      const pending = kms.signTransaction({ unsigned: bytes, type: 2, chainId: 31337n });
+      const pending = kms.signTransaction({ unsigned: bytes, type: 2, chainId: 31337n, nonce: 0n });
       bytes.fill(0);
       const signature = await pending;
 
@@ -287,7 +287,12 @@ describe("the adapter's signTransaction", () => {
 
     it("hands the type and chain id through as given", async () => {
       const adapter = fakeTxAdapter({ secretKey });
-      await new KmsSigner(adapter, options).signTransaction({ unsigned, type: 2, chainId: 5n });
+      await new KmsSigner(adapter, options).signTransaction({
+        unsigned,
+        type: 2,
+        chainId: 5n,
+        nonce: 0n,
+      });
       assert.equal(adapter.transactions[0]?.type, 2);
       assert.equal(adapter.transactions[0]?.chainId, 5n);
     });
@@ -305,7 +310,12 @@ describe("the adapter's signTransaction", () => {
         },
       };
 
-      await new KmsSigner(adapter, options).signTransaction({ unsigned, type: 2, chainId: 31337n });
+      await new KmsSigner(adapter, options).signTransaction({
+        unsigned,
+        type: 2,
+        chainId: 31337n,
+        nonce: 0n,
+      });
 
       assert.deepEqual(digests, [keccak_256(unsigned)]);
     });
@@ -321,7 +331,12 @@ describe("the adapter's signTransaction", () => {
       };
 
       await assertRefused(
-        new KmsSigner(adapter, options).signTransaction({ unsigned, type: 2, chainId: 31337n }),
+        new KmsSigner(adapter, options).signTransaction({
+          unsigned,
+          type: 2,
+          chainId: 31337n,
+          nonce: 0n,
+        }),
         catalogError(
           ERRORS.signerCannotSign,
           { kind: "transaction" },
@@ -355,11 +370,16 @@ describe("the adapter's signTransaction", () => {
 });
 
 describe("transactionToSign", () => {
-  it("gives the unsigned bytes, the EIP-2718 type number and the chain id", () => {
+  it("gives the unsigned bytes, the EIP-2718 type number, the chain id and the nonce", () => {
     for (const [type, , filled] of FILLED) {
       const { unsigned } = expectedRaw(filled);
       const tx = Transaction.fromHex(Buffer.from(unsigned).toString("hex"), false);
-      assert.deepEqual(transactionToSign(tx, 99n), { unsigned, type, chainId: 99n });
+      assert.deepEqual(transactionToSign(tx, 99n), {
+        unsigned,
+        type,
+        chainId: 99n,
+        nonce: tx.raw.nonce,
+      });
     }
   });
 

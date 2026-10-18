@@ -1516,6 +1516,65 @@ describe("a send in flight when its connection closes (#434)", () => {
     assert.deepEqual(node.raw, [], "no raw transaction reached the node");
   });
 
+  it("asks the KMS for no signature for a send that waited for the lock while the connection closed (#537)", async () => {
+    const harness = await setUp();
+    const { node, state, send } = harness;
+    const connection = await openKnown(harness);
+    const signing = gate();
+    state.beforeSign = async () => await signing.promise;
+    const first = send(connection, { from: COW, to: TO }).then(
+      () => assert.fail("the first send went out"),
+      (thrown: unknown) => thrown,
+    );
+    await settle();
+    const second = send(connection, { from: COW, to: TO, value: "0x1" }).then(
+      () => assert.fail("the second send went out"),
+      (thrown: unknown) => thrown,
+    );
+    await settle();
+    assert.equal(state.signatures, 1, "the second send waits for the lock");
+    await harness.close(connection);
+    signing.open();
+    for (const error of [await first, await second]) {
+      assert.ok(error instanceof Error);
+      assert.match(
+        error.message,
+        /^eth_sendTransaction: the connection to network remote closed before the transaction was broadcast, so nothing was sent/,
+      );
+    }
+    // A provider such as Turnkey keeps what it signs, so the waiting send must not sign at all.
+    assert.equal(state.signatures, 1);
+    assert.deepEqual(node.raw, []);
+  });
+
+  it("asks the KMS for no signature when the connection closes during the uncertain lookup (#537)", async () => {
+    const harness = await setUp();
+    const { node, state, send } = harness;
+    const connection = await openKnown(harness);
+    failOnce(node);
+    await send(connection, { from: COW, to: TO }).catch(() => undefined);
+    assert.equal(state.signatures, 1);
+    const lookup = gate();
+    let asked = false;
+    node.lookUp = () => {
+      asked = true;
+      return lookup.promise.then(() => null);
+    };
+    const sending = send(connection, { from: COW, to: TO, value: "0x1" }).then(
+      () => assert.fail("the send went out"),
+      (thrown: unknown) => thrown,
+    );
+    await settle();
+    assert.ok(asked, "the send waits for the lookup of the uncertain transaction");
+    await harness.close(connection);
+    lookup.open();
+    const error = await sending;
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /closed before the transaction was broadcast, so nothing was sent/);
+    assert.equal(state.signatures, 1, "no second signature");
+    assert.equal(node.raw.length, 1);
+  });
+
   it("does not broadcast a raw transaction that waited for the lock while the connection closed", async () => {
     const harness = await setUp();
     const { node, send } = harness;

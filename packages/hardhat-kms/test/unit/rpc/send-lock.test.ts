@@ -68,7 +68,7 @@ describe("the send lock", () => {
     assert.equal(node.raw.length, 2);
   });
 
-  it("lets eth_signTransaction run while a send holds the lock, and leaves the mark alone", async () => {
+  it("lets eth_signTransaction of a key without the flag run while a send holds the lock, and leaves the mark alone", async () => {
     const { node, open, send, request } = await setUp();
     const connection = await open();
     resultOf(await send(connection, { from: COW, to: TO }));
@@ -84,10 +84,13 @@ describe("the send lock", () => {
       await request(connection, "eth_signTransaction", { from: COW, to: TO }),
     );
     assert.ok(typeof signed === "string");
-    assert.equal(nonceOf(signed), 0n, "the node's pending count, not the high-water mark");
+    // The nonce a send would take now: past the mark, which the first send raised to 0 (#537).
+    assert.equal(nonceOf(signed), 1n);
     held.open();
     resultOf(await sending);
-    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n]);
+    node.onRaw = undefined;
+    resultOf(await send(connection, { from: COW, to: TO }));
+    assert.deepEqual(node.raw.map(nonceOf), [0n, 1n, 2n]);
   });
 
   it("does not hold the signer while broadcasting, so the idle close can run", async () => {

@@ -227,6 +227,11 @@ export class TurnkeyStub {
   pendingPolls = 0;
   /** The status the stub's own submissions answer with first: COMPLETED unless set. */
   firstStatus = "ACTIVITY_STATUS_COMPLETED";
+  /**
+   * Keeps the activities whose submitted body this returns true for pending, at submission and
+   * at every poll, as an activity Turnkey has not finished.
+   */
+  stuck: ((body: unknown) => boolean) | undefined;
   readonly #options: StubOptions;
   readonly #queue: Array<StubAnswer | ((request: StubRequest) => StubAnswer)> = [];
   readonly #activities = new Map<string, StubActivity>();
@@ -293,7 +298,9 @@ export class TurnkeyStub {
       };
       this.#activities.set(body, activity);
     }
-    return { status: 200, json: this.#activityJson(activity, this.firstStatus) };
+    const status =
+      this.stuck?.(activity.body) === true ? "ACTIVITY_STATUS_PENDING" : this.firstStatus;
+    return { status: 200, json: this.#activityJson(activity, status) };
   }
 
   #poll(parsed: unknown): StubAnswer {
@@ -304,7 +311,9 @@ export class TurnkeyStub {
     }
     activity.polls++;
     const status =
-      activity.polls > this.pendingPolls ? "ACTIVITY_STATUS_COMPLETED" : "ACTIVITY_STATUS_PENDING";
+      activity.polls > this.pendingPolls && this.stuck?.(activity.body) !== true
+        ? "ACTIVITY_STATUS_COMPLETED"
+        : "ACTIVITY_STATUS_PENDING";
     return { status: 200, json: this.#activityJson(activity, status) };
   }
 

@@ -511,6 +511,15 @@ export const ERRORS = {
     cause: "The adapter has a property with a method's name, but it is not a function.",
     fix: "Report it to the provider plugin.",
   },
+  adapterNotBoolean: {
+    id: "core.provider.adapter-not-boolean",
+    kind: "error",
+    group: "Provider plugins",
+    template: "the adapter's {property} is not a boolean",
+    cause:
+      "The adapter has a property with the name of a flag of the adapter contract, such as `signTransactionOutlivesAbort`, but its value is not `true` or `false`.",
+    fix: "Report it to the provider plugin.",
+  },
   adapterNoSigning: {
     id: "core.provider.adapter-no-signing",
     kind: "error",
@@ -753,6 +762,16 @@ export const ERRORS = {
     cause:
       "The `signal` given to `connection.kms.getAccount` aborted before or during a KMS call, so the plugin stopped waiting and returned nothing. It does not retry a cancelled call. A request that already reached the provider can still be signed there and show in its audit log, but the plugin never returns that signature.",
     fix: "Nothing, if the abort was meant. To sign again, get a new account with a signal that has not aborted.",
+  },
+  signerTransactionOutstanding: {
+    id: "core.signer.transaction-outstanding",
+    kind: "error",
+    group: "Signing",
+    template:
+      "{reason}. The request reached the provider, and {who} may still sign this transaction ({request}); anyone who can read it there can then broadcast it with nonce {nonce}. {reject} while it is pending; then, or if it completed, send a replacement transaction with nonce {nonce}, before any other transaction from this account{hold}",
+    cause:
+      "The key's adapter declares that a transaction request it gave up on may still be signed at the provider (`signTransactionOutlivesAbort`), as Turnkey's `sign_transaction` does, and the call failed after the request was sent: it timed out, was cancelled, or the adapter threw an error without saying that the provider refused the request (`ctx.requestRefused`), such as Turnkey's `turnkey.activity.approval-needed`, an unreachable or failing service while it polled, or a signed transaction it refused. The message starts with that cause. Turnkey keeps working on an accepted activity and stores the signed transaction, which every user of the organization can read and broadcast. Two valid transactions with one nonce could then exist, so the plugin keeps the nonce held instead of signing it again: on `eth_sendTransaction`, `eth_signTransaction` and a library account's `signTransaction`, the network connection's later sends from the account skip it. The hold ends once the nonce is mined (or, on an HTTP network, when any transaction with it reaches the node through the connection), when the provider's copy itself reaches the node through the connection, or when the connection closes. A Turnkey id is shown only when it is a UUID.",
+    fix: 'For Turnkey, open the activity in the dashboard. If it is still pending, reject it, so that nobody approves or completes it later. Then, or if it completed, send a replacement with the nonce the message names, with an explicit `nonce`, before anything else (or broadcast the transaction the completed activity holds); the replacement also fills the gap that the plugin\'s later sends wait behind. Raise `timeoutMs` if Turnkey is slow to answer. See the Turnkey setup guide, "When Turnkey does not answer in time".',
   },
   signerCallFailed: {
     id: "core.signer.provider-call-failed",
@@ -1324,6 +1343,16 @@ export const ERRORS = {
     cause:
       "A `wallet_sendCalls` (EIP-5792) request named a KMS account as `from`. The plugin sends a KMS account's transactions through `eth_sendTransaction` only, so it answers this method with JSON-RPC error -32601 (method not found) and does not pass it to the node. viem's `sendCalls` sends it.",
     fix: "Pass `experimental_fallback: true` to viem's `sendCalls`: on -32601 viem sends each call with `eth_sendTransaction`, and the KMS key signs each one. Or send each call yourself with `sendTransaction`.",
+  },
+  txRefusedProviderCopy: {
+    id: "core.tx.refused-provider-copy",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "the node refused the transaction with nonce {nonce} ({reason}, code {code}), but {who} keeps it signed ({request}), and anyone who can read it there can broadcast it once the node would take it. This connection's sends from the account skip nonce {nonce} until it is mined, or the provider's copy itself reaches the node through the connection. Fix the cause, such as the account's funds or the fees, then send a replacement transaction with nonce {nonce}, or broadcast that signed transaction",
+    cause:
+      "The key's adapter declares that the provider keeps what it signs (`signTransactionOutlivesAbort`), as Turnkey's `sign_transaction` does, and the node refused the signed transaction for certain, for example for insufficient funds or too low a fee. The provider's copy stays valid, and becomes acceptable once the cause goes away, so the plugin keeps its nonce held rather than sign a second transaction with it. The message names the kind of refusal (`insufficient funds`, `fee too low` or `refused`) and the node's JSON-RPC code, never the node's text. When the node's mined transaction count is above the nonce, the nonce is used on chain and the copy can never be valid, so the node's answer goes on unchanged instead; an answer that the node already knows the transaction counts as sent.",
+    fix: 'Fix what the node refused, then send a replacement with the nonce the message names, with an explicit `nonce`, or broadcast the provider\'s signed transaction. For Turnkey, it is the completed activity the message names. See the Turnkey setup guide, "When Turnkey does not answer in time".',
   },
   sendConnectionClosed: {
     id: "core.tx.connection-closed",
