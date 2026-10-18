@@ -244,6 +244,10 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
       sent: () => {
         ctx.requestSent?.();
       },
+      // Only a refused submission frees the nonce: a failed poll leaves an activity behind.
+      refused: () => {
+        ctx.requestRefused?.();
+      },
     });
     let activity = this.#activityOf(answer.body, session, undefined, request);
     // The id the error of a later timeout names, so that the user can find the activity.
@@ -259,7 +263,7 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
         activity.status !== "ACTIVITY_STATUS_PENDING" &&
         activity.status !== "ACTIVITY_STATUS_CREATED"
       ) {
-        return this.#outcome(activity, request);
+        return this.#outcome(activity, request, ctx);
       }
       if (polls === 1) {
         // Still running after the first poll: say why the call takes longer, once.
@@ -274,9 +278,9 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
   }
 
   /** The signature of an activity that ended, or the error that explains why there is none. */
-  #outcome(activity: FinalActivity, request: SignRequest): SignatureOutput {
+  #outcome(activity: FinalActivity, request: SignRequest, ctx: SignContext): SignatureOutput {
     if (activity.status !== "ACTIVITY_STATUS_COMPLETED") {
-      throw this.#failure(activity, request.operation);
+      throw this.#failure(activity, request.operation, ctx);
     }
     const signature = request.read(activity.result);
     if ("kind" in signature) {
@@ -289,13 +293,17 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
   #failure(
     activity: Exclude<FinalActivity, { status: "ACTIVITY_STATUS_COMPLETED" }>,
     operation: string,
+    ctx: SignContext,
   ): Error {
     if (activity.status === "ACTIVITY_STATUS_REJECTED") {
+      // Ended without a signature: the transaction's nonce is free again (#537).
+      ctx.requestRefused?.();
       return this.#error(operation, ERRORS.activityRejected, {
         code: failureCode(activity.failure),
       });
     }
     if (activity.status === "ACTIVITY_STATUS_FAILED") {
+      ctx.requestRefused?.();
       return this.#error(operation, ERRORS.activityFailed, {
         code: failureCode(activity.failure),
       });

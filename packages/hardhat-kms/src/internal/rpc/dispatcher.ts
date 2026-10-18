@@ -742,6 +742,9 @@ async function sendTransaction(
         transactions,
       });
     }
+    // A send that waited for the lock while its connection closed asks the KMS for nothing: a
+    // provider such as Turnkey keeps what it signs where others can broadcast it.
+    refuseIfClosed(transactions, request.method);
     if (!kms.callerNonce) {
       await settleUncertain(
         address,

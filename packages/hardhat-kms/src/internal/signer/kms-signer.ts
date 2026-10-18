@@ -88,8 +88,9 @@ const outstandingNonces = new WeakMap<Error, bigint>();
 
 /**
  * The nonce of a transaction the provider may still sign: set when `error` is the error of a
- * transaction signature that timed out or was cancelled after the request reached a provider
- * whose adapter sets `signTransactionOutlivesAbort` (`core.signer.transaction-outstanding`). The
+ * transaction signature that failed after the request reached a provider whose adapter sets
+ * `signTransactionOutlivesAbort`, and that the adapter did not report as refused
+ * (`core.signer.transaction-outstanding`). The
  * provider may still sign the transaction and keep it where others can broadcast it, so a caller
  * that sends must keep the nonce held, and never sign a second transaction with it (gap over
  * duplicate).
@@ -130,8 +131,9 @@ const OUTSTANDING_WORDS: { turnkey: OutstandingWords; other: OutstandingWords } 
 };
 
 /**
- * Builds the error a transaction signature fails with when it timed out or was cancelled after
- * the adapter reported its request sent: the reason, and the provider's id for the request.
+ * Builds the error a transaction signature fails with when it failed after the adapter reported
+ * its request sent and did not report it refused: the cause, and the provider's id for the
+ * request.
  */
 type OutstandingError = (
   reason: string,
@@ -609,9 +611,11 @@ export class KmsSigner {
     const started = Date.now();
     const key = this.#displayId;
     log("%s: %s (request %s)", key, operation, requestId);
-    // What the adapter said about its request: whether it may be at the provider, and its id.
+    // What the adapter said about its request: whether it may be at the provider, its id, and
+    // whether the provider then refused it for certain.
     let sent = false;
     let sentId: string | undefined;
+    let refused = false;
     try {
       const result = await withTimeout(
         async (signal) =>
@@ -623,6 +627,7 @@ export class KmsSigner {
             requestId,
             requestSent: (providerRequestId) => {
               sent = true;
+              refused = false;
               // A string only: an object could pass the test and print other text later.
               if (
                 typeof providerRequestId === "string" &&
@@ -630,6 +635,9 @@ export class KmsSigner {
               ) {
                 sentId = providerRequestId;
               }
+            },
+            requestRefused: () => {
+              refused = true;
             },
           }),
         this.#options.timeoutMs,
@@ -640,29 +648,52 @@ export class KmsSigner {
       return result;
     } catch (error) {
       log("%s: %s failed after %d ms (%s)", key, operation, Date.now() - started, errorName(error));
-      if (error instanceof HardhatPluginError || error instanceof InvalidSignatureError) {
+      if (error instanceof InvalidSignatureError) {
         throw error;
       }
-      if (error instanceof InvalidPublicKeyError || error instanceof InvalidAddressError) {
-        // Our own message about the key material, safe to show.
-        throw this.#error(operation, ERRORS.signerKeyMaterial, { reason: error.message });
+      const failure = this.#failure(operation, error);
+      // Gap over duplicate: after the request may have reached the provider, only a definite
+      // refusal frees the nonce (#537).
+      if (sent && !refused && outstanding !== undefined) {
+        throw outstanding(this.#reasonOf(failure), sentId);
       }
-      if (error instanceof TimeoutError) {
-        const timeout = this.#options.timeoutMs;
-        if (sent && outstanding !== undefined) {
-          throw outstanding(catalogMessage(ERRORS.signerNoAnswer, { timeout }), sentId);
-        }
-        throw this.#error(operation, ERRORS.signerNoAnswer, { timeout });
-      }
-      if (error instanceof CancelledError) {
-        if (sent && outstanding !== undefined) {
-          throw outstanding(catalogMessage(ERRORS.signerCancelled, {}), sentId);
-        }
-        throw this.#error(operation, ERRORS.signerCancelled, {});
-      }
-      // Only the error's class name: SDK errors can carry request metadata and headers.
-      throw this.#error(operation, ERRORS.signerCallFailed, { errorName: errorName(error) });
+      throw failure;
     }
+  }
+
+  /** The error a failed provider call ends with, when no nonce is held. */
+  #failure(operation: string, error: unknown): HardhatPluginError {
+    if (error instanceof HardhatPluginError) {
+      return error;
+    }
+    if (error instanceof InvalidPublicKeyError || error instanceof InvalidAddressError) {
+      // Our own message about the key material, safe to show.
+      return this.#error(operation, ERRORS.signerKeyMaterial, { reason: error.message });
+    }
+    if (error instanceof TimeoutError) {
+      return this.#error(operation, ERRORS.signerNoAnswer, { timeout: this.#options.timeoutMs });
+    }
+    if (error instanceof CancelledError) {
+      return this.#error(operation, ERRORS.signerCancelled, {});
+    }
+    // Only the error's class name: SDK errors can carry request metadata and headers.
+    return this.#error(operation, ERRORS.signerCallFailed, { errorName: errorName(error) });
+  }
+
+  /**
+   * Why a held transaction failed: the failure's message without the prefix that names the
+   * provider, the operation and the key, which the outstanding error adds again, and without a
+   * final full stop.
+   */
+  #reasonOf(failure: HardhatPluginError): string {
+    const { message } = failure;
+    const marker = `, key ${this.#displayId}: `;
+    const at = message.indexOf(marker);
+    const text =
+      message.startsWith(`${this.#description.provider}, `) && at !== -1
+        ? message.slice(at + marker.length)
+        : message;
+    return text.endsWith(".") ? text.slice(0, -1) : text;
   }
 
   #error<Template extends string>(

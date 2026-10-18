@@ -35,6 +35,7 @@ import {
   SIGN_TRANSACTION_PATH,
   SIGN_TRANSACTION_TYPE,
   SIGN_TYPE,
+  type SignMode,
   type StubAnswer,
   TurnkeyStub,
   turnkeyError,
@@ -859,6 +860,91 @@ describe("the Turnkey adapter's transactions", () => {
       [null, 1],
       [ACTIVITY_ID, 2],
     ]);
+  });
+
+  it("tells the core when Turnkey refused the request for certain, and only then (#537)", async () => {
+    const [, , [, eip1559] = [2, {}]] = TRANSACTIONS;
+    const pending = activity("ACTIVITY_STATUS_PENDING", { type: SIGN_TRANSACTION_TYPE });
+    const ended = (status: string): StubAnswer =>
+      activity(status, { type: SIGN_TRANSACTION_TYPE, failure: { details: [] } });
+    const cases: Array<{ name: string; answers: StubAnswer[]; refused: boolean; mode?: SignMode }> =
+      [
+        {
+          name: "a 403 at submission",
+          answers: [turnkeyError(403, "POLICY_DENIED")],
+          refused: true,
+        },
+        { name: "a 400 at submission", answers: [turnkeyError(400)], refused: true },
+        {
+          name: "a 401 at submission",
+          answers: [turnkeyError(401, "UNAUTHENTICATED")],
+          refused: true,
+        },
+        {
+          name: "a rate limit on every attempt",
+          answers: Array.from({ length: 4 }, () => turnkeyError(429)),
+          refused: true,
+        },
+        {
+          name: "a rejected activity",
+          answers: [ended("ACTIVITY_STATUS_REJECTED")],
+          refused: true,
+        },
+        { name: "a failed activity", answers: [ended("ACTIVITY_STATUS_FAILED")], refused: true },
+        {
+          name: "an activity rejected while polling",
+          answers: [pending, ended("ACTIVITY_STATUS_REJECTED")],
+          refused: true,
+        },
+        {
+          name: "a 400 after a 500",
+          answers: [turnkeyError(500), turnkeyError(400)],
+          refused: false,
+        },
+        {
+          name: "a 500 on every attempt",
+          answers: Array.from({ length: 4 }, () => turnkeyError(500)),
+          refused: false,
+        },
+        {
+          name: "an activity that needs approval",
+          answers: [activity("ACTIVITY_STATUS_CONSENSUS_NEEDED", { type: SIGN_TRANSACTION_TYPE })],
+          refused: false,
+        },
+        { name: "a poll answered 403", answers: [pending, turnkeyError(403)], refused: false },
+        {
+          name: "an answer for another organization",
+          answers: [
+            activity("ACTIVITY_STATUS_PENDING", {
+              type: SIGN_TRANSACTION_TYPE,
+              organizationId: "other",
+            }),
+          ],
+          refused: false,
+        },
+        {
+          name: "a signed transaction for another body",
+          answers: [],
+          refused: false,
+          mode: "other-body",
+        },
+      ];
+    for (const { name, answers, refused, mode } of cases) {
+      const { stub, adapter } = await setUp();
+      stub.answer(...answers);
+      stub.mode = mode ?? "good";
+      const ctx = signContext();
+      await assert.rejects(
+        adapter.signTransaction?.(transactionRequest(2, eip1559), ctx) ?? Promise.resolve(),
+        name,
+      );
+      assert.equal(
+        ctx.sent.some(([id]) => id === "refused"),
+        refused,
+        `${name}: ${JSON.stringify(ctx.sent)}`,
+      );
+      assert.equal(ctx.sent[0]?.[0], null, `${name}: sent before the refusal`);
+    }
   });
 
   it("tells the core nothing when no sign_transaction request leaves (#537)", async () => {

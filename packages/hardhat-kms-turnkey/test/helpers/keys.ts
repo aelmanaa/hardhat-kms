@@ -63,7 +63,8 @@ export function turnkeyKey(
 
 /**
  * A call context with its own controller; `messages` collects the status lines, and `sent` the
- * ids passed to `requestSent`, `null` for a call without one, each with what `onSent` returned.
+ * ids passed to `requestSent`, `null` for a call without one, and `refused` for each
+ * `requestRefused`, each with what `onSent` returned.
  */
 export function signContext(onSent: () => unknown = () => undefined): SignContext & {
   controller: AbortController;
@@ -85,6 +86,9 @@ export function signContext(onSent: () => unknown = () => undefined): SignContex
     },
     requestSent: (id) => {
       sent.push([id ?? null, onSent()]);
+    },
+    requestRefused: () => {
+      sent.push(["refused", onSent()]);
     },
   };
 }

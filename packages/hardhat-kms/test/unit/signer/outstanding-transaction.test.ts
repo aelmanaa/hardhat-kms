@@ -41,6 +41,8 @@ interface Behaviour {
   sentValues?: unknown[];
   /** Throw this instead of waiting for the abort. */
   fail?: Error;
+  /** Steps after `sent`: `refused` calls `ctx.requestRefused`, `sent` reports a sent request again. */
+  after?: ("refused" | "sent")[];
 }
 
 /** Waits until the call's signal aborts, then rejects, as an SDK call does. */
@@ -65,6 +67,13 @@ async function behave(behaviour: Behaviour, ctx: SignContext): Promise<never> {
   assert.ok(requestSent !== undefined, "the core sets requestSent");
   for (const value of behaviour.sentValues ?? []) {
     Reflect.apply(requestSent, ctx, [value]);
+  }
+  for (const step of behaviour.after ?? []) {
+    if (step === "refused") {
+      ctx.requestRefused?.();
+    } else {
+      ctx.requestSent?.();
+    }
   }
   if (behaviour.fail !== undefined) {
     throw behaviour.fail;
@@ -244,7 +253,7 @@ describe("a transaction the provider may still sign after a timeout or abort (#5
     assertOutstanding(error);
     assert.equal(
       error.message,
-      `turnkey, sign transaction, key fake-key-1: no answer within 1300 ms after the request reached the provider. Turnkey may still sign this transaction (activity ${ID}), and anyone who can read it there can then broadcast it with nonce 7. Reject the activity in the Turnkey dashboard while it is pending, or send a replacement transaction with nonce 7, before any other transaction from this account. Until a transaction with nonce 7 reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 7, so they wait behind a gap that the replacement fills`,
+      `turnkey, sign transaction, key fake-key-1: no answer within 1300 ms. The request reached the provider, and Turnkey may still sign this transaction (activity ${ID}); anyone who can read it there can then broadcast it with nonce 7. Reject the activity in the Turnkey dashboard while it is pending; then, or if it completed, send a replacement transaction with nonce 7, before any other transaction from this account. Until a transaction with nonce 7 reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 7, so they wait behind a gap that the replacement fills`,
     );
   });
 
@@ -367,9 +376,41 @@ describe("a transaction the provider may still sign after a timeout or abort (#5
     );
   });
 
-  it("passes an error the adapter throws after sending on as before", async () => {
+  it("holds the nonce when the adapter throws after sending, and names the error as the cause", async () => {
+    const planted = catalogError(
+      ERRORS.signerCallFailed,
+      { errorName: "Planted" },
+      { provider: "fake", operation: "poll", key: "fake-key-1" },
+    );
+    for (const [fail, reason] of [
+      [new TypeError("broken"), "the provider call failed (TypeError)"],
+      // The adapter's own prefix goes, and so does a final full stop.
+      [planted, "the provider call failed (Planted)"],
+      [
+        new HardhatPluginError("hardhat-kms", "fake: no key prefix here."),
+        "fake: no key prefix here",
+      ],
+      [
+        new HardhatPluginError("hardhat-kms", "other, poll, key fake-key-1: another provider's"),
+        "other, poll, key fake-key-1: another provider's",
+      ],
+    ] as const) {
+      const { signer } = await signerOf(outliving({ sent: [ID], fail }, { flag: true }));
+      await assert.rejects(signer.signTransaction(TRANSACTION, { holdsNonce: true }), (error) => {
+        assertOutstanding(error);
+        assert.equal(outstandingNonce(error), 7n);
+        assert.equal(
+          error.message,
+          outstandingMessage({ reason, request: `request ${ID}`, hold: HOLD }),
+        );
+        return true;
+      });
+    }
+  });
+
+  it("releases the nonce when the adapter says the provider refused the request", async () => {
     const { signer } = await signerOf(
-      outliving({ sent: [ID], fail: new TypeError("broken") }, { flag: true }),
+      outliving({ sent: [ID], after: ["refused"], fail: new TypeError("refused") }, { flag: true }),
     );
     await assert.rejects(signer.signTransaction(TRANSACTION, { holdsNonce: true }), (error) => {
       assert.ok(error instanceof HardhatPluginError);
@@ -384,6 +425,39 @@ describe("a transaction the provider may still sign after a timeout or abort (#5
       );
       return true;
     });
+    const timed = await signerOf(outliving({ sent: [ID], after: ["refused"] }, { flag: true }));
+    assertPlainTimeout(
+      await afterTimeout(
+        timed.timers,
+        async () => await timed.signer.signTransaction(TRANSACTION, { holdsNonce: true }),
+      ),
+    );
+  });
+
+  it("holds again when the adapter sends another request after a refusal", async () => {
+    const { signer } = await signerOf(
+      outliving(
+        { sent: [ID], after: ["refused", "sent"], fail: new TypeError("x") },
+        { flag: true },
+      ),
+    );
+    await assert.rejects(signer.signTransaction(TRANSACTION), (error) => {
+      assert.equal(outstandingNonce(error), 7n);
+      return true;
+    });
+  });
+
+  it("ignores a refusal without a sent request, and from an adapter without the flag", async () => {
+    const cases: [Behaviour, boolean][] = [
+      [{ after: ["refused"] }, true],
+      [{ sent: [ID], after: ["refused", "sent"] }, false],
+    ];
+    for (const [behaviour, flag] of cases) {
+      const { signer, timers } = await signerOf(outliving(behaviour, { flag }));
+      assertPlainTimeout(
+        await afterTimeout(timers, async () => await signer.signTransaction(TRANSACTION)),
+      );
+    }
   });
 
   it("keeps nothing for an adapter without the flag, or with it false", async () => {

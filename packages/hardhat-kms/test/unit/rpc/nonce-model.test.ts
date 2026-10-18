@@ -114,6 +114,12 @@ type Kind =
   | "gap-489";
 
 type Mode = "accept" | "refuse" | "no-answer";
+/**
+ * What an outstanding signature does after its request was sent (#537): wait for the key's
+ * timeout (`sent`), fail at once as an activity that needs approval (`fails`), or fail after the
+ * provider refused it (`refused`), which alone frees the nonce.
+ */
+type Outcome = "sent" | "fails" | "refused";
 type ConnectionIndex = 0 | 1;
 
 interface PluginSend {
@@ -217,8 +223,11 @@ interface World {
    * them, a gap the pending count cannot show it.
    */
   stale: Set<bigint>;
-  /** The values of the transactions whose KMS signature hangs after its request was sent. */
-  hangs: Set<bigint>;
+  /**
+   * By transaction value: what the KMS does with a signature whose request it got, instead of
+   * signing it (#537).
+   */
+  hangs: Map<bigint, Outcome>;
   /**
    * By connection: the nonces of transactions the provider may still sign (#537), until a
    * transaction with the nonce is recorded on the connection.
@@ -814,7 +823,7 @@ function noteOutstanding(world: World, send: Send, error: unknown, step: string)
  * stays pending, until the key's timeout passes (#537). A send that waits for the lock hangs when
  * it gets it, until a later step passes the time.
  */
-function outstandingSend(connection: ConnectionIndex): Step {
+function outstandingSend(connection: ConnectionIndex, outcome: Outcome = "sent"): Step {
   return {
     check: () => true,
     run: async (_model, world) => {
@@ -828,7 +837,7 @@ function outstandingSend(connection: ConnectionIndex): Step {
         lowest: lowestFree(world),
       };
       world.sends.push(send);
-      world.hangs.add(BigInt(send.id));
+      world.hangs.set(BigInt(send.id), outcome);
       const target = world.connections[connection];
       assert.ok(target !== undefined);
       await start(
@@ -849,7 +858,7 @@ function outstandingSend(connection: ConnectionIndex): Step {
       world.tick(KMS_TIMEOUT_MS);
       await settle();
     },
-    toString: () => `outstandingSend(${connection})`,
+    toString: () => `outstandingSend(${connection}, ${outcome})`,
   };
 }
 
@@ -857,7 +866,7 @@ function outstandingSend(connection: ConnectionIndex): Step {
  * A library send's signature that hangs after its request was sent, until the key's timeout
  * passes (#537). viem resets after it, as after any failed sign; `libraryReset` may follow.
  */
-function librarySignOutstanding(index: number): Step {
+function librarySignOutstanding(index: number, outcome: Outcome = "sent"): Step {
   return {
     check: () => true,
     run: async (_model, world) => {
@@ -866,7 +875,7 @@ function librarySignOutstanding(index: number): Step {
         return;
       }
       send.state = "signing";
-      world.hangs.add(BigInt(send.id));
+      world.hangs.set(BigInt(send.id), outcome);
       await start(
         world,
         (async (nonce: bigint) => {
@@ -886,7 +895,7 @@ function librarySignOutstanding(index: number): Step {
       world.tick(KMS_TIMEOUT_MS);
       await settle();
     },
-    toString: () => `librarySignOutstanding(${index})`,
+    toString: () => `librarySignOutstanding(${index}, ${outcome})`,
   };
 }
 
@@ -1220,6 +1229,7 @@ const revert: Step = {
 const connectionArb = fc.constantFrom<ConnectionIndex>(0, 1);
 const indexArb = fc.nat({ max: 2 });
 const transportArb = fc.constantFrom<"through" | "own">("through", "own");
+const outcomeArb = fc.constantFrom<Outcome>("sent", "fails", "refused");
 
 /** Each kind of step, and how often it is drawn relative to the others. */
 const stepArbs: [fc.Arbitrary<Step>, number][] = [
@@ -1228,8 +1238,13 @@ const stepArbs: [fc.Arbitrary<Step>, number][] = [
   [connectionArb.map(inspectUncertain), 1],
   [fc.tuple(connectionArb, transportArb).map(([c, transport]) => libraryConsume(c, transport)), 3],
   [indexArb.map(librarySign), 1],
-  [connectionArb.map(outstandingSend), 1],
-  [indexArb.map(librarySignOutstanding), 1],
+  [fc.tuple(connectionArb, outcomeArb).map(([c, outcome]) => outstandingSend(c, outcome)), 1],
+  [
+    fc
+      .tuple(indexArb, outcomeArb)
+      .map(([index, outcome]) => librarySignOutstanding(index, outcome)),
+    1,
+  ],
   [fc.tuple(indexArb, connectionArb).map(([index, c]) => libraryBroadcast(index, c)), 1],
   [indexArb.map(libraryReset), 2],
   // No answer twice as often: it is the path of the uncertain record and its lookup.
@@ -1285,10 +1300,10 @@ async function newWorld(
     tick: (ms) => t.mock.timers.tick(ms),
     fell: false,
     stale: new Set(),
-    hangs: new Set(),
+    hangs: new Map(),
     outstanding: [new Set(), new Set()],
   };
-  harness.state.hang = (transaction) => (world.hangs.has(transaction.value) ? "sent" : undefined);
+  harness.state.hang = (transaction) => world.hangs.get(transaction.value);
   harness.node.onRaw = onRaw(world);
   harness.node.lookUp = (hash, connection) => {
     if (typeof hash === "string") {
@@ -1521,6 +1536,27 @@ const KNOWN_537: { name: string; type: "http" | "edr-simulated"; steps: Step[] }
     type: "http",
     // The first limit ends the hold, so the send hangs; the second passes its timeout.
     steps: [libraryConsume(0, "through"), outstandingSend(0), holdLimit, holdLimit, pluginSend(0)],
+  },
+  {
+    name: "a send that fails after its request was sent, as one that needs approval",
+    type: "http",
+    steps: [outstandingSend(0, "fails"), pluginSend(0), pluginSend(0), inspectUncertain(0)],
+  },
+  {
+    name: "a held library send whose sign fails after its request was sent, then viem's reset",
+    type: "edr-simulated",
+    steps: [
+      libraryConsume(0, "through"),
+      librarySignOutstanding(0, "fails"),
+      libraryReset(0),
+      pluginSend(0),
+      pluginSend(0),
+    ],
+  },
+  {
+    name: "a refused send frees its nonce, a held one stays held",
+    type: "http",
+    steps: [outstandingSend(0, "refused"), outstandingSend(0), pluginSend(0), pluginSend(0)],
   },
   {
     name: "an outstanding send, then a caller-nonce replacement at another nonce and a fall",

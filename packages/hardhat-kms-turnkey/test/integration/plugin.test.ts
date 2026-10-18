@@ -53,6 +53,7 @@ import {
   SIGN_TRANSACTION_TYPE,
   type SignMode,
   TurnkeyStub,
+  turnkeyError,
 } from "../helpers/turnkey-stub.ts";
 
 const ownVersion = String(
@@ -811,7 +812,7 @@ describe("a Turnkey transaction that Turnkey has not finished when the plugin gi
         assert.ok(error instanceof Error);
         assert.match(
           error.message,
-          /^turnkey, sign transaction, key turnkey:<HHKMS_TEST_TURNKEY_ORGANIZATION>\/0x[0-9a-fA-F]{40}: no answer within 1300 ms after the request reached the provider\. Turnkey may still sign this transaction \(activity 00000000-0000-4000-8000-[0-9]{12}\), and anyone who can read it there can then broadcast it with nonce 0\. Reject the activity in the Turnkey dashboard while it is pending, or send a replacement transaction with nonce 0, before any other transaction from this account\. Until a transaction with nonce 0 reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 0/,
+          /^turnkey, sign transaction, key turnkey:<HHKMS_TEST_TURNKEY_ORGANIZATION>\/0x[0-9a-fA-F]{40}: no answer within 1300 ms\. The request reached the provider, and Turnkey may still sign this transaction \(activity 00000000-0000-4000-8000-[0-9]{12}\); anyone who can read it there can then broadcast it with nonce 0\. Reject the activity in the Turnkey dashboard while it is pending; then, or if it completed, send a replacement transaction with nonce 0, before any other transaction from this account\. Until a transaction with nonce 0 reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 0/,
         );
         assert.ok(!error.message.includes(ORGANIZATION));
         return true;
@@ -865,7 +866,7 @@ describe("a Turnkey transaction that Turnkey has not finished when the plugin gi
     await assert.rejects(sending, (error: unknown) => {
       assert.match(
         causeText(error),
-        /cancelled by the caller's abort signal after the request reached the provider\. Turnkey may still sign this transaction \(activity [0-9a-f-]{36}\), and anyone who can read it there can then broadcast it with nonce 0/,
+        /cancelled by the caller's abort signal\. The request reached the provider, and Turnkey may still sign this transaction \(activity [0-9a-f-]{36}\); anyone who can read it there can then broadcast it with nonce 0/,
       );
       return true;
     });
@@ -876,6 +877,112 @@ describe("a Turnkey transaction that Turnkey has not finished when the plugin gi
       params: [{ from: ADDRESS, to: OTHER.address, value: "0x6" }],
     });
     assert.deepEqual(signedNonces(), [0, 1]);
+  });
+
+  it("keeps the nonce held when the activity needs approval, and names the cause and the activity", async () => {
+    const hre = await runtime(undefined, undefined, TIMEOUT_MS);
+    const { provider } = await hre.network.create("queued");
+    stub.firstStatus = "ACTIVITY_STATUS_CONSENSUS_NEEDED";
+
+    await assert.rejects(
+      provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(
+          error.message,
+          /^turnkey, sign transaction, key [^ ]+: Turnkey holds activity (00000000-0000-4000-8000-[0-9]{12}) until it gets more approvals \(ACTIVITY_STATUS_CONSENSUS_NEEDED\)\. .*Reject it in the Turnkey dashboard, so that nobody approves it later\. The request reached the provider, and Turnkey may still sign this transaction \(activity \1\); anyone who can read it there can then broadcast it with nonce 0\. Reject the activity in the Turnkey dashboard while it is pending; then, or if it completed, send a replacement transaction with nonce 0,/,
+        );
+        return true;
+      },
+    );
+    stub.firstStatus = "ACTIVITY_STATUS_COMPLETED";
+
+    await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x2" }],
+    });
+    assert.deepEqual(signedNonces(), [0, 1]);
+  });
+
+  it("keeps the nonce held after a signed transaction it refused, or a failed poll", async () => {
+    const hre = await runtime(undefined, undefined, TIMEOUT_MS);
+    const { provider } = await hre.network.create("queued");
+    stub.mode = "other-body";
+    await assert.rejects(
+      provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
+      }),
+      /Turnkey signed a transaction whose value differs .*The request reached the provider, and Turnkey may still sign this transaction \(activity [0-9a-f-]{36}\); anyone who can read it there can then broadcast it with nonce 0\./,
+    );
+    stub.mode = "good";
+    // A pending activity the stub does not know, so its poll answers 404.
+    stub.answer({
+      status: 200,
+      json: {
+        activity: {
+          id: "00000000-0000-4000-8000-0000000000fe",
+          organizationId: ORGANIZATION,
+          status: "ACTIVITY_STATUS_PENDING",
+          type: SIGN_TRANSACTION_TYPE,
+        },
+      },
+    });
+    await assert.rejects(
+      provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: ADDRESS, to: OTHER.address, value: "0x2" }],
+      }),
+      /Turnkey answered 404 NOT_FOUND.*The request reached the provider, and Turnkey may still sign this transaction \(activity 00000000-0000-4000-8000-0000000000fe\); .*broadcast it with nonce 1\./,
+    );
+    await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x3" }],
+    });
+    assert.deepEqual(signedNonces(), [0, 1, 2]);
+  });
+
+  it("releases the nonce when Turnkey refuses the request for certain", async () => {
+    const hre = await runtime(undefined, undefined, TIMEOUT_MS);
+    const { provider, viem } = await hre.network.create("local");
+    const client = await viem.getPublicClient();
+    const rejected = {
+      status: 200,
+      json: {
+        activity: {
+          id: "00000000-0000-4000-8000-0000000000ff",
+          organizationId: ORGANIZATION,
+          status: "ACTIVITY_STATUS_REJECTED",
+          type: SIGN_TRANSACTION_TYPE,
+        },
+      },
+    };
+    for (const refusal of [turnkeyError(403, "POLICY_DENIED"), rejected]) {
+      stub.answer(refusal);
+      await assert.rejects(
+        provider.request({
+          method: "eth_sendTransaction",
+          params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
+        }),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.ok(!error.message.includes("The request reached the provider"), error.message);
+          return true;
+        },
+      );
+    }
+    const hash = await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x2" }],
+    });
+    assert.equal(
+      (await client.waitForTransactionReceipt({ hash: assertHash(hash) })).status,
+      "success",
+    );
+    assert.deepEqual(signedNonces(), [0, 0, 0]);
   });
 
   it("releases the nonce in digest mode, whose activity holds only a hash", async () => {

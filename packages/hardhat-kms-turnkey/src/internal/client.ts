@@ -91,6 +91,12 @@ export interface RequestContext {
    * checked, so that the core knows Turnkey may have the request (`SignContext.requestSent`).
    */
   sent?: (() => void) | undefined;
+  /**
+   * Called right before the client throws an answer that refused the request for certain: a 4xx
+   * (a rate limit too), when no earlier attempt of this body lost its answer or got a 5xx, either
+   * of which Turnkey may have acted on (`SignContext.requestRefused`).
+   */
+  refused?: (() => void) | undefined;
 }
 
 /** Turnkey's error code from an error answer's `details`, when it is safe to show. */
@@ -188,6 +194,14 @@ export class TurnkeyClient {
    */
   public async send(path: string, body: string, ctx: RequestContext): Promise<Answer> {
     const { signal } = ctx;
+    // Whether an earlier attempt may have reached Turnkey without a definite answer.
+    let unsure = false;
+    /** Reports a definite refusal, unless an earlier attempt left the outcome open. */
+    const refuse = (): void => {
+      if (!unsure) {
+        ctx.refused?.();
+      }
+    };
     for (let attempt = 1; ; attempt++) {
       signal.throwIfAborted();
       const started = this.#transport.now();
@@ -214,6 +228,7 @@ export class TurnkeyClient {
         text = isRedirect(response) ? undefined : await response.text();
       } catch (error) {
         signal.throwIfAborted();
+        unsure = true;
         const reason = failureReason(error);
         log("%s %s: no answer (%s), attempt %d", ctx.requestId, path, reason, attempt);
         if (attempt < MAX_ATTEMPTS) {
@@ -247,14 +262,19 @@ export class TurnkeyClient {
       const shown = { status: code === undefined ? String(status) : `${status} ${code}` };
       const rateLimited = status === 429 && (code === undefined || code === RATE_LIMIT_CODE);
       if (status >= 500 || rateLimited) {
+        unsure ||= status >= 500;
         if (attempt < MAX_ATTEMPTS) {
           await this.#backOff(attempt, signal);
           continue;
         }
         if (rateLimited) {
+          refuse();
           throw this.#error(ctx.operation, ERRORS.throttled, { ...shown, attempts: attempt });
         }
         throw this.#error(ctx.operation, ERRORS.answered, shown);
+      }
+      if (status >= 400 && status < 500) {
+        refuse();
       }
       throw this.#explain(status, code, answer, shown, ctx);
     }

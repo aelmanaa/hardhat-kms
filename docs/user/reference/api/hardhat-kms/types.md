@@ -1644,11 +1644,12 @@ Stable from 1.0: a minor may add optional methods; changing or removing one need
 `true` when a `signTransaction` request that the core abandons may still produce a signed
 transaction outside the plugin: the provider keeps working on it after the call's `signal`
 aborts, and keeps the signed transaction where others can read and broadcast it (Turnkey's
-`sign_transaction`). For such an adapter, a `signTransaction` that times out or is cancelled
-after the adapter called `ctx.requestSent` keeps the transaction's nonce held: the core's
-sends from the account skip it, a gap rather than two valid transactions at one nonce. A
-failure before `ctx.requestSent`, or any error the adapter throws, releases the nonce as
-before. The core reads it once, when it builds the signer.
+`sign_transaction`). For such an adapter, a `signTransaction` that fails in any way after the
+adapter called `ctx.requestSent` (a timeout, a cancellation or an error it throws) keeps the
+transaction's nonce held, unless the adapter called `ctx.requestRefused` after it: the core's
+sends from the account skip the nonce, a gap rather than two valid transactions at one nonce.
+A failure before `ctx.requestSent` releases the nonce as before. The core reads the flag once,
+when it builds the signer.
 
 #### Methods
 
@@ -2479,6 +2480,22 @@ Stable from 1.0: a minor may add optional fields; changing or removing one needs
 > **requestId**: `string`
 
 Identifies this call in the plugin's debug output.
+
+##### requestRefused?
+
+> `optional` **requestRefused?**: () => `void`
+
+Tells the core that the provider definitely refused the request and made no signature, so a
+transaction's nonce is free again: for example an answer that refused it before the provider
+accepted it, or a request the provider ended without a signature. An adapter that sets
+[KmsKeyAdapter.signTransactionOutlivesAbort](#signtransactionoutlivesabort) calls it from `signTransaction` right before
+it throws such an error. Without it, every failure after `requestSent` keeps the nonce held.
+A later `requestSent` cancels it. The core reads it only for `signTransaction` on an adapter
+with that flag.
+
+###### Returns
+
+`void`
 
 ##### requestSent?
 

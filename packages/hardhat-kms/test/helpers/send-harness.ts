@@ -91,9 +91,11 @@ export const PENDING_REQUEST_ID = "1b4e28ba-2fa1-11d2-883f-0016d3cca427";
 /**
  * What an outliving adapter's `signTransaction` does with a transaction instead of signing it:
  * wait for the abort after it reported the request sent (`sent`, as Turnkey's pending activity
- * does), or before (`unsent`, as a request that never left).
+ * does), or before (`unsent`, as a request that never left); or throw after it reported the
+ * request sent, either without more (`fails`, as an activity that needs approval) or after it
+ * said that the provider refused it (`refused`, as a 403 or a rejected activity).
  */
-export type Hang = "sent" | "unsent";
+export type Hang = "sent" | "unsent" | "fails" | "refused";
 
 /** The fake KMS adapters' shared state. */
 export interface SignState {
@@ -218,9 +220,15 @@ export async function setUp(
           ).raw;
           const hang = state.hang?.({ nonce, value });
           if (hang !== undefined) {
-            if (hang === "sent") {
+            if (hang !== "unsent") {
               ctx.requestSent?.();
               ctx.requestSent?.(PENDING_REQUEST_ID);
+            }
+            if (hang === "refused") {
+              ctx.requestRefused?.();
+            }
+            if (hang === "fails" || hang === "refused") {
+              throw new Error(hang);
             }
             await new Promise<never>((_, reject) => {
               ctx.signal.addEventListener("abort", () => {

@@ -98,6 +98,29 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     });
   }
 
+  it("keeps the nonce held when the adapter fails after sending, and releases it after a refusal", async (t) => {
+    const { harness, connection } = await harnessFor(t);
+    harness.state.hang = (transaction) =>
+      transaction.value === 1n ? "fails" : transaction.value === 3n ? "refused" : undefined;
+
+    const held = await harness.send(connection, transfer(1)).then(
+      () => assert.fail("the send succeeded"),
+      (error: unknown) => error,
+    );
+    assertOutstanding(held, 0n);
+    assert.ok(String(held).includes(": the provider call failed (Error). The request reached"));
+    resultOf(await harness.send(connection, transfer(2)));
+
+    const refused = await harness.send(connection, transfer(3)).then(
+      () => assert.fail("the send succeeded"),
+      (error: unknown) => error,
+    );
+    assert.equal(outstandingNonce(refused), undefined, String(refused));
+    harness.node.pending = 2n;
+    resultOf(await harness.send(connection, transfer(4)));
+    assert.deepEqual(harness.node.raw.map(nonceOf), [1n, 2n]);
+  });
+
   it("releases the nonce when the request never left", async (t) => {
     const { harness, connection } = await harnessFor(t);
     hangOn(harness, 1n, "unsent");
