@@ -15,7 +15,7 @@ import {
   ORGANIZATION,
 } from "../helpers/keys.ts";
 import { BASE_URL } from "../helpers/transport.ts";
-import { TurnkeyStub, turnkeyError } from "../helpers/turnkey-stub.ts";
+import { TurnkeyStub, turnkeyError, turnkeyPolicyDenied } from "../helpers/turnkey-stub.ts";
 import { openSmoke, type Smoke, SMOKE_CASES } from "../live/cases.ts";
 import { LiveRecorder, liveRedactor, runCase, SIGNATURE_CAP } from "../live/smoke.ts";
 
@@ -94,12 +94,12 @@ async function turnkey(input: string | URL | Request, init?: RequestInit): Promi
         return json(500, turnkeyError(500).json);
       }
       return Number(field(body, "timestampMs")) < Date.now() - 3_600_000
-        ? json(401, turnkeyError(401, undefined, "the request's timestamp is too old").json)
-        : json(403, turnkeyError(403, "REQUEST_NOT_AUTHORIZED").json);
+        ? json(400, turnkeyError(400, undefined, "the request's timestamp is too old").json)
+        : json(403, turnkeyPolicyDenied().json);
     default:
   }
   if (signWith === DENIED) {
-    return json(403, turnkeyError(403, "REQUEST_NOT_AUTHORIZED").json);
+    return json(403, turnkeyPolicyDenied().json);
   }
   if (signWith === CONSENSUS) {
     return json(200, {
@@ -163,8 +163,8 @@ describe("the Turnkey smoke test's cases, against the stub", () => {
     assert.equal(recorder.signatures, SIGNATURE_CAP - 1);
     assert.equal(recorder.refused, 0);
     const notes = outcomes.map((outcome) => ("note" in outcome ? outcome.note : undefined));
-    assert.deepEqual(notes.slice(0, 2), ["HTTP 403 REQUEST_NOT_AUTHORIZED", "HTTP 401"]);
-    assert.equal(notes[10], "HTTP 403 REQUEST_NOT_AUTHORIZED");
+    assert.deepEqual(notes.slice(0, 2), ["HTTP 403", "HTTP 400"]);
+    assert.equal(notes[10], "HTTP 403, turnkeyErrorCode: none");
     assert.equal(keyRequests.length, 0, "a clean 403 lists and deletes nothing");
     assert.ok(
       notes.includes("reject activity 5e1f0c2a-… in the Turnkey dashboard (Activities, pending)"),
