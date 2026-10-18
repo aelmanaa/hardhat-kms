@@ -27,7 +27,14 @@ import { fileURLToPath } from "node:url";
 
 import { apiKeyFromPrivateKey } from "../../src/internal/stamp.ts";
 import { openSmoke, type Smoke, SMOKE_CASES } from "./cases.ts";
-import { type CaseOutcome, LiveRecorder, liveRedactor, runCase, VARIABLES } from "./smoke.ts";
+import {
+  type CaseOutcome,
+  errorText,
+  LiveRecorder,
+  liveRedactor,
+  runCase,
+  VARIABLES,
+} from "./smoke.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY = path.resolve(here, "../../../..");
@@ -67,6 +74,9 @@ describe(
         sepoliaUrl: sepolia
           ? env("HARDHAT_KMS_LIVE_SEPOLIA_RPC_URL") || DEFAULT_SEPOLIA_RPC_URL
           : undefined,
+      }).catch((error: unknown) => {
+        // A config error names the accounts; the cause would be printed unredacted.
+        throw new Error(redact(errorText(error)));
       });
     });
 
@@ -118,7 +128,7 @@ describe(
         switch (outcome.kind) {
           case "passed":
             if (outcome.note !== undefined) {
-              t.diagnostic(outcome.note);
+              t.diagnostic(redact(outcome.note));
             }
             return;
           case "skipped":

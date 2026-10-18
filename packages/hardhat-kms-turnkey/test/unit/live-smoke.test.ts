@@ -210,6 +210,11 @@ describe("the smoke test's redaction", () => {
     assert.ok(text.includes(`pinned ${ACCOUNT.address}`), "the pinned account was removed");
   });
 
+  it("removes a UUID glued to word characters", () => {
+    const text = liveRedactor({})(`activity_${activity} id${activity}x ${activity.toUpperCase()}`);
+    assert.equal(text, "activity_<uuid> id<uuid>x <uuid>");
+  });
+
   it("redacts the message of a failed case", async () => {
     const recorder = new LiveRecorder(stub().fetch, { gapMs: 0 });
     const outcome = await runCase(recorder, "leaky", liveRedactor(env), async () => {

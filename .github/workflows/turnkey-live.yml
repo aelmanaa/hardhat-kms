@@ -83,8 +83,8 @@ jobs:
 
       # A passing run writes the record; a run that ended as "quota used up" passes with its cases
       # skipped and writes none, which the job summary says. The record is never committed by the
-      # workflow: the owner downloads it to test/live/turnkey-smoke.json, runs
-      # `pnpm run docs:live-proof` and commits both files.
+      # workflow: the owner runs `gh run download <run id> -n turnkey-smoke -D test/live`, then
+      # `pnpm run docs:live-proof`, and commits both files.
       - name: Upload the record
         if: success()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

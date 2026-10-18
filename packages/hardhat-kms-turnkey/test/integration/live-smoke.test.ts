@@ -33,6 +33,13 @@ const field = (value: unknown, name: string): unknown =>
 const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
+/** How the stand-in answers create_api_keys: as the guide's policy does, or otherwise. */
+let createMode: "policy" | "accept" | "lost" = "policy";
+/** The get_api_keys and delete_api_keys bodies the stand-in received. */
+const keyRequests: Array<{ path: string; body: unknown }> = [];
+/** The public key of the throwaway key the stand-in accepted. */
+let acceptedPublicKey: unknown;
+
 const stub = new TurnkeyStub({
   organizationId: ORGANIZATION,
   apiPublicKey: API_PUBLIC_KEY,
@@ -47,7 +54,45 @@ async function turnkey(input: string | URL | Request, init?: RequestInit): Promi
   switch (url.pathname) {
     case "/public/v1/query/whoami":
       return json(200, { organizationId: ORGANIZATION, userId: "user-1", username: "api" });
+    case "/public/v1/query/get_api_keys":
+      keyRequests.push({ path: url.pathname, body });
+      return json(200, {
+        apiKeys: [
+          { apiKeyId: "kept", apiKeyName: "ci", credential: { publicKey: "02ab" } },
+          {
+            apiKeyId: "throwaway",
+            // Found by its public key once accepted, by its name otherwise.
+            apiKeyName: createMode === "accept" ? "renamed" : "hardhat-kms-smoke-deny-check",
+            credential: { publicKey: acceptedPublicKey },
+          },
+        ],
+      });
+    case "/public/v1/submit/delete_api_keys":
+      keyRequests.push({ path: url.pathname, body });
+      return json(200, {
+        activity: {
+          id: PENDING_ID,
+          organizationId: ORGANIZATION,
+          status: "ACTIVITY_STATUS_COMPLETED",
+          type: "ACTIVITY_TYPE_DELETE_API_KEYS",
+        },
+      });
     case "/public/v1/submit/create_api_keys":
+      if (createMode === "accept") {
+        acceptedPublicKey = field(field(field(body, "parameters"), "apiKeys"), "0");
+        acceptedPublicKey = field(acceptedPublicKey, "publicKey");
+        return json(200, {
+          activity: {
+            id: PENDING_ID,
+            organizationId: ORGANIZATION,
+            status: "ACTIVITY_STATUS_COMPLETED",
+            type: "ACTIVITY_TYPE_CREATE_API_KEYS_V2",
+          },
+        });
+      }
+      if (createMode === "lost") {
+        return json(500, turnkeyError(500).json);
+      }
       return Number(field(body, "timestampMs")) < Date.now() - 3_600_000
         ? json(401, turnkeyError(401, undefined, "the request's timestamp is too old").json)
         : json(403, turnkeyError(403, "REQUEST_NOT_AUTHORIZED").json);
@@ -118,8 +163,9 @@ describe("the Turnkey smoke test's cases, against the stub", () => {
     assert.equal(recorder.signatures, SIGNATURE_CAP - 1);
     assert.equal(recorder.refused, 0);
     const notes = outcomes.map((outcome) => ("note" in outcome ? outcome.note : undefined));
-    assert.ok(notes.includes("403 REQUEST_NOT_AUTHORIZED"));
-    assert.ok(notes.includes("HTTP 401"));
+    assert.deepEqual(notes.slice(0, 2), ["HTTP 403 REQUEST_NOT_AUTHORIZED", "HTTP 401"]);
+    assert.equal(notes[10], "HTTP 403 REQUEST_NOT_AUTHORIZED");
+    assert.equal(keyRequests.length, 0, "a clean 403 lists and deletes nothing");
     assert.ok(
       notes.includes("reject activity 5e1f0c2a-… in the Turnkey dashboard (Activities, pending)"),
     );
@@ -146,4 +192,41 @@ describe("the Turnkey smoke test's cases, against the stub", () => {
     );
     assert.ok(recorder.shapes.has("HTTP 403"));
   });
+
+  for (const mode of ["accept", "lost"] as const) {
+    it(`deletes the throwaway key and fails loudly when create_api_keys is ${mode === "accept" ? "accepted" : "answered by no 403"}`, async () => {
+      const shared = smoke;
+      assert.ok(shared !== undefined);
+      const [check] = SMOKE_CASES;
+      assert.ok(check !== undefined);
+      createMode = mode;
+      keyRequests.length = 0;
+      try {
+        const outcome = await runCase(
+          recorder,
+          check.name,
+          redact,
+          async () => await check.run(shared),
+        );
+        assert.equal(outcome.kind, "failed");
+        const message = outcome.kind === "failed" ? outcome.message : "";
+        assert.match(
+          message,
+          mode === "accept"
+            ? /CREDENTIAL DENY POLICY DID NOT HOLD/
+            : /CREDENTIAL CHECK INCONCLUSIVE: create_api_keys ended with HTTP 500/,
+        );
+        assert.match(message, /found 1 throwaway key\(s\) and deleted them/);
+        assert.match(message, /Check the API user's API keys in the Turnkey dashboard/);
+      } finally {
+        createMode = "policy";
+      }
+      assert.deepEqual(
+        keyRequests.map((request) => request.path),
+        ["/public/v1/query/get_api_keys", "/public/v1/submit/delete_api_keys"],
+      );
+      const deleted = field(field(keyRequests[1]?.body, "parameters"), "apiKeyIds");
+      assert.deepEqual(deleted, ["throwaway"]);
+    });
+  }
 });

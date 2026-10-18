@@ -388,7 +388,7 @@ export function liveRedactor(
       out = out.replaceAll(new RegExp(escapeRegExp(secret), "gi"), "<redacted>");
     }
     return out
-      .replaceAll(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "<uuid>")
+      .replaceAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<uuid>")
       .replaceAll(/(?:0x)?[0-9a-f]{64,}/gi, "<hex>");
   };
 }

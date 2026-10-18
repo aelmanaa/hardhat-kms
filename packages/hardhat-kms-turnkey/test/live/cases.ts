@@ -39,7 +39,6 @@ import { recoverAuthorizationAddress } from "viem/utils";
 import hardhatKmsTurnkey from "../../src/index.ts";
 import { createTurnkeyKeyAdapter } from "../../src/internal/adapter.ts";
 import {
-  type Answer,
   defaultTransport,
   type RequestContext,
   type Transport,
@@ -60,6 +59,7 @@ const RECIPIENT: Address = "0x000000000000000000000000000000000000dEaD";
 const WHOAMI_PATH = "/public/v1/query/whoami";
 const CREATE_API_KEYS_PATH = "/public/v1/submit/create_api_keys";
 const DELETE_API_KEYS_PATH = "/public/v1/submit/delete_api_keys";
+const GET_API_KEYS_PATH = "/public/v1/query/get_api_keys";
 /** How stale the stale-timestamp request is: past Turnkey's 1-hour window. */
 const STALE_MS = 2 * 60 * 60 * 1000;
 /** The Sepolia send's gas price limit, as in the three-cloud suite. */
@@ -221,30 +221,12 @@ export async function openSmoke(settings: SmokeSettings): Promise<Smoke> {
 export const SMOKE_CASES: readonly SmokeCase[] = [
   {
     name: "the API user cannot add an API key to itself (create_api_keys is denied)",
-    run: async ({ settings, now }) => {
-      const error = await credentialCheck(settings, now(), now);
-      assert.ok(error !== undefined);
-      const last = settings.recorder.exchanges.findLast(
-        (exchange) => exchange.path === "create_api_keys",
-      );
-      assert.equal(last?.status, 403, `create_api_keys answered ${String(last?.status)}, not 403`);
-      return last.code === undefined ? "403" : `403 ${last.code}`;
-    },
+    run: async ({ settings, now }) => await credentialCheck(settings, now(), now, "forbidden"),
   },
   {
     name: "a request older than an hour fails as turnkey.service.timestamp",
-    run: async ({ settings, now }) => {
-      const error = await credentialCheck(settings, now() - STALE_MS, now);
-      const text = textOf(error);
-      assert.ok(
-        text.includes(TIMESTAMP_TEXT),
-        `a stale create_api_keys did not fail with turnkey.service.timestamp: ${text}`,
-      );
-      const last = settings.recorder.exchanges.findLast(
-        (exchange) => exchange.path === "create_api_keys",
-      );
-      return `HTTP ${String(last?.status)}${last?.code === undefined ? "" : ` ${last.code}`}`;
-    },
+    run: async ({ settings, now }) =>
+      await credentialCheck(settings, now() - STALE_MS, now, "timestamp"),
   },
   {
     name: "personal_sign: Turnkey hashes the unprefixed EIP-191 preimage with KECCAK256",
@@ -417,18 +399,21 @@ export const SMOKE_CASES: readonly SmokeCase[] = [
       await signTx(hre, "digest", txFile(eip1559Tx(1)), "eip1559", address),
   },
   {
-    name: "the denied account fails with turnkey.service.forbidden, naming SIGN_TRANSACTION_V2",
+    name: "the denied account fails with turnkey.service.forbidden: Turnkey answers 403",
     run: async ({ hre, settings, txFile }) => {
       const error = await failure(
         task(hre, ["kms", "sign-tx"], { key: "denied", tx: txFile(eip1559Tx(0)) }),
       );
       const text = textOf(error);
       assert.ok(text.includes(FORBIDDEN_TEXT), `not turnkey.service.forbidden: ${text}`);
-      assert.ok(text.includes("ACTIVITY_TYPE_SIGN_TRANSACTION_V2"));
+      // Turnkey's own answer, as the recorder saw it: its status and its error code, never its
+      // message. The plugin's hint in the error text is the plugin's, so it proves nothing here.
       const last = settings.recorder.exchanges.findLast(
         (exchange) => exchange.path === "sign_transaction",
       );
-      return `HTTP ${String(last?.status)}${last?.code === undefined ? "" : ` ${last.code}`}`;
+      assert.equal(last?.status, 403, `Turnkey answered ${String(last?.status)}, not 403`);
+      assert.ok(last.code !== undefined, "Turnkey's 403 carried no turnkeyErrorCode");
+      return `HTTP 403 ${last.code}`;
     },
   },
   {
@@ -546,18 +531,25 @@ async function signTx(
   return undefined;
 }
 
+/** The name of the throwaway API key the credential checks ask for. */
+const THROWAWAY_KEY_NAME = "hardhat-kms-smoke-deny-check";
+
 /**
  * Asks Turnkey to add a fresh API key to the API user itself, with `timestampMs` set to `at`.
- * The guide's deny policy must refuse it. If Turnkey accepts it, the key is deleted at once and
- * the check fails loudly; neither key is ever printed.
+ * `forbidden` expects the guide's deny policy to answer 403; `timestamp` expects
+ * `turnkey.service.timestamp`. Any other outcome, a success or an error that is not the expected
+ * one (such as an answer lost after the request reached Turnkey), may have added the key: the
+ * check then deletes every key of the API user with the throwaway's name or public key and fails
+ * loudly. No key and no id is ever printed.
  *
- * @returns The error the request failed with.
+ * @returns The note for the case: the status and code Turnkey answered.
  */
 async function credentialCheck(
   settings: SmokeSettings,
   at: number,
   now: () => number,
-): Promise<unknown> {
+  expected: "forbidden" | "timestamp",
+): Promise<string> {
   const transport: Transport = { ...defaultTransport(), ...settings.transport };
   const privateKey = process.env[settings.variables.apiPrivateKey]?.trim() ?? "";
   const organizationId = process.env[settings.variables.organizationId]?.trim() ?? "";
@@ -574,6 +566,7 @@ async function credentialCheck(
 
   const fresh = createECDH("prime256v1");
   fresh.generateKeys();
+  const publicKey = fresh.getPublicKey("hex", "compressed");
   const body = JSON.stringify({
     type: "ACTIVITY_TYPE_CREATE_API_KEYS_V2",
     timestampMs: String(at),
@@ -582,25 +575,37 @@ async function credentialCheck(
       userId,
       apiKeys: [
         {
-          apiKeyName: "hardhat-kms-smoke-deny-check",
-          publicKey: fresh.getPublicKey("hex", "compressed"),
+          apiKeyName: THROWAWAY_KEY_NAME,
+          publicKey,
           curveType: "API_KEY_CURVE_P256",
           expirationSeconds: "900",
         },
       ],
     },
   });
-  let answer: Answer;
+  let refusal: unknown;
   try {
-    answer = await client.send(CREATE_API_KEYS_PATH, body, context("create api keys"));
+    await client.send(CREATE_API_KEYS_PATH, body, context("create api keys"));
   } catch (error) {
-    return error;
+    refusal = error;
   }
-  // Turnkey accepted it: the deny policy did not hold.
-  const outcome = await removeCreatedKey(client, answer, organizationId, userId, now);
+  const last = settings.recorder.exchanges.findLast(
+    (exchange) => exchange.path === "create_api_keys",
+  );
+  const answered = `HTTP ${String(last?.status)}${last?.code === undefined ? "" : ` ${last.code}`}`;
+  const clean =
+    refusal !== undefined &&
+    (expected === "forbidden" ? last?.status === 403 : textOf(refusal).includes(TIMESTAMP_TEXT));
+  if (clean) {
+    return answered;
+  }
+  const swept = await sweepThrowawayKeys(client, organizationId, userId, publicKey, now);
   throw new Error(
-    `CREDENTIAL DENY POLICY DID NOT HOLD: Turnkey let the API user add an API key to itself. ${outcome} ` +
-      "Fix the deny policy of the Turnkey setup guide (step 4) before any other run, and list the user's API keys in the dashboard.",
+    refusal === undefined
+      ? `CREDENTIAL DENY POLICY DID NOT HOLD: Turnkey let the API user add an API key to itself. ${swept} ` +
+          "Fix the deny policy of the Turnkey setup guide (step 4) before any other run."
+      : `CREDENTIAL CHECK INCONCLUSIVE: create_api_keys ended with ${answered}, not the expected ${expected === "forbidden" ? "403" : "turnkey.service.timestamp"}, so the key may have been added. ${swept}`,
+    { cause: refusal },
   );
 }
 
@@ -614,24 +619,37 @@ function context(operation: string): RequestContext {
   };
 }
 
-/** Deletes the API keys a create_api_keys activity added, and says how that went. */
-async function removeCreatedKey(
+/**
+ * Deletes every API key of the API user that has the throwaway's name or public key, and says how
+ * that went. `get_api_keys` is a query, which Turnkey's policies do not restrict: "all users have
+ * implicit GET (read) permissions in their own Organization"
+ * (https://docs.turnkey.com/features/policies/overview).
+ */
+async function sweepThrowawayKeys(
   client: TurnkeyClient,
-  answer: Answer,
   organizationId: string,
   userId: string,
+  publicKey: string,
   now: () => number,
 ): Promise<string> {
-  const activity = field(answer.body, "activity");
-  const status = field(activity, "status");
-  if (status !== "ACTIVITY_STATUS_COMPLETED") {
-    return `The activity is ${String(status)}, not completed: reject it in the Turnkey dashboard now.`;
-  }
-  const ids = field(field(field(activity, "result"), "createApiKeysResult"), "apiKeyIds");
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return "Its result names no key id: delete the key named hardhat-kms-smoke-deny-check in the Turnkey dashboard now.";
-  }
+  const check = `Check the API user's API keys in the Turnkey dashboard now and delete any you did not create (the throwaway is named ${THROWAWAY_KEY_NAME}).`;
   try {
+    const listed = await client.send(
+      GET_API_KEYS_PATH,
+      JSON.stringify({ organizationId, userId }),
+      context("get api keys"),
+    );
+    const keys = field(listed.body, "apiKeys");
+    const ids = (Array.isArray(keys) ? keys : []).flatMap((key: unknown) => {
+      const id = field(key, "apiKeyId");
+      const matches =
+        field(key, "apiKeyName") === THROWAWAY_KEY_NAME ||
+        field(field(key, "credential"), "publicKey") === publicKey;
+      return matches && typeof id === "string" ? [id] : [];
+    });
+    if (ids.length === 0) {
+      return `The API user has no key with the throwaway's name or public key. ${check}`;
+    }
     const deleted = await client.send(
       DELETE_API_KEYS_PATH,
       JSON.stringify({
@@ -642,12 +660,12 @@ async function removeCreatedKey(
       }),
       context("delete api keys"),
     );
-    const deletedStatus = field(field(deleted.body, "activity"), "status");
-    return deletedStatus === "ACTIVITY_STATUS_COMPLETED"
-      ? "The test deleted the key it added."
-      : `Deleting it ended as ${String(deletedStatus)}: delete the key named hardhat-kms-smoke-deny-check in the Turnkey dashboard now.`;
+    const status = field(field(deleted.body, "activity"), "status");
+    return status === "ACTIVITY_STATUS_COMPLETED"
+      ? `The test found ${ids.length} throwaway key(s) and deleted them. ${check}`
+      : `Deleting the throwaway key(s) ended as ${String(status)}. ${check}`;
   } catch {
-    return "Deleting it failed: delete the key named hardhat-kms-smoke-deny-check in the Turnkey dashboard now.";
+    return `Listing or deleting the throwaway key failed. ${check}`;
   }
 }
 
