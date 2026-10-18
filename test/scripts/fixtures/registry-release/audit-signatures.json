@@ -51,6 +51,18 @@
       }
     },
     {
+      "name": "@hardhat-kms/turnkey",
+      "version": "1.0.1",
+      "location": "node_modules/@hardhat-kms/turnkey",
+      "registry": "https://registry.npmjs.org/",
+      "attestations": {
+        "url": "https://registry.npmjs.org/-/npm/v1/attestations/@hardhat-kms%2fturnkey@1.0.1",
+        "provenance": {
+          "predicateType": "https://slsa.dev/provenance/v1"
+        }
+      }
+    },
+    {
       "name": "some-dependency",
       "version": "2.0.0",
       "location": "node_modules/some-dependency",

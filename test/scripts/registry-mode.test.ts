@@ -1,5 +1,5 @@
 // Registry mode of the package checks, end to end, against a local registry: the promotion
-// workflow's rehearsal until a version exists on npm. The test builds and packs the four
+// workflow's rehearsal until a version exists on npm. The test builds and packs the published
 // packages, starts verdaccio on a free port, publishes the tarballs to it under `beta` with a
 // throwaway user, and runs each script with `--from-registry <version> --registry <url>`:
 // scripts/check-packages.ts, scripts/consumer-typecheck.ts, scripts/test-peer-installs.ts (npm
@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { pack } from "../../scripts/pack.ts";
 import { stagingDistTags } from "../../scripts/registry-release.ts";
 import { PACKAGES, YARN_BERRY, yarnBerrySettings } from "../../scripts/registry.ts";
+import { RELEASE_PACKAGES } from "../../scripts/release-packages.ts";
 import { readJson } from "../../scripts/temporary-install.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -27,9 +28,7 @@ const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
 const shell = process.platform === "win32";
 /** The package directories, in the order of PACKAGES. */
-const DIRECTORIES = ["hardhat-kms", "hardhat-kms-aws", "hardhat-kms-gcp", "hardhat-kms-azure"].map(
-  (name) => path.join(root, "packages", name),
-);
+const DIRECTORIES = RELEASE_PACKAGES.map((entry) => path.join(root, "packages", entry.directory));
 /** The version of the workspace packages, which the tarballs and the registry get. */
 const version = String(readJson(path.join(DIRECTORIES[0] ?? "", "package.json")).version);
 /** The TypeScript the consumer typecheck runs with: the workspace's. */
@@ -121,7 +120,7 @@ describe("registry mode against a local registry", { timeout: 2_100_000 }, () =>
     execFileSync(pnpm, ["run", "build"], { cwd: root, shell, stdio: "inherit" });
     const tarballs = DIRECTORIES.map((directory) => pack(directory, sandbox));
 
-    // verdaccio: the four packages are published here; everything else is proxied from npm.
+    // verdaccio: the release packages are published here; everything else is proxied from npm.
     const home = path.join(sandbox, "verdaccio");
     mkdirSync(path.join(home, "storage"), { recursive: true });
     writeFileSync(
@@ -224,7 +223,7 @@ describe("registry mode against a local registry", { timeout: 2_100_000 }, () =>
     rmSync(sandbox, { recursive: true, force: true });
   });
 
-  it("publishes the four packages under beta", async () => {
+  it("publishes every release package under beta", async () => {
     for (const name of PACKAGES) {
       const response = await fetch(`${registry}/${name.replace("/", "%2f")}`);
       assert.equal(response.ok, true, name);
@@ -241,7 +240,10 @@ describe("registry mode against a local registry", { timeout: 2_100_000 }, () =>
       registry,
     ]);
     assert.equal(run.status, 0, run.output);
-    assert.match(run.output, new RegExp(`checked 4 packages at ${version} from the registry`));
+    assert.match(
+      run.output,
+      new RegExp(`checked ${PACKAGES.length} packages at ${version} from the registry`),
+    );
     for (const name of PACKAGES) {
       assert.match(run.output, new RegExp(`== ${name}@${version}\n`));
     }
@@ -350,7 +352,7 @@ describe("registry mode against a local registry", { timeout: 2_100_000 }, () =>
     assert.deepEqual(reported(run.output), [
       `ok   ${version} is a stable version`,
       `ok   ${version} is published for ${PACKAGES.join(", ")}`,
-      `ok   ${version} is staged under ${stagingDistTags(version).join(" or ")} for the four packages`,
+      `ok   ${version} is staged under ${stagingDistTags(version).join(" or ")} for the ${PACKAGES.length} packages`,
       `ok   latest is ${version}, not above ${version}`,
       `FAIL tag v${version} is not in this checkout; run git fetch origin tag v${version}`,
     ]);

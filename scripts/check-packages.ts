@@ -4,7 +4,8 @@
 // It also fails when a package takes TypeScript from the typescript6 catalog.
 //
 // Usage: node scripts/check-packages.ts
-//        node scripts/check-packages.ts --from-registry <version> [--registry <url>]
+//        node scripts/check-packages.ts --from-registry <version> [--commit <ref>] [--registry <url>]
+//   --commit takes the package list from that commit instead of the checkout.
 //
 // With --from-registry nothing is built or packed here: `npm pack` downloads each package at that
 // version from the registry (the tarball `npm install` would get, checked against the registry's
@@ -16,7 +17,8 @@ import { fileURLToPath } from "node:url";
 
 import { field } from "./ast.ts";
 import { packReport, withPackDirectory } from "./pack.ts";
-import { PACKAGES, registryArguments, registryOptionsOrExit } from "./registry.ts";
+import { registryArguments, registryOptionsOrExit, registryPackages } from "./registry.ts";
+import { RELEASE_PACKAGES } from "./release-packages.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const shell = process.platform === "win32";
@@ -25,7 +27,7 @@ const bin = (name: string): string =>
   path.join(root, "node_modules", ".bin", process.platform === "win32" ? `${name}.cmd` : name);
 
 const usage =
-  "usage: node scripts/check-packages.ts [--from-registry <version> [--registry <url>]]";
+  "usage: node scripts/check-packages.ts [--from-registry <version> [--commit <ref>] [--registry <url>]]";
 
 /** The npm name of the core package; the providers list it in `keywords`. */
 const CORE = "hardhat-kms";
@@ -147,25 +149,18 @@ function main(): void {
 
   if (options.version !== undefined) {
     const version = options.version;
+    const packages = registryPackages(options);
     withPackDirectory((destination) => {
-      for (const name of PACKAGES) {
+      for (const name of packages) {
         const spec = `${name}@${version}`;
         process.stdout.write(`\n== ${spec}\n`);
         const tarball = packFromRegistry(spec, version, destination, options.registry);
         check(destination, tarball, tarball);
       }
     });
-    process.stdout.write(`\nchecked ${PACKAGES.length} packages at ${version} from the registry\n`);
+    process.stdout.write(`\nchecked ${packages.length} packages at ${version} from the registry\n`);
   } else {
-    const packages = readdirSync(path.join(root, "packages"), { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => path.join(root, "packages", entry.name))
-      .filter((directory) => {
-        const manifest: unknown = JSON.parse(
-          readFileSync(path.join(directory, "package.json"), "utf8"),
-        );
-        return field(manifest, "private") !== true;
-      });
+    const packages = RELEASE_PACKAGES.map((entry) => path.join(root, "packages", entry.directory));
 
     // TypeScript 6 is for tools/api-docs only (decision 0012). A package under packages/ that takes it
     // from the typescript6 catalog would build or typecheck on the wrong compiler.

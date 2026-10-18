@@ -1,9 +1,11 @@
 // Registry mode of the package checks: `--from-registry <version>` makes scripts/check-packages.ts,
-// scripts/consumer-typecheck.ts and scripts/test-peer-installs.ts install the four published
+// scripts/consumer-typecheck.ts and scripts/test-peer-installs.ts install the published
 // packages at that exact version instead of the tarballs they pack, and
 // scripts/check-registry-release.ts runs only in this mode. `--registry <url>` points every npm
-// call at another registry, for a rehearsal against a local one before a release.
-import { PACKAGES } from "./release-packages.ts";
+// call at another registry, for a rehearsal against a local one before a release. `--commit <ref>`
+// takes the package list from that commit instead of the checkout: promote.yml runs main's scripts
+// against a version whose tag may predate a package, such as a hotfix of a line before Turnkey.
+import { PACKAGES, releasePackagesAt, runGit } from "./release-packages.ts";
 import { resolvedVersion } from "./temporary-install.ts";
 
 export { PACKAGES } from "./release-packages.ts";
@@ -17,6 +19,8 @@ export interface RegistryOptions {
   version?: string;
   /** The registry URL to pass to npm; absent for the default registry. */
   registry?: string;
+  /** The commit whose published packages registry mode installs; absent for the checkout's. */
+  commit?: string;
   /** The arguments that are not the two options and their values. */
   rest: string[];
 }
@@ -44,7 +48,7 @@ export function parseRegistryOptions(
     }
     const equals = argument.indexOf("=");
     const name = equals === -1 ? argument : argument.slice(0, equals);
-    if (name !== "--from-registry" && name !== "--registry") {
+    if (name !== "--from-registry" && name !== "--registry" && name !== "--commit") {
       options.rest.push(argument);
       continue;
     }
@@ -54,6 +58,8 @@ export function parseRegistryOptions(
     }
     if (name === "--from-registry") {
       options.version = exactVersion(value);
+    } else if (name === "--commit") {
+      options.commit = value;
     } else {
       options.registry = value;
     }
@@ -63,6 +69,9 @@ export function parseRegistryOptions(
   }
   if (registryNeedsVersion && options.registry !== undefined && options.version === undefined) {
     throw new Error("--registry applies to registry mode only; add --from-registry <version>");
+  }
+  if (registryNeedsVersion && options.commit !== undefined && options.version === undefined) {
+    throw new Error("--commit applies to registry mode only; add --from-registry <version>");
   }
   return options;
 }
@@ -100,13 +109,28 @@ export function exactVersion(version: string): string {
 }
 
 /**
- * The install specs of the four packages at one version.
+ * The install specs of the published packages at one version.
  *
  * @param version - An exact version.
  * @returns `hardhat-kms@<version>`, `@hardhat-kms/aws@<version>`, and so on.
  */
-export function registrySpecs(version: string): string[] {
-  return PACKAGES.map((name) => `${name}@${exactVersion(version)}`);
+export function registrySpecs(version: string, packages: readonly string[] = PACKAGES): string[] {
+  return packages.map((name) => `${name}@${exactVersion(version)}`);
+}
+
+/**
+ * The packages registry mode installs and checks: those published at `--commit`, read through
+ * `git`, or the checkout's when no commit is given.
+ *
+ * @param options - The parsed options.
+ * @param cwd - The repository `git` runs in; defaults to this checkout.
+ * @returns The package names, the core first.
+ */
+export function registryPackages(options: RegistryOptions, cwd?: string): readonly string[] {
+  if (options.commit === undefined) {
+    return PACKAGES;
+  }
+  return releasePackagesAt(options.commit, runGit(cwd)).map((entry) => entry.name);
 }
 
 /**
@@ -119,7 +143,7 @@ export const YARN_BERRY = "4.18.1";
  * The `.yarnrc.yml` of a Yarn 4 test project. Yarn 4.15 and later skip versions published less
  * than a day ago (`npmMinimalAgeGate`), so on the day of a release every registry-mode install
  * would stop with `YN0016`. Registry mode therefore adds the line the install page tells users to
- * add on release day, `npmPreapprovedPackages`, for the four packages only: every other package
+ * add on release day, `npmPreapprovedPackages`, for the published packages only: every other package
  * stays under the age gate. Tarball mode installs the packages from `file:` paths, which the age
  * gate does not apply to, and gets no such line.
  *

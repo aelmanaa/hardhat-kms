@@ -1,5 +1,5 @@
 // The tarball check of release-stage.yml (`scripts/check-tarballs.ts`): the sums listing, the manifest
-// fields, and the whole check on four small tarballs built with `tar`. Runs in `pnpm test`, with
+// fields, and the whole check on one small tarball per release package built with `tar`. Runs in `pnpm test`, with
 // no network.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -15,15 +15,11 @@ import { PACKAGES } from "../../scripts/registry.ts";
 const COMMIT = "1111111111111111111111111111111111111111";
 const VERSION = "1.2.0";
 const SUM = "a".repeat(64);
-const FILES = [
-  "hardhat-kms-1.2.0.tgz",
-  "hardhat-kms-aws-1.2.0.tgz",
-  "hardhat-kms-gcp-1.2.0.tgz",
-  "hardhat-kms-azure-1.2.0.tgz",
-];
+/** The tarball names `pnpm pack` gives the published packages at {@link VERSION}, in order. */
+const FILES = PACKAGES.map((name) => `${name.replace("@", "").replace("/", "-")}-${VERSION}.tgz`);
 
 describe("parseSums", () => {
-  it("reads four sha256sum lines in order", () => {
+  it("reads one sha256sum line per package, in order", () => {
     const text = FILES.map((file) => `${SUM}  ${file}`).join("\n");
     assert.deepEqual(
       parseSums(`${text}\n`).map((line) => line.file),
@@ -35,7 +31,7 @@ describe("parseSums", () => {
     assert.throws(() => parseSums(`${SUM} ${FILES[0]}\n`), { message: /^sums line 1 is not/ });
     assert.throws(() => parseSums(`${SUM}  ../x.tgz\n`), { message: /^sums line 1 is not/ });
     assert.throws(() => parseSums(`${SUM}  ${FILES[0]}\n`), {
-      message: "the sums list 1 tarballs; a release has 4",
+      message: `the sums list 1 tarballs; a release has ${PACKAGES.length}`,
     });
   });
 });
@@ -105,9 +101,9 @@ describe("checkTarballs on real tarballs", () => {
     rmSync(work, { recursive: true, force: true });
   });
 
-  it("passes the four tarballs the sums list", () => {
+  it("passes the release tarballs the sums list", () => {
     const lines = checkTarballs(tarballs, sums, VERSION, COMMIT);
-    assert.equal(lines.length, 4);
+    assert.equal(lines.length, PACKAGES.length);
     assert.match(
       lines[0] ?? "",
       /^ok {3}hardhat-kms@1\.2\.0 gitHead 1{40} hardhat-kms-1\.2\.0\.tgz /,
@@ -131,7 +127,7 @@ describe("checkTarballs on real tarballs", () => {
     const reordered = sums.split("\n").toReversed().join("\n");
     assert.throws(() => checkTarballs(tarballs, reordered, VERSION, COMMIT), {
       message:
-        /hardhat-kms-azure-1\.2\.0\.tgz: name is "@hardhat-kms\/azure", expected hardhat-kms/,
+        /hardhat-kms-turnkey-1\.2\.0\.tgz: name is "@hardhat-kms\/turnkey", expected hardhat-kms/,
     });
   });
 
@@ -174,7 +170,10 @@ describe("checkTarballs on real tarballs", () => {
             .digest("hex")}  ${file}`,
       )
       .join("\n");
-    assert.equal(checkTarballs(next, nextSums, "2.0.0-next.0", COMMIT, "next").length, 4);
+    assert.equal(
+      checkTarballs(next, nextSums, "2.0.0-next.0", COMMIT, "next").length,
+      PACKAGES.length,
+    );
     assert.throws(() => checkTarballs(next, nextSums, "2.0.0-next.0", COMMIT), {
       message: "version 2.0.0-next.0 is not a stable X.Y.Z; a prerelease is never staged from main",
     });
@@ -202,7 +201,7 @@ describe("checkTarballs on real tarballs", () => {
       const saved = process.cwd();
       process.chdir(work);
       try {
-        assert.equal(checkTarballs("host:dir", sums, VERSION, COMMIT).length, 4);
+        assert.equal(checkTarballs("host:dir", sums, VERSION, COMMIT).length, PACKAGES.length);
       } finally {
         process.chdir(saved);
       }

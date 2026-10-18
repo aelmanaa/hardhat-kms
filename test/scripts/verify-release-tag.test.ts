@@ -17,6 +17,7 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { PACKAGES } from "../../scripts/release-packages.ts";
 import {
   MANIFESTS,
   gpgPathFor,
@@ -151,7 +152,7 @@ describe("verify-release-tag", { skip }, () => {
       const version = versions[manifest] ?? versions["*"] ?? "0.0.0";
       writeFileSync(
         path.join(repo, manifest),
-        `${JSON.stringify({ name: path.basename(path.dirname(manifest)), version }, null, 2)}\n`,
+        `${JSON.stringify({ name: PACKAGES[MANIFESTS.indexOf(manifest)], version }, null, 2)}\n`,
       );
     }
   };
@@ -269,6 +270,7 @@ describe("verify-release-tag", { skip }, () => {
           assert.equal(verdict.fingerprint, trustedKey);
           assert.match(verdict.signer, /^Release Maintainer </);
           assert.equal(verdict.commit, git(["rev-parse", "HEAD"]).trim());
+          assert.deepEqual(verdict.manifests, MANIFESTS);
         }
       },
     );
@@ -456,7 +458,7 @@ describe("verify-release-tag", { skip }, () => {
     );
   });
 
-  it("fails when the four manifests disagree", () => {
+  it("fails when the published manifests disagree", () => {
     git(["checkout", "--quiet", "-b", "disagree"]);
     try {
       writeManifests({ "*": "1.2.3", "packages/hardhat-kms-gcp/package.json": "1.2.4" });
@@ -588,6 +590,40 @@ describe("verify-release-tag", { skip }, () => {
         },
       ),
     );
+  });
+
+  it("reads the published manifests at the tagged commit, not in the checkout", () => {
+    const turnkey = "packages/hardhat-kms-turnkey";
+    const tool = "packages/private-tool/package.json";
+    onBranch("release/1.2", "1.2.4", { push: false }, (versioned) => {
+      // A line cut before Turnkey existed, with a private package at another version.
+      git(["rm", "--quiet", "-r", turnkey]);
+      mkdirSync(path.join(repo, path.dirname(tool)), { recursive: true });
+      writeFileSync(
+        path.join(repo, tool),
+        `${JSON.stringify({ name: "private-tool", version: "0.0.0", private: true })}\n`,
+      );
+      git(["add", tool]);
+      git(["commit", "--quiet", "--no-gpg-sign", "-m", "chore: the line before turnkey"]);
+      git(["push", "--quiet", "origin", "release/1.2"]);
+      try {
+        withTag(
+          "v1.2.4",
+          () => signWith(trustedHome, trustedKey, "v1.2.4"),
+          () => {
+            const verdict = verify("v1.2.4");
+            assert.equal(verdict.ok, true, verdict.ok ? "" : verdict.reason);
+            assert.notEqual(verdict.ok && verdict.commit, versioned);
+            assert.deepEqual(
+              verdict.ok && verdict.manifests,
+              MANIFESTS.filter((manifest) => !manifest.startsWith(`${turnkey}/`)),
+            );
+          },
+        );
+      } finally {
+        git(["push", "--quiet", "origin", "--delete", "release/1.2"]);
+      }
+    });
   });
 
   it("names origin/main as the branch of a tag on main", () => {
@@ -837,7 +873,7 @@ describe("verify-release-tag", { skip }, () => {
         assert.equal(readFileSync(output, "utf8"), "earlier=line\ndist-tag=beta\n");
         assert.match(
           passed.stdout,
-          /^v1\.2\.3 passes: signed by Release Maintainer <[^>]+> \([0-9A-F]+\), version 1\.2\.3 in 4 manifests, commit [0-9a-f]{40} on origin\/main, staged under beta\n$/,
+          /^v1\.2\.3 passes: signed by Release Maintainer <[^>]+> \([0-9A-F]+\), version 1\.2\.3 in 5 manifests, commit [0-9a-f]{40} on origin\/main, staged under beta\n$/,
         );
         const failed = run(
           process.execPath,
@@ -870,7 +906,7 @@ describe("verify-release-tag", { skip }, () => {
           assert.equal(readFileSync(nextOutput, "utf8"), "dist-tag=next\n");
           assert.match(
             passed.stdout,
-            /^v2\.0\.0-next\.0 passes: .* version 2\.0\.0-next\.0 in 4 manifests, commit [0-9a-f]{40} on origin\/next, staged under next\n$/,
+            /^v2\.0\.0-next\.0 passes: .* version 2\.0\.0-next\.0 in 5 manifests, commit [0-9a-f]{40} on origin\/next, staged under next\n$/,
           );
           const stable = run(
             process.execPath,

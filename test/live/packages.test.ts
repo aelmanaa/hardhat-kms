@@ -18,7 +18,13 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { livePackages, packageName, removeScratchProject } from "./helpers/packages.ts";
+import { PACKAGES } from "../../scripts/release-packages.ts";
+import {
+  LIVE_PACKAGES,
+  livePackages,
+  packageName,
+  removeScratchProject,
+} from "./helpers/packages.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(here, "../..");
@@ -29,6 +35,22 @@ const SOURCE_IMPORTS = [
   "../../../packages/hardhat-kms-gcp/src/index.ts",
   "../../../packages/hardhat-kms-azure/src/index.ts",
 ];
+
+describe("the packages of a registry run", () => {
+  it("are the core and the three cloud providers, all published, and not Turnkey", () => {
+    assert.deepEqual(LIVE_PACKAGES, [
+      "hardhat-kms",
+      "@hardhat-kms/aws",
+      "@hardhat-kms/gcp",
+      "@hardhat-kms/azure",
+    ]);
+    for (const name of LIVE_PACKAGES) {
+      assert.ok(PACKAGES.includes(name), `${name} is not a published package`);
+    }
+    assert.ok(PACKAGES.includes("@hardhat-kms/turnkey"));
+    assert.ok(!LIVE_PACKAGES.includes("@hardhat-kms/turnkey"));
+  });
+});
 
 /** Every `.ts` file under test/live, except the fixture project's build output. */
 function liveFiles(directory: string): string[] {

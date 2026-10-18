@@ -212,9 +212,19 @@ export function assertGitHead(
   }
 }
 
-/** Each of the four packages at the version must carry a verified provenance attestation. */
-export function assertAttestations(verified: readonly VerifiedPackage[], version: string): void {
-  const missing = PACKAGES.filter(
+/**
+ * Each of the published packages at the version must carry a verified provenance attestation.
+ *
+ * @param verified - The verified list of `npm audit signatures`.
+ * @param version - The version.
+ * @param packages - The packages of the version; defaults to the checkout's.
+ */
+export function assertAttestations(
+  verified: readonly VerifiedPackage[],
+  version: string,
+  packages: readonly string[] = PACKAGES,
+): void {
+  const missing = packages.filter(
     (name) =>
       !verified.some(
         (entry) => entry.name === name && entry.version === version && entry.provenance,
