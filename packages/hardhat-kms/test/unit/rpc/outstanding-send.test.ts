@@ -16,6 +16,7 @@ import {
   type Hang,
   hashOf,
   nonceOf,
+  failOnce,
   PENDING_REQUEST_ID,
   refuse,
   resultOf,
@@ -246,6 +247,7 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     for (const [message, code, kind] of [
       ["replacement transaction underpriced: planted", -32000, "fee too low"],
       ["max fee per gas less than block base fee", -32003, "fee too low"],
+      ["max fee per gas less than base fee", -32003, "fee too low"],
       ["transaction fee cap exceeded", -32000, "fee too low"],
       ["exceeds block gas limit, planted", 3, "refused"],
     ] as const) {
@@ -269,6 +271,22 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     harness.node.onRaw = undefined;
     resultOf(await harness.send(connection, transfer(2)));
     assert.deepEqual(harness.node.raw.map(nonceOf), [0n, 0n]);
+  });
+
+  it("passes a 'nonce too low' on when the connection closed during the broadcast", async (t) => {
+    const { harness, connection } = await harnessFor(t);
+    const answer = gate();
+    harness.node.onRaw = async () => {
+      await answer.promise;
+      return { jsonrpc: "2.0" as const, id: 1, error: { code: -32000, message: "nonce too low" } };
+    };
+    const sending = harness.send(connection, transfer(1)).catch((error: unknown) => error);
+    await settle();
+    await harness.close(connection);
+    answer.open();
+    const response = await sending;
+    assert.ok(!(response instanceof TypeError), String(response));
+    assert.match(JSON.stringify(response), /nonce too low/);
   });
 
   it("counts an answer that the node already knows the transaction as sent", async (t) => {
@@ -329,11 +347,47 @@ describe("a send whose signature the provider may still complete (#537)", () => 
       last,
     );
     assert.ok(last.includes("send replacements with those nonces"), last);
+    assert.ok(
+      last.endsWith(
+        "See https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/turnkey-setup.md#when-turnkey-does-not-answer-in-time.",
+      ),
+      last,
+    );
     // No warning when nothing held is skipped.
     const before = calls().length;
     harness.node.pending = 3n;
     resultOf(await harness.send(connection, transfer(4)));
     assert.equal(calls().length, before);
+  });
+
+  it("looks up unanswered sends before eth_signTransaction chooses its nonce, not with a caller's nonce", async (t) => {
+    const { harness, connection } = await harnessFor(t);
+    failOnce(harness.node);
+    await harness.send(connection, transfer(1)).catch(() => undefined);
+    // The node has the unanswered send at 0, and its pending count lags at 0.
+    harness.node.methods.length = 0;
+    const callerNonce = resultOf(
+      await harness.request(connection, "eth_signTransaction", { ...transfer(2), nonce: "0x7" }),
+    );
+    assert.equal(nonceOf(String(callerNonce)), 7n);
+    assert.ok(!harness.node.methods.includes("eth_getTransactionByHash"));
+    const signed = resultOf(await harness.request(connection, "eth_signTransaction", transfer(3)));
+    assert.ok(harness.node.methods.includes("eth_getTransactionByHash"));
+    // Past the unanswered send, which the lookup found, and the held nonce 7 of the first.
+    assert.equal(nonceOf(String(signed)), 8n);
+  });
+
+  it("does not warn about a held nonce above the one a send takes after a fall", async (t) => {
+    const { harness, connection } = await harnessFor(t, "edr-simulated");
+    harness.state.hang = (transaction) => (transaction.value === 9n ? "fails" : undefined);
+    await harness.send(connection, { ...transfer(9), nonce: "0x5" }).catch(() => undefined);
+    resultOf(await harness.send(connection, transfer(1)));
+    // The node lost the send at 0: its pending count stays 0, and it no longer has it.
+    harness.node.lookUp = () => null;
+    const before = warnings.get(t)?.mock.calls.length ?? 0;
+    resultOf(await harness.send(connection, transfer(2)));
+    assert.equal(nonceOf(harness.node.raw.at(-1) ?? ""), 0n);
+    assert.equal(warnings.get(t)?.mock.calls.length ?? 0, before);
   });
 
   it("signs eth_signTransaction under the send lock, after a send that is signing (#537)", async (t) => {

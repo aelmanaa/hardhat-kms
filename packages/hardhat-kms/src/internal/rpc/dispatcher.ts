@@ -833,6 +833,7 @@ async function chooseSendNonce(
   lookUp: (hash: string) => Promise<boolean | undefined>,
 ): Promise<bigint> {
   const nonce = await sends.chooseNonce(address, pending, lookUp);
+  // Stryker disable next-line EqualityOperator: the chosen nonce is never a held one, so <= is <
   const behind = sends.outstandingNonces(address).filter((held) => held >= pending && held < nonce);
   if (behind.length > 0) {
     warnAboutHeldNonces(address, nonce, behind);
@@ -1172,7 +1173,7 @@ function refuseProviderCopy(
     return;
   }
   const { code, message } = error;
-  const text = typeof message === "string" ? message : "";
+  const text = String(message);
   if (/\bnonce too low\b/i.test(text)) {
     sends.releaseOutstanding(address, copy.nonce);
     return;
@@ -1182,7 +1183,8 @@ function refuseProviderCopy(
     {
       nonce: copy.nonce,
       reason: refusalKind(text),
-      code: typeof code === "number" ? String(code) : "none",
+      // A number only: anything else from the node prints as NaN.
+      code: String(Number(code)),
       who: copy.who,
       request: copy.request,
     },
