@@ -17,6 +17,7 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { PACKAGES } from "../../scripts/release-packages.ts";
 import {
   MANIFESTS,
   gpgPathFor,
@@ -151,7 +152,7 @@ describe("verify-release-tag", { skip }, () => {
       const version = versions[manifest] ?? versions["*"] ?? "0.0.0";
       writeFileSync(
         path.join(repo, manifest),
-        `${JSON.stringify({ name: path.basename(path.dirname(manifest)), version }, null, 2)}\n`,
+        `${JSON.stringify({ name: PACKAGES[MANIFESTS.indexOf(manifest)], version }, null, 2)}\n`,
       );
     }
   };

@@ -7,7 +7,8 @@
 #   published packages have it, it is not below latest, so latest never moves backwards, no
 #   prerelease, a provenance attestation for each, gitHead is the tag's commit), the package checks,
 #   the consumer typecheck on three TypeScript versions, the peer-install matrix and the examples
-#   against LocalStack, all installing the version from npm (--from-registry).
+#   against LocalStack, all installing the version from npm (--from-registry). The package
+#   list comes from the tag's commit (--commit), not from main.
 # - target verify: publishes the draft GitHub Release with the prerelease flag on.
 # - target latest: after a maintainer approves the npm-latest environment, `npm dist-tag add` for
 #   each published package of the tagged commit (scripts/release-packages.ts --commit) over
@@ -102,14 +103,16 @@ jobs:
           package-manager-cache: false
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
-      # The packages the latest job moves: every package the tagged commit publishes, read at that
-      # commit, so a hotfix tag of a line that predates a package does not name it.
+      # The packages the registry checks and the latest job use: every package the tagged commit
+      # publishes, read at that commit, so a hotfix tag of a line that predates a package does not
+      # name it. The registry checks below read the same list with --commit.
       - name: Published packages of the tag
         id: packages
         env:
           VERSION: ${{ inputs.version }}
+          COMMIT: ${{ steps.tag.outputs.commit }}
         run: |
-          packages="$(node scripts/release-packages.ts --commit "refs/tags/v$VERSION" | paste -sd ' ' -)"
+          packages="$(node scripts/release-packages.ts --commit "$COMMIT" | paste -sd ' ' -)"
           if [ -z "$packages" ]; then
             echo "::error::scripts/release-packages.ts listed no packages at v$VERSION"
             exit 1
@@ -133,23 +136,26 @@ jobs:
       - name: Registry release checks
         env:
           VERSION: ${{ inputs.version }}
+          COMMIT: ${{ steps.tag.outputs.commit }}
         run: |
           set -o pipefail
           {
             echo '```text'
-            node scripts/check-registry-release.ts "$VERSION" 2>&1 | tee /dev/stderr
+            node scripts/check-registry-release.ts "$VERSION" --commit "$COMMIT" 2>&1 | tee /dev/stderr
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Package checks from the registry
         env:
           VERSION: ${{ inputs.version }}
-        run: pnpm run build && node scripts/check-packages.ts --from-registry "$VERSION"
+          COMMIT: ${{ steps.tag.outputs.commit }}
+        run: pnpm run build && node scripts/check-packages.ts --from-registry "$VERSION" --commit "$COMMIT"
       - name: Consumer typecheck from the registry
         env:
           VERSION: ${{ inputs.version }}
+          COMMIT: ${{ steps.tag.outputs.commit }}
         run: |
           for typescript in 5.9.3 6.0.3 7.0.2; do
-            node scripts/consumer-typecheck.ts --from-registry "$VERSION" "$typescript"
+            node scripts/consumer-typecheck.ts --from-registry "$VERSION" --commit "$COMMIT" "$typescript"
           done
       - name: Peer installs from the registry
         env:

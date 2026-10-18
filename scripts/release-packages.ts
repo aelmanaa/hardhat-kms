@@ -15,6 +15,11 @@ import { parseArgs } from "node:util";
 
 /** The npm name of the core package; it is first in the list, since the providers pin it. */
 export const CORE = "hardhat-kms";
+/**
+ * The names this repository may publish: the core, or a package of the `@hardhat-kms` scope.
+ * promote.yml's dist-tag move checks each name against the same pattern.
+ */
+export const PUBLISHABLE_NAME: RegExp = /^(hardhat-kms|@hardhat-kms\/[a-z0-9-]+)$/;
 
 /** A published package and its directory under packages/. */
 export interface ReleasePackage {
@@ -45,7 +50,8 @@ function releaseOrder(a: ReleasePackage, b: ReleasePackage): number {
  *
  * @param manifests - Each packages/<directory>/package.json, parsed.
  * @returns The packages without `"private": true`: the core first, then by directory name.
- * @throws When a published manifest has no name, two share a name, or the core is not among them.
+ * @throws When a published manifest has no name or a name outside the project, two share a name,
+ *   or the core is not among them.
  */
 export function releasePackagesFrom(manifests: readonly WorkspaceManifest[]): ReleasePackage[] {
   const packages: ReleasePackage[] = [];
@@ -56,6 +62,11 @@ export function releasePackagesFrom(manifests: readonly WorkspaceManifest[]): Re
     const name = field(manifest, "name");
     if (typeof name !== "string" || name === "") {
       throw new Error(`packages/${directory}/package.json has no name and is not private`);
+    }
+    if (!PUBLISHABLE_NAME.test(name)) {
+      throw new Error(
+        `packages/${directory}/package.json is named ${name}; a published package is hardhat-kms or @hardhat-kms/<name>`,
+      );
     }
     const twin = packages.find((other) => other.name === name);
     if (twin !== undefined) {
@@ -136,6 +147,19 @@ export function releasePackagesAt(
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+/**
+ * Runs `git` in a repository, for {@link releasePackagesAt}.
+ *
+ * @param cwd - The repository; defaults to this checkout.
+ * @returns A function that runs `git` with the given arguments there.
+ */
+export function runGit(cwd: string = root): (args: readonly string[]) => GitResult {
+  return (args) => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    return { status: result.status, stdout: result.stdout };
+  };
+}
+
 /** The published packages of this checkout, in release order. */
 export const RELEASE_PACKAGES: readonly ReleasePackage[] = readReleasePackages(root);
 /** Their npm names, in the order the scripts install, pack, stage and report them. */
@@ -148,12 +172,7 @@ function main(argv: readonly string[]): void {
     strict: true,
   });
   const packages =
-    values.commit === undefined
-      ? RELEASE_PACKAGES
-      : releasePackagesAt(values.commit, (args) => {
-          const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
-          return { status: result.status, stdout: result.stdout };
-        });
+    values.commit === undefined ? RELEASE_PACKAGES : releasePackagesAt(values.commit, runGit());
   for (const entry of packages) {
     process.stdout.write(`${values.directories === true ? entry.directory : entry.name}\n`);
   }

@@ -1,7 +1,7 @@
 // Type-check a fresh consumer project against the packed packages with a given TypeScript version.
 // Proves the published .d.ts files work for users who are not on TypeScript 7.
 //
-// Usage: node scripts/consumer-typecheck.ts [--from-registry <version> [--registry <url>]] <typescript-version>
+// Usage: node scripts/consumer-typecheck.ts [--from-registry <version> [--commit <ref>] [--registry <url>]] <typescript-version>
 //
 // With --from-registry the consumer installs the four packages at that version from the registry,
 // with no build and no pack here, and the install is followed by a check that the project
@@ -16,12 +16,13 @@ import {
   assertInstalledVersion,
   registryArguments,
   registryOptionsOrExit,
+  registryPackages,
   registrySpecs,
 } from "./registry.ts";
 import { RELEASE_PACKAGES } from "./release-packages.ts";
 
 const usage =
-  "usage: node scripts/consumer-typecheck.ts [--from-registry <version> [--registry <url>]] <typescript-version>";
+  "usage: node scripts/consumer-typecheck.ts [--from-registry <version> [--commit <ref>] [--registry <url>]] <typescript-version>";
 const options = registryOptionsOrExit(process.argv.slice(2), usage);
 const typescriptVersion = options.rest[0];
 if (typescriptVersion === undefined || options.rest.length > 1) {
@@ -50,7 +51,7 @@ withPackDirectory((work) => {
   const specs =
     options.version === undefined
       ? packages.map((directory) => pack(directory, work))
-      : registrySpecs(options.version);
+      : registrySpecs(options.version, registryPackages(options));
   const consumer = path.join(work, "consumer");
   mkdirSync(consumer);
   writeFileSync(

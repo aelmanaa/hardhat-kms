@@ -15,6 +15,7 @@ import { missingMessage, parseNameView } from "../../scripts/check-npm-names.ts"
 import {
   CORE,
   PACKAGES,
+  PUBLISHABLE_NAME,
   RELEASE_PACKAGES,
   releasePackagesAt,
   releasePackagesFrom,
@@ -141,6 +142,33 @@ describe("releasePackagesFrom", () => {
         { name: "@hardhat-kms/zeta", directory: "hardhat-kms-zeta" },
       ],
     );
+  });
+
+  it("refuses a published name outside hardhat-kms and @hardhat-kms/<name>", () => {
+    const core = { directory: "hardhat-kms", manifest: manifest("hardhat-kms") };
+    for (const name of ["left-pad", "@other/aws", "@hardhat-kms/Turnkey", "hardhat-kms-aws"]) {
+      assert.throws(
+        () => releasePackagesFrom([core, { directory: "x", manifest: manifest(name) }]),
+        {
+          message: `packages/x/package.json is named ${name}; a published package is hardhat-kms or @hardhat-kms/<name>`,
+        },
+      );
+    }
+    // A private package may have any name.
+    assert.equal(
+      releasePackagesFrom([
+        core,
+        { directory: "x", manifest: manifest("left-pad", { private: true }) },
+      ]).length,
+      1,
+    );
+  });
+
+  it("uses the pattern of promote.yml's dist-tag move", () => {
+    const workflow = readFileSync(path.join(WORKFLOWS, "promote.yml"), "utf8");
+    // RegExp#source escapes the slash; bash's =~ takes it plain.
+    const pattern = PUBLISHABLE_NAME.source.replaceAll(String.raw`\/`, "/");
+    assert.ok(workflow.includes(`=~ ${pattern} ]]`), pattern);
   });
 
   it("refuses a published manifest without a name, a duplicate name and a missing core", () => {

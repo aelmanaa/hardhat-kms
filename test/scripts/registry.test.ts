@@ -1,6 +1,7 @@
 // The shared registry-mode helper of the package checks (`scripts/registry.ts`): the option
 // parsing, the four specs, the check of the installed version and the Yarn 4 settings. Runs in `pnpm test`.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,12 +10,14 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
+import { assertAttestations, parseVerified } from "../../scripts/registry-release.ts";
 import {
   assertInstalledVersion,
   exactVersion,
   PACKAGES,
   parseRegistryOptions,
   registryArguments,
+  registryPackages,
   registrySpecs,
   yarnBerrySettings,
 } from "../../scripts/registry.ts";
@@ -74,6 +77,98 @@ describe("parseRegistryOptions", () => {
     }
     assert.throws(() => parseRegistryOptions(["--registry", "http://x", "7.0.2"]), {
       message: "--registry applies to registry mode only; add --from-registry <version>",
+    });
+  });
+});
+
+describe("--commit", () => {
+  it("is read in both spellings, and only in registry mode where the version is an option", () => {
+    assert.deepEqual(parseRegistryOptions(["--from-registry", "1.1.2", "--commit", "abc123"]), {
+      version: "1.1.2",
+      commit: "abc123",
+      rest: [],
+    });
+    assert.deepEqual(parseRegistryOptions(["1.1.2", "--commit=abc123"], false), {
+      commit: "abc123",
+      rest: ["1.1.2"],
+    });
+    assert.throws(() => parseRegistryOptions(["--commit", "abc123"]), {
+      message: "--commit applies to registry mode only; add --from-registry <version>",
+    });
+    assert.throws(() => parseRegistryOptions(["--from-registry", "1.1.2", "--commit"]), {
+      message: "--commit needs a value",
+    });
+  });
+
+  describe("for a tag whose tree has four published packages", () => {
+    let repo = "";
+    let tag = "";
+    const four = ["hardhat-kms", "@hardhat-kms/aws", "@hardhat-kms/azure", "@hardhat-kms/gcp"];
+
+    before(() => {
+      repo = mkdtempSync(path.join(tmpdir(), "registry-commit-"));
+      const git = (...args: string[]): string =>
+        execFileSync(
+          "git",
+          ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", ...args],
+          { cwd: repo, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" } },
+        );
+      git("init", "--quiet");
+      const manifests: Record<string, object> = {
+        "hardhat-kms": { name: "hardhat-kms", version: "1.1.2" },
+        "hardhat-kms-aws": { name: "@hardhat-kms/aws", version: "1.1.2" },
+        "hardhat-kms-azure": { name: "@hardhat-kms/azure", version: "1.1.2" },
+        "hardhat-kms-gcp": { name: "@hardhat-kms/gcp", version: "1.1.2" },
+        tool: { name: "tool", version: "0.0.0", private: true },
+      };
+      for (const [directory, manifest] of Object.entries(manifests)) {
+        mkdirSync(path.join(repo, "packages", directory), { recursive: true });
+        writeFileSync(
+          path.join(repo, "packages", directory, "package.json"),
+          JSON.stringify(manifest),
+        );
+      }
+      git("add", ".");
+      git("commit", "--quiet", "--no-gpg-sign", "-m", "the 1.1 line, before Turnkey");
+      tag = git("rev-parse", "HEAD").trim();
+    });
+
+    after(() => {
+      rmSync(repo, { recursive: true, force: true });
+    });
+
+    it("asks only for those four, while the checkout has five", () => {
+      assert.ok(PACKAGES.includes("@hardhat-kms/turnkey"));
+      const packages = registryPackages({ version: "1.1.2", commit: tag, rest: [] }, repo);
+      assert.deepEqual(packages, four);
+      assert.deepEqual(
+        registrySpecs("1.1.2", packages),
+        four.map((name) => `${name}@1.1.2`),
+      );
+      assert.equal(registryPackages({ version: "1.1.2", rest: [] }), PACKAGES);
+    });
+
+    it("requires an attestation for those four only", () => {
+      const verified = parseVerified(
+        readFileSync(
+          fileURLToPath(
+            new URL("fixtures/registry-release/audit-signatures.json", import.meta.url),
+          ),
+          "utf8",
+        ),
+      ).filter((entry) => entry.name !== "@hardhat-kms/turnkey");
+      const packages = registryPackages({ commit: tag, rest: [] }, repo);
+      assertAttestations(verified, "1.0.1", packages);
+      assert.throws(() => assertAttestations(verified, "1.0.1"), {
+        message:
+          "npm audit signatures verified no provenance attestation for @hardhat-kms/turnkey@1.0.1",
+      });
+    });
+
+    it("fails with git's one line on a commit the repository does not have", () => {
+      assert.throws(() => registryPackages({ commit: "0".repeat(40), rest: [] }, repo), {
+        message: `git cannot list packages/ at ${"0".repeat(40)}`,
+      });
     });
   });
 });

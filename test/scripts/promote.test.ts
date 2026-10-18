@@ -210,8 +210,21 @@ describe("the package list of promote.yml", () => {
     const step: unknown = steps.find((entry: unknown) => field(entry, "id") === "packages");
     assert.match(
       String(field(step, "run")),
-      /node scripts\/release-packages\.ts --commit "refs\/tags\/v\$VERSION"/,
+      /node scripts\/release-packages\.ts --commit "\$COMMIT"/,
     );
+    assert.equal(field(field(step, "env"), "COMMIT"), "${{ steps.tag.outputs.commit }}");
+  });
+
+  it("is what every registry check of the verify job reads, through --commit", () => {
+    const steps = field(job("verify"), "steps");
+    assert.ok(Array.isArray(steps));
+    for (const script of ["check-registry-release", "check-packages", "consumer-typecheck"]) {
+      const step: unknown = steps.find((entry: unknown) =>
+        String(field(entry, "run")).includes(`node scripts/${script}.ts`),
+      );
+      assert.match(String(field(step, "run")), /--commit "\$COMMIT"/, script);
+      assert.equal(field(field(step, "env"), "COMMIT"), "${{ steps.tag.outputs.commit }}", script);
+    }
   });
 
   it("reaches the dist-tag move, which names no package itself", () => {
