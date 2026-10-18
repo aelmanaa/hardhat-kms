@@ -489,13 +489,19 @@ describe("the Turnkey adapter's errors", () => {
     });
   }
 
-  it("names neither encoding nor hash function in a 403 for a digest", async () => {
+  it("names the hash function and encoding of a digest in a 403, and no transaction", async () => {
     const { stub, adapter } = await setUp();
     stub.answer(turnkeyError(403, "REQUEST_NOT_AUTHORIZED", TURNKEY_MESSAGE));
     await assert.rejects(sign(adapter, "digest"), (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.match(error.message, /sign this request with this address\. Add a policy/);
-      assert.doesNotMatch(error.message, /KECCAK256|EIP712|HASH_FUNCTION|PAYLOAD_ENCODING/);
+      assert.match(
+        error.message,
+        /^turnkey, sign digest, key [^:]+:[^:]+: Turnkey answered 403 REQUEST_NOT_AUTHORIZED: no policy lets the API key's user sign this request with this address \(a digest, sent with HASH_FUNCTION_NO_OP and PAYLOAD_ENCODING_HEXADECIMAL: a policy that allows only SIGN_TRANSACTION, or only HASH_FUNCTION_KECCAK256, denies it\)\. Add a policy/,
+      );
+      assert.doesNotMatch(
+        error.message,
+        /a transaction|ACTIVITY_TYPE_SIGN_TRANSACTION|transactionSigning/,
+      );
       return true;
     });
   });

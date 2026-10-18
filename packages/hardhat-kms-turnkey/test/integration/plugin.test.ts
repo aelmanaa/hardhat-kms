@@ -171,6 +171,11 @@ function sentTypes(): string[] {
   });
 }
 
+/** How many sign_transaction and sign_raw_payload requests the stub got. */
+function signRequestCounts(): number[] {
+  return [stub.bodies(SIGN_TRANSACTION_PATH).length, stub.bodies(SIGN_PATH).length];
+}
+
 /** An authorization from another account, for a type 4 transaction. */
 async function authorizationOf(nonce: number): Promise<SignedAuthorization> {
   return await OTHER.signAuthorization({ contractAddress: DELEGATE, chainId: 31337, nonce });
@@ -437,6 +442,61 @@ describe("@hardhat-kms/turnkey in a Hardhat runtime", () => {
     }
     assert.ok(stub.requests.every((request) => request.stamped));
   });
+
+  for (const [configured, overridden] of [
+    ["transaction", "digest"],
+    ["digest", "transaction"],
+  ] as const) {
+    it(`sends through the override's transactionSigning, ${overridden}, after a send in ${configured}`, async () => {
+      const inline = {
+        provider: "turnkey",
+        organizationId: configVariable("HHKMS_TEST_TURNKEY_ORGANIZATION"),
+        address: ACCOUNT.address,
+        apiPrivateKey: configVariable("HHKMS_TEST_TURNKEY_API_PRIVATE_KEY"),
+        apiPublicKey: API_PUBLIC_KEY,
+      } as const;
+      const hre = await createHardhatRuntimeEnvironment({
+        plugins: [hardhatKmsTurnkey, hardhatViem],
+        kms: { simulatedBalance: 10n ** 20n },
+        networks: {
+          local: {
+            type: "edr-simulated",
+            hardfork: "prague",
+            accounts: [],
+            kmsAccounts: [{ ...inline, transactionSigning: configured }],
+          },
+        },
+      });
+      hre.hooks.registerHandlers(
+        "kms",
+        kmsHandlers(
+          ownVersion,
+          async () => async (key) => await createTurnkeyKeyAdapter(key, { transport: { baseUrl } }),
+        ),
+      );
+      // Two connections to one simulated network do not share its state, so each sends nonce 0.
+      const sends = async (connection: Awaited<ReturnType<typeof hre.network.create>>) => {
+        const wallet = await connection.viem.getWalletClient(ADDRESS);
+        const hash = await wallet.sendTransaction({ to: OTHER.address, value: 1n });
+        const receipt = await (
+          await connection.viem.getPublicClient()
+        ).waitForTransactionReceipt({
+          hash,
+        });
+        assert.equal(receipt.status, "success");
+      };
+
+      await sends(await hre.network.create("local"));
+      assert.deepEqual(signRequestCounts(), configured === "transaction" ? [1, 0] : [0, 1]);
+      await sends(
+        await hre.network.create({
+          network: "local",
+          override: { kmsAccounts: [{ ...inline, transactionSigning: overridden }] },
+        }),
+      );
+      assert.deepEqual(signRequestCounts(), [1, 1]);
+    });
+  }
 
   it("signs with kms sign-tx through sign_transaction", async () => {
     const hre = await runtime("local");

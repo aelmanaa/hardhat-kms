@@ -147,7 +147,11 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
     ctx: SignContext,
   ): Promise<SignatureOutput> {
     return await this.#sign(
-      rawPayloadRequest("sign digest", digestPayload(request.digest), ""),
+      rawPayloadRequest(
+        "sign digest",
+        digestPayload(request.digest),
+        " (a digest, sent with HASH_FUNCTION_NO_OP and PAYLOAD_ENCODING_HEXADECIMAL: a policy that allows only SIGN_TRANSACTION, or only HASH_FUNCTION_KECCAK256, denies it)",
+      ),
       ctx,
     );
   }
