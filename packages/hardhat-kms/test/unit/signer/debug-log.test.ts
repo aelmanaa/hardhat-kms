@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { ERRORS } from "../../../src/internal/error-catalog.ts";
 import { catalogMessage } from "../../../src/internal/errors.ts";
+import { debugLines } from "../../helpers/debug-lines.ts";
 import { fakeAdapter } from "../../helpers/fake-adapter.ts";
 import { HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
 
@@ -26,13 +27,7 @@ let restore: (() => void) | undefined;
 
 /** The signer's debug lines written so far, without the namespace and the time since the last. */
 function lines(): string[] {
-  return written
-    .join("")
-    .split("\n")
-    .flatMap((line) => {
-      const match = /hardhat:kms:signer (.*?)(?: \+\d+\w+)?$/.exec(line);
-      return match?.[1] === undefined ? [] : [match[1]];
-    });
+  return debugLines(written.join(""), "hardhat:kms:signer");
 }
 
 /** The milliseconds in a timing line, checked to be a plausible duration. */

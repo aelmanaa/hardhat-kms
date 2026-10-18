@@ -7,6 +7,7 @@ import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import type { JsonRpcRequest } from "hardhat/types/providers";
 import { Transaction } from "micro-eth-signer";
 
+import { debugLines } from "../../helpers/debug-lines.ts";
 import { COW_ACCOUNT } from "../../helpers/vectors.ts";
 
 // A logger reads DEBUG when it is created, and the dispatcher creates its logger when it loads,
@@ -28,13 +29,7 @@ let restore: (() => void) | undefined;
 
 /** The debug lines written so far, without the namespace and the time since the last. */
 function lines(): string[] {
-  const all = written
-    .join("")
-    .split("\n")
-    .flatMap((line) => {
-      const match = /hardhat:kms:rpc (.*?)(?: \+\d+\w+)?$/.exec(line);
-      return match?.[1] === undefined ? [] : [match[1]];
-    });
+  const all = debugLines(written.join(""), "hardhat:kms:rpc");
   written = [];
   return all;
 }
