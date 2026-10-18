@@ -30,6 +30,7 @@ import {
   describeSendKey,
   expectLibraryReset,
   holdForLibrary,
+  warnAboutHeldNonces,
   holdsSendLock,
   libraryHoldOf,
   libraryHoldsActive,
@@ -389,27 +390,7 @@ export async function dispatch(
       return await sendTransaction(accounts, request, outcome.kms, transactions, next);
     }
     if (outcome !== undefined && "kms" in outcome) {
-      // eth_signTransaction takes no lock and leaves the high-water mark alone (rule 5).
-      const { key, address, params: signParams, callerNonce } = outcome.kms;
-      const signed = await accounts.signWith(
-        key,
-        async (signer) =>
-          await signTransaction(signer, {
-            filler: transactions.filler(),
-            method: request.method,
-            params: signParams,
-            from: address,
-            // The nonce a send would take, so it skips held nonces (#537); reads only, no lookup.
-            chooseNonce: callerNonce
-              ? undefined
-              : (pending) => transactions.sends().nonceFor(address, pending),
-            // The provider may still sign it, and the caller would then never see it (#537).
-            holdNonce: (nonce) => {
-              transactions.sends().holdOutstanding(address, nonce);
-            },
-          }),
-      );
-      return response(request, signed.raw);
+      return await signOnly(accounts, request, outcome.kms, transactions);
     }
     if (outcome !== undefined) {
       return await passThrough(accounts, { ...request, params: outcome.params }, next);
@@ -775,8 +756,9 @@ async function sendTransaction(
           chooseNonce: kms.callerNonce
             ? undefined
             : async (pending) =>
-                await sends.chooseNonce(
+                await chooseSendNonce(
                   address,
+                  sends,
                   pending,
                   async (hash) => await lookUpTransaction(transactions, hash),
                 ),
@@ -793,6 +775,69 @@ async function sendTransaction(
       transactions,
     });
   });
+}
+
+/**
+ * Signs a KMS account's transaction for `eth_signTransaction` under the send lock for its chain
+ * and address, as a send does up to its signature (#537): the uncertain transactions are looked up
+ * first, and the nonce is the one a send would take now, past the mark, the reservations and the
+ * held nonces. Nothing is broadcast, and the mark does not move (rule 5). Under the lock, a send
+ * or another `eth_signTransaction` cannot take the nonce while the KMS signs it: with a provider
+ * that keeps what it signs (Turnkey), its nonce is then held, and the next one skips it.
+ */
+async function signOnly(
+  accounts: ConnectionAccounts,
+  request: JsonRpcRequest,
+  kms: KmsTransaction,
+  transactions: ConnectionTransactions,
+): Promise<JsonRpcResponse> {
+  const chainId = await transactions.chainId();
+  const sends = transactions.sends();
+  const { address } = kms;
+  const lookUp = async (hash: string): Promise<boolean | undefined> =>
+    await lookUpTransaction(transactions, hash);
+  return await withSendLock(`${chainId}:${address}`, async () => {
+    if (!kms.callerNonce) {
+      await settleUncertain(address, sends, lookUp);
+    }
+    const signed = await accounts.signWith(
+      kms.key,
+      async (signer) =>
+        await signTransaction(signer, {
+          filler: transactions.filler(),
+          method: request.method,
+          params: kms.params,
+          from: address,
+          chooseNonce: kms.callerNonce
+            ? undefined
+            : async (pending) => await chooseSendNonce(address, sends, pending, lookUp),
+          // The provider may still sign it, or keeps its copy: the next send skips it (#537).
+          holdNonce: (nonce) => {
+            sends.holdOutstanding(address, nonce);
+          },
+        }),
+    );
+    return response(request, signed.raw);
+  });
+}
+
+/**
+ * Chooses the nonce of a send, or of an `eth_signTransaction`, without the caller's nonce
+ * (`ConnectionSends.chooseNonce`), and warns when held nonces put it above the node's pending
+ * count: the transaction then waits behind them until transactions with those nonces are mined.
+ */
+async function chooseSendNonce(
+  address: string,
+  sends: ConnectionSends,
+  pending: bigint,
+  lookUp: (hash: string) => Promise<boolean | undefined>,
+): Promise<bigint> {
+  const nonce = await sends.chooseNonce(address, pending, lookUp);
+  const behind = sends.outstandingNonces(address).filter((held) => held >= pending && held < nonce);
+  if (behind.length > 0) {
+    warnAboutHeldNonces(address, nonce, behind);
+  }
+  return nonce;
 }
 
 /**
@@ -1076,10 +1121,11 @@ async function broadcast(
       return accepted();
     }
     sends.settleUncertain(address, transaction.hash);
-    throwIfProviderCopy(request, transaction, error);
+    refuseProviderCopy(request, transaction, error, sends, address);
     return passOn();
   }
-  if (resend && isAlreadyKnown(message)) {
+  // The node has these very bytes. With a provider copy too: it is the same transaction (#537).
+  if ((resend || transaction.providerCopy !== undefined) && isAlreadyKnown(message)) {
     return accepted();
   }
   if (isUncertainAnswer(code, message)) {
@@ -1097,36 +1143,62 @@ async function broadcast(
     return accepted();
   }
   sends.settleUncertain(address, transaction.hash);
-  throwIfProviderCopy(request, transaction, error);
+  refuseProviderCopy(request, transaction, error, sends, address);
   return passOn();
 }
 
 /**
- * Fails a send whose broadcast the node refused for certain, when the provider keeps a copy of the
- * signed transaction (#537): that copy can become valid later, for example once the account has
- * the funds, so the nonce stays held (it was held at the signature) and the error says so.
+ * Handles a broadcast the node refused for certain, when the provider keeps a copy of the signed
+ * transaction (#537); without a copy it does nothing, and the node's answer goes on as before.
  *
- * @throws `core.tx.refused-provider-copy`, when the transaction has a provider copy.
+ * - "nonce too low": the nonce is used on chain, so the copy can never be valid. The hold of the
+ *   nonce ends, and the node's answer goes on.
+ * - Anything else, such as too few funds or too low a fee: the copy can become valid once the
+ *   cause goes away. The nonce stays held (it was held at the signature), and the send fails with
+ *   `core.tx.refused-provider-copy`, which names the refusal's kind and code, never the node's
+ *   text (allow-listed error fields).
+ *
+ * "already known" never gets here: the node has the transaction, and the send succeeds.
  */
-function throwIfProviderCopy(
+function refuseProviderCopy(
   request: JsonRpcRequest,
   transaction: SentTransaction,
   error: Record<string, unknown>,
+  sends: ConnectionSends,
+  address: string,
 ): void {
   const copy = transaction.providerCopy;
   if (copy === undefined) {
     return;
   }
   const { code, message } = error;
-  // Printable text only, bounded: it is the node's answer, which the caller would otherwise get.
-  const answer = `${String(code)}: ${String(message)
-    .replaceAll(/[^\x20-\x7e]/g, "?")
-    .slice(0, 200)}`;
+  const text = typeof message === "string" ? message : "";
+  if (/\bnonce too low\b/i.test(text)) {
+    sends.releaseOutstanding(address, copy.nonce);
+    return;
+  }
   throw catalogError(
     ERRORS.txRefusedProviderCopy,
-    { nonce: copy.nonce, answer, who: copy.who, request: copy.request },
+    {
+      nonce: copy.nonce,
+      reason: refusalKind(text),
+      code: typeof code === "number" ? String(code) : "none",
+      who: copy.who,
+      request: copy.request,
+    },
     { operation: request.method },
   );
+}
+
+/** The kind of a node's refusal, in fixed words: the node's own text is never shown. */
+function refusalKind(message: string): string {
+  if (/insufficient funds/i.test(message)) {
+    return "insufficient funds";
+  }
+  if (/underpriced|fee too low|fee cap|less than (?:the )?(?:block )?base fee/i.test(message)) {
+    return "fee too low";
+  }
+  return "refused";
 }
 
 /**

@@ -102,8 +102,10 @@ type Kind =
   /** An invalid self-authorization reached the node. */
   | "self-authorization-435"
   /**
-   * #537: a send on a connection signed a nonce whose transaction the provider may still sign
-   * there, before a transaction with that nonce was recorded on the connection.
+   * #537: a send on a connection signed a nonce for which the provider may sign, or keeps, a
+   * transaction that was never broadcast and accepted: no transaction with that nonce was recorded
+   * on the connection since. A copy the node accepted from the plugin is the broadcast transaction
+   * itself, already public, so signing its nonce again after the node dropped it is allowed.
    */
   | "outstanding"
   /**
@@ -419,13 +421,22 @@ function onRaw(world: World) {
 
 /** Records that the node has the send's transaction; with no answer, the send is uncertain. */
 function deliver(world: World, send: Send, nonce: bigint): void {
+  const recordedOn = new Set<ConnectionIndex>();
+  if (send.kind === "plugin") {
+    recordedOn.add(send.connection);
+  } else if (send.via !== undefined) {
+    recordedOn.add(send.via).add(send.connection);
+  }
+  // The node answered that it took the transaction, so the connections that sent it record its
+  // nonce, which ends their hold of it (#537), also when the node already had another transaction
+  // there and keeps that one: the provider's copy is the transaction the plugin broadcast, which
+  // the node accepted and so made public. A later send may sign that nonce again, as with every
+  // provider; the hold is only for copies that were never broadcast. Without an answer the hold
+  // ends when a lookup finds the transaction (the node's lookUp below).
+  for (const connection of world.mode === "no-answer" ? [] : recordedOn) {
+    world.outstanding[connection].delete(nonce);
+  }
   if (!world.delivered.has(nonce)) {
-    const recordedOn = new Set<ConnectionIndex>();
-    if (send.kind === "plugin") {
-      recordedOn.add(send.connection);
-    } else if (send.via !== undefined) {
-      recordedOn.add(send.via).add(send.connection);
-    }
     const pastReservation = [...recordedOn].some((connection) =>
       reservationsOn(world, connection).some(
         (reserved) => reserved.nonce !== undefined && reserved.nonce < nonce,
@@ -437,12 +448,6 @@ function deliver(world: World, send: Send, nonce: bigint): void {
       recordedOn,
       pastReservation,
     });
-    // A transaction with the nonce reached the node through these connections, which record it
-    // at once when the node answered: their hold of the nonce ends (#537). Without an answer the
-    // hold ends when a lookup finds the transaction (the node's lookUp below).
-    for (const connection of world.mode === "no-answer" ? [] : recordedOn) {
-      world.outstanding[connection].delete(nonce);
-    }
   }
   if (send.kind === "library") {
     send.state = "delivered";
@@ -918,9 +923,9 @@ function librarySignOutstanding(index: number, outcome: Outcome = "sent"): Step 
 }
 
 /**
- * `eth_signTransaction` without the caller's nonce (#537): it takes the nonce a send would take,
- * so it skips the connection's held nonces, and then holds its own, as the provider keeps a copy.
- * It takes no lock and broadcasts nothing. With an outcome, its signature fails as
+ * `eth_signTransaction` without the caller's nonce (#537): under the send lock, it takes the nonce a
+ * send would take, so it skips the connection's held nonces, and then holds its own, as the
+ * provider keeps a copy. It broadcasts nothing. With an outcome, its signature fails as
  * `outstandingSend`'s does.
  */
 function signOnly(connection: ConnectionIndex, outcome?: Outcome): Step {
@@ -942,19 +947,10 @@ function signOnly(connection: ConnectionIndex, outcome?: Outcome): Step {
       }
       const target = world.connections[connection];
       assert.ok(target !== undefined);
-      const held = new Set(world.outstanding[connection]);
-      const step = `signOnly ${send.id}`;
+      // It signs under the send lock, so every send that owns a nonce when it returns already
+      // owned it while it chose: the claim is checked as a send's is (#537).
       const claim = (nonce: bigint): void => {
-        if (
-          held.has(nonce) &&
-          world.outstanding[connection].has(nonce) &&
-          isOpen(world, connection)
-        ) {
-          world.violations.push({
-            kind: "outstanding",
-            message: `${step}: eth_signTransaction on connection ${connection} signed held nonce ${nonce} (#537)`,
-          });
-        }
+        checkClaim(world, send, nonce, `signOnly ${send.id}`);
       };
       await start(
         world,
@@ -977,7 +973,9 @@ function signOnly(connection: ConnectionIndex, outcome?: Outcome): Step {
           }
         })(),
       );
-      world.tick(KMS_TIMEOUT_MS);
+      if (outcome !== undefined) {
+        world.tick(KMS_TIMEOUT_MS);
+      }
       await settle();
     },
     toString: () => `signOnly(${connection}${outcome === undefined ? "" : `, ${outcome}`})`,
@@ -1660,6 +1658,30 @@ const KNOWN_537: { name: string; type: "http" | "edr-simulated"; steps: Step[] }
     name: "eth_signTransaction after an outstanding send, and a send after an outstanding one",
     type: "http",
     steps: [outstandingSend(0), signOnly(0), signOnly(0, "sent"), pluginSend(0), signOnly(0)],
+  },
+  {
+    // QA, seed 4242001: the node accepted send 3 at nonce 1 while it kept another transaction
+    // there, then dropped send 3. Send 3's copy is the transaction the plugin broadcast and the
+    // node accepted, so signing nonce 1 again is allowed (#537).
+    name: "a copy the node accepted and then dropped no longer holds its nonce",
+    type: "edr-simulated",
+    steps: [
+      outstandingSend(1, "sent"),
+      pluginSend(1),
+      signOnly(0),
+      pluginSend(0),
+      outstandingSend(0, "sent"),
+    ],
+  },
+  {
+    name: "eth_signTransaction while a send's signature is paused does not take its nonce",
+    type: "http",
+    steps: [kms(true), pluginSend(0), signOnly(0), kms(false), pluginSend(0)],
+  },
+  {
+    name: "two eth_signTransaction calls at once take distinct nonces",
+    type: "edr-simulated",
+    steps: [kms(true), signOnly(0), signOnly(0), kms(false), signOnly(0)],
   },
   {
     name: "a refused broadcast holds its nonce, then sends and eth_signTransaction skip it",

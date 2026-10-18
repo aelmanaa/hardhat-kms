@@ -376,6 +376,27 @@ function warnAboutNonceGap(key: string, nonce: bigint): void {
   );
 }
 
+/** Where Turnkey's held nonces and their recovery are explained. */
+const HELD_NONCE_DOCS =
+  "https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/turnkey-setup.md#when-turnkey-does-not-answer-in-time";
+
+/**
+ * Warns that a send, or an `eth_signTransaction`, took a nonce above the node's pending count
+ * because nonces are held whose transactions the provider may sign or keeps signed (#537): the
+ * transaction waits behind them, and a wait for its receipt does not end, until transactions with
+ * those nonces are mined.
+ *
+ * @param from - The sender's lowercase address.
+ * @param nonce - The nonce the transaction took.
+ * @param held - The held nonces below it, at or above the pending count.
+ */
+export function warnAboutHeldNonces(from: string, nonce: bigint, held: readonly bigint[]): void {
+  const list = held.join(", ");
+  warn(
+    `the transaction from ${toChecksumAddress(from)} takes nonce ${nonce}, because this connection holds nonce ${list}: the provider may sign, or keeps signed, a transaction at each, so the plugin does not sign them again. The node does not mine this transaction, and a wait for its receipt does not end, until transactions with nonce ${list} are mined. Broadcast those signed transactions through this connection, or send replacements with those nonces, with an explicit nonce; or, if you know they will never be sent (their activities were rejected), open a new connection. See ${HELD_NONCE_DOCS}.`,
+  );
+}
+
 /** Warns when a reset releases an ordinary reservation below a nonce the node accepted. */
 function warnAboutReservationGap(key: string, nonce: bigint): void {
   warn(
@@ -994,7 +1015,18 @@ export class ConnectionSends {
   }
 
   /**
-   * The sender's outstanding nonces, in the order they were held. Tests use it.
+   * Ends the hold of an outstanding nonce whose transaction can never be valid: the node refused
+   * the provider's copy because the nonce is already used on chain.
+   *
+   * @param from - The sender's lowercase address.
+   * @param nonce - The nonce.
+   */
+  public releaseOutstanding(from: string, nonce: bigint): void {
+    this.#outstanding.get(from)?.delete(nonce);
+  }
+
+  /**
+   * The sender's outstanding nonces, in the order they were held.
    *
    * @param from - The sender's lowercase address.
    * @returns The nonces a provider may still sign.
