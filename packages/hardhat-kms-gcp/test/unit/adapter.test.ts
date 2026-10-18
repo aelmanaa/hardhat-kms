@@ -93,6 +93,14 @@ function assertNoSecrets(error: unknown): void {
 }
 
 describe("Google Cloud KMS adapter", () => {
+  it("signs transactions as digests and declares no signature that outlives a timeout (#537)", async () => {
+    const { adapter } = await adapterFor();
+    // The core then releases the nonce of a timed-out transaction: a digest signature that
+    // completes late is never a transaction anyone can broadcast.
+    assert.ok(!("signTransaction" in adapter));
+    assert.ok(!("signTransactionOutlivesAbort" in adapter));
+  });
+
   it("reads the PEM public key and returns the DER signature of the digest, unchanged", async () => {
     for (const [highS, int64Form] of [
       [false, "string"],

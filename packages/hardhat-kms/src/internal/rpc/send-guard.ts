@@ -9,6 +9,7 @@ import { PLUGIN_ID } from "../constants.ts";
 import { toChecksumAddress } from "../crypto/address.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, catalogMessage } from "../errors.ts";
+import type { ProviderCopy } from "../signer/kms-signer.ts";
 import { CancelledError, systemTimers, type Timers } from "../signer/timeout.ts";
 import { warn } from "../warnings.ts";
 
@@ -375,6 +376,26 @@ function warnAboutNonceGap(key: string, nonce: bigint): void {
   );
 }
 
+/** Where Turnkey's held nonces and their recovery are explained. */
+const HELD_NONCE_DOCS =
+  "https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/turnkey-setup.md#when-turnkey-does-not-answer-in-time";
+
+/**
+ * Warns that a send took a nonce above the node's pending count because nonces are held whose
+ * transactions the provider may sign or keeps signed (#537): the node cannot mine the send until
+ * transactions with those nonces are.
+ *
+ * @param from - The sender's lowercase address.
+ * @param nonce - The nonce the send took.
+ * @param held - The held nonces below it, at or above the pending count.
+ */
+export function warnAboutHeldNonces(from: string, nonce: bigint, held: readonly bigint[]): void {
+  const list = held.join(", ");
+  warn(
+    `the send from ${toChecksumAddress(from)} takes nonce ${nonce}, above nonce ${list}, which this connection holds because the provider may sign, or keeps signed, a transaction at each. The node cannot mine this send until transactions with nonce ${list} are: broadcast those signed transactions through this connection, or send replacements with those nonces, with an explicit nonce. See ${HELD_NONCE_DOCS}.`,
+  );
+}
+
 /** Warns when a reset releases an ordinary reservation below a nonce the node accepted. */
 function warnAboutReservationGap(key: string, nonce: bigint): void {
   warn(
@@ -638,6 +659,11 @@ export interface SentTransaction {
   hash: string;
   /** Its nonce. */
   nonce: bigint;
+  /**
+   * Set when the provider keeps a copy of the signed transaction (#537): a broadcast the node
+   * refuses then fails with `core.tx.refused-provider-copy`, and the nonce stays held.
+   */
+  providerCopy?: ProviderCopy | undefined;
 }
 
 /** A nonce handed out to a library account's client, not yet known to the node. */
@@ -655,6 +681,15 @@ interface Reservation {
    * this send's ({@link ConnectionSends.resetReservation}).
    */
   owedCandidate: boolean;
+}
+
+/** A held nonce (#537): what the provider may sign, or keeps signed, at it. */
+interface HeldCopy {
+  /**
+   * The hash of the provider's only copy at the nonce, when the plugin knows it: the copy is its
+   * own transaction. `undefined` when no signature came back, or when there are several copies.
+   */
+  copyHash: string | undefined;
 }
 
 /** The viem resets of a sender that released no reservation yet, since each matched several. */
@@ -746,6 +781,13 @@ export class ConnectionSends {
   /** By sender: the viem resets that have released no reservation yet. */
   readonly #owedResets = new Map<string, OwedResets>();
   /**
+   * By sender: the nonces of transactions that a provider may still sign after the plugin gave up
+   * on them (#537). Nonce choice skips them until a transaction with the nonce reaches the node
+   * through this connection ({@link recordSent}) or the connection closes. No time limit and no
+   * reset ends them: the plugin cannot see whether the provider signed.
+   */
+  readonly #outstanding = new Map<string, Map<bigint, HeldCopy>>();
+  /**
    * By sender, with the high-water mark off: the transactions the node accepted, by nonce. A live
    * reservation leaves a gap, and the pending count stops at it, so the nonce choice counts the
    * ones at or above the pending count while the sender has a live reservation. The ones below it
@@ -785,12 +827,42 @@ export class ConnectionSends {
     if (mark >= nonce) {
       nonce = mark + 1n;
     }
-    const live = this.#live(from);
-    // Without a reservation there is no gap, and the pending count covers every sent nonce.
-    if (live.size === 0) {
+    const skipped = this.#skipped(from);
+    // Without a reservation or an outstanding nonce there is no gap, and the pending count covers
+    // every sent nonce.
+    if (skipped.size === 0) {
       return nonce;
     }
-    return this.#pick(from, nonce, live, false);
+    return this.#pick(from, nonce, skipped, false);
+  }
+
+  /**
+   * The nonces a send skips: the sender's live reservations, and the nonces a provider may still
+   * sign (#537). Either can leave a gap that the node's pending count stops at.
+   */
+  #skipped(from: string): Set<bigint> {
+    return new Set([...this.#live(from).keys(), ...(this.#outstanding.get(from)?.keys() ?? [])]);
+  }
+
+  /**
+   * Ends the holds of nonces below the node's mined transaction count (`latest`, never the pending
+   * count, which counts pool transactions the node can still drop): a mined transaction uses the
+   * nonce, so no copy at it can be valid. Callers read the count only while the sender holds a
+   * nonce, so a hold left below the pending count does not make every later choice look it up.
+   *
+   * @param from - The sender's lowercase address.
+   * @param mined - The node's mined transaction count for the sender.
+   */
+  public settleMined(from: string, mined: bigint): void {
+    const held = this.#outstanding.get(from);
+    if (held === undefined) {
+      return;
+    }
+    for (const nonce of held.keys()) {
+      if (nonce < mined) {
+        held.delete(nonce);
+      }
+    }
   }
 
   /**
@@ -826,7 +898,7 @@ export class ConnectionSends {
     let fell = pending < records.observed || (atPending?.fresh === true && !atPending.gone);
     records.observed = pending;
     const latest = byNonce.get(records.latest);
-    if (!fell && latest?.fresh === true && !latest.gone && this.#live(from).size > 0) {
+    if (!fell && latest?.fresh === true && !latest.gone && this.#skipped(from).size > 0) {
       fell = (await lookUp(latest.newest)) === false;
     }
     if (fell) {
@@ -835,7 +907,7 @@ export class ConnectionSends {
         record.fresh = false;
       }
     }
-    if (this.#live(from).size === 0) {
+    if (this.#skipped(from).size === 0) {
       return this.#noReservation(records, pending);
     }
     const checked = new Set<bigint>();
@@ -846,7 +918,7 @@ export class ConnectionSends {
       }
     }
     for (;;) {
-      const nonce = this.#pick(from, pending, this.#live(from), true);
+      const nonce = this.#pick(from, pending, this.#skipped(from), true);
       const record = byNonce.get(nonce);
       if (record?.gone !== true || checked.has(nonce)) {
         return nonce;
@@ -892,11 +964,11 @@ export class ConnectionSends {
    * the limit. The pending count itself the node does not have. A record counts as held when
    * `checked` is false, and otherwise unless its last lookup found it gone.
    */
-  #pick(from: string, start: bigint, live: Map<bigint, Reservation>, checked: boolean): bigint {
+  #pick(from: string, start: bigint, live: ReadonlySet<bigint>, checked: boolean): bigint {
     const records = this.#sent.get(from);
     const held = (record: SentRecord): boolean => !checked || !record.gone;
     if (records === undefined || !(records.afterFall || start < records.observed)) {
-      const used = [...live.keys()];
+      const used = [...live];
       if (records !== undefined) {
         for (const [nonce, record] of records.byNonce) {
           if (held(record)) {
@@ -951,6 +1023,43 @@ export class ConnectionSends {
       owedCandidate: false,
     });
     this.#reservations.set(from, reservations);
+  }
+
+  /**
+   * Keeps a nonce held whose transaction a provider may still sign after the plugin gave up on it
+   * (#537): every nonce choice for the sender skips it, a gap rather than a second valid
+   * transaction at the nonce. The hold ends when a transaction with the nonce reaches the node
+   * through this connection ({@link recordSent}), or when the connection closes.
+   *
+   * @param from - The sender's lowercase address.
+   * @param nonce - The nonce.
+   * @param copyHash - The hash of the provider's copy, when the plugin signed it; a transaction
+   * with this hash that reaches the node ends the hold for good.
+   */
+  public holdOutstanding(from: string, nonce: bigint, copyHash?: string): void {
+    if (this.#closed) {
+      return;
+    }
+    const held = this.#outstanding.get(from) ?? new Map<bigint, HeldCopy>();
+    const existing = held.get(nonce);
+    if (existing === undefined) {
+      held.set(nonce, { copyHash });
+    } else {
+      // A second copy at the nonce, such as a replacement the provider also signed: the first one,
+      // never broadcast, may still be valid, so no single transaction ends the hold any more.
+      existing.copyHash = undefined;
+    }
+    this.#outstanding.set(from, held);
+  }
+
+  /**
+   * The sender's outstanding nonces, in the order they were held.
+   *
+   * @param from - The sender's lowercase address.
+   * @returns The nonces a provider may still sign.
+   */
+  public outstandingNonces(from: string): bigint[] {
+    return [...(this.#outstanding.get(from)?.keys() ?? [])];
   }
 
   /**
@@ -1204,12 +1313,26 @@ export class ConnectionSends {
    * off, its nonce and hash, next to the hashes recorded before at that nonce; beyond
    * {@link MAX_SENT_RECORDS} hashes, the nonce recorded first is dropped with all its hashes, and after a fall
    * {@link chooseNonce} takes no nonce above the pending count up to the highest dropped one.
+   * It ends the hold of an outstanding nonce ({@link holdOutstanding}) at this nonce.
    *
    * @param from - The sender's lowercase address.
    * @param nonce - The nonce of the accepted transaction.
    * @param hash - Its hash.
    */
   public recordSent(from: string, nonce: bigint, hash: string): void {
+    // The node has a transaction at the nonce. With the mark on, the mark keeps the nonce used for
+    // good, so the hold ends. With it off, it ends for the provider's copy itself, which the node
+    // took and so made public. Another transaction only stands in for the copy while the node
+    // keeps it, and the node can drop it from its pool, so that hold ends only once the nonce is
+    // mined (settleMined, #537).
+    const held = this.#outstanding.get(from);
+    const copy = held?.get(nonce);
+    if (copy !== undefined) {
+      if (this.#highWaterEnabled || copy.copyHash === hash) {
+        // Stryker disable next-line OptionalChaining: copy came from held, so held is defined
+        held?.delete(nonce);
+      }
+    }
     if (!this.#highWaterEnabled) {
       const records = this.#recordsOf(from);
       const { byNonce } = records;
@@ -1386,6 +1509,7 @@ export class ConnectionSends {
     this.#sent.clear();
     this.#uncertain.clear();
     this.#reservations.clear();
+    this.#outstanding.clear();
     endLibraryHoldsOf(this);
   }
 }

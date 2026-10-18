@@ -18,6 +18,7 @@ import {
   LIBRARY_WAIT_WARNING_MS,
   libraryHoldOf,
   libraryHoldsActive,
+  type LookUpTransaction,
   MAX_SEND_LOCK_WAITERS,
   MAX_SENT_RECORDS,
   MAX_UNCERTAIN_RECORDS,
@@ -2108,5 +2109,132 @@ describe("library holds", () => {
     assert.equal(await done, 9n);
     assert.equal(timers.pending(), 0, "the default timers are real, and the test ends the hold");
     endLibraryHold(KEY, false);
+  });
+});
+
+/** A node that has none of the transactions it is asked about. */
+const notKnown: LookUpTransaction = async () => await Promise.resolve(false);
+/** A node that has every transaction it is asked about. */
+const known: LookUpTransaction = async () => await Promise.resolve(true);
+
+describe("ConnectionSends outstanding nonces (#537)", () => {
+  const COW = "0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
+  const ZERO = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+
+  it("skips a held nonce with the mark on, and leaves other senders alone", () => {
+    const { sends } = withClock();
+    sends.holdOutstanding(COW, 0n);
+    assert.equal(sends.nonceFor(COW, 0n), 1n);
+    assert.equal(sends.nonceFor(COW, 2n), 2n, "a nonce the node has passed is no longer at risk");
+    assert.equal(sends.nonceFor(ZERO, 0n), 0n);
+    assert.deepEqual(sends.outstandingNonces(COW), [0n]);
+    assert.deepEqual(sends.outstandingNonces(ZERO), []);
+  });
+
+  it("skips a held nonce with the mark off, and past the sends after its gap", async () => {
+    const { sends } = withClock(false);
+    assert.equal(await sends.chooseNonce(COW, 0n, notKnown), 0n);
+    sends.holdOutstanding(COW, 0n);
+    assert.equal(await sends.chooseNonce(COW, 0n, notKnown), 1n);
+    sends.recordSent(COW, 1n, "0x01");
+    // The node's pending count stops at the gap; the record above it counts.
+    assert.equal(await sends.chooseNonce(COW, 0n, known), 2n);
+    assert.equal(sends.nonceFor(COW, 0n), 2n);
+  });
+
+  it("keeps every held nonce until a transaction with it is recorded, in the order they were held", () => {
+    const { sends } = withClock();
+    sends.holdOutstanding(COW, 5n);
+    sends.holdOutstanding(COW, 2n);
+    sends.holdOutstanding(COW, 5n);
+    assert.deepEqual(sends.outstandingNonces(COW), [5n, 2n]);
+    sends.recordSent(COW, 3n, "0x03");
+    assert.deepEqual(sends.outstandingNonces(COW), [5n, 2n]);
+    sends.recordSent(COW, 5n, "0x05");
+    assert.deepEqual(sends.outstandingNonces(COW), [2n]);
+    sends.recordSent(ZERO, 2n, "0x02");
+    assert.deepEqual(sends.outstandingNonces(COW), [2n]);
+    sends.recordSent(COW, 2n, "0x02");
+    assert.deepEqual(sends.outstandingNonces(COW), []);
+    assert.equal(sends.nonceFor(COW, 0n), 6n, "the mark keeps the recorded nonces used");
+  });
+
+  it("with the mark off, ends the hold for the copy itself, and for another transaction only once mined", async () => {
+    const { sends } = withClock(false);
+    sends.holdOutstanding(COW, 0n, "0xc0");
+    sends.recordSent(COW, 0n, "0xc0");
+    assert.deepEqual(sends.outstandingNonces(COW), [], "the copy reached the node");
+
+    sends.holdOutstanding(COW, 1n, "0xc1");
+    sends.holdOutstanding(COW, 2n);
+    sends.recordSent(COW, 1n, "0x01");
+    sends.recordSent(COW, 2n, "0x02");
+    assert.deepEqual(sends.outstandingNonces(COW), [1n, 2n], "another transaction stands in");
+    // The pending count passes them, but the node can still drop those pool transactions.
+    await sends.chooseNonce(COW, 3n, notKnown);
+    sends.nonceFor(COW, 3n);
+    assert.deepEqual(sends.outstandingNonces(COW), [1n, 2n]);
+    sends.settleMined(COW, 2n);
+    assert.deepEqual(sends.outstandingNonces(COW), [2n], "nonce 1 is mined");
+    sends.settleMined(COW, 2n);
+    sends.settleMined(ZERO, 9n);
+    assert.deepEqual(sends.outstandingNonces(COW), [2n]);
+    sends.settleMined(COW, 3n);
+    assert.deepEqual(sends.outstandingNonces(COW), []);
+  });
+
+  it("keeps a timed-out copy held when its replacement leaves the pool (QA4 repro)", async () => {
+    const { sends } = withClock(false);
+    const A = COW;
+    sends.holdOutstanding(A, 5n);
+    sends.recordSent(A, 5n, "0xr5");
+    assert.equal(await sends.chooseNonce(A, 6n, notKnown), 6n);
+    // The replacement R leaves the pool: the node's pending count falls back to 5.
+    assert.equal(await sends.chooseNonce(A, 5n, notKnown), 6n, "the never-broadcast copy holds 5");
+    assert.deepEqual(sends.outstandingNonces(A), [5n]);
+  });
+
+  it("with the mark off, ends a hold with a second copy only once mined", () => {
+    const { sends } = withClock(false);
+    sends.holdOutstanding(COW, 0n);
+    sends.holdOutstanding(COW, 0n, "0xc0");
+    sends.recordSent(COW, 0n, "0xc0");
+    assert.deepEqual(sends.outstandingNonces(COW), [0n], "the first copy was never broadcast");
+    sends.holdOutstanding(COW, 1n, "0xc1");
+    sends.holdOutstanding(COW, 1n, "0xd1");
+    // The first copy reached the node, but the second one, never broadcast, may still be valid.
+    sends.recordSent(COW, 1n, "0xc1");
+    assert.deepEqual(sends.outstandingNonces(COW), [0n, 1n]);
+    sends.settleMined(COW, 1n);
+    assert.deepEqual(sends.outstandingNonces(COW), [1n], "nonce 0 is mined");
+  });
+
+  it("with the mark on, ends the hold at any transaction recorded at the nonce", () => {
+    const { sends } = withClock();
+    sends.holdOutstanding(COW, 0n, "0xc0");
+    sends.recordSent(COW, 0n, "0x00");
+    assert.deepEqual(sends.outstandingNonces(COW), []);
+  });
+
+  it("outlives every reservation limit and reset, and counts as no reservation", () => {
+    const { sends, clock } = withClock();
+    sends.holdOutstanding(COW, 0n);
+    assert.equal(sends.hasReservations(COW), false, "viem's reset then ends a library hold");
+    sends.reserve(COW, 1n);
+    sends.resetReservation(`1:${COW}`);
+    clock.now += RESERVATION_MS * 10;
+    assert.equal(sends.hasReservations(COW), false);
+    assert.equal(sends.nonceFor(COW, 0n), 1n);
+    assert.deepEqual(sends.outstandingNonces(COW), [0n]);
+  });
+
+  it("forgets the held nonces when it is closed, and holds none after", () => {
+    const { sends } = withClock();
+    sends.holdOutstanding(COW, 0n);
+    sends.close();
+    assert.deepEqual(sends.outstandingNonces(COW), []);
+    sends.holdOutstanding(COW, 1n);
+    assert.deepEqual(sends.outstandingNonces(COW), []);
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
   });
 });
