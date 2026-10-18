@@ -79,18 +79,20 @@ describe("parseRegistryOptions", () => {
 });
 
 describe("registrySpecs and registryArguments", () => {
-  it("name the four packages at the version, core first", () => {
+  it("name the published packages at the version, core first", () => {
     assert.deepEqual(PACKAGES, [
       "hardhat-kms",
       "@hardhat-kms/aws",
-      "@hardhat-kms/gcp",
       "@hardhat-kms/azure",
+      "@hardhat-kms/gcp",
+      "@hardhat-kms/turnkey",
     ]);
     assert.deepEqual(registrySpecs("1.2.3"), [
       "hardhat-kms@1.2.3",
       "@hardhat-kms/aws@1.2.3",
-      "@hardhat-kms/gcp@1.2.3",
       "@hardhat-kms/azure@1.2.3",
+      "@hardhat-kms/gcp@1.2.3",
+      "@hardhat-kms/turnkey@1.2.3",
     ]);
     assert.throws(() => registrySpecs("^1.2.3"), { message: /is not an exact version/ });
     assert.equal(exactVersion("0.0.0"), "0.0.0");

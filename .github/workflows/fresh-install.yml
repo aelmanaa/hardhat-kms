@@ -16,6 +16,7 @@ on:
       - "packages/*/package.json"
       - "pnpm-workspace.yaml"
       - "scripts/check-fresh-install.ts"
+      - "scripts/release-packages.ts"
       - "scripts/check-deprecated-packages.ts"
       - "scripts/registry.ts"
       - "scripts/temporary-install.ts"

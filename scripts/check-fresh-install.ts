@@ -39,16 +39,13 @@ import { fileURLToPath } from "node:url";
 import { field } from "./ast.ts";
 import { ALLOWED, type AllowedDeprecation } from "./check-deprecated-packages.ts";
 import { PACKAGES, assertInstalledVersion, registryOptionsOrExit } from "./registry.ts";
+import { CORE, RELEASE_PACKAGES } from "./release-packages.ts";
 import { readJson, resolvedVersion, root, run, stringRecord } from "./temporary-install.ts";
 
 /** The registry the deprecation questions go to when `--registry` is not given. */
 const NPM_REGISTRY = "https://registry.npmjs.org";
-/** The provider packages, with their directories in packages/. */
-const PROVIDERS = [
-  { name: "@hardhat-kms/aws", directory: "hardhat-kms-aws" },
-  { name: "@hardhat-kms/gcp", directory: "hardhat-kms-gcp" },
-  { name: "@hardhat-kms/azure", directory: "hardhat-kms-azure" },
-] as const;
+/** The published provider packages, with their directories in packages/: all but the core. */
+const PROVIDERS = RELEASE_PACKAGES.filter((entry) => entry.name !== CORE);
 const MANAGERS = ["npm", "pnpm"] as const;
 type Manager = (typeof MANAGERS)[number];
 /** An install that takes longer than this fails. */
@@ -392,7 +389,7 @@ async function main(): Promise<void> {
           assertInstalledVersion(directory, fromRegistry);
         }
         const tree = productionTree(directory, ["hardhat-kms", provider.name]);
-        // The four packages are this repository's; check-registry-release.ts checks them.
+        // The published packages are this repository's; check-registry-release.ts checks them.
         for (const key of tree.keys()) {
           if (PACKAGES.includes(nameOf(key))) {
             tree.delete(key);

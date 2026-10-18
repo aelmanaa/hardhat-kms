@@ -7,22 +7,25 @@
 # the reasons. The jobs, in order:
 # 1. verify-tag: scripts/release-trigger.ts checks the channel, the trigger and its inputs as whole
 #    strings, then scripts/verify-release-tag.ts checks the tag: signed by a key in
-#    .github/release-keys/, the version of the four manifests, a version of the channel (no
+#    .github/release-keys/, the version of every published manifest at the tagged commit, a version of the channel (no
 #    prerelease part on stable, -next.N on next), its commit on the channel's branch: main, or
 #    release/X.Y for a stable hotfix X.Y.Z; next for the next channel.
 # 2. gate-ci: the tagged commit has a passing ci.yml run, a ci-all-os.yml run that passed on macOS
 #    and Windows, and passing hardhat-versions.yml and sdk-floors.yml runs. The job dispatches on
 #    the tag each one the commit has no run of, retries a failed run only where the retry table in
 #    scripts/release-gate-ci.ts allows, and lists every failed run on the commit in its summary.
-# 3. pack: build, the package checks, the publish plan, then one tarball per package with `gitHead`
-#    set to the tagged commit, checked by scripts/check-tarballs.ts. The SHA-256 sums leave the job
+# 3. pack: build, the package checks, the publish plan, then one tarball per published package
+#    (scripts/release-packages.ts lists them: every packages/*/package.json that is not private)
+#    with `gitHead` set to the tagged commit, checked by scripts/check-tarballs.ts. The SHA-256 sums leave the job
 #    as a job output, apart from the artifact they cover.
 #    fresh-install, in parallel and on its own runner: installs the packed packages into empty
 #    projects with npm and pnpm, outside the lockfile, and fails on a deprecated package that
 #    ALLOWED does not list (scripts/check-fresh-install.ts). It uploads nothing; both publish jobs
 #    need it.
 # 4. publish: after a maintainer approves the npm-publish environment, the same check against that
-#    output, then `npm stage publish` of the four tarballs over OIDC (trusted publishing, no
+#    output, a check that every package already exists on npm (a brand-new name has no trusted
+#    publisher yet; docs/contributor/releasing.md, First publish of a new package), then
+#    `npm stage publish` of the tarballs over OIDC (trusted publishing, no
 #    token), with provenance, under the dist-tag verify-tag chose: `beta` for a commit on main,
 #    `release-X.Y` for a hotfix on release/X.Y, `next` on the next channel. Nothing is
 #    installable until a maintainer approves the stage on npmjs.com. npm matches the OIDC token
@@ -233,7 +236,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       # npm writes no gitHead into a manifest published from a tarball, and the promotion checks
       # tie the published version to the tag through it. pnpm pack keeps the field.
-      - name: Pack the four packages with gitHead set to the tagged commit
+      - name: Pack the published packages with gitHead set to the tagged commit
         id: pack
         env:
           CHANNEL: ${{ inputs.channel }}
@@ -244,8 +247,15 @@ jobs:
           sums="$RUNNER_TEMP/SHA256SUMS"
           mkdir -p "$out"
           : > "$sums"
-          # The core first: the providers pin it to the exact version.
-          for dir in hardhat-kms hardhat-kms-aws hardhat-kms-gcp hardhat-kms-azure; do
+          # Every packages/*/package.json that is not private, the core first: the providers pin it
+          # to the exact version. check-tarballs.ts reads the same list.
+          dirs="$(node scripts/release-packages.ts --directories)"
+          if [ -z "$dirs" ]; then
+            echo "::error::scripts/release-packages.ts at the tagged commit printed no package directories"
+            exit 1
+          fi
+          echo "Packing: $(echo $dirs)"
+          for dir in $dirs; do
             (cd "packages/$dir" && npm pkg set "gitHead=$COMMIT")
             tarball="$(cd "packages/$dir" && pnpm pack --json --pack-destination "$out" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).filename')"
             (cd "$out" && sha256sum "$(basename "$tarball")") >> "$sums"
@@ -377,8 +387,11 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/check-tarballs.ts
+            scripts/check-npm-names.ts
+            scripts/npm-view.ts
             scripts/release-channel.ts
             scripts/release-packages.ts
+            packages/*/package.json
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -415,7 +428,13 @@ jobs:
           npm install --global --ignore-scripts npm@12.2.0
           npm --version
           node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
-      - name: Stage the four packages under the dist-tag verify-tag chose
+      # npm sets up a trusted publisher only for a package that exists, so a brand-new name has none,
+      # and its stage would fail after the packages before it were staged. This stops the run
+      # before the first stage and names the package (docs/contributor/releasing.md, First publish
+      # of a new package). It reads the registry only; no token.
+      - name: Check that every package exists on npm
+        run: node scripts/check-npm-names.ts
+      - name: Stage the packages under the dist-tag verify-tag chose
         env:
           CHANNEL: ${{ inputs.channel }}
           DIST_TAG: ${{ needs.verify-tag.outputs.dist-tag }}
@@ -427,17 +446,23 @@ jobs:
             echo "::error::dist-tag '$DIST_TAG' is not one the $CHANNEL channel stages under"
             exit 1
           fi
+          caller=release.yml
+          if [ "$CHANNEL" = next ]; then caller=release-next.yml; fi
           cd "$RUNNER_TEMP/tarballs"
           echo "## Staged under \`$DIST_TAG\`" >> "$GITHUB_STEP_SUMMARY"
           while read -r _ file; do
-            npm stage publish "./$file" --tag "$DIST_TAG" --access public --provenance
-            echo "- \`$file\`" >> "$GITHUB_STEP_SUMMARY"
+            name="$(tar -xOzf "$file" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).name')"
+            if ! npm stage publish "./$file" --tag "$DIST_TAG" --access public --provenance; then
+              echo "::error::npm refused to stage $name ($file). Check its trusted publisher on npmjs.com: workflow $caller, environment npm-publish, staged publishing allowed. A configuration that completed no publish expires 48 hours after its creation (docs/contributor/releasing.md, Trusted-publisher configuration expired)."
+              exit 1
+            fi
+            echo "- \`$file\` ($name)" >> "$GITHUB_STEP_SUMMARY"
           done < "$RUNNER_TEMP/SHA256SUMS"
           echo >> "$GITHUB_STEP_SUMMARY"
           if [ "$DIST_TAG" = next ]; then
-            echo "Approve the four stages on npmjs.com; until then nothing is installable. promote.yml never runs for a next version (docs/contributor/releasing.md, A future major)." >> "$GITHUB_STEP_SUMMARY"
+            echo "Approve every stage on npmjs.com; until then nothing is installable. promote.yml never runs for a next version (docs/contributor/releasing.md, A future major)." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Approve the four stages on npmjs.com; until then nothing is installable. Then run promote.yml with target verify (docs/contributor/releasing.md, Verify and promote)." >> "$GITHUB_STEP_SUMMARY"
+            echo "Approve every stage on npmjs.com; until then nothing is installable. Then run promote.yml with target verify (docs/contributor/releasing.md, Verify and promote)." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   publish-dry-run:
@@ -455,8 +480,11 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/check-tarballs.ts
+            scripts/check-npm-names.ts
+            scripts/npm-view.ts
             scripts/release-channel.ts
             scripts/release-packages.ts
+            packages/*/package.json
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -487,6 +515,9 @@ jobs:
           npm install --global --ignore-scripts npm@12.2.0
           npm --version
           node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
+      # The same check as the publish job's, as a warning: a dry run stages nothing.
+      - name: Check that every package exists on npm
+        run: node scripts/check-npm-names.ts --warn
       - name: npm stage publish --dry-run, and the commands a release would run
         env:
           DIST_TAG: ${{ needs.verify-tag.outputs.dist-tag }}

@@ -33,7 +33,7 @@ const FIXTURES = path.join(
 );
 const fixture = (name: string): string => readFileSync(path.join(FIXTURES, name), "utf8");
 
-/** The four packages, each with the released fixture's dist-tags and versions. */
+/** The published packages, each with the released fixture's dist-tags and versions. */
 const released = (): PackageView[] =>
   PACKAGES.map((name) => parsePackageView(name, fixture("view-released.json")));
 

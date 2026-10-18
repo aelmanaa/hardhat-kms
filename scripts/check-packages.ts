@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { field } from "./ast.ts";
 import { packReport, withPackDirectory } from "./pack.ts";
 import { PACKAGES, registryArguments, registryOptionsOrExit } from "./registry.ts";
+import { RELEASE_PACKAGES } from "./release-packages.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const shell = process.platform === "win32";
@@ -157,15 +158,7 @@ function main(): void {
     });
     process.stdout.write(`\nchecked ${PACKAGES.length} packages at ${version} from the registry\n`);
   } else {
-    const packages = readdirSync(path.join(root, "packages"), { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => path.join(root, "packages", entry.name))
-      .filter((directory) => {
-        const manifest: unknown = JSON.parse(
-          readFileSync(path.join(directory, "package.json"), "utf8"),
-        );
-        return field(manifest, "private") !== true;
-      });
+    const packages = RELEASE_PACKAGES.map((entry) => path.join(root, "packages", entry.directory));
 
     // TypeScript 6 is for tools/api-docs only (decision 0012). A package under packages/ that takes it
     // from the typescript6 catalog would build or typecheck on the wrong compiler.

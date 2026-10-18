@@ -212,7 +212,7 @@ export function assertGitHead(
   }
 }
 
-/** Each of the four packages at the version must carry a verified provenance attestation. */
+/** Each of the published packages at the version must carry a verified provenance attestation. */
 export function assertAttestations(verified: readonly VerifiedPackage[], version: string): void {
   const missing = PACKAGES.filter(
     (name) =>

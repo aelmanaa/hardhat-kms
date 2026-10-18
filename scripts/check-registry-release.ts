@@ -1,8 +1,8 @@
 // Checks a version on the registry before it goes to `latest`: the first step of the promotion
 // workflow, and what no other package check covers. The version must be stable, published for the
-// four packages, at their `beta` dist-tag (or `release-X.Y` for a hotfix) and not below `latest`; the published core's `gitHead`
+// published packages, at their `beta` dist-tag (or `release-X.Y` for a hotfix) and not below `latest`; the published core's `gitHead`
 // must be the commit of tag `v<version>`; and in a scratch project `npm install --ignore-scripts`
-// of the four packages followed by `npm audit signatures` must verify a provenance attestation for
+// of the published packages followed by `npm audit signatures` must verify a provenance attestation for
 // each. The guards are in scripts/registry-release.ts.
 //
 // Usage: node scripts/check-registry-release.ts <version> [--registry <url>]
@@ -92,7 +92,9 @@ try {
   assertPublished(views, version);
   ok(`${version} is published for ${PACKAGES.join(", ")}`);
   assertStagedTag(views, version);
-  ok(`${version} is staged under ${stagingDistTags(version).join(" or ")} for the four packages`);
+  ok(
+    `${version} is staged under ${stagingDistTags(version).join(" or ")} for the ${PACKAGES.length} packages`,
+  );
   assertNotBelowLatest(views, version);
   const latest = views[0]?.distTags.latest;
   ok(latest === undefined ? "no latest yet" : `latest is ${latest}, not above ${version}`);
@@ -134,14 +136,16 @@ try {
       { cwd: scratch, shell, stdio: "inherit" },
     );
     assertInstalledVersion(scratch, version);
-    ok(`a scratch project installs the four packages and resolves hardhat-kms ${version}`);
+    ok(
+      `a scratch project installs the ${PACKAGES.length} packages and resolves hardhat-kms ${version}`,
+    );
     if (registry === undefined) {
       const verified = parseVerified(
         npmJson(["audit", "signatures", "--include-attestations"], scratch),
       );
       assertAttestations(verified, version);
       ok(
-        `npm audit signatures verified a provenance attestation for the four packages at ${version}`,
+        `npm audit signatures verified a provenance attestation for the ${PACKAGES.length} packages at ${version}`,
       );
     } else {
       process.stdout.write(

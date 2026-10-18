@@ -6,7 +6,8 @@
 //    The keys are imported into a throwaway GNUPGHOME, so the caller's keyring plays no part, and
 //    `git verify-tag --raw` is parsed by its status lines, never by its human output.
 // 2. The tag name is `v` + the version of `packages/hardhat-kms/package.json` at the tagged commit,
-//    and the four package manifests carry that same version.
+//    and every published package manifest at that commit carries that same version (the list is
+//    read at the commit, as scripts/release-packages.ts derives it from packages/).
 // 3. The version is a plain `X.Y.Z`, with no `-` prerelease tag and no `+` build metadata: only
 //    the stable line is released. On the next channel it is `X.Y.Z-next.N` instead.
 // 4. The tagged commit is an ancestor of `origin/main`, or of `origin/release/X.Y` for a hotfix
@@ -36,6 +37,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { CHANNELS, type Channel, parseChannel, versionFailure } from "./release-channel.ts";
+import { RELEASE_PACKAGES, releasePackagesAt } from "./release-packages.ts";
 
 /** The directory of maintainer public keys, relative to the repository root. */
 export const KEYS_DIRECTORY = ".github/release-keys";
@@ -49,13 +51,13 @@ export const RELEASE_REFS = "refs/remotes/origin/release/";
 export const MAIN_DIST_TAG = "beta";
 /** The manifest whose version the tag name must match. */
 export const PRIMARY_MANIFEST = "packages/hardhat-kms/package.json";
-/** The four manifests that must carry the same version. */
-export const MANIFESTS: readonly string[] = [
-  PRIMARY_MANIFEST,
-  "packages/hardhat-kms-aws/package.json",
-  "packages/hardhat-kms-azure/package.json",
-  "packages/hardhat-kms-gcp/package.json",
-];
+/**
+ * The manifests of this checkout's published packages. The check itself reads the list at the
+ * tagged commit, so a tag cut before a package existed does not ask for its manifest.
+ */
+export const MANIFESTS: readonly string[] = RELEASE_PACKAGES.map(
+  (entry) => `packages/${entry.directory}/package.json`,
+);
 
 const HOME_PREFIX = "hardhat-kms-release-keys-";
 const PGP_SIGNATURE = "-----BEGIN PGP SIGNATURE-----";
@@ -101,6 +103,8 @@ export interface Signature {
 /** The outcome: what passed, or the one-line reason the tag fails. */
 export type Verdict =
   | (Signature & {
+      /** The published manifests at the tagged commit, each at the version. */
+      manifests: readonly string[];
       /** The released version, without the `v`. */
       version: string;
       /** The tagged commit. */
@@ -537,7 +541,15 @@ export function verifyReleaseTag(options: VerifyOptions): Verdict {
       reason: `tag ${tag} does not match version ${primary.version} in ${PRIMARY_MANIFEST}`,
     };
   }
-  for (const manifest of MANIFESTS) {
+  let manifests: string[];
+  try {
+    manifests = releasePackagesAt(commit, (args) => git(args, cwd, env)).map(
+      (entry) => `packages/${entry.directory}/package.json`,
+    );
+  } catch (error: unknown) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+  for (const manifest of manifests) {
     const other = manifestVersion(manifest, commit, cwd, env);
     if (!other.ok) {
       return other;
@@ -549,6 +561,8 @@ export function verifyReleaseTag(options: VerifyOptions): Verdict {
       };
     }
   }
+
+  const passed = { ...signature, manifests };
 
   const channel = options.channel ?? "stable";
   const wrongVersion = versionFailure(channel, primary.version);
@@ -568,7 +582,7 @@ export function verifyReleaseTag(options: VerifyOptions): Verdict {
       return { ok: false, reason: `commit ${commit} of ${tag} is not on ${nextRef}` };
     }
     return {
-      ...signature,
+      ...passed,
       version: primary.version,
       commit,
       branch: nextRef,
@@ -583,7 +597,7 @@ export function verifyReleaseTag(options: VerifyOptions): Verdict {
   const onMain = git(["merge-base", "--is-ancestor", commit, mainRef], cwd, env);
   if (onMain.status === 0) {
     return {
-      ...signature,
+      ...passed,
       version: primary.version,
       commit,
       branch: mainRef,
@@ -606,7 +620,7 @@ export function verifyReleaseTag(options: VerifyOptions): Verdict {
     const onRelease = git(["merge-base", "--is-ancestor", commit, release.ref], cwd, env);
     if (onRelease.status === 0) {
       return {
-        ...signature,
+        ...passed,
         version: primary.version,
         commit,
         branch: release.name,
@@ -655,7 +669,7 @@ function main(argv: readonly string[]): void {
     return;
   }
   process.stdout.write(
-    `${tag} passes: signed by ${verdict.signer} (${verdict.fingerprint}), version ${verdict.version} in ${MANIFESTS.length} manifests, commit ${verdict.commit} on ${verdict.branch}, staged under ${verdict.distTag}\n`,
+    `${tag} passes: signed by ${verdict.signer} (${verdict.fingerprint}), version ${verdict.version} in ${verdict.manifests.length} manifests, commit ${verdict.commit} on ${verdict.branch}, staged under ${verdict.distTag}\n`,
   );
   if (values.output !== undefined) {
     appendFileSync(values.output, `dist-tag=${verdict.distTag}\n`);

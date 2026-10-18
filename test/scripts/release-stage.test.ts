@@ -5,7 +5,16 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -13,6 +22,8 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 
 import { parse } from "yaml";
+
+import { PACKAGES } from "../../scripts/release-packages.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const WORKFLOWS = path.join(ROOT, ".github/workflows");
@@ -41,6 +52,25 @@ function importClosure(script: string, seen = new Set<string>()): Set<string> {
     importClosure(`scripts/${match[1] ?? ""}`, seen);
   }
   return seen;
+}
+
+/**
+ * The files a non-cone sparse-checkout line selects in this checkout: the path itself, or for a
+ * line with `*` segments, such as the package manifests line, every existing match (a `*` matches
+ * one path segment).
+ */
+function sparseFiles(line: string): string[] {
+  let matches = [""];
+  for (const segment of line.split("/")) {
+    matches = matches.flatMap((prefix) =>
+      segment === "*"
+        ? readdirSync(path.join(ROOT, prefix), { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => path.posix.join(prefix, entry.name))
+        : [path.posix.join(prefix, segment)],
+    );
+  }
+  return matches.filter((file) => existsSync(path.join(ROOT, file)));
 }
 
 /** A tag filter of GitHub Actions: `*` matches any run of characters but `/`, `[0-9]` one digit. */
@@ -215,21 +245,17 @@ describe("release-stage.yml", () => {
         assert.equal(typeof sparse, "string");
         const work = mkdtempSync(path.join(tmpdir(), "release-sparse-check-"));
         try {
-          mkdirSync(path.join(work, "scripts"));
           for (const file of String(sparse)
             .split("\n")
-            .filter((line) => line !== "")) {
+            .filter((line) => line !== "")
+            .flatMap(sparseFiles)) {
+            mkdirSync(path.dirname(path.join(work, file)), { recursive: true });
             copyFileSync(path.join(ROOT, file), path.join(work, file));
           }
           mkdirSync(path.join(work, "tarballs"));
           const version = channel === "stable" ? "1.2.0" : "2.0.0-next.0";
           const commit = "1".repeat(40);
-          const packages = [
-            "hardhat-kms",
-            "@hardhat-kms/aws",
-            "@hardhat-kms/gcp",
-            "@hardhat-kms/azure",
-          ];
+          const packages = PACKAGES;
           const sums = packages.map((name, index) => {
             const source = `source-${index}`;
             mkdirSync(path.join(work, source, "package"), { recursive: true });
@@ -271,7 +297,7 @@ describe("release-stage.yml", () => {
           } as const;
           const good = spawnSync(process.execPath, args, options);
           assert.equal(good.status, 0, good.stderr);
-          assert.equal(good.stdout.trim().split("\n").length, 4);
+          assert.equal(good.stdout.trim().split("\n").length, PACKAGES.length);
           const file = path.join(work, "tarballs", `hardhat-kms-${version}.tgz`);
           writeFileSync(file, "swapped artifact");
           const bad = spawnSync(process.execPath, args, options);

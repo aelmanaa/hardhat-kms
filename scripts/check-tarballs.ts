@@ -1,4 +1,4 @@
-// Checks the four release tarballs against a list of SHA-256 sums and against the release they
+// Checks the release tarballs against a list of SHA-256 sums and against the release they
 // belong to. release-stage.yml, the jobs release.yml and release-next.yml share, runs it twice: in `pack`, right after packing, and in `publish` and the
 // dry run, on the downloaded artifact, against the sums `pack` passed as a job output. The sums
 // therefore travel outside the artifact they cover, so a swapped artifact fails here.
@@ -40,7 +40,7 @@ export interface Expected {
 const SUM_LINE = /^([0-9a-f]{64}) {2}([\w.@-]+\.tgz)$/;
 
 /**
- * Parses a `sha256sum` listing of the four tarballs.
+ * Parses a `sha256sum` listing of the release tarballs.
  * @param text - The listing, one `<sum>  <file>` line per tarball.
  * @returns The lines, in order.
  * @throws When a line is malformed or the count is not the number of packages.

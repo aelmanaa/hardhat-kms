@@ -18,6 +18,7 @@ import {
   registryOptionsOrExit,
   registrySpecs,
 } from "./registry.ts";
+import { RELEASE_PACKAGES } from "./release-packages.ts";
 
 const usage =
   "usage: node scripts/consumer-typecheck.ts [--from-registry <version> [--registry <url>]] <typescript-version>";
@@ -30,14 +31,8 @@ if (typescriptVersion === undefined || options.rest.length > 1) {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pluginPackage = path.join(root, "packages", "hardhat-kms");
-// Package directories, which keep their names; the provider packages are named @hardhat-kms/<id>.
-const packages = [
-  "packages/hardhat-kms",
-  "packages/hardhat-kms-aws",
-  "packages/hardhat-kms-azure",
-  "packages/hardhat-kms-gcp",
-  "packages/hardhat-kms-turnkey",
-].map((directory) => path.join(root, directory));
+// The published packages' directories, in release order (scripts/release-packages.ts).
+const packages = RELEASE_PACKAGES.map((entry) => path.join(root, "packages", entry.directory));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).

@@ -31,7 +31,18 @@ const REPOSITORY = path.resolve(here, "../../..");
 const FIXTURE = path.resolve(here, "../fixture-project");
 /** The prefix of each scratch project; {@link removeScratchProject} removes nothing else. */
 const PREFIX = "hardhat-kms-live-registry-";
+/** Every package this repository publishes, Turnkey included; the hook never resolves them to the workspace. */
 const PUBLISHED: ReadonlySet<string> = new Set(PACKAGES);
+/**
+ * The packages a registry run installs and checks: the core and the three cloud providers. Turnkey
+ * is published with them but is not in the three-cloud live gate.
+ */
+export const LIVE_PACKAGES: readonly string[] = [
+  "hardhat-kms",
+  "@hardhat-kms/aws",
+  "@hardhat-kms/gcp",
+  "@hardhat-kms/azure",
+];
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
 const shell = process.platform === "win32";
@@ -106,11 +117,11 @@ export function removeScratchProject(directory: string): void {
  */
 function checkVersions(directory: string, version: string): Record<string, string> {
   const versions: Record<string, string> = {};
-  for (const name of PACKAGES) {
+  for (const name of LIVE_PACKAGES) {
     const installed = resolvedVersion(directory, name);
     const core = resolvedVersion(
       path.join(directory, "node_modules", ...name.split("/")),
-      PACKAGES[0] ?? "",
+      LIVE_PACKAGES[0] ?? "",
     );
     if (installed !== version || core !== version) {
       throw new Error(
@@ -146,7 +157,7 @@ export function installRegistryProject(version: string): {
     });
     const manifest = {
       ...readJson(path.join(FIXTURE, "package.json")),
-      dependencies: Object.fromEntries(PACKAGES.map((name) => [name, version])),
+      dependencies: Object.fromEntries(LIVE_PACKAGES.map((name) => [name, version])),
     };
     writeFileSync(path.join(directory, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     execFileSync(
@@ -169,7 +180,7 @@ export function installRegistryProject(version: string): {
  */
 function peersOf(directory: string): Set<string> {
   const peers = new Set<string>();
-  for (const name of PACKAGES) {
+  for (const name of LIVE_PACKAGES) {
     const manifest = readJson(
       path.join(directory, "node_modules", ...name.split("/"), "package.json"),
     );
@@ -309,7 +320,7 @@ export function registryCheck(packages: LivePackages, configured: number): void 
     assert.ok(source.kind === "registry");
     assert.deepEqual(
       packages.versions,
-      Object.fromEntries(PACKAGES.map((name) => [name, source.version])),
+      Object.fromEntries(LIVE_PACKAGES.map((name) => [name, source.version])),
     );
     assert.deepEqual(packages.workspaceModules(), [], "modules loaded from packages/");
     t.diagnostic(`hardhat-kms and the three providers at ${source.version}, from the registry`);

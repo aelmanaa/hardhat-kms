@@ -12,6 +12,8 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
+import { PACKAGES } from "../../scripts/release-packages.ts";
+
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 const field = (value: unknown, name: string): unknown =>
@@ -40,7 +42,12 @@ after(() => {
  * Runs the step with `npm view` printing `view` for every package, or the entry of `overrides`
  * for the packages it names.
  */
-function moveLatest(view: string, version = "1.2.3", overrides: Record<string, string> = {}) {
+function moveLatest(
+  view: string,
+  version = "1.2.3",
+  overrides: Record<string, string> = {},
+  packages: string = PACKAGES.join(" "),
+) {
   const summary = path.join(work, "summary.md");
   writeFileSync(summary, "");
   const stub = `npm() {
@@ -58,6 +65,7 @@ ${Object.entries(overrides)
       PATH: process.env["PATH"] ?? "",
       VERSION: version,
       NPM_VIEW: view,
+      PACKAGES: packages,
       GITHUB_STEP_SUMMARY: summary,
     },
   });
@@ -69,7 +77,6 @@ ${Object.entries(overrides)
 /** A single-quoted bash word. */
 const shellQuote = (text: string): string => `'${text.replaceAll("'", String.raw`'\''`)}'`;
 
-const PACKAGES = ["hardhat-kms", "@hardhat-kms/aws", "@hardhat-kms/gcp", "@hardhat-kms/azure"];
 const moved = (version: string) =>
   PACKAGES.map((name) => `npm dist-tag add ${name}@${version} latest`);
 
@@ -80,7 +87,7 @@ describe(
     const npm11 = JSON.stringify({ beta: "1.2.3", latest: "1.2.2" }, null, 2);
     const npm12 = JSON.stringify([{ beta: "1.2.3", latest: "1.2.2" }], null, 2);
 
-    it("moves latest for the four packages from npm 11's object and npm 12's array", () => {
+    it("moves latest for every published package from npm 11's object and npm 12's array", () => {
       for (const view of [npm11, npm12]) {
         const result = moveLatest(view);
         assert.equal(result.status, 0, result.output);
@@ -112,7 +119,7 @@ describe(
       }
     });
 
-    it("checks all four packages before moving any: a bad third package moves none", () => {
+    it("checks every package before moving any: a bad later package moves none", () => {
       const bad: [string, RegExp][] = [
         ["[]", /npm view @hardhat-kms\/gcp dist-tags --json printed an array of 0 entries/],
         [JSON.stringify([{ beta: "1.2.2" }]), /@hardhat-kms\/gcp has beta at 1\.2\.2/],
@@ -159,5 +166,65 @@ describe(
         assert.deepEqual(result.adds, [], view);
       }
     });
+
+    it("moves Turnkey with the others, and only the packages the verify job listed", () => {
+      assert.ok(PACKAGES.includes("@hardhat-kms/turnkey"));
+      const older = "hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure";
+      const result = moveLatest(npm12, "1.2.3", {}, older);
+      assert.equal(result.status, 0, result.output);
+      assert.deepEqual(
+        result.adds,
+        older.split(" ").map((name) => `npm dist-tag add ${name}@1.2.3 latest`),
+      );
+    });
+
+    it("refuses an empty list and a name outside the project before moving a tag", () => {
+      const cases: [string, RegExp][] = [
+        ["", /the verify job listed no packages for 1\.2\.3/],
+        ["hardhat-kms left-pad", /'left-pad' is not hardhat-kms or an @hardhat-kms package/],
+        ["hardhat-kms @other/aws", /'@other\/aws' is not hardhat-kms or an @hardhat-kms package/],
+      ];
+      for (const [packages, message] of cases) {
+        const result = moveLatest(npm12, "1.2.3", {}, packages);
+        assert.notEqual(result.status, 0, packages);
+        assert.match(result.output, message, packages);
+        assert.deepEqual(result.adds, [], packages);
+      }
+    });
   },
 );
+
+describe("the package list of promote.yml", () => {
+  const workflow: unknown = parse(
+    readFileSync(path.join(ROOT, ".github/workflows/promote.yml"), "utf8"),
+  );
+  const job = (name: string): unknown => field(field(workflow, "jobs"), name);
+
+  it("comes from scripts/release-packages.ts at the tagged commit, in the verify job", () => {
+    assert.equal(
+      field(field(job("verify"), "outputs"), "packages"),
+      "${{ steps.packages.outputs.packages }}",
+    );
+    const steps = field(job("verify"), "steps");
+    assert.ok(Array.isArray(steps));
+    const step: unknown = steps.find((entry: unknown) => field(entry, "id") === "packages");
+    assert.match(
+      String(field(step, "run")),
+      /node scripts\/release-packages\.ts --commit "refs\/tags\/v\$VERSION"/,
+    );
+  });
+
+  it("reaches the dist-tag move, which names no package itself", () => {
+    const steps = field(job("latest"), "steps");
+    assert.ok(Array.isArray(steps));
+    const step: unknown = steps.find((entry: unknown) =>
+      String(field(entry, "run")).includes("npm dist-tag add"),
+    );
+    assert.equal(field(field(step, "env"), "PACKAGES"), "${{ needs.verify.outputs.packages }}");
+    assert.doesNotMatch(String(field(step, "run")), /@hardhat-kms\/(aws|gcp|azure|turnkey)/);
+  });
+
+  it("keeps Turnkey out of the live job's keys and cloud sign-ins", () => {
+    assert.doesNotMatch(JSON.stringify(job("live")), /turnkey/i);
+  });
+});
