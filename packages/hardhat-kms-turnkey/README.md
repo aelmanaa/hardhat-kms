@@ -55,13 +55,13 @@ export default defineConfig({
 
 Each signature is one Turnkey activity, with `signWith` set to the address. A transaction is an `ACTIVITY_TYPE_SIGN_TRANSACTION_V2` activity by default, so Turnkey's policies can read its fields as `eth.tx.*`. With `transactionSigning: "digest"`, the plugin sends the transaction's 32-byte hash as a raw payload instead, as Foundry's `cast --turnkey` does. Everything else is an `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2` activity. The key's Turnkey policies must allow each form the project uses:
 
-| Request                                                                   | Activity (`activity.kind`) | `encoding`                     | `hash_function`           | What Turnkey receives           |
-| ------------------------------------------------------------------------- | -------------------------- | ------------------------------ | ------------------------- | ------------------------------- |
-| Transactions: `eth_sendTransaction`, `eth_signTransaction`, `kms sign-tx` | `SIGN_TRANSACTION`         | none                           | none                      | the unsigned transaction        |
-| The same transactions, for a key with `transactionSigning: "digest"`      | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_HEXADECIMAL` | `HASH_FUNCTION_NO_OP`     | the 32-byte digest              |
-| EIP-7702 authorizations, `kms sign-auth`, `kms sign --no-hash`            | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_HEXADECIMAL` | `HASH_FUNCTION_NO_OP`     | the 32-byte digest              |
-| `personal_sign`, `eth_sign`, `kms sign`                                   | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_HEXADECIMAL` | `HASH_FUNCTION_KECCAK256` | the EIP-191 message with prefix |
-| `eth_signTypedData_v4`, `kms sign --data`                                 | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_EIP712`      | `HASH_FUNCTION_NO_OP`     | the typed data as JSON          |
+| Request                                                                                                          | Activity (`activity.kind`) | `encoding`                     | `hash_function`           | What Turnkey receives           |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------- | ------------------------------ | ------------------------- | ------------------------------- |
+| Transactions: `eth_sendTransaction`, `eth_signTransaction`, a library account's `signTransaction`, `kms sign-tx` | `SIGN_TRANSACTION`         | none                           | none                      | the unsigned transaction        |
+| The same transactions, for a key with `transactionSigning: "digest"`                                             | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_HEXADECIMAL` | `HASH_FUNCTION_NO_OP`     | the 32-byte digest              |
+| EIP-7702 authorizations, `kms sign-auth`, `kms sign --no-hash`                                                   | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_HEXADECIMAL` | `HASH_FUNCTION_NO_OP`     | the 32-byte digest              |
+| `personal_sign`, `eth_sign`, `kms sign`                                                                          | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_HEXADECIMAL` | `HASH_FUNCTION_KECCAK256` | the EIP-191 message with prefix |
+| `eth_signTypedData_v4`, `kms sign --data`                                                                        | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_EIP712`      | `HASH_FUNCTION_NO_OP`     | the typed data as JSON          |
 
 For a transaction, the plugin decodes the signed transaction Turnkey returns, refuses it unless every field equals the transaction it sent, and keeps only the signature. It sends its own transaction, never Turnkey's bytes.
 

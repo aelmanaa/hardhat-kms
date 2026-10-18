@@ -397,7 +397,8 @@ Turnkey keeps every activity, with its parameters and result, and "all users hav
 
 - A message's activity holds the EIP-191 message itself, hex-encoded, since the plugin sends the message and Turnkey hashes it. Foundry sends only the hash.
 - A typed-data activity holds the typed data as JSON, which policies can also read as `eth.eip_712` ([Policy language](https://docs.turnkey.com/features/policies/language#eip-712)).
-- A transaction's activity holds the unsigned transaction and, once it completes, the signed transaction. For a key with `transactionSigning: "digest"`, it holds only the transaction's 32-byte digest, which nobody can broadcast, and `eth.tx.*` does not apply. Turnkey parses it, so policies can read its fields as `eth.tx.*`. Anyone who can read the activity can broadcast that signed transaction, including one from an activity the plugin gave up on: [reject a pending activity](#reject-the-pending-activity).
+- A transaction's activity holds the unsigned transaction and, once it completes, the signed transaction. Turnkey parses it, so policies can read its fields as `eth.tx.*`. Anyone who can read the activity can broadcast that signed transaction, including one from an activity the plugin gave up on: [reject a pending activity](#reject-the-pending-activity).
+- For a key with `transactionSigning: "digest"`, a transaction's activity holds only the transaction's 32-byte digest, which nobody can broadcast, and `eth.tx.*` does not apply.
 - An EIP-7702 authorization's activity holds only its 32-byte digest.
 
 Do not sign a message you would not show every user of the organization.
