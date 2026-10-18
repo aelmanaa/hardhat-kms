@@ -611,11 +611,10 @@ export class KmsSigner {
     const started = Date.now();
     const key = this.#displayId;
     log("%s: %s (request %s)", key, operation, requestId);
-    // What the adapter said about its request: whether it may be at the provider, its id, and
-    // whether the provider then refused it for certain.
+    // What the adapter said about its request: whether it may be at the provider (until the
+    // provider refused it for certain), and its id.
     let sent = false;
     let sentId: string | undefined;
-    let refused = false;
     try {
       const result = await withTimeout(
         async (signal) =>
@@ -627,7 +626,6 @@ export class KmsSigner {
             requestId,
             requestSent: (providerRequestId) => {
               sent = true;
-              refused = false;
               // A string only: an object could pass the test and print other text later.
               if (
                 typeof providerRequestId === "string" &&
@@ -637,7 +635,7 @@ export class KmsSigner {
               }
             },
             requestRefused: () => {
-              refused = true;
+              sent = false;
             },
           }),
         this.#options.timeoutMs,
@@ -654,7 +652,7 @@ export class KmsSigner {
       const failure = this.#failure(operation, error);
       // Gap over duplicate: after the request may have reached the provider, only a definite
       // refusal frees the nonce (#537).
-      if (sent && !refused && outstanding !== undefined) {
+      if (sent && outstanding !== undefined) {
         throw outstanding(this.#reasonOf(failure), sentId);
       }
       throw failure;

@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 
 import { HardhatPluginError } from "hardhat/plugins";
 
+import { InvalidSignatureError } from "../../../src/internal/crypto/signature.ts";
 import { ERRORS } from "../../../src/internal/error-catalog.ts";
 import { catalogError, catalogMessage } from "../../../src/internal/errors.ts";
 import type { TransactionFiller } from "../../../src/internal/rpc/transaction-filler.ts";
@@ -390,6 +391,7 @@ describe("a transaction the provider may still sign after a timeout or abort (#5
         new HardhatPluginError("hardhat-kms", "fake: no key prefix here."),
         "fake: no key prefix here",
       ],
+      [new HardhatPluginError("hardhat-kms", "fake, but no key here"), "fake, but no key here"],
       [
         new HardhatPluginError("hardhat-kms", "other, poll, key fake-key-1: another provider's"),
         "other, poll, key fake-key-1: another provider's",
@@ -406,6 +408,25 @@ describe("a transaction the provider may still sign after a timeout or abort (#5
         return true;
       });
     }
+  });
+
+  it("retries an invalid signature from the adapter and holds nothing, as before", async () => {
+    const { signer } = await signerOf(
+      outliving({ sent: [ID], fail: new InvalidSignatureError("planted") }, { flag: true }),
+    );
+    await assert.rejects(signer.signTransaction(TRANSACTION, { holdsNonce: true }), (error) => {
+      assert.ok(error instanceof HardhatPluginError);
+      assert.equal(outstandingNonce(error), undefined);
+      assert.equal(
+        error.message,
+        catalogError(
+          ERRORS.signerInvalidSignature,
+          { reason: "planted" },
+          { provider: "fake", operation: "sign", key: "fake-key-1" },
+        ).message,
+      );
+      return true;
+    });
   });
 
   it("releases the nonce when the adapter says the provider refused the request", async () => {
