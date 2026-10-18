@@ -21,6 +21,7 @@ What hardhat-kms adds over Foundry's KMS signers, and where it works differently
 - A `public-key` command.
 - A chain-id guard on typed data.
 - Protection against double broadcast when a client retries a send.
+- Turnkey transactions reach Turnkey as the unsigned transaction, through `sign_transaction`, so Turnkey's policies can read their fields (`eth.tx.*`), such as the recipient, the chain and the value. Foundry sends a transaction's 32-byte hash, so a Turnkey policy cannot limit its transactions. A policy that allows only `SIGN_RAW_PAYLOAD` works for Foundry and denies transactions under hardhat-kms; [Set up a Turnkey wallet account](../guides/turnkey-setup.md#the-policies) gives the policy that allows them.
 - Turnkey messages and typed data reach Turnkey as the EIP-191 message and the typed data, so Turnkey's policies and activity log see what was signed. Foundry sends a 32-byte hash for every request. A Turnkey policy that allows only `HASH_FUNCTION_NO_OP` works for Foundry and denies messages under hardhat-kms, and typed data too when it also requires `PAYLOAD_ENCODING_HEXADECIMAL`; [Set up a Turnkey wallet account](../guides/turnkey-setup.md#policies-written-for-foundry) gives a policy that allows both tools.
 - Turnkey requests that are rate-limited, fail with a server error or get no answer are sent again with the same body, so Turnkey does not sign twice. Foundry does not retry them.
 - Turnkey error messages never quote Turnkey's response, which can name organizations. Foundry prints the response.

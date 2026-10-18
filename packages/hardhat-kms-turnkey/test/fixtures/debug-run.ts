@@ -43,6 +43,7 @@ const hre = await createHardhatRuntimeEnvironment({
         apiPublicKey: configVariable("HHKMS_DEBUG_TURNKEY_API_PUBLIC_KEY"),
       },
     },
+    simulatedBalance: 10n ** 18n,
   },
   networks: { local: { type: "edr-simulated", accounts: [], kmsAccounts: ["deployer"] } },
 });
@@ -79,6 +80,15 @@ async function personalSign(name: string): Promise<void> {
 }
 
 await personalSign("completed");
+try {
+  await provider.request({
+    method: "eth_sendTransaction",
+    params: [{ from: ACCOUNT.address, to: ACCOUNT.address, value: "0x1" }],
+  });
+  process.stdout.write("transaction: sent\n");
+} catch (error) {
+  process.stdout.write(`transaction: ${error instanceof Error ? error.message : String(error)}\n`);
+}
 stub.firstStatus = "ACTIVITY_STATUS_PENDING";
 stub.pendingPolls = 1;
 await personalSign("pending");

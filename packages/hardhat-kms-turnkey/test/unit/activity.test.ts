@@ -6,7 +6,9 @@ import {
   failureCode,
   readActivity,
   SIGN_RAW_PAYLOAD,
+  SIGN_TRANSACTION,
   signatureOf,
+  signedTransactionOf,
 } from "../../src/internal/activity.ts";
 
 const ORGANIZATION = "a3c1e9f2-5b7d-4e8a-9c0f-1d2e3f4a5b6c";
@@ -36,7 +38,10 @@ describe("readActivity", () => {
       "ACTIVITY_STATUS_CONSENSUS_NEEDED",
       "ACTIVITY_STATUS_AUTHENTICATORS_NEEDED",
     ]) {
-      const activity = readActivity(answer({ status }), { organizationId: ORGANIZATION });
+      const activity = readActivity(answer({ status }), {
+        organizationId: ORGANIZATION,
+        type: SIGN_RAW_PAYLOAD,
+      });
       assert.ok(!("kind" in activity), status);
       assert.equal(activity.status, status);
       assert.equal(activity.id, ID);
@@ -45,7 +50,10 @@ describe("readActivity", () => {
 
   it("keeps the result and the failure for the next step", () => {
     const failure = { code: 3, details: [] };
-    const activity = readActivity(answer({ failure }), { organizationId: ORGANIZATION });
+    const activity = readActivity(answer({ failure }), {
+      organizationId: ORGANIZATION,
+      type: SIGN_RAW_PAYLOAD,
+    });
     assert.ok(!("kind" in activity));
     assert.equal(activity.failure, failure);
     assert.deepEqual(activity.result, { signRawPayloadResult: { r: "01", s: "02", v: "00" } });
@@ -56,9 +64,13 @@ describe("readActivity", () => {
   it("compares the organization in any case", () => {
     const activity = readActivity(answer({ organizationId: ORGANIZATION.toUpperCase() }), {
       organizationId: ORGANIZATION,
+      type: SIGN_RAW_PAYLOAD,
     });
     assert.ok(!("kind" in activity));
-    const configured = readActivity(answer(), { organizationId: ORGANIZATION.toUpperCase() });
+    const configured = readActivity(answer(), {
+      organizationId: ORGANIZATION.toUpperCase(),
+      type: SIGN_RAW_PAYLOAD,
+    });
     assert.ok(!("kind" in configured));
   });
 
@@ -79,7 +91,10 @@ describe("readActivity", () => {
       answer({ type: null }),
       answer({ status: 2 }),
     ]) {
-      assert.deepEqual(readActivity(body, { organizationId: ORGANIZATION }), malformed);
+      assert.deepEqual(
+        readActivity(body, { organizationId: ORGANIZATION, type: SIGN_RAW_PAYLOAD }),
+        malformed,
+      );
     }
   });
 
@@ -87,36 +102,67 @@ describe("readActivity", () => {
     assert.deepEqual(
       readActivity(answer({ organizationId: "00000000-0000-0000-0000-000000000000" }), {
         organizationId: ORGANIZATION,
+        type: SIGN_RAW_PAYLOAD,
       }),
       { kind: "mismatch", field: "organization" },
     );
     assert.deepEqual(
       readActivity(answer({ type: "ACTIVITY_TYPE_SIGN_TRANSACTION_V2" }), {
         organizationId: ORGANIZATION,
+        type: SIGN_RAW_PAYLOAD,
       }),
       { kind: "mismatch", field: "activity type" },
     );
     assert.deepEqual(
-      readActivity(answer(), { organizationId: ORGANIZATION, id: `${ID.slice(0, -1)}0` }),
+      readActivity(answer(), {
+        organizationId: ORGANIZATION,
+        type: SIGN_RAW_PAYLOAD,
+        id: `${ID.slice(0, -1)}0`,
+      }),
       { kind: "mismatch", field: "activity" },
     );
-    const same = readActivity(answer(), { organizationId: ORGANIZATION, id: ID });
+    const same = readActivity(answer(), {
+      organizationId: ORGANIZATION,
+      type: SIGN_RAW_PAYLOAD,
+      id: ID,
+    });
     assert.ok(!("kind" in same));
+  });
+
+  it("expects the activity type the request sent", () => {
+    const transaction = readActivity(answer({ type: SIGN_TRANSACTION }), {
+      organizationId: ORGANIZATION,
+      type: SIGN_TRANSACTION,
+    });
+    assert.ok(!("kind" in transaction));
+    assert.equal(transaction.type, SIGN_TRANSACTION);
+    assert.deepEqual(
+      readActivity(answer(), { organizationId: ORGANIZATION, type: SIGN_TRANSACTION }),
+      { kind: "mismatch", field: "activity type" },
+    );
+    assert.equal(SIGN_TRANSACTION, "ACTIVITY_TYPE_SIGN_TRANSACTION_V2");
   });
 
   it("refuses a status it does not know, after the identity checks", () => {
     assert.deepEqual(
       readActivity(answer({ status: "ACTIVITY_STATUS_SOMETHING_NEW" }), {
         organizationId: ORGANIZATION,
+        type: SIGN_RAW_PAYLOAD,
       }),
       { kind: "malformed", problem: "the activity has a status this plugin does not know" },
     );
     assert.deepEqual(
-      readActivity(answer({ status: "toString" }), { organizationId: ORGANIZATION }),
+      readActivity(answer({ status: "toString" }), {
+        organizationId: ORGANIZATION,
+        type: SIGN_RAW_PAYLOAD,
+      }),
       { kind: "malformed", problem: "the activity has a status this plugin does not know" },
     );
     assert.deepEqual(
-      readActivity(answer({ status: "unknown", type: "OTHER" }), { organizationId: ORGANIZATION }),
+      readActivity(answer({ status: "unknown", type: "OTHER" }), {
+        organizationId: ORGANIZATION,
+        type: SIGN_RAW_PAYLOAD,
+      }),
       { kind: "mismatch", field: "activity type" },
     );
   });
@@ -244,6 +290,54 @@ describe("activityName", () => {
       "",
     ]) {
       assert.equal(activityName(id), "the activity (its id is not shown)");
+    }
+  });
+});
+
+describe("signedTransactionOf", () => {
+  it("reads the hex Turnkey writes, with or without 0x", () => {
+    for (const signed of ["02c0", "0x02c0", "02C0", "0X02c0".replace("X", "x")]) {
+      assert.deepEqual(
+        signedTransactionOf({ signTransactionResult: { signedTransaction: signed } }),
+        new Uint8Array([2, 0xc0]),
+        signed,
+      );
+    }
+  });
+
+  it("refuses a result without a signed transaction, or one that is not whole hex bytes", () => {
+    for (const completed of [
+      undefined,
+      null,
+      {},
+      { signTransactionResult: null },
+      { signTransactionResult: {} },
+      { signTransactionResult: { signedTransaction: 2 } },
+      { signRawPayloadResult: { r: "01", s: "02", v: "00" } },
+    ]) {
+      assert.deepEqual(signedTransactionOf(completed), {
+        kind: "malformed",
+        problem: "the completed activity has no signedTransaction",
+      });
+    }
+    for (const signed of [
+      "",
+      "0x",
+      "0",
+      "02c",
+      "0x02c",
+      "zz",
+      "02 c0",
+      " 02c0",
+      "02c0\n",
+      "0X02c0",
+      "x02c0",
+    ]) {
+      assert.deepEqual(
+        signedTransactionOf({ signTransactionResult: { signedTransaction: signed } }),
+        { kind: "malformed", problem: "signedTransaction is not hex" },
+        signed,
+      );
     }
   });
 });

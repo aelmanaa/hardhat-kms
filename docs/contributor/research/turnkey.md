@@ -238,7 +238,7 @@ Draft for `docs/user/explanation/foundry-comparison.md` (applied to [Comparison 
 1. Registry: move `turnkey` from `RESERVED_PROVIDERS` to `BUILTIN_PROVIDERS` with a descriptor (`schema`, `resolve`, `name: "Turnkey"`, `adapter: { package: "@hardhat-kms/turnkey" }`). Add `TurnkeyKmsKeyUserConfig` and `TurnkeyKmsKeyConfig` to `KmsProviderUserConfigs` and `KmsProviderConfigs` (allowed in a minor). Update `core.config.provider-reserved` and its tests, which still name `turnkey`.
 2. A secret-only field schema in `config/common.ts` (config variable only), and resolution that never puts the value in `displayId` or a mask list that prints.
 3. `address` required for this provider's schema.
-4. Phase 2: the planned `signTransaction?(request: { unsigned; digest; tx }, ctx)` on `KmsKeyAdapter` and its routing in `kms-signer.ts`, shared with #55. This is an additive change to a stable type, so a minor.
+4. Phase 2: `signTransaction?(request: { unsigned; digest; type; chainId }, ctx)` on `KmsKeyAdapter` and its routing in `kms-signer.ts` (#514, landed in #528). Fireblocks (#55) does not use it: its broadcast mode needs `sendTransaction`, and its raw mode signs through `signDigest`. This is an additive change to a stable type, so a minor.
 5. Tooling, per `providers.md` "To add another first-party provider package": changesets `fixed` group, `knip.json`, root `tsconfig.json`, root devDependency, `scripts/consumer-typecheck.ts`, `CATALOGUED_DIRECTORIES`, `.c8rc.json` at 95%.
 
 ## 5. Test strategy
@@ -311,8 +311,8 @@ Cost: the Free plan's 25 signatures a month cover about 3 smoke runs. Release ru
 2. `@hardhat-kms/turnkey`: stamper, client, adapter (`signDigest`, `signMessage`, `signTypedData`), error catalogue, unit and integration tests with the stub, tooling registration. L, the bulk of the work.
 3. Docs: setup guide, configuration and security pages, generated errors, contributor pages, decision records. M.
 4. Live: the smoke test, CI secrets wiring, and the Turnkey row in the live proof if D6 allows. S to M.
-5. Core `signTransaction` contract method (shared with #55), with its signer routing and tests. M.
-6. v1.2.x: Turnkey `signTransaction` through `sign_transaction`. S to M.
+5. Core `signTransaction` contract method (#514), with its signer routing and tests. M.
+6. v1.2.x: Turnkey `signTransaction` through `sign_transaction` (#515). S to M.
 
 Follow-ups for the backlog: approval wait mode (D2), reject on abort, `walletId` and `getPublicKey` (D7), EIP-7702 authorization encoding, `kms history` reader from `list_activities`, `--kms turnkey`.
 

@@ -2,12 +2,20 @@
  * Reads Turnkey's activity answers strictly, and fails closed. The shapes are `v1ActivityResponse`
  * and `v1Activity` of Turnkey's API (`@turnkey/http` 6.7.0, `public_api.types.d.ts`): an
  * `activity` with `id`, `organizationId`, `status`, `type`, `result.signRawPayloadResult.{r,s,v}`
- * and, when it failed, `failure.details[].turnkeyErrorCode`. The statuses are those of
+ * or `result.signTransactionResult.signedTransaction`, and, when it failed,
+ * `failure.details[].turnkeyErrorCode`. The statuses are those of
  * `v1ActivityStatus` (https://docs.turnkey.com/api-reference/activities/overview).
  */
 
 /** The activity type of a raw-payload signature. */
 export const SIGN_RAW_PAYLOAD = "ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2";
+
+/**
+ * The activity type of a transaction signature: `v1SignTransactionRequest.type` in `@turnkey/http`
+ * 6.7.0 (`public_api.types.d.ts`), and the type `@turnkey/viem` 0.14.46 and `@turnkey/ethers`
+ * 1.3.46 send (https://docs.turnkey.com/api-reference/activities/sign-transaction).
+ */
+export const SIGN_TRANSACTION = "ACTIVITY_TYPE_SIGN_TRANSACTION_V2";
 
 /** An activity id the plugin shows: a UUID, as Turnkey writes ids. */
 const ACTIVITY_ID = /^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
@@ -73,12 +81,16 @@ export type FinalActivity = Exclude<
 /** What went wrong reading an answer. Fixed texts: no value from the answer is in them. */
 export type Problem =
   | { kind: "malformed"; problem: string }
-  | { kind: "mismatch"; field: "organization" | "activity type" | "activity" };
+  | { kind: "mismatch"; field: "organization" | "activity type" | "activity" }
+  /** A signed transaction that differs from the one sent: `field` names the first difference. */
+  | { kind: "transaction-mismatch"; field: string };
 
 /** What the request expects the answer's activity to be. */
 export interface Expected {
   /** The configured organization id. Turnkey ids are UUIDs, compared in any case. */
   organizationId: string;
+  /** The activity type the request sent. */
+  type: string;
   /** The activity id, when polling for one. */
   id?: string | undefined;
 }
@@ -114,7 +126,7 @@ export function readActivity(body: unknown, expected: Expected): Activity | Prob
   if (organizationId.toLowerCase() !== expected.organizationId.toLowerCase()) {
     return { kind: "mismatch", field: "organization" };
   }
-  if (type !== SIGN_RAW_PAYLOAD) {
+  if (type !== expected.type) {
     return { kind: "mismatch", field: "activity type" };
   }
   if (expected.id !== undefined && id !== expected.id) {
@@ -168,6 +180,30 @@ export function signatureOf(result: unknown): RawSignature | Problem {
     return { kind: "malformed", problem: "v is not 00, 01, 1b or 1c" };
   }
   return { r: BigInt(`0x${r}`), s: BigInt(`0x${s}`), yParity };
+}
+
+/** A hex string of whole bytes, with or without `0x`. */
+const HEX_BYTES = /^(?:0x)?((?:[0-9a-fA-F]{2})+)$/;
+
+/**
+ * Reads the signed transaction of a completed `sign_transaction` activity, from
+ * `result.signTransactionResult.signedTransaction` (`v1SignTransactionResult` in `@turnkey/http`
+ * 6.7.0). Turnkey writes it as hex without `0x`: `@turnkey/viem` 0.14.46 and `@turnkey/ethers`
+ * 1.3.46 prefix it with `0x` before they parse it. The plugin accepts both forms.
+ *
+ * @param result - The activity's `result`.
+ * @returns The signed transaction's bytes, or what is wrong with the answer.
+ */
+export function signedTransactionOf(result: unknown): Uint8Array | Problem {
+  const signed = field(field(result, "signTransactionResult"), "signedTransaction");
+  if (typeof signed !== "string") {
+    return { kind: "malformed", problem: "the completed activity has no signedTransaction" };
+  }
+  const hex = HEX_BYTES.exec(signed)?.[1];
+  if (hex === undefined) {
+    return { kind: "malformed", problem: "signedTransaction is not hex" };
+  }
+  return new Uint8Array(Buffer.from(hex, "hex"));
 }
 
 /**
