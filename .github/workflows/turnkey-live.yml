@@ -1,0 +1,95 @@
+name: Turnkey live smoke test
+
+# The Turnkey smoke test (`pnpm run test:live:turnkey`) against Turnkey's API, with the test
+# organization's API key. Turnkey's Free plan includes 25 signatures a month, and a run sends at
+# most 11 sign requests (10 without the Sepolia send), so it runs only when dispatched: for a change
+# or a release that touches Turnkey. docs/contributor/testing.md, "Turnkey smoke test in GitHub
+# Actions", describes the setup, the approval and the cost.
+# - The job runs only in the `turnkey-live` environment, whose required reviewer (the owner)
+#   approves every run. The API private key and the organization id are that environment's
+#   secrets; the three account addresses are its variables.
+# - There is no schedule, no pull_request run, and it is not part of promote.yml's live job, which
+#   tests the three clouds only.
+on:
+  workflow_dispatch:
+    inputs:
+      sepolia-send:
+        description: Also send one EIP-1559 transaction of 0 wei on Sepolia from the allowed account, when it holds the ETH (one more signature)
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  # One run at a time: each run spends signatures of the same monthly quota. A running job is never
+  # cancelled.
+  group: turnkey-live
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Turnkey smoke test
+    runs-on: ubuntu-26.04
+    environment: turnkey-live
+    # Counts from the start of the job, after the approval.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      # Everything is installed and built before a step gets the API key, so no install script runs
+      # with it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No dependency cache: a job that holds the API key restores nothing another run saved.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run build
+
+      # The test skips itself when a variable is empty, and would pass; a dispatched run expects
+      # all five.
+      - name: Check that the secrets and variables are set
+        env:
+          TURNKEY_API_PRIVATE_KEY: ${{ secrets.TURNKEY_API_PRIVATE_KEY }}
+          TURNKEY_ORGANIZATION_ID: ${{ secrets.TURNKEY_ORGANIZATION_ID }}
+          HARDHAT_KMS_LIVE_TURNKEY_ADDRESS: ${{ vars.TURNKEY_ADDRESS }}
+          HARDHAT_KMS_LIVE_TURNKEY_DENIED_ADDRESS: ${{ vars.TURNKEY_DENIED_ADDRESS }}
+          HARDHAT_KMS_LIVE_TURNKEY_CONSENSUS_ADDRESS: ${{ vars.TURNKEY_CONSENSUS_ADDRESS }}
+        run: |
+          missing=""
+          for name in TURNKEY_API_PRIVATE_KEY TURNKEY_ORGANIZATION_ID HARDHAT_KMS_LIVE_TURNKEY_ADDRESS HARDHAT_KMS_LIVE_TURNKEY_DENIED_ADDRESS HARDHAT_KMS_LIVE_TURNKEY_CONSENSUS_ADDRESS; do
+            if [ -z "$(printenv "$name" | tr -d '[:space:]')" ]; then
+              missing="${missing} ${name}"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::not set in the turnkey-live environment:${missing} (secrets TURNKEY_API_PRIVATE_KEY and TURNKEY_ORGANIZATION_ID; variables TURNKEY_ADDRESS, TURNKEY_DENIED_ADDRESS and TURNKEY_CONSENSUS_ADDRESS)"
+            exit 1
+          fi
+
+      # The secrets reach this step and the check above only, never the job's env.
+      - name: Turnkey smoke test
+        env:
+          TURNKEY_API_PRIVATE_KEY: ${{ secrets.TURNKEY_API_PRIVATE_KEY }}
+          TURNKEY_ORGANIZATION_ID: ${{ secrets.TURNKEY_ORGANIZATION_ID }}
+          HARDHAT_KMS_LIVE_TURNKEY_ADDRESS: ${{ vars.TURNKEY_ADDRESS }}
+          HARDHAT_KMS_LIVE_TURNKEY_DENIED_ADDRESS: ${{ vars.TURNKEY_DENIED_ADDRESS }}
+          HARDHAT_KMS_LIVE_TURNKEY_CONSENSUS_ADDRESS: ${{ vars.TURNKEY_CONSENSUS_ADDRESS }}
+          HARDHAT_KMS_LIVE_TURNKEY_SEPOLIA: ${{ inputs.sepolia-send && '1' || '' }}
+        run: pnpm --fail-if-no-match --filter @hardhat-kms/turnkey run test:live:turnkey
+
+      # A passing run writes the record; a run that ended as "quota used up" passes with its cases
+      # skipped and writes none, which the job summary says. The record is never committed by the
+      # workflow: the owner downloads it to test/live/turnkey-smoke.json, runs
+      # `pnpm run docs:live-proof` and commits both files.
+      - name: Upload the record
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: turnkey-smoke
+          path: test/live/turnkey-smoke.json
+          retention-days: 7
+          if-no-files-found: warn

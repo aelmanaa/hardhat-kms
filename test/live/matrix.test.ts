@@ -15,6 +15,12 @@ import {
   table,
 } from "./helpers/proof.ts";
 import {
+  parseTurnkeySmoke,
+  TURNKEY_SMOKE_FILE,
+  TURNKEY_SMOKE_LINE,
+  type TurnkeySmoke,
+} from "./helpers/turnkey-smoke.ts";
+import {
   ALL_CELLS,
   balanceFloor,
   type Case,
@@ -33,6 +39,11 @@ import {
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const PROOF_FILE = path.join(repository, "test/live/proof.json");
 const PROOF_PAGE = path.join(repository, "docs/live-proof.md");
+const SMOKE_FILE = path.join(repository, TURNKEY_SMOKE_FILE);
+
+/** The committed Turnkey smoke record, or `undefined` before the first passing run. */
+const committedSmoke = (): TurnkeySmoke | undefined =>
+  existsSync(SMOKE_FILE) ? parseTurnkeySmoke(readFileSync(SMOKE_FILE, "utf8")) : undefined;
 
 /** The signatures the `signatures` case checks, as its records' labels start. */
 const CHECKS = ["personal_sign", "eth_sign", "eth_signTypedData_v4"];
@@ -372,8 +383,48 @@ describe("the live proof", () => {
   it("docs/live-proof.md is rendered from test/live/proof.json", { skip: pending }, () => {
     assert.equal(
       readFileSync(PROOF_PAGE, "utf8"),
-      renderProof(parseProof(readFileSync(PROOF_FILE, "utf8"))),
+      renderProof(parseProof(readFileSync(PROOF_FILE, "utf8")), committedSmoke()),
       "docs/live-proof.md is out of date: run pnpm run docs:live-proof",
     );
+  });
+
+  it("says that Turnkey is covered by a smoke test only, with its last passing run", () => {
+    const before = renderProof(syntheticProof());
+    assert.ok(before.includes(`${TURNKEY_SMOKE_LINE} \``));
+    assert.ok(before.includes("No run has passed yet."));
+    const after = renderProof(syntheticProof(), {
+      date: "2026-10-20",
+      commit: "abc1234",
+      signatures: 10,
+    });
+    assert.ok(after.includes("Last passing run: 2026-10-20, commit `abc1234`, 10 sign requests."));
+    assert.ok(!after.includes("No run has passed yet."));
+    // The Turnkey line changes neither the proof's shape nor its check.
+    assert.deepEqual(proofProblems(syntheticProof()), []);
+    assert.ok(readFileSync(PROOF_PAGE, "utf8").includes(TURNKEY_SMOKE_LINE));
+  });
+
+  it("reads only a passing Turnkey smoke run's record", () => {
+    const record = { date: "2026-10-20", commit: "abc1234", signatures: 10, result: "passed" };
+    assert.deepEqual(parseTurnkeySmoke(JSON.stringify({ ...record, cases: [] })), {
+      date: "2026-10-20",
+      commit: "abc1234",
+      signatures: 10,
+    });
+    for (const change of [
+      { result: "quota used up" },
+      { result: "failed" },
+      { date: "20 October" },
+      { commit: "main" },
+      { signatures: 12 },
+      { signatures: 0 },
+      { signatures: 2.5 },
+    ]) {
+      assert.throws(
+        () => parseTurnkeySmoke(JSON.stringify({ ...record, ...change })),
+        JSON.stringify(change),
+      );
+    }
+    assert.doesNotThrow(committedSmoke);
   });
 });

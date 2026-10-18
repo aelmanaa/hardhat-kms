@@ -23,6 +23,7 @@
     "test:live:aws": "pnpm run build && pnpm --fail-if-no-match --filter @hardhat-kms/aws run test:live:aws",
     "test:live:azure": "pnpm run build && pnpm --fail-if-no-match --filter @hardhat-kms/azure run test:live:azure",
     "test:live:gcp": "pnpm run build && pnpm --fail-if-no-match --filter @hardhat-kms/gcp run test:live:gcp",
+    "test:live:turnkey": "pnpm run build && pnpm --fail-if-no-match --filter @hardhat-kms/turnkey run test:live:turnkey",
     "test:mutation": "pnpm --fail-if-no-match --filter hardhat-kms run test:mutation",
     "test:sdk-floors": "node scripts/test-sdk-floors.ts",
     "test:hardhat-versions": "node scripts/test-hardhat-versions.ts",
