@@ -30,6 +30,8 @@ In a Hardhat 3 project (`npx hardhat --init` creates one), install the core, `ha
 | Azure Key Vault or Managed HSM | `@hardhat-kms/azure`   | [Set up an Azure Key Vault key](docs/user/guides/azure-key-vault-setup.md) |
 | Turnkey                        | `@hardhat-kms/turnkey` | [Set up a Turnkey wallet account](docs/user/guides/turnkey-setup.md)       |
 
+Keys in Fireblocks have no provider package yet. Until then, [use Fireblocks through its JSON-RPC proxy](docs/user/guides/fireblocks-json-rpc.md): Fireblocks signs and broadcasts, and hardhat-kms's checks do not apply.
+
 ```sh
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
 ```
