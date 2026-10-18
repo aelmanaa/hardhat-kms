@@ -240,7 +240,10 @@ describe("registry mode against a local registry", { timeout: 2_100_000 }, () =>
       registry,
     ]);
     assert.equal(run.status, 0, run.output);
-    assert.match(run.output, new RegExp(`checked 4 packages at ${version} from the registry`));
+    assert.match(
+      run.output,
+      new RegExp(`checked ${PACKAGES.length} packages at ${version} from the registry`),
+    );
     for (const name of PACKAGES) {
       assert.match(run.output, new RegExp(`== ${name}@${version}\n`));
     }
