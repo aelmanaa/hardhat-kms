@@ -6,7 +6,7 @@ Issue: [#54](https://github.com/aelmanaa/hardhat-kms/issues/54)
 
 ## Context
 
-[Decision 0009](0009-one-package-per-provider.md) says each provider package "depends on its SDK at versions this project tests". `@hardhat-kms/aws`, `@hardhat-kms/gcp` and `@hardhat-kms/azure` do. Turnkey's API needs much less than a cloud SDK: every request is a JSON `POST` to `https://api.turnkey.com` with an `X-Stamp` header, the base64url of `{ publicKey, scheme, signature }`, where `signature` is a DER ECDSA P-256 signature over the exact body ([Stamps](https://docs.turnkey.com/api-reference/overview/stamps)). The provider needs two calls, `sign_raw_payload` and `get_activity`.
+[Decision 0009](0009-one-package-per-provider.md) says each provider package "depends on its SDK at versions this project tests". `@hardhat-kms/aws`, `@hardhat-kms/gcp` and `@hardhat-kms/azure` do. Turnkey's API needs much less than a cloud SDK: every request is a JSON `POST` to `https://api.turnkey.com` with an `X-Stamp` header, the base64url of `{ publicKey, scheme, signature }`, where `signature` is a DER ECDSA P-256 signature over the exact body ([Stamps](https://docs.turnkey.com/api-reference/overview/stamps)). The provider needed two calls when this was decided, `sign_raw_payload` and `get_activity`. [#515](https://github.com/aelmanaa/hardhat-kms/issues/515) added a third, `sign_transaction`, before the first release; the reasoning below holds for it unchanged.
 
 The research ([Turnkey provider: research and design](../research/turnkey.md), F19 and section 3.1) weighed three transports:
 

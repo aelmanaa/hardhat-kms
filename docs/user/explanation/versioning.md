@@ -7,7 +7,7 @@ description: "What a hardhat-kms version promises: the latest and beta npm tags,
 
 Audience: users choosing which version of hardhat-kms and a provider package to install, and plugin authors who build on its exported types. Explains what a version number promises, what the `latest` and `beta` tags mean, which Hardhat, Node.js and viem versions a release supports, and how long an old major gets security fixes.
 
-The four packages, `hardhat-kms`, `@hardhat-kms/aws`, `@hardhat-kms/gcp` and `@hardhat-kms/azure`, are released together at one version. A provider package pins the core to that exact version, so a project always has all of its hardhat-kms packages at one version. The first published version is 0.9.0, the candidate for 1.0.0; until 1.0.0 is out, use it with test keys on testnets.
+The five packages, `hardhat-kms`, `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure` and `@hardhat-kms/turnkey`, are released together at one version. A provider package pins the core to that exact version, so a project always has all of its hardhat-kms packages at one version. The first published version is 0.9.0, the candidate for 1.0.0; until 1.0.0 is out, use it with test keys on testnets.
 
 ## Semver and the public API
 
@@ -122,4 +122,4 @@ A published version that must not be used, such as a beta that failed the regist
 
 ## Verify what you installed
 
-Every version is published with a provenance attestation that links it to the GitHub Actions run and the commit it was built from. In a project, `npm audit signatures` reports the four packages with verified attestations. Do not use a version that fails that check; report it as described in [SECURITY.md](../../../SECURITY.md). The README's [Verify a release](../../../README.md#verify-a-release) section has the same check.
+Every version is published with a provenance attestation that links it to the GitHub Actions run and the commit it was built from. In a project, `npm audit signatures` reports each hardhat-kms package the project installed with a verified attestation. Do not use a version that fails that check; report it as described in [SECURITY.md](../../../SECURITY.md). The README's [Verify a release](../../../README.md#verify-a-release) section has the same check.

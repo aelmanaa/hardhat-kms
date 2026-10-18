@@ -338,9 +338,9 @@ A repository admin does this before the first next tag. No workflow creates any 
    pnpm run version-packages
    ```
 
-   In pre mode this writes `2.0.0-next.0`, then `2.0.0-next.1` and so on, to the four manifests and changelogs, and moves the changesets it used to `.changeset/pre/`, where they wait for the pre exit.
+   In pre mode this writes `2.0.0-next.0`, then `2.0.0-next.1` and so on, to every package's manifest and changelog, and moves the changesets it used to `.changeset/pre/`, where they wait for the pre exit.
 
-2. On release day, before pushing the tag, create the trusted-publisher configurations. Each of the four packages needs one for `release-next.yml`: repository `aelmanaa/hardhat-kms`, workflow `release-next.yml`, environment `npm-publish`, stage only. A configuration expires 48 hours after its creation unless a publish uses it, so create them on the day of the first next tag, not before; the first publish validates them, and later next tags reuse them. Recreate any that expired, as in [Trusted-publisher configuration expired](#trusted-publisher-configuration-expired).
+2. On release day, before pushing the tag, create the trusted-publisher configurations. Each published package, as `node scripts/release-packages.ts` lists them, needs one for `release-next.yml`: repository `aelmanaa/hardhat-kms`, workflow `release-next.yml`, environment `npm-publish`, stage only. A configuration expires 48 hours after its creation unless a publish uses it, so create them on the day of the first next tag, not before; the first publish validates them, and later next tags reuse them. Recreate any that expired, as in [Trusted-publisher configuration expired](#trusted-publisher-configuration-expired).
 3. Tag the merge commit and check it:
 
    ```sh
