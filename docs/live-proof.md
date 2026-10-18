@@ -24,7 +24,7 @@ Each account ends the run with no code. Its EIP-7702 delegation is cleared by th
 
 ## Turnkey
 
-Turnkey: smoke only. `@hardhat-kms/turnkey` is not in the transaction matrix or in `test/live/proof.json`: Turnkey's Free plan includes 25 signatures a month, so a smoke test of at most 11 sign requests covers it ([#513](https://github.com/aelmanaa/hardhat-kms/issues/513)). It signs a message, typed data, a digest, an EIP-7702 authorization and transactions of types 0, 2 and 4 for a local chain without sending them, and checks that Turnkey refuses an account without a policy, holds one under a 2-approver policy and denies the API user a new API key. No run has passed yet. `pnpm run docs:live-proof` writes this line from `test/live/turnkey-smoke.json`, which a passing run writes.
+Turnkey: smoke only. `@hardhat-kms/turnkey` is not in the transaction matrix or in `test/live/proof.json`: Turnkey's Free plan includes 25 signatures a month, so a smoke test of at most 11 sign requests covers it ([#513](https://github.com/aelmanaa/hardhat-kms/issues/513)). It signs a message, typed data, a digest, an EIP-7702 authorization and transactions of types 0, 2 and 4 for a local chain without sending them, and checks that Turnkey refuses an account without a policy, holds one under a 2-approver policy and denies the API user a new API key. Last passing run: 2026-10-18, commit `b09b608`, 11 sign requests. `pnpm run docs:live-proof` writes this line from `test/live/turnkey-smoke.json`, which a passing run writes.
 
 ## Coverage matrix
 
