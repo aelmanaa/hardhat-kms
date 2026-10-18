@@ -1,0 +1,501 @@
+{
+  "date": "2026-10-18",
+  "commit": "b09b608",
+  "signatures": 11,
+  "result": "passed",
+  "cases": [
+    {
+      "name": "the API user cannot add an API key to itself (create_api_keys is denied)",
+      "outcome": "passed"
+    },
+    {
+      "name": "a request older than an hour fails as turnkey.service.timestamp",
+      "outcome": "passed"
+    },
+    {
+      "name": "personal_sign: Turnkey hashes the unprefixed EIP-191 preimage with KECCAK256",
+      "outcome": "passed"
+    },
+    {
+      "name": "eth_signTypedData_v4: Turnkey's EIP-712 hash equals the core's",
+      "outcome": "passed"
+    },
+    {
+      "name": "kms sign --no-hash: a raw digest with HASH_FUNCTION_NO_OP",
+      "outcome": "passed"
+    },
+    {
+      "name": "kms sign-auth: an EIP-7702 authorization",
+      "outcome": "passed"
+    },
+    {
+      "name": "kms sign-tx type 2 (EIP-1559) through sign_transaction, not sent",
+      "outcome": "passed"
+    },
+    {
+      "name": "kms sign-tx type 0 (legacy, EIP-155 v) through sign_transaction, not sent",
+      "outcome": "passed"
+    },
+    {
+      "name": "kms sign-tx type 4 (EIP-7702, with another key's authorization) through sign_transaction, not sent",
+      "outcome": "passed"
+    },
+    {
+      "name": "kms sign-tx type 2 with transactionSigning \"digest\": a NO_OP digest through sign_raw_payload",
+      "outcome": "passed"
+    },
+    {
+      "name": "the denied account fails with turnkey.service.forbidden: Turnkey answers 403",
+      "outcome": "passed"
+    },
+    {
+      "name": "the consensus account fails with turnkey.activity.approval-needed (a random digest)",
+      "outcome": "passed"
+    },
+    {
+      "name": "one EIP-1559 self-send of 0 wei on Sepolia (optional)",
+      "outcome": "passed"
+    }
+  ],
+  "exchanges": [
+    {
+      "case": "the API user cannot add an API key to itself (create_api_keys is denied)",
+      "path": "whoami",
+      "status": 200,
+      "ms": 110
+    },
+    {
+      "case": "the API user cannot add an API key to itself (create_api_keys is denied)",
+      "path": "create_api_keys",
+      "status": 403,
+      "ms": 95
+    },
+    {
+      "case": "a request older than an hour fails as turnkey.service.timestamp",
+      "path": "whoami",
+      "status": 200,
+      "ms": 52
+    },
+    {
+      "case": "a request older than an hour fails as turnkey.service.timestamp",
+      "path": "create_api_keys",
+      "status": 400,
+      "ms": 28
+    },
+    {
+      "case": "personal_sign: Turnkey hashes the unprefixed EIP-191 preimage with KECCAK256",
+      "path": "sign_raw_payload",
+      "status": 200,
+      "ms": 85,
+      "activity": "ACTIVITY_STATUS_COMPLETED",
+      "finding": {
+        "kind": "raw-payload",
+        "rLength": 64,
+        "sLength": 64,
+        "v": "01",
+        "prefixed": false,
+        "highS": false
+      }
+    },
+    {
+      "case": "eth_signTypedData_v4: Turnkey's EIP-712 hash equals the core's",
+      "path": "sign_raw_payload",
+      "status": 200,
+      "ms": 97,
+      "activity": "ACTIVITY_STATUS_COMPLETED",
+      "finding": {
+        "kind": "raw-payload",
+        "rLength": 64,
+        "sLength": 64,
+        "v": "00",
+        "prefixed": false,
+        "highS": false
+      }
+    },
+    {
+      "case": "kms sign --no-hash: a raw digest with HASH_FUNCTION_NO_OP",
+      "path": "sign_raw_payload",
+      "status": 200,
+      "ms": 140,
+      "activity": "ACTIVITY_STATUS_COMPLETED",
+      "finding": {
+        "kind": "raw-payload",
+        "rLength": 64,
+        "sLength": 64,
+        "v": "00",
+        "prefixed": false,
+        "highS": false
+      }
+    },
+    {
+      "case": "kms sign-auth: an EIP-7702 authorization",
+      "path": "sign_raw_payload",
+      "status": 200,
+      "ms": 88,
+      "activity": "ACTIVITY_STATUS_COMPLETED",
+      "finding": {
+        "kind": "raw-payload",
+        "rLength": 64,
+        "sLength": 64,
+        "v": "00",
+        "prefixed": false,
+        "highS": false
+      }
+    },
+    {
+      "case": "kms sign-tx type 2 (EIP-1559) through sign_transaction, not sent",
+      "path": "sign_transaction",
+      "status": 200,
+      "ms": 109,
+      "activity": "ACTIVITY_STATUS_COMPLETED",
+      "finding": {
+        "kind": "transaction",
+        "prefixed": false,
+        "highS": false,
+        "transactionType": "eip1559"
+      }
+    },
+    {
+      "case": "kms sign-tx type 0 (legacy, EIP-155 v) through sign_transaction, not sent",
+      "path": "sign_transaction",
+      "status": 200,
+      "ms": 97,
+      "activity": "ACTIVITY_STATUS_COMPLETED",
+      "finding": {
+        "kind": "transaction",
+        "prefixed": false,
+        "highS": false,
+        "transactionType": "legacy",
+        "legacyV": "eip155"
+      }
+    },
+    {
+      "case": "kms sign-tx type 4 (EIP-7702, with another key's authorization) through sign_transaction, not sent",
+      "path": "sign_transaction",
+      "status": 200,
+      "ms": 111,
+      "activity": "ACTIVITY_STATUS_COMPLETED",
+      "finding": {
+        "kind": "transaction",
+        "prefixed": false,
+        "highS": false,
+        "transactionType": "eip7702"
+      }
+    },
+    {
+      "case": "kms sign-tx type 2 with transactionSigning \"digest\": a NO_OP digest through sign_raw_payload",
+      "path": "sign_raw_payload",
+      "status": 200,
+      "ms": 107,
+      "activity": "ACTIVITY_STATUS_COMPLETED",
+      "finding": {
+        "kind": "raw-payload",
+        "rLength": 64,
+        "sLength": 64,
+        "v": "00",
+        "prefixed": false,
+        "highS": false
+      }
+    },
+    {
+      "case": "the denied account fails with turnkey.service.forbidden: Turnkey answers 403",
+      "path": "sign_transaction",
+      "status": 403,
+      "ms": 84
+    },
+    {
+      "case": "the consensus account fails with turnkey.activity.approval-needed (a random digest)",
+      "path": "sign_raw_payload",
+      "status": 200,
+      "ms": 65,
+      "activity": "ACTIVITY_STATUS_CONSENSUS_NEEDED"
+    },
+    {
+      "case": "one EIP-1559 self-send of 0 wei on Sepolia (optional)",
+      "path": "sign_transaction",
+      "status": 200,
+      "ms": 87,
+      "activity": "ACTIVITY_STATUS_COMPLETED",
+      "finding": {
+        "kind": "transaction",
+        "prefixed": false,
+        "highS": false,
+        "transactionType": "eip1559"
+      }
+    }
+  ],
+  "shapes": {
+    "HTTP 403": {
+      "code": "<number>",
+      "message": "<string:179>",
+      "details": [
+        {
+          "@type": "<string:57>",
+          "message": "<string:79>",
+          "policyEvaluations": [
+            {
+              "policyId": "<string:36>",
+              "outcome": "<string:13>"
+            }
+          ]
+        }
+      ],
+      "turnkeyErrorCode": "<string:0>"
+    },
+    "HTTP 400": {
+      "code": "<number>",
+      "message": "<string:48>",
+      "details": [],
+      "turnkeyErrorCode": "<string:0>"
+    },
+    "ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2 ACTIVITY_STATUS_COMPLETED": {
+      "activity": {
+        "id": "<string:36>",
+        "organizationId": "<string:36>",
+        "status": "ACTIVITY_STATUS_COMPLETED",
+        "type": "ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2",
+        "intent": {
+          "signRawPayloadIntentV2": {
+            "signWith": "<string:42>",
+            "payload": "<string:150>",
+            "encoding": "PAYLOAD_ENCODING_HEXADECIMAL",
+            "hashFunction": "HASH_FUNCTION_KECCAK256"
+          }
+        },
+        "result": {
+          "signRawPayloadResult": {
+            "r": "<string:64>",
+            "s": "<string:64>",
+            "v": "<string:2>"
+          }
+        },
+        "votes": [
+          {
+            "id": "<string:36>",
+            "userId": "<string:36>",
+            "user": {
+              "userId": "<string:36>",
+              "userName": "<string:12>",
+              "authenticators": [],
+              "apiKeys": [
+                {
+                  "credential": {
+                    "publicKey": "<string:66>",
+                    "type": "<string:28>"
+                  },
+                  "apiKeyId": "<string:36>",
+                  "apiKeyName": "<string:17>",
+                  "createdAt": {
+                    "seconds": "<string:10>",
+                    "nanos": "<string:1>"
+                  },
+                  "updatedAt": {
+                    "seconds": "<string:10>",
+                    "nanos": "<string:1>"
+                  }
+                }
+              ],
+              "userTags": [],
+              "oauthProviders": [],
+              "createdAt": {
+                "seconds": "<string:10>",
+                "nanos": "<string:1>"
+              },
+              "updatedAt": {
+                "seconds": "<string:10>",
+                "nanos": "<string:1>"
+              },
+              "mfaPolicies": []
+            },
+            "activityId": "<string:36>",
+            "selection": "<string:23>",
+            "message": "<string:447>",
+            "publicKey": "<string:66>",
+            "signature": "<string:142>",
+            "scheme": "SIGNATURE_SCHEME_TK_API_P256",
+            "createdAt": {
+              "seconds": "<string:10>",
+              "nanos": "<string:1>"
+            }
+          }
+        ],
+        "appProofs": [],
+        "fingerprint": "<string:71>",
+        "canApprove": false,
+        "canReject": true,
+        "createdAt": {
+          "seconds": "<string:10>",
+          "nanos": "<string:1>"
+        },
+        "updatedAt": {
+          "seconds": "<string:10>",
+          "nanos": "<string:1>"
+        },
+        "failure": null
+      }
+    },
+    "ACTIVITY_TYPE_SIGN_TRANSACTION_V2 ACTIVITY_STATUS_COMPLETED": {
+      "activity": {
+        "id": "<string:36>",
+        "organizationId": "<string:36>",
+        "status": "ACTIVITY_STATUS_COMPLETED",
+        "type": "ACTIVITY_TYPE_SIGN_TRANSACTION_V2",
+        "intent": {
+          "signTransactionIntentV2": {
+            "signWith": "<string:42>",
+            "unsignedTransaction": "<string:78>",
+            "type": "TRANSACTION_TYPE_ETHEREUM"
+          }
+        },
+        "result": {
+          "signTransactionResult": {
+            "signedTransaction": "<string:214>"
+          }
+        },
+        "votes": [
+          {
+            "id": "<string:36>",
+            "userId": "<string:36>",
+            "user": {
+              "userId": "<string:36>",
+              "userName": "<string:12>",
+              "authenticators": [],
+              "apiKeys": [
+                {
+                  "credential": {
+                    "publicKey": "<string:66>",
+                    "type": "<string:28>"
+                  },
+                  "apiKeyId": "<string:36>",
+                  "apiKeyName": "<string:17>",
+                  "createdAt": {
+                    "seconds": "<string:10>",
+                    "nanos": "<string:1>"
+                  },
+                  "updatedAt": {
+                    "seconds": "<string:10>",
+                    "nanos": "<string:1>"
+                  }
+                }
+              ],
+              "userTags": [],
+              "oauthProviders": [],
+              "createdAt": {
+                "seconds": "<string:10>",
+                "nanos": "<string:1>"
+              },
+              "updatedAt": {
+                "seconds": "<string:10>",
+                "nanos": "<string:1>"
+              },
+              "mfaPolicies": []
+            },
+            "activityId": "<string:36>",
+            "selection": "<string:23>",
+            "message": "<string:339>",
+            "publicKey": "<string:66>",
+            "signature": "<string:142>",
+            "scheme": "SIGNATURE_SCHEME_TK_API_P256",
+            "createdAt": {
+              "seconds": "<string:10>",
+              "nanos": "<string:1>"
+            }
+          }
+        ],
+        "appProofs": [],
+        "fingerprint": "<string:71>",
+        "canApprove": false,
+        "canReject": true,
+        "createdAt": {
+          "seconds": "<string:10>",
+          "nanos": "<string:1>"
+        },
+        "updatedAt": {
+          "seconds": "<string:10>",
+          "nanos": "<string:1>"
+        },
+        "failure": null
+      }
+    },
+    "ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2 ACTIVITY_STATUS_CONSENSUS_NEEDED": {
+      "activity": {
+        "id": "<string:36>",
+        "organizationId": "<string:36>",
+        "status": "ACTIVITY_STATUS_CONSENSUS_NEEDED",
+        "type": "ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2",
+        "intent": {
+          "signRawPayloadIntentV2": {
+            "signWith": "<string:42>",
+            "payload": "<string:64>",
+            "encoding": "PAYLOAD_ENCODING_HEXADECIMAL",
+            "hashFunction": "HASH_FUNCTION_NO_OP"
+          }
+        },
+        "result": null,
+        "votes": [
+          {
+            "id": "<string:36>",
+            "userId": "<string:36>",
+            "user": {
+              "userId": "<string:36>",
+              "userName": "<string:12>",
+              "authenticators": [],
+              "apiKeys": [
+                {
+                  "credential": {
+                    "publicKey": "<string:66>",
+                    "type": "<string:28>"
+                  },
+                  "apiKeyId": "<string:36>",
+                  "apiKeyName": "<string:17>",
+                  "createdAt": {
+                    "seconds": "<string:10>",
+                    "nanos": "<string:1>"
+                  },
+                  "updatedAt": {
+                    "seconds": "<string:10>",
+                    "nanos": "<string:1>"
+                  }
+                }
+              ],
+              "userTags": [],
+              "oauthProviders": [],
+              "createdAt": {
+                "seconds": "<string:10>",
+                "nanos": "<string:1>"
+              },
+              "updatedAt": {
+                "seconds": "<string:10>",
+                "nanos": "<string:1>"
+              },
+              "mfaPolicies": []
+            },
+            "activityId": "<string:36>",
+            "selection": "<string:23>",
+            "message": "<string:357>",
+            "publicKey": "<string:66>",
+            "signature": "<string:144>",
+            "scheme": "SIGNATURE_SCHEME_TK_API_P256",
+            "createdAt": {
+              "seconds": "<string:10>",
+              "nanos": "<string:1>"
+            }
+          }
+        ],
+        "appProofs": [],
+        "fingerprint": "<string:71>",
+        "canApprove": false,
+        "canReject": true,
+        "createdAt": {
+          "seconds": "<string:10>",
+          "nanos": "<string:1>"
+        },
+        "updatedAt": {
+          "seconds": "<string:10>",
+          "nanos": "<string:1>"
+        },
+        "failure": null
+      }
+    }
+  }
+}
