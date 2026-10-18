@@ -57,7 +57,27 @@ export interface UnsignedTransaction {
   chainId: bigint;
   /** The fields Turnkey's answer must repeat. For a legacy transaction, those before `chainId`. */
   fields: readonly RlpItem[];
+  /** The longest signed transaction that can repeat these fields: see {@link SIGNATURE_GROWTH}. */
+  maxSignedLength: number;
 }
+
+/**
+ * The most bytes one signature field adds: a 32-byte integer is the 0xa0 prefix and its 32 bytes.
+ * `r`, `s` and a legacy `v` (read as at most 32 bytes) fit in this; a typed `yParity` takes 1.
+ */
+const MAX_SIGNATURE_FIELD = 1 + 32;
+/**
+ * The most a list header can grow: from the 1-byte short form to the 9-byte long form (a prefix
+ * and an 8-byte length).
+ */
+const MAX_HEADER_GROWTH = 9 - 1;
+/**
+ * How many bytes a signed transaction can exceed its unsigned bytes: three signature fields
+ * (a legacy transaction's `v, r, s` replace `chainId, 0, 0`, which take at least 3 bytes, so this
+ * bounds it too) and the growth of the list header. A longer answer is refused before it is
+ * decoded, so a huge `signedTransaction` costs no decoding.
+ */
+const SIGNATURE_GROWTH = 3 * MAX_SIGNATURE_FIELD + MAX_HEADER_GROWTH;
 
 /** The typed transactions the adapter sends, by their type byte. */
 const TYPED: ReadonlyMap<number, Exclude<TransactionType, 0>> = new Map([
@@ -104,7 +124,12 @@ export function readUnsigned(
     ) {
       return undefined;
     }
-    return { type: 0, chainId, fields: items.slice(0, FIELDS[0].length) };
+    return {
+      type: 0,
+      chainId,
+      fields: items.slice(0, FIELDS[0].length),
+      maxSignedLength: unsigned.length + SIGNATURE_GROWTH,
+    };
   }
   if (unsigned[0] !== requested) {
     return undefined;
@@ -117,7 +142,7 @@ export function readUnsigned(
   if (items === undefined || rlpInteger(items[0], 32) !== chainId) {
     return undefined;
   }
-  return { type, chainId, fields: items };
+  return { type, chainId, fields: items, maxSignedLength: unsigned.length + SIGNATURE_GROWTH };
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -141,6 +166,12 @@ export function signatureOfSignedTransaction(
   // A legacy transaction starts with its list prefix, at least 0xc0; a typed one with its type.
   if (first === undefined || (legacy ? first < 0xc0 : first !== expected.type)) {
     return { kind: "transaction-mismatch", field: "type" };
+  }
+  if (signed.length > expected.maxSignedLength) {
+    return {
+      kind: "malformed",
+      problem: "the signed transaction is longer than the transaction sent with a signature",
+    };
   }
   const names = FIELDS[expected.type];
   const decoded = decodeRlp(legacy ? signed : signed.subarray(1));

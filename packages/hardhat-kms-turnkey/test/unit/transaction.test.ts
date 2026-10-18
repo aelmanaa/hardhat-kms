@@ -392,4 +392,35 @@ describe("signatureOfSignedTransaction", () => {
       }
     }
   });
+
+  it("refuses an answer longer than the transaction sent plus a signature, before decoding it", () => {
+    const tooLong = malformed(
+      "the signed transaction is longer than the transaction sent with a signature",
+    );
+    for (const { type, tx } of TRANSACTIONS) {
+      const unsigned = unsignedOf(tx);
+      const expected = expectedOf(tx, type);
+      // Three 33-byte signature fields and a list header grown from 1 to 9 bytes.
+      assert.equal(expected.maxSignedLength, unsigned.length + 3 * 33 + 8);
+      assert.ok(signedOf(tx).length <= expected.maxSignedLength);
+      const answer = (length: number): Uint8Array => {
+        const filled = new Uint8Array(length).fill(0xc0);
+        filled[0] = type === 0 ? 0xc0 : type;
+        return filled;
+      };
+      assert.deepEqual(
+        signatureOfSignedTransaction(answer(expected.maxSignedLength + 1), expected),
+        tooLong,
+      );
+      assert.notDeepEqual(
+        signatureOfSignedTransaction(answer(expected.maxSignedLength), expected),
+        tooLong,
+      );
+      // 5 MB of empty lists: refused at once, not decoded.
+      const huge = answer(5_000_000);
+      const started = performance.now();
+      assert.deepEqual(signatureOfSignedTransaction(huge, expected), tooLong);
+      assert.ok(performance.now() - started < 1000);
+    }
+  });
 });

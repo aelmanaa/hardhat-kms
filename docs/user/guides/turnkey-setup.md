@@ -191,7 +191,7 @@ turnkey, sign message, key turnkey:<TURNKEY_ORGANIZATION_ID>/0x…: Turnkey answ
 
 For typed data, the parenthesis reads `(typed data, sent with PAYLOAD_ENCODING_EIP712 and HASH_FUNCTION_NO_OP: a policy that allows only PAYLOAD_ENCODING_HEXADECIMAL denies it)`. For a transaction, it reads `(a transaction, sent as ACTIVITY_TYPE_SIGN_TRANSACTION_V2: a policy that allows only SIGN_RAW_PAYLOAD denies it; to sign the transaction's hash instead, as Foundry does, set the key's transactionSigning to "digest")`: add the second policy, or set [`transactionSigning: "digest"`](#transactions-as-a-digest-as-foundry-signs-them). To sign all of them from hardhat-kms, add the `KECCAK256` clause and the `EIP712` clause of the first policy above to your policy's condition, and add the second policy. Foundry keeps working: its requests still match the `NO_OP` clause.
 
-The reverse holds too. Turnkey's language page shows a policy that denies `HASH_FUNCTION_NO_OP` except with `PAYLOAD_ENCODING_EIP712` ([Examples](https://docs.turnkey.com/features/policies/language#examples)). It blocks every request from Foundry, and under hardhat-kms it blocks EIP-7702 authorizations and raw digests, while transactions, messages and typed data still sign.
+The reverse holds too. Turnkey's language page shows a policy that denies `HASH_FUNCTION_NO_OP` except with `PAYLOAD_ENCODING_EIP712` ([Examples](https://docs.turnkey.com/features/policies/language#examples)). It blocks every request from Foundry, and under hardhat-kms it blocks EIP-7702 authorizations and raw digests, while transactions, messages and typed data still sign, unless the key sets `transactionSigning: "digest"`, whose transactions are `NO_OP` digests too.
 
 ## 5. Store the API private key
 
