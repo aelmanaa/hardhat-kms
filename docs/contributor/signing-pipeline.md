@@ -11,10 +11,23 @@ Every signature, from any adapter, goes through the same pipeline in `signer/kms
 1. Strict parse with noble (DER or compact).
 2. Range check on r and s.
 3. Low-S normalization.
-4. Trial recovery against the cached public key, or against the pinned address for adapters without `getPublicKey`. No match throws. Recovery ids that need an x-reduced point are rejected. The signer checks against its own copy of the public key, made before the curve check, and gives each adapter call fresh copies of the digest, message and typed data, so an adapter that changes what it returned or received cannot change what the signature is checked against.
+4. Trial recovery against the cached public key, or against the pinned address for adapters without `getPublicKey`. No match throws. Recovery ids that need an x-reduced point are rejected. The signer checks against its own copy of the public key, made before the curve check, and gives each adapter call fresh copies of the digest, message, typed data and unsigned transaction, so an adapter that changes what it returned or received cannot change what the signature is checked against.
 5. A final check with the matching verifier: `recoverSender` for transactions, `eip191Signer.verify` for messages, `verifyTyped` for typed data.
 
-Every noble `verify` call passes `prehash:false`. If trial recovery fails, the signer makes one fresh signature attempt and then throws. The `yParity` an adapter returns is a hint only; the core always re-derives and verifies it.
+Every noble `verify` call passes `prehash:false`. If trial recovery fails, the signer makes one fresh signature attempt, through the same adapter method, and then throws. The `yParity` an adapter returns is a hint only; the core always re-derives and verifies it.
+
+## Which adapter method signs
+
+The core computes every digest itself, from its own copy of what it signs, before it calls the adapter. The adapter method decides only what the provider sees:
+
+| Request                                                                                                          | Adapter method                            | The provider sees                                                      |
+| ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- |
+| Transactions: `eth_sendTransaction`, `eth_signTransaction`, a library account's `signTransaction`, `kms sign-tx` | `signTransaction`, otherwise `signDigest` | The unsigned serialized transaction, its digest, its type and chain id |
+| `personal_sign`, `eth_sign`, `kms sign`                                                                          | `signMessage`, otherwise `signDigest`     | The message and its EIP-191 digest                                     |
+| `eth_signTypedData_v4`, `kms sign --data`                                                                        | `signTypedData`, otherwise `signDigest`   | The typed data and its EIP-712 digest                                  |
+| EIP-7702 authorizations, `kms sign --no-hash`, a `rawSign` library account                                       | `signDigest`                              | The digest only                                                        |
+
+For a transaction, `signer/kms-signer.ts` takes the unsigned bytes from `rpc/transactions.ts` (`transactionToSign`), copies them, and hashes the copy with keccak-256. Each attempt gives the adapter fresh copies of the bytes and the digest. The signature then goes through the pipeline above against the core's digest. The caller adds it to the same unsigned transaction it built (`assembleSignedTransaction`), and `recoverSender` must return the account address. A provider such as Turnkey that returns a whole signed transaction cannot change what is sent: the adapter returns only `r`, `s` and the parity, and a signature over any other body fails trial recovery. The library account compares viem's serialized bytes with these same bytes before it signs. The send lock, the nonce reservations and the type rules run before the signer and do not depend on the adapter method.
 
 ## Key identity and pinning
 
@@ -47,6 +60,7 @@ Errors are `HardhatPluginError("hardhat-kms", …)` built from an allow-list of 
 | A signature intended for one chain is used on another                      | Chain-id check per connection, explicit `chainId` on every transaction, and the typed-data `domain.chainId` check.                                          |
 | The configured key changes underneath the user (rotation, repointed alias) | Address pin, AWS signing with the ARN from `GetPublicKey`, pinned GCP and Azure versions.                                                                   |
 | An adapter or KMS returns a malformed signature, or one from the wrong key | The signature pipeline: nothing is released unless it recovers to the account address.                                                                      |
+| A provider's `signTransaction` signs, or returns, another transaction      | The core's own digest and transaction: it checks the signature against its digest and sends its own transaction, never the provider's bytes.                |
 | Corruption of the digest or signature between the plugin and GCP           | CRC32C in both directions.                                                                                                                                  |
 | Credentials or identifiers leak through errors and logs                    | No secrets in config, allow-listed errors, restricted `debug` output, `<VAR_NAME>` masking.                                                                 |
 | A client retry broadcasts a transaction twice                              | Error code -32000 plus the local hash after broadcast, and the post-broadcast retry cache.                                                                  |

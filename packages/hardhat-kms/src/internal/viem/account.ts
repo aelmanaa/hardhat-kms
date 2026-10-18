@@ -4,7 +4,6 @@
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 
-import { keccak_256 } from "@noble/hashes/sha3.js";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 
 import { addressFromPublicKey, sameAddress } from "../crypto/address.ts";
@@ -18,7 +17,11 @@ import {
   kmsAccountsSentence,
   type LibraryNonceRequest,
 } from "../rpc/dispatcher.ts";
-import { assembleSignedTransaction, checkSelfAuthorizations } from "../rpc/transactions.ts";
+import {
+  assembleSignedTransaction,
+  checkSelfAuthorizations,
+  transactionToSign,
+} from "../rpc/transactions.ts";
 import { checkTypedDataChain } from "../rpc/typed-data.ts";
 import type { KmsSigner, SignerCallOptions } from "../signer/kms-signer.ts";
 import { CancelledError } from "../signer/timeout.ts";
@@ -332,7 +335,8 @@ async function signTransaction(
       { operation },
     );
   }
-  const unsignedBytes = input.unsigned.toBytes(false);
+  // The signer signs the same bytes the serializer's output is compared with.
+  const toSign = transactionToSign(input.unsigned, input.chainId);
   checkSelfAuthorizations(input.unsigned, address, operation);
   const custom = options?.serializer;
   const serializer = custom ?? context.viem.serializeTransaction;
@@ -347,7 +351,7 @@ async function signTransaction(
       { operation },
     );
   }
-  if (typeof encoded !== "string" || encoded.toLowerCase() !== bytesHex(unsignedBytes)) {
+  if (typeof encoded !== "string" || encoded.toLowerCase() !== bytesHex(toSign.unsigned)) {
     throw catalogError(
       ERRORS.accountSerializerMismatch,
       { serializer: serializerName },
@@ -356,7 +360,7 @@ async function signTransaction(
   }
   log("%s: signing a %s transaction for chain %s", address, input.type, chainId.toString());
   const signed = await context.withSigner(operation, async (signer, call) => {
-    const signature = await signer.signDigest(keccak_256(unsignedBytes), call);
+    const signature = await signer.signTransaction(toSign, call);
     return assembleSignedTransaction(input.unsigned, signature, address, operation);
   });
   // After the signature: a reservation whose transaction was signed is the one most likely sent.

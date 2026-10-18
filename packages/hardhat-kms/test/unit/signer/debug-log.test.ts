@@ -5,7 +5,8 @@ import { ERRORS } from "../../../src/internal/error-catalog.ts";
 import { catalogMessage } from "../../../src/internal/errors.ts";
 import { debugLines } from "../../helpers/debug-lines.ts";
 import { fakeAdapter } from "../../helpers/fake-adapter.ts";
-import { HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
+import { fakeTxAdapter } from "../../helpers/fake-tx-adapter.ts";
+import { EIP712_MAIL, HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
 
 // A logger reads DEBUG when it is created, and the signer modules create theirs when they load,
 // so DEBUG is set before they are imported. Each test file runs in its own process.
@@ -94,6 +95,52 @@ describe("signer debug lines", () => {
       ),
       lines().join("\n"),
     );
+  });
+
+  it("names the adapter method each signature goes to", async () => {
+    const kms = new KmsSigner(fakeTxAdapter({ secretKey }), baseOptions);
+    await kms.getAddress();
+    const transaction = { unsigned: Uint8Array.of(0xc0), type: 0, chainId: 1n };
+
+    // Without signTransaction, a transaction goes to signDigest.
+    const plain = new KmsSigner(fakeAdapter({ secretKey }), baseOptions);
+    await plain.getAddress();
+    const methods: string[] = [];
+    for (const run of [
+      async () => await kms.signTransaction(transaction),
+      async () => await kms.signDigest(new Uint8Array(32).fill(1)),
+      async () => await kms.signPersonalMessage(Uint8Array.of(1)),
+      async () => await plain.signTransaction(transaction),
+    ]) {
+      written = [];
+      await run();
+      methods.push(lines()[0] ?? "");
+    }
+    assert.deepEqual(methods, [
+      "fake-key-1: sign with signTransaction",
+      "fake-key-1: sign with signDigest",
+      "fake-key-1: sign with signMessage",
+      "fake-key-1: sign with signDigest",
+    ]);
+  });
+
+  it("names signTypedData for an adapter that signs typed data natively", async () => {
+    const inner = fakeAdapter({ secretKey });
+    const kms = new KmsSigner(
+      {
+        describe: () => inner.describe(),
+        getPublicKey: async (ctx) =>
+          await (inner.getPublicKey?.(ctx) ?? Promise.reject(new Error("missing"))),
+        signTypedData: async ({ digest }, ctx) =>
+          await (inner.signDigest?.({ digest }, ctx) ?? Promise.reject(new Error("missing"))),
+      },
+      baseOptions,
+    );
+    await kms.getAddress();
+    written = [];
+
+    await kms.signTypedData(EIP712_MAIL);
+    assert.equal(lines()[0], "fake-key-1: sign with signTypedData");
   });
 
   it("logs how many signers the cache closes", async () => {

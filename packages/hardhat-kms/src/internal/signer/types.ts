@@ -60,6 +60,28 @@ export interface KmsKeyAdapter {
     request: { typedData: TypedData; digest: Uint8Array },
     ctx: SignContext,
   ): Promise<SignatureOutput>;
+  /**
+   * Signs a transaction, for providers whose policies read its fields. The core calls it for
+   * every transaction when present, and `signDigest` otherwise. It does not count as a signing
+   * method on its own: an adapter with it still needs `signDigest`, `signMessage` or
+   * `signTypedData`.
+   *
+   * The core keeps the final say over what gets signed. It verifies the returned signature
+   * against its own `digest` and broadcasts its own transaction, never one the provider returns,
+   * so return only the signature.
+   *
+   * @param request - `unsigned` is the core's unsigned serialized transaction: the EIP-2718 type
+   * byte and payload for a typed transaction, or the RLP list for a legacy one. `digest` is its
+   * keccak-256, the hash the signature must sign. `type` is the EIP-2718 type number (0 for
+   * legacy) and `chainId` the chain the transaction is for. The arrays are copies the adapter may
+   * change.
+   * @param ctx - The call's context.
+   * @returns The signature over `digest`.
+   */
+  signTransaction?(
+    request: { unsigned: Uint8Array; digest: Uint8Array; type: number; chainId: bigint },
+    ctx: SignContext,
+  ): Promise<SignatureOutput>;
   /** Releases SDK clients and connections. */
   close?(): Promise<void>;
 }

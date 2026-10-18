@@ -8,7 +8,7 @@ import { type PrivateKeyAccount, privateKeyToAccount } from "viem/accounts";
 
 import { KmsSigner } from "../../src/internal/signer/kms-signer.ts";
 import type { AccountConnection } from "../../src/internal/viem/account.ts";
-import type { KmsKeyConfig, KmsSignedAuthorization } from "../../src/types.ts";
+import type { KmsKeyAdapter, KmsKeyConfig, KmsSignedAuthorization } from "../../src/types.ts";
 import { type FakeAdapter, type FakeAdapterOptions, fakeAdapter } from "./fake-adapter.ts";
 import { HARDHAT_ACCOUNT_0 } from "./vectors.ts";
 
@@ -69,7 +69,8 @@ export interface Setup {
  *
  * @param options - The fake adapter's options (by default it holds the key of {@link ADDRESS};
  *   another `secretKey` makes the signer sign for another address), the connection's chain id
- *   and `kms.allowCrossChainTypedData`.
+ *   and `kms.allowCrossChainTypedData`. `signWithAdapter` makes the signer use another adapter,
+ *   such as one with `signTransaction`; `adapter` is then built but never called.
  * @returns The connection and its observers.
  */
 export function setup(
@@ -77,13 +78,14 @@ export function setup(
     adapter?: Partial<FakeAdapterOptions>;
     chainId?: bigint;
     allowCrossChainTypedData?: boolean;
+    signWithAdapter?: KmsKeyAdapter;
   } = {},
 ): Setup {
   const adapter = fakeAdapter({
     secretKey: new Uint8Array(Buffer.from(HARDHAT_ACCOUNT_0.secretKey, "hex")),
     ...options.adapter,
   });
-  const signer = new KmsSigner(adapter, {
+  const signer = new KmsSigner(options.signWithAdapter ?? adapter, {
     timeoutMs: 10_000,
     displayMessage: async () => {
       await Promise.resolve();

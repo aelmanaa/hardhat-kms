@@ -91,7 +91,7 @@ describe("kms hook adapter contract", () => {
   });
 
   it("rejects known methods that are set but are not functions", async () => {
-    for (const name of ["signMessage", "signTypedData", "getAddress", "close"]) {
+    for (const name of ["signMessage", "signTypedData", "signTransaction", "getAddress", "close"]) {
       await assertRejects(
         { describe: describeKey, signDigest: sign, getPublicKey: publicKey, [name]: 42 },
         [`the adapter's ${name} is not a function`],
@@ -127,6 +127,13 @@ describe("kms hook adapter contract", () => {
     );
   });
 
+  it("refuses an adapter whose only signing method is signTransaction", async () => {
+    // Messages and typed data need signDigest, signMessage or signTypedData.
+    await assertRejects({ describe: describeKey, signTransaction: sign, getPublicKey: publicKey }, [
+      "has no signing method (signDigest, signMessage, signTypedData)",
+    ]);
+  });
+
   it("accepts every shape the contract allows", async () => {
     for (const returned of [
       {
@@ -136,6 +143,8 @@ describe("kms hook adapter contract", () => {
       },
       { describe: describeKey, signMessage: sign, getPublicKey: publicKey },
       { describe: describeKey, signTypedData: sign, getPublicKey: publicKey },
+      { describe: describeKey, signDigest: sign, signTransaction: sign, getPublicKey: publicKey },
+      { describe: describeKey, signMessage: sign, signTransaction: sign, getPublicKey: publicKey },
     ]) {
       const hre = await runtimeReturning(returned);
       assert.equal(await createKeyAdapter(hre, keyOf(hre, "vault")), returned);

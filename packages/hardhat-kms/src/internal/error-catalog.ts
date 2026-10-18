@@ -516,7 +516,8 @@ export const ERRORS = {
     kind: "error",
     group: "Provider plugins",
     template: "the adapter for this key has no signing method ({methods})",
-    cause: "The adapter implements none of `signDigest`, `signMessage` and `signTypedData`.",
+    cause:
+      "The adapter implements none of `signDigest`, `signMessage` and `signTypedData`. `signTransaction` alone does not count, since messages and typed data need one of the others.",
     fix: "Report it to the provider plugin.",
   },
   adapterNoIdentity: {
@@ -723,7 +724,7 @@ export const ERRORS = {
     group: "Signing",
     template: "the provider cannot sign a {kind}",
     cause:
-      "The key's adapter has no `signDigest`, and no method for this kind of payload (`signMessage` or `signTypedData`).",
+      "The key's adapter has no `signDigest`, and no method for this kind of payload (`signMessage`, `signTypedData` or `signTransaction`).",
     fix: "Sign another kind of payload with this key, or use a provider that signs digests.",
   },
   signerKeyMaterial: {

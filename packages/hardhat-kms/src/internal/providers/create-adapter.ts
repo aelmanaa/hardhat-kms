@@ -13,7 +13,14 @@ const log = coreDebug("providers");
 
 const SIGNING_METHODS = ["signDigest", "signMessage", "signTypedData"] as const;
 const IDENTITY_METHODS = ["getPublicKey", "getAddress"] as const;
-const OPTIONAL_METHODS = [...SIGNING_METHODS, ...IDENTITY_METHODS, "close"] as const;
+// `signTransaction` is not a signing method on its own: messages and typed data need one of the
+// others. When set, it must still be a function.
+const OPTIONAL_METHODS = [
+  ...SIGNING_METHODS,
+  "signTransaction",
+  ...IDENTITY_METHODS,
+  "close",
+] as const;
 
 /**
  * Checks that an adapter a handler returned implements the contract, so a broken third-party

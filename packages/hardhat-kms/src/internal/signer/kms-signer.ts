@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import {
@@ -89,11 +90,31 @@ interface KeyIdentity {
   publicKey?: Uint8Array | undefined;
 }
 
+/**
+ * A transaction for {@link KmsSigner.signTransaction}: what the adapter's `signTransaction`
+ * receives, without the digest, which the signer computes itself.
+ */
+export interface TransactionToSign {
+  /** The unsigned serialized transaction, whose keccak-256 is signed. */
+  unsigned: Uint8Array;
+  /** Its EIP-2718 type number, 0 for legacy. */
+  type: number;
+  /** Its chain id. */
+  chainId: bigint;
+}
+
 /** What is being signed, which decides the digest, the adapter method and the final check. */
 type SignRequest =
   | { kind: "digest"; digest: Uint8Array }
   | { kind: "message"; message: Uint8Array }
-  | { kind: "typedData"; typedData: TypedData };
+  | { kind: "typedData"; typedData: TypedData }
+  | ({ kind: "transaction" } & TransactionToSign);
+
+/** One attempt's adapter call, and the adapter method it calls, for debug output. */
+interface AdapterCall {
+  method: string;
+  run: (ctx: SignContext) => Promise<SignatureOutput>;
+}
 
 /**
  * Provider-agnostic signer. Wraps one {@link KmsKeyAdapter} and owns every cryptographic check:
@@ -221,6 +242,31 @@ export class KmsSigner {
     options: SignerCallOptions = {},
   ): Promise<RecoverableSignature> {
     return await this.#sign({ kind: "digest", digest }, options.signal);
+  }
+
+  /**
+   * Signs a transaction's digest: the keccak-256 of `transaction.unsigned`, which the signer
+   * computes from its own copy of the bytes. It calls the adapter's `signTransaction` when present,
+   * and `signDigest` otherwise. Either way the signature is verified against that digest and the
+   * key. The caller adds the signature to the same unsigned transaction and checks the sender.
+   *
+   * @param transaction - The unsigned transaction's bytes, type and chain id.
+   * @param options - The caller's signal, if any.
+   * @returns The normalized, verified signature.
+   */
+  public async signTransaction(
+    transaction: TransactionToSign,
+    options: SignerCallOptions = {},
+  ): Promise<RecoverableSignature> {
+    // Copied once: the digest and every attempt's adapter payload come from this copy, so a caller
+    // that changes its array later cannot change what is signed.
+    const request: SignRequest = {
+      kind: "transaction",
+      unsigned: new Uint8Array(transaction.unsigned),
+      type: transaction.type,
+      chainId: transaction.chainId,
+    };
+    return await this.#sign(request, options.signal);
   }
 
   /**
@@ -380,7 +426,8 @@ export class KmsSigner {
   ): Promise<RecoverableSignature> {
     // Built before the call, so that a payload the signer cannot copy is not blamed on the provider.
     const call = this.#adapterCall(request, digest);
-    const output = await this.#call("sign", call, signal);
+    log("%s: sign with %s", this.#displayId, call.method);
+    const output = await this.#call("sign", call.run, signal);
     if (identity.publicKey !== undefined) {
       return normalizeSignature(output, digest, identity.publicKey);
     }
@@ -397,10 +444,7 @@ export class KmsSigner {
    * the final EIP-191 and EIP-712 checks read the caller's message and typed data again. An
    * adapter that changes what it received must not change what the signature is checked against.
    */
-  #adapterCall(
-    request: SignRequest,
-    digest: Uint8Array,
-  ): (ctx: SignContext) => Promise<SignatureOutput> {
+  #adapterCall(request: SignRequest, digest: Uint8Array): AdapterCall {
     const adapter = this.#adapter;
     const signTypedData = adapter.signTypedData?.bind(adapter);
     if (request.kind === "typedData" && signTypedData !== undefined) {
@@ -408,17 +452,30 @@ export class KmsSigner {
         typedData: this.#copyTypedData(request.typedData),
         digest: new Uint8Array(digest),
       };
-      return async (ctx) => await signTypedData(payload, ctx);
+      return { method: "signTypedData", run: async (ctx) => await signTypedData(payload, ctx) };
     }
     const signMessage = adapter.signMessage?.bind(adapter);
     if (request.kind === "message" && signMessage !== undefined) {
       const payload = { message: new Uint8Array(request.message), digest: new Uint8Array(digest) };
-      return async (ctx) => await signMessage(payload, ctx);
+      return { method: "signMessage", run: async (ctx) => await signMessage(payload, ctx) };
+    }
+    const signTransaction = adapter.signTransaction?.bind(adapter);
+    if (request.kind === "transaction" && signTransaction !== undefined) {
+      const payload = {
+        unsigned: new Uint8Array(request.unsigned),
+        digest: new Uint8Array(digest),
+        type: request.type,
+        chainId: request.chainId,
+      };
+      return {
+        method: "signTransaction",
+        run: async (ctx) => await signTransaction(payload, ctx),
+      };
     }
     const signDigest = adapter.signDigest?.bind(adapter);
     if (signDigest !== undefined) {
       const payload = { digest: new Uint8Array(digest) };
-      return async (ctx) => await signDigest(payload, ctx);
+      return { method: "signDigest", run: async (ctx) => await signDigest(payload, ctx) };
     }
     throw this.#error("sign", ERRORS.signerCannotSign, { kind: REQUEST_KIND_NAMES[request.kind] });
   }
@@ -496,6 +553,9 @@ function digestOf(request: SignRequest): Uint8Array {
   if (request.kind === "message") {
     return personalMessageDigest(request.message);
   }
+  if (request.kind === "transaction") {
+    return keccak_256(request.unsigned);
+  }
   return typedDataDigest(request.typedData);
 }
 
@@ -503,6 +563,7 @@ const REQUEST_KIND_NAMES: Record<SignRequest["kind"], string> = {
   digest: "digest",
   message: "personal message",
   typedData: "typed-data payload",
+  transaction: "transaction",
 };
 
 function recoverForAddress(
