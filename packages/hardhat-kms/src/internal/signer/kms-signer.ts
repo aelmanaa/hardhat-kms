@@ -84,7 +84,7 @@ export interface SignerCallOptions {
 }
 
 /** The nonce of each `core.signer.transaction-outstanding` error the signer threw (#537). */
-const outstandingNonces = new WeakMap<object, bigint>();
+const outstandingNonces = new WeakMap<Error, bigint>();
 
 /**
  * The nonce of a transaction the provider may still sign: set when `error` is the error of a
@@ -98,7 +98,8 @@ const outstandingNonces = new WeakMap<object, bigint>();
  * @returns The transaction's nonce, or `undefined` for any other error.
  */
 export function outstandingNonce(error: unknown): bigint | undefined {
-  return typeof error === "object" && error !== null ? outstandingNonces.get(error) : undefined;
+  // Stryker disable next-line ConditionalExpression: WeakMap.get returns undefined for a key that is not an object, so the check only narrows the type
+  return error instanceof Error ? outstandingNonces.get(error) : undefined;
 }
 
 /** A provider's id for a request, as the core shows one: a UUID. Anything else is not shown. */
@@ -175,6 +176,11 @@ type SignRequest =
 interface AdapterCall {
   method: string;
   run: (ctx: SignContext) => Promise<SignatureOutput>;
+  /**
+   * The nonce of the transaction, when `signTransaction` signs one: only that call can leave a
+   * signed transaction at the provider after the core gives up on it.
+   */
+  nonce?: bigint;
 }
 
 /**
@@ -490,7 +496,7 @@ export class KmsSigner {
       "sign",
       call.run,
       options.signal,
-      this.#outstandingError(request, call.method, options.holdsNonce === true),
+      this.#outstandingError(call.nonce, options.holdsNonce === true),
     );
     if (identity.publicKey !== undefined) {
       return normalizeSignature(output, digest, identity.publicKey);
@@ -534,6 +540,7 @@ export class KmsSigner {
       return {
         method: "signTransaction",
         run: async (ctx) => await signTransaction(payload, ctx),
+        nonce: request.nonce,
       };
     }
     const signDigest = adapter.signDigest?.bind(adapter);
@@ -556,18 +563,13 @@ export class KmsSigner {
 
   /**
    * The error of a transaction signature that the provider may still complete, when the adapter
-   * says that it may (`signTransactionOutlivesAbort`) and `signTransaction` signs it; otherwise
-   * `undefined`.
+   * says that it may (`signTransactionOutlivesAbort`) and `signTransaction` signs the transaction
+   * with this nonce; otherwise `undefined`.
    */
-  #outstandingError(
-    request: SignRequest,
-    method: string,
-    holdsNonce: boolean,
-  ): OutstandingError | undefined {
-    if (!this.#outlivesAbort || request.kind !== "transaction" || method !== "signTransaction") {
+  #outstandingError(nonce: bigint | undefined, holdsNonce: boolean): OutstandingError | undefined {
+    if (!this.#outlivesAbort || nonce === undefined) {
       return undefined;
     }
-    const { nonce } = request;
     const words =
       this.#description.provider === "turnkey"
         ? OUTSTANDING_WORDS.turnkey
@@ -608,7 +610,8 @@ export class KmsSigner {
     const key = this.#displayId;
     log("%s: %s (request %s)", key, operation, requestId);
     // What the adapter said about its request: whether it may be at the provider, and its id.
-    const sent: { yes: boolean; id: string | undefined } = { yes: false, id: undefined };
+    let sent = false;
+    let sentId: string | undefined;
     try {
       const result = await withTimeout(
         async (signal) =>
@@ -619,12 +622,13 @@ export class KmsSigner {
             },
             requestId,
             requestSent: (providerRequestId) => {
-              sent.yes = true;
+              sent = true;
+              // A string only: an object could pass the test and print other text later.
               if (
                 typeof providerRequestId === "string" &&
                 PROVIDER_REQUEST_ID.test(providerRequestId)
               ) {
-                sent.id = providerRequestId;
+                sentId = providerRequestId;
               }
             },
           }),
@@ -645,14 +649,14 @@ export class KmsSigner {
       }
       if (error instanceof TimeoutError) {
         const timeout = this.#options.timeoutMs;
-        if (sent.yes && outstanding !== undefined) {
-          throw outstanding(catalogMessage(ERRORS.signerNoAnswer, { timeout }), sent.id);
+        if (sent && outstanding !== undefined) {
+          throw outstanding(catalogMessage(ERRORS.signerNoAnswer, { timeout }), sentId);
         }
         throw this.#error(operation, ERRORS.signerNoAnswer, { timeout });
       }
       if (error instanceof CancelledError) {
-        if (sent.yes && outstanding !== undefined) {
-          throw outstanding(catalogMessage(ERRORS.signerCancelled, {}), sent.id);
+        if (sent && outstanding !== undefined) {
+          throw outstanding(catalogMessage(ERRORS.signerCancelled, {}), sentId);
         }
         throw this.#error(operation, ERRORS.signerCancelled, {});
       }

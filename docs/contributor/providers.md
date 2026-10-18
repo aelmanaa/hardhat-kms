@@ -15,7 +15,7 @@ interface SignContext {
   signal: AbortSignal;
   displayMessage(message: string): Promise<void>;
   requestId: string; // identifies the call in the plugin's debug output; not sent to the provider
-  requestSent?(providerRequestId?: string): void; // see signTransactionOutlivesAbort; the core always sets it
+  requestSent?: (providerRequestId?: string) => void; // see signTransactionOutlivesAbort; the core always sets it
 }
 interface KeyDescription {
   provider: string;

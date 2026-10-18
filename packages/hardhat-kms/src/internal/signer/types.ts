@@ -23,7 +23,7 @@ export interface SignContext {
    *
    * @param providerRequestId - The provider's id for the request, if known.
    */
-  requestSent?(providerRequestId?: string): void;
+  requestSent?: (providerRequestId?: string) => void;
 }
 
 /**

@@ -2480,6 +2480,27 @@ Stable from 1.0: a minor may add optional fields; changing or removing one needs
 
 Identifies this call in the plugin's debug output.
 
+##### requestSent?
+
+> `optional` **requestSent?**: (`providerRequestId?`: `string`) => `void`
+
+Tells the core that the request may now be at the provider. An adapter that sets
+[KmsKeyAdapter.signTransactionOutlivesAbort](#signtransactionoutlivesabort) calls it from `signTransaction` right before
+each request that asks the provider to sign leaves, and never after `signal` has aborted. It
+may call it again with the provider's id for the request once it knows it, such as Turnkey's
+activity id; the core shows the id in its error only when it is a UUID. The core reads it only
+for `signTransaction` on an adapter with that flag.
+
+###### Parameters
+
+| Parameter            | Type     | Description                                  |
+| -------------------- | -------- | -------------------------------------------- |
+| `providerRequestId?` | `string` | The provider's id for the request, if known. |
+
+###### Returns
+
+`void`
+
 ##### signal
 
 > **signal**: `AbortSignal`
@@ -2503,27 +2524,6 @@ Shows a status line to the user (for example while waiting for an approval).
 ###### Returns
 
 `Promise`\<`void`\>
-
-##### requestSent()?
-
-> `optional` **requestSent**(`providerRequestId?`: `string`): `void`
-
-Tells the core that the request may now be at the provider. An adapter that sets
-[KmsKeyAdapter.signTransactionOutlivesAbort](#signtransactionoutlivesabort) calls it from `signTransaction` right before
-each request that asks the provider to sign leaves, and never after `signal` has aborted. It
-may call it again with the provider's id for the request once it knows it, such as Turnkey's
-activity id; the core shows the id in its error only when it is a UUID. The core reads it only
-for `signTransaction` on an adapter with that flag.
-
-###### Parameters
-
-| Parameter            | Type     | Description                                  |
-| -------------------- | -------- | -------------------------------------------- |
-| `providerRequestId?` | `string` | The provider's id for the request, if known. |
-
-###### Returns
-
-`void`
 
 ---
 

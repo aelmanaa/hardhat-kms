@@ -37,6 +37,8 @@ const HOLD =
 interface Behaviour {
   /** The ids to report with `ctx.requestSent`, in order; `null` reports without an id. */
   sent?: (string | null)[];
+  /** Values to report with `ctx.requestSent` that are not strings, as a third-party adapter might. */
+  sentValues?: unknown[];
   /** Throw this instead of waiting for the abort. */
   fail?: Error;
 }
@@ -58,6 +60,11 @@ async function behave(behaviour: Behaviour, ctx: SignContext): Promise<never> {
     } else {
       ctx.requestSent?.(id);
     }
+  }
+  const { requestSent } = ctx;
+  assert.ok(requestSent !== undefined, "the core sets requestSent");
+  for (const value of behaviour.sentValues ?? []) {
+    Reflect.apply(requestSent, ctx, [value]);
   }
   if (behaviour.fail !== undefined) {
     throw behaviour.fail;
@@ -242,7 +249,14 @@ describe("a transaction the provider may still sign after a timeout or abort (#5
   });
 
   it("says the id is not known when the adapter gave none, or one that is not a UUID", async () => {
-    for (const sent of [[null], ["activity/../../etc"], [ID, "not-a-uuid"]]) {
+    for (const sent of [
+      [null],
+      ["activity/../../etc"],
+      [`x${ID}`],
+      [`${ID}x`],
+      [`${ID}\n`],
+      [ID, "not-a-uuid"],
+    ]) {
       for (const provider of ["fake", "turnkey"]) {
         const { signer, timers } = await signerOf(outliving({ sent }, { flag: true, provider }));
 
@@ -274,6 +288,51 @@ describe("a transaction the provider may still sign after a timeout or abort (#5
         assert.ok(!error.message.includes("etc"));
       }
     }
+  });
+
+  it("shows no id that is not a string, even one whose text reads as a UUID", async () => {
+    let reads = 0;
+    const hostile = {
+      toString: () => {
+        reads++;
+        return reads === 1 ? ID : "planted text";
+      },
+    };
+    const { signer, timers } = await signerOf(
+      outliving({ sentValues: [hostile, 42] }, { flag: true }),
+    );
+
+    const error = await afterTimeout(timers, async () => await signer.signTransaction(TRANSACTION));
+
+    assertOutstanding(error);
+    assert.equal(
+      error.message,
+      outstandingMessage({ reason: NO_ANSWER, request: "its request id is not known" }),
+    );
+  });
+
+  it("fails as any cancellation when an adapter without the flag sent its request", async () => {
+    const { signer } = await signerOf(outliving({ sent: [ID] }));
+    const controller = new AbortController();
+    const outcome = signer
+      .signTransaction(TRANSACTION, { signal: controller.signal, holdsNonce: true })
+      .then(
+        () => assert.fail("the call succeeded"),
+        (error: unknown) => error,
+      );
+    await settle();
+    controller.abort();
+    const error = await outcome;
+    assert.ok(error instanceof HardhatPluginError, String(error));
+    assert.equal(outstandingNonce(error), undefined);
+    assert.equal(
+      error.message,
+      catalogError(
+        ERRORS.signerCancelled,
+        {},
+        { provider: "fake", operation: "sign", key: "fake-key-1" },
+      ).message,
+    );
   });
 
   it("fails as any timeout when the request was not sent yet", async () => {

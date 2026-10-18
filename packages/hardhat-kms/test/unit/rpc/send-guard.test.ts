@@ -2142,14 +2142,14 @@ describe("ConnectionSends outstanding nonces (#537)", () => {
     assert.equal(sends.nonceFor(COW, 0n), 2n);
   });
 
-  it("keeps every held nonce until a transaction with it is recorded, and lists them lowest first", () => {
+  it("keeps every held nonce until a transaction with it is recorded, in the order they were held", () => {
     const { sends } = withClock();
     sends.holdOutstanding(COW, 5n);
     sends.holdOutstanding(COW, 2n);
     sends.holdOutstanding(COW, 5n);
-    assert.deepEqual(sends.outstandingNonces(COW), [2n, 5n]);
+    assert.deepEqual(sends.outstandingNonces(COW), [5n, 2n]);
     sends.recordSent(COW, 3n, "0x03");
-    assert.deepEqual(sends.outstandingNonces(COW), [2n, 5n]);
+    assert.deepEqual(sends.outstandingNonces(COW), [5n, 2n]);
     sends.recordSent(COW, 5n, "0x05");
     assert.deepEqual(sends.outstandingNonces(COW), [2n]);
     sends.recordSent(ZERO, 2n, "0x02");

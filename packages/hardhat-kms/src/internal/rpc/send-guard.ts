@@ -988,13 +988,13 @@ export class ConnectionSends {
   }
 
   /**
-   * The sender's outstanding nonces, lowest first. Tests use it.
+   * The sender's outstanding nonces, in the order they were held. Tests use it.
    *
    * @param from - The sender's lowercase address.
    * @returns The nonces a provider may still sign.
    */
   public outstandingNonces(from: string): bigint[] {
-    return [...(this.#outstanding.get(from) ?? [])].toSorted((a, b) => (a < b ? -1 : 1));
+    return [...(this.#outstanding.get(from) ?? [])];
   }
 
   /**
@@ -1257,10 +1257,7 @@ export class ConnectionSends {
   public recordSent(from: string, nonce: bigint, hash: string): void {
     // The node has a transaction at the nonce, so no second one can take it: the hold ends here,
     // and the record below keeps the nonce used as for any send.
-    const outstanding = this.#outstanding.get(from);
-    if (outstanding?.delete(nonce) === true && outstanding.size === 0) {
-      this.#outstanding.delete(from);
-    }
+    this.#outstanding.get(from)?.delete(nonce);
     if (!this.#highWaterEnabled) {
       const records = this.#recordsOf(from);
       const { byNonce } = records;
