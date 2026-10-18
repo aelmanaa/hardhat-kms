@@ -75,7 +75,7 @@ The accepted key forms are a superset of Foundry's.
 | `aws`     | `keyId` as a key id, key ARN, alias name or alias ARN. Optional `region` and `profile`, each literal or a configuration variable, and `endpoint`.                                                                |
 | `gcp`     | Either `keyVersionName`, or the components `projectId`, `location`, `keyRing`, `keyName`, `keyVersion`. The version is always required and never auto-selected.                                                  |
 | `azure`   | Either `keyId` (the full URL, versioned or not, including `*.managedhsm.azure.net`), or `vaultUrl` + `keyName` + optional `keyVersion`. An unversioned key is resolved once and the resulting version is pinned. |
-| `turnkey` | `organizationId`, `address` and `apiPrivateKey`, all required, and an optional `apiPublicKey`. The API private key is a configuration variable only.                                                             |
+| `turnkey` | `organizationId`, `address` and `apiPrivateKey`, all required, and optional `apiPublicKey` and `transactionSigning`. The API private key is a configuration variable only.                                       |
 
 AWS resolves the region in this order: the region inside an ARN, then `key.region`, then `defaults.aws.region`, then the SDK's own chain. A configured region that conflicts with the ARN's region is an error. `AWS_ENDPOINT_URL_KMS` (useful for LocalStack) is left to the AWS SDK, which honours it.
 
@@ -92,6 +92,7 @@ A Turnkey key names a wallet account in a Turnkey organization, and the API key 
 - `address` is required, and a key without it fails with `core.config.turnkey-address-required`. It is the wallet account's address: the plugin sends it to Turnkey as `signWith`, with its EIP-55 checksum, and it is the key's pin.
 - `apiPrivateKey` takes `configVariable(NAME)` only, without a `default` or a `format`, so the API private key is never written in the config. A literal string, a `default` or a `format` fails validation with `core.config.secret-variable`. Set the variable in the environment or in `hardhat-keystore` to the private key of a P-256 Turnkey API key, 64 hex characters.
 - `apiPublicKey` is optional, literal or a configuration variable. The plugin derives the public key from the private key. When `apiPublicKey` is set, the plugin checks that the two match before it sends any request.
+- `transactionSigning` is `"transaction"` (the default) or `"digest"`. With `"transaction"`, each transaction goes to Turnkey's `sign_transaction` activity, so Turnkey's policies can read its fields (`eth.tx.*`). With `"digest"`, the plugin sends the transaction's 32-byte hash through `sign_raw_payload` with `HASH_FUNCTION_NO_OP`, as Foundry does. Use `"digest"` for a key whose policy is shared with Foundry and allows only `SIGN_RAW_PAYLOAD`; see [Turnkey transaction signing](../guides/turnkey-setup.md#transactions-as-a-digest-as-foundry-signs-them). Any other value fails when the config loads.
 
 As for the other built-in providers, an unknown field fails at the key's path, such as `config.kms.keys.deployer: Unrecognized key(s) in object: 'baseUrl'`, not at the field. There is no field for Turnkey's API URL: the plugin always calls `https://api.turnkey.com`.
 

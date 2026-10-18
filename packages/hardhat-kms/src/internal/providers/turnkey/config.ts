@@ -23,7 +23,7 @@ function isTurnkeyOrganizationId(value: string): boolean {
 
 /**
  * Validates a Turnkey key config. `address` is required, the API private key is a configuration
- * variable only, and unknown fields fail.
+ * variable only, `transactionSigning` is `"transaction"` or `"digest"`, and unknown fields fail.
  */
 export const turnkeyKeySchema: z.ZodTypeAny = z
   .object({
@@ -31,6 +31,7 @@ export const turnkeyKeySchema: z.ZodTypeAny = z
     organizationId: identifierSchema,
     apiPrivateKey: secretSchema,
     apiPublicKey: identifierSchema.optional(),
+    transactionSigning: z.enum(["transaction", "digest"]).optional(),
     ...commonKeyFields,
   })
   .strict()
@@ -81,6 +82,7 @@ export function resolveTurnkeyKey(
     ...resolveCommonKeyConfig(key, context, `turnkey:${organizationId.display}/${address}`),
     address,
     organizationId,
+    transactionSigning: key.transactionSigning ?? "transaction",
     apiPrivateKey: resolveIdentifier(
       key.apiPrivateKey,
       context.resolveVariable,

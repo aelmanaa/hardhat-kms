@@ -102,6 +102,8 @@ export interface TurnkeyAdapterOptions {
  *
  * It signs transactions with Turnkey's `sign_transaction` activity, so that Turnkey's policies
  * can read their fields (`eth.tx.*`), and messages, typed data and digests with `sign_raw_payload`.
+ * A key with `transactionSigning: "digest"` has no `signTransaction`: the core then signs each
+ * transaction's digest with `signDigest`.
  * Both send the key's checksummed `address` as `signWith`, as alloy's Turnkey signer does. The core pins the key to that address and checks
  * every signature against it by recovery. The adapter reads the API keys on the first signature,
  * derives the API public key from the private key, and fails before any request when a configured
@@ -118,9 +120,22 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
   #session: Promise<Session> | undefined;
   #lastTimestamp = 0;
 
+  /**
+   * Set only when the key signs transactions through `sign_transaction`. With
+   * `transactionSigning: "digest"` the adapter has no `signTransaction`, so the core signs each
+   * transaction's digest with `signDigest`, as Foundry does.
+   */
+  declare public readonly signTransaction?: (
+    request: { unsigned: Uint8Array; digest: Uint8Array; type: number; chainId: bigint },
+    ctx: SignContext,
+  ) => Promise<SignatureOutput>;
+
   public constructor(key: TurnkeyKmsKeyConfig, transport: Transport) {
     this.#key = key;
     this.#transport = transport;
+    if (key.transactionSigning === "transaction") {
+      this.signTransaction = async (request, ctx) => await this.#signTransaction(request, ctx);
+    }
   }
 
   public describe(): KeyDescription {
@@ -170,7 +185,7 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
    * adapter checks that its type and fields are those of `unsigned`, and returns only `r`, `s`
    * and the parity. The core verifies them against its own digest and broadcasts its own bytes.
    */
-  public async signTransaction(
+  async #signTransaction(
     request: { unsigned: Uint8Array; digest: Uint8Array; type: number; chainId: bigint },
     ctx: SignContext,
   ): Promise<SignatureOutput> {
@@ -186,7 +201,7 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
         type: SIGN_TRANSACTION,
         parameters: transactionPayload(request.unsigned),
         forbiddenHint:
-          " (a transaction, sent as ACTIVITY_TYPE_SIGN_TRANSACTION_V2: a policy that allows only SIGN_RAW_PAYLOAD denies it)",
+          " (a transaction, sent as ACTIVITY_TYPE_SIGN_TRANSACTION_V2: a policy that allows only SIGN_RAW_PAYLOAD denies it; to sign the transaction's hash instead, as Foundry does, set the key's transactionSigning to \"digest\")",
         read: (result) => {
           const signed = signedTransactionOf(result);
           return "kind" in signed ? signed : signatureOfSignedTransaction(signed, expected);

@@ -420,6 +420,8 @@ describe("validateKmsUserConfig: Turnkey keys", () => {
         timeoutMs: 10_000,
       }),
       turnkey({ apiPublicKey: "02abcdef", address: ADDRESS.toLowerCase() }),
+      turnkey({ transactionSigning: "transaction" }),
+      turnkey({ transactionSigning: "digest" }),
     ]) {
       assert.deepEqual(validate(inKeys(key)), []);
       assert.deepEqual(validate(inline(key)), []);
@@ -453,6 +455,17 @@ describe("validateKmsUserConfig: Turnkey keys", () => {
       [turnkey({ organizationId: `${ORGANIZATION_ID}0` }), "organizationId", "a UUID"],
       [turnkey({ apiPublicKey: 42 }), "apiPublicKey", "Expected a string or a Configuration"],
       [turnkey({ timeoutMs: 0 }), "timeoutMs", "at least 1"],
+      [
+        turnkey({ transactionSigning: "hash" }),
+        "transactionSigning",
+        "Invalid enum value. Expected 'transaction' | 'digest', received 'hash'",
+      ],
+      [turnkey({ transactionSigning: "Digest" }), "transactionSigning", "received 'Digest'"],
+      [
+        turnkey({ transactionSigning: true }),
+        "transactionSigning",
+        "Expected 'transaction' | 'digest'",
+      ],
     ] as const) {
       assertError(inKeys(key), `kms.keys.a.${field}`, message, 1);
       assertError(inline(key), `networks.sepolia.kmsAccounts.0.${field}`, message, 1);

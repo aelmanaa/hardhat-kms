@@ -99,7 +99,7 @@ afterEach(() => {
 });
 
 /** A runtime whose Turnkey adapters talk to the stub, through the package's own handler. */
-async function runtime(network?: string) {
+async function runtime(network?: string, transactionSigning?: "transaction" | "digest") {
   const hre = await createHardhatRuntimeEnvironment(
     {
       plugins: [hardhatKmsTurnkey, hardhatViem, hardhatEthers],
@@ -111,6 +111,7 @@ async function runtime(network?: string) {
             address: ACCOUNT.address.toLowerCase(),
             apiPrivateKey: configVariable("HHKMS_TEST_TURNKEY_API_PRIVATE_KEY"),
             apiPublicKey: API_PUBLIC_KEY,
+            ...(transactionSigning === undefined ? {} : { transactionSigning }),
           },
         },
         simulatedBalance: 10n ** 20n,
@@ -386,6 +387,55 @@ describe("@hardhat-kms/turnkey in a Hardhat runtime", () => {
       "eip7702",
     ]);
     assert.equal(stub.bodies(SIGN_PATH).length, 0);
+  });
+
+  it("signs types 0, 1, 2 and 4 as NO_OP digests through sign_raw_payload with transactionSigning digest", async () => {
+    const hre = await runtime(undefined, "digest");
+    const { viem } = await hre.network.create("local");
+    const wallet = await viem.getWalletClient(ADDRESS);
+    const client = await viem.getPublicClient();
+
+    const hashes: Hex[] = [
+      await wallet.sendTransaction({
+        to: OTHER.address,
+        value: 1n,
+        type: "legacy",
+        gasPrice: GAS_PRICE,
+      }),
+      await wallet.sendTransaction({
+        to: OTHER.address,
+        value: 1n,
+        type: "eip2930",
+        gasPrice: GAS_PRICE,
+      }),
+      await wallet.deployContract({ abi: [], bytecode: BYTECODE, type: "eip1559" }),
+      await wallet.sendTransaction({
+        to: OTHER.address,
+        authorizationList: [await authorizationOf(0)],
+      }),
+    ];
+    for (const hash of hashes) {
+      const receipt = await client.waitForTransactionReceipt({ hash });
+      assert.equal(receipt.status, "success");
+      assert.equal(getAddress(receipt.from), ADDRESS);
+    }
+
+    assert.equal(stub.bodies(SIGN_TRANSACTION_PATH).length, 0);
+    const parameters = signParameters();
+    assert.equal(parameters.length, 4);
+    for (const sent of parameters) {
+      const fields: object = Object(sent);
+      assert.deepEqual(Object.keys(fields).toSorted(), [
+        "encoding",
+        "hashFunction",
+        "payload",
+        "signWith",
+      ]);
+      assert.equal(Reflect.get(fields, "encoding"), "PAYLOAD_ENCODING_HEXADECIMAL");
+      assert.equal(Reflect.get(fields, "hashFunction"), "HASH_FUNCTION_NO_OP");
+      assert.match(String(Reflect.get(fields, "payload")), /^[0-9a-f]{64}$/);
+    }
+    assert.ok(stub.requests.every((request) => request.stamped));
   });
 
   it("signs with kms sign-tx through sign_transaction", async () => {

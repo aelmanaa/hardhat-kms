@@ -773,7 +773,7 @@ describe("the Turnkey adapter's transactions", () => {
       adapter.signTransaction?.(transactionRequest(type, eip1559), signContext()) ??
         Promise.resolve(),
       failsWith(
-        /^turnkey, sign transaction, key [^:]+:[^:]+: Turnkey answered 403 REQUEST_NOT_AUTHORIZED: no policy lets the API key's user sign this request with this address \(a transaction, sent as ACTIVITY_TYPE_SIGN_TRANSACTION_V2: a policy that allows only SIGN_RAW_PAYLOAD denies it\)\. Add a policy/,
+        /^turnkey, sign transaction, key [^:]+:[^:]+: Turnkey answered 403 REQUEST_NOT_AUTHORIZED: no policy lets the API key's user sign this request with this address \(a transaction, sent as ACTIVITY_TYPE_SIGN_TRANSACTION_V2: a policy that allows only SIGN_RAW_PAYLOAD denies it; to sign the transaction's hash instead, as Foundry does, set the key's transactionSigning to "digest"\)\. Add a policy/,
       ),
     );
     assert.equal(stub.requests.length, 1);
@@ -818,5 +818,17 @@ describe("the Turnkey adapter's transactions", () => {
     await adapter.signTransaction?.(request, signContext());
     assert.deepEqual(request.unsigned, before.unsigned);
     assert.deepEqual(request.digest, before.digest);
+  });
+
+  it("has no signTransaction with transactionSigning digest, and signs digests as before", async () => {
+    const { stub, adapter } = await setUp(turnkeyKey({ transactionSigning: "digest" }));
+    assert.ok(!("signTransaction" in adapter));
+    await sign(adapter, "digest");
+    assert.equal(stub.bodies(SIGN_TRANSACTION_PATH).length, 0);
+    assert.equal(stub.bodies(SIGN_PATH).length, 1);
+
+    const transaction = await setUp(turnkeyKey({ transactionSigning: "transaction" }));
+    assert.ok("signTransaction" in transaction.adapter);
+    assert.equal(typeof Reflect.get(transaction.adapter, "signTransaction"), "function");
   });
 });

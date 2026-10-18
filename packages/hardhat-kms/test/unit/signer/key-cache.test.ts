@@ -497,6 +497,7 @@ function turnkeyKey(changes: Partial<TurnkeyKmsKeyConfig> = {}): TurnkeyKmsKeyCo
     address: COW_ACCOUNT.address,
     organizationId: literal("f81d4fae-7dec-11d0-a765-00a0c91e6bf6"),
     apiPrivateKey: variable("TURNKEY_API_PRIVATE_KEY", noRead),
+    transactionSigning: "transaction",
     timeoutMs: 1000,
     ...changes,
   };
