@@ -54,7 +54,7 @@ A Turnkey key signs with a P-256 API key of a Turnkey user. The key's `apiPrivat
 - The value is the private key's 64 hex characters. The Turnkey CLI's private key file adds a colon and the curve name, such as `:p256`, which the value must not include.
 - Foundry's `cast --turnkey` reads `TURNKEY_API_PRIVATE_KEY` and `TURNKEY_ORGANIZATION_ID`. Name the variables the same way and one environment serves both tools; the address goes in the config, not in `TURNKEY_ADDRESS`.
 - Each Turnkey key names its own variable, so the keys of one run can belong to different Turnkey users and organizations.
-- In CI the key is a stored secret: Turnkey has no keyless federation like the OIDC sign-in the clouds accept. Use the key of a non-root user, give it an expiry and rotate it ([Set up a Turnkey wallet account](../guides/turnkey-setup.md#give-the-key-an-expiry-and-rotate-it)). A root user's API key bypasses every Turnkey policy.
+- In CI the key is a stored secret: the plugin signs only with an API key from a variable, not with the expiring keys Turnkey issues on an email, SMS, OAuth or wallet login ([Credentials](https://docs.turnkey.com/features/users/credentials#types)). Use the key of a non-root user that a policy denies credential changes, give it an expiry and rotate it ([Set up a Turnkey wallet account](../guides/turnkey-setup.md#give-the-key-an-expiry-and-rotate-it)). A root user's API key bypasses every Turnkey policy.
 
 ## One identity per run on Google Cloud and Azure
 

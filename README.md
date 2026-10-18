@@ -5,7 +5,7 @@
 
 # hardhat-kms
 
-Sign Hardhat 3 transactions, messages and typed data with keys held in **AWS KMS**, **Google Cloud KMS**, **Azure Key Vault** or **Turnkey**. The private key never leaves the KMS.
+Sign Hardhat 3 transactions, messages and typed data with keys held in **AWS KMS**, **Google Cloud KMS**, **Azure Key Vault** or **Turnkey**. The private key never leaves the KMS; a Turnkey wallet can be exported only by a root user or a user that a policy allows to.
 
 Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google, Microsoft or Turnkey.
 

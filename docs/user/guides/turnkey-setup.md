@@ -5,7 +5,7 @@ description: "Turnkey setup for Ethereum signing: a test organization, a non-roo
 
 # Set up a Turnkey wallet account
 
-This guide creates an Ethereum wallet account in a Turnkey organization, a non-root API user that may sign with that one account and nothing else, and the API key that user signs with. It then adds the account to a Hardhat project and checks that it signs.
+This guide creates an Ethereum wallet account in a Turnkey organization, a non-root API user that may sign with that one account and may not change its own credentials, and the API key that user signs with. It then adds the account to a Hardhat project and checks that it signs.
 
 You need a Turnkey dashboard account and the [Turnkey CLI](https://docs.turnkey.com/sdks/cli) (`turnkey`).
 
@@ -14,11 +14,11 @@ With `@hardhat-kms/turnkey`, a connection lists the account and signs transactio
 > [!NOTE]
 > Audience: users who keep a deployer or operator key in Turnkey, including users who sign with it from Foundry's `cast --turnkey`.
 >
-> The policies in [step 4](#4-allow-signing-with-one-account-and-nothing-else) follow Turnkey's policy documentation, read on 2026-10-18. The plugin's tests replace Turnkey with a local stub, and no test has run these policies against Turnkey yet. Until one does, [step 7](#7-check-that-the-key-signs) is how you check them.
+> The policies in [step 4](#4-allow-signing-with-one-account-and-deny-credential-changes) follow Turnkey's policy documentation, read on 2026-10-18. The plugin's tests replace Turnkey with a local stub, and no test has run these policies against Turnkey yet. Until one does, [step 7](#7-check-that-the-key-signs) is how you check them.
 
 ## 1. Create a test organization
 
-Turnkey's own advice is to keep separate development and production organizations ([Production checklist](https://docs.turnkey.com/get-started/production-checklist)). Start with a test organization: sign up at [app.turnkey.com](https://app.turnkey.com/dashboard/v2/auth/initial), confirm your email and add an authenticator. The organization's id is in the user menu at the top right of the dashboard ([Turnkey CLI](https://docs.turnkey.com/sdks/cli#find-your-organization-id)). It is a UUID:
+"Many of our customers prefer to maintain separate Development and Production organizations", says Turnkey's [Production checklist](https://docs.turnkey.com/get-started/production-checklist). Start with a test organization: sign up at [app.turnkey.com](https://app.turnkey.com/dashboard/v2/auth/initial), confirm your email and add an authenticator. The organization's id is in the user menu at the top right of the dashboard ([Turnkey CLI](https://docs.turnkey.com/sdks/cli#find-your-organization-id)). It is a UUID:
 
 ```sh
 export ORGANIZATION_ID="<organization id>"
@@ -26,7 +26,7 @@ export ORGANIZATION_ID="<organization id>"
 
 The user that creates the organization is its root quorum, alone, with a threshold of 1 ([Root quorum](https://docs.turnkey.com/features/users/root-quorum#defaults)). That user sets up everything below. It must not be the user that signs; [step 3](#3-create-a-non-root-api-user) says why.
 
-To run the setup commands with the Turnkey CLI, give the root user an API key: `turnkey generate api-key --organization "$ORGANIZATION_ID" --key-name admin`, then add the printed public key to your user under "My Profile", "New API key" ([Turnkey CLI](https://docs.turnkey.com/sdks/cli#add-an-api-key)). Keep this key on your own machine. It is a root key: it bypasses every policy. Delete it when the setup is done, or do the same steps in the dashboard instead.
+To run the setup commands with the Turnkey CLI, give the root user an API key: `turnkey generate api-key --organization "$ORGANIZATION_ID" --key-name admin`, then add the printed public key to your user under "My Profile", "New API key" ([Turnkey CLI](https://docs.turnkey.com/sdks/cli#add-an-api-key)). Keep this key on your own machine. It is a root key: it bypasses every policy. Later steps need a root key again, to create policies, rotate the API user's key and reject a pending activity, so either keep it offline between uses, or delete it after the setup and add a new one when you need it. The dashboard can do the same steps.
 
 ## 2. Create a wallet with one Ethereum account
 
@@ -38,7 +38,7 @@ turnkey wallets accounts list --wallet hardhat --key-name admin
 
 The last command lists the account's address, such as `0x08cb1216C95149DF66978b574E484869512CE2bF` ([Turnkey CLI](https://docs.turnkey.com/sdks/cli#create-an-ethereum-account)). The policy in step 4 and the config in step 6 both use it. Copy it as Turnkey prints it. Turnkey's docs do not say whether the policy's address comparison ignores case, so do not change its case in the policy.
 
-The account's private key stays in Turnkey. Deleting the wallet loses the address for good, with any funds and roles it holds.
+The account's private key is held by Turnkey, and Turnkey can export a wallet or wallet account (`EXPORT_WALLET`, `EXPORT_WALLET_ACCOUNT`). A root user can export it, and so can any user a policy allows to ([Activity types by resource and action](https://docs.turnkey.com/features/policies/language#activity-types-by-resource-and-action), [Policies overview](https://docs.turnkey.com/features/policies/overview#policy-evaluation)). The policies in step 4 allow no export. Deleting the wallet loses the address for good, with any funds and roles it holds.
 
 ## 3. Create a non-root API user
 
@@ -56,13 +56,18 @@ Generate a P-256 API key pair for the new user on the machine that will use it. 
 turnkey generate api-key --organization "$ORGANIZATION_ID" --key-name hardhat-deployer
 ```
 
-It prints the `publicKey`, 66 hex characters, and the path of the private key file. In the dashboard, open the Team page, click "New User", then "Service User", and enter a name and an API key name. Under "Advanced Settings", paste the public key. A service user is an API-only user: it has no email and no web access ([Policy quickstart](https://docs.turnkey.com/features/policies/quickstart#create-your-new-users)). The new user is not in the root quorum. Note its user id, a UUID: the policy names it.
+It prints the `publicKey`, 66 hex characters, and the path of the private key file. In the dashboard, open the Team page, click "New User", then "Service User", and enter a name and an API key name. Under "Advanced Settings", paste the public key. A service user is an API-only user, for which "an email is not required" ([Policy quickstart](https://docs.turnkey.com/features/policies/quickstart#create-your-new-users)). The new user is not in the root quorum. Note its user id, a UUID: the policy names it.
 
 The private key file holds the key's 64 hex characters, followed by a colon and the curve name, such as `:p256` (`tkhq/go-sdk` `crypto/store.go` at `0a956dd`). The plugin takes the 64 hex characters alone ([step 5](#5-store-the-api-private-key)).
 
-## 4. Allow signing with one account, and nothing else
+## 4. Allow signing with one account, and deny credential changes
 
-Non-root users are denied everything a policy does not allow ("implicit deny"), and a policy with `EFFECT_DENY` wins over every policy that allows ([Policies overview](https://docs.turnkey.com/features/policies/overview#policy-evaluation)). The two policies below allow the API user to sign with one wallet account, in the forms the plugin uses, and nothing else.
+Non-root users are denied what no policy allows ("implicit deny"), and a policy with `EFFECT_DENY` wins over every policy that allows ([Policies overview](https://docs.turnkey.com/features/policies/overview#policy-evaluation)). The same page lists exceptions to implicit deny. Two matter here:
+
+- "All users have implicit permission to change their own credentials, unless a policy explicitly allows or denies those actions." Without a policy, whoever holds the API user's key can add another API key to that user, one that never expires, and keep signing after you rotate and delete the key you know. The Credentials page says that "a non-root user's key can only perform actions a policy explicitly allows" ([Credentials](https://docs.turnkey.com/features/users/credentials#lost-or-compromised-api-keys)); this guide follows the overview's narrower statement and denies credential changes explicitly.
+- "All users have implicit permission to approve an activity if they were included in consensus." The API user is in the consensus of the policies below only for its own requests.
+
+The first two policies below allow the API user to sign with one wallet account, in the forms the plugin uses. The third denies it every credential change.
 
 ### What the plugin sends
 
@@ -78,7 +83,7 @@ A later release will sign transactions through Turnkey's `sign_transaction` acti
 
 ### The policies
 
-Create both in the dashboard: open "Policies", click "Add new policy", and enter each one ([Policy quickstart](https://docs.turnkey.com/features/policies/quickstart#create-policies-for-your-new-users)). Replace `<API_USER_ID>` with the user id from step 3 and `<WALLET_ACCOUNT_ADDRESS>` with the address from step 2, in both.
+Create all three in the dashboard, as a root user: open "Policies", click "Add new policy", and enter each one ([Policy quickstart](https://docs.turnkey.com/features/policies/quickstart#create-policies-for-your-new-users)). Replace `<API_USER_ID>` with the user id from step 3 and `<WALLET_ACCOUNT_ADDRESS>` with the address from step 2, wherever they appear.
 
 The first policy allows the raw-payload signatures, in the three forms of the table and no other:
 
@@ -104,6 +109,18 @@ The second allows Turnkey's transaction-signing activity with the same account:
 }
 ```
 
+The third denies the API user any change to credentials: creating or deleting API keys, authenticators and OAuth providers, its own included:
+
+```json
+{
+  "policyName": "hardhat-kms: the API user may not change credentials",
+  "notes": "Rotate this user's API keys with a root user's key.",
+  "effect": "EFFECT_DENY",
+  "consensus": "approvers.any(user, user.id == '<API_USER_ID>')",
+  "condition": "activity.resource == 'CREDENTIAL'"
+}
+```
+
 Where each part comes from in Turnkey's documentation:
 
 - The fields: `policyName`, `notes` (required, and may be empty), `effect`, `consensus` and `condition` ([Policies overview](https://docs.turnkey.com/features/policies/overview#policy-structure)).
@@ -111,11 +128,12 @@ Where each part comes from in Turnkey's documentation:
 - `wallet_account.address == '<WALLET_ACCOUNT_ADDRESS>'` limits a policy to one account: "Allow a specific user to sign transactions with a specific wallet account address" in the [signing examples](https://docs.turnkey.com/features/policies/examples/signing-control).
 - `activity.kind == 'SIGN_RAW_PAYLOAD'` matches `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD` and `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2`, and `activity.kind == 'SIGN_TRANSACTION'` matches `ACTIVITY_TYPE_SIGN_TRANSACTION` and `ACTIVITY_TYPE_SIGN_TRANSACTION_V2`. Turnkey recommends `activity.kind` over `activity.type`, because a policy on one type stops matching when Turnkey adds a new version of the activity ([Activity kinds](https://docs.turnkey.com/features/policies/language#activity-kinds), [Choosing between type, kind, and resource + action](https://docs.turnkey.com/features/policies/language#choosing-between-type-kind-and-resource--action)). `SIGN_RAW_PAYLOADS`, the batch activity, is a separate kind, so neither policy allows it. "Allow a specific user to sign transactions across all versions" in the [access control examples](https://docs.turnkey.com/features/policies/examples) uses `activity.kind == 'SIGN_TRANSACTION'`.
 - `activity.params.encoding` and `activity.params.hash_function` are the raw-payload parameters Turnkey exposes to policies, for both versions of the activity ([Activity parameters](https://docs.turnkey.com/features/policies/language#activity-parameters)). Turnkey's own "Deny NO_OP hash signing" example combines them with the activity in one condition ([Examples](https://docs.turnkey.com/features/policies/language#examples)).
+- `activity.resource == 'CREDENTIAL'` matches every activity Turnkey files under the `CREDENTIAL` resource: `ACTIVITY_TYPE_CREATE_API_KEYS_V2`, `ACTIVITY_TYPE_CREATE_AUTHENTICATORS_V2`, `ACTIVITY_TYPE_DELETE_API_KEYS`, `ACTIVITY_TYPE_DELETE_AUTHENTICATORS`, `ACTIVITY_TYPE_CREATE_OAUTH_PROVIDERS_V2` and `ACTIVITY_TYPE_DELETE_OAUTH_PROVIDERS` ([Activity resources and actions](https://docs.turnkey.com/features/policies/language#activity-resources-and-actions), [Activity types by resource and action](https://docs.turnkey.com/features/policies/language#activity-types-by-resource-and-action)). An `EFFECT_DENY` policy with a `consensus` on users is the form of "Deny all delete actions for users with a specific tag" in the [access control examples](https://docs.turnkey.com/features/policies/examples). The deny applies when the API user approves the activity, which it does by submitting it; a root user's request is not denied, since the root quorum bypasses policies.
 - `&&`, `||` and string comparison with `==` are in the [operator table](https://docs.turnkey.com/features/policies/language), strings take single quotes only ([Primitive types](https://docs.turnkey.com/features/policies/language#primitive)), and Turnkey's examples group clauses in parentheses ([Access control examples](https://docs.turnkey.com/features/policies/examples)).
 
 The two activities are in separate policies because Turnkey's policy engine "does not short circuit": a clause that fails to evaluate makes the whole policy's outcome an error, and Turnkey advises splitting such policies ([Policy evaluation](https://docs.turnkey.com/features/policies/language#policy-evaluation)). A transaction-signing activity has no `encoding` or `hash_function` parameter, and reading a parameter an activity does not expose "produces a `MissingField` evaluation error" ([Activity parameters](https://docs.turnkey.com/features/policies/language#activity-parameters)), so one policy for both activities would fail to evaluate for one of them.
 
-An organization on the Free, Pay-as-you-go or Pro plan has 5 policies ([Resource limits](https://docs.turnkey.com/reference/resource-limits)). These two use two of them.
+An organization on the Free, Pay-as-you-go or Pro plan has 5 policies ([Resource limits](https://docs.turnkey.com/reference/resource-limits)). These use three of them. Like the two allow policies, the deny policy has not been run against Turnkey yet.
 
 ### Policies written for Foundry
 
@@ -159,13 +177,13 @@ env:
   TURNKEY_ORGANIZATION_ID: ${{ vars.TURNKEY_ORGANIZATION_ID }}
 ```
 
-Turnkey has no keyless federation like the OIDC sign-in that AWS, Google Cloud and Azure accept from CI: the job holds a long-lived API key. Give it an expiry and rotate it, as below.
+The plugin signs only with an API key held in a variable, so the CI job holds that key. Turnkey's expiring keys come from interactive logins ("issued automatically when a user authenticates via email, SMS, OAuth, or wallet auth", [Credentials](https://docs.turnkey.com/features/users/credentials#types)), which the plugin does not support. Give the key an expiry and rotate it, as below.
 
 The plugin reads the variable on the first signature, never when the config loads. It never prints, logs or puts the key in an error, even with `--show-ids`, and errors show the organization id as `<TURNKEY_ORGANIZATION_ID>` when it comes from a variable ([configuration reference](../reference/configuration.md#key-forms-per-provider)).
 
 ### Give the key an expiry, and rotate it
 
-Turnkey's API takes an expiry for each API key, `expirationSeconds` on `create_api_keys` ([Create API keys](https://docs.turnkey.com/api-reference/activities/create-api-keys)); Turnkey's docs do not say whether the dashboard's form sets one. Rotation follows Turnkey's steps: create a new key for the user, update the integration and check it, then delete the old key ([Rotate API keys](https://docs.turnkey.com/features/users/credentials#rotate-api-keys)). To give the user a key that expires in 90 days, generate a new key pair as in step 3, then add its public key, as the root user:
+Turnkey's API takes an expiry for each API key, `expirationSeconds` on `create_api_keys` ([Create API keys](https://docs.turnkey.com/api-reference/activities/create-api-keys)); Turnkey's docs do not say whether the dashboard's form sets one. Rotation follows Turnkey's steps: create a new key for the user, update the integration and check it, then delete the old key ([Rotate API keys](https://docs.turnkey.com/features/users/credentials#rotate-api-keys)). The deny policy of step 4 stops the API user from adding or deleting its own keys, so run these steps with a root user's key, here `admin`, or as a user that a policy allows to manage this user's keys. To give the user a key that expires in 90 days, generate a new key pair as in step 3, then add its public key:
 
 ```sh
 turnkey request --path /public/v1/submit/create_api_keys --body '{
@@ -186,7 +204,16 @@ turnkey request --path /public/v1/submit/create_api_keys --body '{
 }' --key-name admin
 ```
 
-Set `TURNKEY_API_PRIVATE_KEY` to the new private key, check it with [step 7](#7-check-that-the-key-signs), then delete the old key with `delete_api_keys` (`ACTIVITY_TYPE_DELETE_API_KEYS`, with the `userId` and the old key's id in `apiKeyIds`; [Delete API keys](https://docs.turnkey.com/api-reference/activities/delete-api-keys)). A user holds at most 10 long-lived and 10 expiring API keys. Creating an expiring key past the limit makes Turnkey delete one of the user's keys, an expired one first, else the oldest ([Resource limits](https://docs.turnkey.com/reference/resource-limits)). An expired key fails with `turnkey.service.unauthenticated`.
+Set `TURNKEY_API_PRIVATE_KEY` to the new private key, check it with [step 7](#7-check-that-the-key-signs), then delete the old key with `delete_api_keys` (`ACTIVITY_TYPE_DELETE_API_KEYS`, with the `userId` and the old key's id in `apiKeyIds`; [Delete API keys](https://docs.turnkey.com/api-reference/activities/delete-api-keys)). A user holds at most 10 long-lived and 10 expiring API keys. Creating an expiring key past the limit makes Turnkey delete one of the user's keys, an expired one first, else the oldest ([Resource limits](https://docs.turnkey.com/reference/resource-limits)). Turnkey's docs do not say whether a key created with `expirationSeconds` counts as "expiring" for that rule. An expired key fails with `turnkey.service.unauthenticated`.
+
+If you suspect the API key leaked, list the user's API keys with `get_api_keys`, which takes `organizationId` and `userId` ([Get API keys](https://docs.turnkey.com/api-reference/queries/get-api-keys)), and delete every key you did not create, as well as the leaked one, with `delete_api_keys`. Run both with a root user's key:
+
+```sh
+turnkey request --path /public/v1/query/get_api_keys --body '{
+  "organizationId": "'"$ORGANIZATION_ID"'",
+  "userId": "<API_USER_ID>"
+}' --key-name admin
+```
 
 ## 6. Install the plugin and configure the key
 
@@ -240,7 +267,7 @@ export default defineConfig({
 
 The fields:
 
-- `organizationId`: the organization or sub-organization that holds the account, a UUID, literal or a configuration variable. Copy it from the dashboard; a value that is not a UUID fails with `core.config.turnkey-organization-id`.
+- `organizationId`: the organization or sub-organization that holds the account, a UUID, literal or a configuration variable. Copy it from the dashboard. A literal that is not a UUID fails when the config loads, with `core.config.turnkey-organization-id`; a variable whose value is not a UUID fails when the key is first used, with `core.config.invalid-value` and the reason `expected a Turnkey organization id, a UUID`.
 - `address`: required. The plugin signs with it as `signWith`, and it is the key's pin: the plugin checks every signature against it. A key without it fails with `core.config.turnkey-address-required`. Foundry reads `TURNKEY_ADDRESS` from the environment; here the address is written in the config, so changing the environment cannot change which account signs.
 - `apiPrivateKey`: the API private key, as `configVariable(NAME)` only ([step 5](#5-store-the-api-private-key)).
 - `apiPublicKey`: optional, literal or a configuration variable. The plugin derives the public key from the private key, as Foundry does. When you set it, the plugin checks that the two match before it sends any request, and fails with `turnkey.credential.public-key-mismatch` if they do not.
@@ -316,9 +343,9 @@ turnkey request --path /public/v1/submit/reject_activity --body '{
 }' --key-name admin
 ```
 
-Run both as a user who takes part in the policy's consensus, such as an approver, or do the same in the dashboard. Whether the API user that made the request may reject its own activity is not documented. The activity then ends as `ACTIVITY_STATUS_REJECTED`.
+Run both with a root user's key or as a user who takes part in the policy's consensus, such as an approver, or do the same in the dashboard. Whether the API user that made the request may reject its own activity is not documented. The activity then ends as `ACTIVITY_STATUS_REJECTED`.
 
-To sign from Hardhat with this account, give the API user a policy that allows the plugin's requests without approval, as in [step 4](#4-allow-signing-with-one-account-and-nothing-else).
+To sign from Hardhat with this account, give the API user a policy that allows the plugin's requests without approval, as in [step 4](#4-allow-signing-with-one-account-and-deny-credential-changes).
 
 ## What Turnkey records
 

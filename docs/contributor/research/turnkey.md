@@ -75,7 +75,7 @@ kms: {
 - `apiPrivateKey`: only a configuration variable. The schema uses `configurationVariableSchema` from `@nomicfoundation/hardhat-zod-utils` alone, not `sensitiveStringSchema`, so a literal key in the config fails validation. Hardhat resolves it from the environment or `hardhat-keystore`. It is never printed, logged or put in an error.
 - `apiPublicKey`: optional. The adapter derives the public key from the private key (as Foundry does, F20). When given, it must match the derived key, or the adapter fails with a clear local error before any request ("the API public key does not match the API private key"), instead of a 401.
 - `pinnedId`: the checksummed address. `displayId`: `turnkey:<organizationId or <VAR>>/<address>`.
-- Not in config: `baseUrl`. Tests inject it through the adapter factory. A user-settable URL would add an `https` rule and a phishing surface for little gain. Owner decision D5.
+- Not in config: `baseUrl`. Tests inject it through the adapter factory. A user-settable URL would add an `https` rule and a phishing surface for little gain. Decision D5 (section 7).
 - `signWith` by private key id: out of scope; an Ethereum private key also has an address, which works as `signWith` (F2).
 
 The descriptor lives in the core, as for the other providers, so `provider: "turnkey"` is validated even without the package installed, and the missing-package error names `@hardhat-kms/turnkey`.
