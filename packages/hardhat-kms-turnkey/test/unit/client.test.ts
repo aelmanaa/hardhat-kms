@@ -284,6 +284,19 @@ describe("TurnkeyClient retries", () => {
   });
 });
 
+/** A 200 whose body breaks after `{"activity":`, as when the connection resets mid-body. */
+function brokenBody(
+  error: unknown = new TypeError("terminated", { cause: { code: "ECONNRESET" } }),
+): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"activity":'));
+      controller.error(error);
+    },
+  });
+  return new Response(stream, { status: 200 });
+}
+
 describe("TurnkeyClient answers", () => {
   const cases: Array<[string, StubAnswer, RegExp]> = [
     [
@@ -439,6 +452,91 @@ describe("TurnkeyClient answers", () => {
       client.send(SIGN_PATH, BODY, ctx),
       failsWith(/Turnkey answered 300, a redirect/),
     );
+  });
+});
+
+describe("TurnkeyClient and a body that breaks", () => {
+  it("retries a body that breaks while it is read, with the same bytes, and returns the next answer", async () => {
+    const { stub, client, ctx, transport } = setUp();
+    const fetch = stub.fetch;
+    const bodies: unknown[] = [];
+    let calls = 0;
+    transport.fetch = async (input, init) => {
+      calls++;
+      bodies.push(init?.body);
+      return calls === 1 ? brokenBody() : await fetch(input, init);
+    };
+    stub.answer({ status: 200, json: { activity: { id: "x" } } });
+
+    const answer = await client.send(SIGN_PATH, BODY, ctx);
+
+    assert.deepEqual(answer, { status: 200, body: { activity: { id: "x" } } });
+    assert.deepEqual(bodies, [BODY, BODY]);
+    assert.deepEqual(transport.waits, [188]);
+  });
+
+  it("reports a body that keeps breaking as unreachable after 4 attempts, with the error's code", async () => {
+    const { client, ctx, transport } = setUp();
+    let calls = 0;
+    transport.fetch = async () => {
+      calls++;
+      return await Promise.resolve(brokenBody());
+    };
+    await assert.rejects(
+      client.send(SIGN_PATH, BODY, ctx),
+      failsWith(/Turnkey could not be reached after 4 attempts \(ECONNRESET\)/),
+    );
+    assert.equal(calls, 4);
+  });
+
+  it("rejects with the signal's reason when the signal aborts while the body is read", async () => {
+    const { client, ctx, controller, transport } = setUp();
+    const reason = new Error("timed out");
+    let calls = 0;
+    transport.fetch = async () => {
+      calls++;
+      const stream = new ReadableStream<Uint8Array>({
+        start(streamController) {
+          streamController.enqueue(new TextEncoder().encode('{"activity":'));
+        },
+        pull(streamController) {
+          controller.abort(reason);
+          streamController.error(new DOMException("aborted", "AbortError"));
+        },
+      });
+      return await Promise.resolve(new Response(stream, { status: 200 }));
+    };
+    await assert.rejects(client.send(SIGN_PATH, BODY, ctx), (error) => error === reason);
+    assert.equal(calls, 1);
+    assert.deepEqual(transport.waits, []);
+  });
+
+  it("does not read the body of a redirect", async () => {
+    const { client, ctx, transport } = setUp();
+    let read = false;
+    transport.fetch = async () => {
+      // No queue: the stream pulls only when someone reads it.
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          pull() {
+            read = true;
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      return await Promise.resolve(new Response(stream, { status: 302 }));
+    };
+    await assert.rejects(
+      client.send(SIGN_PATH, BODY, ctx),
+      failsWith(/Turnkey answered 302, a redirect/),
+    );
+    assert.equal(read, false);
+  });
+
+  it("returns a complete body that is not JSON as no body, for the reader to refuse", async () => {
+    const { stub, client, ctx } = setUp();
+    stub.answer({ status: 200, text: '{"activity":' });
+    assert.deepEqual(await client.send(SIGN_PATH, BODY, ctx), { status: 200, body: undefined });
   });
 });
 

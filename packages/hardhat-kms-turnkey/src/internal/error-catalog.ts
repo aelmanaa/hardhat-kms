@@ -118,7 +118,7 @@ export const ERRORS = {
     template:
       "Turnkey could not be reached after {attempts} attempts ({reason}). Check the network and any proxy",
     cause:
-      "No HTTP answer came back, after the plugin's retries. The reason is the error's class name or code, for example `ECONNREFUSED`.",
+      "No HTTP answer came back, or the connection broke while the answer was read, after the plugin's retries. The reason is the error's class name or code, for example `ECONNREFUSED`.",
     fix: "Check that `api.turnkey.com` can be reached, DNS and any proxy.",
   },
   answered: {

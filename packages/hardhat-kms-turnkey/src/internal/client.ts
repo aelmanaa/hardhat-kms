@@ -134,10 +134,15 @@ function failureReason(error: unknown): string {
     : "Error";
 }
 
-/** Reads an answer's body as JSON, or `undefined` when it is not JSON. */
-async function jsonOf(response: Response): Promise<unknown> {
+/** Whether an answer is a redirect, which the client refuses without reading its body. */
+function isRedirect(response: Response): boolean {
+  return response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400);
+}
+
+/** A complete body as JSON, or `undefined` when it is not JSON. */
+function jsonOf(text: string): unknown {
   try {
-    const value: unknown = await response.json();
+    const value: unknown = JSON.parse(text);
     return value;
   } catch {
     return undefined;
@@ -182,6 +187,8 @@ export class TurnkeyClient {
       signal.throwIfAborted();
       const started = this.#transport.now();
       let response: Response;
+      // `undefined` for a redirect, whose body the client never reads.
+      let text: string | undefined;
       try {
         response = await this.#transport.fetch(`${this.#transport.baseUrl}${path}`, {
           method: "POST",
@@ -193,6 +200,9 @@ export class TurnkeyClient {
           redirect: "manual",
           signal,
         });
+        // A connection that breaks while the body arrives is a lost answer too: the attempt is
+        // retried like one that got no headers, with the same bytes.
+        text = isRedirect(response) ? undefined : await response.text();
       } catch (error) {
         signal.throwIfAborted();
         const reason = failureReason(error);
@@ -205,13 +215,13 @@ export class TurnkeyClient {
       }
       const { status } = response;
       const elapsed = this.#transport.now() - started;
-      if (response.type === "opaqueredirect" || (status >= 300 && status < 400)) {
+      if (text === undefined) {
         log("%s %s: HTTP %d in %d ms, a redirect", ctx.requestId, path, status, elapsed);
         throw this.#error(ctx.operation, ERRORS.redirected, {
           status: status === 0 ? "3xx" : String(status),
         });
       }
-      const answer = await jsonOf(response);
+      const answer = jsonOf(text);
       if (response.ok) {
         log("%s %s: HTTP %d in %d ms", ctx.requestId, path, status, elapsed);
         return { status, body: answer };
