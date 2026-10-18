@@ -294,6 +294,22 @@ describe("@hardhat-kms/turnkey in a Hardhat runtime", () => {
     );
   });
 
+  it("fails kms history with the unsupported error, naming neither the organization nor the address", async () => {
+    const hre = await runtime();
+
+    await assert.rejects(task(hre, "history", { key: "deployer" }), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(
+        error.message,
+        "turnkey, history: kms history does not read Turnkey keys yet: @hardhat-kms/turnkey signs with them but has no audit log reader. Read the key's activity with Turnkey's own tools",
+      );
+      assert.ok(!error.message.includes(ORGANIZATION));
+      assert.ok(!error.message.toLowerCase().includes(ACCOUNT.address.slice(2).toLowerCase()));
+      return true;
+    });
+    assert.equal(stub.requests.length, 0);
+  });
+
   it("polls a pending activity through get_activity, and signs with the result", async () => {
     const hre = await runtime();
     const { provider } = await hre.network.create("local");

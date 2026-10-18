@@ -488,7 +488,7 @@ Libraries take other shapes, and a tuple passed to them as printed fails or lose
 
 Lists the key's sign events from its provider's audit log, newest first. It answers "who else signed with this key?". [Find who signed with a key](../guides/who-signed.md) walks through an investigation: turning the log on, matching events to transactions, and keeping the log long enough.
 
-The task reads AWS, Google Cloud and Azure logs. It does not read Turnkey's activity log yet: for a Turnkey key it fails with `core.history.no-reader-builtin`, whose advice to install `@hardhat-kms/turnkey` does not apply. Read a Turnkey key's activities in the Turnkey dashboard.
+The task reads AWS, Google Cloud and Azure logs. It does not read Turnkey's activity log yet: for a Turnkey key it fails with `core.history.unsupported`. Read a Turnkey key's activities in the Turnkey dashboard.
 
 ```text
 npx hardhat kms history <key> [--since <time>] [--until <time>] [--limit <n>] [--json] [--show-ids]
