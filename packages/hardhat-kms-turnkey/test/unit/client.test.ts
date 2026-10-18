@@ -388,6 +388,7 @@ describe("TurnkeyClient answers", () => {
         message: TURNKEY_MESSAGE,
         details: [
           null,
+          "TEXT",
           { turnkeyErrorCode: "bad code" },
           { turnkeyErrorCode: "FIRST" },
           { turnkeyErrorCode: "SECOND" },
