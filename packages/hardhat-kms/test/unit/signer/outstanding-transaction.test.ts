@@ -15,11 +15,13 @@ import { signTransaction } from "../../../src/internal/rpc/transactions.ts";
 import {
   KmsSigner,
   outstandingNonce,
+  providerCopyOf,
   type TransactionToSign,
 } from "../../../src/internal/signer/kms-signer.ts";
 import type { KmsKeyAdapter, SignContext } from "../../../src/internal/signer/types.ts";
 import { fakeAdapter } from "../../helpers/fake-adapter.ts";
 import { fakeTimers } from "../../helpers/fake-timers.ts";
+import { fakeTxAdapter } from "../../helpers/fake-tx-adapter.ts";
 import { HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
 
 const secretKey = new Uint8Array(Buffer.from(HARDHAT_ACCOUNT_0.secretKey, "hex"));
@@ -569,6 +571,26 @@ describe("signTransaction's nonce hold (#537)", () => {
     assertOutstanding(error);
     assert.equal(outstandingNonce(error), 4n);
     assert.match(error.message, /skip nonce 4, so they wait behind a gap/);
+  });
+
+  it("signs with a flagged adapter without a hold callback, as kms sign-tx does", async () => {
+    const adapter: KmsKeyAdapter = {
+      ...fakeTxAdapter({ secretKey }),
+      signTransactionOutlivesAbort: true,
+    };
+    const signer = new KmsSigner(adapter, { timeoutMs: 1300, displayMessage: async () => {} });
+    const signed = await signTransaction(signer, {
+      filler,
+      method: "kms sign-tx",
+      params: [{ from: FROM }],
+      from: FROM.toLowerCase(),
+    });
+    assert.equal(signed.providerCopy?.nonce, 4n);
+    assert.equal(signed.providerCopy?.who, "the provider");
+    // The fake reports no request id.
+    assert.equal(signed.providerCopy?.request, "its request id is not known");
+    const digest = await signer.signDigest(new Uint8Array(32).fill(1));
+    assert.equal(providerCopyOf(digest), undefined, "only a transaction has a copy to hold");
   });
 
   it("describes no hold without a hold callback", async () => {

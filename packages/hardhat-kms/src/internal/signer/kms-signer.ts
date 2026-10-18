@@ -523,6 +523,7 @@ export class KmsSigner {
     // Built before the call, so that a payload the signer cannot copy is not blamed on the provider.
     const call = this.#adapterCall(request, digest);
     log("%s: sign with %s", this.#displayId, call.method);
+    // Stryker disable next-line ObjectLiteral: #call sets id before anything reads it, and an absent id reads as undefined
     const seen: { id: string | undefined } = { id: undefined };
     const output = await this.#call(
       "sign",

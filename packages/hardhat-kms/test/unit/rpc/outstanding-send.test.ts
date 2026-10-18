@@ -229,6 +229,38 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     assert.deepEqual(harness.node.raw.map(nonceOf), [0n, 1n]);
   });
 
+  it("shows the node's code and at most 200 printable characters of a refusal, a revert too", async (t) => {
+    const { harness, connection } = await harnessFor(t);
+    const long = `bad\u0000\n${"x".repeat(300)}`;
+    refuse(harness.node, long, 3);
+    const error = await harness.send(connection, transfer(1)).then(
+      () => assert.fail("the send succeeded"),
+      (thrown: unknown) => thrown,
+    );
+    assert.ok(error instanceof HardhatPluginError, String(error));
+    assert.ok(
+      error.message.includes(`with nonce 0 (3: bad??${"x".repeat(195)}), but the provider`),
+      error.message,
+    );
+  });
+
+  it("keeps the nonce of a library account's completed transaction held", async (t) => {
+    const { harness, connection, chainId } = await harnessFor(t);
+    const account = await connection.kms.getAccount(COW);
+    await account.signTransaction({
+      type: "eip1559",
+      chainId,
+      nonce: 0,
+      gas: 21_000n,
+      maxFeePerGas: 2n,
+      maxPriorityFeePerGas: 1n,
+      to: TO,
+      value: 7n,
+    });
+    resultOf(await harness.send(connection, transfer(2)));
+    assert.deepEqual(harness.node.raw.map(nonceOf), [1n]);
+  });
+
   it("passes a refusal on and releases the nonce for an adapter without the flag", async (t) => {
     const { harness, connection } = await harnessFor(t, "http", false);
     refuse(harness.node, "insufficient funds");

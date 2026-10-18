@@ -1119,8 +1119,9 @@ function throwIfProviderCopy(
   }
   const { code, message } = error;
   // Printable text only, bounded: it is the node's answer, which the caller would otherwise get.
-  const text = typeof message === "string" ? message.replaceAll(/[^\x20-\x7e]/g, "?") : "";
-  const answer = `${typeof code === "number" ? code : "no code"}: ${text.slice(0, 200)}`;
+  const answer = `${String(code)}: ${String(message)
+    .replaceAll(/[^\x20-\x7e]/g, "?")
+    .slice(0, 200)}`;
   throw catalogError(
     ERRORS.txRefusedProviderCopy,
     { nonce: copy.nonce, answer, who: copy.who, request: copy.request },
