@@ -21,6 +21,7 @@ const VARIABLES = [
   "HHKMS_TEST_UNSET_ID",
   "HHKMS_TEST_PROFILE",
   "HHKMS_TEST_REGION",
+  "HHKMS_TEST_TURNKEY_ORGANIZATION",
 ];
 const saved = new Map(VARIABLES.map((name) => [name, process.env[name]]));
 afterEach(() => {
@@ -614,6 +615,39 @@ describe("kms accounts", () => {
     assert.equal(shown.success, false);
     assert.equal(shown.accounts[0]?.region, "<HHKMS_TEST_REGION>");
     assert.match(shown.accounts[0]?.error ?? "", /HHKMS_TEST_REGION/);
+  });
+
+  it("lists two Turnkey keys for one account once, whatever API key each uses", async () => {
+    process.env.HHKMS_TEST_TURNKEY_ORGANIZATION = "F81D4FAE-7DEC-11D0-A765-00A0C91E6BF6";
+    const turnkey = {
+      provider: "turnkey",
+      address: HARDHAT_ACCOUNT_0.address,
+      organizationId: "f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+      apiPrivateKey: configVariable("HHKMS_TEST_TURNKEY_FIRST_KEY"),
+    } as const;
+    const { hre } = await runtime({
+      keys: {
+        first: turnkey,
+        second: {
+          ...turnkey,
+          organizationId: configVariable("HHKMS_TEST_TURNKEY_ORGANIZATION"),
+          apiPrivateKey: configVariable("HHKMS_TEST_TURNKEY_SECOND_KEY"),
+        },
+        // Another account in the same organization: a row of its own.
+        other: { ...turnkey, address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" },
+      },
+      adapters: { first: () => closableAdapter(), other: () => closableAdapter() },
+    });
+
+    const run = await accounts(hre);
+
+    assert.deepEqual(
+      run.accounts.map((entry) => [entry.name, entry.otherNames.map(({ name }) => name)]),
+      [
+        ["first", ["second"]],
+        ["other", []],
+      ],
+    );
   });
 
   it("prints JSON with --json and nothing else on standard output", async () => {

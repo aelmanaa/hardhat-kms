@@ -138,9 +138,15 @@ const turnkeyKey = {
   apiPrivateKey: configVariable("HHKMS_DEBUG_TURNKEY_API_PRIVATE_KEY"),
   apiPublicKey: configVariable("HHKMS_DEBUG_TURNKEY_API_PUBLIC_KEY"),
 } as const;
+// The unclaimed key names another account, so `kms accounts` lists the two keys apart.
 const turnkeyHre = await createHardhatRuntimeEnvironment({
   plugins: [hardhatKms],
-  kms: { keys: { turnkey: turnkeyKey, turnkeyClaimed: turnkeyKey } },
+  kms: {
+    keys: {
+      turnkey: { ...turnkeyKey, address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" },
+      turnkeyClaimed: turnkeyKey,
+    },
+  },
 });
 turnkeyHre.hooks.registerHandlers("kms", {
   createKeyAdapter: async (context, key, next) => {

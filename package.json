@@ -61,6 +61,7 @@
     "@hardhat-kms/aws": "workspace:*",
     "@hardhat-kms/azure": "workspace:*",
     "@hardhat-kms/gcp": "workspace:*",
+    "@hardhat-kms/turnkey": "workspace:*",
     "knip": "catalog:",
     "lefthook": "catalog:",
     "mermaid": "catalog:",

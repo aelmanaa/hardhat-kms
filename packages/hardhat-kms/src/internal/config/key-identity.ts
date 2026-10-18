@@ -17,6 +17,11 @@ export async function keyIdentity(key: KmsKeyConfig): Promise<string | undefined
   if (key.provider === "azure") {
     return `azure\0${await key.keyId.get()}`;
   }
+  if (key.provider === "turnkey") {
+    // An organization id is a UUID, in any case. The address is already checksummed. The API key
+    // only decides who asks, so two API keys for one account name one key.
+    return `turnkey\0${(await key.organizationId.get()).toLowerCase()}\0${key.address}`;
+  }
   if (key.provider === "aws") {
     const id = await key.keyId.get();
     // An ARN names its account and region. A key id or alias names a key only together with the

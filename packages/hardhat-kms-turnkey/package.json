@@ -1,0 +1,85 @@
+{
+  "name": "@hardhat-kms/turnkey",
+  "version": "1.1.0",
+  "description": "Turnkey signer for Hardhat 3 (hardhat-kms provider): signs with a Turnkey wallet account through Turnkey's API, with an API key stamp.",
+  "keywords": [
+    "hardhat-plugin",
+    "hardhat",
+    "hardhat3",
+    "ethereum",
+    "smart-contracts",
+    "hardhat-kms",
+    "kms",
+    "signer",
+    "turnkey",
+    "wallet",
+    "viem",
+    "ethers"
+  ],
+  "homepage": "https://aelmanaa.github.io/hardhat-kms/",
+  "bugs": {
+    "url": "https://github.com/aelmanaa/hardhat-kms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aelmanaa/hardhat-kms.git",
+    "directory": "packages/hardhat-kms-turnkey"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Amine El Manaa",
+    "url": "https://github.com/aelmanaa"
+  },
+  "type": "module",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/src/",
+    "src/",
+    "!**/*.test.*",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "clean": "node -e \"for (const p of ['dist','coverage']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
+    "test": "pnpm run test:unit && pnpm run test:integration",
+    "test:unit": "node ../../scripts/node-test.ts unit \"test/unit/**/*.test.ts\"",
+    "test:integration": "node ../../scripts/node-test.ts integration --test-concurrency=1 \"test/integration/**/*.test.ts\"",
+    "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@nomicfoundation/hardhat-ethers": "^4.2.0",
+    "@nomicfoundation/hardhat-viem": "catalog:",
+    "@turnkey/api-key-stamper": "^0.6.18",
+    "@turnkey/crypto": "^2.13.3",
+    "@types/node": "catalog:",
+    "c8": "catalog:",
+    "ethers": "^6.16.0",
+    "hardhat": "catalog:",
+    "hardhat-kms": "workspace:*",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "viem": "catalog:"
+  },
+  "peerDependencies": {
+    "hardhat": "^3.18.0",
+    "hardhat-kms": "workspace:*"
+  }
+}

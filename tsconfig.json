@@ -15,6 +15,9 @@
       "path": "./packages/hardhat-kms-gcp"
     },
     {
+      "path": "./packages/hardhat-kms-turnkey"
+    },
+    {
       "path": "./tsconfig.scripts.json"
     },
     {
