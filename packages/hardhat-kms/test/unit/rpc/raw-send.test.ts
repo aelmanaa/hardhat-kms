@@ -1547,6 +1547,34 @@ describe("a send in flight when its connection closes (#434)", () => {
     assert.deepEqual(node.raw, []);
   });
 
+  it("asks the KMS for no signature when the connection closes during the uncertain lookup (#537)", async () => {
+    const harness = await setUp();
+    const { node, state, send } = harness;
+    const connection = await openKnown(harness);
+    failOnce(node);
+    await send(connection, { from: COW, to: TO }).catch(() => undefined);
+    assert.equal(state.signatures, 1);
+    const lookup = gate();
+    let asked = false;
+    node.lookUp = () => {
+      asked = true;
+      return lookup.promise.then(() => null);
+    };
+    const sending = send(connection, { from: COW, to: TO, value: "0x1" }).then(
+      () => assert.fail("the send went out"),
+      (thrown: unknown) => thrown,
+    );
+    await settle();
+    assert.ok(asked, "the send waits for the lookup of the uncertain transaction");
+    await harness.close(connection);
+    lookup.open();
+    const error = await sending;
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /closed before the transaction was broadcast, so nothing was sent/);
+    assert.equal(state.signatures, 1, "no second signature");
+    assert.equal(node.raw.length, 1);
+  });
+
   it("does not broadcast a raw transaction that waited for the lock while the connection closed", async () => {
     const harness = await setUp();
     const { node, send } = harness;

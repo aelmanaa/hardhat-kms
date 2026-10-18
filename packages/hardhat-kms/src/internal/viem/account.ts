@@ -27,7 +27,12 @@ import {
   transactionToSign,
 } from "../rpc/transactions.ts";
 import { checkTypedDataChain } from "../rpc/typed-data.ts";
-import { type KmsSigner, type SignerCallOptions, outstandingNonce } from "../signer/kms-signer.ts";
+import {
+  type KmsSigner,
+  outstandingNonce,
+  providerCopyOf,
+  type SignerCallOptions,
+} from "../signer/kms-signer.ts";
 import { CancelledError } from "../signer/timeout.ts";
 import { warn } from "../warnings.ts";
 import {
@@ -379,6 +384,12 @@ async function signTransaction(
         connection.nonces.outstanding(address.toLowerCase(), nonce);
       }
       throw error;
+    }
+    // The provider keeps a copy of the signed transaction: its nonce stays held until a
+    // transaction with it reaches the node through the connection (#537).
+    const copy = providerCopyOf(signature);
+    if (copy !== undefined) {
+      connection.nonces.outstanding(address.toLowerCase(), copy.nonce);
     }
     return assembleSignedTransaction(input.unsigned, signature, address, operation);
   });

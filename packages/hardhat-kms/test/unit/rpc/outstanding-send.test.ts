@@ -16,6 +16,7 @@ import {
   hashOf,
   nonceOf,
   PENDING_REQUEST_ID,
+  refuse,
   resultOf,
   type SendHarness,
   settle,
@@ -174,6 +175,68 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     );
     resultOf(await harness.send(connection, transfer(2)));
     assert.deepEqual(harness.node.raw.map(nonceOf), [1n]);
+  });
+
+  it("lets a second eth_signTransaction skip the nonce the first one left held", async (t) => {
+    const { harness, connection } = await harnessFor(t);
+    hangOn(harness, 1n, "sent");
+    assertOutstanding(
+      await timedOut(t, harness.request(connection, "eth_signTransaction", transfer(1))),
+      0n,
+    );
+    harness.state.hang = undefined;
+
+    const second = resultOf(await harness.request(connection, "eth_signTransaction", transfer(2)));
+    assert.ok(typeof second === "string");
+    assert.equal(nonceOf(second), 1n);
+    // A caller's nonce is the caller's choice, as for a send: the replacement at the held nonce.
+    const replacement = resultOf(
+      await harness.request(connection, "eth_signTransaction", { ...transfer(3), nonce: "0x0" }),
+    );
+    assert.ok(typeof replacement === "string");
+    assert.equal(nonceOf(replacement), 0n);
+  });
+
+  it("keeps the nonce of a completed eth_signTransaction held: the provider keeps a copy", async (t) => {
+    const { harness, connection } = await harnessFor(t);
+    const signed = resultOf(await harness.request(connection, "eth_signTransaction", transfer(1)));
+    assert.ok(typeof signed === "string");
+    assert.equal(nonceOf(signed), 0n);
+    resultOf(await harness.send(connection, transfer(2)));
+    // Broadcast through the connection, the copy reaches the node: the hold ends there.
+    resultOf((await harness.call(connection, "eth_sendRawTransaction", [signed])).response);
+    harness.node.pending = 2n;
+    resultOf(await harness.send(connection, transfer(3)));
+    assert.deepEqual(harness.node.raw.map(nonceOf), [1n, 0n, 2n]);
+  });
+
+  it("keeps the nonce held when the node refuses a send the provider keeps a copy of", async (t) => {
+    const { harness, connection } = await harnessFor(t);
+    refuse(harness.node, "insufficient funds for gas * price + value");
+
+    const error = await harness.send(connection, transfer(1)).then(
+      () => assert.fail("the send succeeded"),
+      (thrown: unknown) => thrown,
+    );
+
+    assert.ok(error instanceof HardhatPluginError, String(error));
+    assert.equal(
+      error.message,
+      `eth_sendTransaction: the node refused the transaction with nonce 0 (-32000: insufficient funds for gas * price + value), but the provider keeps it signed (request ${PENDING_REQUEST_ID}), and anyone who can read it there can broadcast it once the node would take it. This connection's sends from the account skip nonce 0 until a transaction with it reaches the node through the connection. Fix the cause, such as the account's funds or the fees, then send a replacement transaction with nonce 0, or broadcast that signed transaction`,
+    );
+    harness.node.onRaw = undefined;
+    resultOf(await harness.send(connection, transfer(2)));
+    assert.deepEqual(harness.node.raw.map(nonceOf), [0n, 1n]);
+  });
+
+  it("passes a refusal on and releases the nonce for an adapter without the flag", async (t) => {
+    const { harness, connection } = await harnessFor(t, "http", false);
+    refuse(harness.node, "insufficient funds");
+    const response = await harness.send(connection, transfer(1)).catch((error: unknown) => error);
+    assert.ok(!(response instanceof HardhatPluginError), String(response));
+    harness.node.onRaw = undefined;
+    resultOf(await harness.send(connection, transfer(2)));
+    assert.deepEqual(harness.node.raw.map(nonceOf), [0n, 0n]);
   });
 
   it("keeps ten parallel sends on distinct nonces, and none on the nonce of the one that hangs", async (t) => {

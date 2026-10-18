@@ -1344,6 +1344,16 @@ export const ERRORS = {
       "A `wallet_sendCalls` (EIP-5792) request named a KMS account as `from`. The plugin sends a KMS account's transactions through `eth_sendTransaction` only, so it answers this method with JSON-RPC error -32601 (method not found) and does not pass it to the node. viem's `sendCalls` sends it.",
     fix: "Pass `experimental_fallback: true` to viem's `sendCalls`: on -32601 viem sends each call with `eth_sendTransaction`, and the KMS key signs each one. Or send each call yourself with `sendTransaction`.",
   },
+  txRefusedProviderCopy: {
+    id: "core.tx.refused-provider-copy",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "the node refused the transaction with nonce {nonce} ({answer}), but {who} keeps it signed ({request}), and anyone who can read it there can broadcast it once the node would take it. This connection's sends from the account skip nonce {nonce} until a transaction with it reaches the node through the connection. Fix the cause, such as the account's funds or the fees, then send a replacement transaction with nonce {nonce}, or broadcast that signed transaction",
+    cause:
+      "The key's adapter declares that the provider keeps what it signs (`signTransactionOutlivesAbort`), as Turnkey's `sign_transaction` does, and the node refused the signed transaction for certain, for example for insufficient funds or too low a fee. The provider's copy stays valid, and becomes acceptable once the cause goes away, so the plugin keeps its nonce held rather than sign a second transaction with it. The message shows the node's code and up to 200 characters of its message.",
+    fix: 'Fix what the node refused, then send a replacement with the nonce the message names, with an explicit `nonce`, or broadcast the provider\'s signed transaction. For Turnkey, it is the completed activity the message names. See the Turnkey setup guide, "When Turnkey does not answer in time".',
+  },
   sendConnectionClosed: {
     id: "core.tx.connection-closed",
     kind: "error",

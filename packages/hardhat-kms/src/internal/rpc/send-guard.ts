@@ -9,6 +9,7 @@ import { PLUGIN_ID } from "../constants.ts";
 import { toChecksumAddress } from "../crypto/address.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, catalogMessage } from "../errors.ts";
+import type { ProviderCopy } from "../signer/kms-signer.ts";
 import { CancelledError, systemTimers, type Timers } from "../signer/timeout.ts";
 import { warn } from "../warnings.ts";
 
@@ -638,6 +639,11 @@ export interface SentTransaction {
   hash: string;
   /** Its nonce. */
   nonce: bigint;
+  /**
+   * Set when the provider keeps a copy of the signed transaction (#537): a broadcast the node
+   * refuses then fails with `core.tx.refused-provider-copy`, and the nonce stays held.
+   */
+  providerCopy?: ProviderCopy | undefined;
 }
 
 /** A nonce handed out to a library account's client, not yet known to the node. */

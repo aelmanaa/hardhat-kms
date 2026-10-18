@@ -156,7 +156,7 @@ function outstandingMessage(parts: {
     ERRORS.signerTransactionOutstanding,
     {
       reason: parts.reason,
-      who: parts.who ?? "The provider",
+      who: parts.who ?? "the provider",
       request: parts.request,
       nonce: 7n,
       reject: parts.reject ?? "Reject the request at the provider",

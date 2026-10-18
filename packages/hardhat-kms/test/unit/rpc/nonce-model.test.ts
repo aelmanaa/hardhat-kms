@@ -386,6 +386,11 @@ function onRaw(world: World) {
         }
       }
     }
+    // Every key's adapter keeps a copy of what it signs, so a signature that reached the node
+    // holds its nonce on its connection until the node takes it there (#537).
+    if (send.kind === "plugin") {
+      holdSigned(world, send.connection, nonce);
+    }
     if (world.mode === "refuse") {
       if (send.kind === "library") {
         send.state = "refused";
@@ -432,9 +437,10 @@ function deliver(world: World, send: Send, nonce: bigint): void {
       recordedOn,
       pastReservation,
     });
-    // A transaction with the nonce reached the node through these connections: their hold of an
-    // outstanding nonce ends (#537), when they record it, at once or after the lookup.
-    for (const connection of recordedOn) {
+    // A transaction with the nonce reached the node through these connections, which record it
+    // at once when the node answered: their hold of the nonce ends (#537). Without an answer the
+    // hold ends when a lookup finds the transaction (the node's lookUp below).
+    for (const connection of world.mode === "no-answer" ? [] : recordedOn) {
       world.outstanding[connection].delete(nonce);
     }
   }
@@ -796,12 +802,23 @@ function librarySign(index: number): Step {
             send.state = "sign-failed";
             throw error;
           }
+          holdSigned(world, send.connection, nonce);
           send.state = "signed";
         })(send.nonce),
       );
     },
     toString: () => `librarySign(${index})`,
   };
+}
+
+/**
+ * Holds the nonce of a signature that completed on an open connection: the provider keeps a copy
+ * (#537). A delivery recorded on the connection ends it.
+ */
+function holdSigned(world: World, connection: ConnectionIndex, nonce: bigint): void {
+  if (isOpen(world, connection)) {
+    world.outstanding[connection].add(nonce);
+  }
 }
 
 /**
@@ -889,6 +906,7 @@ function librarySignOutstanding(index: number, outcome: Outcome = "sent"): Step 
             }
             throw error;
           }
+          holdSigned(world, send.connection, nonce);
           send.state = "signed";
         })(send.nonce),
       );
@@ -896,6 +914,73 @@ function librarySignOutstanding(index: number, outcome: Outcome = "sent"): Step 
       await settle();
     },
     toString: () => `librarySignOutstanding(${index}, ${outcome})`,
+  };
+}
+
+/**
+ * `eth_signTransaction` without the caller's nonce (#537): it takes the nonce a send would take,
+ * so it skips the connection's held nonces, and then holds its own, as the provider keeps a copy.
+ * It takes no lock and broadcasts nothing. With an outcome, its signature fails as
+ * `outstandingSend`'s does.
+ */
+function signOnly(connection: ConnectionIndex, outcome?: Outcome): Step {
+  return {
+    check: () => true,
+    run: async (_model, world) => {
+      if (!isOpen(world, connection)) {
+        return;
+      }
+      const send: PluginSend = {
+        kind: "plugin",
+        id: world.sends.length,
+        connection,
+        broadcast: true,
+      };
+      world.sends.push(send);
+      if (outcome !== undefined) {
+        world.hangs.set(BigInt(send.id), outcome);
+      }
+      const target = world.connections[connection];
+      assert.ok(target !== undefined);
+      const held = new Set(world.outstanding[connection]);
+      const step = `signOnly ${send.id}`;
+      const claim = (nonce: bigint): void => {
+        if (
+          held.has(nonce) &&
+          world.outstanding[connection].has(nonce) &&
+          isOpen(world, connection)
+        ) {
+          world.violations.push({
+            kind: "outstanding",
+            message: `${step}: eth_signTransaction on connection ${connection} signed held nonce ${nonce} (#537)`,
+          });
+        }
+      };
+      await start(
+        world,
+        (async () => {
+          try {
+            const { response } = await world.harness.call(target, "eth_signTransaction", [
+              { from: COW, to: TO, value: `0x${send.id.toString(16)}` },
+            ]);
+            const raw = resultOf(response);
+            assert.ok(typeof raw === "string");
+            claim(nonceOf(raw));
+            holdSigned(world, connection, nonceOf(raw));
+          } catch (error) {
+            const nonce = outstandingNonce(error);
+            if (nonce !== undefined) {
+              claim(nonce);
+              holdSigned(world, connection, nonce);
+            }
+            throw error;
+          }
+        })(),
+      );
+      world.tick(KMS_TIMEOUT_MS);
+      await settle();
+    },
+    toString: () => `signOnly(${connection}${outcome === undefined ? "" : `, ${outcome}`})`,
   };
 }
 
@@ -1241,6 +1326,12 @@ const stepArbs: [fc.Arbitrary<Step>, number][] = [
   [fc.tuple(connectionArb, outcomeArb).map(([c, outcome]) => outstandingSend(c, outcome)), 1],
   [
     fc
+      .tuple(connectionArb, fc.option(outcomeArb, { nil: undefined }))
+      .map(([c, outcome]) => signOnly(c, outcome)),
+    1,
+  ],
+  [
+    fc
       .tuple(indexArb, outcomeArb)
       .map(([index, outcome]) => librarySignOutstanding(index, outcome)),
     1,
@@ -1311,11 +1402,18 @@ async function newWorld(
       hashes.add(hash);
       world.lookedUp.set(connection, hashes);
     }
-    return harness.node.raw.some(
+    const found = harness.node.raw.find(
       (raw) => hashOf(raw) === hash && world.delivered.get(nonceOf(raw))?.id === valueOf(raw),
-    )
-      ? { hash }
-      : null;
+    );
+    if (found === undefined) {
+      return null;
+    }
+    // The connection records the transaction it looked up, which ends its hold of the nonce.
+    const index = world.connections.indexOf(connection);
+    if (index === 0 || index === 1) {
+      world.outstanding[index].delete(nonceOf(found));
+    }
+    return { hash };
   };
   harness.state.beforeSign = async () => {
     if (world.kms.paused) {
@@ -1557,6 +1655,21 @@ const KNOWN_537: { name: string; type: "http" | "edr-simulated"; steps: Step[] }
     name: "a refused send frees its nonce, a held one stays held",
     type: "http",
     steps: [outstandingSend(0, "refused"), outstandingSend(0), pluginSend(0), pluginSend(0)],
+  },
+  {
+    name: "eth_signTransaction after an outstanding send, and a send after an outstanding one",
+    type: "http",
+    steps: [outstandingSend(0), signOnly(0), signOnly(0, "sent"), pluginSend(0), signOnly(0)],
+  },
+  {
+    name: "a refused broadcast holds its nonce, then sends and eth_signTransaction skip it",
+    type: "edr-simulated",
+    steps: [nodeMode("refuse"), pluginSend(0), nodeMode("accept"), pluginSend(0), signOnly(0)],
+  },
+  {
+    name: "two unanswered signatures at one nonce that the node then drops keep it held",
+    type: "edr-simulated",
+    steps: [unansweredPair(0), drop(0), pluginSend(0)],
   },
   {
     name: "an outstanding send, then a caller-nonce replacement at another nonce and a fall",

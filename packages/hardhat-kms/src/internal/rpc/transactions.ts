@@ -12,7 +12,13 @@ import { authorizationDigest } from "../crypto/digests.ts";
 import { type RecoverableSignature, recoverPublicKey, toLowS } from "../crypto/signature.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
-import { type KmsSigner, type TransactionToSign, outstandingNonce } from "../signer/kms-signer.ts";
+import {
+  type KmsSigner,
+  outstandingNonce,
+  type ProviderCopy,
+  providerCopyOf,
+  type TransactionToSign,
+} from "../signer/kms-signer.ts";
 import { warn } from "../warnings.ts";
 import {
   buildUnsignedTransaction,
@@ -188,6 +194,11 @@ export interface SignTransactionInputs {
    * describe a hold.
    */
   holdNonce?: ((nonce: bigint) => void) | undefined;
+  /**
+   * Runs right before the KMS is asked to sign, after the fill and the nonce choice, and throws to
+   * refuse; sends check there that their connection is still open.
+   */
+  beforeSign?: (() => void) | undefined;
 }
 
 /** A signed transaction. */
@@ -198,10 +209,17 @@ export interface SignedTransaction {
   hash: string;
   /** Its nonce. */
   nonce: bigint;
+  /**
+   * Set when the provider keeps a copy of the signed transaction (#537), whose nonce `holdNonce`
+   * was then given: a broadcast that the node refuses leaves that copy valid later.
+   */
+  providerCopy?: ProviderCopy | undefined;
 }
 
 /**
- * Fills, signs and checks a KMS account's transaction.
+ * Fills, signs and checks a KMS account's transaction. When the provider keeps a copy of the
+ * signed transaction (`providerCopyOf`), the nonce goes to `holdNonce` right after the signature,
+ * so it stays held until a transaction with it reaches the node.
  *
  * @param signer - The KMS account's signer.
  * @param inputs - The filler, the request and the sender.
@@ -226,6 +244,7 @@ export async function signTransaction(
   inputs.checkUnsigned?.(unsigned);
   lintAuthorizations(filled);
   checkSelfAuthorizations(unsigned, inputs.from, inputs.method);
+  inputs.beforeSign?.();
   let signature: RecoverableSignature;
   try {
     signature = await signer.signTransaction(transactionToSign(unsigned, filled.chainId), {
@@ -238,6 +257,10 @@ export async function signTransaction(
     }
     throw error;
   }
+  const providerCopy = providerCopyOf(signature);
+  if (providerCopy !== undefined) {
+    inputs.holdNonce?.(providerCopy.nonce);
+  }
   const signed = assembleSignedTransaction(unsigned, signature, inputs.from, inputs.method);
-  return { raw: signed.toHex(true), hash: `0x${signed.hash}`, nonce: filled.nonce };
+  return { raw: signed.toHex(true), hash: `0x${signed.hash}`, nonce: filled.nonce, providerCopy };
 }

@@ -270,7 +270,7 @@ The dispatcher follows these rules. They keep the hook from deadlocking on its o
 2. `next` is called at most once per request. Every internal RPC call (for example the reads during fill) goes through `connection.provider.request`, which re-enters the hook chain and is passed through by rule 1.
 3. Per-runtime and per-connection state (`SignerCache`, `ConnectionAccounts`) is memoised as promises, with no lock. A failed promise is dropped, so the next request retries.
 4. `eth_sendTransaction` for KMS address `a` on chain `c` takes the process-global lock `c:a`. Inside the lock the code may issue read calls (fill), make any number of KMS signature attempts (retries), and make exactly one `next(eth_sendRawTransaction)`. A library account's send takes the same lock when its viem `nonceManager` chooses the nonce, and, with a client that sends through the connection, keeps it until its `eth_sendRawTransaction` or `eth_sendRawTransactionSync` goes out (one `next`) or viem resets it. Any other raw transaction from a KMS account takes the lock around its one `next`.
-5. `eth_signTransaction` takes no lock and never touches the nonce high-water mark, because it never broadcasts.
+5. `eth_signTransaction` takes no lock and never moves the nonce high-water mark, because it never broadcasts. It reads the mark, the reservations and the held nonces to choose its nonce as a send would (#537).
 
 ## Other signing plugins
 

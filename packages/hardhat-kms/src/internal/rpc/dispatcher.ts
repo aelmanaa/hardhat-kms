@@ -390,7 +390,7 @@ export async function dispatch(
     }
     if (outcome !== undefined && "kms" in outcome) {
       // eth_signTransaction takes no lock and leaves the high-water mark alone (rule 5).
-      const { key, address, params: signParams } = outcome.kms;
+      const { key, address, params: signParams, callerNonce } = outcome.kms;
       const signed = await accounts.signWith(
         key,
         async (signer) =>
@@ -399,6 +399,10 @@ export async function dispatch(
             method: request.method,
             params: signParams,
             from: address,
+            // The nonce a send would take, so it skips held nonces (#537); reads only, no lookup.
+            chooseNonce: callerNonce
+              ? undefined
+              : (pending) => transactions.sends().nonceFor(address, pending),
             // The provider may still sign it, and the caller would then never see it (#537).
             holdNonce: (nonce) => {
               transactions.sends().holdOutstanding(address, nonce);
@@ -764,6 +768,10 @@ async function sendTransaction(
           holdNonce: (nonce) => {
             sends.holdOutstanding(address, nonce);
           },
+          // Again after the uncertain lookups, the fill and the nonce choice, which all await.
+          beforeSign: () => {
+            refuseIfClosed(transactions, request.method);
+          },
           chooseNonce: kms.callerNonce
             ? undefined
             : async (pending) =>
@@ -1068,6 +1076,7 @@ async function broadcast(
       return accepted();
     }
     sends.settleUncertain(address, transaction.hash);
+    throwIfProviderCopy(request, transaction, error);
     return passOn();
   }
   if (resend && isAlreadyKnown(message)) {
@@ -1088,7 +1097,35 @@ async function broadcast(
     return accepted();
   }
   sends.settleUncertain(address, transaction.hash);
+  throwIfProviderCopy(request, transaction, error);
   return passOn();
+}
+
+/**
+ * Fails a send whose broadcast the node refused for certain, when the provider keeps a copy of the
+ * signed transaction (#537): that copy can become valid later, for example once the account has
+ * the funds, so the nonce stays held (it was held at the signature) and the error says so.
+ *
+ * @throws `core.tx.refused-provider-copy`, when the transaction has a provider copy.
+ */
+function throwIfProviderCopy(
+  request: JsonRpcRequest,
+  transaction: SentTransaction,
+  error: Record<string, unknown>,
+): void {
+  const copy = transaction.providerCopy;
+  if (copy === undefined) {
+    return;
+  }
+  const { code, message } = error;
+  // Printable text only, bounded: it is the node's answer, which the caller would otherwise get.
+  const text = typeof message === "string" ? message.replaceAll(/[^\x20-\x7e]/g, "?") : "";
+  const answer = `${typeof code === "number" ? code : "no code"}: ${text.slice(0, 200)}`;
+  throw catalogError(
+    ERRORS.txRefusedProviderCopy,
+    { nonce: copy.nonce, answer, who: copy.who, request: copy.request },
+    { operation: request.method },
+  );
 }
 
 /**

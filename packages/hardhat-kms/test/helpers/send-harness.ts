@@ -219,11 +219,11 @@ export async function setUp(
             false,
           ).raw;
           const hang = state.hang?.({ nonce, value });
+          if (hang !== "unsent") {
+            ctx.requestSent?.();
+            ctx.requestSent?.(PENDING_REQUEST_ID);
+          }
           if (hang !== undefined) {
-            if (hang !== "unsent") {
-              ctx.requestSent?.();
-              ctx.requestSent?.(PENDING_REQUEST_ID);
-            }
             if (hang === "refused") {
               ctx.requestRefused?.();
             }

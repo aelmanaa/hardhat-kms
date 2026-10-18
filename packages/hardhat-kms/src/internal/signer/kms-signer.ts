@@ -103,6 +103,35 @@ export function outstandingNonce(error: unknown): bigint | undefined {
   return error instanceof Error ? outstandingNonces.get(error) : undefined;
 }
 
+/**
+ * A signed transaction the provider keeps after it signed it for the plugin: who keeps it, and
+ * how the error names the request.
+ */
+export interface ProviderCopy {
+  /** The transaction's nonce. */
+  nonce: bigint;
+  /** Who keeps it, such as `Turnkey`. */
+  who: string;
+  /** The request, such as `activity <id>`. */
+  request: string;
+}
+
+/** The provider's copy of each transaction signature that a flagged `signTransaction` made. */
+const providerCopies = new WeakMap<RecoverableSignature, ProviderCopy>();
+
+/**
+ * The provider's copy of a transaction signature (#537): set when an adapter with
+ * `signTransactionOutlivesAbort` made `signature` with `signTransaction`. The provider then keeps
+ * the signed transaction where others can broadcast it, so a caller that sends must keep its
+ * nonce held until a transaction with that nonce reaches the node.
+ *
+ * @param signature - A signature the signer returned.
+ * @returns Who keeps the signed transaction and its nonce, or `undefined`.
+ */
+export function providerCopyOf(signature: RecoverableSignature): ProviderCopy | undefined {
+  return providerCopies.get(signature);
+}
+
 /** A provider's id for a request, as the core shows one: a UUID. Anything else is not shown. */
 const PROVIDER_REQUEST_ID = /^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
 
@@ -124,7 +153,7 @@ const OUTSTANDING_WORDS: { turnkey: OutstandingWords; other: OutstandingWords } 
     reject: "Reject the activity in the Turnkey dashboard",
   },
   other: {
-    who: "The provider",
+    who: "the provider",
     request: (id) => (id === undefined ? "its request id is not known" : `request ${id}`),
     reject: "Reject the request at the provider",
   },
@@ -494,20 +523,41 @@ export class KmsSigner {
     // Built before the call, so that a payload the signer cannot copy is not blamed on the provider.
     const call = this.#adapterCall(request, digest);
     log("%s: sign with %s", this.#displayId, call.method);
+    const seen: { id: string | undefined } = { id: undefined };
     const output = await this.#call(
       "sign",
       call.run,
       options.signal,
       this.#outstandingError(call.nonce, options.holdsNonce === true),
+      seen,
     );
-    if (identity.publicKey !== undefined) {
-      return normalizeSignature(output, digest, identity.publicKey);
+    let signature: RecoverableSignature;
+    if (identity.publicKey === undefined) {
+      // Address-only key: recover the public key, check it matches the address, then keep it. The
+      // recovered key is a new array from the curve library, not the adapter's, so it needs no
+      // copy.
+      const recovered = recoverForAddress(output, digest, identity.address);
+      identity.publicKey = recovered.publicKey;
+      signature = normalizeSignature(output, digest, recovered.publicKey);
+    } else {
+      signature = normalizeSignature(output, digest, identity.publicKey);
     }
-    // Address-only key: recover the public key, check it matches the address, then keep it. The
-    // recovered key is a new array from the curve library, not the adapter's, so it needs no copy.
-    const recovered = recoverForAddress(output, digest, identity.address);
-    identity.publicKey = recovered.publicKey;
-    return normalizeSignature(output, digest, recovered.publicKey);
+    if (this.#outlivesAbort && call.nonce !== undefined) {
+      const words = this.#words();
+      providerCopies.set(signature, {
+        nonce: call.nonce,
+        who: words.who,
+        request: words.request(seen.id),
+      });
+    }
+    return signature;
+  }
+
+  /** How errors name this provider's requests. */
+  #words(): OutstandingWords {
+    return this.#description.provider === "turnkey"
+      ? OUTSTANDING_WORDS.turnkey
+      : OUTSTANDING_WORDS.other;
   }
 
   /**
@@ -572,10 +622,7 @@ export class KmsSigner {
     if (!this.#outlivesAbort || nonce === undefined) {
       return undefined;
     }
-    const words =
-      this.#description.provider === "turnkey"
-        ? OUTSTANDING_WORDS.turnkey
-        : OUTSTANDING_WORDS.other;
+    const words = this.#words();
     return (reason, providerRequestId) => {
       const error = catalogError(
         ERRORS.signerTransactionOutstanding,
@@ -606,6 +653,7 @@ export class KmsSigner {
     run: (ctx: SignContext) => Promise<T>,
     callerSignal?: AbortSignal,
     outstanding?: OutstandingError,
+    seen?: { id: string | undefined },
   ): Promise<T> {
     const requestId = randomUUID();
     const started = Date.now();
@@ -643,6 +691,9 @@ export class KmsSigner {
         callerSignal,
       );
       log("%s: %s done in %d ms", key, operation, Date.now() - started);
+      if (seen !== undefined) {
+        seen.id = sentId;
+      }
       return result;
     } catch (error) {
       log("%s: %s failed after %d ms (%s)", key, operation, Date.now() - started, errorName(error));
