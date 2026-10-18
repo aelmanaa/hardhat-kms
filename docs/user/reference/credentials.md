@@ -1,13 +1,13 @@
 ---
 title: Credentials reference
-description: "Where hardhat-kms gets cloud credentials: the sources AWS, Google Cloud and Azure try, in order, with every variable they read."
+description: "Where hardhat-kms gets credentials: the sources AWS, Google Cloud and Azure try, in order, every variable they read, and the Turnkey API key."
 ---
 
 # Credentials reference
 
 Audience: Users who need to know which credentials sign, and which variables and files change them. For an overview by environment (a laptop, CI, a server), read [Cloud credentials for KMS signing](../explanation/cloud-access.md) first. To set up a GitHub Actions job that signs over OIDC, see [Sign from GitHub Actions with OIDC](../guides/github-actions-oidc.md).
 
-No secrets live in the Hardhat config. On AWS and Google Cloud the plugin passes no credentials, so the cloud's SDK walks its own chain of sources and uses the first one that is configured. On Azure the plugin builds the chain listed below. The lists give the order in which sources are tried.
+No secrets live in the Hardhat config. On AWS and Google Cloud the plugin passes no credentials, so the cloud's SDK walks its own chain of sources and uses the first one that is configured. On Azure the plugin builds the chain listed below. The lists give the order in which sources are tried. A Turnkey key has no chain: its API key comes from one configuration variable.
 
 ## AWS
 
@@ -46,6 +46,15 @@ The plugin builds its own chain rather than `DefaultAzureCredential`, in the ord
 **No username and password sign-in.** With `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_USERNAME` and `AZURE_PASSWORD` set and no secret or certificate, `EnvironmentCredential` would sign in as that user with the password alone. That sign-in cannot do multifactor authentication, Microsoft has deprecated it, and with it a leaked password would be enough to sign. The plugin refuses it: signing and `kms history` fail with `azure.credential.username-password` before any source is asked for a token, even when `az login` or workload identity would have worked. The message names the variables, never their values. Unset `AZURE_USERNAME` and `AZURE_PASSWORD`, or set a secret or certificate.
 
 In every other case the plugin ignores `AZURE_USERNAME` and `AZURE_PASSWORD` and writes one `hardhat:kms:azure` debug line that names them. Such cases include a stray `AZURE_USERNAME` next to `az login`, and both variables next to a client secret. The rest of the chain works as described above.
+
+## Turnkey
+
+A Turnkey key signs with a P-256 API key of a Turnkey user. The key's `apiPrivateKey` names it, and takes only `configVariable(NAME)`, without a `default` or a `format`; anything else fails validation with `core.config.secret-variable`. Hardhat resolves the variable from the environment, or from `hardhat-keystore` when the config loads the keystore plugin. The plugin reads it on the key's first signature, derives the API public key from it, and never prints or logs it, even with `--show-ids`.
+
+- The value is the private key's 64 hex characters. The Turnkey CLI's private key file adds a colon and the curve name, such as `:p256`, which the value must not include.
+- Foundry's `cast --turnkey` reads `TURNKEY_API_PRIVATE_KEY` and `TURNKEY_ORGANIZATION_ID`. Name the variables the same way and one environment serves both tools; the address goes in the config, not in `TURNKEY_ADDRESS`.
+- Each Turnkey key names its own variable, so the keys of one run can belong to different Turnkey users and organizations.
+- In CI the key is a stored secret: Turnkey has no keyless federation like the OIDC sign-in the clouds accept. Use the key of a non-root user, give it an expiry and rotate it ([Set up a Turnkey wallet account](../guides/turnkey-setup.md#give-the-key-an-expiry-and-rotate-it)). A root user's API key bypasses every Turnkey policy.
 
 ## One identity per run on Google Cloud and Azure
 

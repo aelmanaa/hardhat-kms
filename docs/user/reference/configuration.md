@@ -52,17 +52,17 @@ Set `chainId` on every HTTP network. The plugin checks the node's chain against 
 
 A network's `kmsAccounts` lists key names or inline key objects. [Use several keys across networks](../guides/multiple-keys.md) shows how to combine keys, providers and networks, and how to pick the sender. The full set of plugin config fields:
 
-| Field                          | Meaning                                                                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `kms.keys`                     | Named keys, reused across networks.                                                                                                                                                                                                                                                                                                                                                  |
-| `kms.defaults.aws.region`      | Default AWS region, literal or a configuration variable ([region precedence](#key-forms-per-provider)).                                                                                                                                                                                                                                                                              |
-| `kms.defaults.timeoutMs`       | Default per-call timeout. Default 30 s.                                                                                                                                                                                                                                                                                                                                              |
-| `kms.allowCrossChainTypedData` | Allow typed data whose `domain.chainId` differs from the connection's chain, or in `kms sign --data` from the chain to compare with. Default `false`. Typed data without `domain.chainId` is always signed.                                                                                                                                                                          |
-| `kms.simulatedBalance`         | A bigint in wei. On `edr-simulated` networks only, each new connection sets every KMS account's balance to this value with `hardhat_setBalance`, before the connection is returned. Addresses come from pins, or from key lookups, so connecting calls KMS for unpinned keys (pin addresses to avoid it); a failed lookup fails the connection. `hardhat_reset` clears the balances. |
-| `kms.audit.azure.workspaceId`  | The Log Analytics workspace id (a GUID) that `kms history` reads Azure Key Vault audit events from. Literal or a configuration variable.                                                                                                                                                                                                                                             |
-| `networks.<name>.kmsAccounts`  | Key names or inline key objects for that network, on http and `edr-simulated` networks.                                                                                                                                                                                                                                                                                              |
-| `address` (per key)            | Optional address pin. Recommended: it guards against key substitution. Listing a network's accounts uses the pin without a KMS call. The first signature and the `kms` tasks still read the public key of an AWS, Google Cloud or Azure key, and fail if it derives to another address.                                                                                              |
-| `timeoutMs` (per key)          | Overrides the default timeout for that key. For a third-party provider where a person approves each signature, `timeoutMs` also bounds the wait for that approval: raise it on that key to cover the time a person takes to approve.                                                                                                                                                 |
+| Field                          | Meaning                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `kms.keys`                     | Named keys, reused across networks.                                                                                                                                                                                                                                                                                                                                                                          |
+| `kms.defaults.aws.region`      | Default AWS region, literal or a configuration variable ([region precedence](#key-forms-per-provider)).                                                                                                                                                                                                                                                                                                      |
+| `kms.defaults.timeoutMs`       | Default per-call timeout. Default 30 s.                                                                                                                                                                                                                                                                                                                                                                      |
+| `kms.allowCrossChainTypedData` | Allow typed data whose `domain.chainId` differs from the connection's chain, or in `kms sign --data` from the chain to compare with. Default `false`. Typed data without `domain.chainId` is always signed.                                                                                                                                                                                                  |
+| `kms.simulatedBalance`         | A bigint in wei. On `edr-simulated` networks only, each new connection sets every KMS account's balance to this value with `hardhat_setBalance`, before the connection is returned. Addresses come from pins, or from key lookups, so connecting calls KMS for unpinned keys (pin addresses to avoid it); a failed lookup fails the connection. `hardhat_reset` clears the balances.                         |
+| `kms.audit.azure.workspaceId`  | The Log Analytics workspace id (a GUID) that `kms history` reads Azure Key Vault audit events from. Literal or a configuration variable.                                                                                                                                                                                                                                                                     |
+| `networks.<name>.kmsAccounts`  | Key names or inline key objects for that network, on http and `edr-simulated` networks.                                                                                                                                                                                                                                                                                                                      |
+| `address` (per key)            | Optional address pin, required for a Turnkey key. Recommended: it guards against key substitution. Listing a network's accounts uses the pin without a KMS call. The first signature and the `kms` tasks still read the public key of an AWS, Google Cloud or Azure key, and fail if it derives to another address. A Turnkey key has no public key to read: its first signature is checked against the pin. |
+| `timeoutMs` (per key)          | Overrides the default timeout for that key. For a third-party provider where a person approves each signature, `timeoutMs` also bounds the wait for that approval: raise it on that key to cover the time a person takes to approve.                                                                                                                                                                         |
 
 When the `default` network has KMS keys, from `kmsAccounts` or from `--kms` without `--network`, the plugin prints a warning once per run: tasks and tests use that network when no `--network` is given, so they would call KMS. Put KMS keys on a named network instead.
 
@@ -75,7 +75,7 @@ The accepted key forms are a superset of Foundry's.
 | `aws`     | `keyId` as a key id, key ARN, alias name or alias ARN. Optional `region` and `profile`, each literal or a configuration variable, and `endpoint`.                                                                |
 | `gcp`     | Either `keyVersionName`, or the components `projectId`, `location`, `keyRing`, `keyName`, `keyVersion`. The version is always required and never auto-selected.                                                  |
 | `azure`   | Either `keyId` (the full URL, versioned or not, including `*.managedhsm.azure.net`), or `vaultUrl` + `keyName` + optional `keyVersion`. An unversioned key is resolved once and the resulting version is pinned. |
-| `turnkey` | `organizationId`, `address` and `apiPrivateKey`, all required, and an optional `apiPublicKey`. Validation only: no released package signs with these keys yet.                                                   |
+| `turnkey` | `organizationId`, `address` and `apiPrivateKey`, all required, and an optional `apiPublicKey`. The API private key is a configuration variable only.                                                             |
 
 AWS resolves the region in this order: the region inside an ARN, then `key.region`, then `defaults.aws.region`, then the SDK's own chain. A configured region that conflicts with the ARN's region is an error. `AWS_ENDPOINT_URL_KMS` (useful for LocalStack) is left to the AWS SDK, which honours it.
 
@@ -86,14 +86,16 @@ An AWS key's `region` and `profile`, and `kms.defaults.aws.region`, take a liter
 - An unset variable without a `default` fails when the key is first used, with Hardhat's error that names the variable. Write `configVariable("AWS_KMS_PROFILE", { default: "" })` to make the profile optional: a laptop sets the variable, CI leaves it unset. [One config for a laptop and CI](../guides/aws-kms-setup.md#one-config-for-a-laptop-and-ci) shows the pattern.
 - Errors and `kms accounts` show the variable as `<VARIABLE_NAME>`. `kms history` masks its value as `<hidden>`, except a value shorter than 6 characters ([security model](../explanation/security-model.md#audit-logs)). `--show-ids` prints the values in both tasks.
 
-A Turnkey key names a wallet account in a Turnkey organization, and the API key that signs with it:
+A Turnkey key names a wallet account in a Turnkey organization, and the API key that signs with it. [Set up a Turnkey wallet account](../guides/turnkey-setup.md) creates both:
 
-- `organizationId` is the organization or sub-organization that holds the account: a UUID, literal or a configuration variable.
-- `address` is required. It is the wallet account's address, and the key's pin.
-- `apiPrivateKey` takes `configVariable(NAME)` only, without a `default` or a `format`, so the API private key is never written in the config. A literal string fails validation. Set the variable in the environment or in `hardhat-keystore`.
-- `apiPublicKey` is optional, literal or a configuration variable.
+- `organizationId` is the organization or sub-organization that holds the account: a UUID, literal or a configuration variable. A literal that is not a UUID fails when the config loads with `core.config.turnkey-organization-id`; a variable's value is checked when the key is first used.
+- `address` is required, and a key without it fails with `core.config.turnkey-address-required`. It is the wallet account's address: the plugin sends it to Turnkey as `signWith`, with its EIP-55 checksum, and it is the key's pin.
+- `apiPrivateKey` takes `configVariable(NAME)` only, without a `default` or a `format`, so the API private key is never written in the config. A literal string, a `default` or a `format` fails validation with `core.config.secret-variable`. Set the variable in the environment or in `hardhat-keystore` to the private key of a P-256 Turnkey API key, 64 hex characters.
+- `apiPublicKey` is optional, literal or a configuration variable. The plugin derives the public key from the private key. When `apiPublicKey` is set, the plugin checks that the two match before it sends any request.
 
-The plugin validates Turnkey keys and resolves them. No package that signs with them is released yet, so a Turnkey key fails when it is first used, with `core.provider.package-missing`. Its display id is `turnkey:<organizationId>/<address>`, with an organization id from a variable shown as `<VARIABLE_NAME>` unless `--show-ids` is given. The API keys are never shown, even with `--show-ids`.
+As for the other built-in providers, an unknown field fails at the key's path, such as `config.kms.keys.deployer: Unrecognized key(s) in object: 'baseUrl'`, not at the field. There is no field for Turnkey's API URL: the plugin always calls `https://api.turnkey.com`.
+
+A Turnkey key signs through `@hardhat-kms/turnkey`. Its display id is `turnkey:<organizationId>/<address>`, with an organization id from a variable shown as `<VARIABLE_NAME>` unless `--show-ids` is given. The API keys are never shown, even with `--show-ids`. `--kms` does not read Turnkey keys.
 
 `--kms aws` keys have no `region` of their own, so they use `kms.defaults.aws.region`, including one from a configuration variable.
 
@@ -103,13 +105,14 @@ Third-party providers extend the config types through the declaration-merged `Km
 
 ## Provider packages
 
-`hardhat-kms` validates the keys of every provider, but signs only through a provider package. Each provider package is a Hardhat plugin that depends on its cloud SDK, so installing it installs the SDK:
+`hardhat-kms` validates the keys of every provider, but signs only through a provider package. Each provider package is a Hardhat plugin that depends on its cloud SDK, so installing it installs the SDK. `@hardhat-kms/turnkey` has no dependencies: it calls Turnkey's API itself.
 
-| Provider         | Package                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------ |
-| AWS KMS          | `npm install --save-dev hardhat-kms @hardhat-kms/aws`, then add `hardhatKmsAws` to `plugins`     |
-| Google Cloud KMS | `npm install --save-dev hardhat-kms @hardhat-kms/gcp`, then add `hardhatKmsGcp` to `plugins`     |
-| Azure Key Vault  | `npm install --save-dev hardhat-kms @hardhat-kms/azure`, then add `hardhatKmsAzure` to `plugins` |
+| Provider         | Package                                                                                              |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| AWS KMS          | `npm install --save-dev hardhat-kms @hardhat-kms/aws`, then add `hardhatKmsAws` to `plugins`         |
+| Google Cloud KMS | `npm install --save-dev hardhat-kms @hardhat-kms/gcp`, then add `hardhatKmsGcp` to `plugins`         |
+| Azure Key Vault  | `npm install --save-dev hardhat-kms @hardhat-kms/azure`, then add `hardhatKmsAzure` to `plugins`     |
+| Turnkey          | `npm install --save-dev hardhat-kms @hardhat-kms/turnkey`, then add `hardhatKmsTurnkey` to `plugins` |
 
 [Install hardhat-kms](../guides/install-before-release.md) gives the pnpm and Yarn commands and the settings each package manager needs.
 
@@ -189,7 +192,7 @@ In this order, hardhat-kms gives a raw `eth_sendTransaction` request without `fr
 
 ## Credentials
 
-No secrets live in the Hardhat config. The [credentials reference](credentials.md) lists the sources each cloud tries, in order, and every variable they read.
+No secrets live in the Hardhat config. The [credentials reference](credentials.md) lists the sources each cloud tries, in order, and every variable they read, and where a Turnkey key's API key comes from.
 
 ### AWS
 
@@ -202,3 +205,7 @@ Google Cloud keys use Application Default Credentials: see [Credentials referenc
 ### Azure
 
 Azure keys use a chain the plugin builds, which refuses username and password sign-in: see [Credentials reference: Azure](credentials.md#azure).
+
+### Turnkey
+
+A Turnkey key's credential is its API private key, which the config names only as a configuration variable: see [Credentials reference: Turnkey](credentials.md#turnkey).

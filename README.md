@@ -5,13 +5,13 @@
 
 # hardhat-kms
 
-Sign Hardhat 3 transactions, messages and typed data with keys held in **AWS KMS**, **Google Cloud KMS** or **Azure Key Vault**. The private key never leaves the KMS.
+Sign Hardhat 3 transactions, messages and typed data with keys held in **AWS KMS**, **Google Cloud KMS**, **Azure Key Vault** or **Turnkey**. The private key never leaves the KMS.
 
-Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google or Microsoft.
+Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google, Microsoft or Turnkey.
 
 - viem, ethers, Ignition and plain scripts use KMS accounts unchanged: the plugin works at the JSON-RPC layer.
 - Every signature is recovered locally and checked against the key's address before it is used. An optional `address` pin also refuses a key that derives to another address. See the [security model](docs/user/explanation/security-model.md).
-- Install the provider package for each cloud you use, and configure its keys under `kms.keys`. No credentials go in the Hardhat config: AWS and Google Cloud keys use their SDK's credential discovery, and Azure keys use the plugin's own credential chain.
+- Install the provider package for each cloud you use, and configure its keys under `kms.keys`. No credentials go in the Hardhat config: AWS and Google Cloud keys use their SDK's credential discovery, Azure keys use the plugin's own credential chain, and a Turnkey key's API private key is a configuration variable, read from the environment or `hardhat-keystore`.
 - Eight [`kms` tasks](docs/user/reference/tasks.md), from `accounts` to `history`, which reads your cloud audit log, and a `--kms` option that reads Foundry's key variables.
 - Legacy, EIP-2930, EIP-1559 and EIP-7702 transactions, EIP-191 and EIP-712 signing, all run on Sepolia in a [live proof](docs/live-proof.md) with block ranges and on-chain `ecrecover` checks.
 
@@ -21,7 +21,14 @@ Versions below 1.0.0 are release candidates; use them with test keys on testnets
 
 ## Install
 
-In a Hardhat 3 project (`npx hardhat --init` creates one), install the core, `hardhat-kms`, with the provider package for your cloud: `@hardhat-kms/aws` for AWS KMS, `@hardhat-kms/gcp` for Google Cloud KMS, `@hardhat-kms/azure` for Azure Key Vault or Managed HSM. All hardhat-kms packages in a project have the same version.
+In a Hardhat 3 project (`npx hardhat --init` creates one), install the core, `hardhat-kms`, with the provider package for your cloud. All hardhat-kms packages in a project have the same version.
+
+| Keys in                        | Provider package       | Setup guide                                                                |
+| ------------------------------ | ---------------------- | -------------------------------------------------------------------------- |
+| AWS KMS                        | `@hardhat-kms/aws`     | [Set up an AWS KMS key](docs/user/guides/aws-kms-setup.md)                 |
+| Google Cloud KMS               | `@hardhat-kms/gcp`     | [Set up a Google Cloud KMS key](docs/user/guides/gcp-kms-setup.md)         |
+| Azure Key Vault or Managed HSM | `@hardhat-kms/azure`   | [Set up an Azure Key Vault key](docs/user/guides/azure-key-vault-setup.md) |
+| Turnkey                        | `@hardhat-kms/turnkey` | [Set up a Turnkey wallet account](docs/user/guides/turnkey-setup.md)       |
 
 ```sh
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
@@ -83,7 +90,7 @@ export default defineConfig({
 
 ## Next steps
 
-- Create a key and grant access: set up [AWS KMS](docs/user/guides/aws-kms-setup.md), [Google Cloud KMS](docs/user/guides/gcp-kms-setup.md) or [Azure Key Vault](docs/user/guides/azure-key-vault-setup.md).
+- Create a key and grant access: set up [AWS KMS](docs/user/guides/aws-kms-setup.md), [Google Cloud KMS](docs/user/guides/gcp-kms-setup.md), [Azure Key Vault](docs/user/guides/azure-key-vault-setup.md) or [Turnkey](docs/user/guides/turnkey-setup.md).
 - Deploy a first contract on Sepolia: the tutorial for [AWS KMS](docs/user/tutorials/first-deploy-aws.md), [Google Cloud KMS](docs/user/tutorials/first-deploy-gcp.md) or [Azure Key Vault](docs/user/tutorials/first-deploy-azure.md).
 - Add keys, providers or networks: the [configuration reference](docs/user/reference/configuration.md) and [Use several keys across networks](docs/user/guides/multiple-keys.md).
 - Use viem, ethers or Ignition: runnable [examples](examples/README.md), [Deploy with Hardhat Ignition](docs/user/guides/deploy-with-ignition.md), and [library accounts](docs/user/reference/library-accounts.md) for a viem account from `connection.kms.getAccount`.
