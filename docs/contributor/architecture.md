@@ -29,7 +29,7 @@ flowchart TD
   tasks --> hooks
   registry --> descriptors["providers/aws, gcp, azure<br/>descriptor, key format"]
   signer --> crypto["crypto/<br/>keys, signatures, digests"]
-  packages["provider packages<br/>@hardhat-kms/aws, @hardhat-kms/gcp, @hardhat-kms/azure:<br/>kms hook handlers, adapter, history reader"] --> utils["provider-utils.ts<br/>helpers for provider plugins"]
+  packages["provider packages<br/>@hardhat-kms/aws, @hardhat-kms/gcp, @hardhat-kms/azure, @hardhat-kms/turnkey:<br/>kms hook handlers, adapter, history reader"] --> utils["provider-utils.ts<br/>helpers for provider plugins"]
   utils --> crypto
   utils --> descriptors
   crypto --> vendor["vendor/micro-eth-signer<br/>EIP-712 encoder"]
@@ -46,12 +46,13 @@ The rules behind the arrows:
 
 The repository is a pnpm workspace ([decision 0010](decisions/0010-pnpm-workspaces.md)). Following [decision 0009](decisions/0009-one-package-per-provider.md), each cloud provider has its own package around an SDK-free core:
 
-| Package                      | Holds                                                                                                                                                                          | Status                                                                 |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `packages/hardhat-kms`       | The core: config and key formats, signing checks, the `kms` hook, `--kms`, `hardhat-kms/provider-utils`                                                                        | Implemented                                                            |
-| `packages/hardhat-kms-aws`   | The AWS plugin, adapter and CloudTrail history reader, depending on `@aws-sdk/client-kms`, `@aws-sdk/client-cloudtrail` and `@aws-sdk/client-sts`                              | Implemented ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91)) |
-| `packages/hardhat-kms-azure` | The Azure Key Vault plugin, credential chain, adapter and Log Analytics history reader, depending on `@azure/keyvault-keys`, `@azure/identity` and `@azure/core-rest-pipeline` | Implemented ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30)) |
-| `packages/hardhat-kms-gcp`   | The Google Cloud plugin, adapter and Cloud Logging history reader, depending on `@google-cloud/kms`, `google-gax` and `google-auth-library`                                    | Implemented ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29)) |
+| Package                        | Holds                                                                                                                                                                            | Status                                                                   |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `packages/hardhat-kms`         | The core: config and key formats, signing checks, the `kms` hook, `--kms`, `hardhat-kms/provider-utils`                                                                          | Implemented                                                              |
+| `packages/hardhat-kms-aws`     | The AWS plugin, adapter and CloudTrail history reader, depending on `@aws-sdk/client-kms`, `@aws-sdk/client-cloudtrail` and `@aws-sdk/client-sts`                                | Implemented ([#91](https://github.com/aelmanaa/hardhat-kms/issues/91))   |
+| `packages/hardhat-kms-azure`   | The Azure Key Vault plugin, credential chain, adapter and Log Analytics history reader, depending on `@azure/keyvault-keys`, `@azure/identity` and `@azure/core-rest-pipeline`   | Implemented ([#30](https://github.com/aelmanaa/hardhat-kms/issues/30))   |
+| `packages/hardhat-kms-turnkey` | The Turnkey plugin and adapter, with its own request stamp and HTTP client and no runtime dependency ([decision 0019](decisions/0019-turnkey-without-sdk.md)); no history reader | Implemented ([#511](https://github.com/aelmanaa/hardhat-kms/issues/511)) |
+| `packages/hardhat-kms-gcp`     | The Google Cloud plugin, adapter and Cloud Logging history reader, depending on `@google-cloud/kms`, `google-gax` and `google-auth-library`                                      | Implemented ([#29](https://github.com/aelmanaa/hardhat-kms/issues/29))   |
 
 ## Code map
 

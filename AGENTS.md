@@ -2,7 +2,7 @@
 
 This file tells coding agents where things are in hardhat-kms. Humans can start at [docs/README.md](docs/README.md).
 
-hardhat-kms is a Hardhat 3 plugin that signs transactions, messages and typed data with secp256k1 keys in AWS KMS, Google Cloud KMS and Azure Key Vault. It works at the JSON-RPC layer, so viem, ethers and Ignition see KMS keys as ordinary accounts. The private key never leaves the KMS.
+hardhat-kms is a Hardhat 3 plugin that signs transactions, messages and typed data with secp256k1 keys in AWS KMS, Google Cloud KMS, Azure Key Vault and Turnkey. It works at the JSON-RPC layer, so viem, ethers and Ignition see KMS keys as ordinary accounts. The private key never leaves the KMS.
 
 Status: on npm since 0.9.0, the release candidate for 1.0.0. Unless a page marks something as planned, everything the docs describe has merged to `main`, and the plugin is still in development until the 1.0 release.
 
@@ -36,6 +36,15 @@ npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/azure
 npx hardhat kms accounts
 ```
 
+Turnkey:
+
+```sh
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/turnkey
+# add hardhatKmsTurnkey to plugins, a key with organizationId, address and
+# apiPrivateKey: configVariable("TURNKEY_API_PRIVATE_KEY") under kms.keys, and the key's name to a network's kmsAccounts
+npx hardhat kms accounts --check-sign
+```
+
 Pin the address that `kms accounts` prints with the key's `address` field. `connection.kms.getAccount` also needs `viem` ^2.55.13.
 
 Pages:
@@ -55,6 +64,7 @@ Pages:
 - Set up an AWS KMS key (key spec, IAM policy, the `@hardhat-kms/aws` package, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
 - Set up an Azure Key Vault key (key type and curve, RBAC role or access policy, credential order, the `@hardhat-kms/azure` package): [docs/user/guides/azure-key-vault-setup.md](docs/user/guides/azure-key-vault-setup.md)
 - Set up a Google Cloud KMS key (algorithm, HSM protection level, IAM roles, the `@hardhat-kms/gcp` package, config, errors): [docs/user/guides/gcp-kms-setup.md](docs/user/guides/gcp-kms-setup.md)
+- Set up a Turnkey wallet account (a non-root API user, the least-privilege policy for the three request forms, the API key in a variable, quota, approvals and rejecting a pending activity, the `@hardhat-kms/turnkey` package): [docs/user/guides/turnkey-setup.md](docs/user/guides/turnkey-setup.md)
 - A key was deleted or nobody can reach it, or a key is being retired (each provider's waiting period and undo, guardrails, lockout, backups): [docs/user/guides/key-loss.md](docs/user/guides/key-loss.md)
 - Rotate a key, or catch an alias or Azure key version that changed under the config (what rotation does per provider, `address` pins, moving to a new key): [docs/user/guides/key-rotation.md](docs/user/guides/key-rotation.md)
 - Sign from a GitHub Actions job with no stored cloud credential (an environment with required reviewers, the OIDC trust per cloud scoped to the job's subject, the workflow with SHA-pinned login actions, `kms accounts --check-sign` in CI, common failures): [docs/user/guides/github-actions-oidc.md](docs/user/guides/github-actions-oidc.md)
@@ -77,7 +87,7 @@ Pages:
 - What `latest` and `beta` mean, what a version number promises, the Hardhat and viem ranges per plugin major, and how long an old major gets security fixes: [docs/user/explanation/versioning.md](docs/user/explanation/versioning.md)
 - Pages not written yet: [docs/contributor/documentation.md#planned-pages](docs/contributor/documentation.md#planned-pages)
 
-Never ask a user to paste credentials, private keys or API-keyed RPC URLs. Credentials never come from the Hardhat config: AWS and Google Cloud keys use their SDK's credential discovery, and Azure keys use the plugin's own chain ([docs/user/guides/azure-key-vault-setup.md#3-sign-in](docs/user/guides/azure-key-vault-setup.md#3-sign-in)). API-keyed RPC URLs belong in `configVariable()`, which also accepts key identifiers.
+Never ask a user to paste credentials, private keys or API-keyed RPC URLs. Credentials never come from the Hardhat config: AWS and Google Cloud keys use their SDK's credential discovery, and Azure keys use the plugin's own chain ([docs/user/guides/azure-key-vault-setup.md#3-sign-in](docs/user/guides/azure-key-vault-setup.md#3-sign-in)). A Turnkey key's API private key is a `configVariable()` without a default, read from the environment or `hardhat-keystore`, never a literal ([docs/user/guides/turnkey-setup.md](docs/user/guides/turnkey-setup.md#5-store-the-api-private-key)). API-keyed RPC URLs belong in `configVariable()`, which also accepts key identifiers.
 
 ## If you are changing the code
 
@@ -111,6 +121,7 @@ Where things are:
 - `packages/hardhat-kms-aws`: the AWS KMS provider plugin, which depends on `@aws-sdk/client-kms`.
 - `packages/hardhat-kms-azure`: the Azure Key Vault provider plugin, which depends on `@azure/keyvault-keys` and `@azure/identity`.
 - `packages/hardhat-kms-gcp`: the Google Cloud KMS provider plugin, which depends on `@google-cloud/kms`.
+- `packages/hardhat-kms-turnkey`: the Turnkey provider plugin, which depends on no SDK: it calls Turnkey's API with its own request stamp ([decision 0019](docs/contributor/decisions/0019-turnkey-without-sdk.md)).
 - `tools/api-docs`: a private package, never published, that runs TypeDoc on TypeScript 6 for the API reference ([decision 0012](docs/contributor/decisions/0012-api-reference-generator.md)).
 - `tools/docs-site`: a private package, never published, that builds the docs site from `docs/` with VitePress; see [Documentation](docs/contributor/documentation.md#the-docs-site).
 - `examples/`: Hardhat projects that deploy and call a contract from a KMS account with viem, ethers and Ignition. They are workspace members, and `pnpm run test:examples` runs them against LocalStack.
@@ -129,6 +140,7 @@ Where things are:
 | How the docs are organised                                  | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
 | Why the main decisions were made                            | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
 | How other signers compare, and why each check exists        | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
+| The Turnkey provider's research, design and Foundry parity  | [docs/contributor/research/turnkey.md](docs/contributor/research/turnkey.md)                     |
 | Roadmap                                                     | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
 | The 1.0.0 announcement text                                 | [docs/contributor/launch-notes/1.0.0.md](docs/contributor/launch-notes/1.0.0.md)                 |
 | Adoption metrics, the monthly check                         | [docs/contributor/adoption-metrics.md](docs/contributor/adoption-metrics.md)                     |
@@ -143,7 +155,7 @@ Decision records:
 - [0006: A plugin-owned `kms` hook for third-party providers](docs/contributor/decisions/0006-kms-hook-for-providers.md)
 - [0007: oxlint, oxfmt and TypeScript 7](docs/contributor/decisions/0007-toolchain.md)
 - [0008: Choose KMS keys from the command line with `--kms`](docs/contributor/decisions/0008-kms-command-line-option.md)
-- [0009: Ship each cloud provider as its own package](docs/contributor/decisions/0009-one-package-per-provider.md) (amended by 0015)
+- [0009: Ship each cloud provider as its own package](docs/contributor/decisions/0009-one-package-per-provider.md) (amended by 0015 and 0019)
 - [0010: Use pnpm workspaces](docs/contributor/decisions/0010-pnpm-workspaces.md)
 - [0011: Check typed data's chain only when it names one](docs/contributor/decisions/0011-typed-data-chain-check.md)
 - [0012: Generate the API reference with TypeDoc on TypeScript 6](docs/contributor/decisions/0012-api-reference-generator.md)
@@ -153,6 +165,8 @@ Decision records:
 - [0016: Release from a signed tag, stage to `beta`, promote by dist-tag](docs/contributor/decisions/0016-release-process.md)
 - [0017: The docs site lives at aelmanaa.github.io/hardhat-kms](docs/contributor/decisions/0017-docs-hostname.md)
 - [0018: Refuse a requested type that disagrees with the caller's fee fields](docs/contributor/decisions/0018-refuse-requested-type-mismatch.md)
+- [0019: Call Turnkey's API without a Turnkey SDK](docs/contributor/decisions/0019-turnkey-without-sdk.md)
+- [0020: Fail at once when a Turnkey activity needs approval](docs/contributor/decisions/0020-turnkey-approvals-fail-fast.md)
 
 Rules for every change:
 

@@ -62,5 +62,7 @@ Each signature is one `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2` activity, with `signWi
 
 A key whose policy needs approval from other users or another authenticator fails at once, and the error names the pending activity so that you can reject it in the Turnkey dashboard. The plugin does not wait for approvals.
 
+- [Set up a Turnkey wallet account](https://aelmanaa.github.io/hardhat-kms/user/guides/turnkey-setup): a non-root API user, policies that allow the three forms above and deny credential changes, the API key in a variable, quota and approvals.
+- [Policies written for Foundry](https://aelmanaa.github.io/hardhat-kms/user/guides/turnkey-setup#policies-written-for-foundry) and [rejecting a pending activity](https://aelmanaa.github.io/hardhat-kms/user/guides/turnkey-setup#reject-the-pending-activity).
 - [Configuration reference](https://aelmanaa.github.io/hardhat-kms/user/reference/configuration).
 - [All docs](https://aelmanaa.github.io/hardhat-kms/).
