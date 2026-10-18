@@ -126,7 +126,7 @@ A catalogue in `packages/hardhat-kms-turnkey/src/internal/error-catalog.ts`, ids
 | `turnkey.credential.public-key-mismatch`        | `apiPublicKey` does not match the private key                                                                  | Check that the two variables are from the same key pair                                                           |
 | `turnkey.service.unauthenticated`               | 401: `SIGNATURE_INVALID`, `PUBLIC_KEY_NOT_FOUND`, `API_KEY_EXPIRED`, `CREDENTIAL_NOT_FOUND`, `UNAUTHENTICATED` | The key is not registered in this organization or its parent, or has expired                                      |
 | `turnkey.service.timestamp`                     | 401/400 for a stale or future `timestampMs` (F14; matched on code when Turnkey sends one, unverified)          | Sync the clock                                                                                                    |
-| `turnkey.service.forbidden`                     | 403 `REQUEST_NOT_AUTHORIZED`                                                                                   | Add a policy that lets this API user sign with this address; check for a policy that denies `HASH_FUNCTION_NO_OP` |
+| `turnkey.service.forbidden`                     | 403, with no `turnkeyErrorCode` (live run)                                                                     | Add a policy that lets this API user sign with this address; check for a policy that denies `HASH_FUNCTION_NO_OP` |
 | `turnkey.service.not-found`                     | 404, `ORGANIZATION_NOT_FOUND`                                                                                  | Check `organizationId`                                                                                            |
 | `turnkey.service.bad-request`                   | 400, for example the address is not in the organization                                                        | Check `address` and `organizationId`                                                                              |
 | `turnkey.service.quota`                         | 429 `SIGNING_QUOTA_EXCEEDED`                                                                                   | 25 free signatures a month; add a plan                                                                            |
@@ -327,7 +327,7 @@ Follow-ups for the backlog: approval wait mode (D2), reject on abort, `walletId`
 - Whether `r` and `s` are always 64 hex characters (left-padded).
 - The encoding of `publicKey` on wallet accounts (compressed or uncompressed).
 - Whether `signWith` matching is case-sensitive for addresses (alloy sends the checksummed form).
-- The exact `turnkeyErrorCode` for stale timestamps, and for an address not in the organization.
+- The exact `turnkeyErrorCode` for an address not in the organization. Answered for stale timestamps and policy denials by the first live run (2026-10-18): neither has one. A stale `timestampMs` gets HTTP 400 with an empty `turnkeyErrorCode`, and a policy 403 has an empty `turnkeyErrorCode` and the policy evaluations in `details` ([Turnkey live findings](../testing.md#turnkey-live-findings)).
 - Whether denied or failed sign activities count toward the signing quota.
 - Whether an API user can reject its own pending activity.
 - Whether a parent organization's API key can sign for a sub-organization's wallet, and under which policies.

@@ -82,22 +82,51 @@ function field(value: unknown, name: string): unknown {
   return typeof value === "object" && value !== null ? Reflect.get(value, name) : undefined;
 }
 
-/** A Turnkey error answer, in Turnkey's shape. */
+/**
+ * A Turnkey error answer, in Turnkey's shape. Without a code it is the shape the live smoke test
+ * recorded for a 400 (a stale timestamp): empty `details` and an empty top-level
+ * `turnkeyErrorCode`.
+ */
 export function turnkeyError(status: number, code?: string, message = "an error"): StubAnswer {
   return {
     status,
-    json: {
-      code: 3,
-      message,
-      details:
-        code === undefined
-          ? []
-          : [
+    json:
+      code === undefined
+        ? { code: 3, message, details: [], turnkeyErrorCode: "" }
+        : {
+            code: 3,
+            message,
+            details: [
               {
                 "@type": "type.googleapis.com/errors.v1.TurnkeyErrorDetail",
                 turnkeyErrorCode: code,
               },
             ],
+          },
+  };
+}
+
+/**
+ * The 403 Turnkey answers when no policy allows a request, in the shape the live smoke test
+ * recorded: no `turnkeyErrorCode` (the top-level one is empty, and the detail holds the policy
+ * evaluations instead).
+ */
+export function turnkeyPolicyDenied(message = "an error"): StubAnswer {
+  return {
+    status: 403,
+    json: {
+      code: 7,
+      message,
+      details: [
+        {
+          "@type": "type.googleapis.com/external.activity.v1.PolicyEvaluationsErrorDetail",
+          message: "a policy evaluation message",
+          policyEvaluations: [
+            { policyId: "00000000-0000-4000-8000-000000000000", outcome: "OUTCOME_DENY_IMPLICIT" },
+          ],
+        },
+      ],
+      turnkeyErrorCode: "",
     },
   };
 }
