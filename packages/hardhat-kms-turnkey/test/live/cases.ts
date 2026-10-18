@@ -406,14 +406,15 @@ export const SMOKE_CASES: readonly SmokeCase[] = [
       );
       const text = textOf(error);
       assert.ok(text.includes(FORBIDDEN_TEXT), `not turnkey.service.forbidden: ${text}`);
-      // Turnkey's own answer, as the recorder saw it: its status and its error code, never its
-      // message. The plugin's hint in the error text is the plugin's, so it proves nothing here.
+      // Turnkey's own answer, as the recorder saw it: its status, never its message. The plugin's
+      // hint in the error text is the plugin's, so it proves nothing here. Turnkey's policy 403
+      // carries no turnkeyErrorCode (the first live run saw an empty one), so the status alone
+      // decides; the note records whether a code came.
       const last = settings.recorder.exchanges.findLast(
         (exchange) => exchange.path === "sign_transaction",
       );
       assert.equal(last?.status, 403, `Turnkey answered ${String(last?.status)}, not 403`);
-      assert.ok(last.code !== undefined, "Turnkey's 403 carried no turnkeyErrorCode");
-      return `HTTP 403 ${last.code}`;
+      return `HTTP 403, turnkeyErrorCode: ${last.code ?? "none"}`;
     },
   },
   {
