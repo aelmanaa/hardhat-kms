@@ -8,7 +8,11 @@ import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 
 import { addressFromPublicKey, sameAddress } from "../crypto/address.ts";
 import { authorizationDigest } from "../crypto/digests.ts";
-import { recoverPublicKey, toRpcSignature } from "../crypto/signature.ts";
+import {
+  type RecoverableSignature,
+  recoverPublicKey,
+  toRpcSignature,
+} from "../crypto/signature.ts";
 import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, errorName } from "../errors.ts";
@@ -23,7 +27,7 @@ import {
   transactionToSign,
 } from "../rpc/transactions.ts";
 import { checkTypedDataChain } from "../rpc/typed-data.ts";
-import type { KmsSigner, SignerCallOptions } from "../signer/kms-signer.ts";
+import { type KmsSigner, type SignerCallOptions, outstandingNonce } from "../signer/kms-signer.ts";
 import { CancelledError } from "../signer/timeout.ts";
 import { warn } from "../warnings.ts";
 import {
@@ -72,6 +76,11 @@ export interface AccountConnection {
     choose(request: LibraryNonceRequest): Promise<bigint>;
     /** Notes that the account signed a transaction with this nonce. */
     signed(address: string, nonce: bigint): void;
+    /**
+     * Keeps a nonce held whose transaction the provider may still sign after the account gave up
+     * on it (#537), before viem's `reset` for the failed send ends its hold or reservation.
+     */
+    outstanding(address: string, nonce: bigint): void;
     /** Ends the hold or the reservation of a send that failed. */
     reset(address: string, chainId: bigint): Promise<void>;
   };
@@ -360,7 +369,17 @@ async function signTransaction(
   }
   log("%s: signing a %s transaction for chain %s", address, input.type, chainId.toString());
   const signed = await context.withSigner(operation, async (signer, call) => {
-    const signature = await signer.signTransaction(toSign, call);
+    let signature: RecoverableSignature;
+    try {
+      signature = await signer.signTransaction(toSign, { ...call, holdsNonce: true });
+    } catch (error) {
+      // Before the error reaches viem, whose reset then ends this send's hold or reservation.
+      const nonce = outstandingNonce(error);
+      if (nonce !== undefined) {
+        connection.nonces.outstanding(address.toLowerCase(), nonce);
+      }
+      throw error;
+    }
     return assembleSignedTransaction(input.unsigned, signature, address, operation);
   });
   // After the signature: a reservation whose transaction was signed is the one most likely sent.

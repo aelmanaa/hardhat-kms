@@ -60,6 +60,14 @@ async function assertAwsError(promise: Promise<unknown>, includes: string[]): Pr
 }
 
 describe("AWS KMS adapter", () => {
+  it("signs transactions as digests and declares no signature that outlives a timeout (#537)", async () => {
+    const { adapter } = await adapterFor(awsKey("alias/deployer"));
+    // The core then releases the nonce of a timed-out transaction: a digest signature that
+    // completes late is never a transaction anyone can broadcast.
+    assert.ok(!("signTransaction" in adapter));
+    assert.ok(!("signTransactionOutlivesAbort" in adapter));
+  });
+
   it("returns the key's public key and KMS's DER signature of the digest, unchanged", async () => {
     for (const highS of [false, true]) {
       const { adapter } = await adapterFor(awsKey("alias/deployer"), { highS });

@@ -1635,6 +1635,21 @@ to `signDigest`; it always verifies the returned signature against the key.
 
 Stable from 1.0: a minor may add optional methods; changing or removing one needs a major.
 
+#### Properties
+
+##### signTransactionOutlivesAbort?
+
+> `readonly` `optional` **signTransactionOutlivesAbort?**: `boolean`
+
+`true` when a `signTransaction` request that the core abandons may still produce a signed
+transaction outside the plugin: the provider keeps working on it after the call's `signal`
+aborts, and keeps the signed transaction where others can read and broadcast it (Turnkey's
+`sign_transaction`). For such an adapter, a `signTransaction` that times out or is cancelled
+after the adapter called `ctx.requestSent` keeps the transaction's nonce held: the core's
+sends from the account skip it, a gap rather than two valid transactions at one nonce. A
+failure before `ctx.requestSent`, or any error the adapter throws, releases the nonce as
+before. The core reads it once, when it builds the signer.
+
 #### Methods
 
 ##### close()?
@@ -2488,6 +2503,27 @@ Shows a status line to the user (for example while waiting for an approval).
 ###### Returns
 
 `Promise`\<`void`\>
+
+##### requestSent()?
+
+> `optional` **requestSent**(`providerRequestId?`: `string`): `void`
+
+Tells the core that the request may now be at the provider. An adapter that sets
+[KmsKeyAdapter.signTransactionOutlivesAbort](#signtransactionoutlivesabort) calls it from `signTransaction` right before
+each request that asks the provider to sign leaves, and never after `signal` has aborted. It
+may call it again with the provider's id for the request once it knows it, such as Turnkey's
+activity id; the core shows the id in its error only when it is a UUID. The core reads it only
+for `signTransaction` on an adapter with that flag.
+
+###### Parameters
+
+| Parameter            | Type     | Description                                  |
+| -------------------- | -------- | -------------------------------------------- |
+| `providerRequestId?` | `string` | The provider's id for the request, if known. |
+
+###### Returns
+
+`void`
 
 ---
 

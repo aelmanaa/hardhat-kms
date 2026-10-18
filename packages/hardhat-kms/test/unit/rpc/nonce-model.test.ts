@@ -10,6 +10,12 @@
 //   NONCE_MODEL_SEED=<seed> NONCE_MODEL_PATH=<path> NONCE_MODEL_REPLAY_PATH=<replayPath> \
 //   node --test test/unit/rpc/nonce-model.test.ts
 //
+// #537 adds a KMS signature that the provider may still complete after the plugin gave up on it
+// (Turnkey's sign_transaction): every key's adapter here has `signTransactionOutlivesAbort`, and
+// the `outstandingSend` and `librarySignOutstanding` steps make one transaction hang after its
+// request was sent, until the key's timeout. Its nonce must then never be signed again on that
+// connection until a transaction with it is recorded there.
+//
 // The orderings that failed before #434 are classified into their own `-434` kinds when they
 // match the shape that #434 fixed, and their own properties check them. Every other violation of
 // the same invariant keeps its plain kind. The shrunk counterexamples are fixed regression cases
@@ -27,6 +33,7 @@ import {
   libraryHoldOf,
   sendLocksInUse,
 } from "../../../src/internal/rpc/send-guard.ts";
+import { outstandingNonce } from "../../../src/internal/signer/kms-signer.ts";
 import {
   COW,
   gate,
@@ -48,6 +55,11 @@ const SEED_SETTING = env("NONCE_MODEL_SEED") ?? "445";
 const SEED = SEED_SETTING === "random" ? undefined : Number(SEED_SETTING);
 const PATH = env("NONCE_MODEL_PATH");
 const REPLAY_PATH = env("NONCE_MODEL_REPLAY_PATH");
+/**
+ * The keys' `timeoutMs`. Each `outstandingSend` and `librarySignOutstanding` step passes it once,
+ * so ten steps stay well within the library hold's 60 s limit.
+ */
+const KMS_TIMEOUT_MS = 1000;
 /** Each property's limit: about 15 ms a sequence locally, with room for slow CI runners. */
 const PROPERTY_TIMEOUT_MS = Math.max(120_000, RUNS * 100);
 
@@ -89,6 +101,11 @@ type Kind =
   | "recorded"
   /** An invalid self-authorization reached the node. */
   | "self-authorization-435"
+  /**
+   * #537: a send on a connection signed a nonce whose transaction the provider may still sign
+   * there, before a transaction with that nonce was recorded on the connection.
+   */
+  | "outstanding"
   /**
    * #489: after the node's pending count fell (a dropped transaction or a revert), a plugin send
    * on edr-simulated signed above the lowest nonce at or above the pending count that the node
@@ -200,6 +217,13 @@ interface World {
    * them, a gap the pending count cannot show it.
    */
   stale: Set<bigint>;
+  /** The values of the transactions whose KMS signature hangs after its request was sent. */
+  hangs: Set<bigint>;
+  /**
+   * By connection: the nonces of transactions the provider may still sign (#537), until a
+   * transaction with the nonce is recorded on the connection.
+   */
+  outstanding: [Set<bigint>, Set<bigint>];
 }
 
 const LIVE: ReadonlySet<LibraryState> = new Set(["consumed", "signing", "signed", "broadcasting"]);
@@ -220,9 +244,12 @@ function pendingOf(world: World): bigint {
  * reservation is a library send's nonce.
  */
 function lowestFree(world: World): bigint {
-  const given = new Set(
-    library(world).flatMap((send) => (send.nonce === undefined ? [] : [send.nonce])),
-  );
+  const given = new Set([
+    ...library(world).flatMap((send) => (send.nonce === undefined ? [] : [send.nonce])),
+    // A nonce the provider may still sign is skipped on its connection (#537).
+    ...world.outstanding[0],
+    ...world.outstanding[1],
+  ]);
   let nonce = pendingOf(world);
   while (world.delivered.has(nonce) || given.has(nonce) || world.stale.has(nonce)) {
     nonce++;
@@ -253,6 +280,13 @@ const valueOf = (raw: string): number => Number(Transaction.fromHex(raw, false).
  * (docs/user/reference/library-accounts.md, "Some cases stay outside this").
  */
 function checkClaim(world: World, claimer: Send, nonce: bigint, step: string): void {
+  // A connection forgets its holds when it closes (docs/contributor/transactions.md).
+  if (isOpen(world, claimer.connection) && world.outstanding[claimer.connection].has(nonce)) {
+    world.violations.push({
+      kind: "outstanding",
+      message: `${step}: send ${claimer.id} on connection ${claimer.connection} signed nonce ${nonce}, which the provider may still sign for another send (#537)`,
+    });
+  }
   const had = world.delivered.get(nonce);
   if (had !== undefined && had.id !== claimer.id) {
     const what = `${step}: send ${claimer.id} on connection ${claimer.connection} signed nonce ${nonce}, which the node has from send ${had.id}${had.uncertain ? " (no answer)" : ""}`;
@@ -389,6 +423,11 @@ function deliver(world: World, send: Send, nonce: bigint): void {
       recordedOn,
       pastReservation,
     });
+    // A transaction with the nonce reached the node through these connections: their hold of an
+    // outstanding nonce ends (#537), when they record it, at once or after the lookup.
+    for (const connection of recordedOn) {
+      world.outstanding[connection].delete(nonce);
+    }
   }
   if (send.kind === "library") {
     send.state = "delivered";
@@ -756,6 +795,101 @@ function librarySign(index: number): Step {
   };
 }
 
+/**
+ * Records the outcome of a KMS signature that may have hung after its request was sent (#537):
+ * the send chose the error's nonce, so it claims it, and the connection then keeps it held.
+ */
+function noteOutstanding(world: World, send: Send, error: unknown, step: string): void {
+  const nonce = outstandingNonce(error);
+  if (nonce !== undefined) {
+    checkClaim(world, send, nonce, step);
+    if (isOpen(world, send.connection)) {
+      world.outstanding[send.connection].add(nonce);
+    }
+  }
+}
+
+/**
+ * A plugin send whose KMS signature hangs after its request was sent, as a Turnkey activity that
+ * stays pending, until the key's timeout passes (#537). A send that waits for the lock hangs when
+ * it gets it, until a later step passes the time.
+ */
+function outstandingSend(connection: ConnectionIndex): Step {
+  return {
+    check: () => true,
+    run: async (_model, world) => {
+      if (!isOpen(world, connection)) {
+        return;
+      }
+      const send: PluginSend = {
+        kind: "plugin",
+        id: world.sends.length,
+        connection,
+        lowest: lowestFree(world),
+      };
+      world.sends.push(send);
+      world.hangs.add(BigInt(send.id));
+      const target = world.connections[connection];
+      assert.ok(target !== undefined);
+      await start(
+        world,
+        (async () => {
+          try {
+            return await world.harness.send(target, {
+              from: COW,
+              to: TO,
+              value: `0x${send.id.toString(16)}`,
+            });
+          } catch (error) {
+            noteOutstanding(world, send, error, `outstanding send ${send.id}`);
+            throw error;
+          }
+        })(),
+      );
+      world.tick(KMS_TIMEOUT_MS);
+      await settle();
+    },
+    toString: () => `outstandingSend(${connection})`,
+  };
+}
+
+/**
+ * A library send's signature that hangs after its request was sent, until the key's timeout
+ * passes (#537). viem resets after it, as after any failed sign; `libraryReset` may follow.
+ */
+function librarySignOutstanding(index: number): Step {
+  return {
+    check: () => true,
+    run: async (_model, world) => {
+      const send = library(world)[index];
+      if (send?.state !== "consumed" || send.nonce === undefined) {
+        return;
+      }
+      send.state = "signing";
+      world.hangs.add(BigInt(send.id));
+      await start(
+        world,
+        (async (nonce: bigint) => {
+          try {
+            send.raw = await send.sign(nonce);
+          } catch (error) {
+            send.state = "sign-failed";
+            const held = outstandingNonce(error);
+            if (held !== undefined && isOpen(world, send.connection)) {
+              world.outstanding[send.connection].add(held);
+            }
+            throw error;
+          }
+          send.state = "signed";
+        })(send.nonce),
+      );
+      world.tick(KMS_TIMEOUT_MS);
+      await settle();
+    },
+    toString: () => `librarySignOutstanding(${index})`,
+  };
+}
+
 function libraryBroadcast(index: number, through: ConnectionIndex): Step {
   return {
     check: () => true,
@@ -916,6 +1050,7 @@ function close(connection: ConnectionIndex): Step {
         return;
       }
       world.closed[connection] = true;
+      world.outstanding[connection].clear();
       for (const send of library(world)) {
         if (send.connection === connection) {
           send.orphaned = true;
@@ -1093,6 +1228,8 @@ const stepArbs: [fc.Arbitrary<Step>, number][] = [
   [connectionArb.map(inspectUncertain), 1],
   [fc.tuple(connectionArb, transportArb).map(([c, transport]) => libraryConsume(c, transport)), 3],
   [indexArb.map(librarySign), 1],
+  [connectionArb.map(outstandingSend), 1],
+  [indexArb.map(librarySignOutstanding), 1],
   [fc.tuple(indexArb, connectionArb).map(([index, c]) => libraryBroadcast(index, c)), 1],
   [indexArb.map(libraryReset), 2],
   // No answer twice as often: it is the path of the uncertain record and its lookup.
@@ -1121,7 +1258,7 @@ async function newWorld(
   kinds: ReadonlySet<Kind>,
 ): Promise<World> {
   const chainId = nextChainId++;
-  const harness = await setUp(type, chainId);
+  const harness = await setUp(type, chainId, { outliving: true, timeoutMs: KMS_TIMEOUT_MS });
   const connections: NetworkConnection<string>[] = [];
   for (let i = 0; i < 2; i++) {
     const connection = await harness.open();
@@ -1148,7 +1285,10 @@ async function newWorld(
     tick: (ms) => t.mock.timers.tick(ms),
     fell: false,
     stale: new Set(),
+    hangs: new Set(),
+    outstanding: [new Set(), new Set()],
   };
+  harness.state.hang = (transaction) => (world.hangs.has(transaction.value) ? "sent" : undefined);
   harness.node.onRaw = onRaw(world);
   harness.node.lookUp = (hash, connection) => {
     if (typeof hash === "string") {
@@ -1338,6 +1478,58 @@ const KNOWN_506: Step[][] = [
 ];
 
 /**
+ * #537: a KMS signature that hangs after its request was sent, then the account's other sends:
+ * none may sign its nonce on its connection until a transaction with it is recorded there. Every
+ * run tries these first, and each has its own test.
+ */
+const KNOWN_537: { name: string; type: "http" | "edr-simulated"; steps: Step[] }[] = [
+  {
+    name: "a plugin send after an outstanding send, on a lagging HTTP node",
+    type: "http",
+    steps: [outstandingSend(0), pluginSend(0), pluginSend(0), inspectUncertain(0)],
+  },
+  {
+    name: "a plugin send after an outstanding send past a gap, on edr-simulated",
+    type: "edr-simulated",
+    steps: [outstandingSend(0), pluginSend(0), pluginSend(0), libraryConsume(0, "own")],
+  },
+  {
+    name: "a held library send whose sign is outstanding, then viem's reset",
+    type: "http",
+    steps: [
+      libraryConsume(0, "through"),
+      librarySignOutstanding(0),
+      libraryReset(0),
+      pluginSend(0),
+      libraryConsume(0, "through"),
+    ],
+  },
+  {
+    name: "an own-transport library send whose sign is outstanding, then viem's reset",
+    type: "edr-simulated",
+    steps: [
+      libraryConsume(0, "own"),
+      librarySignOutstanding(1),
+      librarySignOutstanding(0),
+      libraryReset(0),
+      pluginSend(0),
+      libraryConsume(0, "own"),
+    ],
+  },
+  {
+    name: "an outstanding send waiting behind a library hold, then the hold limit",
+    type: "http",
+    // The first limit ends the hold, so the send hangs; the second passes its timeout.
+    steps: [libraryConsume(0, "through"), outstandingSend(0), holdLimit, holdLimit, pluginSend(0)],
+  },
+  {
+    name: "an outstanding send, then a caller-nonce replacement at another nonce and a fall",
+    type: "edr-simulated",
+    steps: [pluginSend(0), outstandingSend(0), replace(0), drop(0), pluginSend(0), pluginSend(0)],
+  },
+];
+
+/**
  * Sequences every run tries before the random ones: the orderings where a reset, a hold limit or
  * a lost answer meets a reservation or a hold, which random sequences of 10 steps reach rarely.
  */
@@ -1379,6 +1571,7 @@ const EXAMPLES: ["http" | "edr-simulated", Step[]][] = [
   ],
   ...KNOWN_489.map((known): ["edr-simulated", Step[]] => ["edr-simulated", known.steps]),
   ...KNOWN_506.map((sequence): ["http", Step[]] => ["http", sequence]),
+  ...KNOWN_537.map((known): ["http" | "edr-simulated", Step[]] => [known.type, known.steps]),
 ];
 
 /**
@@ -1511,7 +1704,10 @@ describe("the nonce subsystem, over random orderings of sends, resets, holds and
     "never signs a nonce another live send owns, and no lock or hold outlives its limit",
     { timeout: PROPERTY_TIMEOUT_MS },
     async (t) => {
-      await check(t, new Set<Kind>(["delivered", "uncertain", "hold", "reservation", "limit"]));
+      await check(
+        t,
+        new Set<Kind>(["delivered", "uncertain", "hold", "reservation", "limit", "outstanding"]),
+      );
     },
   );
 
@@ -1570,6 +1766,20 @@ describe("an unanswered caller-nonce send after an unanswered send (#506)", () =
         "http",
         sequence.map(checked),
         new Set<Kind>(["delivered", "uncertain", "recorded", "reservation"]),
+      );
+    });
+  }
+});
+
+describe("a KMS signature the provider may still complete (#537)", () => {
+  for (const known of KNOWN_537) {
+    it(`never signs the outstanding nonce again on its connection: ${known.name}`, async (t) => {
+      mockGlobals(t);
+      await runSequence(
+        t,
+        known.type,
+        known.steps.map(checked),
+        new Set<Kind>(["delivered", "uncertain", "hold", "reservation", "outstanding", "gap-489"]),
       );
     });
   }

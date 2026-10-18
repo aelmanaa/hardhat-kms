@@ -116,6 +116,9 @@ export function setup(
       signed: (address, nonce) => {
         nonceCalls.push(["signed", address, nonce]);
       },
+      outstanding: (address, nonce) => {
+        nonceCalls.push(["outstanding", address, nonce]);
+      },
       reset: async (address, chainId) => {
         nonceCalls.push(["reset", address, chainId]);
         await Promise.resolve();

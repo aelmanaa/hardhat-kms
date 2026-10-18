@@ -8,7 +8,8 @@ import type { ErrorEntry } from "hardhat-kms/provider-utils";
  *
  * No message quotes Turnkey's response: its `message` can name organizations. A message carries at
  * most the HTTP status and Turnkey's `turnkeyErrorCode` when that code matches
- * `^[A-Z][A-Z0-9_]{0,63}$`. Only `turnkey.activity.approval-needed` carries the activity id.
+ * `^[A-Z][A-Z0-9_]{0,63}$`. Only `turnkey.activity.approval-needed` carries the activity id here;
+ * the core's `core.signer.transaction-outstanding` carries it too, from `ctx.requestSent` (#537).
  */
 
 /** The @hardhat-kms/turnkey error catalogue. */

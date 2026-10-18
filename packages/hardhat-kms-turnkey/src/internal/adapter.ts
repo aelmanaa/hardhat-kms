@@ -130,11 +130,20 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
     ctx: SignContext,
   ) => Promise<SignatureOutput>;
 
+  /**
+   * Set with `signTransaction` (#537): Turnkey keeps working on a `sign_transaction` activity
+   * after the plugin stops waiting, and stores the signed transaction, which every user of the
+   * organization can read and broadcast. The core then keeps the nonce held. A digest-mode key's
+   * activity holds only a hash, so the flag stays unset.
+   */
+  declare public readonly signTransactionOutlivesAbort?: boolean;
+
   public constructor(key: TurnkeyKmsKeyConfig, transport: Transport) {
     this.#key = key;
     this.#transport = transport;
     if (key.transactionSigning === "transaction") {
       this.signTransaction = async (request, ctx) => await this.#signTransaction(request, ctx);
+      this.signTransactionOutlivesAbort = true;
     }
   }
 
@@ -229,8 +238,16 @@ class TurnkeyKeyAdapter implements KmsKeyAdapter {
       requestId: ctx.requestId,
       forbiddenHint: request.forbiddenHint,
     };
-    const answer = await session.client.send(request.path, body, requestContext);
+    // The core keeps a transaction's nonce held if the call ends after this (#537).
+    const answer = await session.client.send(request.path, body, {
+      ...requestContext,
+      sent: () => {
+        ctx.requestSent?.();
+      },
+    });
     let activity = this.#activityOf(answer.body, session, undefined, request);
+    // The id the error of a later timeout names, so that the user can find the activity.
+    ctx.requestSent?.(activity.id);
     log("%s: activity %s", ctx.requestId, activity.status);
     const poll = JSON.stringify({
       organizationId: session.organizationId,

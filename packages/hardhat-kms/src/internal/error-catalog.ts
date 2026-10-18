@@ -511,6 +511,15 @@ export const ERRORS = {
     cause: "The adapter has a property with a method's name, but it is not a function.",
     fix: "Report it to the provider plugin.",
   },
+  adapterNotBoolean: {
+    id: "core.provider.adapter-not-boolean",
+    kind: "error",
+    group: "Provider plugins",
+    template: "the adapter's {property} is not a boolean",
+    cause:
+      "The adapter has a property with the name of a flag of the adapter contract, such as `signTransactionOutlivesAbort`, but its value is not `true` or `false`.",
+    fix: "Report it to the provider plugin.",
+  },
   adapterNoSigning: {
     id: "core.provider.adapter-no-signing",
     kind: "error",
@@ -753,6 +762,16 @@ export const ERRORS = {
     cause:
       "The `signal` given to `connection.kms.getAccount` aborted before or during a KMS call, so the plugin stopped waiting and returned nothing. It does not retry a cancelled call. A request that already reached the provider can still be signed there and show in its audit log, but the plugin never returns that signature.",
     fix: "Nothing, if the abort was meant. To sign again, get a new account with a signal that has not aborted.",
+  },
+  signerTransactionOutstanding: {
+    id: "core.signer.transaction-outstanding",
+    kind: "error",
+    group: "Signing",
+    template:
+      "{reason} after the request reached the provider. {who} may still sign this transaction ({request}), and anyone who can read it there can then broadcast it with nonce {nonce}. {reject} while it is pending, or send a replacement transaction with nonce {nonce}, before any other transaction from this account{hold}",
+    cause:
+      "The key's adapter declares that a transaction request it gave up on may still be signed at the provider (`signTransactionOutlivesAbort`), as Turnkey's `sign_transaction` does, and the call timed out or was cancelled after the request was sent. Turnkey keeps working on an accepted activity and stores the signed transaction, which every user of the organization can read and broadcast. Two valid transactions with one nonce could then exist, so the plugin keeps the nonce held instead of signing it again: on `eth_sendTransaction`, `eth_signTransaction` and a library account's `signTransaction`, the network connection's later sends from the account skip it. The hold ends when a transaction with that nonce reaches the node through the connection (a replacement with the caller's nonce, or a raw transaction), or when the connection closes. A Turnkey id is shown only when it is a UUID.",
+    fix: 'For Turnkey, open the activity in the dashboard. If it is still pending, reject it. If it completed, either broadcast its signed transaction or send a replacement with the nonce the message names, with an explicit `nonce`, before anything else; the replacement also fills the gap that the plugin\'s later sends wait behind. Raise `timeoutMs` if Turnkey is slow to answer. See the Turnkey setup guide, "When Turnkey does not answer in time".',
   },
   signerCallFailed: {
     id: "core.signer.provider-call-failed",

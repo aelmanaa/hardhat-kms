@@ -746,6 +746,13 @@ export class ConnectionSends {
   /** By sender: the viem resets that have released no reservation yet. */
   readonly #owedResets = new Map<string, OwedResets>();
   /**
+   * By sender: the nonces of transactions that a provider may still sign after the plugin gave up
+   * on them (#537). Nonce choice skips them until a transaction with the nonce reaches the node
+   * through this connection ({@link recordSent}) or the connection closes. No time limit and no
+   * reset ends them: the plugin cannot see whether the provider signed.
+   */
+  readonly #outstanding = new Map<string, Set<bigint>>();
+  /**
    * By sender, with the high-water mark off: the transactions the node accepted, by nonce. A live
    * reservation leaves a gap, and the pending count stops at it, so the nonce choice counts the
    * ones at or above the pending count while the sender has a live reservation. The ones below it
@@ -785,12 +792,21 @@ export class ConnectionSends {
     if (mark >= nonce) {
       nonce = mark + 1n;
     }
-    const live = this.#live(from);
-    // Without a reservation there is no gap, and the pending count covers every sent nonce.
-    if (live.size === 0) {
+    const skipped = this.#skipped(from);
+    // Without a reservation or an outstanding nonce there is no gap, and the pending count covers
+    // every sent nonce.
+    if (skipped.size === 0) {
       return nonce;
     }
-    return this.#pick(from, nonce, live, false);
+    return this.#pick(from, nonce, skipped, false);
+  }
+
+  /**
+   * The nonces a send skips: the sender's live reservations, and the nonces a provider may still
+   * sign (#537). Either can leave a gap that the node's pending count stops at.
+   */
+  #skipped(from: string): Set<bigint> {
+    return new Set([...this.#live(from).keys(), ...(this.#outstanding.get(from) ?? [])]);
   }
 
   /**
@@ -826,7 +842,7 @@ export class ConnectionSends {
     let fell = pending < records.observed || (atPending?.fresh === true && !atPending.gone);
     records.observed = pending;
     const latest = byNonce.get(records.latest);
-    if (!fell && latest?.fresh === true && !latest.gone && this.#live(from).size > 0) {
+    if (!fell && latest?.fresh === true && !latest.gone && this.#skipped(from).size > 0) {
       fell = (await lookUp(latest.newest)) === false;
     }
     if (fell) {
@@ -835,7 +851,7 @@ export class ConnectionSends {
         record.fresh = false;
       }
     }
-    if (this.#live(from).size === 0) {
+    if (this.#skipped(from).size === 0) {
       return this.#noReservation(records, pending);
     }
     const checked = new Set<bigint>();
@@ -846,7 +862,7 @@ export class ConnectionSends {
       }
     }
     for (;;) {
-      const nonce = this.#pick(from, pending, this.#live(from), true);
+      const nonce = this.#pick(from, pending, this.#skipped(from), true);
       const record = byNonce.get(nonce);
       if (record?.gone !== true || checked.has(nonce)) {
         return nonce;
@@ -892,11 +908,11 @@ export class ConnectionSends {
    * the limit. The pending count itself the node does not have. A record counts as held when
    * `checked` is false, and otherwise unless its last lookup found it gone.
    */
-  #pick(from: string, start: bigint, live: Map<bigint, Reservation>, checked: boolean): bigint {
+  #pick(from: string, start: bigint, live: ReadonlySet<bigint>, checked: boolean): bigint {
     const records = this.#sent.get(from);
     const held = (record: SentRecord): boolean => !checked || !record.gone;
     if (records === undefined || !(records.afterFall || start < records.observed)) {
-      const used = [...live.keys()];
+      const used = [...live];
       if (records !== undefined) {
         for (const [nonce, record] of records.byNonce) {
           if (held(record)) {
@@ -951,6 +967,34 @@ export class ConnectionSends {
       owedCandidate: false,
     });
     this.#reservations.set(from, reservations);
+  }
+
+  /**
+   * Keeps a nonce held whose transaction a provider may still sign after the plugin gave up on it
+   * (#537): every nonce choice for the sender skips it, a gap rather than a second valid
+   * transaction at the nonce. The hold ends when a transaction with the nonce reaches the node
+   * through this connection ({@link recordSent}), or when the connection closes.
+   *
+   * @param from - The sender's lowercase address.
+   * @param nonce - The nonce.
+   */
+  public holdOutstanding(from: string, nonce: bigint): void {
+    if (this.#closed) {
+      return;
+    }
+    const held = this.#outstanding.get(from) ?? new Set<bigint>();
+    held.add(nonce);
+    this.#outstanding.set(from, held);
+  }
+
+  /**
+   * The sender's outstanding nonces, lowest first. Tests use it.
+   *
+   * @param from - The sender's lowercase address.
+   * @returns The nonces a provider may still sign.
+   */
+  public outstandingNonces(from: string): bigint[] {
+    return [...(this.#outstanding.get(from) ?? [])].toSorted((a, b) => (a < b ? -1 : 1));
   }
 
   /**
@@ -1204,12 +1248,19 @@ export class ConnectionSends {
    * off, its nonce and hash, next to the hashes recorded before at that nonce; beyond
    * {@link MAX_SENT_RECORDS} hashes, the nonce recorded first is dropped with all its hashes, and after a fall
    * {@link chooseNonce} takes no nonce above the pending count up to the highest dropped one.
+   * It ends the hold of an outstanding nonce ({@link holdOutstanding}) at this nonce.
    *
    * @param from - The sender's lowercase address.
    * @param nonce - The nonce of the accepted transaction.
    * @param hash - Its hash.
    */
   public recordSent(from: string, nonce: bigint, hash: string): void {
+    // The node has a transaction at the nonce, so no second one can take it: the hold ends here,
+    // and the record below keeps the nonce used as for any send.
+    const outstanding = this.#outstanding.get(from);
+    if (outstanding?.delete(nonce) === true && outstanding.size === 0) {
+      this.#outstanding.delete(from);
+    }
     if (!this.#highWaterEnabled) {
       const records = this.#recordsOf(from);
       const { byNonce } = records;
@@ -1386,6 +1437,7 @@ export class ConnectionSends {
     this.#sent.clear();
     this.#uncertain.clear();
     this.#reservations.clear();
+    this.#outstanding.clear();
     endLibraryHoldsOf(this);
   }
 }

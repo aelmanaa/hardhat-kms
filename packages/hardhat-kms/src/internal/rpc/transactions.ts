@@ -12,7 +12,7 @@ import { authorizationDigest } from "../crypto/digests.ts";
 import { type RecoverableSignature, recoverPublicKey, toLowS } from "../crypto/signature.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
-import type { KmsSigner, TransactionToSign } from "../signer/kms-signer.ts";
+import { type KmsSigner, type TransactionToSign, outstandingNonce } from "../signer/kms-signer.ts";
 import { warn } from "../warnings.ts";
 import {
   buildUnsignedTransaction,
@@ -31,8 +31,8 @@ const TYPE_NUMBERS: Readonly<Record<UnsignedTransaction["type"], number>> = {
 };
 
 /**
- * What the signer signs for an unsigned transaction: its unsigned serialized form, its type number
- * and its chain id. The caller adds the signature to this same unsigned transaction with
+ * What the signer signs for an unsigned transaction: its unsigned serialized form, its type number,
+ * its chain id and its nonce. The caller adds the signature to this same unsigned transaction with
  * {@link assembleSignedTransaction}.
  *
  * @param unsigned - The unsigned transaction.
@@ -43,7 +43,12 @@ export function transactionToSign(
   unsigned: UnsignedTransaction,
   chainId: bigint,
 ): TransactionToSign {
-  return { unsigned: unsigned.toBytes(false), type: TYPE_NUMBERS[unsigned.type], chainId };
+  return {
+    unsigned: unsigned.toBytes(false),
+    type: TYPE_NUMBERS[unsigned.type],
+    chainId,
+    nonce: unsigned.raw.nonce,
+  };
 }
 
 /**
@@ -176,6 +181,13 @@ export interface SignTransactionInputs {
    * `kms sign-tx` task checks a requested `type` with it.
    */
   checkUnsigned?: ((unsigned: UnsignedTransaction) => void) | undefined;
+  /**
+   * Keeps a nonce held when the provider may still sign the transaction after a timeout or an
+   * abort (`core.signer.transaction-outstanding`); called before that error is thrown. Without it,
+   * as for `kms sign-tx`, which sends nothing afterwards, no nonce is held and the error does not
+   * describe a hold.
+   */
+  holdNonce?: ((nonce: bigint) => void) | undefined;
 }
 
 /** A signed transaction. */
@@ -214,7 +226,18 @@ export async function signTransaction(
   inputs.checkUnsigned?.(unsigned);
   lintAuthorizations(filled);
   checkSelfAuthorizations(unsigned, inputs.from, inputs.method);
-  const signature = await signer.signTransaction(transactionToSign(unsigned, filled.chainId));
+  let signature: RecoverableSignature;
+  try {
+    signature = await signer.signTransaction(transactionToSign(unsigned, filled.chainId), {
+      holdsNonce: inputs.holdNonce !== undefined,
+    });
+  } catch (error) {
+    const nonce = outstandingNonce(error);
+    if (nonce !== undefined) {
+      inputs.holdNonce?.(nonce);
+    }
+    throw error;
+  }
   const signed = assembleSignedTransaction(unsigned, signature, inputs.from, inputs.method);
   return { raw: signed.toHex(true), hash: `0x${signed.hash}`, nonce: filled.nonce };
 }

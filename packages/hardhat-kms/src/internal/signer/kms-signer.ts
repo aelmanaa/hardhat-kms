@@ -76,7 +76,66 @@ export interface SignerCallOptions {
    * goes on, bounded by the key's `timeoutMs`; only this caller stops waiting for it.
    */
   signal?: AbortSignal | undefined;
+  /**
+   * For a transaction: whether the caller keeps its nonce held when the call ends with an error
+   * that {@link outstandingNonce} knows, so that the error says how that hold ends.
+   */
+  holdsNonce?: boolean | undefined;
 }
+
+/** The nonce of each `core.signer.transaction-outstanding` error the signer threw (#537). */
+const outstandingNonces = new WeakMap<object, bigint>();
+
+/**
+ * The nonce of a transaction the provider may still sign: set when `error` is the error of a
+ * transaction signature that timed out or was cancelled after the request reached a provider
+ * whose adapter sets `signTransactionOutlivesAbort` (`core.signer.transaction-outstanding`). The
+ * provider may still sign the transaction and keep it where others can broadcast it, so a caller
+ * that sends must keep the nonce held, and never sign a second transaction with it (gap over
+ * duplicate).
+ *
+ * @param error - Anything a signer call threw.
+ * @returns The transaction's nonce, or `undefined` for any other error.
+ */
+export function outstandingNonce(error: unknown): bigint | undefined {
+  return typeof error === "object" && error !== null ? outstandingNonces.get(error) : undefined;
+}
+
+/** A provider's id for a request, as the core shows one: a UUID. Anything else is not shown. */
+const PROVIDER_REQUEST_ID = /^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
+
+/** How `core.signer.transaction-outstanding` names the request, the provider and the rejection. */
+interface OutstandingWords {
+  who: string;
+  request: (id: string | undefined) => string;
+  reject: string;
+}
+
+/** The words for Turnkey, whose requests are activities, and for any other provider. */
+const OUTSTANDING_WORDS: { turnkey: OutstandingWords; other: OutstandingWords } = {
+  turnkey: {
+    who: "Turnkey",
+    request: (id) =>
+      id === undefined
+        ? "its activity id is not known: look for the account's newest sign_transaction activity"
+        : `activity ${id}`,
+    reject: "Reject the activity in the Turnkey dashboard",
+  },
+  other: {
+    who: "The provider",
+    request: (id) => (id === undefined ? "its request id is not known" : `request ${id}`),
+    reject: "Reject the request at the provider",
+  },
+};
+
+/**
+ * Builds the error a transaction signature fails with when it timed out or was cancelled after
+ * the adapter reported its request sent: the reason, and the provider's id for the request.
+ */
+type OutstandingError = (
+  reason: string,
+  providerRequestId: string | undefined,
+) => HardhatPluginError;
 
 /** Largest delay Node's timers accept; larger values fire after 1 ms. */
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
@@ -101,6 +160,8 @@ export interface TransactionToSign {
   type: number;
   /** Its chain id. */
   chainId: bigint;
+  /** Its nonce, for the error that keeps it held when the provider may still sign it. */
+  nonce: bigint;
 }
 
 /** What is being signed, which decides the digest, the adapter method and the final check. */
@@ -126,6 +187,8 @@ export class KmsSigner {
   readonly #displayId: string;
   readonly #options: KmsSignerOptions;
   readonly #timers: Timers;
+  /** The adapter's `signTransactionOutlivesAbort`, read once. */
+  readonly #outlivesAbort: boolean;
   #identity: Promise<KeyIdentity> | undefined;
 
   /**
@@ -169,6 +232,7 @@ export class KmsSigner {
     this.#displayId = options.displayId ?? description.displayId;
     this.#options = { ...options, expectedAddress };
     this.#timers = options.timers ?? systemTimers;
+    this.#outlivesAbort = adapter.signTransactionOutlivesAbort === true;
   }
 
   /**
@@ -241,7 +305,7 @@ export class KmsSigner {
     digest: Uint8Array,
     options: SignerCallOptions = {},
   ): Promise<RecoverableSignature> {
-    return await this.#sign({ kind: "digest", digest }, options.signal);
+    return await this.#sign({ kind: "digest", digest }, options);
   }
 
   /**
@@ -265,8 +329,9 @@ export class KmsSigner {
       unsigned: new Uint8Array(transaction.unsigned),
       type: transaction.type,
       chainId: transaction.chainId,
+      nonce: transaction.nonce,
     };
-    return await this.#sign(request, options.signal);
+    return await this.#sign(request, options);
   }
 
   /**
@@ -280,9 +345,7 @@ export class KmsSigner {
     message: Uint8Array,
     options: SignerCallOptions = {},
   ): Promise<string> {
-    const signature = toRpcSignature(
-      await this.#sign({ kind: "message", message }, options.signal),
-    );
+    const signature = toRpcSignature(await this.#sign({ kind: "message", message }, options));
     const { address } = await this.#resolveIdentity();
     if (!verifyPersonalMessageSignature(signature, message, address)) {
       throw this.#error("sign message", ERRORS.signerEip191Failed, {});
@@ -301,9 +364,7 @@ export class KmsSigner {
     typedData: TypedData,
     options: SignerCallOptions = {},
   ): Promise<string> {
-    const signature = toRpcSignature(
-      await this.#sign({ kind: "typedData", typedData }, options.signal),
-    );
+    const signature = toRpcSignature(await this.#sign({ kind: "typedData", typedData }, options));
     const { address } = await this.#resolveIdentity();
     if (!verifyTypedDataSignature(signature, typedData, address)) {
       throw this.#error("sign typed data", ERRORS.signerEip712Failed, {});
@@ -385,10 +446,8 @@ export class KmsSigner {
     }
   }
 
-  async #sign(
-    request: SignRequest,
-    signal: AbortSignal | undefined,
-  ): Promise<RecoverableSignature> {
+  async #sign(request: SignRequest, options: SignerCallOptions): Promise<RecoverableSignature> {
+    const { signal } = options;
     if (request.kind === "digest" && request.digest.length !== DIGEST_LENGTH) {
       // A caller error: never send it to the provider, and never retry it.
       throw this.#error("sign", ERRORS.signerDigestLength, {
@@ -399,7 +458,7 @@ export class KmsSigner {
     const identity = await this.#identityFor("sign", signal);
     const digest = digestOf(request);
     try {
-      return await this.#signOnce(request, digest, identity, signal);
+      return await this.#signOnce(request, digest, identity, options);
     } catch (error) {
       if (!(error instanceof InvalidSignatureError)) {
         throw error;
@@ -408,7 +467,7 @@ export class KmsSigner {
       // after the caller's abort: the retry's call refuses to start.
       log("%s: invalid signature (%s), asking for a fresh one", this.#displayId, error.message);
       try {
-        return await this.#signOnce(request, digest, identity, signal);
+        return await this.#signOnce(request, digest, identity, options);
       } catch (retryError) {
         if (retryError instanceof InvalidSignatureError) {
           throw this.#error("sign", ERRORS.signerInvalidSignature, { reason: retryError.message });
@@ -422,12 +481,17 @@ export class KmsSigner {
     request: SignRequest,
     digest: Uint8Array,
     identity: KeyIdentity,
-    signal: AbortSignal | undefined,
+    options: SignerCallOptions,
   ): Promise<RecoverableSignature> {
     // Built before the call, so that a payload the signer cannot copy is not blamed on the provider.
     const call = this.#adapterCall(request, digest);
     log("%s: sign with %s", this.#displayId, call.method);
-    const output = await this.#call("sign", call.run, signal);
+    const output = await this.#call(
+      "sign",
+      call.run,
+      options.signal,
+      this.#outstandingError(request, call.method, options.holdsNonce === true),
+    );
     if (identity.publicKey !== undefined) {
       return normalizeSignature(output, digest, identity.publicKey);
     }
@@ -490,15 +554,61 @@ export class KmsSigner {
     }
   }
 
+  /**
+   * The error of a transaction signature that the provider may still complete, when the adapter
+   * says that it may (`signTransactionOutlivesAbort`) and `signTransaction` signs it; otherwise
+   * `undefined`.
+   */
+  #outstandingError(
+    request: SignRequest,
+    method: string,
+    holdsNonce: boolean,
+  ): OutstandingError | undefined {
+    if (!this.#outlivesAbort || request.kind !== "transaction" || method !== "signTransaction") {
+      return undefined;
+    }
+    const { nonce } = request;
+    const words =
+      this.#description.provider === "turnkey"
+        ? OUTSTANDING_WORDS.turnkey
+        : OUTSTANDING_WORDS.other;
+    return (reason, providerRequestId) => {
+      const error = catalogError(
+        ERRORS.signerTransactionOutstanding,
+        {
+          reason,
+          who: words.who,
+          request: words.request(providerRequestId),
+          nonce,
+          reject: words.reject,
+          hold: holdsNonce
+            ? `. Until a transaction with nonce ${nonce} reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce ${nonce}, so they wait behind a gap that the replacement fills`
+            : "",
+        },
+        // The operation as Turnkey's own transaction errors name it, not the signer's `sign`.
+        {
+          provider: this.#description.provider,
+          operation: "sign transaction",
+          key: this.#displayId,
+        },
+      );
+      outstandingNonces.set(error, nonce);
+      return error;
+    };
+  }
+
   async #call<T>(
     operation: string,
     run: (ctx: SignContext) => Promise<T>,
     callerSignal?: AbortSignal,
+    outstanding?: OutstandingError,
   ): Promise<T> {
     const requestId = randomUUID();
     const started = Date.now();
     const key = this.#displayId;
     log("%s: %s (request %s)", key, operation, requestId);
+    // What the adapter said about its request: whether it may be at the provider, and its id.
+    const sent: { yes: boolean; id: string | undefined } = { yes: false, id: undefined };
     try {
       const result = await withTimeout(
         async (signal) =>
@@ -508,6 +618,15 @@ export class KmsSigner {
               await this.#options.displayMessage(message);
             },
             requestId,
+            requestSent: (providerRequestId) => {
+              sent.yes = true;
+              if (
+                typeof providerRequestId === "string" &&
+                PROVIDER_REQUEST_ID.test(providerRequestId)
+              ) {
+                sent.id = providerRequestId;
+              }
+            },
           }),
         this.#options.timeoutMs,
         this.#timers,
@@ -525,9 +644,16 @@ export class KmsSigner {
         throw this.#error(operation, ERRORS.signerKeyMaterial, { reason: error.message });
       }
       if (error instanceof TimeoutError) {
-        throw this.#error(operation, ERRORS.signerNoAnswer, { timeout: this.#options.timeoutMs });
+        const timeout = this.#options.timeoutMs;
+        if (sent.yes && outstanding !== undefined) {
+          throw outstanding(catalogMessage(ERRORS.signerNoAnswer, { timeout }), sent.id);
+        }
+        throw this.#error(operation, ERRORS.signerNoAnswer, { timeout });
       }
       if (error instanceof CancelledError) {
+        if (sent.yes && outstanding !== undefined) {
+          throw outstanding(catalogMessage(ERRORS.signerCancelled, {}), sent.id);
+        }
         throw this.#error(operation, ERRORS.signerCancelled, {});
       }
       // Only the error's class name: SDK errors can carry request metadata and headers.

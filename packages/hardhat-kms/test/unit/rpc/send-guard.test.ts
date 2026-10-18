@@ -18,6 +18,7 @@ import {
   LIBRARY_WAIT_WARNING_MS,
   libraryHoldOf,
   libraryHoldsActive,
+  type LookUpTransaction,
   MAX_SEND_LOCK_WAITERS,
   MAX_SENT_RECORDS,
   MAX_UNCERTAIN_RECORDS,
@@ -2108,5 +2109,82 @@ describe("library holds", () => {
     assert.equal(await done, 9n);
     assert.equal(timers.pending(), 0, "the default timers are real, and the test ends the hold");
     endLibraryHold(KEY, false);
+  });
+});
+
+/** A node that has none of the transactions it is asked about. */
+const notKnown: LookUpTransaction = async () => await Promise.resolve(false);
+/** A node that has every transaction it is asked about. */
+const known: LookUpTransaction = async () => await Promise.resolve(true);
+
+describe("ConnectionSends outstanding nonces (#537)", () => {
+  const COW = "0xcd2a3d9f938e13cd947ec05abc7fe734df8dd826";
+  const ZERO = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+
+  it("skips a held nonce with the mark on, and leaves other senders alone", () => {
+    const { sends } = withClock();
+    sends.holdOutstanding(COW, 0n);
+    assert.equal(sends.nonceFor(COW, 0n), 1n);
+    assert.equal(sends.nonceFor(COW, 2n), 2n, "a nonce the node has passed is no longer at risk");
+    assert.equal(sends.nonceFor(ZERO, 0n), 0n);
+    assert.deepEqual(sends.outstandingNonces(COW), [0n]);
+    assert.deepEqual(sends.outstandingNonces(ZERO), []);
+  });
+
+  it("skips a held nonce with the mark off, and past the sends after its gap", async () => {
+    const { sends } = withClock(false);
+    assert.equal(await sends.chooseNonce(COW, 0n, notKnown), 0n);
+    sends.holdOutstanding(COW, 0n);
+    assert.equal(await sends.chooseNonce(COW, 0n, notKnown), 1n);
+    sends.recordSent(COW, 1n, "0x01");
+    // The node's pending count stops at the gap; the record above it counts.
+    assert.equal(await sends.chooseNonce(COW, 0n, known), 2n);
+    assert.equal(sends.nonceFor(COW, 0n), 2n);
+  });
+
+  it("keeps every held nonce until a transaction with it is recorded, and lists them lowest first", () => {
+    const { sends } = withClock();
+    sends.holdOutstanding(COW, 5n);
+    sends.holdOutstanding(COW, 2n);
+    sends.holdOutstanding(COW, 5n);
+    assert.deepEqual(sends.outstandingNonces(COW), [2n, 5n]);
+    sends.recordSent(COW, 3n, "0x03");
+    assert.deepEqual(sends.outstandingNonces(COW), [2n, 5n]);
+    sends.recordSent(COW, 5n, "0x05");
+    assert.deepEqual(sends.outstandingNonces(COW), [2n]);
+    sends.recordSent(ZERO, 2n, "0x02");
+    assert.deepEqual(sends.outstandingNonces(COW), [2n]);
+    sends.recordSent(COW, 2n, "0x02");
+    assert.deepEqual(sends.outstandingNonces(COW), []);
+    assert.equal(sends.nonceFor(COW, 0n), 6n, "the mark keeps the recorded nonces used");
+  });
+
+  it("ends the hold when a transaction with the nonce is recorded with the mark off too", () => {
+    const { sends } = withClock(false);
+    sends.holdOutstanding(COW, 0n);
+    sends.recordSent(COW, 0n, "0x00");
+    assert.deepEqual(sends.outstandingNonces(COW), []);
+  });
+
+  it("outlives every reservation limit and reset, and counts as no reservation", () => {
+    const { sends, clock } = withClock();
+    sends.holdOutstanding(COW, 0n);
+    assert.equal(sends.hasReservations(COW), false, "viem's reset then ends a library hold");
+    sends.reserve(COW, 1n);
+    sends.resetReservation(`1:${COW}`);
+    clock.now += RESERVATION_MS * 10;
+    assert.equal(sends.hasReservations(COW), false);
+    assert.equal(sends.nonceFor(COW, 0n), 1n);
+    assert.deepEqual(sends.outstandingNonces(COW), [0n]);
+  });
+
+  it("forgets the held nonces when it is closed, and holds none after", () => {
+    const { sends } = withClock();
+    sends.holdOutstanding(COW, 0n);
+    sends.close();
+    assert.deepEqual(sends.outstandingNonces(COW), []);
+    sends.holdOutstanding(COW, 1n);
+    assert.deepEqual(sends.outstandingNonces(COW), []);
+    assert.equal(sends.nonceFor(COW, 0n), 0n);
   });
 });

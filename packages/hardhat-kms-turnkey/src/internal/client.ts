@@ -86,6 +86,11 @@ export interface RequestContext {
   requestId: string;
   /** Text the 403 error adds after "with this address", naming what the request sent. */
   forbiddenHint: string;
+  /**
+   * Called right before each attempt's request leaves, after its stamp is made and the signal was
+   * checked, so that the core knows Turnkey may have the request (`SignContext.requestSent`).
+   */
+  sent?: (() => void) | undefined;
 }
 
 /** Turnkey's error code from an error answer's `details`, when it is safe to show. */
@@ -189,12 +194,16 @@ export class TurnkeyClient {
       let response: Response;
       // `undefined` for a redirect, whose body the client never reads.
       let text: string | undefined;
+      const stamp = stampBody(body, this.#apiKey);
+      // Nothing between this and fetch awaits, so the signal cannot abort before the request
+      // starts: once the core hears of it, the request may be at Turnkey.
+      ctx.sent?.();
       try {
         response = await this.#transport.fetch(`${this.#transport.baseUrl}${path}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            [STAMP_HEADER]: stampBody(body, this.#apiKey),
+            [STAMP_HEADER]: stamp,
           },
           body,
           redirect: "manual",

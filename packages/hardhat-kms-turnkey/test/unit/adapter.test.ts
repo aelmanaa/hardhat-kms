@@ -826,6 +826,70 @@ describe("the Turnkey adapter's transactions", () => {
     assert.deepEqual(request.digest, before.digest);
   });
 
+  it("declares that an abandoned transaction may still be signed, in transaction mode only (#537)", async () => {
+    const transaction = await setUp(turnkeyKey({ transactionSigning: "transaction" }));
+    assert.equal(transaction.adapter.signTransactionOutlivesAbort, true);
+    const digest = await setUp(turnkeyKey({ transactionSigning: "digest" }));
+    assert.ok(!("signTransactionOutlivesAbort" in digest.adapter));
+  });
+
+  it("tells the core right before each sign_transaction attempt leaves, then the activity id (#537)", async () => {
+    const [, , [, eip1559] = [2, {}]] = TRANSACTIONS;
+    const { stub, adapter } = await setUp();
+    // Each entry records how many requests the stub had when the core heard of the next one.
+    const ctx = signContext(() => stub.requests.length);
+    stub.answer(
+      turnkeyError(500),
+      activity("ACTIVITY_STATUS_PENDING", { type: SIGN_TRANSACTION_TYPE }),
+    );
+    stub.pendingPolls = 0;
+
+    await assert.rejects(
+      adapter.signTransaction?.(transactionRequest(2, eip1559), ctx) ?? Promise.resolve(),
+      // The queued activity is not the stub's own, so the poll finds no such activity.
+      /Turnkey answered 404/,
+    );
+
+    assert.deepEqual(
+      stub.requests.map((request) => request.path),
+      [SIGN_TRANSACTION_PATH, SIGN_TRANSACTION_PATH, POLL_PATH],
+    );
+    assert.deepEqual(ctx.sent, [
+      [null, 0],
+      [null, 1],
+      [ACTIVITY_ID, 2],
+    ]);
+  });
+
+  it("tells the core nothing when no sign_transaction request leaves (#537)", async () => {
+    const [, , [, eip1559] = [2, {}]] = TRANSACTIONS;
+    const refused = await setUp();
+    const unsupported = signContext();
+    await assert.rejects(
+      refused.adapter.signTransaction?.(transactionRequest(3, eip1559), unsupported) ??
+        Promise.resolve(),
+    );
+    assert.deepEqual(unsupported.sent, []);
+
+    const aborted = signContext();
+    aborted.controller.abort(new Error("cancelled"));
+    await assert.rejects(
+      refused.adapter.signTransaction?.(transactionRequest(2, eip1559), aborted) ??
+        Promise.resolve(),
+      /cancelled/,
+    );
+    assert.deepEqual(aborted.sent, []);
+
+    const badKey = await setUp(turnkeyKey({}, { privateKey: "00" }));
+    const failed = signContext();
+    await assert.rejects(
+      badKey.adapter.signTransaction?.(transactionRequest(2, eip1559), failed) ?? Promise.resolve(),
+      /is not a P-256 private key/,
+    );
+    assert.deepEqual(failed.sent, []);
+    assert.equal(refused.stub.requests.length + badKey.stub.requests.length, 0);
+  });
+
   it("has no signTransaction with transactionSigning digest, and signs digests as before", async () => {
     const { stub, adapter } = await setUp(turnkeyKey({ transactionSigning: "digest" }));
     assert.ok(!("signTransaction" in adapter));

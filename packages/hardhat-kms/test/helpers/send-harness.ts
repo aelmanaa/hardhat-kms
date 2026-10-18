@@ -85,10 +85,25 @@ export interface FakeNode {
   lookUp: (hash: unknown, connection: NetworkConnection<string>) => unknown;
 }
 
+/** The provider's id for a transaction request that {@link SignState.hang} leaves pending. */
+export const PENDING_REQUEST_ID = "1b4e28ba-2fa1-11d2-883f-0016d3cca427";
+
+/**
+ * What an outliving adapter's `signTransaction` does with a transaction instead of signing it:
+ * wait for the abort after it reported the request sent (`sent`, as Turnkey's pending activity
+ * does), or before (`unsent`, as a request that never left).
+ */
+export type Hang = "sent" | "unsent";
+
 /** The fake KMS adapters' shared state. */
 export interface SignState {
   /** Awaited before each signature, by key name. */
   beforeSign: ((name: string) => Promise<void>) | undefined;
+  /**
+   * With `outliving` set up: decides, from a transaction's nonce and value, whether
+   * `signTransaction` hangs instead of signing it. Undefined signs every transaction.
+   */
+  hang: ((transaction: { nonce: bigint; value: bigint }) => Hang | undefined) | undefined;
   /** The signatures made. */
   signatures: number;
   /** The adapters closed. */
@@ -126,6 +141,17 @@ export interface SendHarness {
   ) => Promise<{ response: JsonRpcResponse; forwarded: JsonRpcRequest[] }>;
 }
 
+/** How {@link setUp} builds the fake adapters. */
+export interface SetUpOptions {
+  /**
+   * Give the adapters `signTransaction` and `signTransactionOutlivesAbort`, as Turnkey's adapter
+   * has in transaction mode (#537); {@link SignState.hang} then makes a transaction hang.
+   */
+  outliving?: boolean;
+  /** The keys' `timeoutMs`; the plugin's default when absent. */
+  timeoutMs?: number;
+}
+
 /**
  * The network hook's handlers with fake timers, a runtime with two third-party keys (cow, zero),
  * and a fake node. The network sets a fixed gas and gas price, so a fill only reads the chain id
@@ -139,11 +165,15 @@ export interface SendHarness {
 export async function setUp(
   type: "http" | "edr-simulated" = "http",
   chainId = 31337,
+  options: SetUpOptions = {},
 ): Promise<SendHarness> {
   const keys = Object.fromEntries(Object.keys(SECRETS).map((name) => [name, vaultKey(name)]));
   const hre = await createHardhatRuntimeEnvironment({
     plugins: [hardhatKms],
-    kms: { keys },
+    kms: {
+      keys,
+      ...(options.timeoutMs === undefined ? {} : { defaults: { timeoutMs: options.timeoutMs } }),
+    },
     networks: {
       remote: {
         type: "http",
@@ -156,7 +186,7 @@ export async function setUp(
       plain: { type: "http", url: "http://127.0.0.1:1", chainId, gas: 21_000, gasPrice: 1 },
     },
   });
-  const state: SignState = { beforeSign: undefined, signatures: 0, closed: 0 };
+  const state: SignState = { beforeSign: undefined, hang: undefined, signatures: 0, closed: 0 };
   hre.hooks.registerHandlers("kms", {
     createKeyAdapter: async (_context, key) => {
       const secret = SECRETS[key.name];
@@ -168,11 +198,39 @@ export async function setUp(
           await state.beforeSign?.(key.name);
         },
       });
-      return {
-        ...adapter,
+      const closing = {
         close: async () => {
           state.closed++;
           await Promise.resolve();
+        },
+      };
+      if (options.outliving !== true) {
+        return { ...adapter, ...closing };
+      }
+      return {
+        ...adapter,
+        ...closing,
+        signTransactionOutlivesAbort: true,
+        signTransaction: async (request, ctx) => {
+          const { nonce, value } = Transaction.fromHex(
+            Buffer.from(request.unsigned).toString("hex"),
+            false,
+          ).raw;
+          const hang = state.hang?.({ nonce, value });
+          if (hang !== undefined) {
+            if (hang === "sent") {
+              ctx.requestSent?.();
+              ctx.requestSent?.(PENDING_REQUEST_ID);
+            }
+            await new Promise<never>((_, reject) => {
+              ctx.signal.addEventListener("abort", () => {
+                reject(new Error("aborted"));
+              });
+            });
+          }
+          const signature = await adapter.signDigest?.({ digest: request.digest }, ctx);
+          assert.ok(signature !== undefined, "the fake adapter signs digests");
+          return signature;
         },
       };
     },

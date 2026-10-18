@@ -1,6 +1,8 @@
 # 0020: Fail at once when a Turnkey activity needs approval
 
-Status: Accepted (2026-10-17)
+Status: Accepted (2026-10-17), amended (2026-10-18)
+
+Amended by [#537](https://github.com/aelmanaa/hardhat-kms/issues/537): a `sign_transaction` that times out or is aborted after its request was sent keeps its nonce held, and its error carries the activity id too. See [Amendment: transactions after a timeout](#amendment-transactions-after-a-timeout).
 
 Issue: [#54](https://github.com/aelmanaa/hardhat-kms/issues/54)
 
@@ -24,3 +26,17 @@ A wait mode for keys that need approval is a follow-up: an optional per-key fiel
 - A pending activity left by a failed call is the user's to reject. Whether the requesting API user can reject its own activity through `ACTIVITY_TYPE_REJECT_ACTIVITY` is not documented; if it can, a follow-up can reject on failure.
 - An activity id appears in an error message, so a log of the error holds it. It identifies one activity, and every user of the organization can read that activity anyway.
 - Revisit when users need human approval for deploys from Hardhat: the wait mode, its `displayMessage` and its interaction with the filled nonce then need their own design.
+
+## Amendment: transactions after a timeout
+
+Amended on 2026-10-18 by [#537](https://github.com/aelmanaa/hardhat-kms/issues/537).
+
+The context above reasons about "a signature for a request the plugin abandoned". It was written for digests, where a late signature is harmless. Since `sign_transaction` (#529), an abandoned transaction activity can complete and hold a signed transaction that every user of the organization can read and broadcast. A timeout or an abort while Turnkey has not finished leaves such an activity as surely as an approval does. The core released the nonce then, so the next send could sign it again: two valid transactions at one nonce, either of which could win.
+
+The owner's rule is gap over duplicate. So:
+
+- The Turnkey adapter sets `signTransactionOutlivesAbort` when it signs transactions with `sign_transaction`, and calls `ctx.requestSent` right before each submission leaves and again with the activity id ([Provider contract](../providers.md#provider-contract)).
+- A `signTransaction` that then times out or is cancelled fails with `core.signer.transaction-outstanding`. Its message names the nonce and, when it is a UUID, the activity id, and tells the user to reject the activity while it is pending or to send a replacement with that nonce. This is a second error that carries the activity id, for the same reason as `turnkey.activity.approval-needed`: without it the user cannot find the activity.
+- The connection's sends from the account skip that nonce until a transaction with it reaches the node through the connection, or the connection closes ([Transactions a provider may still sign](../transactions.md#transactions-a-provider-may-still-sign)). A failure before the request left, and a key with `transactionSigning: "digest"`, release the nonce as before.
+
+`turnkey.activity.approval-needed` itself still releases the nonce: it is the adapter's own error, not a timeout, and an approval needs a person, who the error asks to reject the activity. Holding the nonce for it too, and polling the activity once more before giving up, are possible follow-ups.

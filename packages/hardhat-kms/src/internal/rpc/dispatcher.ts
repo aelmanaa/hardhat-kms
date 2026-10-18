@@ -399,6 +399,10 @@ export async function dispatch(
             method: request.method,
             params: signParams,
             from: address,
+            // The provider may still sign it, and the caller would then never see it (#537).
+            holdNonce: (nonce) => {
+              transactions.sends().holdOutstanding(address, nonce);
+            },
           }),
       );
       return response(request, signed.raw);
@@ -753,6 +757,10 @@ async function sendTransaction(
           method: request.method,
           params: kms.params,
           from: address,
+          // Under the send lock, before it passes on: the next send must skip the nonce (#537).
+          holdNonce: (nonce) => {
+            sends.holdOutstanding(address, nonce);
+          },
           chooseNonce: kms.callerNonce
             ? undefined
             : async (pending) =>

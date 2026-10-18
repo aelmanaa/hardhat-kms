@@ -13,6 +13,17 @@ export interface SignContext {
   displayMessage(message: string): Promise<void>;
   /** Identifies this call in the plugin's debug output. */
   requestId: string;
+  /**
+   * Tells the core that the request may now be at the provider. An adapter that sets
+   * {@link KmsKeyAdapter.signTransactionOutlivesAbort} calls it from `signTransaction` right before
+   * each request that asks the provider to sign leaves, and never after `signal` has aborted. It
+   * may call it again with the provider's id for the request once it knows it, such as Turnkey's
+   * activity id; the core shows the id in its error only when it is a UUID. The core reads it only
+   * for `signTransaction` on an adapter with that flag.
+   *
+   * @param providerRequestId - The provider's id for the request, if known.
+   */
+  requestSent?(providerRequestId?: string): void;
 }
 
 /**
@@ -82,6 +93,17 @@ export interface KmsKeyAdapter {
     request: { unsigned: Uint8Array; digest: Uint8Array; type: number; chainId: bigint },
     ctx: SignContext,
   ): Promise<SignatureOutput>;
+  /**
+   * `true` when a `signTransaction` request that the core abandons may still produce a signed
+   * transaction outside the plugin: the provider keeps working on it after the call's `signal`
+   * aborts, and keeps the signed transaction where others can read and broadcast it (Turnkey's
+   * `sign_transaction`). For such an adapter, a `signTransaction` that times out or is cancelled
+   * after the adapter called `ctx.requestSent` keeps the transaction's nonce held: the core's
+   * sends from the account skip it, a gap rather than two valid transactions at one nonce. A
+   * failure before `ctx.requestSent`, or any error the adapter throws, releases the nonce as
+   * before. The core reads it once, when it builds the signer.
+   */
+  readonly signTransactionOutlivesAbort?: boolean;
   /** Releases SDK clients and connections. */
   close?(): Promise<void>;
 }
