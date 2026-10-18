@@ -22,6 +22,10 @@ The `personal_sign` and `eth_signTypedData_v4` signatures are checked with `eth_
 
 Each account ends the run with no code. Its EIP-7702 delegation is cleared by the last case, and the throwaway key whose authorization the account sent is cleared by a second transaction in the same case. Slot 0 of each account's storage keeps the count that the delegated `add` wrote; clearing a delegation does not reset storage.
 
+## Turnkey
+
+Turnkey: smoke only. `@hardhat-kms/turnkey` is not in the transaction matrix or in `test/live/proof.json`: Turnkey's Free plan includes 25 signatures a month, so a smoke test of at most 11 sign requests covers it ([#513](https://github.com/aelmanaa/hardhat-kms/issues/513)). It signs a message, typed data, a digest, an EIP-7702 authorization and transactions of types 0, 2 and 4 for a local chain without sending them, and checks that Turnkey refuses an account without a policy, holds one under a 2-approver policy and denies the API user a new API key. No run has passed yet. `pnpm run docs:live-proof` writes this line from `test/live/turnkey-smoke.json`, which a passing run writes.
+
 ## Coverage matrix
 
 One decision per action and type. Live cells run on Sepolia and on the fork, fork cells only on the fork, unit cells only in the unit or integration tests, and refused cells are refused by the plugin before any request. Each live and fork cell runs once per provider.

@@ -16,6 +16,7 @@ import {
   TX_TYPES,
   TYPE_TITLES,
 } from "../matrix.ts";
+import { type TurnkeySmoke, turnkeySection } from "./turnkey-smoke.ts";
 
 /** One mined transaction or check, with what it cost. */
 export interface ProofRecord extends RunRecord {
@@ -207,12 +208,13 @@ function unitTests(): string[] {
 }
 
 /**
- * Renders `docs/live-proof.md` from a run.
+ * Renders `docs/live-proof.md` from a run, with the Turnkey smoke test's line.
  *
  * @param proof - The run.
+ * @param turnkey - The last passing Turnkey smoke run, or `undefined` before the first.
  * @returns The page, ending with a newline.
  */
-export function renderProof(proof: Proof): string {
+export function renderProof(proof: Proof, turnkey?: TurnkeySmoke): string {
   const blocks = proof.providers
     .flatMap((provider) => provider.records)
     .filter((record) => record.hash !== null)
@@ -270,6 +272,8 @@ export function renderProof(proof: Proof): string {
       "and the throwaway key whose authorization the account sent is cleared by a second " +
       "transaction in the same case. Slot 0 of each account's storage keeps the count that the " +
       "delegated `add` wrote; clearing a delegation does not reset storage.",
+    "",
+    ...turnkeySection(turnkey),
     "",
     "## Coverage matrix",
     "",

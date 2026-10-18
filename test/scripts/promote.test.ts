@@ -1,7 +1,8 @@
 // The dist-tag move of promote.yml, run as bash with npm replaced by a function that prints a
 // recorded `npm view <package> dist-tags --json` output and records each `npm dist-tag add`.
 // npm 11 prints the dist-tags object, npm 12 (the pinned npm) a one-element array holding it.
-// Runs in `pnpm test`, with no network.
+// It also checks that the Turnkey live workflow runs only when dispatched, in its own environment,
+// with its secrets in two steps. Runs in `pnpm test`, with no network.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -239,5 +240,55 @@ describe("the package list of promote.yml", () => {
 
   it("keeps Turnkey out of the live job's keys and cloud sign-ins", () => {
     assert.doesNotMatch(JSON.stringify(job("live")), /turnkey/i);
+  });
+});
+
+/** A workflow file, parsed. */
+function readWorkflow(file: string): unknown {
+  return parse(readFileSync(path.join(ROOT, ".github/workflows", file), "utf8"));
+}
+
+describe("the Turnkey live workflow", () => {
+  const workflow = readWorkflow("turnkey-live.yml");
+  const smoke = field(field(workflow, "jobs"), "smoke");
+  const steps = field(smoke, "steps");
+
+  it("runs only when dispatched, never on a schedule or a pull request", () => {
+    const triggers = field(workflow, "on");
+    assert.ok(typeof triggers === "object" && triggers !== null);
+    assert.deepEqual(Object.keys(triggers), ["workflow_dispatch"]);
+    assert.deepEqual(field(workflow, "permissions"), {});
+  });
+
+  it("runs in the turnkey-live environment, with read access and no OIDC token", () => {
+    assert.equal(field(smoke, "environment"), "turnkey-live");
+    assert.deepEqual(field(smoke, "permissions"), { contents: "read" });
+    assert.equal(field(smoke, "env"), undefined);
+  });
+
+  it("gives the Turnkey secrets to the check and the test steps only", () => {
+    assert.ok(Array.isArray(steps));
+    const holders = steps
+      .filter((step: unknown) => JSON.stringify(field(step, "env") ?? {}).includes("secrets."))
+      .map((step: unknown) => field(step, "name"));
+    assert.deepEqual(holders, [
+      "Check that the secrets and variables are set",
+      "Turnkey smoke test",
+    ]);
+    const test: unknown = steps.find(
+      (step: unknown) => field(step, "name") === "Turnkey smoke test",
+    );
+    assert.deepEqual(field(test, "env"), {
+      TURNKEY_API_PRIVATE_KEY: "${{ secrets.TURNKEY_API_PRIVATE_KEY }}",
+      TURNKEY_ORGANIZATION_ID: "${{ secrets.TURNKEY_ORGANIZATION_ID }}",
+      HARDHAT_KMS_LIVE_TURNKEY_ADDRESS: "${{ vars.TURNKEY_ADDRESS }}",
+      HARDHAT_KMS_LIVE_TURNKEY_DENIED_ADDRESS: "${{ vars.TURNKEY_DENIED_ADDRESS }}",
+      HARDHAT_KMS_LIVE_TURNKEY_CONSENSUS_ADDRESS: "${{ vars.TURNKEY_CONSENSUS_ADDRESS }}",
+      HARDHAT_KMS_LIVE_TURNKEY_SEPOLIA: "${{ inputs.sepolia-send && '1' || '' }}",
+    });
+  });
+
+  it("stays out of the three-cloud live workflow", () => {
+    assert.doesNotMatch(JSON.stringify(readWorkflow("live-tests.yml")), /turnkey/i);
   });
 });
