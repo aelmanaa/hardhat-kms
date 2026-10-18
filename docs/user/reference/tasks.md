@@ -69,13 +69,14 @@ A key in `kms.keys` can have the name of a `--kms` variable, such as `AWS_KMS_KE
 
 The tasks work the same way for every provider. What differs is how a key is named in the config, where credentials come from, which variables `--kms` reads, and what `kms history` needs:
 
-| Provider         | Key id in `kms.keys`                                                               | Credentials                                                                          | `--kms` variables                                                                   | `kms history` setup                                                                                                                                                         |
-| ---------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AWS KMS          | `keyId`: a key id, key ARN, alias name or alias ARN                                | The AWS SDK's chain; a key's `profile` selects a profile ([AWS](credentials.md#aws)) | `AWS_KMS_KEY_IDS` (comma-separated) if set, else `AWS_KMS_KEY_ID`                   | Nothing to turn on: CloudTrail event history ([AWS guide](../guides/aws-kms-setup.md#audit-logs))                                                                           |
-| Google Cloud KMS | `keyVersionName`, or its components; the version is always required                | Application Default Credentials ([Google Cloud](credentials.md#google-cloud))        | `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME`, `GCP_KEY_VERSION` | Data Access logs for Cloud KMS, off by default ([Google Cloud guide](../guides/gcp-kms-setup.md#audit-logs))                                                                |
-| Azure Key Vault  | `keyId` (the key's URL), or `vaultUrl` with `keyName` and an optional `keyVersion` | The plugin's own chain ([Azure](credentials.md#azure))                               | `AZURE_KEY_VAULT_KEY_IDS` (comma-separated) if set, else `AZURE_KEY_VAULT_KEY_ID`   | A diagnostic setting that sends audit events to a Log Analytics workspace, and `kms.audit.azure.workspaceId` ([Azure guide](../guides/azure-key-vault-setup.md#audit-logs)) |
+| Provider         | Key id in `kms.keys`                                                                             | Credentials                                                                          | `--kms` variables                                                                   | `kms history` setup                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AWS KMS          | `keyId`: a key id, key ARN, alias name or alias ARN                                              | The AWS SDK's chain; a key's `profile` selects a profile ([AWS](credentials.md#aws)) | `AWS_KMS_KEY_IDS` (comma-separated) if set, else `AWS_KMS_KEY_ID`                   | Nothing to turn on: CloudTrail event history ([AWS guide](../guides/aws-kms-setup.md#audit-logs))                                                                           |
+| Google Cloud KMS | `keyVersionName`, or its components; the version is always required                              | Application Default Credentials ([Google Cloud](credentials.md#google-cloud))        | `GCP_PROJECT_ID`, `GCP_LOCATION`, `GCP_KEY_RING`, `GCP_KEY_NAME`, `GCP_KEY_VERSION` | Data Access logs for Cloud KMS, off by default ([Google Cloud guide](../guides/gcp-kms-setup.md#audit-logs))                                                                |
+| Azure Key Vault  | `keyId` (the key's URL), or `vaultUrl` with `keyName` and an optional `keyVersion`               | The plugin's own chain ([Azure](credentials.md#azure))                               | `AZURE_KEY_VAULT_KEY_IDS` (comma-separated) if set, else `AZURE_KEY_VAULT_KEY_ID`   | A diagnostic setting that sends audit events to a Log Analytics workspace, and `kms.audit.azure.workspaceId` ([Azure guide](../guides/azure-key-vault-setup.md#audit-logs)) |
+| Turnkey          | `organizationId` and `address`, the wallet account; `apiPrivateKey` names the API key's variable | A P-256 API key in a configuration variable ([Turnkey](credentials.md#turnkey))      | None: `--kms` does not read Turnkey keys                                            | Not supported: `kms history` does not read Turnkey's activity log                                                                                                           |
 
-The [configuration reference](configuration.md#key-forms-per-provider) lists every key form, and the setup guides take a key from creation to its first signature: [AWS KMS](../guides/aws-kms-setup.md), [Google Cloud KMS](../guides/gcp-kms-setup.md), [Azure Key Vault](../guides/azure-key-vault-setup.md).
+The [configuration reference](configuration.md#key-forms-per-provider) lists every key form, and the setup guides take a key from creation to its first signature: [AWS KMS](../guides/aws-kms-setup.md), [Google Cloud KMS](../guides/gcp-kms-setup.md), [Azure Key Vault](../guides/azure-key-vault-setup.md), [Turnkey](../guides/turnkey-setup.md).
 
 ## Output
 
@@ -112,18 +113,18 @@ Address pins to add to each key's config:
 
 **Options**
 
-| Option             | What it does                                                                                                                            |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `--network <name>` | Lists that network's keys only. Required by `--balances`.                                                                               |
-| `--balances`       | Adds each address's balance on the `--network` network ([Check keys before a deploy](#check-keys-before-a-deploy)).                     |
-| `--check-sign`     | Has each key sign a random message, to check that the credentials may sign ([Check keys before a deploy](#check-keys-before-a-deploy)). |
-| `--json`           | Prints the list as JSON instead of the table ([JSON output of `kms accounts`](#json-output-of-kms-accounts)).                           |
-| `--show-ids`       | Shows key ids in full, including values read from configuration variables, after a warning on standard error.                           |
+| Option             | What it does                                                                                                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--network <name>` | Lists that network's keys only. Required by `--balances`.                                                                                                                                                          |
+| `--balances`       | Adds each address's balance on the `--network` network ([Check keys before a deploy](#check-keys-before-a-deploy)).                                                                                                |
+| `--check-sign`     | Has each key sign a random message, to check that the credentials may sign ([Check keys before a deploy](#check-keys-before-a-deploy)). Each Turnkey key spends one signature of its organization's monthly quota. |
+| `--json`           | Prints the list as JSON instead of the table ([JSON output of `kms accounts`](#json-output-of-kms-accounts)).                                                                                                      |
+| `--show-ids`       | Shows key ids in full, including values read from configuration variables, after a warning on standard error.                                                                                                      |
 
 **Output**
 
 - **Which keys.** With `--network`, the task lists that network's `kmsAccounts` in order, then the `--kms` keys, which belong to the selected network. A `--kms` key that names the same KMS key as one of the network's entries gets a note on standard error, because a connection to that network refuses two entries for one key. Without `--network`, the task lists every key a task can name ([Naming a key](#naming-a-key)). A KMS key that several entries name, such as a key in `kms.keys`, an inline copy of it and a `--kms` variable that holds the same id, is listed once, under its first name, with the other names on an `also:` line under it. Entries count as the same key when they have the same provider, the same key id (for an AWS key id or alias, also the same region, profile and endpoint, compared by value, so a variable and a literal that hold the same profile match) and the same pin. A third-party provider's keys are never merged.
-- **Pins.** The `PIN` column shows `matches` when the KMS confirmed the pin, `none` when the key has no pin, and `not checked` when the provider can report neither a public key nor an address, so the address shown is the pin. When a key works and has no pin, the task prints an `address` line for each of its entries in `kms.keys` or a network's `kmsAccounts`, including the entries on its `also:` line. A `--kms` key has no config to paste into.
+- **Pins.** The `PIN` column shows `matches` when the KMS confirmed the pin, `none` when the key has no pin, and `not checked` when the provider can report neither a public key nor an address, so the address shown is the pin. A Turnkey key always shows `not checked`, without a call to Turnkey; with `--check-sign` its signature confirms the pin, and the column shows `matches`. When a key works and has no pin, the task prints an `address` line for each of its entries in `kms.keys` or a network's `kmsAccounts`, including the entries on its `also:` line. A `--kms` key has no config to paste into.
 - **Key ids.** An identifier read from a configuration variable or a `--kms` variable shows as `<VARIABLE_NAME>`, as in errors and debug output. `--show-ids` shows the values instead and first prints a warning on standard error. A literal identifier in the config is shown either way. A merged row shows the id of its first entry, so when a variable's key merges with a literal key listed before it, the row shows that literal id, and with it the value the variable holds. A third-party provider's key shows its display id.
 - **AWS keys looked up in different places.** When rows read the same key id but their AWS keys differ in region, profile or endpoint, each of those rows shows the settings that differ after the id, for example `aws:alias/deployer (region eu-west-1, profile default, default endpoint)`. An endpoint shows only as `custom endpoint` or `default endpoint`, since it can be an internal URL; `--show-ids` shows the URL.
 
@@ -172,7 +173,7 @@ The task takes no options. It asks the KMS for the key's public key and derives 
 Error in community plugin hardhat-kms: aws, check address, key aws:alias/deployer: the key derives to 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, but the configured address is 0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826, so nothing was signed. The key id may now name the wrong key or a substituted one, or the pin may be wrong. Do not change the pin to match until you know why the key changed; see "When the pin fails" in the key rotation guide, which also covers a deliberate move to a new key.
 ```
 
-AWS, Google Cloud and Azure keys all return a public key. A third-party provider may return only an address; the task then asks it for the address and checks the pin the same way. A provider that can return neither leaves only the pin: the task prints the pin and writes a note on standard error that it is not checked yet. The first signature checks it.
+AWS, Google Cloud and Azure keys all return a public key. A third-party provider may return only an address; the task then asks it for the address and checks the pin the same way. A provider that can return neither, such as Turnkey, leaves only the pin: the task prints the pin and writes a note on standard error that it is not checked yet. The first signature checks it.
 
 ## `kms public-key`
 
@@ -186,7 +187,7 @@ npx hardhat kms public-key <key>
 0x048318535b54105d4a7aae60c08fc45f9687181b4fdfc625bd1a753fa7397fed753547f11ca8696646f2f3acb08e31016afac23e630c5d11f59f61fef57b0d2aa5
 ```
 
-The task takes no options, and checks the `address` pin as `kms address` does. A provider that returns only an address has no public key to print, so the task fails with `the provider returns only the key's address, not its public key`.
+The task takes no options, and checks the `address` pin as `kms address` does. A provider that returns only an address, or neither a public key nor an address as Turnkey, has no public key to print, so the task fails with `the provider returns only the key's address, not its public key`.
 
 ## `kms sign`
 
@@ -486,6 +487,8 @@ Libraries take other shapes, and a tuple passed to them as printed fails or lose
 ## `kms history`
 
 Lists the key's sign events from its provider's audit log, newest first. It answers "who else signed with this key?". [Find who signed with a key](../guides/who-signed.md) walks through an investigation: turning the log on, matching events to transactions, and keeping the log long enough.
+
+The task reads AWS, Google Cloud and Azure logs. It does not read Turnkey's activity log yet: for a Turnkey key it fails with `core.history.no-reader-builtin`, whose advice to install `@hardhat-kms/turnkey` does not apply. Read a Turnkey key's activities in the Turnkey dashboard.
 
 ```text
 npx hardhat kms history <key> [--since <time>] [--until <time>] [--limit <n>] [--json] [--show-ids]

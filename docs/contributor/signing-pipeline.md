@@ -20,11 +20,12 @@ Every noble `verify` call passes `prehash:false`. If trial recovery fails, the s
 
 The plugin caches a public key only after it matches the `address` pin, and it releases no signature before that check. Each provider adds its own identity checks:
 
-| Provider | Checks                                                                                                                                                                                                                     |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AWS      | Signs with the ARN returned by `GetPublicKey`, never with the alias. Asserts KeySpec, KeyUsage and SigningAlgorithms. Requests use `MessageType: DIGEST`.                                                                  |
-| GCP      | Signs with the configured key version. Checks `name` on both responses and that `algorithm` is `EC_SIGN_SECP256K1_SHA256`. A disabled or destroyed version gives a clear error.                                            |
-| Azure    | Signs with the versioned id using `ES256K`, requires each response's `kid` to name the configured vault and key, and each sign response's `kid` to name the pinned version. Checks kty, crv, enabled, keyOps, nbf and exp. |
+| Provider | Checks                                                                                                                                                                                                                                                                                            |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AWS      | Signs with the ARN returned by `GetPublicKey`, never with the alias. Asserts KeySpec, KeyUsage and SigningAlgorithms. Requests use `MessageType: DIGEST`.                                                                                                                                         |
+| GCP      | Signs with the configured key version. Checks `name` on both responses and that `algorithm` is `EC_SIGN_SECP256K1_SHA256`. A disabled or destroyed version gives a clear error.                                                                                                                   |
+| Azure    | Signs with the versioned id using `ES256K`, requires each response's `kid` to name the configured vault and key, and each sign response's `kid` to name the pinned version. Checks kty, crv, enabled, keyOps, nbf and exp.                                                                        |
+| Turnkey  | Signs with the pinned address as `signWith`; it has no public-key call, so the core checks the first signature against the pin by recovery. Checks that each response's activity names the configured organization, the `sign_raw_payload` activity type and, for a poll, the polled activity id. |
 
 Signing with the ARN instead of the alias means a repointed alias cannot switch keys between the address lookup and the signature. Azure pins the version of an unversioned key for the same reason.
 
