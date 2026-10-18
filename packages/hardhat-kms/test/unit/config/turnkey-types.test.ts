@@ -6,7 +6,11 @@ import { describe, it } from "node:test";
 import { configVariable, defineConfig } from "hardhat/config";
 
 import hardhatKms from "../../../src/index.ts";
-import type { KmsKeyConfig, TurnkeyKmsKeyConfig } from "../../../src/types.ts";
+import type {
+  KmsKeyConfig,
+  TurnkeyKmsKeyConfig,
+  TurnkeyTransactionSigning,
+} from "../../../src/types.ts";
 
 const config = defineConfig({
   plugins: [hardhatKms],
@@ -19,6 +23,7 @@ const config = defineConfig({
         apiPrivateKey: configVariable("TURNKEY_API_PRIVATE_KEY"),
         apiPublicKey: configVariable("TURNKEY_API_PUBLIC_KEY"),
         timeoutMs: 30_000,
+        transactionSigning: "digest",
       },
     },
   },
@@ -43,9 +48,15 @@ function turnkeyOnly(key: KmsKeyConfig): TurnkeyKmsKeyConfig | undefined {
   return key.provider === "turnkey" ? key : undefined;
 }
 
+/** A resolved Turnkey key always has a transaction-signing mode. */
+function signingOf(key: TurnkeyKmsKeyConfig): TurnkeyTransactionSigning {
+  return key.transactionSigning;
+}
+
 describe("Turnkey key types", () => {
   it("fit defineConfig, and narrow on provider (checked by tsc)", () => {
     assert.equal(config.kms?.keys?.deployer?.provider, "turnkey");
     assert.equal(typeof turnkeyOnly, "function");
+    assert.equal(typeof signingOf, "function");
   });
 });

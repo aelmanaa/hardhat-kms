@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import type { KmsKeyAdapter, SignatureOutput, TurnkeyKmsKeyConfig } from "hardhat-kms/types";
+import { getAddress, type Hex, serializeTransaction, type TransactionSerializable } from "viem";
 
 import {
   personalMessageDigest,
@@ -31,6 +32,8 @@ import { type TestTransport, testTransport } from "../helpers/transport.ts";
 import {
   POLL_PATH,
   SIGN_PATH,
+  SIGN_TRANSACTION_PATH,
+  SIGN_TRANSACTION_TYPE,
   SIGN_TYPE,
   type StubAnswer,
   TurnkeyStub,
@@ -579,5 +582,253 @@ describe("the Turnkey adapter's errors", () => {
       keccak_256(Buffer.from(String(payload), "hex")),
       personalMessageDigest(MESSAGE),
     );
+  });
+});
+
+const TO = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+const CHAIN_ID = 31337;
+const base = { chainId: CHAIN_ID, nonce: 4, gas: 21_000n, to: TO, value: 5n, data: "0x" } as const;
+/** One transaction of each type the adapter sends to sign_transaction. */
+const TRANSACTIONS: ReadonlyArray<[number, TransactionSerializable]> = [
+  [0, { ...base, type: "legacy", gasPrice: 7n }],
+  [1, { ...base, type: "eip2930", gasPrice: 7n, accessList: [] }],
+  [2, { ...base, type: "eip1559", maxFeePerGas: 7n, maxPriorityFeePerGas: 1n }],
+  [
+    4,
+    {
+      ...base,
+      type: "eip7702",
+      maxFeePerGas: 7n,
+      maxPriorityFeePerGas: 1n,
+      authorizationList: [
+        {
+          address: TO,
+          chainId: CHAIN_ID,
+          nonce: 0,
+          r: `0x${"11".repeat(32)}`,
+          s: `0x${"22".repeat(32)}`,
+          yParity: 0,
+        },
+      ],
+    },
+  ],
+];
+
+function hexBytes(hex: Hex): Uint8Array {
+  return new Uint8Array(Buffer.from(hex.slice(2), "hex"));
+}
+
+/** The core's request for a transaction. */
+function transactionRequest(type: number, tx: TransactionSerializable) {
+  const unsigned = hexBytes(serializeTransaction(tx));
+  return { unsigned, digest: keccak_256(unsigned), type, chainId: BigInt(CHAIN_ID) };
+}
+
+/** A completed sign_transaction activity whose result is `signed`, as Turnkey writes it. */
+function signedAnswer(signed: string): StubAnswer {
+  return activity("ACTIVITY_STATUS_COMPLETED", {
+    type: SIGN_TRANSACTION_TYPE,
+    result: { signTransactionResult: { signedTransaction: signed } },
+  });
+}
+
+/** `tx` with a signature, as unprefixed hex. */
+function signedHex(tx: TransactionSerializable): string {
+  const signature = { r: `0x${"0a".repeat(32)}`, s: `0x${"0b".repeat(32)}` } as const;
+  return serializeTransaction(
+    tx,
+    tx.type === "legacy" ? { ...signature, v: 27n } : { ...signature, yParity: 0 },
+  ).slice(2);
+}
+
+describe("the Turnkey adapter's transactions", () => {
+  it("sends the core's unsigned bytes of types 0, 1, 2 and 4 to sign_transaction, and returns the signature", async () => {
+    for (const [type, tx] of TRANSACTIONS) {
+      const { stub, adapter } = await setUp();
+      const request = transactionRequest(type, tx);
+
+      const signature = await adapter.signTransaction?.(request, signContext());
+
+      assert.ok(signature && "r" in signature, `type ${type}`);
+      const [body] = stub.bodies(SIGN_TRANSACTION_PATH);
+      assert.deepEqual(body, {
+        type: SIGN_TRANSACTION_TYPE,
+        timestampMs: "1760000000000",
+        organizationId: ORGANIZATION,
+        parameters: {
+          signWith: ACCOUNT.address,
+          unsignedTransaction: Buffer.from(request.unsigned).toString("hex"),
+          type: "TRANSACTION_TYPE_ETHEREUM",
+        },
+      });
+      assert.equal(stub.requests.length, 1);
+      assert.ok(stub.requests.every((sent) => sent.stamped));
+      const recovered = new secp256k1.Signature(signature.r, signature.s, signature.yParity)
+        .recoverPublicKey(request.digest)
+        .toBytes(true);
+      assert.deepEqual(recovered, secp256k1.getPublicKey(ACCOUNT_SECRET_KEY, true), `type ${type}`);
+    }
+  });
+
+  it("refuses type 3, an unknown type and bytes of another type, before any request", async () => {
+    const [, , [, eip1559] = [2, {}]] = TRANSACTIONS;
+    const { stub, adapter } = await setUp();
+    for (const type of [3, 5, 1]) {
+      await assert.rejects(
+        adapter.signTransaction?.(transactionRequest(type, eip1559), signContext()) ??
+          Promise.resolve(),
+        failsWith(
+          new RegExp(
+            `^turnkey, sign transaction, key turnkey:<TURNKEY_ORGANIZATION_ID>/0x[0-9a-fA-F]{40}: the plugin sends only legacy \\(EIP-155\\), EIP-2930, EIP-1559 and EIP-7702 transactions to Turnkey's sign_transaction, and this one is type ${type} or`,
+          ),
+        ),
+      );
+    }
+    assert.equal(stub.requests.length, 0);
+  });
+
+  it("refuses a signed transaction with another to, value, nonce, chain or type", async () => {
+    const [[, legacy] = [0, {}], , [, eip1559] = [2, {}]] = TRANSACTIONS;
+    const cases: Array<[string, TransactionSerializable, TransactionSerializable]> = [
+      ["to", eip1559, { ...eip1559, to: getAddress(ACCOUNT.address) }],
+      ["value", eip1559, { ...eip1559, value: 6n }],
+      ["nonce", eip1559, { ...eip1559, nonce: 5 }],
+      ["chainId", eip1559, { ...eip1559, chainId: 1 }],
+      ["type", eip1559, { ...base, type: "eip2930", gasPrice: 7n }],
+      ["to", legacy, { ...legacy, to: getAddress(ACCOUNT.address) }],
+      ["chainId", legacy, { ...legacy, chainId: 1 }],
+      ["type", legacy, { ...base, type: "eip1559", maxFeePerGas: 7n, maxPriorityFeePerGas: 1n }],
+    ];
+    for (const [field, sent, returned] of cases) {
+      const { stub, adapter } = await setUp();
+      stub.answer(signedAnswer(signedHex(returned)));
+      const type = sent.type === "legacy" ? 0 : 2;
+      await assert.rejects(
+        adapter.signTransaction?.(transactionRequest(type, sent), signContext()) ??
+          Promise.resolve(),
+        failsWith(
+          new RegExp(
+            `^turnkey, sign transaction, key [^:]+:[^:]+: Turnkey signed a transaction whose ${field} differs from the transaction the plugin sent\\. The plugin does not use its signature and sends nothing$`,
+          ),
+        ),
+        `${field} of ${String(sent.type)}`,
+      );
+    }
+  });
+
+  it("reads a signed transaction with or without 0x", async () => {
+    const [, , [type, eip1559] = [2, {}]] = TRANSACTIONS;
+    for (const prefix of ["", "0x"]) {
+      const { stub, adapter } = await setUp();
+      stub.answer(signedAnswer(`${prefix}${signedHex(eip1559)}`));
+      assert.deepEqual(
+        await adapter.signTransaction?.(transactionRequest(type, eip1559), signContext()),
+        { r: BigInt(`0x${"0a".repeat(32)}`), s: BigInt(`0x${"0b".repeat(32)}`), yParity: 0 },
+      );
+    }
+  });
+
+  it("refuses an answer without a signed transaction, or one that is not RLP", async () => {
+    const [, , [type, eip1559] = [2, {}]] = TRANSACTIONS;
+    for (const [answer, problem] of [
+      [
+        activity("ACTIVITY_STATUS_COMPLETED", {
+          type: SIGN_TRANSACTION_TYPE,
+          result: { signRawPayloadResult: { r: "01", s: "02", v: "00" } },
+        }),
+        "the completed activity has no signedTransaction",
+      ],
+      [signedAnswer("zz"), "signedTransaction is not hex"],
+      [
+        signedAnswer(signedHex(eip1559).slice(0, -2)),
+        "the signed transaction is not one canonical RLP list",
+      ],
+    ] as const) {
+      const { stub, adapter } = await setUp();
+      stub.answer(answer);
+      await assert.rejects(
+        adapter.signTransaction?.(transactionRequest(type, eip1559), signContext()) ??
+          Promise.resolve(),
+        failsWith(new RegExp(`Turnkey answered in a form this plugin does not read: ${problem}$`)),
+      );
+    }
+  });
+
+  it("refuses a raw-payload activity for a transaction", async () => {
+    const [, , [type, eip1559] = [2, {}]] = TRANSACTIONS;
+    const { stub, adapter } = await setUp();
+    stub.answer(activity("ACTIVITY_STATUS_COMPLETED"));
+    await assert.rejects(
+      adapter.signTransaction?.(transactionRequest(type, eip1559), signContext()) ??
+        Promise.resolve(),
+      failsWith(/Turnkey answered for another activity type than the request named/),
+    );
+  });
+
+  it("names the SIGN_TRANSACTION activity in a 403", async () => {
+    const [, , [type, eip1559] = [2, {}]] = TRANSACTIONS;
+    const { stub, adapter } = await setUp();
+    stub.answer(turnkeyError(403, "REQUEST_NOT_AUTHORIZED", TURNKEY_MESSAGE));
+    await assert.rejects(
+      adapter.signTransaction?.(transactionRequest(type, eip1559), signContext()) ??
+        Promise.resolve(),
+      failsWith(
+        /^turnkey, sign transaction, key [^:]+:[^:]+: Turnkey answered 403 REQUEST_NOT_AUTHORIZED: no policy lets the API key's user sign this request with this address \(a transaction, sent as ACTIVITY_TYPE_SIGN_TRANSACTION_V2: a policy that allows only SIGN_RAW_PAYLOAD denies it; to sign the transaction's hash instead, as Foundry does, set the key's transactionSigning to "digest"\)\. Add a policy/,
+      ),
+    );
+    assert.equal(stub.requests.length, 1);
+  });
+
+  it("retries with the same body, polls a pending activity, and fails on approval like a raw payload", async () => {
+    const [, , [type, eip1559] = [2, {}]] = TRANSACTIONS;
+    const { stub, adapter } = await setUp();
+    stub.answer(turnkeyError(500));
+    stub.firstStatus = "ACTIVITY_STATUS_PENDING";
+    const ctx = signContext();
+
+    const signature = await adapter.signTransaction?.(transactionRequest(type, eip1559), ctx);
+
+    assert.ok(signature && "r" in signature);
+    assert.deepEqual(
+      stub.requests.map((request) => request.path),
+      [SIGN_TRANSACTION_PATH, SIGN_TRANSACTION_PATH, POLL_PATH],
+    );
+    assert.equal(stub.requests[0]?.body, stub.requests[1]?.body);
+    assert.deepEqual(ctx.messages, []);
+
+    const approval = await setUp();
+    approval.stub.answer(
+      activity("ACTIVITY_STATUS_CONSENSUS_NEEDED", { type: SIGN_TRANSACTION_TYPE }),
+    );
+    await assert.rejects(
+      approval.adapter.signTransaction?.(transactionRequest(type, eip1559), signContext()) ??
+        Promise.resolve(),
+      failsWith(
+        new RegExp(`Turnkey holds activity ${ACTIVITY_ID} until it gets more approvals`),
+        true,
+      ),
+    );
+  });
+
+  it("does not change the bytes it got", async () => {
+    const [, , [type, eip1559] = [2, {}]] = TRANSACTIONS;
+    const { adapter } = await setUp();
+    const request = transactionRequest(type, eip1559);
+    const before = { unsigned: request.unsigned.slice(), digest: request.digest.slice() };
+    await adapter.signTransaction?.(request, signContext());
+    assert.deepEqual(request.unsigned, before.unsigned);
+    assert.deepEqual(request.digest, before.digest);
+  });
+
+  it("has no signTransaction with transactionSigning digest, and signs digests as before", async () => {
+    const { stub, adapter } = await setUp(turnkeyKey({ transactionSigning: "digest" }));
+    assert.ok(!("signTransaction" in adapter));
+    await sign(adapter, "digest");
+    assert.equal(stub.bodies(SIGN_TRANSACTION_PATH).length, 0);
+    assert.equal(stub.bodies(SIGN_PATH).length, 1);
+
+    const transaction = await setUp(turnkeyKey({ transactionSigning: "transaction" }));
+    assert.ok("signTransaction" in transaction.adapter);
+    assert.equal(typeof Reflect.get(transaction.adapter, "signTransaction"), "function");
   });
 });

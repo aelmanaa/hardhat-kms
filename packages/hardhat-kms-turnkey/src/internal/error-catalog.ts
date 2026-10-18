@@ -60,8 +60,8 @@ export const ERRORS = {
     template:
       "Turnkey answered {status}: no policy lets the API key's user sign this request with this address{request}. Add a policy that allows it, as the Turnkey setup guide shows",
     cause:
-      "No Turnkey policy allows this API user to sign with this wallet account, or a policy denies it. A message is sent with `HASH_FUNCTION_KECCAK256`, typed data with `PAYLOAD_ENCODING_EIP712` and a digest with `HASH_FUNCTION_NO_OP` and `PAYLOAD_ENCODING_HEXADECIMAL`. For a message or typed data, the error names what the request used: a policy written for Foundry, which sends every request as a `HASH_FUNCTION_NO_OP` digest, may allow only that, and then denies messages, and typed data too when it also requires `PAYLOAD_ENCODING_HEXADECIMAL`. Turnkey also answers 403 when API access is disabled.",
-    fix: "Add a policy that allows `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2` for this user and wallet account, with the hash function and encoding of each request the plugin sends, as the Turnkey setup guide shows.",
+      "No Turnkey policy allows this API user to sign with this wallet account, or a policy denies it. A transaction is sent as `ACTIVITY_TYPE_SIGN_TRANSACTION_V2`, which a policy matches with `activity.kind == 'SIGN_TRANSACTION'`. A message is sent with `HASH_FUNCTION_KECCAK256`, typed data with `PAYLOAD_ENCODING_EIP712` and a digest with `HASH_FUNCTION_NO_OP` and `PAYLOAD_ENCODING_HEXADECIMAL`, all as `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2`. For a transaction, a message or typed data, the error names what the request used: a policy that allows only `SIGN_RAW_PAYLOAD` denies transactions, and a policy written for Foundry, which sends every request as a `HASH_FUNCTION_NO_OP` digest, may allow only that, and then denies messages, and typed data too when it also requires `PAYLOAD_ENCODING_HEXADECIMAL`. Turnkey also answers 403 when API access is disabled.",
+    fix: 'Add a policy that allows `ACTIVITY_TYPE_SIGN_TRANSACTION_V2` and `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2` for this user and wallet account, with the hash function and encoding of each raw payload the plugin sends, as the Turnkey setup guide shows. For a key whose policy is shared with Foundry and allows only `SIGN_RAW_PAYLOAD`, set the key\'s `transactionSigning` to `"digest"` instead: transactions are then sent as a `HASH_FUNCTION_NO_OP` digest, as Foundry sends them.',
   },
   notFound: {
     id: "turnkey.service.not-found",
@@ -164,7 +164,7 @@ export const ERRORS = {
     group: "Signing",
     template: "Turnkey answered in a form this plugin does not read: {problem}",
     cause:
-      "The answer lacks a field every answer has, has an unknown activity status, or carries an `r`, `s` or `v` that is not a hex number of the expected size: `r` and `s` of 1 to 64 hex characters, `v` one of `00`, `01`, `1b` or `1c`. The plugin signs nothing with it.",
+      "The answer lacks a field every answer has, has an unknown activity status, or carries an `r`, `s` or `v` that is not a hex number of the expected size: `r` and `s` of 1 to 64 hex characters, `v` one of `00`, `01`, `1b` or `1c`. For a transaction, the `signedTransaction` is not hex, not canonical RLP, or not the transaction's type with a signature of the expected form. The plugin signs nothing with it.",
     fix: "Run again. If it repeats, report it with the problem the message names.",
   },
   responseMismatch: {
@@ -176,6 +176,26 @@ export const ERRORS = {
     cause:
       "The answer's activity names another organization, activity type or activity id than the request. Turnkey always answers for the request it got, so something between the plugin and Turnkey changed the answer.",
     fix: "Check the network and any proxy. If it repeats, report it.",
+  },
+  transactionMismatch: {
+    id: "turnkey.sign.transaction-mismatch",
+    kind: "error",
+    group: "Signing",
+    template:
+      "Turnkey signed a transaction whose {field} differs from the transaction the plugin sent. The plugin does not use its signature and sends nothing",
+    cause:
+      "The `signedTransaction` of Turnkey's `sign_transaction` activity is not the transaction the plugin sent with a signature added: its type or one of its fields differs. For a legacy transaction, a `v` that does not encode the transaction's chain id (EIP-155) counts as another `chainId`. Turnkey signs the transaction it receives, so something between the plugin and Turnkey changed the request or the answer. The core would refuse the signature too, since it verifies it against its own transaction.",
+    fix: "Check the network and any proxy. If it repeats, report it with the field the message names.",
+  },
+  transactionUnsupported: {
+    id: "turnkey.sign.transaction-unsupported",
+    kind: "error",
+    group: "Signing",
+    template:
+      "the plugin sends only legacy (EIP-155), EIP-2930, EIP-1559 and EIP-7702 transactions to Turnkey's sign_transaction, and this one is type {type} or is not in that type's unsigned form",
+    cause:
+      "The core asked the Turnkey adapter to sign a transaction that is not type 0, 1, 2 or 4, or whose unsigned bytes are not that type's form for its chain id, such as a legacy transaction without a chain id. The core refuses blob transactions (type 3) before it signs, so this points to a core and plugin version mismatch. Nothing was sent to Turnkey.",
+    fix: "Install versions of hardhat-kms and @hardhat-kms/turnkey that match. If it repeats, open an issue at https://github.com/aelmanaa/hardhat-kms/issues.",
   },
   noPackageVersion: {
     id: "turnkey.internal.no-package-version",

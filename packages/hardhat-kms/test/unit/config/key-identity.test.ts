@@ -50,6 +50,7 @@ function turnkey(
     address,
     organizationId: identifier(organizationId),
     apiPrivateKey: identifier(apiPrivateKey),
+    transactionSigning: "transaction",
   };
 }
 

@@ -85,3 +85,28 @@ export function typedDataPayload(typedData: TypedData): PayloadParameters {
   );
   return { payload, encoding: "PAYLOAD_ENCODING_EIP712", hashFunction: "HASH_FUNCTION_NO_OP" };
 }
+
+/**
+ * The `parameters` of Turnkey's `sign_transaction` activity besides `signWith`:
+ * `v1SignTransactionIntentV2` in `@turnkey/http` 6.7.0 (`public_api.types.d.ts`) takes
+ * `unsignedTransaction` and `type` (https://docs.turnkey.com/api-reference/activities/sign-transaction).
+ */
+export interface TransactionParameters {
+  unsignedTransaction: string;
+  type: "TRANSACTION_TYPE_ETHEREUM";
+}
+
+/**
+ * The parameters for an unsigned transaction: its serialized bytes as hex without `0x`, as
+ * `@turnkey/viem` 0.14.46 (`serializedTx.replace(/^0x/, "")`) and `@turnkey/ethers` 1.3.46
+ * (`tx.unsignedSerialized.substring(2)`) send it, with `TRANSACTION_TYPE_ETHEREUM`.
+ *
+ * @param unsigned - The core's unsigned serialized transaction.
+ * @returns The parameters.
+ */
+export function transactionPayload(unsigned: Uint8Array): TransactionParameters {
+  return {
+    unsignedTransaction: Buffer.from(unsigned).toString("hex"),
+    type: "TRANSACTION_TYPE_ETHEREUM",
+  };
+}

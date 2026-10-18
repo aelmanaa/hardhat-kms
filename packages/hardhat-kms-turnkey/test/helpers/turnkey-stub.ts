@@ -1,11 +1,18 @@
 // A stand-in for Turnkey's API. It checks each request's X-Stamp against the configured API
 // public key, signs with a secp256k1 test key as Turnkey would, and keeps one activity per body, as
-// Turnkey's fingerprint does. Unit tests call it as `fetch`; integration tests serve it over HTTP
+// Turnkey's fingerprint does. It serves sign_raw_payload, sign_transaction (it parses the unsigned
+// transaction with viem and returns it signed, as unprefixed hex) and get_activity. Unit tests call it as `fetch`; integration tests serve it over HTTP
 // with `listen()`. Tests queue other answers with `answer()`.
 import { createServer, type Server } from "node:http";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import {
+  type Hex,
+  parseTransaction,
+  serializeTransaction,
+  type TransactionSerializable,
+} from "viem";
 
 import { typedDataDigest } from "../../../hardhat-kms/src/internal/crypto/digests.ts";
 import { STAMP_HEADER, verifyStamp } from "../../src/internal/stamp.ts";
@@ -13,6 +20,14 @@ import { STAMP_HEADER, verifyStamp } from "../../src/internal/stamp.ts";
 export const SIGN_PATH = "/public/v1/submit/sign_raw_payload";
 export const POLL_PATH = "/public/v1/query/get_activity";
 export const SIGN_TYPE = "ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2";
+export const SIGN_TRANSACTION_PATH = "/public/v1/submit/sign_transaction";
+export const SIGN_TRANSACTION_TYPE = "ACTIVITY_TYPE_SIGN_TRANSACTION_V2";
+
+/** The activity type each submission path takes. */
+const TYPES: ReadonlyMap<string, string> = new Map([
+  [SIGN_PATH, SIGN_TYPE],
+  [SIGN_TRANSACTION_PATH, SIGN_TRANSACTION_TYPE],
+]);
 
 const CURVE_ORDER = secp256k1.Point.CURVE().n;
 
@@ -43,7 +58,13 @@ export type SignMode =
   /** The right signature with the wrong `v`. */
   | "wrong-v"
   /** A signature from another key. */
-  | "foreign";
+  | "foreign"
+  /** sign_transaction only: another transaction (value + 1), validly signed by the key. */
+  | "other-body"
+  /** sign_transaction only: the transaction as another type, validly signed by the key. */
+  | "wrong-type"
+  /** sign_transaction only: the signed transaction without its last byte. */
+  | "malformed";
 
 export interface StubOptions {
   organizationId: string;
@@ -125,6 +146,49 @@ function digestOf(parameters: unknown): Uint8Array {
   throw new Error("unknown hash function");
 }
 
+/** One activity the stub made. */
+interface StubActivity {
+  id: string;
+  type: string;
+  body: unknown;
+  polls: number;
+}
+
+/** A recoverable signature, as the stub's mode shaped it. */
+interface StubSignature {
+  r: bigint;
+  s: bigint;
+  parity: 0 | 1;
+}
+
+/** A 32-byte scalar as viem's hex. */
+function scalarHex(value: bigint): Hex {
+  return `0x${value.toString(16).padStart(64, "0")}`;
+}
+
+/** The transaction as another type: a legacy one as EIP-2930, a typed one as legacy. */
+function otherType(transaction: TransactionSerializable): TransactionSerializable {
+  const { chainId, nonce, gas, to, value, data } = transaction;
+  if (transaction.type === "legacy") {
+    if (chainId === undefined) {
+      throw new Error("a legacy transaction without a chain id");
+    }
+    return {
+      type: "eip2930",
+      chainId,
+      nonce,
+      gas,
+      to,
+      value,
+      data,
+      gasPrice: transaction.gasPrice,
+      accessList: [],
+    };
+  }
+  const gasPrice = transaction.type === "eip2930" ? transaction.gasPrice : transaction.maxFeePerGas;
+  return { type: "legacy", chainId, nonce, gas, to, value, data, gasPrice };
+}
+
 /** A stand-in for Turnkey's API. */
 export class TurnkeyStub {
   readonly requests: StubRequest[] = [];
@@ -136,7 +200,7 @@ export class TurnkeyStub {
   firstStatus = "ACTIVITY_STATUS_COMPLETED";
   readonly #options: StubOptions;
   readonly #queue: Array<StubAnswer | ((request: StubRequest) => StubAnswer)> = [];
-  readonly #activities = new Map<string, { id: string; body: unknown; polls: number }>();
+  readonly #activities = new Map<string, StubActivity>();
   #server: Server | undefined;
   #nextId = 1;
 
@@ -185,7 +249,8 @@ export class TurnkeyStub {
     if (path === POLL_PATH) {
       return this.#poll(parsed);
     }
-    if (path !== SIGN_PATH || field(parsed, "type") !== SIGN_TYPE) {
+    const type = TYPES.get(path);
+    if (type === undefined || field(parsed, "type") !== type) {
       return turnkeyError(400, "REQUEST_INVALID");
     }
     // One activity per body, as Turnkey's fingerprint keeps it.
@@ -193,6 +258,7 @@ export class TurnkeyStub {
     if (activity === undefined) {
       activity = {
         id: `00000000-0000-4000-8000-${String(this.#nextId++).padStart(12, "0")}`,
+        type,
         body: parsed,
         polls: 0,
       };
@@ -213,34 +279,38 @@ export class TurnkeyStub {
     return { status: 200, json: this.#activityJson(activity, status) };
   }
 
-  #activityJson(activity: { id: string; body: unknown }, status: string): unknown {
+  #activityJson(activity: StubActivity, status: string): unknown {
     const base = {
       id: activity.id,
       organizationId: this.#options.organizationId,
       status,
-      type: SIGN_TYPE,
+      type: activity.type,
       fingerprint: "sha256:0000",
     };
     if (status !== "ACTIVITY_STATUS_COMPLETED") {
       return { activity: base };
     }
+    const parameters = field(activity.body, "parameters");
     return {
       activity: {
         ...base,
-        result: { signRawPayloadResult: this.#sign(field(activity.body, "parameters")) },
+        result:
+          activity.type === SIGN_TRANSACTION_TYPE
+            ? { signTransactionResult: { signedTransaction: this.#signTransaction(parameters) } }
+            : { signRawPayloadResult: this.#sign(parameters) },
       },
     };
   }
 
-  #sign(parameters: unknown): { r: string; s: string; v: string } {
-    const digest = digestOf(parameters);
+  /** Signs a digest with the configured key, or another one, shaped by the mode. */
+  #signature(digest: Uint8Array): StubSignature {
     const key = this.mode === "foreign" ? hexBytes("11".repeat(32)) : this.#options.secretKey;
     const signature = secp256k1.Signature.fromBytes(
       secp256k1.sign(digest, key, { prehash: false, lowS: true, format: "recovered" }),
       "recovered",
     );
     let { s } = signature;
-    let parity = signature.recovery ?? 0;
+    let parity = signature.recovery === 1 ? 1 : 0;
     if (this.mode === "high-s") {
       s = CURVE_ORDER - s;
       parity ^= 1;
@@ -248,11 +318,48 @@ export class TurnkeyStub {
     if (this.mode === "wrong-v") {
       parity ^= 1;
     }
+    return { r: signature.r, s, parity: parity === 1 ? 1 : 0 };
+  }
+
+  #sign(parameters: unknown): { r: string; s: string; v: string } {
+    const { r, s, parity } = this.#signature(digestOf(parameters));
     return {
-      r: signature.r.toString(16).padStart(64, "0"),
+      r: r.toString(16).padStart(64, "0"),
       s: s.toString(16).padStart(64, "0"),
       v: parity === 0 ? "00" : "01",
     };
+  }
+
+  /**
+   * Signs a sign_transaction request as Turnkey does: parses `unsignedTransaction` (hex without
+   * 0x), signs keccak-256 of the bytes it signs, and returns the signed transaction as hex without
+   * 0x. The hostile modes sign another transaction, return another type, or cut the answer short.
+   */
+  #signTransaction(parameters: unknown): string {
+    const unsigned = field(parameters, "unsignedTransaction");
+    if (
+      typeof unsigned !== "string" ||
+      !/^(?:[0-9a-f]{2})+$/.test(unsigned) ||
+      field(parameters, "type") !== "TRANSACTION_TYPE_ETHEREUM"
+    ) {
+      throw new Error("not an Ethereum transaction");
+    }
+    let transaction: TransactionSerializable = parseTransaction(`0x${unsigned}`);
+    if (this.mode === "other-body") {
+      transaction = { ...transaction, value: (transaction.value ?? 0n) + 1n };
+    }
+    if (this.mode === "wrong-type") {
+      transaction = otherType(transaction);
+    }
+    const toSign = serializeTransaction(transaction);
+    const { r, s, parity } = this.#signature(keccak_256(hexBytes(toSign.slice(2))));
+    const signed = serializeTransaction(
+      transaction,
+      transaction.type === "legacy"
+        ? { r: scalarHex(r), s: scalarHex(s), v: 27n + BigInt(parity) }
+        : { r: scalarHex(r), s: scalarHex(s), yParity: parity },
+    ).slice(2);
+    return this.mode === "malformed" ? signed.slice(0, -2) : signed;
   }
 
   /** The stub as `fetch`, for unit tests. It honours the request's signal. */

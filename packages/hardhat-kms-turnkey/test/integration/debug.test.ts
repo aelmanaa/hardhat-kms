@@ -48,6 +48,9 @@ describe("debug output with the Turnkey adapter", () => {
       for (const expected of [
         "hardhat:kms:turnkey ",
         "/public/v1/submit/sign_raw_payload: HTTP 200 in ",
+        "/public/v1/submit/sign_transaction: HTTP 200 in ",
+        ": sign with signTransaction",
+        ": sign with signMessage",
         "/public/v1/query/get_activity: HTTP 200 in ",
         "activity ACTIVITY_STATUS_PENDING",
         "activity ACTIVITY_STATUS_COMPLETED",
@@ -61,6 +64,7 @@ describe("debug output with the Turnkey adapter", () => {
       }
       for (const expected of [
         "completed: signed",
+        "transaction: sent",
         "pending: signed",
         "retried: signed",
         `consensus: `,

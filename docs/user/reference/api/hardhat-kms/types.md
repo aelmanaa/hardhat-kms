@@ -2563,6 +2563,12 @@ The organization id, checked to be a UUID when read.
 
 [`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-9)
 
+##### transactionSigning
+
+> **transactionSigning**: [`TurnkeyTransactionSigning`](#turnkeytransactionsigning)
+
+How transactions reach Turnkey: `"transaction"` unless the config says `"digest"`.
+
 ---
 
 ### TurnkeyKmsKeyUserConfig
@@ -2619,6 +2625,15 @@ Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defa
 ###### Inherited from
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-10)
+
+##### transactionSigning?
+
+> `optional` **transactionSigning?**: [`TurnkeyTransactionSigning`](#turnkeytransactionsigning)
+
+How transactions reach Turnkey. `"transaction"`, the default, sends the unsigned transaction
+through Turnkey's `sign_transaction` activity, so that policies can read its fields
+(`eth.tx.*`). `"digest"` sends its 32-byte hash through `sign_raw_payload` with
+`HASH_FUNCTION_NO_OP`, as Foundry does, for a key whose policy is shared with Foundry.
 
 ---
 
@@ -2761,3 +2776,11 @@ A signature as returned by a provider adapter, before normalization.
 - `der`: an ASN.1 DER `ECDSA-Sig-Value` (AWS KMS, GCP Cloud KMS).
 - `compact`: 64 bytes `r || s` (Azure Key Vault, PKCS#11).
 - `{ r, s, yParity }`: already split, as returned by API signers. `yParity` is ignored: the parity is always recovered against the known key.
+
+---
+
+### TurnkeyTransactionSigning
+
+> **TurnkeyTransactionSigning** = `"transaction"` \| `"digest"`
+
+How a Turnkey key signs transactions: see [TurnkeyKmsKeyUserConfig.transactionSigning](#transactionsigning-1).

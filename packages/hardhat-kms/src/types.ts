@@ -111,7 +111,17 @@ export interface TurnkeyKmsKeyUserConfig extends KmsKeyCommonUserConfig {
   apiPrivateKey: ConfigurationVariable;
   /** The API key's public key, literal or a configuration variable. Optional. */
   apiPublicKey?: KmsIdentifierUserConfig;
+  /**
+   * How transactions reach Turnkey. `"transaction"`, the default, sends the unsigned transaction
+   * through Turnkey's `sign_transaction` activity, so that policies can read its fields
+   * (`eth.tx.*`). `"digest"` sends its 32-byte hash through `sign_raw_payload` with
+   * `HASH_FUNCTION_NO_OP`, as Foundry does, for a key whose policy is shared with Foundry.
+   */
+  transactionSigning?: TurnkeyTransactionSigning;
 }
+
+/** How a Turnkey key signs transactions: see {@link TurnkeyKmsKeyUserConfig.transactionSigning}. */
+export type TurnkeyTransactionSigning = "transaction" | "digest";
 
 /**
  * Key config types by provider id. Third-party providers augment this interface:
@@ -238,6 +248,8 @@ export interface TurnkeyKmsKeyConfig extends KmsKeyCommonConfig {
   apiPrivateKey: KmsIdentifier;
   /** The API key's public key, when the config sets one. */
   apiPublicKey?: KmsIdentifier;
+  /** How transactions reach Turnkey: `"transaction"` unless the config says `"digest"`. */
+  transactionSigning: TurnkeyTransactionSigning;
 }
 
 /**

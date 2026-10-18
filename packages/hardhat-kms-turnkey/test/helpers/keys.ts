@@ -51,6 +51,7 @@ export function turnkeyKey(
     displayId: `turnkey:<TURNKEY_ORGANIZATION_ID>/${ACCOUNT.address}`,
     address: ACCOUNT.address,
     timeoutMs: 30_000,
+    transactionSigning: "transaction",
     organizationId: variable("TURNKEY_ORGANIZATION_ID", values.organizationId ?? ORGANIZATION),
     apiPrivateKey: variable("TURNKEY_API_PRIVATE_KEY", values.privateKey ?? API_PRIVATE_KEY),
     ...(values.publicKey === undefined

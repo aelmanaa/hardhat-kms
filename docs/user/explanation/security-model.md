@@ -114,19 +114,22 @@ A Turnkey key differs. The adapter sends each signer call's request up to 4 time
 
 ## Turnkey keys
 
-A Turnkey key adds three things to the model, because Turnkey decides through its own users and policies, and keeps a record of every request:
+A Turnkey key adds four things to the model, because Turnkey decides through its own users and policies, and keeps a record of every request:
 
 - **A root user's API key bypasses every policy.** Turnkey's root quorum "can execute any action and bypass the policy engine" ([Root quorum](https://docs.turnkey.com/features/users/root-quorum)). With such a key, anyone can sign anything with any account of the organization, and export or change it. The plugin cannot tell whether an API key belongs to a root user. Configure only the key of a non-root API user, limited by policies to the requests the plugin sends. A user may change its own credentials unless a policy says otherwise, so a leaked key could add a key of its own that survives rotation; the guide's third policy denies that ([Set up a Turnkey wallet account](../guides/turnkey-setup.md#4-allow-signing-with-one-account-and-deny-credential-changes)).
 - **A pending activity can still sign.** When a policy needs more approvals or another authenticator, the plugin fails at once with `turnkey.activity.approval-needed` and does not wait. The activity stays in Turnkey, since activities do not expire: if an approver approves it later, a signature exists for a request the plugin gave up on, with a nonce the plugin may use again. Reject it by the activity id the error names ([Reject the pending activity](../guides/turnkey-setup.md#reject-the-pending-activity)). A timeout leaves an accepted activity in the same way: Turnkey can complete it after the plugin stopped waiting.
 - **Turnkey sees and keeps what each request sends, and so do all its users.** Every user of the organization can read its activities ([Policies overview](https://docs.turnkey.com/features/policies/overview#policy-evaluation)):
 
-  | Request                                        | What the activity holds                     | What Turnkey's policies can match                                                            |
-  | ---------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------- |
-  | Transactions, EIP-7702 authorizations, digests | the 32-byte digest                          | the account, `HASH_FUNCTION_NO_OP` and `PAYLOAD_ENCODING_HEXADECIMAL`; no transaction fields |
-  | Messages                                       | the EIP-191 message itself, with its prefix | the account, `HASH_FUNCTION_KECCAK256` and `PAYLOAD_ENCODING_HEXADECIMAL`; not the text      |
-  | Typed data                                     | the typed data as JSON                      | the account, `PAYLOAD_ENCODING_EIP712`, and the typed data as `eth.eip_712`                  |
+  | Request                          | What the activity holds                       | What Turnkey's policies can match                                                            |
+  | -------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------- |
+  | Transactions                     | the unsigned transaction, then the signed one | the account and the transaction's fields as `eth.tx.*`, such as `to`, `chain_id` and `value` |
+  | EIP-7702 authorizations, digests | the 32-byte digest                            | the account, `HASH_FUNCTION_NO_OP` and `PAYLOAD_ENCODING_HEXADECIMAL`                        |
+  | Messages                         | the EIP-191 message itself, with its prefix   | the account, `HASH_FUNCTION_KECCAK256` and `PAYLOAD_ENCODING_HEXADECIMAL`; not the text      |
+  | Typed data                       | the typed data as JSON                        | the account, `PAYLOAD_ENCODING_EIP712`, and the typed data as `eth.eip_712`                  |
 
-  A message's text is therefore stored in Turnkey and readable by every user of the organization. Do not sign a message you would not show them.
+  A message's text is therefore stored in Turnkey and readable by every user of the organization. Do not sign a message you would not show them. A transaction's activity holds the signed transaction, which anyone who reads it can broadcast, so reject a pending transaction activity the plugin gave up on.
+
+- **The plugin uses only the signature of Turnkey's signed transaction.** It decodes the transaction Turnkey returns and refuses it unless its type and every field equal the transaction it sent (`turnkey.sign.transaction-mismatch`). The core then checks the signature against its own transaction's hash and broadcasts its own bytes.
 
 The plugin's own checks apply to Turnkey as to every provider: each signature is normalized to low-S and must recover to the `address` pin before it is used, and the API private key never appears in output, logs or errors.
 

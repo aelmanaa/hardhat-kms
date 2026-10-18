@@ -46,7 +46,9 @@ packages/hardhat-kms-gcp/src/internal/wire.ts
 packages/hardhat-kms-turnkey/src/internal/activity.ts
 packages/hardhat-kms-turnkey/src/internal/client.ts
 packages/hardhat-kms-turnkey/src/internal/payload.ts
+packages/hardhat-kms-turnkey/src/internal/rlp.ts
 packages/hardhat-kms-turnkey/src/internal/stamp.ts
+packages/hardhat-kms-turnkey/src/internal/transaction.ts
 ```
 
 What each group decides:

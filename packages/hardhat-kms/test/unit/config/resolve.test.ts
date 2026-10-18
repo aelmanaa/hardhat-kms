@@ -431,6 +431,7 @@ describe("values from configuration variables", () => {
     assert.equal(fromVariables.address, ADDRESS);
     assert.equal(fromVariables.displayId, `turnkey:<TK_ORG>/${ADDRESS}`);
     assert.equal(fromVariables.timeoutMs, 30_000);
+    assert.equal(fromVariables.transactionSigning, "transaction");
     assert.equal(await fromVariables.organizationId.get(), organization);
     assert.equal(fromVariables.apiPrivateKey.display, "<TK_PRIVATE>");
     assert.equal(await fromVariables.apiPrivateKey.get(), values.TK_PRIVATE);
@@ -448,6 +449,7 @@ describe("values from configuration variables", () => {
               address: ADDRESS,
               apiPrivateKey: configVariable("TK_PRIVATE"),
               timeoutMs: 5,
+              transactionSigning: "digest",
             },
           },
         },
@@ -457,6 +459,7 @@ describe("values from configuration variables", () => {
     assert.ok(literal.provider === "turnkey");
     assert.equal(literal.displayId, `turnkey:${organization}/${ADDRESS}`);
     assert.equal(literal.timeoutMs, 5);
+    assert.equal(literal.transactionSigning, "digest");
     assert.equal(literal.apiPublicKey, undefined);
     assert.ok(!Object.hasOwn(literal, "apiPublicKey"));
   });
