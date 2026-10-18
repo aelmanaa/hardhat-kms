@@ -117,6 +117,10 @@ describe("the stamp", () => {
     assert.ok(stamp);
     const variants = {
       scheme: { ...stamp, scheme: "SIGNATURE_SCHEME_TK_API_SECP256K1" },
+      "key with an extra byte": { ...stamp, publicKey: `${API_PUBLIC_KEY}00` },
+      "key with a character that is not hex": { ...stamp, publicKey: `${API_PUBLIC_KEY}zz` },
+      "key with a prefix": { ...stamp, publicKey: `02${API_PUBLIC_KEY}` },
+      "key without its prefix": { ...stamp, publicKey: API_PUBLIC_KEY.slice(2) },
       "uncompressed key": { ...stamp, publicKey: `04${API_PUBLIC_KEY.slice(2)}${"00".repeat(32)}` },
       "odd signature": { ...stamp, signature: `${stamp.signature}0` },
       "signature not hex": { ...stamp, signature: `${stamp.signature.slice(0, -2)}zz` },

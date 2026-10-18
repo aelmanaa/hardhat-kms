@@ -7,6 +7,7 @@ import {
   type TemplateParams,
 } from "hardhat-kms/provider-utils";
 
+import { SAFE_CODE } from "./activity.ts";
 import { ERRORS } from "./error-catalog.ts";
 import { type ApiKey, STAMP_HEADER, stampBody } from "./stamp.ts";
 
@@ -38,9 +39,6 @@ export const MAX_ATTEMPTS = 4;
 
 /** The wait before the first retry, in milliseconds. It doubles before each later retry. */
 export const FIRST_BACKOFF_MS = 250;
-
-/** A Turnkey error code, as the plugin prints one. Anything else is not shown. */
-const SAFE_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 /** The 429 code for a monthly signing quota that is used up: never retried. */
 const QUOTA_CODE = "SIGNING_QUOTA_EXCEEDED";

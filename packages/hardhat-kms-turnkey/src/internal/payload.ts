@@ -73,14 +73,12 @@ const DOMAIN_FIELDS = [
  */
 export function typedDataPayload(typedData: TypedData): PayloadParameters {
   const { domain, message, primaryType, types } = typedData;
-  const allTypes =
-    types.EIP712Domain === undefined
-      ? {
-          // The core refuses a domain field set to `undefined` before it calls the adapter.
-          EIP712Domain: DOMAIN_FIELDS.filter(({ name }) => Object.hasOwn(domain, name)),
-          ...types,
-        }
-      : types;
+  // The request's own EIP712Domain, when it has one, replaces the derived one. The core refuses a
+  // domain field set to `undefined` before it calls the adapter.
+  const allTypes = {
+    EIP712Domain: DOMAIN_FIELDS.filter(({ name }) => Object.hasOwn(domain, name)),
+    ...types,
+  };
   const payload = JSON.stringify(
     { domain, message, primaryType, types: allTypes },
     (_key, value: unknown) => (typeof value === "bigint" ? value.toString() : value),

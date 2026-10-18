@@ -354,6 +354,17 @@ describe("TurnkeyClient answers", () => {
     ],
     ["a null body", { status: 403, text: "null" }, /Turnkey answered 403: no policy/],
     [
+      "a code that starts with a digit",
+      turnkeyError(403, "1CODE"),
+      /Turnkey answered 403: no policy/,
+    ],
+    ["a code with a dash", turnkeyError(403, "CODE-1"), /Turnkey answered 403: no policy/],
+    [
+      "a code that is not a string",
+      { status: 403, json: { details: [{ turnkeyErrorCode: ["CODE"] }] } },
+      /Turnkey answered 403: no policy/,
+    ],
+    [
       "a null body on a 401",
       { status: 401, text: "null" },
       /Turnkey answered 401: it did not accept/,

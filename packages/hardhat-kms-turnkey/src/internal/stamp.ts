@@ -31,9 +31,6 @@ export const STAMP_SCHEME = "SIGNATURE_SCHEME_TK_API_P256";
 /** A P-256 private key in hex, as Turnkey writes it: 32 bytes. */
 const PRIVATE_KEY_HEX = /^[0-9a-fA-F]{64}$/;
 
-/** A compressed P-256 public key in hex: 33 bytes, starting with 02 or 03. */
-const COMPRESSED_PUBLIC_KEY_HEX = /^0[23][0-9a-fA-F]{64}$/;
-
 /** A Turnkey API key, ready to stamp requests. Never print or log it. */
 export interface ApiKey {
   /** The compressed public key, 66 lowercase hex characters. */
@@ -141,6 +138,12 @@ export function parseStamp(header: string): Stamp | undefined {
     : undefined;
 }
 
+/** The DER SubjectPublicKeyInfo prefix of a compressed P-256 public key (RFC 5480). */
+const SPKI_COMPRESSED_PREFIX = Buffer.from(
+  "3039301306072a8648ce3d020106082a8648ce3d030107032200",
+  "hex",
+);
+
 /**
  * Checks a stamp as Turnkey does: the P-256 scheme, the expected public key, and a DER signature
  * over the body that verifies with that key.
@@ -155,15 +158,25 @@ export function verifyStamp(header: string, body: string, publicKey: string): bo
   if (
     stamp === undefined ||
     stamp.scheme !== STAMP_SCHEME ||
-    !COMPRESSED_PUBLIC_KEY_HEX.test(stamp.publicKey) ||
     stamp.publicKey.toLowerCase() !== publicKey.toLowerCase() ||
     !/^(?:[0-9a-fA-F]{2})+$/.test(stamp.signature)
   ) {
     return false;
   }
+  // 33 bytes of hex and nothing else: Buffer.from stops at the first character that is not hex,
+  // and node reads a SubjectPublicKeyInfo with bytes left after the key.
+  const keyBytes = Buffer.from(stamp.publicKey, "hex");
+  if (keyBytes.length !== 33 || keyBytes.toString("hex") !== stamp.publicKey.toLowerCase()) {
+    return false;
+  }
   let key: KeyObject;
   try {
-    key = createPublicKey({ key: spkiOfCompressed(stamp.publicKey), format: "der", type: "spki" });
+    // Fails unless the key is a compressed point on P-256: 02 or 03, then x.
+    key = createPublicKey({
+      key: Buffer.concat([SPKI_COMPRESSED_PREFIX, keyBytes]),
+      format: "der",
+      type: "spki",
+    });
   } catch {
     return false;
   }
@@ -173,15 +186,4 @@ export function verifyStamp(header: string, body: string, publicKey: string): bo
     { key, dsaEncoding: "der" },
     Buffer.from(stamp.signature, "hex"),
   );
-}
-
-/** The DER SubjectPublicKeyInfo prefix of a compressed P-256 public key (RFC 5480). */
-const SPKI_COMPRESSED_PREFIX = Buffer.from(
-  "3039301306072a8648ce3d020106082a8648ce3d030107032200",
-  "hex",
-);
-
-/** Wraps a compressed P-256 public key in a SubjectPublicKeyInfo, for `createPublicKey`. */
-function spkiOfCompressed(publicKeyHex: string): Buffer {
-  return Buffer.concat([SPKI_COMPRESSED_PREFIX, Buffer.from(publicKeyHex, "hex")]);
 }

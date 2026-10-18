@@ -12,8 +12,8 @@ export const SIGN_RAW_PAYLOAD = "ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2";
 /** An activity id the plugin shows: a UUID, as Turnkey writes ids. */
 const ACTIVITY_ID = /^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
 
-/** A Turnkey error code the plugin shows. */
-const SAFE_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+/** A Turnkey error code, as the plugin shows one. Anything else is not shown. */
+export const SAFE_CODE: RegExp = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 /** `r` or `s`: a hex number of 1 to 32 bytes, without a prefix. */
 const SCALAR_HEX = /^[0-9a-fA-F]{1,64}$/;
