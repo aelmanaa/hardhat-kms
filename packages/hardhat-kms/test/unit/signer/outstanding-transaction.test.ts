@@ -519,6 +519,18 @@ describe("a transaction the provider may still sign after a timeout or abort (#5
     }
   });
 
+  it("says the provider keeps signed transactions only with the flag and signTransaction", async () => {
+    for (const [options, keeps] of [
+      [{ flag: true }, true],
+      [{ flag: true, transactions: false }, false],
+      [{ flag: false }, false],
+      [{}, false],
+    ] as const) {
+      const { signer } = await signerOf(outliving({}, options));
+      assert.equal(signer.keepsSignedTransactions(), keeps, JSON.stringify(options));
+    }
+  });
+
   it("reads the flag once, when the signer is built", async () => {
     const adapter = outliving({ sent: [ID] }, { flag: true });
     const { signer, timers } = await signerOf(adapter);

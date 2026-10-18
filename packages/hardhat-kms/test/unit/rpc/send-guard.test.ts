@@ -2191,7 +2191,8 @@ describe("ConnectionSends outstanding nonces (#537)", () => {
     assert.deepEqual(sends.outstandingNonces(COW), [0n], "the first copy was never broadcast");
     sends.holdOutstanding(COW, 1n, "0xc1");
     sends.holdOutstanding(COW, 1n, "0xd1");
-    sends.recordSent(COW, 1n, "0xd1");
+    // The first copy reached the node, but the second one, never broadcast, may still be valid.
+    sends.recordSent(COW, 1n, "0xc1");
     sends.nonceFor(COW, 1n);
     assert.deepEqual(sends.outstandingNonces(COW), [1n], "the pending count passed nonce 0 only");
   });

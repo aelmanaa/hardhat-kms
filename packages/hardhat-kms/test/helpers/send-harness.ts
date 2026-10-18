@@ -81,6 +81,11 @@ export interface FakeNode {
   onRaw: RawHandler | undefined;
   /** The methods it was asked, in order. */
   methods: string[];
+  /**
+   * The node's answer to eth_getTransactionCount, by its block tag; the pending count when
+   * undefined. It throws when this throws.
+   */
+  count: ((tag: unknown) => unknown) | undefined;
   /** The node's answer to eth_getTransactionByHash; it throws when this throws. */
   lookUp: (hash: unknown, connection: NetworkConnection<string>) => unknown;
 }
@@ -248,6 +253,7 @@ export async function setUp(
     pending: 0n,
     raw: [],
     onRaw: undefined,
+    count: undefined,
     methods: [],
     lookUp: () => null,
   };
@@ -261,7 +267,11 @@ export async function setUp(
       case "eth_chainId":
         return ok(`0x${chainId.toString(16)}`);
       case "eth_getTransactionCount":
-        return ok(`0x${node.pending.toString(16)}`);
+        return ok(
+          node.count === undefined
+            ? `0x${node.pending.toString(16)}`
+            : node.count(Array.isArray(request.params) ? request.params[1] : undefined),
+        );
       case "eth_fillTransaction":
         return ok({ raw: "0x", tx: { nonce: `0x${node.pending.toString(16)}` } });
       case "eth_getTransactionByHash":

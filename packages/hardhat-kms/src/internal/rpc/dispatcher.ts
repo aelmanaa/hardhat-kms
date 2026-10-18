@@ -1175,10 +1175,11 @@ async function broadcast(
  * transaction (#537); without a copy it does nothing, and the node's answer goes on as before.
  *
  * - The node's mined transaction count (`eth_getTransactionCount` at `latest`) is above the
- *   nonce: the nonce is used on chain, so the copy can never be valid, whatever the node's message
- *   says (Geth's "nonce too low", Nethermind's `OldNonce`). The hold ends, and the answer goes on.
- *   The pending count is not enough: a transaction in the pool can still be dropped. A failed
- *   count keeps the hold.
+ *   nonce: the nonce is used on chain, so the copy cannot be valid, whatever the node's message
+ *   says (Geth's "nonce too low", Nethermind's `OldNonce`). The answer goes on. The hold stays,
+ *   at no cost while the node's count is past it, in case a revert brings the nonce back. The
+ *   pending count is not enough: a transaction in the pool can still be dropped. A failed count
+ *   counts as not past.
  * - Otherwise the copy can become valid once the cause goes away. The nonce stays held (it was
  *   held at the signature), and the send fails with `core.tx.refused-provider-copy`, which names
  *   a fixed kind of refusal and the node's code, never the node's text (allow-listed error fields).
@@ -1196,7 +1197,6 @@ async function refuseProviderCopy(
     return;
   }
   if (await minedPast(context.transactions, context.address, copy.nonce)) {
-    context.sends.releaseOutstanding(context.address, copy.nonce);
     return;
   }
   const { code, message } = error;
@@ -1220,16 +1220,10 @@ async function minedPast(
   address: string,
   nonce: bigint,
 ): Promise<boolean> {
-  try {
-    const count: unknown = await transactions.request("eth_getTransactionCount", [
-      address,
-      "latest",
-    ]);
-    return typeof count === "string" && hexStringToBigInt(count) > nonce;
-  } catch (error) {
-    log("counting the mined transactions of %s failed (%s)", address, errorName(error));
-    return false;
-  }
+  const count: unknown = await transactions
+    .request("eth_getTransactionCount", [address, "latest"])
+    .catch(() => undefined);
+  return typeof count === "string" && hexStringToBigInt(count) > nonce;
 }
 
 /**

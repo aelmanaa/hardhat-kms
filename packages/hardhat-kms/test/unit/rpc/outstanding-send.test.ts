@@ -281,23 +281,28 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     }
   });
 
-  it("ends the hold when the node has mined past the nonce, whatever its message", async (t) => {
+  it("passes a refusal on when the node has mined past the nonce, whatever its message", async (t) => {
     for (const message of ["nonce too low", "OldNonce", "transaction already imported"]) {
       const { harness, connection } = await harnessFor(t);
-      harness.node.onRaw = async () => {
-        // Another transaction at nonce 0 was mined: the copy can never be valid.
-        harness.node.pending = 1n;
-        return await Promise.resolve({
-          jsonrpc: "2.0" as const,
-          id: 1,
-          error: { code: -32000, message },
-        });
+      const tags: unknown[] = [];
+      harness.node.count = (tag) => {
+        tags.push(tag);
+        // Another transaction at nonce 0 was mined, but the pool still counts as pending 0.
+        return tag === "latest" ? "0x1" : "0x0";
       };
+      refuse(harness.node, message);
       const response = await harness.send(connection, transfer(1)).catch((error: unknown) => error);
       assert.ok(!(response instanceof HardhatPluginError), String(response));
-      harness.node.onRaw = undefined;
-      resultOf(await harness.send(connection, transfer(2)));
-      assert.deepEqual(harness.node.raw.map(nonceOf), [0n, 1n]);
+      assert.ok(tags.includes("latest"), JSON.stringify(tags));
+    }
+  });
+
+  it("keeps the hold when the mined count fails or is not a string", async (t) => {
+    for (const count of [() => 1, () => assert.fail("no count")]) {
+      const { harness, connection } = await harnessFor(t);
+      harness.node.count = (tag) => (tag === "latest" ? count() : "0x0");
+      refuse(harness.node, "nonce too low");
+      await assert.rejects(harness.send(connection, transfer(1)), /\(refused, code -32000\)/);
     }
   });
 
@@ -310,21 +315,25 @@ describe("a send whose signature the provider may still complete (#537)", () => 
     assert.deepEqual(harness.node.raw.map(nonceOf), [0n, 1n]);
   });
 
-  it("passes a refusal past a mined nonce on when the connection closed during the broadcast", async (t) => {
-    const { harness, connection } = await harnessFor(t);
-    const answer = gate();
-    harness.node.onRaw = async () => {
-      await answer.promise;
-      harness.node.pending = 1n;
-      return { jsonrpc: "2.0" as const, id: 1, error: { code: -32000, message: "nonce too low" } };
-    };
-    const sending = harness.send(connection, transfer(1)).catch((error: unknown) => error);
-    await settle();
-    await harness.close(connection);
-    answer.open();
-    const response = await sending;
-    assert.ok(!(response instanceof TypeError), String(response));
-    assert.match(JSON.stringify(response), /nonce too low/);
+  it("on edr-simulated, ends the hold of a library copy that reached the node itself", async (t) => {
+    const { harness, connection, chainId } = await harnessFor(t, "edr-simulated");
+    const account = await connection.kms.getAccount(COW);
+    const raw = await account.signTransaction({
+      type: "eip1559",
+      chainId,
+      nonce: 0,
+      gas: 21_000n,
+      maxFeePerGas: 2n,
+      maxPriorityFeePerGas: 1n,
+      to: TO,
+      value: 7n,
+    });
+    resultOf((await harness.call(connection, "eth_sendRawTransaction", [raw])).response);
+    // The node drops it again: the copy was public, so a send may take nonce 0 (#537).
+    harness.node.raw.length = 0;
+    harness.node.lookUp = () => null;
+    resultOf(await harness.send(connection, transfer(2)));
+    assert.deepEqual(harness.node.raw.map(nonceOf), [0n]);
   });
 
   it("counts an answer that the node already knows the transaction as sent", async (t) => {

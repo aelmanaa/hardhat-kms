@@ -857,9 +857,12 @@ export class ConnectionSends {
    */
   #settleReplaced(from: string, pending: bigint): void {
     const held = this.#outstanding.get(from);
-    for (const [nonce, copy] of held ?? []) {
+    if (held === undefined) {
+      return;
+    }
+    for (const [nonce, copy] of held) {
       if (copy.replaced && nonce < pending) {
-        held?.delete(nonce);
+        held.delete(nonce);
       }
     }
   }
@@ -1050,17 +1053,6 @@ export class ConnectionSends {
       existing.copyHash = undefined;
     }
     this.#outstanding.set(from, held);
-  }
-
-  /**
-   * Ends the hold of an outstanding nonce whose transaction can never be valid: the node refused
-   * the provider's copy because the nonce is already used on chain.
-   *
-   * @param from - The sender's lowercase address.
-   * @param nonce - The nonce.
-   */
-  public releaseOutstanding(from: string, nonce: bigint): void {
-    this.#outstanding.get(from)?.delete(nonce);
   }
 
   /**
@@ -1339,6 +1331,7 @@ export class ConnectionSends {
     const copy = held?.get(nonce);
     if (copy !== undefined) {
       if (this.#highWaterEnabled || copy.copyHash === hash) {
+        // Stryker disable next-line OptionalChaining: copy came from held, so held is defined
         held?.delete(nonce);
       } else {
         copy.replaced = true;
