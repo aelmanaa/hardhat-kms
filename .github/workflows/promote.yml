@@ -342,7 +342,8 @@ jobs:
           node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
       # The verify job checked the dist-tags, possibly hours before the approval, so the packages
       # (the verify job's list for the tagged commit) are checked again just before the move: beta, or release-X.Y for a hotfix staged
-      # from the release branch of its line, is the version, and latest is not above it. All of them
+      # from the release branch of its line, is the version, and latest is not above it (or is a
+      # name placeholder, for a new package). All of them
       # are checked before any tag moves, so one package's bad state leaves no package moved. A
       # package whose latest already is the version is skipped, so a re-run after the maintainer
       # moved the tags by hand only edits the release.
@@ -386,10 +387,24 @@ jobs:
               echo "::error::$name has beta at ${beta:-nothing} and $line at ${hotfix:-nothing}, not $VERSION; run release.yml for $VERSION first"
               exit 1
             fi
-            if [ -n "$current" ] && ! node -e 'const [a, b] = process.argv.slice(1).map((v) => v.split(".").map(Number)); const d = a.map((n, i) => n - b[i]).find((n) => n !== 0) ?? 0; process.exit(d > 0 ? 1 : 0);' "$current" "$VERSION"; then
-              echo "::error::$name has latest at $current, above $VERSION; latest never moves backwards"
-              exit 1
-            fi
+            # A new package's latest is a name placeholder until this move, the owner's
+            # 0.0.0-placeholder.0 or npm's 0.0.0-stage: below any version, so it may move (the
+            # verify job checked it is deprecated). Any other latest that is not X.Y.Z stops the
+            # job here, before the compare reads it as numbers. NAME_PLACEHOLDERS in
+            # scripts/registry-release.ts has the same rule; change the two together.
+            case "$current" in
+              "" | 0.0.0-placeholder.0 | 0.0.0-stage) ;;
+              *)
+                if [[ ! "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                  echo "::error::$name has latest at $current, which is neither a stable X.Y.Z nor a name placeholder; fix the dist-tag first"
+                  exit 1
+                fi
+                if ! node -e 'const [a, b] = process.argv.slice(1).map((v) => v.split(".").map(Number)); const d = a.map((n, i) => n - b[i]).find((n) => n !== 0) ?? 0; process.exit(d > 0 ? 1 : 0);' "$current" "$VERSION"; then
+                  echo "::error::$name has latest at $current, above $VERSION; latest never moves backwards"
+                  exit 1
+                fi
+                ;;
+            esac
             if [ "$current" = "$VERSION" ]; then
               echo "- $name: latest already is $VERSION" >> "$GITHUB_STEP_SUMMARY"
               continue

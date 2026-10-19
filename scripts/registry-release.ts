@@ -10,6 +10,11 @@ export interface PackageView {
   name: string;
   distTags: Record<string, string>;
   versions: string[];
+  /**
+   * The deprecation message of the version on `latest`, read only when that version is a name
+   * placeholder ({@link NAME_PLACEHOLDERS}); undefined when it is not deprecated or was not read.
+   */
+  latestDeprecated?: string | undefined;
 }
 
 /** One entry of the `verified` list of `npm audit signatures --json --include-attestations`. */
@@ -22,6 +27,18 @@ export interface VerifiedPackage {
 
 /** A stable `major.minor.patch` version: no prerelease, no build metadata. */
 const STABLE_VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
+
+/**
+ * The versions that hold `latest` of a package before its first release, each with the deprecation
+ * message docs/contributor/releasing.md gives it: the owner's `0.0.0-placeholder.0`, which reserves
+ * a new name, and npm's `0.0.0-stage`, which staged publishing creates for a name that does not
+ * exist. Any stable version is above both, so a promotion may move `latest` off either, once it is
+ * deprecated.
+ */
+export const NAME_PLACEHOLDERS: ReadonlyMap<string, string> = new Map([
+  ["0.0.0-placeholder.0", "Placeholder that reserves the name; install the version on latest."],
+  ["0.0.0-stage", "Placeholder created by npm staged publishing; install the version on latest."],
+]);
 
 /** The field of an object, or undefined when `value` is not an object. */
 function field(value: unknown, name: string): unknown {
@@ -115,6 +132,29 @@ export function parseGitHead(json: string): string | undefined {
 }
 
 /**
+ * Parses the output of `npm view <package>@<version> deprecated --json`.
+ *
+ * @returns The deprecation message, or undefined when the version is not deprecated: npm then
+ *   prints nothing.
+ */
+export function parseDeprecated(json: string): string | undefined {
+  if (json.trim() === "") {
+    return undefined;
+  }
+  const parsed = unwrapNpmView("npm view deprecated", JSON.parse(json));
+  const error = field(parsed, "error");
+  if (error !== undefined) {
+    throw new Error(`npm view deprecated failed: ${npmError(error)}`);
+  }
+  if (typeof parsed !== "string") {
+    throw new Error(
+      `npm view deprecated printed ${JSON.stringify(parsed)}, not a deprecation message`,
+    );
+  }
+  return parsed === "" ? undefined : parsed;
+}
+
+/**
  * Parses the output of `npm audit signatures --json --include-attestations`.
  *
  * @returns The packages npm verified, with whether each has a provenance attestation.
@@ -174,11 +214,22 @@ export function assertStagedTag(views: readonly PackageView[], version: string):
 /**
  * The version must not be below `latest` where one exists. Equal is allowed: the first publish
  * of a package lands on `latest` and `beta` at once, and its verification run checks that version.
+ * A deprecated name placeholder on `latest` ({@link NAME_PLACEHOLDERS}) is below any stable
+ * version, so it passes; an undeprecated one fails with the command that deprecates it.
  */
 export function assertNotBelowLatest(views: readonly PackageView[], version: string): void {
   for (const view of views) {
     const latest = view.distTags.latest;
     if (latest === undefined) {
+      continue;
+    }
+    const placeholder = NAME_PLACEHOLDERS.get(latest);
+    if (placeholder !== undefined) {
+      if (view.latestDeprecated === undefined) {
+        throw new Error(
+          `${view.name} has latest at ${latest}, a name placeholder that is not deprecated; deprecate it first: npm deprecate ${view.name}@${latest} "${placeholder}"`,
+        );
+      }
       continue;
     }
     if (STABLE_VERSION.exec(latest) === null) {

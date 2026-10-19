@@ -137,6 +137,34 @@ describe(
       }
     });
 
+    it("moves latest off a name placeholder: a new package's first promotion", () => {
+      for (const placeholder of ["0.0.0-placeholder.0", "0.0.0-stage"]) {
+        const result = moveLatest(npm12, "1.2.3", {
+          "@hardhat-kms/turnkey": JSON.stringify([
+            { placeholder: "0.0.0-placeholder.0", beta: "1.2.3", latest: placeholder },
+          ]),
+        });
+        assert.equal(result.status, 0, result.output);
+        assert.deepEqual(result.adds, moved("1.2.3"));
+      }
+    });
+
+    it("refuses any other non-X.Y.Z latest before moving a tag, naming the package", () => {
+      for (const current of ["1.0.0-rc.1", "0.0.0-rc.1", "0.0.0-placeholder.1", "2.0.0-beta.0"]) {
+        const result = moveLatest(npm12, "1.2.3", {
+          "@hardhat-kms/gcp": JSON.stringify([{ beta: "1.2.3", latest: current }]),
+        });
+        assert.notEqual(result.status, 0, current);
+        assert.ok(
+          result.output.includes(
+            `@hardhat-kms/gcp has latest at ${current}, which is neither a stable X.Y.Z nor a name placeholder; fix the dist-tag first`,
+          ),
+          result.output,
+        );
+        assert.deepEqual(result.adds, [], current);
+      }
+    });
+
     it("skips a package whose latest already is the version and moves the rest", () => {
       const result = moveLatest(npm12, "1.2.3", {
         "hardhat-kms": JSON.stringify([{ beta: "1.2.3", latest: "1.2.3" }]),

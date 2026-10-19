@@ -157,17 +157,33 @@ Who: the owner of the `@hardhat-kms` npm scope, on their own machine, signed in 
    npm deprecate <pkg>@0.0.0-placeholder.0 "Placeholder that reserves the name; install the version on latest."
    ```
 
-   A first publish takes `latest` whatever `--tag` says, as the `0.0.0-stage` placeholder did for 0.9.0; the promotion of the first real version moves `latest` off it, and the deprecation warns anyone who installs it before then. `node scripts/check-npm-names.ts` now prints `ok` for every package.
+   A first publish takes `latest` whatever `--tag` says, as the `0.0.0-stage` placeholder did for 0.9.0; the promotion of the first real version moves `latest` off it, and the deprecation warns anyone who installs it before then. If `npm view <pkg> versions --json` also lists `0.0.0-stage`, deprecate it too, as for 0.9.0:
+
+   ```sh
+   npm deprecate <pkg>@0.0.0-stage "Placeholder created by npm staged publishing; install the version on latest."
+   ```
+
+   `node scripts/check-npm-names.ts` now prints `ok` for every package.
 
 3. On npmjs.com, in the settings of `<pkg>`, set "Publishing access" to "Require two-factor authentication and disallow bypass 2fa tokens (recommended)", as for the other packages.
 4. On the day of the release tag, not before (a configuration expires 48 hours after its creation unless a publish uses it), add the trusted publisher for the stage: GitHub Actions, organization or user `aelmanaa`, repository `hardhat-kms`, workflow filename `release.yml`, environment `npm-publish`, staged publishing only. From a terminal with npm 11.15.0 or later, `npm trust github <pkg> --file release.yml --repo aelmanaa/hardhat-kms --env npm-publish --allow-stage-publish` creates the same configuration.
 5. Add the trusted publisher for the promotion: workflow filename `promote.yml`, environment `npm-latest`, dist-tag management allowed, no publish. Create it on npmjs.com on the day of the `target: latest` run, for the same 48-hour reason, or recreate it then ([Trusted-publisher configuration expired](#trusted-publisher-configuration-expired)). A future major also needs the `release-next.yml` configuration of [section 7](#7-a-future-major).
 6. Push the signed tag as in [Cut a release](#3-cut-a-release). The `publish` job stages every package, `<pkg>` included; approve each stage on npmjs.com.
-7. Promote as in [Verify and promote](#4-verify-and-promote). `target: latest` moves `latest` of `<pkg>` from the placeholder to the release.
+7. Promote as in [Verify and promote](#4-verify-and-promote). `target: latest` moves `latest` of `<pkg>` from the placeholder to the release. The gate accepts a placeholder on `latest` only when it is exactly `0.0.0-placeholder.0` or `0.0.0-stage` and deprecated: `scripts/check-registry-release.ts` reads `npm view <pkg>@<placeholder> deprecated --json` and, for an undeprecated placeholder, fails with the `npm deprecate` command to run. The `latest` job checks again before it moves a tag, and stops on any other `latest` that is not `X.Y.Z`. Do not move `latest` by hand to get past the gate: the move would come before the provenance, `gitHead` and live-proof checks and the `npm-latest` approval.
 
 ### Restage of 0.10.1 (2026-10-10)
 
 The first `v0.10.1` tag pointed at `82d636d`, the Version Packages merge ([#448](https://github.com/aelmanaa/hardhat-kms/pull/448)). Its release run stopped after the `npm-publish` approval and before any npm call ([#463](https://github.com/aelmanaa/hardhat-kms/issues/463)). The tarball checker imported `yaml` through a helper, and the publish job installs no workspace dependencies. Nothing was staged and no dist-tag moved, so [Run failed before `publish`](#run-failed-before-publish) applied. The fix merged as `90d1b96` ([#464](https://github.com/aelmanaa/hardhat-kms/pull/464)), the maintainer deleted the tag and signed it again at `90d1b96`, and the second run staged the four packages. So `v0.10.1` points at `90d1b96`, and the published `gitHead` of all four packages is `90d1b96`, not the version merge. `git log --oneline 82d636d..90d1b96` lists the one commit of #464, and `git diff --stat 82d636d 90d1b96 -- packages` prints nothing, so the new tag carries the packages of the version merge.
+
+### Promotion of 1.2.0 (2026-10-19)
+
+1.2.0 was the first release of `@hardhat-kms/turnkey`, whose name was reserved with `0.0.0-placeholder.0` as in [First publish of a new package](#first-publish-of-a-new-package), so its `latest` was the placeholder. The `target: latest` run [39273250097](https://github.com/aelmanaa/hardhat-kms/actions/runs/39273250097) failed in the verify job, before any approval and with no tag moved:
+
+```text
+FAIL @hardhat-kms/turnkey has latest at 0.0.0-placeholder.0, which is not a stable version; fix the dist-tag first
+```
+
+The registry check accepted only an `X.Y.Z` `latest`, so the documented first-publish steps could not pass it. The owner ran `npm dist-tag add @hardhat-kms/turnkey@1.2.0 latest` from their machine, with 2FA, and dispatched the promotion again ([39273833356](https://github.com/aelmanaa/hardhat-kms/actions/runs/39273833356)), which passed: its `latest` job skipped `@hardhat-kms/turnkey`, already at 1.2.0, and moved `latest` of the other packages. That manual move put 1.2.0 on `latest` of `@hardhat-kms/turnkey` before the promotion's provenance, `gitHead` and live-proof checks and the `npm-latest` approval; the rerun ran them after the fact and they passed. [#555](https://github.com/aelmanaa/hardhat-kms/issues/555) made the gate accept a deprecated name placeholder on `latest`, so the next new package needs no manual move.
 
 ## 4. Verify and promote
 
