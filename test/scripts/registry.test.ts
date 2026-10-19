@@ -272,7 +272,7 @@ describe("yarnBerrySettings", () => {
     });
   });
 
-  it("exempts the four packages, and nothing else, from the age gate in registry mode", () => {
+  it("exempts the published packages, and nothing else, from the age gate in registry mode", () => {
     assert.deepEqual(parse(yarnBerrySettings(true)), {
       nodeLinker: "node-modules",
       enableScripts: false,

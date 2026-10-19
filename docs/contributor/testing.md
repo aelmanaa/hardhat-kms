@@ -140,7 +140,7 @@ Deprecated APIs are checked in five places. `pnpm run check` lints our own code 
 
 ## Test time limits
 
-The `test:unit` and `test:integration` scripts of the four packages run `node --test` through `scripts/node-test.ts`, which chooses the `--test-timeout` value by Node major. The flag means two different things:
+The `test:unit` and `test:integration` scripts of the published packages run `node --test` through `scripts/node-test.ts`, which chooses the `--test-timeout` value by Node major. The flag means two different things:
 
 - On Node 24 and later it limits each test. A file may run as long as its tests need.
 - On Node 22 it limits each test file and sets no limit per test. The runner ends a file that runs past the value with SIGTERM, even when every test in it passes.
