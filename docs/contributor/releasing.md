@@ -61,7 +61,7 @@ Why the manifests read `0.8.0` before the first release: `changeset version` app
    `git verify-tag` checks the signature against your keyring and prints `Good signature from <your user id>`. The script checks what the workflow checks: the signature against `.github/release-keys/` in a throwaway `GNUPGHOME`, the tag name against the manifest of every published package at that commit, no `-` in the version, and the commit reachable from `origin/main`, or, for a hotfix, from the release branch of its version (see [Hotfix on an older line](#5-hotfix-on-an-older-line)). It prints one line:
 
    ```text
-   v1.2.0 passes: signed by <name> <email> (<fingerprint>), version 1.2.0 in 5 manifests, commit <merge-sha> on origin/main
+   v1.2.0 passes: signed by <name> <email> (<fingerprint>), version 1.2.0 in 5 manifests, commit <merge-sha> on origin/main, staged under beta
    ```
 
    On a failure the line starts with `v1.2.0 fails:` and names the check. Do not push a tag that fails; delete it with `git tag -d v1.2.0` and fix the cause.
