@@ -327,7 +327,11 @@ describe(
           child.kill(signal);
           assert.equal(await exit, SIGNAL_EXIT_CODES[signal]);
           assert.equal(worktrees().match(/^worktree /gm)?.length, 1);
-          assert.deepEqual(readdirSync(scratchTmp), []);
+          // tsx, on the Node 22 leg, keeps its own cache in the temp directory.
+          assert.deepEqual(
+            readdirSync(scratchTmp).filter((entry) => entry.startsWith("hardhat-kms-bumped-")),
+            [],
+          );
         } finally {
           rmSync(sandbox, { recursive: true, force: true });
         }
