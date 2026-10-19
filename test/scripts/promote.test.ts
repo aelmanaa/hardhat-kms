@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
+import { NAME_PLACEHOLDERS } from "../../scripts/registry-release.ts";
 import { PACKAGES } from "../../scripts/release-packages.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -39,24 +40,38 @@ after(() => {
   rmSync(work, { recursive: true, force: true });
 });
 
+/** A bash `case` arm for each entry, printing its output for the package it names. */
+const arms = (outputs: Record<string, string>): string =>
+  Object.entries(outputs)
+    .map(
+      ([name, output]) => `    ${JSON.stringify(name)}) printf '%s\\n' ${shellQuote(output)} ;;\n`,
+    )
+    .join("");
+
 /**
- * Runs the step with `npm view` printing `view` for every package, or the entry of `overrides`
- * for the packages it names.
+ * Runs the step with `npm view <package> dist-tags` printing `view` for every package, or the
+ * entry of `overrides` for the packages it names, and `npm view <package> versions` printing the
+ * entry of `versions`, or a list with only the placeholder.
  */
 function moveLatest(
   view: string,
   version = "1.2.3",
   overrides: Record<string, string> = {},
   packages: string = PACKAGES.join(" "),
+  versions: Record<string, string> = {},
 ) {
   const summary = path.join(work, "summary.md");
   writeFileSync(summary, "");
   const stub = `npm() {
   if [ "$1" != view ]; then printf 'npm %s\\n' "$*"; return; fi
+  if [ "$3" = versions ]; then
+    case "$2" in
+${arms(versions)}    *) printf '%s\\n' '["0.0.0-placeholder.0"]' ;;
+    esac
+    return
+  fi
   case "$2" in
-${Object.entries(overrides)
-  .map(([name, output]) => `    ${JSON.stringify(name)}) printf '%s\\n' ${shellQuote(output)} ;;\n`)
-  .join("")}    *) printf '%s\\n' "$NPM_VIEW" ;;
+${arms(overrides)}    *) printf '%s\\n' "$NPM_VIEW" ;;
   esac
 }
 `;
@@ -134,6 +149,104 @@ describe(
         assert.notEqual(result.status, 0, view);
         assert.match(result.output, message, view);
         assert.deepEqual(result.adds, [], view);
+      }
+    });
+
+    it("moves latest off a name placeholder: a new package's first promotion", () => {
+      for (const placeholder of ["0.0.0-placeholder.0", "0.0.0-stage"]) {
+        const result = moveLatest(npm12, "1.2.3", {
+          "@hardhat-kms/turnkey": JSON.stringify([
+            { placeholder: "0.0.0-placeholder.0", beta: "1.2.3", latest: placeholder },
+          ]),
+        });
+        assert.equal(result.status, 0, result.output);
+        assert.deepEqual(result.adds, moved("1.2.3"));
+      }
+    });
+
+    it("refuses to move latest off a placeholder when a higher stable version exists", () => {
+      // latest of an existing package set to a placeholder by mistake: a hotfix of an older line
+      // must not take latest, whatever shape npm prints the versions in.
+      const shapes = [
+        JSON.stringify(["0.0.0-stage", "1.2.0", "1.2.3", "1.3.0", "1.3.0-rc.1"]),
+        JSON.stringify([["0.0.0-stage", "1.2.0", "1.3.0", "1.10.0"]]),
+        JSON.stringify("1.3.0"),
+      ];
+      for (const listed of shapes) {
+        const result = moveLatest(
+          npm12,
+          "1.2.3",
+          { "@hardhat-kms/gcp": JSON.stringify([{ beta: "1.2.3", latest: "0.0.0-stage" }]) },
+          PACKAGES.join(" "),
+          { "@hardhat-kms/gcp": listed },
+        );
+        assert.notEqual(result.status, 0, listed);
+        assert.match(
+          result.output,
+          /@hardhat-kms\/gcp has latest at the name placeholder 0\.0\.0-stage, but publishes 1\.(3|10)\.0, above 1\.2\.3; latest never moves backwards/,
+          listed,
+        );
+        assert.deepEqual(result.adds, [], listed);
+      }
+      // Only lower or equal stable versions, and prereleases above: the placeholder moves.
+      const result = moveLatest(
+        npm12,
+        "1.2.3",
+        { "@hardhat-kms/gcp": JSON.stringify([{ beta: "1.2.3", latest: "0.0.0-stage" }]) },
+        PACKAGES.join(" "),
+        { "@hardhat-kms/gcp": JSON.stringify(["0.0.0-stage", "1.2.0", "1.2.3", "1.3.0-rc.1"]) },
+      );
+      assert.equal(result.status, 0, result.output);
+      assert.deepEqual(result.adds, moved("1.2.3"));
+    });
+
+    it("refuses npm's error and another shape for the versions of a placeholder package", () => {
+      for (const listed of ['{"error":{"code":"E404"}}', "[1]", "null"]) {
+        const result = moveLatest(
+          npm12,
+          "1.2.3",
+          { "@hardhat-kms/gcp": JSON.stringify([{ beta: "1.2.3", latest: "0.0.0-stage" }]) },
+          PACKAGES.join(" "),
+          { "@hardhat-kms/gcp": listed },
+        );
+        assert.notEqual(result.status, 0, listed);
+        assert.match(result.output, /npm view @hardhat-kms\/gcp versions --json printed/, listed);
+        assert.deepEqual(result.adds, [], listed);
+      }
+    });
+
+    it("lets through exactly the NAME_PLACEHOLDERS of scripts/registry-release.ts", () => {
+      const lines = distTagStep().split("\n");
+      const start = lines.findIndex((line) => line.trim() === 'case "$current" in');
+      const end = lines.findIndex((line, index) => index > start && line.trim() === "esac");
+      assert.ok(start >= 0 && end > start);
+      const labels = lines
+        .slice(start + 1, end)
+        .map(
+          (line) =>
+            /^\s*((?:"[^"]*"|[\w.*-]+)(?:\s*\|\s*(?:"[^"]*"|[\w.*-]+))*)\)(?:\s*;;)?$/.exec(
+              line,
+            )?.[1],
+        )
+        .filter((label): label is string => label !== undefined)
+        .flatMap((label) => label.split("|").map((part) => part.trim()))
+        .filter((label) => label !== '""' && label !== "*");
+      assert.deepEqual(labels.toSorted(), [...NAME_PLACEHOLDERS.keys()].toSorted());
+    });
+
+    it("refuses any other non-X.Y.Z latest before moving a tag, naming the package", () => {
+      for (const current of ["1.0.0-rc.1", "0.0.0-rc.1", "0.0.0-placeholder.1", "2.0.0-beta.0"]) {
+        const result = moveLatest(npm12, "1.2.3", {
+          "@hardhat-kms/gcp": JSON.stringify([{ beta: "1.2.3", latest: current }]),
+        });
+        assert.notEqual(result.status, 0, current);
+        assert.ok(
+          result.output.includes(
+            `@hardhat-kms/gcp has latest at ${current}, which is neither a stable X.Y.Z nor a name placeholder; fix the dist-tag first`,
+          ),
+          result.output,
+        );
+        assert.deepEqual(result.adds, [], current);
       }
     });
 

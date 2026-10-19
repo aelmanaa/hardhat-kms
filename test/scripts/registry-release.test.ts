@@ -18,6 +18,7 @@ import {
   checkLiveRule,
   compareVersions,
   type PackageView,
+  parseDeprecated,
   parseGitHead,
   parseLiveRun,
   parsePackageView,
@@ -133,6 +134,39 @@ describe("unwrapNpmView", () => {
   });
 });
 
+describe("parseDeprecated", () => {
+  it("reads the message of a deprecated version from npm 11's string and npm 12's array", () => {
+    assert.equal(
+      parseDeprecated(fixture("deprecated-npm11.json")),
+      "Placeholder created by npm staged publishing; install the version on latest.",
+    );
+    assert.equal(
+      parseDeprecated(fixture("deprecated-npm12.json")),
+      "Placeholder that reserves the name; install the version on latest.",
+    );
+  });
+
+  it("returns undefined for a version that is not deprecated: npm prints nothing", () => {
+    assert.equal(parseDeprecated(""), undefined);
+    assert.equal(parseDeprecated("\n"), undefined);
+    // `npm deprecate <pkg>@<version> ""` undeprecates a version by setting an empty message.
+    assert.equal(parseDeprecated('""'), undefined);
+    assert.equal(parseDeprecated('[""]'), undefined);
+  });
+
+  it("refuses npm's error and any other shape, naming the command", () => {
+    assert.throws(() => parseDeprecated(`[${fixture("view-missing.json")}]`), {
+      message: /^npm view deprecated failed: Not Found/,
+    });
+    assert.throws(() => parseDeprecated('["a", "b"]'), {
+      message: /^npm view deprecated printed an array of 2 entries/,
+    });
+    assert.throws(() => parseDeprecated("true"), {
+      message: "npm view deprecated printed true, not a deprecation message",
+    });
+  });
+});
+
 describe("the release guards", () => {
   it("pass for the beta version of the released fixture", () => {
     const views = released();
@@ -216,10 +250,77 @@ describe("the release guards", () => {
           "hardhat-kms has latest at 1.0.0-rc.1, which is not a stable version; fix the dist-tag first",
       },
     );
+    // Only the two name placeholders are let through, so another 0.0.0 prerelease still fails.
+    assert.throws(
+      () =>
+        assertNotBelowLatest(
+          views.map((view) => ({
+            ...view,
+            distTags: { latest: "0.0.0-rc.1", beta: "1.0.0" },
+            latestDeprecated: "deprecated",
+          })),
+          "1.0.0",
+        ),
+      {
+        message:
+          "hardhat-kms has latest at 0.0.0-rc.1, which is not a stable version; fix the dist-tag first",
+      },
+    );
     assertNotBelowLatest(
       views.map((view) => ({ ...view, distTags: { beta: "0.9.0" } })),
       "0.9.0",
     );
+  });
+
+  it("let any version replace a deprecated name placeholder on latest, and only a deprecated one", () => {
+    // A new package: the owner's placeholder (or npm's staged-publishing one) holds latest.
+    const views = released();
+    const [core, ...rest] = views;
+    assert.ok(core !== undefined);
+    const placeholders: [string, string][] = [
+      ["0.0.0-placeholder.0", "Placeholder that reserves the name; install the version on latest."],
+      [
+        "0.0.0-stage",
+        "Placeholder created by npm staged publishing; install the version on latest.",
+      ],
+    ];
+    for (const [placeholder, message] of placeholders) {
+      const fresh = { ...core, distTags: { latest: placeholder, beta: "1.0.1" } };
+      assertNotBelowLatest([{ ...fresh, latestDeprecated: message }, ...rest], "1.0.1");
+      // The comparison is skipped for the placeholder only: the other packages still count.
+      assert.throws(
+        () =>
+          assertNotBelowLatest(
+            [{ ...fresh, versions: [placeholder], latestDeprecated: message }, ...rest],
+            "0.9.0",
+          ),
+        {
+          message:
+            "@hardhat-kms/aws has latest at 1.0.0; 0.9.0 is lower and would move latest backwards",
+        },
+      );
+      // A placeholder on latest of a package that already publishes a higher stable version was
+      // set by mistake: moving latest off it would go backwards, so it is refused.
+      const existing = {
+        ...fresh,
+        latestDeprecated: message,
+        versions: [placeholder, "1.0.0", "1.1.0", "1.2.0", "1.1.1"],
+      };
+      assert.throws(() => assertNotBelowLatest([existing, ...rest], "1.1.1"), {
+        message: `hardhat-kms has latest at the name placeholder ${placeholder}, but publishes 1.2.0; 1.1.1 is lower and would move latest backwards`,
+      });
+      // Lower and equal stable versions, and prereleases above, do not block it.
+      assertNotBelowLatest(
+        [{ ...existing, versions: [placeholder, "1.0.0", "1.1.1", "1.2.0-rc.1"] }, ...rest],
+        "1.1.1",
+      );
+      // Not deprecated: the message names the package and the command that deprecates it.
+      for (const undeprecated of [fresh, { ...fresh, latestDeprecated: undefined }]) {
+        assert.throws(() => assertNotBelowLatest([undeprecated, ...rest], "1.0.1"), {
+          message: `hardhat-kms has latest at ${placeholder}, a name placeholder that is not deprecated; deprecate it first: npm deprecate hardhat-kms@${placeholder} "${message}"`,
+        });
+      }
+    }
   });
 
   it("tie the published core to the tag's commit", () => {
