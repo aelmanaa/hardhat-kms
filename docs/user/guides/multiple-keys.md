@@ -62,7 +62,7 @@ Pin each key's `address` once you know it, in `kms.keys`, and every network that
 
 ## Mix providers
 
-Each provider's keys need its provider package in `plugins`: `@hardhat-kms/aws`, `@hardhat-kms/gcp` or `@hardhat-kms/azure`. The config in [Name each key once](#name-each-key-once) lists two, and each loads `hardhat-kms` itself. A key whose provider package is missing fails when it is first used, and the error names the package to install ([Provider packages](../reference/configuration.md#provider-packages)).
+Each provider's keys need its provider package in `plugins`: `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure` or `@hardhat-kms/turnkey`. The config in [Name each key once](#name-each-key-once) lists two, and each loads `hardhat-kms` itself. A key whose provider package is missing fails when it is first used, and the error names the package to install ([Provider packages](../reference/configuration.md#provider-packages)).
 
 With a key on each of the three clouds, all three packages go in `plugins`. Here `deployer` signs on Sepolia, on Arbitrum One and on a local fork of Sepolia, and `ops` signs on Sepolia only:
 

@@ -28,6 +28,7 @@ curl -s https://api.npmjs.org/downloads/point/last-month/hardhat-kms
 curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/aws
 curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/gcp
 curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/azure
+curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/turnkey
 ```
 
 Each answer is `{"downloads":N,"start":"YYYY-MM-DD","end":"YYYY-MM-DD","package":"..."}`. For a calendar month, put the dates in the path, for example `point/2026-11-01:2026-11-30/hardhat-kms`. Swap `point` for `range` to get one count per day. The bulk form (`hardhat-kms,@hardhat-kms/aws`) does not accept scoped packages, so query each one on its own.
@@ -55,7 +56,7 @@ It prints `https://slsa.dev/provenance/v1` for a release published from CI.
 
 Open these in a browser. Socket blocks scripted requests such as curl.
 
-- Socket: <https://socket.dev/npm/package/hardhat-kms>, and the same path for `@hardhat-kms/aws`, `@hardhat-kms/gcp` and `@hardhat-kms/azure`. Read the supply chain, vulnerability, quality, maintenance and license scores and every alert.
+- Socket: <https://socket.dev/npm/package/hardhat-kms>, and the same path for `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure` and `@hardhat-kms/turnkey`. Read the supply chain, vulnerability, quality, maintenance and license scores and every alert.
 - Snyk: <https://security.snyk.io/package/npm/hardhat-kms>. Read the known vulnerabilities for the latest version and the package health score. On 2026-10-08 it showed 0 vulnerabilities for 0.9.0 and no health score yet.
 
 Open an issue for every alert, vulnerability or score that is not green, with a link to the page.
