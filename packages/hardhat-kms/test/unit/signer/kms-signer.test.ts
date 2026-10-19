@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { HardhatPluginError } from "hardhat/plugins";
 import { addr as microAddr } from "micro-eth-signer";
 
@@ -1005,6 +1006,28 @@ describe("KmsSigner", () => {
       );
 
       await assert.rejects(kms.getAddress(), (error: unknown) => error === pluginError);
+    });
+
+    it("passes Hardhat's own error on unchanged, as an unset configuration variable (#544)", async () => {
+      for (const name of ["TURNKEY_API_PRIVATE_KEY", "TURNKEY_ORGANIZATION_ID"]) {
+        const unset = new HardhatError(HardhatError.ERRORS.CORE.GENERAL.ENV_VAR_NOT_FOUND, {
+          name,
+        });
+        for (const kms of [
+          signer({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey), throwError: unset }).signer,
+          signer(
+            { secretKey: hex(HARDHAT_ACCOUNT_0.secretKey), identity: "address", throwError: unset },
+            { expectedAddress: HARDHAT_ACCOUNT_0.address },
+          ).signer,
+        ]) {
+          await assert.rejects(kms.signDigest(new Uint8Array(32).fill(7)), (error: unknown) => {
+            assert.equal(error, unset);
+            assert.ok(error instanceof Error);
+            assert.match(error.message, new RegExp(`"${name}" not found`));
+            return true;
+          });
+        }
+      }
     });
 
     it("never leaks the provider's error text", async () => {

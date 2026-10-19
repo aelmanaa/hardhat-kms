@@ -254,6 +254,27 @@ describe("the Turnkey adapter", () => {
     assert.equal(reads, 2);
   });
 
+  it("passes the error of an unset variable on unchanged, for either credential (#544)", async () => {
+    for (const field of ["apiPrivateKey", "organizationId"] as const) {
+      const name =
+        field === "apiPrivateKey" ? "TURNKEY_API_PRIVATE_KEY" : "TURNKEY_ORGANIZATION_ID";
+      const unset = new Error(`Configuration Variable "${name}" not found.`);
+      const { stub, adapter } = await setUp(
+        turnkeyKey({
+          [field]: {
+            display: `<${name}>`,
+            get: async () => await Promise.reject(unset),
+          },
+        }),
+      );
+      await assert.rejects(sign(adapter, "digest"), (error: unknown) => {
+        assert.equal(error, unset);
+        return failsWith(new RegExp(`"${name}" not found`))(error);
+      });
+      assert.equal(stub.requests.length, 0);
+    }
+  });
+
   it("refuses an API private key that is not 64 hex characters, before any request", async () => {
     for (const privateKey of [API_PUBLIC_KEY, "", "zz".repeat(32), "00".repeat(32)]) {
       const { stub, adapter } = await setUp(turnkeyKey({}, { privateKey }));

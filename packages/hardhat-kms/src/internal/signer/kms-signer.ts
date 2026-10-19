@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import {
@@ -723,8 +724,11 @@ export class KmsSigner {
   }
 
   /** The error a failed provider call ends with, when no nonce is held. */
-  #failure(operation: string, error: unknown): HardhatPluginError {
-    if (error instanceof HardhatPluginError) {
+  #failure(operation: string, error: unknown): HardhatPluginError | HardhatError {
+    // Hardhat's errors are written to be shown: an unset configuration variable that an adapter
+    // reads on its first call, such as a Turnkey key's credentials, names the variable but never a
+    // value (#544).
+    if (error instanceof HardhatPluginError || HardhatError.isHardhatError(error)) {
       return error;
     }
     if (error instanceof InvalidPublicKeyError || error instanceof InvalidAddressError) {
@@ -746,7 +750,7 @@ export class KmsSigner {
    * provider, the operation and the key, which the outstanding error adds again, and without a
    * final full stop.
    */
-  #reasonOf(failure: HardhatPluginError): string {
+  #reasonOf(failure: HardhatPluginError | HardhatError): string {
     const { message } = failure;
     const marker = `, key ${this.#displayId}: `;
     const at = message.indexOf(marker);
