@@ -1,5 +1,12 @@
 # @hardhat-kms/aws
 
+## 1.2.0
+
+### Patch Changes
+
+- Updated dependencies [[`3bed0ce`](https://github.com/aelmanaa/hardhat-kms/commit/3bed0ce8dbf90616398403549b9c61a60ea117d8), [`37cd6d5`](https://github.com/aelmanaa/hardhat-kms/commit/37cd6d557b8e6403d59709ba817751fb21229c1a), [`9af93d1`](https://github.com/aelmanaa/hardhat-kms/commit/9af93d152b9d8542c238b0dfa3177c036b6ec788), [`fab818f`](https://github.com/aelmanaa/hardhat-kms/commit/fab818fdc97795ba134aa491343cb087fc4f03d5), [`465ac83`](https://github.com/aelmanaa/hardhat-kms/commit/465ac838524bd847325e836d903f4b5db5e836ba), [`f735ed1`](https://github.com/aelmanaa/hardhat-kms/commit/f735ed128e40066f4bb0b1e0c8bb74f591306ba4), [`f952e64`](https://github.com/aelmanaa/hardhat-kms/commit/f952e64f38fd4d0aaaf936caadec2e8973a5ca61), [`c839a8a`](https://github.com/aelmanaa/hardhat-kms/commit/c839a8ac7e4ffa9787dbfb9707857cfe95cb9df0), [`93f9e40`](https://github.com/aelmanaa/hardhat-kms/commit/93f9e40f196efd4488279aef2e8ee1c39759f992), [`1b68eec`](https://github.com/aelmanaa/hardhat-kms/commit/1b68eec706df0665dfb135ddf34543fa2a3a9fdb)]:
+  - hardhat-kms@1.2.0
+
 ## 1.1.0
 
 ### Patch Changes

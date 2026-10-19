@@ -1,6 +1,6 @@
 {
   "name": "@hardhat-kms/turnkey",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Turnkey signer for Hardhat 3 (hardhat-kms provider): signs with a Turnkey wallet account through Turnkey's API, with an API key stamp.",
   "keywords": [
     "hardhat-plugin",
