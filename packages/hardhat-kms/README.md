@@ -5,13 +5,13 @@
 
 # hardhat-kms
 
-Sign Hardhat 3 transactions, messages and typed data with keys held in **AWS KMS**, **Google Cloud KMS** or **Azure Key Vault**. The private key never leaves the KMS.
+Sign Hardhat 3 transactions, messages and typed data with keys held in **AWS KMS**, **Google Cloud KMS**, **Azure Key Vault** or **Turnkey**. The private key never leaves the KMS.
 
-Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google or Microsoft.
+Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google, Microsoft or Turnkey.
 
 - viem, ethers, Ignition and plain scripts use KMS accounts unchanged: the plugin works at the JSON-RPC layer.
 - Every signature is recovered locally and checked against the key's address before it is used. An optional `address` pin also refuses a key that derives to another address. See the [security model](https://aelmanaa.github.io/hardhat-kms/user/explanation/security-model).
-- Install the provider package for each cloud you use, and configure its keys under `kms.keys`. No credentials go in the Hardhat config: AWS and Google Cloud keys use their SDK's credential discovery, and Azure keys use the plugin's own credential chain.
+- Install the provider package for each cloud or service you use, and configure its keys under `kms.keys`. No credentials go in the Hardhat config: AWS and Google Cloud keys use their SDK's credential discovery, Azure keys use the plugin's own credential chain, and a Turnkey key's API private key is read from a configuration variable.
 - Eight [`kms` tasks](https://aelmanaa.github.io/hardhat-kms/user/reference/tasks), from `accounts` to `history`, which reads your cloud audit log, and a `--kms` option that reads Foundry's key variables.
 - Legacy, EIP-2930, EIP-1559 and EIP-7702 transactions, EIP-191 and EIP-712 signing, all run on Sepolia in a [live proof](https://aelmanaa.github.io/hardhat-kms/live-proof) with block ranges and on-chain `ecrecover` checks.
 
@@ -21,7 +21,7 @@ Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated
 
 ## Install
 
-In a Hardhat 3 project (`npx hardhat --init` creates one), install the core, `hardhat-kms`, with the provider package for your cloud: `@hardhat-kms/aws` for AWS KMS, `@hardhat-kms/gcp` for Google Cloud KMS, `@hardhat-kms/azure` for Azure Key Vault or Managed HSM. All hardhat-kms packages in a project have the same version.
+In a Hardhat 3 project (`npx hardhat --init` creates one), install the core, `hardhat-kms`, with the provider package for your cloud: `@hardhat-kms/aws` for AWS KMS, `@hardhat-kms/gcp` for Google Cloud KMS, `@hardhat-kms/azure` for Azure Key Vault or Managed HSM, `@hardhat-kms/turnkey` for a Turnkey wallet account. All hardhat-kms packages in a project have the same version.
 
 ```sh
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws

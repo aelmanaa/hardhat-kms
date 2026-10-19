@@ -17,7 +17,7 @@ export const HOSTNAME: string = `${ORIGIN}${SITE_BASE}`;
 
 /** The description of a page that has none of its own. */
 export const SITE_DESCRIPTION =
-  "Sign Hardhat 3 transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS or Azure Key Vault.";
+  "Sign Hardhat 3 transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey.";
 
 /**
  * The social preview, `docs/public/og-image.png`, served at the site root; `docs/public/og-image.svg`
@@ -32,7 +32,7 @@ export const OG_IMAGE: {
   url: `${HOSTNAME}og-image.png`,
   width: 1280,
   height: 640,
-  alt: "hardhat-kms, a plugin for Hardhat 3: sign with cloud-managed keys. The private key never leaves the KMS: a digest goes in and a signature comes out. Works with AWS KMS, Google Cloud KMS and Azure Key Vault.",
+  alt: "hardhat-kms, a plugin for Hardhat 3: sign with managed keys. The private key never leaves the KMS: a digest goes in and a signature comes out. Works with AWS KMS, Google Cloud KMS, Azure Key Vault and Turnkey.",
 };
 
 /** The largest social preview `docs:site:check` accepts, in bytes. */

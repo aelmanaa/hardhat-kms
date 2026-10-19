@@ -128,7 +128,7 @@ const API_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "hardhat-kms/alchemy.md":
     "The hardhat-kms/alchemy entry point: checkPreparedCalls, which checks an Alchemy Wallet APIs prepared call before a KMS key signs it.",
   "hardhat-kms/provider-utils.md":
-    "Helpers for writing a KMS provider plugin for hardhat-kms, the same ones the AWS, Google Cloud and Azure packages use; experimental.",
+    "Helpers for writing a KMS provider plugin for hardhat-kms, the same ones the AWS, Google Cloud, Azure and Turnkey packages use; experimental.",
   "hardhat-kms/types.md":
     "Public types of hardhat-kms/types: the kms config section, each provider's key config and the resolved forms Hardhat passes to plugins.",
 };

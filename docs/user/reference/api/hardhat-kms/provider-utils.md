@@ -1,6 +1,6 @@
 ---
 title: hardhat-kms/provider-utils
-description: Helpers for writing a KMS provider plugin for hardhat-kms, the same ones the AWS, Google Cloud and Azure packages use; experimental.
+description: Helpers for writing a KMS provider plugin for hardhat-kms, the same ones the AWS, Google Cloud, Azure and Turnkey packages use; experimental.
 ---
 
 # hardhat-kms/provider-utils

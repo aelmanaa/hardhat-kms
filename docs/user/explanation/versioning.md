@@ -57,7 +57,7 @@ yarn add --dev hardhat-kms @hardhat-kms/aws
 
 :::
 
-To test a version before it is promoted, install both packages from `beta`. `@hardhat-kms/gcp` and `@hardhat-kms/azure` install the same way.
+To test a version before it is promoted, install both packages from `beta`. `@hardhat-kms/gcp`, `@hardhat-kms/azure` and `@hardhat-kms/turnkey` install the same way.
 
 ::: code-group
 

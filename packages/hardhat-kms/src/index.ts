@@ -20,7 +20,7 @@ const KEY_ARGUMENT_DESCRIPTION =
 
 /**
  * The hardhat-kms plugin: sign transactions, messages and typed data with keys held in AWS KMS,
- * Google Cloud KMS and Azure Key Vault or Managed HSM.
+ * Google Cloud KMS, Azure Key Vault or Managed HSM, or Turnkey.
  *
  * Add it to the `plugins` array of your Hardhat config.
  */
