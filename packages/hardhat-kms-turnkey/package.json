@@ -12,6 +12,8 @@
     "kms",
     "signer",
     "turnkey",
+    "remote-signer",
+    "secp256k1",
     "wallet",
     "viem",
     "ethers"

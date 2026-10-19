@@ -19,7 +19,7 @@
     <text id="name" x="75" y="204" font-size="108" font-weight="700" letter-spacing="-4" fill="#F3F5F9">hardhat-kms</text>
 
     <!-- subtitle -->
-    <text id="sub" x="80" y="264" font-size="40" font-weight="400" fill="#B8C2D6">Sign with cloud-managed keys</text>
+    <text id="sub" x="80" y="264" font-size="40" font-weight="400" fill="#B8C2D6">Sign with managed keys</text>
 
     <!-- hero claim -->
     <text id="c1" x="80" y="372" font-size="76" font-weight="700" letter-spacing="-2" fill="#F3F5F9">The private key</text>
@@ -29,7 +29,7 @@
     <line x1="80" y1="512" x2="1200" y2="512" stroke="#2C3956" stroke-width="1"/>
 
     <!-- providers -->
-    <text id="prov" x="80" y="578" font-size="40" font-weight="600" fill="#D6DEEE">AWS KMS<tspan fill="#5C6B8C" dx="20">/</tspan><tspan dx="20">Google Cloud KMS</tspan><tspan fill="#5C6B8C" dx="20">/</tspan><tspan dx="20">Azure Key Vault</tspan></text>
+    <text id="prov" x="80" y="578" font-size="36" font-weight="600" fill="#D6DEEE">AWS KMS<tspan fill="#5C6B8C" dx="20">/</tspan><tspan dx="20">Google Cloud KMS</tspan><tspan fill="#5C6B8C" dx="20">/</tspan><tspan dx="20">Azure Key Vault</tspan><tspan fill="#5C6B8C" dx="20">/</tspan><tspan dx="20">Turnkey</tspan></text>
   </g>
 
   <!-- motif: digest in, signature out, the key stays in the KMS -->
