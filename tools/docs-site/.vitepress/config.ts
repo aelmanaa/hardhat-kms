@@ -247,15 +247,16 @@ function agentPreamble(): string {
     : "";
   const configure = `add the plugin and the key to \`hardhat.config.ts\` ([configuration reference](${markdownCopyUrl("user/reference/configuration.md")})) and list the key's address with \`npx hardhat kms accounts\``;
   const credentials =
-    "Credentials never come from the Hardhat config: AWS and Google Cloud use their SDK's credential discovery, and Azure uses the plugin's own chain.";
+    "Credentials never come from the Hardhat config: AWS and Google Cloud use their SDK's credential discovery, Azure uses the plugin's own chain, and a Turnkey key reads its API private key from a configuration variable.";
   return `## Start here for agents
 
-Install the core and the provider package for the cloud that holds the key, ${configure}:
+Install the core and the provider package for the cloud or service that holds the key, ${configure}:
 
 \`\`\`sh
-npm install --save-dev hardhat-kms @hardhat-kms/aws     # AWS KMS
-npm install --save-dev hardhat-kms @hardhat-kms/gcp     # Google Cloud KMS
-npm install --save-dev hardhat-kms @hardhat-kms/azure   # Azure Key Vault
+npm install --save-dev hardhat-kms @hardhat-kms/aws       # AWS KMS
+npm install --save-dev hardhat-kms @hardhat-kms/gcp       # Google Cloud KMS
+npm install --save-dev hardhat-kms @hardhat-kms/azure     # Azure Key Vault
+npm install --save-dev hardhat-kms @hardhat-kms/turnkey   # Turnkey
 npx hardhat kms accounts
 \`\`\`
 

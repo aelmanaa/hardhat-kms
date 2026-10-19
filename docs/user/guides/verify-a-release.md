@@ -37,7 +37,7 @@ The counts depend on your project. When a signature or an attestation does not v
 npm audit signatures --json --include-attestations | jq -r '.verified[] | select(.name == "hardhat-kms" or (.name | startswith("@hardhat-kms/"))) | "\(.name)@\(.version)"'
 ```
 
-It prints one line per hardhat-kms package you installed, such as `hardhat-kms@1.0.0` and `@hardhat-kms/aws@1.0.0`, and four lines if you installed all three providers. A hardhat-kms package missing from the list has no provenance attestation. Treat that as a failure.
+It prints one line per hardhat-kms package you installed, such as `hardhat-kms@1.0.0` and `@hardhat-kms/aws@1.0.0`, and five lines if you installed all four providers. A hardhat-kms package missing from the list has no provenance attestation. Treat that as a failure.
 
 ## 2. Read the provenance
 
