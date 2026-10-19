@@ -28,16 +28,17 @@ To test the published plugin, install the version on the npm `latest` tag and fo
 - AWS KMS: [Deploy a Hardhat contract to Sepolia with AWS KMS](../tutorials/first-deploy-aws.md)
 - Google Cloud KMS: [Deploy a Hardhat contract to Sepolia with Google Cloud KMS](../tutorials/first-deploy-gcp.md)
 - Azure Key Vault: [Deploy a Hardhat contract to Sepolia with Azure Key Vault](../tutorials/first-deploy-azure.md)
+- Turnkey: there is no tutorial yet; follow [Set up a Turnkey wallet account](../guides/turnkey-setup.md) and report on its steps
 
 Then open an issue with the [Tester report form](https://github.com/aelmanaa/hardhat-kms/issues/new?template=tester-report.yml), also when every step worked. The form asks for:
 
 - the cloud you tested;
 - whether you finished the tutorial;
-- the hardhat-kms and provider package versions, and the Hardhat, Node.js and package manager versions. `npm ls hardhat hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure` (or `pnpm ls` with the same arguments) and `node --version` print them;
+- the hardhat-kms and provider package versions, and the Hardhat, Node.js and package manager versions. `npm ls hardhat hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure @hardhat-kms/turnkey` (or `pnpm ls` with the same arguments) and `node --version` print them;
 - your operating system;
 - the step where you got stuck or that confused you, by its heading in the tutorial;
 - the command you ran and the full error text.
 
-Never post credentials: access keys, client secrets, service account key files, API keys, or the contents of a `.env` file or the Hardhat keystore. Remove identifiers too. Task output, errors and debug output can contain them. Replace key ids, key ARNs and key resource names, AWS account ids, Google Cloud project ids, Azure tenant, subscription, client and object ids, vault names, Etherscan API keys, and RPC URLs that contain an API key with a placeholder such as `<KEY_ARN>`. Sepolia addresses and transaction hashes are public; keep them, they help reproduce the problem.
+Never post credentials: access keys, client secrets, service account key files, API keys and Turnkey API private keys, or the contents of a `.env` file or the Hardhat keystore. Remove identifiers too. Task output, errors and debug output can contain them. Replace key ids, key ARNs and key resource names, AWS account ids, Google Cloud project ids, Azure tenant, subscription, client and object ids, vault names, Turnkey organization ids, user ids and API public keys, Etherscan API keys, and RPC URLs that contain an API key with a placeholder such as `<KEY_ARN>`. Sepolia addresses and transaction hashes are public; keep them, they help reproduce the problem.
 
 The maintainers reply to each report within a week. A docs problem is fixed on `main`; a problem in the packages is fixed in a new release, which you can test again. With your permission, a later release note may thank you by your GitHub username.

@@ -7,13 +7,14 @@ description: Install hardhat-kms and a provider package with npm, pnpm or Yarn, 
 
 This page installs hardhat-kms and the provider package for your cloud with npm, pnpm or Yarn, registers the plugin in `hardhat.config.ts` and checks that Hardhat lists its tasks.
 
-hardhat-kms is two packages: the core, `hardhat-kms`, and the provider package for the cloud that holds your key. Install both at the same version:
+hardhat-kms is two packages: the core, `hardhat-kms`, and the provider package for the service that holds your key. Install both at the same version:
 
-| Cloud                          | Provider package     | Plugin export     |
-| ------------------------------ | -------------------- | ----------------- |
-| AWS KMS                        | `@hardhat-kms/aws`   | `hardhatKmsAws`   |
-| Google Cloud KMS               | `@hardhat-kms/gcp`   | `hardhatKmsGcp`   |
-| Azure Key Vault or Managed HSM | `@hardhat-kms/azure` | `hardhatKmsAzure` |
+| Keys in                        | Provider package       | Plugin export       |
+| ------------------------------ | ---------------------- | ------------------- |
+| AWS KMS                        | `@hardhat-kms/aws`     | `hardhatKmsAws`     |
+| Google Cloud KMS               | `@hardhat-kms/gcp`     | `hardhatKmsGcp`     |
+| Azure Key Vault or Managed HSM | `@hardhat-kms/azure`   | `hardhatKmsAzure`   |
+| Turnkey                        | `@hardhat-kms/turnkey` | `hardhatKmsTurnkey` |
 
 The packages need Hardhat ^3.18.0 and one of the [supported Node.js versions](../reference/support.md). Run the steps in a Hardhat 3 project. If you have none yet, `npx hardhat --init` (`pnpm dlx hardhat --init`, `yarn dlx hardhat --init`) creates one in a new directory.
 
