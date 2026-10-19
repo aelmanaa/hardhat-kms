@@ -149,6 +149,9 @@ describe("parseDeprecated", () => {
   it("returns undefined for a version that is not deprecated: npm prints nothing", () => {
     assert.equal(parseDeprecated(""), undefined);
     assert.equal(parseDeprecated("\n"), undefined);
+    // `npm deprecate <pkg>@<version> ""` undeprecates a version by setting an empty message.
+    assert.equal(parseDeprecated('""'), undefined);
+    assert.equal(parseDeprecated('[""]'), undefined);
   });
 
   it("refuses npm's error and any other shape, naming the command", () => {
@@ -286,11 +289,30 @@ describe("the release guards", () => {
       assertNotBelowLatest([{ ...fresh, latestDeprecated: message }, ...rest], "1.0.1");
       // The comparison is skipped for the placeholder only: the other packages still count.
       assert.throws(
-        () => assertNotBelowLatest([{ ...fresh, latestDeprecated: message }, ...rest], "0.9.0"),
+        () =>
+          assertNotBelowLatest(
+            [{ ...fresh, versions: [placeholder], latestDeprecated: message }, ...rest],
+            "0.9.0",
+          ),
         {
           message:
             "@hardhat-kms/aws has latest at 1.0.0; 0.9.0 is lower and would move latest backwards",
         },
+      );
+      // A placeholder on latest of a package that already publishes a higher stable version was
+      // set by mistake: moving latest off it would go backwards, so it is refused.
+      const existing = {
+        ...fresh,
+        latestDeprecated: message,
+        versions: [placeholder, "1.0.0", "1.1.0", "1.2.0", "1.1.1"],
+      };
+      assert.throws(() => assertNotBelowLatest([existing, ...rest], "1.1.1"), {
+        message: `hardhat-kms has latest at the name placeholder ${placeholder}, but publishes 1.2.0; 1.1.1 is lower and would move latest backwards`,
+      });
+      // Lower and equal stable versions, and prereleases above, do not block it.
+      assertNotBelowLatest(
+        [{ ...existing, versions: [placeholder, "1.0.0", "1.1.1", "1.2.0-rc.1"] }, ...rest],
+        "1.1.1",
       );
       // Not deprecated: the message names the package and the command that deprecates it.
       for (const undeprecated of [fresh, { ...fresh, latestDeprecated: undefined }]) {

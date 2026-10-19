@@ -215,7 +215,8 @@ export function assertStagedTag(views: readonly PackageView[], version: string):
  * The version must not be below `latest` where one exists. Equal is allowed: the first publish
  * of a package lands on `latest` and `beta` at once, and its verification run checks that version.
  * A deprecated name placeholder on `latest` ({@link NAME_PLACEHOLDERS}) is below any stable
- * version, so it passes; an undeprecated one fails with the command that deprecates it.
+ * version, so it passes, unless the package publishes a stable version above `version`; an
+ * undeprecated one fails with the command that deprecates it.
  */
 export function assertNotBelowLatest(views: readonly PackageView[], version: string): void {
   for (const view of views) {
@@ -225,6 +226,18 @@ export function assertNotBelowLatest(views: readonly PackageView[], version: str
     }
     const placeholder = NAME_PLACEHOLDERS.get(latest);
     if (placeholder !== undefined) {
+      // A placeholder on latest of a package that already publishes a stable version above this
+      // one was set by mistake; moving latest to this version would move it backwards.
+      const above = view.versions
+        .filter((published) => STABLE_VERSION.test(published))
+        .filter((published) => compareVersions(published, version) > 0)
+        .toSorted(compareVersions)
+        .at(-1);
+      if (above !== undefined) {
+        throw new Error(
+          `${view.name} has latest at the name placeholder ${latest}, but publishes ${above}; ${version} is lower and would move latest backwards`,
+        );
+      }
       if (view.latestDeprecated === undefined) {
         throw new Error(
           `${view.name} has latest at ${latest}, a name placeholder that is not deprecated; deprecate it first: npm deprecate ${view.name}@${latest} "${placeholder}"`,
