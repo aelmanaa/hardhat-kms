@@ -1,11 +1,11 @@
 ---
 title: Move KMS signing from Foundry to Hardhat
-description: "Foundry --aws and --gcp equivalents in Hardhat 3: the --kms option reads the same key variables, or the keys move into the config."
+description: "Foundry --aws, --gcp and --turnkey equivalents in Hardhat 3: the --kms option reads the same key variables, or the keys move into the config."
 ---
 
 # Move KMS signing from Foundry to Hardhat
 
-This guide moves KMS signing from Foundry to Hardhat: the environment variables Foundry reads pick the key, from the command line as in Foundry, or from the config.
+This guide moves KMS signing from Foundry to Hardhat: the environment variables Foundry reads pick the key, from the command line as in Foundry, or from the config. A Turnkey key, which Foundry signs with through `--turnkey`, moves into the config only: see [Turnkey](#turnkey).
 
 Foundry picks a KMS signer per command with `--aws` or `--gcp`, and reads the key from environment variables. hardhat-kms reads the same variables, in two ways. Both need the provider's package in `plugins`: `@hardhat-kms/aws` ([Set up an AWS KMS key](aws-kms-setup.md#3-install-the-plugin-and-configure-the-key)), `@hardhat-kms/gcp` ([Set up a Google Cloud KMS key](gcp-kms-setup.md#3-install-the-plugin-and-configure-the-key)) or `@hardhat-kms/azure` ([Set up an Azure Key Vault key](azure-key-vault-setup.md#4-install-the-plugin-and-configure-the-key)).
 
@@ -102,3 +102,51 @@ export default defineConfig({
 ```
 
 The [configuration reference](../reference/configuration.md) covers every key form. On AWS and Google Cloud, credentials come from the SDK's default chain in both cases, as in Foundry, with one difference on AWS: today, when `AWS_PROFILE` or a key's `profile` is set, the AWS SDK for JavaScript ignores `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, where Foundry uses them. The SDK's own warning says a future version may prefer the keys. Never set both: a CI job that exports access keys must not also set a profile ([Credentials](../reference/credentials.md#aws)). Azure uses the plugin's own chain, since no Foundry release has an Azure signer yet ([Credentials](../reference/credentials.md#azure)). [Comparison with Foundry](../explanation/foundry-comparison.md#credentials) puts the chains side by side.
+
+## Turnkey
+
+Foundry's `--turnkey`, on `cast`, `forge script` and the other wallet commands, reads `TURNKEY_API_PRIVATE_KEY`, `TURNKEY_ORGANIZATION_ID` and `TURNKEY_ADDRESS` from the environment, and signs with one Turnkey key per run ([Comparison with Foundry](../explanation/foundry-comparison.md#credentials)). `@hardhat-kms/turnkey` signs with the same wallet account and API key, with three differences.
+
+`--kms` does not read Turnkey keys. `--kms turnkey` fails with `core.kms-option.unknown-provider` ([errors reference](../reference/errors.md)), so the key goes in `kms.keys`:
+
+```ts
+import hardhatKmsTurnkey from "@hardhat-kms/turnkey";
+import { configVariable, defineConfig } from "hardhat/config";
+
+export default defineConfig({
+  plugins: [hardhatKmsTurnkey],
+  kms: {
+    keys: {
+      deployer: {
+        provider: "turnkey",
+        organizationId: configVariable("TURNKEY_ORGANIZATION_ID"),
+        // The value of TURNKEY_ADDRESS, written here.
+        address: "0x08cb1216C95149DF66978b574E484869512CE2bF",
+        apiPrivateKey: configVariable("TURNKEY_API_PRIVATE_KEY"),
+      },
+    },
+  },
+  networks: {
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
+      kmsAccounts: ["deployer"],
+    },
+  },
+});
+```
+
+| Foundry reads             | hardhat-kms                                                                                                                                    |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TURNKEY_API_PRIVATE_KEY` | `apiPrivateKey: configVariable("TURNKEY_API_PRIVATE_KEY")`, from the environment or the Hardhat keystore. It takes only `configVariable(NAME)` |
+| `TURNKEY_ORGANIZATION_ID` | `organizationId: configVariable("TURNKEY_ORGANIZATION_ID")`, or the id written in the config. It must be a UUID                                |
+| `TURNKEY_ADDRESS`         | `address`, written in the config. It is not read from a variable                                                                               |
+
+The variable names are Foundry's, so a CI job that signs with `cast --turnkey` keeps its API key and organization id. `TURNKEY_ADDRESS` is the exception: Foundry takes the address from the same environment as the API key and never checks it, while here the address is the key's pin, checked against every signature, so changing the environment cannot change which account signs.
+
+Transactions reach Turnkey another way. Foundry signs every request, transactions included, as a 32-byte digest through `sign_raw_payload` with `HASH_FUNCTION_NO_OP`. hardhat-kms sends a transaction through `sign_transaction` by default, so a policy that allows only `SIGN_RAW_PAYLOAD` refuses it with a 403. When the key and its policy are shared with Foundry, set `transactionSigning: "digest"` on the key to sign transactions as Foundry does, or add the policy that allows `SIGN_TRANSACTION`. Messages are sent with `HASH_FUNCTION_KECCAK256` whatever `transactionSigning` says, so a policy that allows only `NO_OP` also refuses them ([Policies written for Foundry](turnkey-setup.md#policies-written-for-foundry)).
+
+The cast commands map to the same tasks as for AWS, with the key's name from the config: `cast wallet address --turnkey` becomes `npx hardhat kms address deployer`, which prints the pin without a call to Turnkey, as cast does. `npx hardhat --network sepolia kms accounts --check-sign` signs one message to check that the API key and policy allow it. `cast wallet public-key` fails in both tools.
+
+[Set up a Turnkey wallet account](turnkey-setup.md) covers the API user, the policies, storing the API key and the first signature.
