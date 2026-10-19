@@ -45,6 +45,7 @@ import {
   API_PRIVATE_KEY,
   API_PUBLIC_KEY,
   ORGANIZATION,
+  signContext,
 } from "../helpers/keys.ts";
 import {
   POLL_PATH,
@@ -647,6 +648,112 @@ describe("@hardhat-kms/turnkey in a Hardhat runtime", () => {
   });
 });
 
+/** Runs `run` with the variable unset, then sets it back. */
+async function withUnset(name: keyof typeof VARIABLES, run: () => Promise<void>): Promise<void> {
+  Reflect.deleteProperty(process.env, name);
+  try {
+    await run();
+  } finally {
+    process.env[name] = VARIABLES[name];
+  }
+}
+
+/** Checks that a text names the variable as Hardhat does, and holds no variable's value. */
+function assertNames(text: string, name: string): void {
+  assert.ok(
+    text.includes(`Configuration Variable "${name}" not found`),
+    `"${text}" should name ${name}`,
+  );
+  for (const value of Object.values(VARIABLES)) {
+    assert.ok(!text.includes(value), "the text holds a variable's value");
+  }
+}
+
+/** Checks a thrown error the way `assertNames` checks a text, its stack included. */
+function failsNaming(name: string): (error: unknown) => boolean {
+  return (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assertNames(error.message, name);
+    assertNames(String(error.stack), name);
+    return true;
+  };
+}
+
+describe("a Turnkey key whose configuration variable is unset (#544)", () => {
+  for (const name of [
+    "HHKMS_TEST_TURNKEY_API_PRIVATE_KEY",
+    "HHKMS_TEST_TURNKEY_ORGANIZATION",
+  ] as const) {
+    it(`names ${name} in kms sign`, async () => {
+      const hre = await runtime();
+      await withUnset(name, async () => {
+        await assert.rejects(
+          task(hre, "sign", {
+            key: "deployer",
+            message: "hello",
+            data: false,
+            fromFile: false,
+            noHash: false,
+            allowCrossChain: false,
+          }),
+          failsNaming(name),
+        );
+      });
+      assert.equal(stub.requests.length, 0);
+    });
+
+    it(`names ${name} in kms accounts --check-sign`, async () => {
+      const hre = await runtime();
+      await withUnset(name, async () => {
+        const { printed } = await task(hre, "accounts", {
+          json: true,
+          showIds: false,
+          balances: false,
+          checkSign: true,
+        });
+        const report: unknown = JSON.parse(printed);
+        const [entry] = Reflect.get(Object(report), "accounts");
+        assert.equal(Reflect.get(Object(entry), "signCheck"), null);
+        assertNames(String(Reflect.get(Object(entry), "error")), name);
+        for (const value of Object.values(VARIABLES)) {
+          assert.ok(!printed.includes(value), "the output holds a variable's value");
+        }
+      });
+      assert.equal(stub.requests.length, 0);
+    });
+
+    it(`names ${name} in a send`, async () => {
+      const hre = await runtime();
+      const { provider } = await hre.network.create("local");
+      await withUnset(name, async () => {
+        await assert.rejects(
+          provider.request({
+            method: "eth_sendTransaction",
+            params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
+          }),
+          failsNaming(name),
+        );
+      });
+      assert.equal(stub.requests.length, 0);
+    });
+
+    it(`names ${name} through the adapter, with the key Hardhat resolved`, async () => {
+      const hre = await runtime();
+      const key = hre.config.kms.keys.deployer;
+      assert.equal(key?.provider, "turnkey");
+      await withUnset(name, async () => {
+        const adapter = await createTurnkeyKeyAdapter(key, { transport: { baseUrl } });
+        await assert.rejects(
+          adapter.signDigest?.({ digest: new Uint8Array(32).fill(7) }, signContext()) ??
+            Promise.reject(new Error("the adapter has no signDigest")),
+          failsNaming(name),
+        );
+      });
+      assert.equal(stub.requests.length, 0);
+    });
+  }
+});
+
 describe("the core's checks on Turnkey's signatures", () => {
   it("normalizes a high s, with one request", async () => {
     const hre = await runtime();
@@ -1022,7 +1129,7 @@ describe("a Turnkey transaction that Turnkey has not finished when the plugin gi
           method: "eth_sendTransaction",
           params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
         }),
-        /: the provider call failed \(HardhatError\)$/,
+        /Configuration Variable "HHKMS_TEST_TURNKEY_API_PRIVATE_KEY" not found/,
       );
     } finally {
       process.env[variable] = API_PRIVATE_KEY;

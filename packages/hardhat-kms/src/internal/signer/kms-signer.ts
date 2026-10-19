@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import type { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import {
@@ -35,6 +36,7 @@ import {
   type ErrorEntry,
   errorName,
   type TemplateParams,
+  unsetVariableError,
 } from "../errors.ts";
 import {
   CancelledError,
@@ -723,9 +725,13 @@ export class KmsSigner {
   }
 
   /** The error a failed provider call ends with, when no nonce is held. */
-  #failure(operation: string, error: unknown): HardhatPluginError {
+  #failure(operation: string, error: unknown): HardhatPluginError | HardhatError {
     if (error instanceof HardhatPluginError) {
       return error;
+    }
+    const unset = unsetVariableError(error);
+    if (unset !== undefined) {
+      return unset;
     }
     if (error instanceof InvalidPublicKeyError || error instanceof InvalidAddressError) {
       // Our own message about the key material, safe to show.
@@ -746,7 +752,7 @@ export class KmsSigner {
    * provider, the operation and the key, which the outstanding error adds again, and without a
    * final full stop.
    */
-  #reasonOf(failure: HardhatPluginError): string {
+  #reasonOf(failure: HardhatPluginError | HardhatError): string {
     const { message } = failure;
     const marker = `, key ${this.#displayId}: `;
     const at = message.indexOf(marker);
