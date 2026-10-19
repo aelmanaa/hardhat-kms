@@ -119,7 +119,8 @@ jobs:
 
   bumped:
     # The tests at the versions the next Version Packages pull request will set: the pending
-    # changesets applied in a scratch worktree, then `pnpm test` (scripts/test-bumped-versions.ts).
+    # changesets applied in a scratch worktree, then `pnpm test` (scripts/test-bumped-versions.ts);
+    # `pnpm test` only, not lint, docs, examples or the consumer typecheck.
     # The manifests on main keep the released version until that pull request merges, so the test
     # job cannot see a test that hard-codes it; the 1.2.0 pull request (#519) failed on one. It runs
     # on pull requests and on every push to main, so main is known to pass at the bumped versions
