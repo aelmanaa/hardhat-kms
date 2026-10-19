@@ -57,7 +57,7 @@ jobs:
           path: ~/.cache/hardhat-nodejs/compilers-v3
           key: solc-${{ runner.os }}-${{ hashFiles('packages/*/test/**/*.sol', 'examples/**/*.sol', 'pnpm-lock.yaml') }}
           restore-keys: solc-${{ runner.os }}-
-      # Builds and packs the four packages, publishes them to verdaccio on a free port, then runs
+      # Builds and packs the published packages, publishes them to verdaccio on a free port, then runs
       # check-packages, consumer-typecheck, test-peer-installs (npm), check-registry-release and the
       # examples test with --from-registry against it. LocalStack and a Hardhat node on port 8545
       # run for the examples, as in the examples job.

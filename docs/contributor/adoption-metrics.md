@@ -42,7 +42,7 @@ npm search "hardhat kms" --searchlimit=20 --parseable | cut -f1 | grep -n -x -e 
 npm view hardhat-kms keywords description
 ```
 
-The first command prints the position of each of the four packages in the first 20 results, or nothing if none is listed. To see the same results, open <https://www.npmjs.com/search?q=hardhat%20kms> in a browser. The npm website blocks scripted requests such as curl. On 2026-10-08 the search did not list any of the packages yet.
+The first command prints the position of each published package in the first 20 results, or nothing if none is listed. To see the same results, open <https://www.npmjs.com/search?q=hardhat%20kms> in a browser. The npm website blocks scripted requests such as curl. On 2026-10-08 the search did not list any of the packages yet.
 
 On the package page, <https://www.npmjs.com/package/hardhat-kms>, in a browser, check that the TypeScript badge sits next to the name and that the Provenance section links the release workflow run. The provenance attestation is also in the registry:
 
