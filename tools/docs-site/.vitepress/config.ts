@@ -329,15 +329,15 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
       pageData.frontmatter = { ...pageData.frontmatter, editLink: false };
     }
     if (pageData.relativePath === "index.md" || pageData.filePath === "README.md") {
-      pageData.title = "Sign Hardhat 3 transactions with a cloud KMS key";
+      pageData.title = "Sign Hardhat 3 transactions with a KMS or Turnkey key";
       pageData.frontmatter = {
         ...pageData.frontmatter,
         layout: "home",
         hero: {
           name: SITE_NAME,
-          text: "Sign with a cloud key",
+          text: "Sign with a managed key",
           tagline:
-            "A Hardhat 3 plugin that signs transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS or Azure Key Vault. The private key never leaves the KMS.",
+            "A Hardhat 3 plugin that signs transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey. The private key never leaves the KMS.",
           actions: [
             {
               theme: "brand",
@@ -346,6 +346,7 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
             },
             { theme: "alt", text: "Google Cloud KMS", link: "/user/tutorials/first-deploy-gcp" },
             { theme: "alt", text: "Azure Key Vault", link: "/user/tutorials/first-deploy-azure" },
+            { theme: "alt", text: "Turnkey", link: "/user/guides/turnkey-setup" },
             { theme: "alt", text: "Install", link: "/user/guides/install-before-release" },
           ],
         },
@@ -443,7 +444,7 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
     socialLinks: [{ icon: "github", link: `https://github.com/${GITHUB_REPOSITORY}` }],
     footer: {
       message:
-        "MIT licensed. A community plugin, not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google or Microsoft.",
+        "MIT licensed. A community plugin, not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google, Microsoft or Turnkey.",
     },
   },
   vite: {

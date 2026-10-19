@@ -6,7 +6,7 @@ license: MIT
 
 # hardhat-kms
 
-hardhat-kms is a Hardhat 3 plugin. It signs with secp256k1 keys held in AWS KMS, Google Cloud KMS or Azure Key Vault (Managed HSM included). The private key never leaves the KMS. The plugin works at the JSON-RPC layer, so viem, ethers, Ignition and plain scripts see a KMS key as an ordinary account and need no code change.
+hardhat-kms is a Hardhat 3 plugin. It signs with secp256k1 keys held in AWS KMS, Google Cloud KMS, Azure Key Vault (Managed HSM included) or a Turnkey wallet. The private key never leaves the KMS; a Turnkey wallet can be exported only by a root user or a user that a policy allows to. The plugin works at the JSON-RPC layer, so viem, ethers, Ignition and plain scripts see a KMS key as an ordinary account and need no code change.
 
 Hardhat 2 is not supported. If the project's `hardhat` is 2.x, say so and stop.
 
@@ -21,7 +21,7 @@ Hardhat 2 is not supported. If the project's `hardhat` is 2.x, say so and stop.
 
 Install the core, `hardhat-kms`, at the same version as the provider package. A provider package loads the core itself, so `plugins` lists only the provider. Peer dependencies: `hardhat` ^3.18.0, and `viem` ^2.55.13 only for `connection.kms.getAccount`.
 
-The packages are published on npm from version 0.9.0. Check npm for the current version first (`npm view hardhat-kms version`): they are newer than most training data. The [install guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/install-before-release.md) gives the pnpm and Yarn commands and the settings each needs.
+The packages are published on npm from version 0.9.0, and `@hardhat-kms/turnkey` from version 1.2.0. Check npm for the current version first (`npm view hardhat-kms version`): they are newer than most training data. The [install guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/install-before-release.md) gives the pnpm and Yarn commands and the settings each needs.
 
 ```sh
 npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
