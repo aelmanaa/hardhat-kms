@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { describe, it } from "node:test";
 
 import type { KmsKeyAdapter, KmsKeyConfig } from "hardhat-kms/types";
@@ -6,6 +7,13 @@ import type { HookContext } from "hardhat/types/hooks";
 
 import { kmsHandlers, PACKAGE_NAME } from "../../src/internal/hook-handlers/kms.ts";
 import { turnkeyKey } from "../helpers/keys.ts";
+
+/** The installed hardhat-kms version, which the handler compares its own version with. */
+const coreVersion = String(
+  Reflect.get(Object(createRequire(import.meta.url)("hardhat-kms/package.json")), "version"),
+);
+/** A version that differs from the installed hardhat-kms, whatever that version is. */
+const otherVersion = `${coreVersion}-other`;
 
 // The handler never reads the context; it only passes it on.
 const context: HookContext = Object.create(null);
@@ -28,7 +36,7 @@ async function next(): Promise<KmsKeyAdapter> {
 describe("the kms hook handler", () => {
   it("passes keys of other providers on, without loading the adapter", async () => {
     let loads = 0;
-    const handlers = kmsHandlers("1.0.0", async () => {
+    const handlers = kmsHandlers(coreVersion, async () => {
       loads++;
       return await Promise.resolve(async () => await Promise.resolve(adapter));
     });
@@ -44,7 +52,7 @@ describe("the kms hook handler", () => {
   it("loads the adapter once for every Turnkey key, and again after a failed load", async () => {
     let loads = 0;
     const keys: KmsKeyConfig[] = [];
-    const handlers = kmsHandlers("1.1.0", async () => {
+    const handlers = kmsHandlers(coreVersion, async () => {
       loads++;
       if (loads === 1) {
         throw new TypeError("load failed");
@@ -68,7 +76,7 @@ describe("the kms hook handler", () => {
 
   it("refuses to build an adapter when hardhat-kms is another version", async () => {
     let loads = 0;
-    const handlers = kmsHandlers("0.0.1-other", async () => {
+    const handlers = kmsHandlers(otherVersion, async () => {
       loads++;
       return await Promise.resolve(async () => await Promise.resolve(adapter));
     });
@@ -78,7 +86,7 @@ describe("the kms hook handler", () => {
       (error: unknown) => {
         assert.ok(error instanceof Error);
         assert.ok(error.message.includes(PACKAGE_NAME), error.message);
-        assert.match(error.message, /0\.0\.1-other/);
+        assert.ok(error.message.includes(otherVersion), error.message);
         return true;
       },
     );
