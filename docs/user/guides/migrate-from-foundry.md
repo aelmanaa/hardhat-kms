@@ -1,6 +1,6 @@
 ---
 title: Move KMS signing from Foundry to Hardhat
-description: "Foundry --aws, --gcp and --turnkey equivalents in Hardhat 3: the --kms option reads the same key variables, or the keys move into the config."
+description: "Foundry --aws, --gcp and --turnkey equivalents in Hardhat 3: --kms reads the same AWS and Google Cloud key variables, and a Turnkey key moves into the config."
 ---
 
 # Move KMS signing from Foundry to Hardhat
