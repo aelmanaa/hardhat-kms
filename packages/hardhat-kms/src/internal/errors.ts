@@ -1,3 +1,4 @@
+import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import { PLUGIN_ID } from "./constants.ts";
@@ -219,4 +220,28 @@ export function internalError<Template extends string>(
   params: TemplateParams<Template>,
 ): Error {
   return new Error(fillTemplate(entry.template, params));
+}
+
+/** A configuration variable's name as Hardhat's keystore accepts it: no spaces, quotes or text. */
+const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Hardhat's error for an unset configuration variable, which an adapter that reads its variables
+ * on the first call throws, such as a Turnkey key's credentials (#544), rebuilt from the
+ * variable's name alone. The thrown object is never passed on: `isHardhatError` trusts a flag any
+ * object can carry, and the object can hold a `cause` or other text. Any other error, including
+ * Hardhat's other errors, some of which quote a value, gets the signer's catalogue error.
+ *
+ * @param error - What the adapter threw.
+ * @returns A new HHE7 that holds the variable's name only, or `undefined` for any other error.
+ */
+export function unsetVariableError(error: unknown): HardhatError | undefined {
+  if (!HardhatError.isHardhatError(error, HardhatError.ERRORS.CORE.GENERAL.ENV_VAR_NOT_FOUND)) {
+    return undefined;
+  }
+  const name: unknown = Reflect.get(Object(Reflect.get(error, "messageArguments")), "name");
+  if (typeof name !== "string" || !VARIABLE_NAME.test(name)) {
+    return undefined;
+  }
+  return new HardhatError(HardhatError.ERRORS.CORE.GENERAL.ENV_VAR_NOT_FOUND, { name });
 }

@@ -128,6 +128,45 @@ function heldLookup() {
   return { kms: new KmsSigner(adapter, baseOptions), answer, lookups };
 }
 
+/** Checks that the error and everything it carries hold no planted secret. */
+function assertNoSecret(error: unknown): void {
+  assert.ok(error instanceof Error);
+  for (const text of [error.message, String(error.stack), String(error.cause)]) {
+    assert.ok(!text.includes("SECRET-TOKEN"), `"${text}" must not hold the secret`);
+  }
+}
+
+/**
+ * The calls that end in the signer's failure path when the adapter throws `error`: `getAddress`
+ * and `signDigest` of a public-key adapter, and `signDigest` of an address-only adapter.
+ */
+function failingCalls(error: Error): Array<() => Promise<unknown>> {
+  const secretKey = hex(HARDHAT_ACCOUNT_0.secretKey);
+  const digest = new Uint8Array(32).fill(7);
+  const full = signer({ secretKey, throwError: error }).signer;
+  const addressOnly = signer(
+    { secretKey, identity: "address", throwError: error },
+    { expectedAddress: HARDHAT_ACCOUNT_0.address },
+  ).signer;
+  return [
+    async () => await full.getAddress(),
+    async () => await full.signDigest(digest),
+    async () => await addressOnly.signDigest(digest),
+  ];
+}
+
+/**
+ * A `TypeError` holding a planted secret that poses as a Hardhat error: Hardhat error `number`,
+ * `messageArguments`, and, when `flagged`, the `_isHardhatError` flag that `isHardhatError` reads.
+ */
+function posingError(number: number, flagged: boolean, messageArguments?: unknown): TypeError {
+  const error = Object.assign(new TypeError("Bearer SECRET-TOKEN"), { number, messageArguments });
+  if (flagged) {
+    Object.defineProperty(error, "_isHardhatError", { value: true });
+  }
+  return error;
+}
+
 describe("KmsSigner", () => {
   describe("byte equivalence with Hardhat's local accounts", () => {
     for (const format of ["der", "compact", "rs"] as const) {
@@ -1008,26 +1047,130 @@ describe("KmsSigner", () => {
       await assert.rejects(kms.getAddress(), (error: unknown) => error === pluginError);
     });
 
-    it("passes Hardhat's own error on unchanged, as an unset configuration variable (#544)", async () => {
-      for (const name of ["TURNKEY_API_PRIVATE_KEY", "TURNKEY_ORGANIZATION_ID"]) {
-        const unset = new HardhatError(HardhatError.ERRORS.CORE.GENERAL.ENV_VAR_NOT_FOUND, {
-          name,
-        });
-        for (const kms of [
-          signer({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey), throwError: unset }).signer,
-          signer(
-            { secretKey: hex(HARDHAT_ACCOUNT_0.secretKey), identity: "address", throwError: unset },
-            { expectedAddress: HARDHAT_ACCOUNT_0.address },
-          ).signer,
-        ]) {
-          await assert.rejects(kms.signDigest(new Uint8Array(32).fill(7)), (error: unknown) => {
-            assert.equal(error, unset);
-            assert.ok(error instanceof Error);
-            assert.match(error.message, new RegExp(`"${name}" not found`));
+    describe("Hardhat's error for an unset configuration variable (#544)", () => {
+      const UNSET = HardhatError.ERRORS.CORE.GENERAL.ENV_VAR_NOT_FOUND;
+      const SECRET = "Bearer SECRET-TOKEN";
+
+      it("is rebuilt from the variable's name, naming it, for either Turnkey credential", async () => {
+        for (const name of ["TURNKEY_API_PRIVATE_KEY", "TURNKEY_ORGANIZATION_ID"]) {
+          const unset = new HardhatError(UNSET, { name });
+          for (const call of failingCalls(unset)) {
+            await assert.rejects(call(), (error: unknown) => {
+              assert.ok(HardhatError.isHardhatError(error, UNSET));
+              assert.notEqual(error, unset);
+              assert.equal(error.message, unset.message);
+              assert.equal(error.formattedMessage, unset.formattedMessage);
+              assert.deepEqual(error.messageArguments, { name });
+              assert.equal(error.cause, undefined);
+              return true;
+            });
+          }
+        }
+      });
+
+      it("drops the cause of an unset-variable error", async () => {
+        const unset = new HardhatError(
+          UNSET,
+          { name: "TURNKEY_API_PRIVATE_KEY" },
+          new TypeError(SECRET),
+        );
+        assert.ok(String(unset.cause).includes("SECRET-TOKEN"));
+        for (const call of failingCalls(unset)) {
+          await assert.rejects(call(), (error: unknown) => {
+            assert.ok(HardhatError.isHardhatError(error, UNSET));
+            assert.match(error.message, /"TURNKEY_API_PRIVATE_KEY"/);
+            assertNoSecret(error);
             return true;
           });
         }
-      }
+      });
+
+      it("keeps Hardhat's other errors to their class name, since some quote a value", async () => {
+        const invalidHex = new HardhatError(HardhatError.ERRORS.CORE.GENERAL.INVALID_HEX_STRING, {
+          value: SECRET,
+        });
+        assert.ok(invalidHex.message.includes("SECRET-TOKEN"));
+        for (const call of failingCalls(invalidHex)) {
+          await assert.rejects(call(), (error: unknown) => {
+            assert.ok(error instanceof HardhatPluginError);
+            assert.match(error.message, /the provider call failed \(HardhatError\)$/);
+            assertNoSecret(error);
+            return true;
+          });
+        }
+      });
+
+      it("keeps an error that only claims to be Hardhat's to its class name", async () => {
+        const plain = new TypeError(SECRET);
+        Object.defineProperty(plain, "_isHardhatError", { value: true });
+        const posing = Object.assign(new TypeError(SECRET), {
+          number: UNSET.number,
+          messageArguments: { name: SECRET },
+        });
+        Object.defineProperty(posing, "_isHardhatError", { value: true });
+        assert.ok(HardhatError.isHardhatError(plain));
+        assert.ok(HardhatError.isHardhatError(posing, UNSET));
+        for (const posed of [plain, posing]) {
+          for (const call of failingCalls(posed)) {
+            await assert.rejects(call(), (error: unknown) => {
+              assert.ok(error instanceof HardhatPluginError);
+              assert.match(error.message, /the provider call failed \(TypeError\)$/);
+              assertNoSecret(error);
+              return true;
+            });
+          }
+        }
+      });
+
+      it("rebuilds only Hardhat's unset-variable error, not another error with a variable name", async () => {
+        // Another Hardhat error number, and HHE7's number without Hardhat's flag.
+        for (const other of [
+          posingError(UNSET.number + 1, true, { name: "TURNKEY_ORGANIZATION_ID" }),
+          posingError(UNSET.number, false, { name: "TURNKEY_ORGANIZATION_ID" }),
+        ]) {
+          for (const call of failingCalls(other)) {
+            await assert.rejects(call(), (error: unknown) => {
+              assert.ok(error instanceof HardhatPluginError);
+              assert.match(error.message, /the provider call failed \(TypeError\)$/);
+              assertNoSecret(error);
+              return true;
+            });
+          }
+        }
+      });
+
+      it("rebuilds an error that claims to be an unset variable from the name alone", async () => {
+        const posing = Object.assign(new TypeError(SECRET), {
+          number: UNSET.number,
+          messageArguments: { name: "TURNKEY_ORGANIZATION_ID" },
+        });
+        Object.defineProperty(posing, "_isHardhatError", { value: true });
+        for (const call of failingCalls(posing)) {
+          await assert.rejects(call(), (error: unknown) => {
+            assert.ok(error instanceof HardhatError);
+            assert.match(error.message, /"TURNKEY_ORGANIZATION_ID"/);
+            assertNoSecret(error);
+            return true;
+          });
+        }
+      });
+
+      it("keeps an unset-variable error whose name is not a string to its class name", async () => {
+        // `String()` of each would pass the name check.
+        for (const messageArguments of [undefined, {}, { name: ["ABC"] }]) {
+          for (const call of failingCalls(posingError(UNSET.number, true, messageArguments))) {
+            await assert.rejects(call(), /the provider call failed \(TypeError\)$/);
+          }
+        }
+      });
+
+      it("keeps an unset-variable error whose name is not a variable name to its class name", async () => {
+        for (const name of ["", "MY VAR", "A-B", "1ABC", "ABC\n"]) {
+          for (const call of failingCalls(new HardhatError(UNSET, { name }))) {
+            await assert.rejects(call(), /the provider call failed \(HardhatError\)$/);
+          }
+        }
+      });
     });
 
     it("never leaks the provider's error text", async () => {

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
-import { HardhatError } from "@nomicfoundation/hardhat-errors";
+import type { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import {
@@ -36,6 +36,7 @@ import {
   type ErrorEntry,
   errorName,
   type TemplateParams,
+  unsetVariableError,
 } from "../errors.ts";
 import {
   CancelledError,
@@ -725,11 +726,12 @@ export class KmsSigner {
 
   /** The error a failed provider call ends with, when no nonce is held. */
   #failure(operation: string, error: unknown): HardhatPluginError | HardhatError {
-    // Hardhat's errors are written to be shown: an unset configuration variable that an adapter
-    // reads on its first call, such as a Turnkey key's credentials, names the variable but never a
-    // value (#544).
-    if (error instanceof HardhatPluginError || HardhatError.isHardhatError(error)) {
+    if (error instanceof HardhatPluginError) {
       return error;
+    }
+    const unset = unsetVariableError(error);
+    if (unset !== undefined) {
+      return unset;
     }
     if (error instanceof InvalidPublicKeyError || error instanceof InvalidAddressError) {
       // Our own message about the key material, safe to show.
