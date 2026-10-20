@@ -79,8 +79,12 @@ export function setup(
     chainId?: bigint;
     allowCrossChainTypedData?: boolean;
     signWithAdapter?: KmsKeyAdapter;
+    /** Sets `allowRawDigests: true` on the key; `rawSign` needs it. */
+    allowRawDigests?: boolean;
   } = {},
 ): Setup {
+  const key: KmsKeyConfig =
+    options.allowRawDigests === true ? { ...KEY, allowRawDigests: true } : KEY;
   const adapter = fakeAdapter({
     secretKey: new Uint8Array(Buffer.from(HARDHAT_ACCOUNT_0.secretKey, "hex")),
     ...options.adapter,
@@ -97,8 +101,9 @@ export function setup(
   const connection: AccountConnection = {
     network: "local",
     accounts: {
+      keys: [key],
       keyFor: async (address) =>
-        await Promise.resolve(address === ADDRESS.toLowerCase() ? KEY : undefined),
+        await Promise.resolve(address === ADDRESS.toLowerCase() ? key : undefined),
       addresses: async () => await Promise.resolve([ADDRESS]),
       signWith: async (_key, use) => await use(signer),
     },

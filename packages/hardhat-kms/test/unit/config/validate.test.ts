@@ -380,6 +380,51 @@ describe("validateKmsUserConfig", () => {
     );
   });
 
+  it("checks allowRawDigests on every provider's keys, in kms.keys and inline", () => {
+    const keys = {
+      aws: { provider: "aws", keyId: "alias/a" },
+      gcp: { provider: "gcp", keyVersionName: GCP_NAME },
+      azure: { provider: "azure", keyId: "https://v.vault.azure.net/keys/k/1" },
+      turnkey: {
+        provider: "turnkey",
+        organizationId: "5f4b4a4e-2a83-4f49-9c41-7d0b1a3e6d10",
+        address: ADDRESS,
+        apiPrivateKey: configVariable("TURNKEY_API_PRIVATE_KEY"),
+      },
+      external: { provider: "myvault", keyPath: "p" },
+    };
+    for (const key of Object.values(keys)) {
+      for (const allowRawDigests of [true, false]) {
+        assert.deepEqual(validate({ kms: { keys: { a: { ...key, allowRawDigests } } } }), []);
+        assert.deepEqual(
+          validate({ networks: { sepolia: { kmsAccounts: [{ ...key, allowRawDigests }] } } }),
+          [],
+        );
+      }
+      for (const allowRawDigests of ["true", 1, null, {}]) {
+        assertError(
+          { kms: { keys: { a: { ...key, allowRawDigests } } } },
+          "kms.keys.a.allowRawDigests",
+          "Expected true or false",
+          1,
+        );
+        assertError(
+          { networks: { sepolia: { kmsAccounts: [{ ...key, allowRawDigests }] } } },
+          "networks.sepolia.kmsAccounts.0.allowRawDigests",
+          "Expected true or false",
+          1,
+        );
+      }
+    }
+    // A misspelled field on a built-in provider's key is caught, as any unknown field is.
+    assertError(
+      { kms: { keys: { a: { ...keys.aws, allowRawDigest: true } } } },
+      "kms.keys.a",
+      "Unrecognized key(s) in object: 'allowRawDigest'",
+      1,
+    );
+  });
+
   it("rejects unknown fields in the kms section and a negative simulated balance", () => {
     assertError({ kms: { key: {} } }, "kms", "Unrecognized key(s) in object: 'key'", 1);
     assertError(

@@ -126,7 +126,7 @@ Coming from Foundry: `--kms aws`, `--kms gcp` and `--kms azure` read Foundry's v
 Explain these to the user rather than working around them:
 
 - A signature that does not recover to the key's address, and a key that no longer derives to its pinned `address`.
-- Signing a bare 32-byte digest over JSON-RPC. `eth_sign` and `personal_sign` add the EIP-191 prefix. Two routes sign a raw digest, each with a warning: `kms sign --no-hash`, and a library account from `connection.kms.getAccount(address, { rawSign: true })`.
+- Signing a bare 32-byte digest over JSON-RPC. `eth_sign` and `personal_sign` add the EIP-191 prefix. Two routes sign a raw digest: `kms sign --no-hash`, which asks at a terminal, and a library account from `connection.kms.getAccount(address, { rawSign: true })`. Without a terminal, both need `allowRawDigests: true` on the key, and the task also needs `--yes`. A raw digest can be an EIP-7702 authorization, so set the opt-in only on a key that needs it.
 - Typed data whose `domain.chainId` differs from the connection's chain, unless `kms.allowCrossChainTypedData` is `true`.
 - EIP-4844 blob transactions, which Hardhat does not support either. Legacy (EIP-155), EIP-2930, EIP-1559 and EIP-7702 transactions are supported.
 - `connection.kms.getAccount` with a viem older than 2.55.13.

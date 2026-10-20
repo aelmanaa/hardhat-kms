@@ -136,11 +136,13 @@ Measured with Hardhat 3.18.0, Node 24.16.0 and npm 11.15.0; CI repeats the insta
 
 ## Options
 
-| Option                        | Default | Effect                                                                                                                                                             |
-| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `rawSign`                     | `false` | Adds `sign({ hash })`, which signs a 32-byte digest as it is. A warning is printed each time such an account is made.                                              |
-| `allowChainZeroAuthorization` | `false` | Lets `signAuthorization` sign for chain 0. A chain-0 authorization is valid on every chain where the account's nonce matches, as `kms sign-auth --force` signs it. |
-| `signal`                      | none    | A Node.js `AbortSignal` that cancels the account's KMS calls when it aborts ([Cancelling with a signal](#cancelling-with-a-signal)).                               |
+| Option                        | Default | Effect                                                                                                                                                                        |
+| ----------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rawSign`                     | `false` | Adds `sign({ hash })`, which signs a 32-byte digest as it is. Needs `allowRawDigests: true` on the key in the config. A warning is printed each time such an account is made. |
+| `allowChainZeroAuthorization` | `false` | Lets `signAuthorization` sign for chain 0. A chain-0 authorization is valid on every chain where the account's nonce matches, as `kms sign-auth --force` signs it.            |
+| `signal`                      | none    | A Node.js `AbortSignal` that cancels the account's KMS calls when it aborts ([Cancelling with a signal](#cancelling-with-a-signal)).                                          |
+
+`rawSign` works only for a key with [`allowRawDigests: true`](configuration.md) in the Hardhat config. A raw digest can be the hash of a transaction, a permit or an EIP-7702 authorization of the account, and nothing in the 32 bytes tells the plugin which, so the opt-in sits on the key, where a reviewer of the config sees it, not in the code that asks for the account. For any other key, `getAccount` fails with [`core.account.raw-sign-not-allowed`](errors.md#library-accounts) before it signs anything. When the config alone shows that no key at the address opts in, it fails before any KMS call; otherwise it may first read the public keys of keys without an `address` pin, to find the account's key. A key from `--kms` has no config, so it never gets `sign`.
 
 Any other key in the options object is refused, so that a misspelled option is not silently ignored. Only the object's own properties count: an option inherited from a prototype, such as one a prototype-pollution bug sets on `Object.prototype`, is ignored.
 
@@ -295,7 +297,20 @@ await sponsor.sendTransaction({ authorizationList: [authorization], to: authorit
 
 The sponsor can also be a key from a config variable in the network's `accounts`, such as `accounts: [configVariable("SPONSOR_KEY")]`. Never put a private key in the code: the well-known keys of Hardhat's test accounts are drained on public networks as soon as they are funded.
 
-A Coinbase smart account needs `sign` from its owner, so its owner needs `rawSign`:
+A Coinbase smart account needs `sign` from its owner, so its owner needs `rawSign`, and its key needs `allowRawDigests: true` in the config:
+
+<!-- docs-check: skip -->
+
+```ts
+owner: {
+  provider: "aws",
+  keyId: "alias/smart-account-owner",
+  address: "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826",
+  allowRawDigests: true,
+},
+```
+
+Then:
 
 ```ts
 import "hardhat-kms";
@@ -315,6 +330,6 @@ const smartAccount = await toCoinbaseSmartAccount({
 });
 ```
 
-With `rawSign`, the owner signs any 32-byte digest it is given, which can be the hash of a transaction or a permit for any chain. Ask for it only for an owner that needs it.
+With `rawSign`, the owner signs any 32-byte digest it is given, which can be the hash of a transaction, a permit for any chain, or an EIP-7702 authorization that delegates the owner's account. Set `allowRawDigests` and ask for `rawSign` only for an owner that needs them, and use a key for it that holds no funds or roles of its own.
 
 viem types the owner of `toSimple7702SmartAccount` as a `PrivateKeyAccount`, whose `source` is `"privateKey"`, so no KMS account matches that type, with or without `rawSign`. The function calls only the owner's `address`, `signMessage`, `signTypedData` and `signAuthorization`, so the account works there, but the call site needs a cast, such as `owner: account as unknown as PrivateKeyAccount`. Making the account a `PrivateKeyAccount` is not a goal: it would claim a key the account does not hold.

@@ -1,14 +1,17 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 import type { NewTaskActionFunction } from "hardhat/types/tasks";
 
+import type { KmsKeyConfig } from "../../types.ts";
 import { addressFromPublicKey, sameAddress } from "../crypto/address.ts";
 import { personalMessageDigest, type TypedData, typedDataDigest } from "../crypto/digests.ts";
 import { recoverPublicKey, toRpcSignature } from "../crypto/signature.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
+import { commandLineKeys } from "../hook-handlers/hre.ts";
 import { createConnectionChain, parseChainId } from "../rpc/chain-id.ts";
 import { checkTypedDataChain, type ExpectedChain } from "../rpc/typed-data.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
+import { confirm, processTerminal, type Terminal } from "./confirm.ts";
 import { decodeHex, readMessage, readTypedDataArgument } from "./inputs.ts";
 import { findTaskKey, printLine, printNote, withTaskSigners } from "./keys.ts";
 
@@ -21,6 +24,7 @@ interface SignArguments {
   noHash: boolean;
   chain: string | undefined;
   allowCrossChain: boolean;
+  yes: boolean;
 }
 
 const OPERATION = "kms sign";
@@ -32,20 +36,43 @@ type Payload =
   | { kind: "typedData"; typedData: TypedData }
   | { kind: "digest"; digest: Uint8Array };
 
+/** What a raw digest's question and note say about it (decision 0021). */
+const RAW_DIGEST_WARNING =
+  "raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.";
+
 /**
- * `kms sign <key> <message>`: signs an EIP-191 message, EIP-712 typed data (`--data`) or a raw
- * 32-byte digest (`--no-hash`) and prints the 65-byte signature `r || s || v`, `v` being 27 or 28.
- * Every signature must recover to the key before it is printed.
+ * Builds the action of `kms sign <key> <message>`, which signs an EIP-191 message, EIP-712 typed
+ * data (`--data`) or a raw 32-byte digest (`--no-hash`) and prints the 65-byte signature
+ * `r || s || v`, `v` being 27 or 28. Every signature must recover to the key before it is printed.
+ * A raw digest is signed only after a person agrees at a terminal, or with `--yes` for a key with
+ * `allowRawDigests: true`.
  *
- * @param args - The task arguments.
- * @param hre - The Hardhat runtime.
- * @returns The signature as `0x`-prefixed hex.
+ * @param terminal - Where to ask about a raw digest; tests pass another terminal.
+ * @returns The task action, which returns the signature as `0x`-prefixed hex.
  */
-const kmsSign: NewTaskActionFunction<SignArguments> = async (args, hre) => {
+export function signAction(
+  terminal: () => Terminal = processTerminal,
+): NewTaskActionFunction<SignArguments> {
+  return async (args, hre) => await kmsSign(args, hre, terminal);
+}
+
+const kmsSignAction: NewTaskActionFunction<SignArguments> = signAction();
+
+export default kmsSignAction;
+
+async function kmsSign(
+  args: SignArguments,
+  hre: HardhatRuntimeEnvironment,
+  terminal: () => Terminal,
+): Promise<string> {
   const key = findTaskKey(hre, args.key);
   const payload = await readPayload(args, hre);
   const signature = await withTaskSigners(hre, async (signerFor) => {
     const signer = await signerFor(key);
+    if (payload.kind === "digest") {
+      // Before any sign request. A key without an address pin reads its address first.
+      await approveRawDigest(args, hre, key, payload.digest, signer, terminal());
+    }
     const signed = await sign(signer, payload);
     // Decision 0004: nothing is printed unless it recovers to the key. This catches a substituted
     // or wrong signer output; the digest comes from the same code the signer uses, so it is not
@@ -57,9 +84,7 @@ const kmsSign: NewTaskActionFunction<SignArguments> = async (args, hre) => {
   });
   printLine(signature);
   return signature;
-};
-
-export default kmsSign;
+}
 
 async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment): Promise<Payload> {
   if (args.fromFile && !args.data) {
@@ -67,6 +92,9 @@ async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment):
   }
   if (args.noHash && args.data) {
     throw catalogError(ERRORS.noHashWithData, {}, { operation: OPERATION });
+  }
+  if (args.yes && !args.noHash) {
+    throw catalogError(ERRORS.yesNeedsNoHash, {}, { operation: OPERATION });
   }
   if (!args.data && (args.chain !== undefined || args.allowCrossChain)) {
     throw catalogError(ERRORS.chainOptionsNeedData, {}, { operation: OPERATION });
@@ -89,10 +117,6 @@ async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment):
     return { kind: "typedData", typedData };
   }
   if (args.noHash) {
-    // Decision 0003: a raw digest can be any transaction or permit, so the user must see this.
-    printNote(
-      "--no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Sign only a digest you computed yourself: it can authorize a transaction or a permit.",
-    );
     const digest = decodeHex(args.message, "the --no-hash digest", OPERATION);
     if (digest.length !== DIGEST_LENGTH) {
       throw catalogError(
@@ -104,6 +128,65 @@ async function readPayload(args: SignArguments, hre: HardhatRuntimeEnvironment):
     return { kind: "digest", digest };
   }
   return { kind: "message", message: readMessage(args.message, OPERATION) };
+}
+
+/**
+ * Decides whether a raw digest may be signed, before any sign request (decision 0021, which
+ * amends 0003). A key with `allowRawDigests: true` signs with `--yes` and a note. Otherwise a
+ * person must answer `y` or `yes` at a terminal; without a terminal the task refuses and names what
+ * is missing. A key given with `--kms` has no config, so only a terminal can approve it.
+ *
+ * @param args - The task arguments.
+ * @param hre - The Hardhat runtime.
+ * @param key - The key that would sign.
+ * @param digest - The digest, shown in the question.
+ * @param signer - The key's signer, for the address of a key without an address pin.
+ * @param terminal - Where to ask.
+ */
+async function approveRawDigest(
+  args: SignArguments,
+  hre: HardhatRuntimeEnvironment,
+  key: KmsKeyConfig,
+  digest: Uint8Array,
+  signer: KmsSigner,
+  terminal: Terminal,
+): Promise<void> {
+  const optedIn = key.allowRawDigests === true;
+  if (optedIn && args.yes) {
+    printNote(
+      `--no-hash signs the 32 bytes as they are, with no EIP-191 prefix. ${RAW_DIGEST_WARNING}`,
+    );
+    return;
+  }
+  const name = key.name;
+  if (!terminal.interactive) {
+    if (commandLineKeys(hre).includes(key)) {
+      throw catalogError(ERRORS.rawDigestCommandLineKey, { name }, { operation: OPERATION });
+    }
+    if (!optedIn) {
+      throw args.yes
+        ? catalogError(ERRORS.rawDigestNotAllowed, { name }, { operation: OPERATION })
+        : catalogError(ERRORS.rawDigestNotAllowedNoYes, { name }, { operation: OPERATION });
+    }
+    throw catalogError(ERRORS.rawDigestNeedsYes, { name }, { operation: OPERATION });
+  }
+  if (args.yes) {
+    printNote(`--yes does not skip the question: key "${name}" does not set allowRawDigests: true`);
+  }
+  const address = key.address ?? (await signer.getAddress());
+  const agreed = await hre.interruptions.uninterrupted(
+    async () =>
+      await confirm(terminal, [
+        "[hardhat-kms] Sign a raw digest with --no-hash?",
+        `  key      ${name}`,
+        `  account  ${address}`,
+        `  digest   0x${Buffer.from(digest).toString("hex")}`,
+        RAW_DIGEST_WARNING,
+      ]),
+  );
+  if (!agreed) {
+    throw catalogError(ERRORS.rawDigestDeclined, {}, { operation: OPERATION });
+  }
 }
 
 /**

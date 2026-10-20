@@ -149,7 +149,7 @@ Decision records:
 
 - [0001: Vendor the EIP-712 encoder from micro-eth-signer 0.19](docs/contributor/decisions/0001-vendor-eip712-encoder.md)
 - [0002: Fill transactions in the plugin](docs/contributor/decisions/0002-fill-transactions-in-plugin.md)
-- [0003: No RPC method signs a bare digest](docs/contributor/decisions/0003-no-bare-digest-over-rpc.md)
+- [0003: No RPC method signs a bare digest](docs/contributor/decisions/0003-no-bare-digest-over-rpc.md) (amended by 0021)
 - [0004: Recover the parity against the known key and verify every signature](docs/contributor/decisions/0004-verify-every-signature.md)
 - [0005: Load cloud SDKs lazily from the user's project](docs/contributor/decisions/0005-lazy-sdk-loading.md) (superseded by 0009)
 - [0006: A plugin-owned `kms` hook for third-party providers](docs/contributor/decisions/0006-kms-hook-for-providers.md)
@@ -160,13 +160,14 @@ Decision records:
 - [0011: Check typed data's chain only when it names one](docs/contributor/decisions/0011-typed-data-chain-check.md)
 - [0012: Generate the API reference with TypeDoc on TypeScript 6](docs/contributor/decisions/0012-api-reference-generator.md)
 - [0013: Signing history comes only from the cloud audit logs](docs/contributor/decisions/0013-history-from-cloud-logs.md)
-- [0014: The library account signs bare digests only when asked](docs/contributor/decisions/0014-library-account-raw-sign.md)
+- [0014: The library account signs bare digests only when asked](docs/contributor/decisions/0014-library-account-raw-sign.md) (amended by 0021)
 - [0015: npm names: an unscoped core and scoped providers](docs/contributor/decisions/0015-npm-names.md)
 - [0016: Release from a signed tag, stage to `beta`, promote by dist-tag](docs/contributor/decisions/0016-release-process.md)
 - [0017: The docs site lives at aelmanaa.github.io/hardhat-kms](docs/contributor/decisions/0017-docs-hostname.md)
 - [0018: Refuse a requested type that disagrees with the caller's fee fields](docs/contributor/decisions/0018-refuse-requested-type-mismatch.md)
 - [0019: Call Turnkey's API without a Turnkey SDK](docs/contributor/decisions/0019-turnkey-without-sdk.md)
 - [0020: Fail at once when a Turnkey activity needs approval](docs/contributor/decisions/0020-turnkey-approvals-fail-fast.md)
+- [0021: Raw digests need a person at a terminal or a per-key opt-in](docs/contributor/decisions/0021-raw-digests-need-a-person-or-an-opt-in.md)
 
 Rules for every change:
 

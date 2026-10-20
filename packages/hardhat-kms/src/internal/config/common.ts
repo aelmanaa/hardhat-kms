@@ -71,9 +71,13 @@ export const secretSchema: z.ZodEffects<z.ZodUnknown> = z.unknown().superRefine(
 export const commonKeyFields: {
   address: z.ZodOptional<typeof addressSchema>;
   timeoutMs: z.ZodOptional<z.ZodNumber>;
+  allowRawDigests: z.ZodOptional<z.ZodBoolean>;
 } = {
   address: addressSchema.optional(),
   timeoutMs: timeoutSchema.optional(),
+  allowRawDigests: z
+    .boolean({ invalid_type_error: catalogMessage(ERRORS.allowRawDigestsType, {}) })
+    .optional(),
 };
 
 /** A non-empty string without surrounding whitespace. */

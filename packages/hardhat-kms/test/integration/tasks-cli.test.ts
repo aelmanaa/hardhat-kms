@@ -106,6 +106,7 @@ export default {
       deployer: { provider: "myvault", name: "deployer" },
       chatty: { provider: "myvault", name: "chatty" },
       pinned: { provider: "myvault", name: "pinned", address: ${JSON.stringify(COW_ACCOUNT.address)} },
+      raw: { provider: "myvault", name: "raw", allowRawDigests: true },
     },
   },
   networks: {
@@ -175,7 +176,7 @@ describe("kms tasks from the Hardhat CLI", () => {
 
     assert.notEqual(run.status, null, `the task did not exit:\n${run.report}`);
     assert.notEqual(run.status, 0, run.report);
-    assert.match(run.output, /unknown key "nobody"\. Known keys: deployer, chatty, pinned\./);
+    assert.match(run.output, /unknown key "nobody"\. Known keys: deployer, chatty, pinned, raw\./);
   });
 
   it("fails on a pin mismatch after opening the adapter, and still exits on its own", async () => {
@@ -379,16 +380,36 @@ describe("kms tasks from the Hardhat CLI", () => {
     );
   });
 
-  it("signs a raw digest with --no-hash, with the warning on stderr only", async () => {
+  it("signs a raw digest with --no-hash --yes for a key with allowRawDigests, with the warning on stderr only", async () => {
     const digest: `0x${string}` = `0x${"ab".repeat(32)}`;
-    const run = await hardhat(["kms", "sign", "--no-hash", "deployer", digest]);
+    const run = await hardhat(["kms", "sign", "--no-hash", "--yes", "raw", digest]);
 
     assert.equal(run.status, 0, run.report);
     assert.equal(
       run.stdout,
       `${await privateKeyToAccount(`0x${HARDHAT_ACCOUNT_0.secretKey}`).sign({ hash: digest })}\n`,
     );
-    assert.match(run.stderr, /\[hardhat-kms\] --no-hash signs the 32 bytes as they are/);
+    assert.match(
+      run.stderr,
+      /\[hardhat-kms\] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix\. raw digest: the plugin cannot tell what it authorizes\./,
+    );
+  });
+
+  it("refuses --no-hash without a terminal unless the key opts in and --yes is given", async () => {
+    const digest = `0x${"ab".repeat(32)}`;
+    for (const [args, text] of [
+      [["deployer"], /Key "deployer" does not set allowRawDigests: true, and --yes was not passed/],
+      [["--yes", "deployer"], /Key "deployer" does not set it, so --yes cannot skip the question/],
+      [["raw"], /--no-hash needs --yes\. Key "raw" sets allowRawDigests: true/],
+    ] as const) {
+      const run = await hardhat(["kms", "sign", "--no-hash", ...args, digest]);
+
+      assert.notEqual(run.status, null, `the task did not exit:\n${run.report}`);
+      assert.notEqual(run.status, 0, run.report);
+      assert.equal(run.stdout, "");
+      assert.match(run.output, text);
+      assert.doesNotMatch(run.output, /Sign\? \[y\/N\]/);
+    }
   });
 
   it("refuses a --no-hash value that is not 32 bytes", async () => {

@@ -89,7 +89,12 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
       .addFlag({
         name: "noHash",
         description:
-          "Sign the message as a raw 32-byte digest, with no EIP-191 prefix. Only for digests you computed yourself",
+          "Sign the message as a raw 32-byte digest, with no EIP-191 prefix. Asks first at a terminal. Only for digests you computed yourself",
+      })
+      .addFlag({
+        name: "yes",
+        description:
+          "With --no-hash: sign without asking, for a key with allowRawDigests: true. Required without a terminal",
       })
       .addOption({
         name: "chain",

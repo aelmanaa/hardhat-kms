@@ -155,6 +155,8 @@ export async function openSmoke(settings: SmokeSettings): Promise<Smoke> {
     address: account,
     apiPrivateKey: configVariable(settings.variables.apiPrivateKey),
     ...(transactionSigning === undefined ? {} : { transactionSigning }),
+    // The cases sign raw digests with `kms sign --no-hash --yes`, without a terminal.
+    allowRawDigests: true,
   });
   const networks: Record<string, NetworkUserConfig> = {
     local: {
@@ -300,6 +302,7 @@ export const SMOKE_CASES: readonly SmokeCase[] = [
           fromFile: false,
           noHash: true,
           allowCrossChain: false,
+          yes: true,
         }),
         "the signature",
       );
@@ -428,6 +431,7 @@ export const SMOKE_CASES: readonly SmokeCase[] = [
           fromFile: false,
           noHash: true,
           allowCrossChain: false,
+          yes: true,
         }),
       );
       const text = textOf(error);
