@@ -31,5 +31,6 @@ export function resolveCommonKeyConfig(
     displayId,
     timeoutMs: key.timeoutMs ?? context.defaults.timeoutMs,
     ...(key.address === undefined ? {} : { address: toChecksumAddress(key.address) }),
+    ...(key.allowRawDigests === true ? { allowRawDigests: true } : {}),
   };
 }

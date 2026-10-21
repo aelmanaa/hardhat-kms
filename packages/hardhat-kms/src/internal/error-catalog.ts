@@ -46,6 +46,14 @@ export const ERRORS = {
       "`timeoutMs`, on a key or in `kms.defaults`, is larger than Node.js timers accept (2^31 - 1 ms, about 24.8 days).",
     fix: "Use a smaller value.",
   },
+  allowRawDigestsType: {
+    id: "core.config.allow-raw-digests-type",
+    kind: "validation",
+    group: "Configuration",
+    template: "Expected true or false",
+    cause: 'A key\'s `allowRawDigests` is not a boolean, for example the string `"true"`.',
+    fix: "Write `allowRawDigests: true`, or remove the field to keep raw digests behind a person at a terminal.",
+  },
   addressPin: {
     id: "core.config.address",
     kind: "validation",
@@ -1609,6 +1617,64 @@ export const ERRORS = {
     cause: "`kms sign --no-hash` signs a digest as given, and the hex is not 32 bytes.",
     fix: "Pass a 32-byte hash as `0x` and 64 hex digits.",
   },
+  yesNeedsNoHash: {
+    id: "core.task.yes-needs-no-hash",
+    kind: "error",
+    group: "Tasks",
+    template: "--yes applies only to --no-hash",
+    cause:
+      "`kms sign` asks a question only before it signs a raw digest, so `--yes` has nothing to skip for a message or typed data.",
+    fix: "Drop `--yes`, or add `--no-hash` if the input is a 32-byte digest.",
+  },
+  rawDigestDeclined: {
+    id: "core.task.raw-digest-declined",
+    kind: "error",
+    group: "Tasks",
+    template: "the raw digest was not signed: the question was not answered with y or yes",
+    cause:
+      "`kms sign --no-hash` asked at the terminal before signing, and the answer was not `y` or `yes`: `n`, an empty line, another word, or input that closed. Nothing was sent to the KMS for signing.",
+    fix: "Run the task again and answer `y` if you computed the digest yourself and know what it authorizes.",
+  },
+  rawDigestNoTerminal: {
+    id: "core.task.raw-digest-no-terminal",
+    kind: "error",
+    group: "Tasks",
+    template:
+      'without a terminal, --no-hash signs only with a key that sets allowRawDigests: true, and with --yes. Key "{name}" does not set allowRawDigests: true, and --yes was not passed',
+    cause:
+      "`kms sign --no-hash` ran without a terminal on standard input and standard error, so it could not ask. A raw digest can be any transaction, permit or EIP-7702 authorization, so without a person the key must opt in and the run must pass `--yes`.",
+    fix: "Run the task at a terminal and answer the question. To sign raw digests in CI or from code, set `allowRawDigests: true` on the key in the Hardhat config and pass `--yes`.",
+  },
+  rawDigestNotAllowed: {
+    id: "core.task.raw-digest-not-allowed",
+    kind: "error",
+    group: "Tasks",
+    template:
+      'without a terminal, --no-hash signs only with a key that sets allowRawDigests: true. Key "{name}" does not set it, so --yes cannot skip the question',
+    cause:
+      "`kms sign --no-hash --yes` ran without a terminal for a key without `allowRawDigests: true`. `--yes` skips the question only for a key that opts in.",
+    fix: "Set `allowRawDigests: true` on the key in the Hardhat config if it should sign raw digests without a person, or run the task at a terminal and answer the question.",
+  },
+  rawDigestNeedsYes: {
+    id: "core.task.raw-digest-needs-yes",
+    kind: "error",
+    group: "Tasks",
+    template:
+      'without a terminal, --no-hash needs --yes. Key "{name}" sets allowRawDigests: true, and --yes was not passed',
+    cause:
+      "`kms sign --no-hash` ran without a terminal for a key with `allowRawDigests: true`. Without a terminal, each run confirms the raw digest with `--yes`.",
+    fix: "Pass `--yes`, or run the task at a terminal and answer the question.",
+  },
+  rawDigestCommandLineKey: {
+    id: "core.task.raw-digest-command-line-key",
+    kind: "error",
+    group: "Tasks",
+    template:
+      'key "{name}" comes from --kms and has no config, so it cannot set allowRawDigests: true. Without a terminal, --no-hash cannot sign with it',
+    cause:
+      "`kms sign --no-hash` ran without a terminal with a key chosen with `--kms`. Such a key has no config entry, so it cannot opt in to raw digests, and only a person at a terminal can approve one.",
+    fix: "Run the task at a terminal and answer the question, or add the key to `kms.keys` with `allowRawDigests: true` and pass `--yes`.",
+  },
   signNoChainToCompare: {
     id: "core.task.sign-no-chain",
     kind: "error",
@@ -2074,6 +2140,16 @@ export const ERRORS = {
     cause:
       "`getAccount`, or a method of the account it returned, was called after the `signal` passed in its options aborted. The account refuses before any KMS call and reserves no nonce.",
     fix: "Call `getAccount` again, with a signal that has not aborted or with none.",
+  },
+  accountRawSignNotAllowed: {
+    id: "core.account.raw-sign-not-allowed",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "the key of {address} does not set allowRawDigests: true, so its account cannot have sign({ hash }). Set it on the key in the Hardhat config to use rawSign",
+    cause:
+      "`getAccount(address, { rawSign: true })` asks for an account that signs any 32-byte digest, which can be a transaction, a permit or an EIP-7702 authorization. Only a key with `allowRawDigests: true` in the Hardhat config gets one. A key given with `--kms` has no config, so it never does. The plugin refuses before it signs anything, and before any KMS call when the config alone shows that no key at that address opts in.",
+    fix: "Set `allowRawDigests: true` on the key in `kms.keys` or the network's `kmsAccounts` if its owner needs `sign`, such as a Coinbase smart account. Otherwise drop `rawSign`.",
   },
   accountOption: {
     id: "core.account.option",

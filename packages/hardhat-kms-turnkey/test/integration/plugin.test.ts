@@ -123,6 +123,7 @@ async function runtime(
             apiPublicKey: API_PUBLIC_KEY,
             ...(transactionSigning === undefined ? {} : { transactionSigning }),
             ...(timeoutMs === undefined ? {} : { timeoutMs }),
+            allowRawDigests: true,
           },
         },
         simulatedBalance: 10n ** 20n,
@@ -573,6 +574,7 @@ describe("@hardhat-kms/turnkey in a Hardhat runtime", () => {
       fromFile: false,
       noHash: true,
       allowCrossChain: false,
+      yes: true,
     });
     assert.match(String(raw.result), /^0x[0-9a-f]{130}$/);
 

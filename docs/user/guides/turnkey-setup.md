@@ -193,6 +193,18 @@ For typed data, the parenthesis reads `(typed data, sent with PAYLOAD_ENCODING_E
 
 The reverse holds too. Turnkey's language page shows a policy that denies `HASH_FUNCTION_NO_OP` except with `PAYLOAD_ENCODING_EIP712` ([Examples](https://docs.turnkey.com/features/policies/language#examples)). It blocks every request from Foundry, and under hardhat-kms it blocks EIP-7702 authorizations and raw digests, while transactions, messages and typed data still sign, unless the key sets `transactionSigning: "digest"`, whose transactions are `NO_OP` digests too.
 
+### Raw digests and EIP-7702 authorizations
+
+The plugin sends EIP-7702 authorizations, `kms sign --no-hash` digests and the transactions of a key with `transactionSigning: "digest"` the same way: `SIGN_RAW_PAYLOAD` with `PAYLOAD_ENCODING_HEXADECIMAL` and `HASH_FUNCTION_NO_OP`. Turnkey sees only the 32-byte hash and cannot tell an authorization from any other digest. A policy that limits authorizations, such as one on `eth.eip_7702_authorization`, therefore binds only if the API user's policies also deny that combination. A policy that allows it, such as the last clause of the first policy above, lets the key sign any digest, an authorization included.
+
+For a key that needs none of them, remove this clause from the first policy's condition:
+
+```text
+(activity.params.encoding == 'PAYLOAD_ENCODING_HEXADECIMAL' && activity.params.hash_function == 'HASH_FUNCTION_NO_OP')
+```
+
+The key then signs transactions, messages and typed data, and Turnkey refuses `kms sign-auth`, the library account's `signAuthorization`, `kms sign --no-hash` and `transactionSigning: "digest"` with `turnkey.service.forbidden`. Keep the clause only for a key that needs one of those. The plugin also asks a person, or requires [`allowRawDigests: true`](../reference/configuration.md) on the key, before it sends a raw digest ([Raw digests](../reference/tasks.md#raw-digests)). The Turnkey policy is the check that holds outside the Hardhat process, for example for code that calls Turnkey's API with the same API key.
+
 ## 5. Store the API private key
 
 The key's `apiPrivateKey` takes only `configVariable(NAME)`, with no `default` and no `format`. A literal string, a `default` or a `format` would put the key in the config file, which is committed, so the config fails validation with `core.config.secret-variable`:
@@ -342,7 +354,7 @@ npx hardhat kms accounts --check-sign
 
 The key signs a random EIP-191 message, sent with `HASH_FUNCTION_KECCAK256`, so this one signature checks the first policy's message clause. Success shows `matches` in the `PIN` column and `ok` in the `SIGN` column: Turnkey accepted the API key, a policy allowed the request, and the signature recovers to the pinned address. It spends one signature of the quota for each Turnkey row it lists: keys that name the same organization and address are listed, and checked, once when they also use the same API keys and the same `transactionSigning`. Keys with another API key or mode get rows of their own, and each is checked ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
-To check the typed-data and digest clauses as well, sign one of each, for example `npx hardhat kms sign --data --from-file --network sepolia deployer permit.json` and `npx hardhat kms sign --no-hash deployer <digest>` ([`kms sign`](../reference/tasks.md#kms-sign)). To check the second policy, sign a transaction without sending it, for example `npx hardhat --network sepolia kms sign-tx deployer tx.json` ([`kms sign-tx`](../reference/tasks.md#kms-sign-tx)). That is three more signatures.
+To check the typed-data and digest clauses as well, sign one of each, for example `npx hardhat kms sign --data --from-file --network sepolia deployer permit.json` and `npx hardhat kms sign --no-hash deployer <digest>`, answering `y` at the question ([`kms sign`](../reference/tasks.md#raw-digests)). To check the second policy, sign a transaction without sending it, for example `npx hardhat --network sepolia kms sign-tx deployer tx.json` ([`kms sign-tx`](../reference/tasks.md#kms-sign-tx)). That is three more signatures.
 
 ## How the plugin uses the key
 

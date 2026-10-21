@@ -327,7 +327,7 @@ describe("connection.kms.getAccount", () => {
         });
 
         it("for bare digests with rawSign", async () => {
-          const { connection } = setup({ adapter: adapterOptions });
+          const { connection } = setup({ adapter: adapterOptions, allowRawDigests: true });
           const warn = mock.method(console, "warn", () => undefined);
           const account = await createKmsNetworkConnection(connection).getAccount(ADDRESS, {
             rawSign: true,
@@ -630,7 +630,7 @@ describe("connection.kms.getAccount", () => {
   });
 
   it("has no sign without rawSign, and exposes no signer or key material", async () => {
-    const { connection } = setup();
+    const { connection } = setup({ allowRawDigests: true });
     const kms = createKmsNetworkConnection(connection);
     const account = await kms.getAccount(ADDRESS);
     assert.equal("sign" in account, false);
@@ -898,7 +898,7 @@ describe("connection.kms.getAccount", () => {
     });
 
     it("every method of the account, and getAccount", async () => {
-      const { adapter, connection, chainCalls, state } = setup();
+      const { adapter, connection, chainCalls, state } = setup({ allowRawDigests: true });
       const kms = createKmsNetworkConnection(connection);
       const warn = mock.method(console, "warn", () => undefined);
       const account = await kms.getAccount(ADDRESS, { rawSign: true });

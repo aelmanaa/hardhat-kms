@@ -14,6 +14,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { hardhat } from "viem/chains";
 
 import hardhatKms from "../../src/index.ts";
+import type { KmsKeyUserConfig } from "../../src/types.ts";
 import { addressOfSecretKey, type FakeAdapter, fakeAdapter } from "../helpers/fake-adapter.ts";
 import { vaultKey } from "../helpers/vault-key.ts";
 import { COW_ACCOUNT } from "../helpers/vectors.ts";
@@ -59,12 +60,12 @@ const COUNTER_ABI = [
   },
 ] as const;
 
-async function runtime() {
+async function runtime(cow: KmsKeyUserConfig = vaultKey("cow")) {
   const hre = await createHardhatRuntimeEnvironment(
     {
       plugins: [hardhatKms, hardhatViem],
       solidity: "0.8.24",
-      kms: { keys: { cow: vaultKey("cow") }, simulatedBalance: 10n ** 18n },
+      kms: { keys: { cow }, simulatedBalance: 10n ** 18n },
       networks: {
         local: { type: "edr-simulated", hardfork: "prague", kmsAccounts: ["cow"] },
       },
@@ -197,16 +198,43 @@ describe("connection.kms.getAccount", { timeout: 300_000 }, () => {
         error.message.includes(`${SPONSOR.address} is not a KMS account of network local.`) &&
         error.message.includes(COW),
     );
+    assert.equal(signatures(adapters), 0);
+    await connection.close();
+  });
+
+  it("refuses rawSign for a key without allowRawDigests, before any KMS call", async () => {
+    const { hre, adapters } = await runtime();
+    const connection = await hre.network.create({ network: "local" });
+    const calls = kmsCalls(adapters);
+    await assert.rejects(
+      async () => await connection.kms.getAccount(COW, { rawSign: true }),
+      (error: unknown) =>
+        error instanceof HardhatPluginError &&
+        error.message ===
+          `getAccount: the key of ${COW} does not set allowRawDigests: true, so its account cannot have sign({ hash }). Set it on the key in the Hardhat config to use rawSign`,
+    );
+    assert.equal(kmsCalls(adapters), calls);
+    await connection.close();
+  });
+
+  it("gives a key with allowRawDigests an account with sign, after a warning", async () => {
+    const { hre, adapters } = await runtime({ ...vaultKey("cow"), allowRawDigests: true });
+    const connection = await hre.network.create({ network: "local" });
     const warn = mock.method(console, "warn", () => undefined);
     try {
       const raw = await connection.kms.getAccount(COW, { rawSign: true });
       assert.equal(typeof raw.sign, "function");
       assert.equal(warn.mock.callCount(), 1);
       assert.match(String(warn.mock.calls[0]?.arguments[0]), /rawSign/);
+      const hash = `0x${"cd".repeat(32)}` as const;
+      assert.equal(
+        await raw.sign({ hash }),
+        await privateKeyToAccount(`0x${COW_ACCOUNT.secretKey}`).sign({ hash }),
+      );
     } finally {
       warn.mock.restore();
     }
-    assert.equal(signatures(adapters), 0);
+    assert.equal(signatures(adapters), 1);
     await connection.close();
   });
 

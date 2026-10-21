@@ -150,6 +150,11 @@ export class ConnectionAccounts {
     return this.#known !== undefined;
   }
 
+  /** The connection's KMS keys: its network's `kmsAccounts`, then the keys chosen with `--kms`. */
+  public get keys(): readonly KmsKeyConfig[] {
+    return this.#keys;
+  }
+
   /** Whether the connection has KMS keys at all. */
   public get isEmpty(): boolean {
     return this.#keys.length === 0;

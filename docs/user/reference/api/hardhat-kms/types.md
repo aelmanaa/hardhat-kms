@@ -183,6 +183,16 @@ The checksummed address pin, if one was configured.
 
 [`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
 
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-9)
+
 ##### displayId
 
 > **displayId**: `string`
@@ -263,6 +273,19 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
+
 ##### endpoint?
 
 > `optional` **endpoint?**: `string`
@@ -329,6 +352,19 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
+
 ##### keyName
 
 > **keyName**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
@@ -378,6 +414,16 @@ The checksummed address pin, if one was configured.
 ###### Inherited from
 
 [`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-9)
 
 ##### displayId
 
@@ -441,6 +487,19 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
+
 ##### keyId
 
 > **keyId**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
@@ -491,6 +550,16 @@ The checksummed address pin, if one was configured.
 ###### Inherited from
 
 [`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-9)
 
 ##### displayId
 
@@ -552,6 +621,19 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
 
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
+
 ##### keyName
 
 > **keyName**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
@@ -609,6 +691,16 @@ The checksummed address pin, if one was configured.
 ###### Inherited from
 
 [`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-9)
 
 ##### displayId
 
@@ -671,6 +763,19 @@ learn the address, and refuses to sign if the key turns out to be different.
 ###### Inherited from
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### keyVersionName
 
@@ -884,8 +989,10 @@ Let `signAuthorization` sign for chain 0, which makes the authorization valid on
 
 > `optional` **rawSign?**: `boolean`
 
-Add `sign({ hash })`, which signs a bare digest. Off by default (decision 0014); some smart
-account owners need it. A warning is printed when it is on.
+Add `sign({ hash })`, which signs a bare digest. Off by default (decisions 0014 and 0021);
+some smart account owners need it. It works only for a key with `allowRawDigests: true` in the
+Hardhat config, since a bare digest can be an EIP-7702 authorization of the account;
+`getAccount` refuses it for any other key. A warning is printed when it is on.
 
 ##### signal?
 
@@ -1813,6 +1920,12 @@ Resolved settings shared by every key.
 
 The checksummed address pin, if one was configured.
 
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
 ##### displayId
 
 > **displayId**: `string`
@@ -1853,6 +1966,15 @@ Settings shared by every key, whatever its provider.
 
 The address the key must derive to. Optional, recommended: the plugin then skips a KMS call to
 learn the address, and refuses to sign if the key turns out to be different.
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
 
 ##### timeoutMs?
 
@@ -1915,8 +2037,9 @@ The address of one of the connection's KMS accounts.
 
 **options**
 
-Options; `rawSign: true` adds `sign({ hash })`, and `signal` cancels the
-account's KMS calls.
+Options; `rawSign: true` adds `sign({ hash })`, which needs
+`allowRawDigests: true` on the key because a bare digest can be an EIP-7702 authorization, and
+`signal` cancels the account's KMS calls.
 
 ###### Returns
 
@@ -2125,8 +2248,9 @@ The uncompressed public key, 65 bytes starting with `0x04`.
 
 > `readonly` **sign**: (`parameters`: \{ `hash`: `` `0x${string}` ``; \}) => `Promise`\<`` `0x${string}` ``\>
 
-Signs a 32-byte digest as it is, with no prefix. Whatever the digest stands for is signed,
-a transaction for any chain included.
+Signs a 32-byte digest as it is, with no prefix. Whatever the digest stands for is signed: a
+transaction or a permit for any chain, or an EIP-7702 authorization that delegates the account
+to any contract. Only a key with `allowRawDigests: true` in the Hardhat config has this method.
 
 ###### Parameters
 
@@ -2564,6 +2688,16 @@ The checksummed address of the wallet account. Always set for a Turnkey key.
 
 [`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
 
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-9)
+
 ##### apiPrivateKey
 
 > **apiPrivateKey**: [`KmsIdentifier`](#kmsidentifier)
@@ -2644,6 +2778,19 @@ The wallet account's address. Required: the plugin signs with it and pins the ke
 ###### Overrides
 
 [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### apiPrivateKey
 

@@ -8,7 +8,12 @@ import { describe, it, mock } from "node:test";
 import { HardhatPluginError } from "hardhat/plugins";
 import { privateKeyToAccount } from "viem/accounts";
 
-import { createKmsNetworkConnection, type LoadViem } from "../../../src/internal/viem/account.ts";
+import {
+  type AccountConnection,
+  createKmsNetworkConnection,
+  type LoadViem,
+} from "../../../src/internal/viem/account.ts";
+import type { KmsKeyConfig } from "../../../src/types.ts";
 import {
   ADDRESS,
   assertRefused,
@@ -49,6 +54,24 @@ const EIP7702 = {
 /** An authorization from another key, with a nonce other than 0 so that its nonce is checked. */
 const AUTHORIZATION = await COW.signAuthorization({ address: TO, chainId: CHAIN_ID, nonce: 5 });
 
+/** A connection whose keys and looked-up key are given, counting the lookups. */
+function connectionWith(keys: readonly KmsKeyConfig[], found: KmsKeyConfig) {
+  const { adapter, connection } = setup();
+  const lookups: string[] = [];
+  const counted: AccountConnection = {
+    ...connection,
+    accounts: {
+      ...connection.accounts,
+      keys,
+      keyFor: async (address) => {
+        lookups.push(address);
+        return await Promise.resolve(address === ADDRESS.toLowerCase() ? found : undefined);
+      },
+    },
+  };
+  return { adapter, kms: createKmsNetworkConnection(counted), lookups };
+}
+
 /**
  * Calls a method with values its type does not allow, as plain JavaScript can.
  *
@@ -66,7 +89,7 @@ async function untyped(
 
 /** An account with `sign`, and its adapter. */
 async function rawAccount() {
-  const { adapter, connection } = setup();
+  const { adapter, connection } = setup({ allowRawDigests: true });
   const warn = mock.method(console, "warn", () => undefined);
   try {
     const account = await createKmsNetworkConnection(connection).getAccount(ADDRESS, {
@@ -446,8 +469,64 @@ describe("a library account reads fields as viem does", () => {
     }
   });
 
+  describe("rawSign without allowRawDigests", () => {
+    const REFUSED = `getAccount: the key of ${ADDRESS} does not set allowRawDigests: true, so its account cannot have sign({ hash }). Set it on the key in the Hardhat config to use rawSign`;
+
+    it("refuses before the key lookup when no key that could be at the address opts in", async () => {
+      const { connection } = setup();
+      const [key] = connection.accounts.keys;
+      assert.ok(key !== undefined);
+      // Pinned to the address, or unpinned: either could be the account's key.
+      for (const candidate of [key, { ...key, address: ADDRESS }]) {
+        // An opted-in key pinned to another address cannot be at this one.
+        const other: KmsKeyConfig = { ...key, address: TO, allowRawDigests: true };
+        const { adapter, kms, lookups } = connectionWith([candidate, other], candidate);
+        await assertRefused(
+          adapter,
+          async () => await kms.getAccount(ADDRESS, { rawSign: true }),
+          REFUSED,
+        );
+        assert.deepEqual(lookups, []);
+      }
+    });
+
+    it("refuses after the lookup when the key found does not opt in", async () => {
+      const { connection } = setup();
+      const [key] = connection.accounts.keys;
+      assert.ok(key !== undefined);
+      // An unpinned key that opts in could be at the address, so the lookup decides.
+      const optedIn: KmsKeyConfig = { ...key, name: "other", allowRawDigests: true };
+      const { adapter, kms, lookups } = connectionWith([key, optedIn], key);
+      await assertRefused(
+        adapter,
+        async () => await kms.getAccount(ADDRESS, { rawSign: true }),
+        REFUSED,
+      );
+      assert.deepEqual(lookups, [ADDRESS.toLowerCase()]);
+    });
+
+    it("lets an address that is no KMS account fail as such", async () => {
+      const { connection } = setup();
+      const [key] = connection.accounts.keys;
+      assert.ok(key !== undefined);
+      const { adapter, kms } = connectionWith([{ ...key, address: TO }], key);
+      await assertRefused(
+        adapter,
+        async () => await kms.getAccount(COW.address, { rawSign: true }),
+        /is not a KMS account of network local/,
+      );
+    });
+
+    it("still gives an account without sign when rawSign is not asked for", async () => {
+      const { adapter, connection } = setup();
+      const account = await createKmsNetworkConnection(connection).getAccount(ADDRESS);
+      assert.equal("sign" in account, false);
+      assert.equal(adapter.calls.signDigest, 0);
+    });
+  });
+
   it("warns, with the address, when rawSign is asked for", async () => {
-    const { connection } = setup();
+    const { connection } = setup({ allowRawDigests: true });
     const warn = mock.method(console, "warn", () => undefined);
     try {
       await createKmsNetworkConnection(connection).getAccount(ADDRESS, { rawSign: true });
@@ -455,7 +534,7 @@ describe("a library account reads fields as viem does", () => {
         warn.mock.calls.map((call) => call.arguments),
         [
           [
-            `hardhat-kms: the account ${ADDRESS} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,
+            `hardhat-kms: the account ${ADDRESS} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain, or an EIP-7702 authorization of this account. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,
           ],
         ],
       );

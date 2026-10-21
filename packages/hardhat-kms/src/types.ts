@@ -24,6 +24,13 @@ export interface KmsKeyCommonUserConfig {
   address?: string;
   /** Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defaults.timeoutMs`. */
   timeoutMs?: number;
+  /**
+   * Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+   * with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+   * `false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+   * and the plugin cannot tell which, so set it only on a key that needs it.
+   */
+  allowRawDigests?: boolean;
 }
 
 /** An AWS KMS key. */
@@ -196,6 +203,8 @@ export interface KmsKeyCommonConfig {
   /** The checksummed address pin, if one was configured. */
   address?: string;
   timeoutMs: number;
+  /** `true` when the config sets `allowRawDigests: true`; unset otherwise. */
+  allowRawDigests?: true;
   /**
    * A description of the key that is safe to print, such as `aws:alias/deployer`. It never contains
    * a configuration variable's value.

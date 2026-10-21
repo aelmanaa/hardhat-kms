@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { PassThrough, Writable } from "node:stream";
 import { afterEach, describe, it, mock } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
@@ -10,10 +11,13 @@ import { HardhatPluginError } from "hardhat/plugins";
 import type { NetworkUserConfig } from "hardhat/types/config";
 import { getAddress, keccak256, recoverAddress, toHex, verifyMessage, verifyTypedData } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { hashAuthorization, recoverAuthorizationAddress } from "viem/utils";
 
 import hardhatKms from "../../src/index.ts";
 import type { TypedData } from "../../src/internal/crypto/digests.ts";
 import { KmsSigner } from "../../src/internal/signer/kms-signer.ts";
+import type { Terminal } from "../../src/internal/tasks/confirm.ts";
+import { signAction } from "../../src/internal/tasks/sign.ts";
 import type { KmsKeyUserConfig } from "../../src/types.ts";
 import { type FakeAdapter, fakeAdapter, type FakeAdapterOptions } from "../helpers/fake-adapter.ts";
 import { type RecordingNode, startRecordingNode } from "../helpers/recording-node.ts";
@@ -424,15 +428,62 @@ interface SignArgs {
   noHash?: boolean;
   chain?: string;
   allowCrossChain?: boolean;
+  yes?: boolean;
 }
 
 /** What the last `kms sign` run printed, kept when the run fails. */
 const signOutput = { printed: "", warned: "" };
 
-/** Runs `kms sign` and returns its result and what it printed on stdout and stderr. */
+/** Every KMS call the adapters got, to assert that a refusal made none. */
+const kmsCalls = (created: ClosableAdapter[]): number =>
+  created.reduce(
+    (total, { calls }) => total + calls.signDigest + calls.getPublicKey + calls.getAddress,
+    0,
+  );
+
+/** A run without a terminal: the task never reads or writes it. */
+const NO_TERMINAL: Terminal = {
+  interactive: false,
+  input: new PassThrough(),
+  output: new Writable({
+    write() {
+      throw new Error("the task wrote to a terminal it must not use");
+    },
+  }),
+};
+
+/**
+ * A terminal that answers the task's question with `answer` once the prompt is shown, or closes
+ * its input then when `answer` is `undefined`, and records what the task wrote to it. A line
+ * written before the question would be discarded as type-ahead.
+ */
+function answering(answer: string | undefined): { terminal: Terminal; asked: () => string } {
+  const input = new PassThrough();
+  let asked = "";
+  const output = new Writable({
+    write(chunk: Buffer, _encoding, done) {
+      asked += chunk.toString();
+      done();
+      if (asked.endsWith("Sign? [y/N] ")) {
+        if (answer === undefined) {
+          input.end();
+        } else {
+          input.write(answer);
+        }
+      }
+    },
+  });
+  return { terminal: { interactive: true, input, output }, asked: () => asked };
+}
+
+/**
+ * Runs `kms sign` and returns its result and what it printed on stdout and stderr. A raw digest's
+ * question goes to `terminal`, which by default is no terminal.
+ */
 async function runSign(
   hre: Awaited<ReturnType<typeof runtime>>["hre"],
   args: SignArgs,
+  terminal: Terminal = NO_TERMINAL,
 ): Promise<{ result: unknown; printed: string; warned: string }> {
   signOutput.printed = "";
   signOutput.warned = "";
@@ -445,13 +496,18 @@ async function runSign(
     return true;
   });
   try {
-    const result: unknown = await hre.tasks.getTask(["kms", "sign"]).run({
-      data: false,
-      fromFile: false,
-      noHash: false,
-      allowCrossChain: false,
-      ...args,
-    });
+    const result: unknown = await signAction(() => terminal)(
+      {
+        data: false,
+        fromFile: false,
+        noHash: false,
+        chain: undefined,
+        allowCrossChain: false,
+        yes: false,
+        ...args,
+      },
+      hre,
+    );
     return { result, ...signOutput };
   } finally {
     write.mock.restore();
@@ -459,9 +515,13 @@ async function runSign(
   }
 }
 
-/** A runtime whose `deployer` key is {@link HARDHAT_ACCOUNT_0}, or `secretKey`. */
+/**
+ * A runtime whose `deployer` key is {@link HARDHAT_ACCOUNT_0}, or `secretKey`. `deployer` replaces
+ * the key's config, such as one with an address pin or `allowRawDigests`.
+ */
 async function signRuntime(
   options: {
+    deployer?: KmsKeyUserConfig;
     secretKey?: string;
     network?: string;
     allowCrossChainTypedData?: boolean;
@@ -469,7 +529,7 @@ async function signRuntime(
   } = {},
 ) {
   return await runtime({
-    keys: { deployer: vaultKey("deployer") },
+    keys: { deployer: options.deployer ?? vaultKey("deployer") },
     adapters: {
       deployer: () =>
         closableAdapter({ secretKey: hex(options.secretKey ?? HARDHAT_ACCOUNT_0.secretKey) }),
@@ -604,24 +664,274 @@ describe("kms sign", () => {
   });
 
   describe("--no-hash", () => {
-    it("signs the 32 bytes as they are and warns on stderr", async () => {
-      const { hre, created } = await signRuntime();
+    /** The deployer key, pinned to its address, with or without the opt-in. */
+    const pinned = (allowRawDigests?: boolean): KmsKeyUserConfig => ({
+      ...vaultKey("deployer", ACCOUNT_0.address),
+      ...(allowRawDigests === undefined ? {} : { allowRawDigests }),
+    });
+    const QUESTION = [
+      "[hardhat-kms] Sign a raw digest with --no-hash?",
+      "  key      deployer",
+      `  account  ${ACCOUNT_0.address}`,
+      `  digest   ${DIGEST}`,
+      "Raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.",
+      "Sign? [y/N] ",
+    ].join("\n");
 
-      const { result, printed, warned } = await runSign(hre, {
+    it("asks at a terminal and signs the 32 bytes as they are after y or yes", async () => {
+      for (const answer of ["y\n", "yes\n", " Yes \n"]) {
+        const { hre, created } = await signRuntime({ deployer: pinned() });
+        const { terminal, asked } = answering(answer);
+
+        const { result, printed, warned } = await runSign(
+          hre,
+          { key: "deployer", message: DIGEST, noHash: true },
+          terminal,
+        );
+
+        assert.equal(asked(), QUESTION);
+        assert.equal(warned, "");
+        assert.equal(printed, `${String(result)}\n`);
+        assert.ok(typeof result === "string" && SIGNATURE.test(result));
+        assert.equal(result, await ACCOUNT_0.sign({ hash: DIGEST }));
+        assert.equal(
+          await recoverAddress({ hash: DIGEST, signature: `0x${result.slice(2)}` }),
+          ACCOUNT_0.address,
+        );
+        assert.equal(created[0]?.calls.signDigest, 1);
+      }
+    });
+
+    it("asks inside hre.interruptions.uninterrupted, so no other prompt interleaves", async () => {
+      const { hre } = await signRuntime({ deployer: pinned() });
+      const { terminal } = answering("y\n");
+      let inside = false;
+      let insideWhenAsked: boolean | undefined;
+      const uninterrupted = mock.method(
+        hre.interruptions,
+        "uninterrupted",
+        async <ReturnT>(task: () => ReturnT): Promise<Awaited<ReturnT>> => {
+          inside = true;
+          try {
+            return await task();
+          } finally {
+            inside = false;
+          }
+        },
+      );
+      const watched: Terminal = {
+        interactive: true,
+        input: terminal.input,
+        output: new Writable({
+          write(chunk: Buffer, _encoding, done) {
+            insideWhenAsked ??= inside;
+            terminal.output.write(chunk, done);
+          },
+        }),
+      };
+      try {
+        const { result } = await runSign(
+          hre,
+          { key: "deployer", message: DIGEST, noHash: true },
+          watched,
+        );
+        assert.equal(result, await ACCOUNT_0.sign({ hash: DIGEST }));
+      } finally {
+        uninterrupted.mock.restore();
+      }
+      assert.equal(uninterrupted.mock.callCount(), 1);
+      assert.equal(insideWhenAsked, true);
+    });
+
+    it("makes no KMS call and fails on n, an empty line, another word or closed input", async () => {
+      for (const answer of ["n\n", "\n", "no\n", "sure\n", undefined]) {
+        const { hre, created } = await signRuntime({ deployer: pinned(true) });
+        const { terminal, asked } = answering(answer);
+        signOutput.printed = "";
+
+        await assertKmsError(
+          runSign(hre, { key: "deployer", message: DIGEST, noHash: true }, terminal),
+          ["kms sign: the raw digest was not signed: the question was not answered with y or yes"],
+        );
+
+        assert.equal(asked(), answer === undefined ? `${QUESTION}\n` : QUESTION);
+        assert.equal(signOutput.printed, "");
+        assert.equal(kmsCalls(created), 0, JSON.stringify(answer));
+      }
+    });
+
+    it("reads the address of a key without a pin, and signs nothing when declined", async () => {
+      const { hre, created } = await signRuntime();
+      const { terminal, asked } = answering("n\n");
+
+      await assertKmsError(
+        runSign(hre, { key: "deployer", message: DIGEST, noHash: true }, terminal),
+        ["the raw digest was not signed"],
+      );
+
+      assert.ok(asked().includes(`  account  ${ACCOUNT_0.address}\n`));
+      assert.equal(created[0]?.calls.signDigest, 0);
+    });
+
+    it("still asks when --yes is given for a key without allowRawDigests", async () => {
+      for (const deployer of [pinned(), pinned(false)]) {
+        const { hre, created } = await signRuntime({ deployer });
+        const { terminal, asked } = answering("\n");
+
+        await assertKmsError(
+          runSign(hre, { key: "deployer", message: DIGEST, noHash: true, yes: true }, terminal),
+          ["the raw digest was not signed"],
+        );
+
+        assert.equal(asked(), QUESTION);
+        assert.equal(
+          signOutput.warned,
+          '[hardhat-kms] --yes does not skip the question: key "deployer" does not set allowRawDigests: true\n',
+        );
+        assert.equal(kmsCalls(created), 0);
+      }
+    });
+
+    it("asks a key with allowRawDigests at a terminal unless --yes is given", async () => {
+      const { hre } = await signRuntime({ deployer: pinned(true) });
+      const { terminal, asked } = answering("y\n");
+
+      const { result } = await runSign(
+        hre,
+        { key: "deployer", message: DIGEST, noHash: true },
+        terminal,
+      );
+
+      assert.equal(asked(), QUESTION);
+      assert.equal(result, await ACCOUNT_0.sign({ hash: DIGEST }));
+    });
+
+    it("signs with --yes for a key with allowRawDigests, with a note and no question", async () => {
+      for (const terminal of [NO_TERMINAL, answering("n\n").terminal]) {
+        const { hre, created } = await signRuntime({ deployer: pinned(true) });
+
+        const { result, printed, warned } = await runSign(
+          hre,
+          { key: "deployer", message: DIGEST, noHash: true, yes: true },
+          terminal,
+        );
+
+        assert.equal(result, await ACCOUNT_0.sign({ hash: DIGEST }));
+        assert.equal(printed, `${result}\n`);
+        assert.equal(
+          warned,
+          "[hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.\n",
+        );
+        assert.equal(created[0]?.calls.signDigest, 1);
+      }
+    });
+
+    it("refuses without a terminal unless the key opts in and --yes is given, naming what is missing", async () => {
+      const cases: [KmsKeyUserConfig, boolean, string][] = [
+        [
+          pinned(),
+          false,
+          'kms sign: without a terminal, --no-hash signs only with a key that sets allowRawDigests: true, and with --yes. Key "deployer" does not set allowRawDigests: true, and --yes was not passed',
+        ],
+        [
+          pinned(false),
+          true,
+          'kms sign: without a terminal, --no-hash signs only with a key that sets allowRawDigests: true. Key "deployer" does not set it, so --yes cannot skip the question',
+        ],
+        [
+          pinned(true),
+          false,
+          'kms sign: without a terminal, --no-hash needs --yes. Key "deployer" sets allowRawDigests: true, and --yes was not passed',
+        ],
+      ];
+      for (const [deployer, yes, message] of cases) {
+        const { hre, created } = await signRuntime({ deployer });
+
+        await assert.rejects(
+          runSign(hre, { key: "deployer", message: DIGEST, noHash: true, yes }),
+          (error: unknown) => error instanceof HardhatPluginError && error.message === message,
+        );
+
+        assert.equal(signOutput.printed, "");
+        assert.equal(kmsCalls(created), 0);
+      }
+    });
+
+    it("refuses a --kms key without a terminal, since it cannot opt in", async () => {
+      process.env.AWS_KMS_KEY_ID = "alias/from-env";
+      for (const yes of [false, true]) {
+        const { hre, created } = await runtime({
+          kms: "aws",
+          adapters: { AWS_KMS_KEY_ID: () => closableAdapter() },
+        });
+
+        await assertKmsError(
+          runSign(hre, { key: "AWS_KMS_KEY_ID", message: DIGEST, noHash: true, yes }),
+          [
+            'kms sign: key "AWS_KMS_KEY_ID" comes from --kms and has no config, so it cannot set allowRawDigests: true. Without a terminal, --no-hash cannot sign with it',
+          ],
+        );
+        assert.equal(kmsCalls(created), 0);
+      }
+    });
+
+    it("signs a --kms key's raw digest at a terminal after yes", async () => {
+      process.env.AWS_KMS_KEY_ID = "alias/from-env";
+      const { hre } = await runtime({
+        kms: "aws",
+        adapters: { AWS_KMS_KEY_ID: () => closableAdapter() },
+      });
+      const { terminal, asked } = answering("yes\n");
+
+      const { result } = await runSign(
+        hre,
+        { key: "AWS_KMS_KEY_ID", message: DIGEST, noHash: true, yes: true },
+        terminal,
+      );
+
+      assert.ok(asked().includes("  key      AWS_KMS_KEY_ID\n"));
+      assert.equal(result, await ACCOUNT_0.sign({ hash: DIGEST }));
+    });
+
+    it("signs the digest of an EIP-7702 authorization under the opt-in, and the tuple recovers", async () => {
+      // The opt-in is the only barrier: a raw digest can be an authorization, and nothing in the
+      // 32 bytes tells the plugin so.
+      const { hre } = await signRuntime({ deployer: pinned(true) });
+      const authorization = {
+        chainId: 11_155_111,
+        contractAddress: getAddress(COW_ACCOUNT.address),
+        nonce: 7,
+      };
+      const digest = hashAuthorization(authorization);
+
+      const { result } = await runSign(hre, {
         key: "deployer",
-        message: DIGEST,
+        message: digest,
         noHash: true,
+        yes: true,
       });
 
-      assert.equal(printed, `${String(result)}\n`);
-      assert.ok(typeof result === "string" && SIGNATURE.test(result));
-      assert.equal(result, await ACCOUNT_0.sign({ hash: DIGEST }));
+      assert.ok(typeof result === "string");
       assert.equal(
-        await recoverAddress({ hash: DIGEST, signature: `0x${result.slice(2)}` }),
+        await recoverAuthorizationAddress({
+          authorization: {
+            address: authorization.contractAddress,
+            chainId: authorization.chainId,
+            nonce: authorization.nonce,
+          },
+          signature: `0x${result.slice(2)}`,
+        }),
         ACCOUNT_0.address,
       );
-      assert.match(warned, /^\[hardhat-kms\] --no-hash signs the 32 bytes as they are/);
-      assert.equal(created[0]?.calls.signDigest, 1);
+    });
+
+    it("refuses --yes without --no-hash", async () => {
+      const { hre, created } = await signRuntime();
+
+      await assertKmsError(runSign(hre, { key: "deployer", message: "hello", yes: true }), [
+        "kms sign: --yes applies only to --no-hash",
+      ]);
+      assert.equal(created.length, 0);
     });
 
     it("refuses anything but exactly 32 bytes, before any KMS call", async () => {
@@ -945,7 +1255,9 @@ describe("kms sign", () => {
     }
 
     it("refuses a digest signature that does not recover to the key", async () => {
-      const { hre, created } = await signRuntime();
+      const { hre, created } = await signRuntime({
+        deployer: { ...vaultKey("deployer"), allowRawDigests: true },
+      });
       const signed = mock.method(KmsSigner.prototype, "signDigest", async () => {
         const forged = secp256k1.Signature.fromBytes(
           secp256k1.sign(hex(DIGEST.slice(2)), hex(COW_ACCOUNT.secretKey), {
@@ -957,9 +1269,10 @@ describe("kms sign", () => {
         return { r: forged.r, s: forged.s, yParity: forged.recovery === 1 ? 1 : 0 } as const;
       });
       try {
-        await assertKmsError(runSign(hre, { key: "deployer", message: DIGEST, noHash: true }), [
-          "the signature does not recover to the key's address",
-        ]);
+        await assertKmsError(
+          runSign(hre, { key: "deployer", message: DIGEST, noHash: true, yes: true }),
+          ["the signature does not recover to the key's address"],
+        );
         assert.equal(signOutput.printed, "");
         assert.equal(created[0]?.closed, 1);
       } finally {

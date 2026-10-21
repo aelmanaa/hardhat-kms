@@ -19,7 +19,10 @@ const log = process.env.HARDHAT_KMS_NO_VIEM_LOG ?? "";
 const hre = await createHardhatRuntimeEnvironment(
   {
     plugins: [hardhatKms],
-    kms: { keys: { deployer: vaultKey("deployer") }, simulatedBalance: 10n ** 18n },
+    kms: {
+      keys: { deployer: { ...vaultKey("deployer"), allowRawDigests: true } },
+      simulatedBalance: 10n ** 18n,
+    },
     networks: {
       local: { type: "edr-simulated", hardfork: "prague", accounts: [], kmsAccounts: ["deployer"] },
     },
@@ -58,7 +61,7 @@ const tasks: [string, Record<string, unknown>][] = [
   ["public-key", { key: "deployer" }],
   ["sign", { ...sign, message: "hello" }],
   ["sign", { ...sign, message: typedData, data: true }],
-  ["sign", { ...sign, message: `0x${"ab".repeat(32)}`, noHash: true }],
+  ["sign", { ...sign, message: `0x${"ab".repeat(32)}`, noHash: true, yes: true }],
   [
     "verify",
     {

@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 
+import type { KmsKeyConfig } from "../../types.ts";
 import { addressFromPublicKey, sameAddress } from "../crypto/address.ts";
 import { authorizationDigest } from "../crypto/digests.ts";
 import {
@@ -65,7 +66,7 @@ export interface AccountConnection {
   /** The network's name, for messages. */
   network: string;
   /** The connection's KMS accounts. */
-  accounts: Pick<ConnectionAccounts, "keyFor" | "addresses" | "signWith">;
+  accounts: Pick<ConnectionAccounts, "keys" | "keyFor" | "addresses" | "signWith">;
   /** The connection's chain id. */
   chainId(): Promise<bigint>;
   /** `kms.allowCrossChainTypedData`. */
@@ -288,6 +289,25 @@ function checkOpen(connection: AccountConnection, operation: string): void {
 function checkNotCancelled(signal: AbortSignal | undefined, operation: string): void {
   if (signal?.aborted === true) {
     throw catalogError(ERRORS.accountCancelled, {}, { operation });
+  }
+}
+
+/**
+ * Refuses `rawSign` for a key without `allowRawDigests: true` (decision 0021). Called before the
+ * key lookup with the keys that could be at the address, so that the config alone refuses with no
+ * KMS call, and again with the key the lookup found.
+ *
+ * @param keys - The keys that could hold the address.
+ * @param address - The checksummed address.
+ * @param operation - The account method, for the error message.
+ */
+function checkRawSignAllowed(
+  keys: readonly KmsKeyConfig[],
+  address: string,
+  operation: string,
+): void {
+  if (!keys.some((key) => key.allowRawDigests === true)) {
+    throw catalogError(ERRORS.accountRawSignNotAllowed, { address }, { operation });
   }
 }
 
@@ -621,6 +641,16 @@ export function createKmsNetworkConnection(
     checkNotCancelled(checked.signal, operation);
     const checksummed = readAddress(address, "address", operation);
     const { accounts } = connection;
+    if (checked.rawSign) {
+      // The keys pinned to the address, and those without a pin, which could derive to it.
+      const candidates = accounts.keys.filter(
+        (candidate) =>
+          candidate.address === undefined || sameAddress(candidate.address, checksummed),
+      );
+      if (candidates.length > 0) {
+        checkRawSignAllowed(candidates, checksummed, operation);
+      }
+    }
     const key = await accounts.keyFor(checksummed.toLowerCase());
     if (key === undefined) {
       const sentence = kmsAccountsSentence(await accounts.addresses());
@@ -633,6 +663,9 @@ export function createKmsNetworkConnection(
         },
         { operation },
       );
+    }
+    if (checked.rawSign) {
+      checkRawSignAllowed([key], checksummed, operation);
     }
     const { signal } = checked;
     const withSigner: WithSigner = async (method, use) => {
@@ -649,7 +682,7 @@ export function createKmsNetworkConnection(
     );
     if (checked.rawSign) {
       warn(
-        `the account ${checksummed} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,
+        `the account ${checksummed} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain, or an EIP-7702 authorization of this account. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,
       );
     }
     log("%s: account for network %s", checksummed, connection.network);
