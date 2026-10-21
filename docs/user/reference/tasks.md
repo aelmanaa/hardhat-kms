@@ -260,15 +260,15 @@ When standard input and standard error are both terminals, the task asks on stan
   key      deployer
   account  0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
   digest   0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8
-raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.
+Raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.
 Sign? [y/N]
 ```
 
-The digest is printed in full. The default is no: only `y` or `yes`, in any case, signs. `n`, an empty line, any other answer, or input that closes (Ctrl-D) fails with [`core.task.raw-digest-declined`](errors.md#tasks), exits non-zero and sends nothing to the KMS for signing. For a key without an `address` pin, the task reads the key's address from the KMS before it asks, so that the question can show it; that call reads the public key and signs nothing.
+The digest is printed in full. Input that arrived before the question appeared, such as a line typed ahead or piped in early, is discarded and does not answer it. The default is no: only `y` or `yes`, in any case, signs. `n`, an empty line, any other answer, or input that closes (Ctrl-D) fails with [`core.task.raw-digest-declined`](errors.md#tasks), exits non-zero and sends nothing to the KMS for signing. For a key without an `address` pin, the task reads the key's address from the KMS before it asks, so that the question can show it; that call reads the public key and signs nothing.
 
 A key opts in to raw digests with [`allowRawDigests: true`](configuration.md) in the Hardhat config. The opt-in is a property of the key, which a reviewer sees in the config, not an option any caller can pass:
 
-| Key                               | At a terminal                             | Without a terminal (CI, a script, an agent)                           |
+| Key                               | At a terminal                             | Without a terminal on standard input and standard error               |
 | --------------------------------- | ----------------------------------------- | --------------------------------------------------------------------- |
 | Without `allowRawDigests`         | Asks. `--yes` does not skip the question. | Refused, with or without `--yes`.                                     |
 | With `allowRawDigests: true`      | Asks, unless `--yes` is given.            | Signs with `--yes`. Refused without it.                               |
@@ -277,7 +277,7 @@ A key opts in to raw digests with [`allowRawDigests: true`](configuration.md) in
 Each refusal names what is missing, the opt-in or `--yes`, and makes no KMS call. With the opt-in and `--yes`, the task prints a warning to standard error and signs:
 
 ```text
-[hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.
+[hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.
 ```
 
 To sign raw digests in CI, set `allowRawDigests: true` on the key and pass `--yes`:
@@ -286,7 +286,7 @@ To sign raw digests in CI, set `allowRawDigests: true` on the key and pass `--ye
 npx hardhat kms sign --no-hash --yes deployer <digest>
 ```
 
-The opt-in is the only barrier between code that runs the task with `--yes` and a signed authorization: a test signs the digest of an EIP-7702 authorization this way and recovers the tuple's signer. Set it only on a key that needs raw digests, and keep that key's funds and roles small. Code in the same process can also change the config or call the cloud SDK itself ([Security model](../explanation/security-model.md#raw-digests-and-eip-7702)).
+The opt-in is the only barrier between code that runs the task with `--yes` and a signed authorization. Set it only on a key that needs raw digests, and keep that key's funds and roles small. The question stops callers without a terminal, such as CI or a script with piped input. It does not prove a person answered: a program that drives a pseudo-terminal passes the terminal check and can type `y`, and code in the same process can also feed the input, edit the config or call the cloud SDK itself ([Security model](../explanation/security-model.md#raw-digests-and-eip-7702)).
 
 ## `kms verify`
 

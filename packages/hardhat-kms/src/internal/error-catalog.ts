@@ -1635,7 +1635,7 @@ export const ERRORS = {
       "`kms sign --no-hash` asked at the terminal before signing, and the answer was not `y` or `yes`: `n`, an empty line, another word, or input that closed. Nothing was sent to the KMS for signing.",
     fix: "Run the task again and answer `y` if you computed the digest yourself and know what it authorizes.",
   },
-  rawDigestNotAllowedNoYes: {
+  rawDigestNoTerminal: {
     id: "core.task.raw-digest-no-terminal",
     kind: "error",
     group: "Tasks",

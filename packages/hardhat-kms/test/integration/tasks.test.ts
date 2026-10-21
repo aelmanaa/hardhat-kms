@@ -453,21 +453,24 @@ const NO_TERMINAL: Terminal = {
 };
 
 /**
- * A terminal that answers the task's question with `answer`, or closes its input when `answer`
- * is `undefined`, and records what the task wrote to it.
+ * A terminal that answers the task's question with `answer` once the prompt is shown, or closes
+ * its input then when `answer` is `undefined`, and records what the task wrote to it. A line
+ * written before the question would be discarded as type-ahead.
  */
 function answering(answer: string | undefined): { terminal: Terminal; asked: () => string } {
   const input = new PassThrough();
-  if (answer === undefined) {
-    input.end();
-  } else {
-    input.write(answer);
-  }
   let asked = "";
   const output = new Writable({
     write(chunk: Buffer, _encoding, done) {
       asked += chunk.toString();
       done();
+      if (asked.endsWith("Sign? [y/N] ")) {
+        if (answer === undefined) {
+          input.end();
+        } else {
+          input.write(answer);
+        }
+      }
     },
   });
   return { terminal: { interactive: true, input, output }, asked: () => asked };
@@ -671,7 +674,7 @@ describe("kms sign", () => {
       "  key      deployer",
       `  account  ${ACCOUNT_0.address}`,
       `  digest   ${DIGEST}`,
-      "raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.",
+      "Raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.",
       "Sign? [y/N] ",
     ].join("\n");
 
@@ -697,6 +700,47 @@ describe("kms sign", () => {
         );
         assert.equal(created[0]?.calls.signDigest, 1);
       }
+    });
+
+    it("asks inside hre.interruptions.uninterrupted, so no other prompt interleaves", async () => {
+      const { hre } = await signRuntime({ deployer: pinned() });
+      const { terminal } = answering("y\n");
+      let inside = false;
+      let insideWhenAsked: boolean | undefined;
+      const uninterrupted = mock.method(
+        hre.interruptions,
+        "uninterrupted",
+        async <ReturnT>(task: () => ReturnT): Promise<Awaited<ReturnT>> => {
+          inside = true;
+          try {
+            return await task();
+          } finally {
+            inside = false;
+          }
+        },
+      );
+      const watched: Terminal = {
+        interactive: true,
+        input: terminal.input,
+        output: new Writable({
+          write(chunk: Buffer, _encoding, done) {
+            insideWhenAsked ??= inside;
+            terminal.output.write(chunk, done);
+          },
+        }),
+      };
+      try {
+        const { result } = await runSign(
+          hre,
+          { key: "deployer", message: DIGEST, noHash: true },
+          watched,
+        );
+        assert.equal(result, await ACCOUNT_0.sign({ hash: DIGEST }));
+      } finally {
+        uninterrupted.mock.restore();
+      }
+      assert.equal(uninterrupted.mock.callCount(), 1);
+      assert.equal(insideWhenAsked, true);
     });
 
     it("makes no KMS call and fails on n, an empty line, another word or closed input", async () => {
@@ -776,7 +820,7 @@ describe("kms sign", () => {
         assert.equal(printed, `${result}\n`);
         assert.equal(
           warned,
-          "[hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.\n",
+          "[hardhat-kms] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix. Raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.\n",
         );
         assert.equal(created[0]?.calls.signDigest, 1);
       }

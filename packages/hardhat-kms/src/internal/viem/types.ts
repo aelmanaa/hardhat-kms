@@ -214,8 +214,9 @@ export interface KmsNonceManager {
 /** A {@link KmsAccount} that also signs bare digests, from `getAccount(address, { rawSign: true })`. */
 export interface KmsRawSignAccount extends KmsAccount {
   /**
-   * Signs a 32-byte digest as it is, with no prefix. Whatever the digest stands for is signed,
-   * a transaction for any chain included.
+   * Signs a 32-byte digest as it is, with no prefix. Whatever the digest stands for is signed: a
+   * transaction or a permit for any chain, or an EIP-7702 authorization that delegates the account
+   * to any contract. Only a key with `allowRawDigests: true` in the Hardhat config has this method.
    *
    * @param parameters - The digest.
    * @returns The 65-byte `r || s || v` signature.
@@ -226,8 +227,10 @@ export interface KmsRawSignAccount extends KmsAccount {
 /** Options of `connection.kms.getAccount`. */
 export interface KmsAccountOptions {
   /**
-   * Add `sign({ hash })`, which signs a bare digest. Off by default (decision 0014); some smart
-   * account owners need it. A warning is printed when it is on.
+   * Add `sign({ hash })`, which signs a bare digest. Off by default (decisions 0014 and 0021);
+   * some smart account owners need it. It works only for a key with `allowRawDigests: true` in the
+   * Hardhat config, since a bare digest can be an EIP-7702 authorization of the account;
+   * `getAccount` refuses it for any other key. A warning is printed when it is on.
    */
   rawSign?: boolean | undefined;
   /** Let `signAuthorization` sign for chain 0, which makes the authorization valid on every chain. */
@@ -249,8 +252,9 @@ export interface KmsNetworkConnection {
    * package, and asks the KMS for the key's public key once.
    *
    * @param address - The address of one of the connection's KMS accounts.
-   * @param options - Options; `rawSign: true` adds `sign({ hash })`, and `signal` cancels the
-   * account's KMS calls.
+   * @param options - Options; `rawSign: true` adds `sign({ hash })`, which needs
+   * `allowRawDigests: true` on the key because a bare digest can be an EIP-7702 authorization, and
+   * `signal` cancels the account's KMS calls.
    * @returns The account.
    */
   readonly getAccount: {

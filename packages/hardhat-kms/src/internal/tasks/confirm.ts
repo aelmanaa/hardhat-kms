@@ -1,7 +1,9 @@
 // The question a task asks a person before it signs something the plugin cannot check, such as a
 // raw digest. Hardhat's `hre.interruptions.requestInput` is not used: it writes the question to
-// standard output, which holds a task's result, any plugin can answer it through the
-// `userInterruptions` hook, and its readline question never settles when standard input closes.
+// standard output, which holds a task's result, and its readline question never settles when
+// standard input closes. Its `userInterruptions` hook also lets a plugin supply the answer through
+// a documented interface; code in the same process can still feed this question's input or edit
+// the config, so the question stops non-interactive callers, not in-process code.
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { isatty } from "node:tty";
@@ -20,13 +22,16 @@ export interface Terminal {
 }
 
 /**
- * The process's terminal. Standard input is opened only when a question reads it.
+ * The process's terminal. Standard input is opened only when a question reads it. A
+ * pseudo-terminal passes the check: a program that drives one can answer.
  *
+ * @param isTerminal - Whether a file descriptor is a terminal; tests pass a stub.
  * @returns The terminal of this process.
  */
-export function processTerminal(): Terminal {
+export function processTerminal(isTerminal: (fd: number) => boolean = isatty): Terminal {
   return {
-    interactive: isatty(0) && isatty(2),
+    // Both: the question goes to standard error and the answer comes from standard input.
+    interactive: isTerminal(0) && isTerminal(2),
     get input(): Readable {
       return process.stdin;
     },
@@ -51,6 +56,11 @@ export function isYes(answer: string): boolean {
  * is no: only {@link isYes} answers agree. Input that is closed, or closes or fails before a line
  * arrives, declines, so the question always settles.
  *
+ * Input the stream already holds when the question is shown is discarded, so a line typed or
+ * piped before the question, or left over from an earlier question in the same process, cannot
+ * answer it. Keystrokes still in the terminal driver's own buffer are not reachable from Node.js
+ * and are not discarded.
+ *
  * @param terminal - Where to ask; it must be interactive.
  * @param lines - What to show before the prompt, one entry per line.
  * @param prompt - The prompt, on the line the answer is typed on.
@@ -62,6 +72,7 @@ export async function confirm(
   prompt = "Sign? [y/N] ",
 ): Promise<boolean> {
   const { input, output } = terminal;
+  discardBuffered(input);
   output.write(`${lines.map((line) => `${line}\n`).join("")}${prompt}`);
   // readline waits for an `end` that a stream which already ended never emits again.
   if (input.readableEnded || input.destroyed) {
@@ -88,5 +99,17 @@ export async function confirm(
     return isYes(answer);
   } finally {
     reader.close();
+  }
+}
+
+/**
+ * Drops what a stream has buffered but nobody has read. A stream with nothing buffered is not
+ * touched, so standard input does not start reading before the question.
+ *
+ * @param input - The stream the answer will come from.
+ */
+function discardBuffered(input: Readable): void {
+  while (input.readableLength > 0 && input.read() !== null) {
+    // Each read takes one buffered chunk.
   }
 }

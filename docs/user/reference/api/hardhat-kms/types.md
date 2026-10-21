@@ -989,8 +989,10 @@ Let `signAuthorization` sign for chain 0, which makes the authorization valid on
 
 > `optional` **rawSign?**: `boolean`
 
-Add `sign({ hash })`, which signs a bare digest. Off by default (decision 0014); some smart
-account owners need it. A warning is printed when it is on.
+Add `sign({ hash })`, which signs a bare digest. Off by default (decisions 0014 and 0021);
+some smart account owners need it. It works only for a key with `allowRawDigests: true` in the
+Hardhat config, since a bare digest can be an EIP-7702 authorization of the account;
+`getAccount` refuses it for any other key. A warning is printed when it is on.
 
 ##### signal?
 
@@ -2035,8 +2037,9 @@ The address of one of the connection's KMS accounts.
 
 **options**
 
-Options; `rawSign: true` adds `sign({ hash })`, and `signal` cancels the
-account's KMS calls.
+Options; `rawSign: true` adds `sign({ hash })`, which needs
+`allowRawDigests: true` on the key because a bare digest can be an EIP-7702 authorization, and
+`signal` cancels the account's KMS calls.
 
 ###### Returns
 
@@ -2245,8 +2248,9 @@ The uncompressed public key, 65 bytes starting with `0x04`.
 
 > `readonly` **sign**: (`parameters`: \{ `hash`: `` `0x${string}` ``; \}) => `Promise`\<`` `0x${string}` ``\>
 
-Signs a 32-byte digest as it is, with no prefix. Whatever the digest stands for is signed,
-a transaction for any chain included.
+Signs a 32-byte digest as it is, with no prefix. Whatever the digest stands for is signed: a
+transaction or a permit for any chain, or an EIP-7702 authorization that delegates the account
+to any contract. Only a key with `allowRawDigests: true` in the Hardhat config has this method.
 
 ###### Parameters
 

@@ -32,6 +32,7 @@ packages/hardhat-kms/src/internal/hook-handlers/network.ts
 packages/hardhat-kms/src/internal/tasks/sign.ts
 packages/hardhat-kms/src/internal/tasks/sign-tx.ts
 packages/hardhat-kms/src/internal/tasks/sign-auth.ts
+packages/hardhat-kms/src/internal/tasks/confirm.ts
 packages/hardhat-kms/src/internal/config/**
 packages/hardhat-kms/src/internal/debug.ts
 packages/hardhat-kms/src/internal/errors.ts

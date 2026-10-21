@@ -534,7 +534,7 @@ describe("a library account reads fields as viem does", () => {
         warn.mock.calls.map((call) => call.arguments),
         [
           [
-            `hardhat-kms: the account ${ADDRESS} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,
+            `hardhat-kms: the account ${ADDRESS} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain, or an EIP-7702 authorization of this account. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,
           ],
         ],
       );

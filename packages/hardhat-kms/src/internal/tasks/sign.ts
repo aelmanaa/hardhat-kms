@@ -38,7 +38,7 @@ type Payload =
 
 /** What a raw digest's question and note say about it (decision 0021). */
 const RAW_DIGEST_WARNING =
-  "raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.";
+  "Raw digest: the plugin cannot tell what it authorizes. It could be a transaction, a permit, or an EIP-7702 delegation of this account.";
 
 /**
  * Builds the action of `kms sign <key> <message>`, which signs an EIP-191 message, EIP-712 typed
@@ -166,7 +166,7 @@ async function approveRawDigest(
     if (!optedIn) {
       throw args.yes
         ? catalogError(ERRORS.rawDigestNotAllowed, { name }, { operation: OPERATION })
-        : catalogError(ERRORS.rawDigestNotAllowedNoYes, { name }, { operation: OPERATION });
+        : catalogError(ERRORS.rawDigestNoTerminal, { name }, { operation: OPERATION });
     }
     throw catalogError(ERRORS.rawDigestNeedsYes, { name }, { operation: OPERATION });
   }

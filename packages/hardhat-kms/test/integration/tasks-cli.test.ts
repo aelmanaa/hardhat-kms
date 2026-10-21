@@ -391,7 +391,7 @@ describe("kms tasks from the Hardhat CLI", () => {
     );
     assert.match(
       run.stderr,
-      /\[hardhat-kms\] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix\. raw digest: the plugin cannot tell what it authorizes\./,
+      /\[hardhat-kms\] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix\. Raw digest: the plugin cannot tell what it authorizes\./,
     );
   });
 

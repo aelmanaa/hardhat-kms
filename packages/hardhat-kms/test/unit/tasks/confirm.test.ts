@@ -97,6 +97,37 @@ describe("confirm", () => {
     assert.equal(await answer, false);
   });
 
+  it("discards a line buffered before the question, then reads the answer", async () => {
+    const { terminal, input } = fakeTerminal();
+    // Type-ahead, or a line left over from an earlier question in the process.
+    input.write("y\n");
+    assert.ok(input.readableLength > 0);
+    const answer = confirm(terminal, []);
+    assert.equal(input.readableLength, 0);
+    input.write("n\n");
+    assert.equal(await answer, false);
+  });
+
+  it("discards several buffered chunks, and declines when nothing else arrives", async () => {
+    const { terminal, input } = fakeTerminal();
+    input.write("yes\n");
+    input.write("y\n");
+    const answer = confirm(terminal, []);
+    input.end();
+    assert.equal(await answer, false);
+  });
+
+  it("asks a second question that a line meant for the first cannot answer", async () => {
+    const { terminal, input } = fakeTerminal();
+    const first = confirm(terminal, ["first"]);
+    // Two answers in one chunk: the second must not carry over.
+    input.write("y\ny\n");
+    assert.equal(await first, true);
+    const second = confirm(terminal, ["second"]);
+    input.write("n\n");
+    assert.equal(await second, false);
+  });
+
   it("takes a last line without a newline when the input ends", async () => {
     const { terminal, input } = fakeTerminal();
     const answer = confirm(terminal, []);
@@ -142,7 +173,24 @@ describe("confirm on a real standard input", () => {
 });
 
 describe("processTerminal", () => {
-  it("is interactive only when standard input and standard error are terminals", () => {
+  it("is interactive only when both standard input and standard error are terminals", () => {
+    for (const [stdin, stderr, interactive] of [
+      [true, true, true],
+      [true, false, false],
+      [false, true, false],
+      [false, false, false],
+    ] as const) {
+      const asked: number[] = [];
+      const terminal = processTerminal((fd) => {
+        asked.push(fd);
+        return fd === 0 ? stdin : fd === 2 ? stderr : true;
+      });
+      assert.equal(terminal.interactive, interactive, `stdin ${stdin}, stderr ${stderr}`);
+      assert.ok(!asked.includes(1), "standard output is never checked");
+    }
+  });
+
+  it("checks the real file descriptors by default", () => {
     const terminal = processTerminal();
     assert.equal(terminal.interactive, isatty(0) && isatty(2));
     assert.equal(terminal.output, process.stderr);

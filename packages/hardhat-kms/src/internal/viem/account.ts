@@ -682,7 +682,7 @@ export function createKmsNetworkConnection(
     );
     if (checked.rawSign) {
       warn(
-        `the account ${checksummed} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,
+        `the account ${checksummed} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain, or an EIP-7702 authorization of this account. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,
       );
     }
     log("%s: account for network %s", checksummed, connection.network);
