@@ -113,12 +113,18 @@ describe("confirm on a real standard input", () => {
     process.stdout.write(String(agreed));
   `;
   const run = (stdin: "ignore" | "pipe", input?: string) =>
-    spawnSync(process.execPath, ["--input-type=module", "-e", script], {
-      stdio: [stdin, "pipe", "pipe"],
-      ...(input === undefined ? {} : { input }),
-      encoding: "utf8",
-      timeout: 20_000,
-    });
+    // Node 24.0 warns on stderr that type stripping is experimental; stderr must hold only the
+    // question.
+    spawnSync(
+      process.execPath,
+      ["--disable-warning=ExperimentalWarning", "--input-type=module", "-e", script],
+      {
+        stdio: [stdin, "pipe", "pipe"],
+        ...(input === undefined ? {} : { input }),
+        encoding: "utf8",
+        timeout: 20_000,
+      },
+    );
 
   it("declines, and exits, when standard input is closed or empty", () => {
     for (const result of [run("ignore"), run("pipe", "")]) {
