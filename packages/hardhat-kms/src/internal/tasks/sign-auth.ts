@@ -8,6 +8,7 @@ import { recoverPublicKey, toLowS } from "../crypto/signature.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
 import { ConnectionChain, parseChainId } from "../rpc/chain-id.ts";
+import { checkDelegate, matchDelegate } from "../signer/delegates.ts";
 import { findTaskKey, printLine, printNote, withTaskSigners } from "./keys.ts";
 
 /** The arguments of `kms sign-auth`. */
@@ -62,6 +63,18 @@ interface AuthorizationInputs {
 const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) => {
   const key = findTaskKey(hre, args.key);
   const inputs = readInputs(args, hre);
+  // The allowlist first (#562). With --network the chain may need the connection, which can call
+  // the KMS, so a delegate the list names for no chain is refused before it opens.
+  if (
+    inputs.network !== undefined &&
+    matchDelegate(key.allowedDelegates, inputs.delegate, undefined).kind === "unlisted"
+  ) {
+    throw catalogError(
+      ERRORS.delegateNotListedNetwork,
+      { keyName: key.name, delegate: inputs.delegate, network: inputs.network },
+      { operation: OPERATION },
+    );
+  }
   // The connection opens only for what neither the command line nor the config gives. Opening it
   // runs the network hook, which can call the KMS, for example to fund a simulated network.
   const configured = configuredChain(hre, inputs.network);
@@ -76,6 +89,26 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
       (configured !== undefined && inputs.nonce !== undefined
         ? BigInt(configured)
         : await networkChain(await connect(), configured));
+    // No flag overrides the list. A pinned code hash is read from the --network node; with
+    // --chain there is none, so a pinned delegate is refused.
+    const network = inputs.network;
+    const allowed = await checkDelegate(
+      {
+        key,
+        node:
+          network === undefined
+            ? undefined
+            : {
+                chainId: async () => await networkChain(await connect(), configured),
+                getCode: async (address) => await readCode(await connect(), address),
+              },
+        note: printNote,
+        operation: OPERATION,
+      },
+      inputs.delegate,
+      chainId,
+    );
+    const label = allowed.kind === "listed" ? allowed.label : undefined;
     if (chainId === 0n && !args.force) {
       throw catalogError(ERRORS.authChainZero, {}, { operation: OPERATION });
     }
@@ -91,7 +124,7 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
       }
       // What is about to be signed, before the KMS call, which may wait for an approval.
       printNote(
-        `authority ${authority}, chain ${chainId} (${chainSource}), nonce ${nonce}, delegate ${inputs.delegate}`,
+        `authority ${authority}, chain ${chainId} (${chainSource}), nonce ${nonce}, delegate ${inputs.delegate}${label === undefined ? "" : ` (${label})`}`,
       );
       if (
         connection !== undefined &&
@@ -238,6 +271,15 @@ async function authorityNonce(
   return selfBroadcast ? pending + 1n : pending;
 }
 
+/** The delegate's code on the `--network` node, as the node answers it. */
+async function readCode(connection: NetworkConnection, address: string): Promise<unknown> {
+  const code: unknown = await connection.provider.request({
+    method: "eth_getCode",
+    params: [address, "latest"],
+  });
+  return code;
+}
+
 /**
  * Warns when the delegate has no code on the `--network` node, which usually means an address
  * copied from another chain. The authorization is still signed: the code may be deployed later.
@@ -247,10 +289,7 @@ async function warnIfNoCode(
   delegate: string,
   network: string,
 ): Promise<void> {
-  const code: unknown = await connection.provider.request({
-    method: "eth_getCode",
-    params: [delegate, "latest"],
-  });
+  const code = await readCode(connection, delegate);
   if (code === "0x") {
     printNote(
       `the delegate ${delegate} has no code on network ${network}: check that it is the address for this chain`,

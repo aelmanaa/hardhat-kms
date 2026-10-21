@@ -20,6 +20,7 @@ import { ERRORS } from "../error-catalog.ts";
 import { catalogError, catalogMessage, errorName } from "../errors.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
+import { warn } from "../warnings.ts";
 import type { ConnectionChain } from "./chain-id.ts";
 import {
   canonicalJson,
@@ -38,7 +39,7 @@ import {
   withSendLock,
 } from "./send-guard.ts";
 import { notPlainData, stringResult, type TransactionFiller } from "./transaction-filler.ts";
-import { signTransaction } from "./transactions.ts";
+import { signTransaction, type TransactionDelegates } from "./transactions.ts";
 import { checkTypedDataChain, readTypedData } from "./typed-data.ts";
 
 const log = coreDebug("rpc");
@@ -685,6 +686,24 @@ async function kmsTransactionOf(
 }
 
 /**
+ * What a KMS account's transaction needs to check the delegates of its self-authorizations: the
+ * key's `allowedDelegates`, and the connection's node to read a pinned delegate's code from.
+ */
+function transactionDelegates(
+  key: KmsKeyConfig,
+  transactions: ConnectionTransactions,
+): TransactionDelegates {
+  return {
+    key,
+    node: {
+      chainId: async () => await transactions.chainId(),
+      getCode: async (address) => await transactions.request("eth_getCode", [address, "latest"]),
+    },
+    note: warn,
+  };
+}
+
+/**
  * Sends a KMS account's transaction under the send lock for its chain and address (rule 4).
  * Inside the lock: a retry entry for the same request is sent again; otherwise the transaction is
  * filled and signed inside `signWith`, then broadcast once with `next`, after `signWith` has
@@ -751,6 +770,7 @@ async function sendTransaction(
           method: request.method,
           params: kms.params,
           from: address,
+          delegates: transactionDelegates(kms.key, transactions),
           // Under the send lock, before it passes on: the next send must skip the nonce (#537).
           holdNonce: (nonce, copyHash) => {
             sends.holdOutstanding(address, nonce, copyHash);
@@ -816,6 +836,7 @@ async function signOnly(
           method: request.method,
           params: kms.params,
           from: address,
+          delegates: transactionDelegates(kms.key, transactions),
           chooseNonce: kms.callerNonce ? undefined : (pending) => sends.nonceFor(address, pending),
         }),
     );
@@ -837,6 +858,7 @@ async function signOnly(
           method: request.method,
           params: kms.params,
           from: address,
+          delegates: transactionDelegates(kms.key, transactions),
           chooseNonce: kms.callerNonce
             ? undefined
             : async (pending) => await sends.chooseNonce(address, pending, lookUp),

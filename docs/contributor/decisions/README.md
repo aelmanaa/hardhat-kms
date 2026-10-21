@@ -27,3 +27,4 @@ To add a record, copy [template.md](template.md) to the next number and open a p
 | [0019](0019-turnkey-without-sdk.md)                    | Call Turnkey's API without a Turnkey SDK                            | Accepted                  |
 | [0020](0020-turnkey-approvals-fail-fast.md)            | Fail at once when a Turnkey activity needs approval                 | Accepted, amended by #537 |
 | [0021](0021-raw-digests-need-a-person-or-an-opt-in.md) | Raw digests need a person at a terminal or a per-key opt-in         | Accepted                  |
+| [0022](0022-per-key-delegate-allowlist.md)             | Each key can limit its EIP-7702 delegates, per chain                | Accepted                  |

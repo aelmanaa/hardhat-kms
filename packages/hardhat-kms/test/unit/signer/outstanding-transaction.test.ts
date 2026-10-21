@@ -19,6 +19,7 @@ import {
   type TransactionToSign,
 } from "../../../src/internal/signer/kms-signer.ts";
 import type { KmsKeyAdapter, SignContext } from "../../../src/internal/signer/types.ts";
+import { NO_ALLOWLIST } from "../../helpers/delegates.ts";
 import { fakeAdapter } from "../../helpers/fake-adapter.ts";
 import { fakeTimers } from "../../helpers/fake-timers.ts";
 import { fakeTxAdapter } from "../../helpers/fake-tx-adapter.ts";
@@ -565,6 +566,7 @@ describe("signTransaction's nonce hold (#537)", () => {
           method: "eth_sendTransaction",
           params: [{ from: FROM }],
           from: FROM.toLowerCase(),
+          delegates: NO_ALLOWLIST,
           ...(withHold
             ? {
                 holdNonce: (nonce: bigint) => {
@@ -596,6 +598,7 @@ describe("signTransaction's nonce hold (#537)", () => {
       method: "kms sign-tx",
       params: [{ from: FROM }],
       from: FROM.toLowerCase(),
+      delegates: NO_ALLOWLIST,
     });
     assert.equal(signed.providerCopy?.nonce, 4n);
     assert.equal(signed.providerCopy?.who, "the provider");

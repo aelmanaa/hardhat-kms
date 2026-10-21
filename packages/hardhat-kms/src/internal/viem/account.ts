@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 
 import type { KmsKeyConfig } from "../../types.ts";
-import { addressFromPublicKey, sameAddress } from "../crypto/address.ts";
+import { addressFromPublicKey, sameAddress, toChecksumAddress } from "../crypto/address.ts";
 import { authorizationDigest } from "../crypto/digests.ts";
 import {
   type RecoverableSignature,
@@ -25,9 +25,12 @@ import {
 import {
   assembleSignedTransaction,
   checkSelfAuthorizations,
+  checkSelfDelegates,
+  type TransactionDelegates,
   transactionToSign,
 } from "../rpc/transactions.ts";
 import { checkTypedDataChain } from "../rpc/typed-data.ts";
+import { checkDelegate } from "../signer/delegates.ts";
 import {
   type KmsSigner,
   outstandingNonce,
@@ -69,6 +72,11 @@ export interface AccountConnection {
   accounts: Pick<ConnectionAccounts, "keys" | "keyFor" | "addresses" | "signWith">;
   /** The connection's chain id. */
   chainId(): Promise<bigint>;
+  /**
+   * `eth_getCode` for an address on the connection's node, to check a pinned delegate's code
+   * (`allowedDelegates`, #562).
+   */
+  getCode(address: string): Promise<unknown>;
   /** `kms.allowCrossChainTypedData`. */
   allowCrossChainTypedData: boolean;
   /** Whether the connection is closed; its accounts then refuse to sign. */
@@ -344,7 +352,22 @@ interface AccountContext {
   options: AccountOptions;
   /** The checksummed address. */
   address: KmsHex;
+  /** The account's key: its `allowedDelegates` limit the delegates it signs for. */
+  key: KmsKeyConfig;
   withSigner: WithSigner;
+}
+
+/** The account's key and node, for the `allowedDelegates` checks. */
+function accountDelegates(context: AccountContext): TransactionDelegates {
+  const { connection } = context;
+  return {
+    key: context.key,
+    node: {
+      chainId: async () => await connection.chainId(),
+      getCode: async (address) => await connection.getCode(address),
+    },
+    note: warn,
+  };
 }
 
 /**
@@ -371,7 +394,8 @@ async function signTransaction(
   }
   // The signer signs the same bytes the serializer's output is compared with.
   const toSign = transactionToSign(input.unsigned, input.chainId);
-  checkSelfAuthorizations(input.unsigned, address, operation);
+  const self = checkSelfAuthorizations(input.unsigned, address, operation);
+  await checkSelfDelegates(self, accountDelegates(context), operation);
   const custom = options?.serializer;
   const serializer = custom ?? context.viem.serializeTransaction;
   const serializerName = custom === undefined ? "viem's serializeTransaction" : "the serializer";
@@ -442,6 +466,12 @@ async function signAuthorization(
       );
     }
   }
+  // No option overrides the key's allowedDelegates (#562), allowChainZeroAuthorization included.
+  await checkDelegate(
+    { ...accountDelegates(context), operation },
+    toChecksumAddress(request.delegate),
+    BigInt(request.chainId),
+  );
   const digest = authorizationDigest({
     chainId: BigInt(request.chainId),
     address: request.delegateBytes,
@@ -687,7 +717,7 @@ export function createKmsNetworkConnection(
     }
     log("%s: account for network %s", checksummed, connection.network);
     return buildAccount(
-      { connection, viem, options: checked, address: checksummed, withSigner },
+      { connection, viem, options: checked, address: checksummed, key, withSigner },
       bytesHex(publicKey),
     );
   }

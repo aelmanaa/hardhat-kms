@@ -164,19 +164,23 @@ Outside viem's types, the digests can differ. A string `domain.chainId`, such as
 
 ## What is refused before any KMS call
 
-| Request                                                                                                                    | Error                                                                                                         |
-| -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| A transaction without `chainId`, or for another chain than the connection's                                                | `the transaction has no chainId…`, `the transaction is for chain …, but network … is chain …`                 |
-| A blob transaction (type 3), by `type` or by its blob fields                                                               | `blob transactions (EIP-4844) cannot be signed with KMS accounts…`                                            |
-| Another `type`, such as a chain's deposit type                                                                             | `transaction type … is not signed…`                                                                           |
-| A transaction that viem's serializer, or the chain serializer viem passes, encodes differently from the plugin, or refuses | `… encodes the transaction differently from hardhat-kms, so it was not signed`, `… failed on the transaction` |
-| An authorization for chain 0 without `allowChainZeroAuthorization`                                                         | `an authorization for chain 0 is valid on every chain…`                                                       |
-| An authorization for another chain than the connection's                                                                   | `the authorization is for chain …, but network … is chain …`                                                  |
-| Typed data for another chain, without `kms.allowCrossChainTypedData`                                                       | `the typed data is for chain …, but network … is chain …`                                                     |
-| A value of a form viem never passes                                                                                        | `… must be …`                                                                                                 |
-| Any call after the `signal` given to `getAccount` aborted                                                                  | `the signal given to getAccount has aborted…`                                                                 |
+| Request                                                                                                                    | Error                                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| A transaction without `chainId`, or for another chain than the connection's                                                | `the transaction has no chainId…`, `the transaction is for chain …, but network … is chain …`                  |
+| A blob transaction (type 3), by `type` or by its blob fields                                                               | `blob transactions (EIP-4844) cannot be signed with KMS accounts…`                                             |
+| Another `type`, such as a chain's deposit type                                                                             | `transaction type … is not signed…`                                                                            |
+| A transaction that viem's serializer, or the chain serializer viem passes, encodes differently from the plugin, or refuses | `… encodes the transaction differently from hardhat-kms, so it was not signed`, `… failed on the transaction`  |
+| An authorization for chain 0 without `allowChainZeroAuthorization`                                                         | `an authorization for chain 0 is valid on every chain…`                                                        |
+| An authorization for another chain than the connection's                                                                   | `the authorization is for chain …, but network … is chain …`                                                   |
+| An authorization, or a transaction's self-authorization, whose delegate the key's `allowedDelegates` does not allow        | `key … may not delegate to … on chain …`, `authorizationList[…] is signed by the sender and delegates it to …` |
+| A delegate whose entry pins a `codeHash` that its code on the connection's node does not match, or that has no code        | `the code of delegate … has hash …`, `delegate … has no code on chain …`                                       |
+| Typed data for another chain, without `kms.allowCrossChainTypedData`                                                       | `the typed data is for chain …, but network … is chain …`                                                      |
+| A value of a form viem never passes                                                                                        | `… must be …`                                                                                                  |
+| Any call after the `signal` given to `getAccount` aborted                                                                  | `the signal given to getAccount has aborted…`                                                                  |
 
 Each error is listed with its cause and fix in the [errors reference](errors.md#library-accounts).
+
+The `allowedDelegates` checks follow [Limit EIP-7702 delegates](configuration.md#limit-eip-7702-delegates). `allowChainZeroAuthorization` does not widen the list: a chain-0 authorization still needs an entry with `chains: "all"`. A pinned delegate's code is read with `eth_getCode` on the account's connection, and for a chain-0 authorization a warning says it was checked on that chain only. The zero address always passes. Self-authorizations in `signTransaction` are the authorizations that recover to the account; authorizations signed by other accounts are not checked. These errors are listed in the [errors reference](errors.md#eip-7702-delegates).
 
 ## Cancelling with a signal
 

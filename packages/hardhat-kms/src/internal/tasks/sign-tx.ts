@@ -18,7 +18,7 @@ import {
 } from "../rpc/transaction-filler.ts";
 import { type SignedTransaction, signTransaction } from "../rpc/transactions.ts";
 import { jsonErrorOffset, lineAndColumn } from "./json-position.ts";
-import { printLine, printNote, withNamedSigner } from "./keys.ts";
+import { findTaskKey, printLine, printNote, withTaskSigners } from "./keys.ts";
 
 /** The arguments of `kms sign-tx`. */
 interface SignTxArguments {
@@ -251,7 +251,9 @@ const kmsSignTx: NewTaskActionFunction<SignTxArguments> = async ({ key, tx: file
   if (request.to === undefined || request.to === null) {
     printNote("the transaction has no `to`: it creates a contract");
   }
-  const signed: SignedTransaction = await withNamedSigner(hre, key, async (signer) => {
+  const keyConfig = findTaskKey(hre, key);
+  const signed: SignedTransaction = await withTaskSigners(hre, async (signerFor) => {
+    const signer = await signerFor(keyConfig);
     const address = (await signer.getAddress()).toLowerCase();
     const { from } = request;
     if (from !== undefined && (typeof from !== "string" || !sameAddress(from, address))) {
@@ -267,11 +269,26 @@ const kmsSignTx: NewTaskActionFunction<SignTxArguments> = async ({ key, tx: file
     }
     const connection = await hre.network.create(network);
     try {
+      const chain = createConnectionChain(connection);
       return await signTransaction(signer, {
-        filler: createTransactionFiller(connection, createConnectionChain(connection)),
+        filler: createTransactionFiller(connection, chain),
         method: OPERATION,
         params: [{ ...request, from: address }],
         from: address,
+        delegates: {
+          key: keyConfig,
+          node: {
+            chainId: async () => await chain.chainId(),
+            getCode: async (codeAddress) => {
+              const code: unknown = await connection.provider.request({
+                method: "eth_getCode",
+                params: [codeAddress, "latest"],
+              });
+              return code;
+            },
+          },
+          note: printNote,
+        },
         checkUnsigned: (unsigned) => {
           checkType(requestedType, unsigned);
         },

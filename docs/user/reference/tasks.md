@@ -417,7 +417,7 @@ The task fills what the file leaves out as [`eth_signTransaction`](rpc-methods.m
 
 The fields decide the transaction type: `authorizationList` gives EIP-7702 (`0x4`), `maxFeePerGas` EIP-1559 (`0x2`), `accessList` EIP-2930 (`0x1`), and `gasPrice` alone a legacy transaction (`0x0`). Without a fee field, the network's `gasPrice` setting decides. With `"auto"`, a node that has a base fee and answers `eth_feeHistory` gets EIP-1559; otherwise the task falls back to a legacy transaction with the node's `eth_gasPrice`. A fixed `gasPrice` gives a legacy transaction. A `type` in the file states what you expect: when the fields give another type, the task fails before the KMS signs.
 
-EIP-7702 needs EIP-1559 fees; an unavailable fee history requires both fee fields to be set explicitly. A self-authorization must name chain 0 or the transaction chain, and use the final transaction nonce plus 1. Further self-authorizations need consecutive nonces. A mismatch refuses signing. Set `nonce` in the transaction file before signing its self-authorization.
+EIP-7702 needs EIP-1559 fees; an unavailable fee history requires both fee fields to be set explicitly. A self-authorization must name chain 0 or the transaction chain, and use the final transaction nonce plus 1. Further self-authorizations need consecutive nonces. A mismatch refuses signing. Set `nonce` in the transaction file before signing its self-authorization. When the key has [`allowedDelegates`](configuration.md#limit-eip-7702-delegates), each self-authorization's delegate must be allowed on its chain, as for [`kms sign-auth`](#kms-sign-auth); authorizations signed by other accounts are not checked.
 
 ## `kms sign-auth`
 
@@ -452,6 +452,7 @@ Each number is a `0x` hex quantity, `r` and `s` are 32 bytes each, and `address`
 
 - Before it prints the tuple, the task reads it back, recovers the authority from it, and checks that it is the key's address and that `s` is low. Nodes skip an authorization with a high `s`.
 - `--nonce` and `--self-broadcast` cannot be combined, as in cast.
+- When the key has [`allowedDelegates`](configuration.md#limit-eip-7702-delegates), the delegate must be allowed on the authorization's chain, and the task refuses it otherwise before it signs. A chain-0 authorization needs an entry with `chains: "all"`. No option overrides the list: `--force` allows chain 0 but not a delegate the list does not allow. The zero address always passes. With `--network`, a delegate that no entry names is refused before the task connects. For an entry with `codeHash`, the task reads the delegate's code from the `--network` node and refuses on a mismatch or empty code; with `--chain` there is no node to read, so it refuses that delegate and asks for `--network`. A key from `--kms` has no config, so no list.
 - The task opens a connection to `--network` only to read what the command line and the config do not give: the pending nonce, or a chain id the config does not set. Opening it runs the network hook, which can call the KMS, for example to fund the accounts of an `edr-simulated` network. `--network` can also come from the `HARDHAT_NETWORK` environment variable, so `--chain` fails while it is set.
 
 ### Notes on standard error
@@ -462,7 +463,7 @@ Before it calls the KMS, the task writes one line that says what it signs:
 [hardhat-kms] authority 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, chain 1 (from --chain), nonce 0, delegate 0x5FbDB2315678afecb367f032d93F642f64180aa3
 ```
 
-The chain is followed by `(from --chain)` or `(from --network <name>)`. Other notes:
+The chain is followed by `(from --chain)` or `(from --network <name>)`. When the key's [`allowedDelegates`](configuration.md#limit-eip-7702-delegates) entry for the delegate has a `label`, the label follows the delegate, as in `delegate 0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9 (Simple7702Account)`. Other notes:
 
 - With `--self-broadcast`, the nonce to send the transaction with: `the authorization uses nonce 1: send it in a transaction from this key with nonce 0`.
 - With `--network`, when the task has connected to the node and the delegate has no code there: `the delegate 0x… has no code on network sepolia: check that it is the address for this chain`. A delegate copied from another chain is the usual cause. The task still signs, since the code may be deployed later.
