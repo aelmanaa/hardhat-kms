@@ -1,5 +1,27 @@
 # hardhat-kms
 
+## 1.3.0
+
+### Minor Changes
+
+- [#574](https://github.com/aelmanaa/hardhat-kms/pull/574) [`a2ec3d5`](https://github.com/aelmanaa/hardhat-kms/commit/a2ec3d50a46442ee91655961515f93dd87d19bc8) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A key can now set `allowedDelegates` to limit the contracts it may delegate its account to with an EIP-7702 authorization. Each entry has an `address`, the `chains` it is allowed on or `"all"`, and an optional `label` and `codeHash`. `kms sign-auth`, a library account's `signAuthorization`, and a transaction that carries the key's own authorization refuse any other delegate before the KMS signs. A chain-0 authorization matches only entries with `chains: "all"`. With `codeHash`, the plugin reads the delegate's code from the network and refuses a mismatch. The zero address always passes. No flag overrides the list. `kms sign-auth` and `kms sign-tx` refuse a `--kms` key that is the same KMS key as a config key with `allowedDelegates`. Keys without `allowedDelegates` work as before.
+  
+  Resolved keys in `hre.config.kms.keys` and each network's `kmsAccounts` are now frozen. What should I do? Nothing, unless a plugin or script changes a resolved key in place. Change the user config before Hardhat loads it instead.
+  
+  Issue: [#562](https://github.com/aelmanaa/hardhat-kms/issues/562)
+
+- [#572](https://github.com/aelmanaa/hardhat-kms/pull/572) [`3892d18`](https://github.com/aelmanaa/hardhat-kms/commit/3892d181b937ff20e156ed014168e16db61be0a0) Thanks [@aelmanaa](https://github.com/aelmanaa)! - Security change. `kms sign --no-hash` now asks at a terminal before it signs a raw digest, and signs only after `y` or `yes`. A raw digest can be the hash of an EIP-7702 authorization, and the plugin cannot tell. Without a terminal, the task signs only for a key with the new `allowRawDigests: true` field and with the new `--yes` flag. `--yes` skips the question only for such a key. A declined or unanswered question fails with `core.task.raw-digest-declined` and makes no sign request. `connection.kms.getAccount(address, { rawSign: true })` now fails with `core.account.raw-sign-not-allowed` unless the key sets `allowRawDigests: true`. Keys given with `--kms` cannot set it, so their raw digests need a terminal. Turnkey sends raw digests and EIP-7702 authorizations as the same `HASH_FUNCTION_NO_OP` request, so a Turnkey policy on authorizations binds only when that request is denied, as the Turnkey setup guide now shows.
+  
+  What should I do? Add `allowRawDigests: true` to each key in `kms.keys` or `kmsAccounts` that signs raw digests in CI or with `rawSign`, and pass `--yes` to `kms sign --no-hash` where no terminal is attached. Leave it off every other key.
+  
+  Issue: [#561](https://github.com/aelmanaa/hardhat-kms/issues/561)
+
+- [#575](https://github.com/aelmanaa/hardhat-kms/pull/575) [`cce6a8d`](https://github.com/aelmanaa/hardhat-kms/commit/cce6a8dc4dc6043fbf8dfb7e1398c24dbfb17243) Thanks [@aelmanaa](https://github.com/aelmanaa)! - Security change. `kms sign-auth` now shows what an EIP-7702 authorization does and asks before it signs. With `--network` it reads the account's nonce and code and the delegate's code and ERC-1967 slot, and the question shows the account, the delegate with its `allowedDelegates` label, the chain (`ALL CHAINS` for chain 0), the nonce against the account's nonce, the delegate's code size and hash, and the account's current delegation. At a terminal only `y` or `yes` signs; any other answer or closed input fails with `core.task.auth-declined` and exits non-zero. The new `--yes` skips the question, but only for a delegate in the key's `allowedDelegates` or the zero address. Without a terminal the task signs only with `--yes` and such a delegate; a key without `allowedDelegates`, which includes every `--kms` key, can then only revoke. `--force` still allows chain 0 and does not skip the question. The task now refuses authorizations that cannot apply: a nonce the account has passed, a delegate that is itself delegated, a precompile delegate, and an account with contract code. It warns about a nonce far ahead, a `--nonce` a pending transaction will likely use first, a re-delegation, a proxy delegate and a delegate without code. With `--network` the task now always connects to the node.
+  
+  What should I do? Add the delegate to the key's `allowedDelegates` and pass `--yes` in CI. To sign without a node, use `--chain` with `--nonce`.
+  
+  Issue: [#563](https://github.com/aelmanaa/hardhat-kms/issues/563)
+
 ## 1.2.0
 
 ### Minor Changes
