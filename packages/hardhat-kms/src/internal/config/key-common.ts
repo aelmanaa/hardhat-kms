@@ -1,6 +1,12 @@
 import type { ConfigurationVariableResolver } from "hardhat/types/config";
 
-import type { KmsConfig, KmsKeyCommonConfig, KmsKeyCommonUserConfig } from "../../types.ts";
+import type {
+  KmsAllowedDelegate,
+  KmsAllowedDelegateUserConfig,
+  KmsConfig,
+  KmsKeyCommonConfig,
+  KmsKeyCommonUserConfig,
+} from "../../types.ts";
 import { toChecksumAddress } from "../crypto/address.ts";
 
 /** What a provider needs to resolve one key. */
@@ -32,5 +38,21 @@ export function resolveCommonKeyConfig(
     timeoutMs: key.timeoutMs ?? context.defaults.timeoutMs,
     ...(key.address === undefined ? {} : { address: toChecksumAddress(key.address) }),
     ...(key.allowRawDigests === true ? { allowRawDigests: true } : {}),
+    ...(key.allowedDelegates === undefined
+      ? {}
+      : { allowedDelegates: Object.freeze(key.allowedDelegates.map(resolveAllowedDelegate)) }),
   };
+}
+
+/**
+ * Resolves one validated `allowedDelegates` entry: a checksummed address, a lowercase code hash,
+ * and a frozen copy, so later changes to the user's object do not reach it.
+ */
+function resolveAllowedDelegate(entry: KmsAllowedDelegateUserConfig): KmsAllowedDelegate {
+  return Object.freeze({
+    address: toChecksumAddress(entry.address),
+    chains: entry.chains === "all" ? "all" : Object.freeze([...entry.chains]),
+    ...(entry.label === undefined ? {} : { label: entry.label }),
+    ...(entry.codeHash === undefined ? {} : { codeHash: entry.codeHash.toLowerCase() }),
+  });
 }

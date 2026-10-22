@@ -67,17 +67,105 @@ export const secretSchema: z.ZodEffects<z.ZodUnknown> = z.unknown().superRefine(
   }
 });
 
+/** The keccak256 of no bytes: the code hash of an address without code. */
+const EMPTY_CODE_HASH: string =
+  "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470";
+
+/**
+ * Control, format, surrogate, private-use and unassigned characters (`\p{C}`), and the line and
+ * paragraph separators (U+2028, U+2029), such as escapes, carriage returns and bidirectional
+ * overrides, which could change how a terminal shows a label.
+ */
+const UNPRINTABLE: RegExp = /[\p{C}\p{Zl}\p{Zp}]/u;
+const LABEL_MAX_LENGTH = 64;
+
+/** A delegate's address in `allowedDelegates`, checked as an address pin is. */
+const delegateAddressSchema = z.string().superRefine((value, ctx) => {
+  try {
+    toChecksumAddress(value);
+  } catch (error) {
+    if (!(error instanceof InvalidAddressError)) {
+      throw error;
+    }
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: catalogMessage(ERRORS.delegateAddress, {}),
+    });
+  }
+});
+
+const chainIdMessage = catalogMessage(ERRORS.delegateChainId, {});
+const chainZeroMessage = catalogMessage(ERRORS.delegateChainZero, {});
+const chainsMessage = catalogMessage(ERRORS.delegateChains, {});
+
+/** A chain id in an entry's `chains`: a whole number from 1 to 2^53 - 1. */
+const delegateChainIdSchema = z
+  .number({ invalid_type_error: chainIdMessage })
+  .superRefine((chain, ctx) => {
+    if (chain === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: chainZeroMessage });
+    } else if (!Number.isSafeInteger(chain) || chain < 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: chainIdMessage });
+    }
+  });
+
+/** An entry's `chains`: `"all"` or a non-empty list of chain ids. */
+const delegateChainsSchema = conditionalUnionType(
+  [
+    [
+      (data) => typeof data === "string",
+      z.literal("all", { errorMap: () => ({ message: chainsMessage }) }),
+    ],
+    [Array.isArray, z.array(delegateChainIdSchema).min(1, chainsMessage)],
+  ],
+  chainsMessage,
+);
+
+/** One entry of a key's `allowedDelegates`. */
+const allowedDelegateSchema = z
+  .object({
+    address: delegateAddressSchema,
+    chains: delegateChainsSchema,
+    label: z
+      .string()
+      .refine(
+        (value) =>
+          value.length >= 1 &&
+          value.length <= LABEL_MAX_LENGTH &&
+          value.trim() === value &&
+          !UNPRINTABLE.test(value),
+        catalogMessage(ERRORS.delegateLabel, {}),
+      )
+      .optional(),
+    codeHash: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{64}$/, catalogMessage(ERRORS.delegateCodeHash, {}))
+      .refine(
+        (value) => value.toLowerCase() !== EMPTY_CODE_HASH,
+        catalogMessage(ERRORS.delegateCodeHashEmpty, {}),
+      )
+      .optional(),
+  })
+  .strict();
+
+/** A key's `allowedDelegates`: a list of entries, possibly empty. */
+const allowedDelegatesSchema: z.ZodTypeAny = z.array(allowedDelegateSchema, {
+  invalid_type_error: catalogMessage(ERRORS.delegateList, {}),
+});
+
 /** Fields every key accepts, whatever its provider. */
 export const commonKeyFields: {
   address: z.ZodOptional<typeof addressSchema>;
   timeoutMs: z.ZodOptional<z.ZodNumber>;
   allowRawDigests: z.ZodOptional<z.ZodBoolean>;
+  allowedDelegates: z.ZodOptional<z.ZodTypeAny>;
 } = {
   address: addressSchema.optional(),
   timeoutMs: timeoutSchema.optional(),
   allowRawDigests: z
     .boolean({ invalid_type_error: catalogMessage(ERRORS.allowRawDigestsType, {}) })
     .optional(),
+  allowedDelegates: allowedDelegatesSchema.optional(),
 };
 
 /** A non-empty string without surrounding whitespace. */

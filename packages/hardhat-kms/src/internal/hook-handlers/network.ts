@@ -191,6 +191,13 @@ export function createNetworkHandlers(
             },
           },
           chainId: async () => await chainOf(connection).chainId(),
+          getCode: async (address) => {
+            const code: unknown = await connection.provider.request({
+              method: "eth_getCode",
+              params: [address, "latest"],
+            });
+            return code;
+          },
           allowCrossChainTypedData: context.config.kms.allowCrossChainTypedData,
           closed: () => closed.has(connection),
         },

@@ -62,6 +62,8 @@ export interface Setup {
   state: { closed: boolean };
   /** The calls to the connection's nonces, in order, as `[method, ...arguments]`. */
   nonceCalls: unknown[][];
+  /** The addresses the connection's `getCode` was asked for, in order. */
+  codeCalls: string[];
 }
 
 /**
@@ -81,10 +83,19 @@ export function setup(
     signWithAdapter?: KmsKeyAdapter;
     /** Sets `allowRawDigests: true` on the key; `rawSign` needs it. */
     allowRawDigests?: boolean;
+    /** The key's `allowedDelegates`. */
+    allowedDelegates?: KmsKeyConfig["allowedDelegates"];
+    /** The node's `eth_getCode` answer for each lowercase address; `0x` for others. */
+    code?: Record<string, unknown>;
   } = {},
 ): Setup {
-  const key: KmsKeyConfig =
-    options.allowRawDigests === true ? { ...KEY, allowRawDigests: true } : KEY;
+  const key: KmsKeyConfig = {
+    ...KEY,
+    ...(options.allowRawDigests === true ? { allowRawDigests: true } : {}),
+    ...(options.allowedDelegates === undefined
+      ? {}
+      : { allowedDelegates: options.allowedDelegates }),
+  };
   const adapter = fakeAdapter({
     secretKey: new Uint8Array(Buffer.from(HARDHAT_ACCOUNT_0.secretKey, "hex")),
     ...options.adapter,
@@ -98,6 +109,7 @@ export function setup(
   const chainCalls = { count: 0 };
   const state = { closed: false };
   const nonceCalls: unknown[][] = [];
+  const codeCalls: string[] = [];
   const connection: AccountConnection = {
     network: "local",
     accounts: {
@@ -110,6 +122,10 @@ export function setup(
     chainId: async () => {
       chainCalls.count++;
       return await Promise.resolve(options.chainId ?? BigInt(CHAIN_ID));
+    },
+    getCode: async (address) => {
+      codeCalls.push(address);
+      return await Promise.resolve(options.code?.[address.toLowerCase()] ?? "0x");
     },
     allowCrossChainTypedData: options.allowCrossChainTypedData ?? false,
     closed: () => state.closed,
@@ -130,7 +146,7 @@ export function setup(
       },
     },
   };
-  return { adapter, connection, chainCalls, state, nonceCalls };
+  return { adapter, connection, chainCalls, state, nonceCalls, codeCalls };
 }
 
 /**

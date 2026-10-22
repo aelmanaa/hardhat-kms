@@ -71,6 +71,14 @@ export default defineConfig({
         keyId: configVariable("AWS_KMS_KEY_ID"),
         // The key's address, from `npx hardhat kms address owner`.
         address: "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826",
+        // The only contract this key may delegate to: Modular Account v2 v1.1.0, on Sepolia.
+        allowedDelegates: [
+          {
+            address: "0x77021100bD87b7008E5E1989d0eB38555d0d0000",
+            chains: [11155111],
+            label: "Modular Account v2",
+          },
+        ],
       },
     },
   },
@@ -84,6 +92,8 @@ export default defineConfig({
   },
 });
 ```
+
+`allowedDelegates` limits the contracts the key may delegate its account to ([Limit EIP-7702 delegates](../reference/configuration.md#limit-eip-7702-delegates)). The Wallet APIs ask the key for the authorization through the account's `signAuthorization`, so with this list the key refuses an authorization for any other delegate, or for another chain, before the KMS signs, whatever Alchemy's response holds. Add each chain you use to `chains`. `checkPreparedCalls` in step 4 also checks the delegate; the list holds for every script that uses the key, not only the ones that call it.
 
 ## 3. Check the signatures without sending
 

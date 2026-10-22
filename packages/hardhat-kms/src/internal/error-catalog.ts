@@ -64,6 +64,79 @@ export const ERRORS = {
       "A key's `address` pin is not an address, or it is mixed-case and its EIP-55 checksum is wrong, which usually means a typo.",
     fix: "Copy the address from `npx hardhat kms address <key>`, or write it in lowercase.",
   },
+  delegateList: {
+    id: "core.config.delegate-list",
+    kind: "validation",
+    group: "Configuration",
+    template: "Expected a list of delegates, each with `address` and `chains`",
+    cause: "A key's `allowedDelegates` is not a list.",
+    fix: 'Write it as a list, such as `[{ address: "0x...", chains: [11155111] }]`, or remove it to allow every delegate.',
+  },
+  delegateAddress: {
+    id: "core.config.delegate-address",
+    kind: "validation",
+    group: "Configuration",
+    template:
+      "Expected a 0x-prefixed 20-byte address, all lowercase, all uppercase or with a valid EIP-55 checksum",
+    cause:
+      "An `allowedDelegates` entry's `address` is not an address, or it is mixed-case and its EIP-55 checksum is wrong, which usually means a typo.",
+    fix: "Copy the delegate's address from its deployment or its explorer page, or write it in lowercase.",
+  },
+  delegateChains: {
+    id: "core.config.delegate-chains",
+    kind: "validation",
+    group: "Configuration",
+    template: 'Expected "all" or a non-empty list of chain ids',
+    cause:
+      'An `allowedDelegates` entry\'s `chains` is missing, empty, or neither a list nor the string `"all"`.',
+    fix: 'List the chain ids the delegate is allowed on, such as `[1, 11155111]`, or write `"all"`.',
+  },
+  delegateChainId: {
+    id: "core.config.delegate-chain-id",
+    kind: "validation",
+    group: "Configuration",
+    template: "Expected a positive integer chain id, as a number",
+    cause:
+      "A chain id in an `allowedDelegates` entry's `chains` is not a whole number from 1 to 2^53 - 1, or is a string or a bigint.",
+    fix: "Write the chain id as a number, such as `11155111`.",
+  },
+  delegateChainZero: {
+    id: "core.config.delegate-chain-zero",
+    kind: "validation",
+    group: "Configuration",
+    template:
+      'Chain 0 cannot be listed. A chain-0 authorization is valid on every chain: allow it with chains: "all"',
+    cause:
+      "An `allowedDelegates` entry's `chains` lists 0. An authorization for chain 0 is valid on every chain, so only an entry for every chain allows it.",
+    fix: 'Remove 0 from the list. To allow chain-0 authorizations for this delegate, set `chains: "all"`.',
+  },
+  delegateLabel: {
+    id: "core.config.delegate-label",
+    kind: "validation",
+    group: "Configuration",
+    template:
+      "Expected a label of 1 to 64 characters, with no control characters and no surrounding whitespace",
+    cause:
+      "An `allowedDelegates` entry's `label` is empty, too long, has whitespace around it, or holds a control or format character, which could change how a terminal shows it.",
+    fix: "Use a short plain name, such as `Simple7702Account`.",
+  },
+  delegateCodeHash: {
+    id: "core.config.delegate-code-hash",
+    kind: "validation",
+    group: "Configuration",
+    template: "Expected a 0x-prefixed 32-byte keccak256 hash",
+    cause: "An `allowedDelegates` entry's `codeHash` is not `0x` followed by 64 hex digits.",
+    fix: "Set it to the keccak256 of the delegate's runtime code, such as the output of `cast keccak $(cast code <address> --rpc-url <url>)`.",
+  },
+  delegateCodeHashEmpty: {
+    id: "core.config.delegate-code-hash-empty",
+    kind: "validation",
+    group: "Configuration",
+    template: "This is the hash of empty code; a delegate without code cannot be pinned",
+    cause:
+      "An `allowedDelegates` entry's `codeHash` is the keccak256 of no bytes, which an address without code has. The plugin refuses a pinned delegate without code, so the entry could never match.",
+    fix: "Read the code from the chain where the delegate is deployed, and hash that.",
+  },
   nonEmptyString: {
     id: "core.config.non-empty",
     kind: "validation",
@@ -1083,6 +1156,16 @@ export const ERRORS = {
       "authorizationList[{index}] is signed by the sender for chain {requested}, but the transaction is for chain {chainId}; nothing was signed",
     cause: "A self-authorization names another chain. The node would skip it.",
     fix: "Sign the authorization for the transaction chain, or deliberately use chain 0.",
+  },
+  txSelfAuthorizationDelegate: {
+    id: "core.tx.self-authorization-delegate",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "authorizationList[{index}] is signed by the sender and delegates it to {delegate} on chain {chain}, which the allowedDelegates of key {keyName} do not allow; nothing was signed",
+    cause:
+      "The transaction carries an EIP-7702 authorization signed by the sending KMS key, and its delegate is not in the key's `allowedDelegates` for the authorization's chain. A chain-0 authorization matches only entries with `chains: \"all\"`. Authorizations signed by other accounts are not checked.",
+    fix: "Remove the authorization, or add the delegate to the key's `allowedDelegates` for that chain if it is intended.",
   },
   txAuthorizationFees: {
     id: "core.tx.authorization-fees",
@@ -2473,6 +2556,88 @@ export const ERRORS = {
     fix: "Read the account's code again just before `prepareCalls`, then prepare the calls again.",
   },
 
+  // EIP-7702 delegates: a key's allowedDelegates, checked before any KMS call by kms sign-auth,
+  // signAuthorization and the self-authorizations of a transaction.
+  delegateNotAllowed: {
+    id: "core.delegate.not-allowed",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "key {keyName} may not delegate to {delegate} on chain {chain}: no entry of its allowedDelegates allows that delegate on that chain. Nothing was signed",
+    cause:
+      'The key has `allowedDelegates`, and none of its entries names the delegate with this chain id or with `chains: "all"`. No flag overrides the list.',
+    fix: "Check the delegate address and the chain. If the delegate is intended, add it to the key's `allowedDelegates` for that chain.",
+  },
+  delegateNotAllowedChainZero: {
+    id: "core.delegate.not-allowed-chain-zero",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      'key {keyName} may not delegate to {delegate} on chain 0, which is every chain: only an allowedDelegates entry with chains: "all" allows a chain-0 authorization. Nothing was signed',
+    cause:
+      'An authorization for chain 0 is valid on every chain. An entry that lists chain ids allows the delegate on those chains only, so it does not match a chain-0 authorization. Only `chains: "all"` does, as in Ledger\'s Ethereum app.',
+    fix: 'Sign the authorization for one chain. If the delegate is meant for every chain, set its entry\'s `chains` to `"all"`.',
+  },
+  delegateCommandLineKey: {
+    id: "core.delegate.command-line-key",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "the --kms key {name} is the same KMS key as {other}, which has allowedDelegates. Name {other} instead, so its list applies. Nothing was signed",
+    cause:
+      "A key from `--kms` has no config and so no `allowedDelegates`. It names the same KMS key, or has the same address pin, as a config key that limits its delegates, so signing an authorization with it would skip that key's list.",
+    fix: "Run the task with the config key's name instead of `--kms`.",
+  },
+  delegateNotListedNetwork: {
+    id: "core.delegate.not-listed-network",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "key {keyName} may not delegate to {delegate} on network {network}: no entry of its allowedDelegates names that delegate. Nothing was signed",
+    cause:
+      "`kms sign-auth --network` checks the delegate against the key's `allowedDelegates` before it connects to the network, and no entry names it for any chain.",
+    fix: "Check the delegate address. If the delegate is intended, add it to the key's `allowedDelegates`.",
+  },
+  delegateCodeNoNetwork: {
+    id: "core.delegate.code-no-network",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "key {keyName} pins the code hash of delegate {delegate}, and with --chain there is no network to read its code from. Pass --network instead. Nothing was signed",
+    cause:
+      "The key's `allowedDelegates` entry for this delegate has a `codeHash`. `kms sign-auth --chain` opens no connection, so the plugin cannot read the delegate's code, and it refuses rather than sign unchecked.",
+    fix: "Run `kms sign-auth` with `--network <name>` for the chain the authorization is for. For a chain-0 authorization, which needs `--chain 0`, use an entry without `codeHash`.",
+  },
+  delegateCodeMismatch: {
+    id: "core.delegate.code-mismatch",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "the code of delegate {delegate} on chain {chain} has hash {actual}, which no codeHash in the allowedDelegates of key {keyName} matches. Nothing was signed",
+    cause:
+      "The key's `allowedDelegates` pins the delegate's code hash, and the node returned other code: the address is wrong for this chain, the contract was replaced, or the node is not the one you expect.",
+    fix: "Check the delegate address and the network. If the new code is intended, update `codeHash` to the hash shown.",
+  },
+  delegateNoCode: {
+    id: "core.delegate.no-code",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "delegate {delegate} has no code on chain {chain}, and the allowedDelegates of key {keyName} pin its code hash. Nothing was signed",
+    cause:
+      "The key's `allowedDelegates` pins the delegate's code hash, and the node says the address has no code on this chain.",
+    fix: "Check that the delegate is deployed on this chain at this address, and that `--network` is the network you mean.",
+  },
+  delegateCodeUnreadable: {
+    id: "core.delegate.code-unreadable",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "the node's eth_getCode answer for delegate {delegate} is not hex data, so its pinned code hash cannot be checked. Nothing was signed",
+    cause:
+      "The key's `allowedDelegates` pins the delegate's code hash, and the node's `eth_getCode` answer is not a `0x` hex string of whole bytes.",
+    fix: "Check the network's URL and node. Retry with another node if it persists.",
+  },
   // Internal: only a bug or a broken install reaches these. They are plain `Error`s.
   identifierPartMissing: {
     id: "core.internal.identifier-part",

@@ -168,6 +168,7 @@ Decision records:
 - [0019: Call Turnkey's API without a Turnkey SDK](docs/contributor/decisions/0019-turnkey-without-sdk.md)
 - [0020: Fail at once when a Turnkey activity needs approval](docs/contributor/decisions/0020-turnkey-approvals-fail-fast.md)
 - [0021: Raw digests need a person at a terminal or a per-key opt-in](docs/contributor/decisions/0021-raw-digests-need-a-person-or-an-opt-in.md)
+- [0022: Each key can limit its EIP-7702 delegates, per chain](docs/contributor/decisions/0022-per-key-delegate-allowlist.md)
 
 Rules for every change:
 

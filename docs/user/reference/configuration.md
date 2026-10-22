@@ -63,6 +63,7 @@ A network's `kmsAccounts` lists key names or inline key objects. [Use several ke
 | `networks.<name>.kmsAccounts`  | Key names or inline key objects for that network, on http and `edr-simulated` networks.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `address` (per key)            | Optional address pin, required for a Turnkey key. Recommended: it guards against key substitution. Listing a network's accounts uses the pin without a KMS call. The first signature and the `kms` tasks still read the public key of an AWS, Google Cloud or Azure key, and fail if it derives to another address. A Turnkey key has no public key to read: its first signature is checked against the pin.                                                                                                                                         |
 | `allowRawDigests` (per key)    | `true` lets the key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash --yes`, and library accounts from `getAccount(address, { rawSign: true })` ([Raw digests](tasks.md#raw-digests)). Default `false`: `kms sign --no-hash` then asks at a terminal and refuses without one, and `getAccount` refuses `rawSign`. A raw digest can be a transaction, a permit or an EIP-7702 authorization, and the plugin cannot tell which, so set it only on a key that needs it. Keys from `--kms` have no config and cannot set it. |
+| `allowedDelegates` (per key)   | The contracts the key may delegate its account to with an EIP-7702 authorization, per chain, with an optional label and code hash. Unset: no limit. See [Limit EIP-7702 delegates](#limit-eip-7702-delegates).                                                                                                                                                                                                                                                                                                                                       |
 | `timeoutMs` (per key)          | Overrides the default timeout for that key. For a third-party provider where a person approves each signature, `timeoutMs` also bounds the wait for that approval: raise it on that key to cover the time a person takes to approve.                                                                                                                                                                                                                                                                                                                 |
 
 When the `default` network has KMS keys, from `kmsAccounts` or from `--kms` without `--network`, the plugin prints a warning once per run: tasks and tests use that network when no `--network` is given, so they would call KMS. Put KMS keys on a named network instead.
@@ -141,8 +142,9 @@ The rules:
 - **Key names** in `kms.keys` start with a letter and have at most 64 characters: letters, digits, `_` or `-`. They are kept simple because tasks take them as command-line arguments.
 - **`kmsAccounts`** entries are key names from `kms.keys` or inline key objects. A name must exist in `kms.keys`, and a network cannot list the same name twice. Errors and resolved configs call an inline key `<network>.kmsAccounts[<index>]`.
 - **`provider`** is `aws`, `gcp`, `azure`, `turnkey` or a third-party provider's id. An id that looks like a misspelled built-in one, such as `AWS`, `azrue` or `Turnkey`, is an error rather than a third-party provider. The ids `fireblocks` and `pkcs11` are reserved for planned providers and are errors until those providers ship; the message links the issue that tracks each one.
-- **Unknown fields** in the `kms` section and in built-in providers' keys are errors, so a typo such as `keyID` is caught. For a third-party provider's key, the plugin checks only `provider`, `address`, `timeoutMs` and `allowRawDigests`.
+- **Unknown fields** in the `kms` section and in built-in providers' keys are errors, so a typo such as `keyID` is caught. For a third-party provider's key, the plugin checks only `provider`, `address`, `timeoutMs`, `allowRawDigests` and `allowedDelegates`.
 - **`address`** is a `0x`-prefixed 20-byte address, all lowercase, all uppercase, or mixed case with a valid EIP-55 checksum.
+- **`allowedDelegates`** is a list, possibly empty. Each entry has an `address`, checked as `address` above; `chains`, either `"all"` or a non-empty list of chain ids, each a whole number from 1 to 2^53 - 1; an optional `label` of 1 to 64 characters with no control characters and no surrounding whitespace; and an optional `codeHash`, `0x` and 64 hex digits, which cannot be the hash of empty code. Chain 0 cannot be listed: write `"all"`. Other fields in an entry are errors.
 - **`timeoutMs`** is a whole number of milliseconds from 1 to 2147483647, the largest delay Node.js timers accept.
 - **`allowRawDigests`** is `true` or `false`. A string such as `"true"` is an error.
 - **`simulatedBalance`** is a non-negative `bigint`, for example `10n ** 18n`.
@@ -164,6 +166,85 @@ invalid value for kms.keys.ops.keyId (<AZURE_KEY_ID>): expected an https URL on 
 | Turnkey `organizationId` | A UUID, such as `f81d4fae-7dec-11d0-a765-00a0c91e6bf6`, in any case.                                                                                                                                                       |
 
 An Azure key name has 1 to 127 letters, digits or `-`, and a key version has letters and digits only. `<vault>` must be a Key Vault or Managed HSM host in the public cloud or a sovereign cloud: `*.vault.azure.net`, `*.managedhsm.azure.net`, `*.vault.azure.cn`, `*.managedhsm.azure.cn`, `*.vault.usgovcloudapi.net`, `*.managedhsm.usgovcloudapi.net`, `*.vault.microsoftazure.de` or `*.managedhsm.microsoftazure.de`. The plugin rejects other hosts, non-default ports, `http`, backslashes, and URLs with credentials, a query or a fragment, so a key id cannot send signing requests to another server. This applies to values from configuration variables too.
+
+## Limit EIP-7702 delegates
+
+An EIP-7702 authorization lets the code at its delegate act for the account until another authorization replaces it. `allowedDelegates` on a key lists the contracts that key may delegate to:
+
+```ts
+import hardhatKmsAws from "@hardhat-kms/aws";
+import { configVariable, defineConfig } from "hardhat/config";
+
+export default defineConfig({
+  plugins: [hardhatKmsAws],
+  kms: {
+    keys: {
+      deployer: {
+        provider: "aws",
+        keyId: "alias/deployer",
+        address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        allowedDelegates: [
+          {
+            address: "0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9",
+            chains: "all",
+            label: "Simple7702Account",
+          },
+          {
+            address: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+            chains: [11155111],
+            label: "our batcher",
+          },
+        ],
+      },
+    },
+  },
+  networks: {
+    sepolia: {
+      type: "http",
+      url: configVariable("SEPOLIA_RPC_URL"),
+      chainId: 11155111,
+      kmsAccounts: ["deployer"],
+    },
+  },
+});
+```
+
+To also pin the delegate's code, add its hash to the entry:
+
+<!-- docs-check: skip -->
+
+```ts
+{
+  address: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  chains: [11155111],
+  label: "our batcher",
+  // keccak256 of its runtime code: cast keccak $(cast code <address> --rpc-url <url>)
+  codeHash: "0x…",
+},
+```
+
+The fields of an entry:
+
+| Field      | Meaning                                                                                                                                                                                                                   |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `address`  | The delegate. All lowercase, all uppercase, or with a valid EIP-55 checksum; a wrong checksum fails when the config loads.                                                                                                |
+| `chains`   | The chain ids the delegate is allowed on, or `"all"`.                                                                                                                                                                     |
+| `label`    | Optional. A name shown next to the delegate in `kms sign-auth`'s note on standard error.                                                                                                                                  |
+| `codeHash` | Optional. The `keccak256` of the delegate's runtime code, for example from `cast keccak $(cast code <address> --rpc-url <url>)`. The plugin reads the code with `eth_getCode` before it signs, and refuses on a mismatch. |
+
+The rules:
+
+- Without `allowedDelegates`, nothing changes: the key may delegate to any contract. With it, a delegate must match an entry for the authorization's chain. An empty list allows only the zero address.
+- An authorization for chain N matches entries that list N, and entries with `chains: "all"`.
+- An authorization for chain 0 is valid on every chain, so it matches only entries with `chains: "all"`. An entry that lists chain ids never allows a chain-0 authorization, as in Ledger's Ethereum app.
+- With `codeHash`, the plugin reads the delegate's code on the network and refuses when its hash differs, when the address has no code, or when the node's answer is not hex data. When several entries match, one without `codeHash` is enough; otherwise the code must match one of their hashes. For a chain-0 authorization, the code is read on the connection's chain only, and a note says so. `kms sign-auth --chain` opens no connection, so it refuses a delegate whose matching entries all pin a hash: run it with `--network`.
+- The zero address always passes, since an authorization to it clears the delegation.
+- No flag or option overrides the list: not `--force` on `kms sign-auth`, and not `allowChainZeroAuthorization` on a library account.
+- Keys from `--kms` have no config, so they have no list. `kms sign-auth` and `kms sign-tx` refuse a `--kms` key that is the same KMS key as a config key with `allowedDelegates`, matched by key id or by that key's `address` pin: name the config key instead.
+
+The list is checked before any KMS sign request in [`kms sign-auth`](tasks.md#kms-sign-auth), in a library account's [`signAuthorization`](library-accounts.md#what-is-refused-before-any-kms-call), which the [Alchemy Wallet APIs](../guides/alchemy-wallet-apis.md) use, and for each authorization a KMS sender's transaction carries that recovers to the sender: [`eth_sendTransaction` and `eth_signTransaction`](rpc-methods.md), `kms sign-tx` and the library account's `signTransaction`. Authorizations signed by other accounts are not checked. A raw digest, from `kms sign --no-hash` or a `rawSign` account, can be an authorization's hash, and the list cannot see it: [`allowRawDigests`](#configuration) gates raw digests.
+
+The list lives in the Hardhat config, so whoever can edit the config can widen it. The plugin freezes each resolved key and its list, but code in the same process can still replace the config's `kms` section or a network's `kmsAccounts`. The list guards against mistakes and driven signing, not against a leaked key: see [EIP-7702 delegates](../explanation/security-model.md#eip-7702-delegates) in the security model. The errors are in the [errors reference](errors.md#eip-7702-delegates).
 
 ## Keys from the command line
 

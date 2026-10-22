@@ -181,7 +181,17 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-9)
 
 ##### allowRawDigests?
 
@@ -271,7 +281,21 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
 
 ##### allowRawDigests?
 
@@ -350,7 +374,21 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
 
 ##### allowRawDigests?
 
@@ -413,7 +451,17 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-9)
 
 ##### allowRawDigests?
 
@@ -485,7 +533,21 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
 
 ##### allowRawDigests?
 
@@ -549,7 +611,17 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-9)
 
 ##### allowRawDigests?
 
@@ -619,7 +691,21 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
 
 ##### allowRawDigests?
 
@@ -690,7 +776,17 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-9)
 
 ##### allowRawDigests?
 
@@ -762,7 +858,21 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
 
 ##### allowRawDigests?
 
@@ -1003,6 +1113,72 @@ Stops the account's KMS calls when it aborts. A KMS call in flight then rejects 
 `getAccount` called with the same signal, refuses before any KMS call. A request that already
 reached the KMS can still be signed there; the account never returns that signature, so viem
 never sends it.
+
+---
+
+### KmsAllowedDelegate
+
+A resolved entry of a key's `allowedDelegates`.
+
+#### Properties
+
+##### address
+
+> `readonly` **address**: `string`
+
+The checksummed delegate address.
+
+##### chains
+
+> `readonly` **chains**: `"all"` \| readonly `number`[]
+
+The chain ids the entry allows, or `"all"`.
+
+##### codeHash?
+
+> `readonly` `optional` **codeHash?**: `string`
+
+The pinned code hash, lowercase.
+
+##### label?
+
+> `readonly` `optional` **label?**: `string`
+
+---
+
+### KmsAllowedDelegateUserConfig
+
+An entry of a key's `allowedDelegates`.
+
+#### Properties
+
+##### address
+
+> **address**: `string`
+
+The delegate's address: all lowercase, all uppercase, or with a valid EIP-55 checksum.
+
+##### chains
+
+> **chains**: `"all"` \| readonly `number`[]
+
+The chain ids this entry allows the delegate on, or `"all"`. A chain-0 authorization, valid on
+every chain, matches only an entry with `"all"`.
+
+##### codeHash?
+
+> `optional` **codeHash?**: `string`
+
+The `keccak256` of the delegate's runtime code, as `0x` and 64 hex digits. When set, the plugin
+reads the delegate's code with `eth_getCode` and refuses on a mismatch, on empty code, or when
+it has no network to read the code from.
+
+##### label?
+
+> `optional` **label?**: `string`
+
+A name for the delegate, shown next to it in `kms sign-auth`'s note on standard error. 1 to 64
+characters, with no control, format or line-separator characters.
 
 ---
 
@@ -1920,6 +2096,12 @@ Resolved settings shared by every key.
 
 The checksummed address pin, if one was configured.
 
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
 ##### allowRawDigests?
 
 > `optional` **allowRawDigests?**: `true`
@@ -1966,6 +2148,16 @@ Settings shared by every key, whatever its provider.
 
 The address the key must derive to. Optional, recommended: the plugin then skips a KMS call to
 learn the address, and refuses to sign if the key turns out to be different.
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
 
 ##### allowRawDigests?
 
@@ -2686,7 +2878,17 @@ The checksummed address of the wallet account. Always set for a Turnkey key.
 
 ###### Overrides
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-9)
 
 ##### allowRawDigests?
 
@@ -2777,7 +2979,21 @@ The wallet account's address. Required: the plugin signs with it and pins the ke
 
 ###### Overrides
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
 
 ##### allowRawDigests?
 

@@ -12,6 +12,7 @@ import { authorizationDigest } from "../crypto/digests.ts";
 import { type RecoverableSignature, recoverPublicKey, toLowS } from "../crypto/signature.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
+import { checkDelegate, type DelegateCheck } from "../signer/delegates.ts";
 import {
   type KmsSigner,
   outstandingNonce,
@@ -120,6 +121,15 @@ function lintAuthorizations(tx: FilledTransaction): void {
   }
 }
 
+/** An EIP-7702 authorization of a transaction that the sender signed. */
+export interface SelfAuthorization {
+  /** Its index in `authorizationList`. */
+  index: number;
+  /** The checksummed delegate. */
+  delegate: string;
+  chainId: bigint;
+}
+
 /**
  * Refuses self-authorizations invalidated by the final transaction nonce or chain.
  * The sender nonce advances before the list, then once for each valid self tuple.
@@ -127,16 +137,18 @@ function lintAuthorizations(tx: FilledTransaction): void {
  * @param unsigned - The transaction with its final nonce.
  * @param from - The sender's address.
  * @param method - The operation for error messages.
+ * @returns The self-authorizations, for {@link checkSelfDelegates}.
  */
 export function checkSelfAuthorizations(
   unsigned: UnsignedTransaction,
   from: string,
   method: string,
-): void {
+): SelfAuthorization[] {
   const tx = unsigned.raw;
   if (!("authorizationList" in tx)) {
-    return;
+    return [];
   }
+  const self: SelfAuthorization[] = [];
   let expected = tx.nonce + 1n;
   for (const [index, item] of tx.authorizationList.entries()) {
     const { r, s, yParity } = item;
@@ -163,7 +175,44 @@ export function checkSelfAuthorizations(
         { operation: method },
       );
     }
+    self.push({ index, delegate: toChecksumAddress(item.address), chainId: item.chainId });
     expected++;
+  }
+  return self;
+}
+
+/** What {@link checkSelfDelegates} needs: the sender's key, its node, and where notes go. */
+export type TransactionDelegates = Pick<DelegateCheck, "key" | "node" | "note">;
+
+/**
+ * Refuses a transaction whose self-authorization delegates the sender to a contract the key's
+ * `allowedDelegates` does not allow on the authorization's chain (#562), before any KMS call.
+ * Authorizations signed by other accounts are not checked.
+ *
+ * @param self - The transaction's self-authorizations, from {@link checkSelfAuthorizations}.
+ * @param delegates - The sender's key and the node to read pinned delegates' code from.
+ * @param method - The operation for error messages.
+ */
+export async function checkSelfDelegates(
+  self: readonly SelfAuthorization[],
+  delegates: TransactionDelegates,
+  method: string,
+): Promise<void> {
+  for (const { index, delegate, chainId } of self) {
+    await checkDelegate(
+      {
+        ...delegates,
+        operation: method,
+        refuse: (chain) =>
+          catalogError(
+            ERRORS.txSelfAuthorizationDelegate,
+            { index, delegate, chain, keyName: delegates.key.name },
+            { operation: method },
+          ),
+      },
+      delegate,
+      chainId,
+    );
   }
 }
 
@@ -177,6 +226,8 @@ export interface SignTransactionInputs {
   params: readonly unknown[];
   /** The KMS account's lowercase address. */
   from: string;
+  /** The sender's key and node, to check the delegates of its self-authorizations. */
+  delegates: TransactionDelegates;
   /**
    * Chooses the nonce from the filled one, when the caller gave none. Sends use it for the nonce
    * high-water mark and the reservations; without it, the filled nonce is signed.
@@ -243,7 +294,8 @@ export async function signTransaction(
   const unsigned = buildUnsignedTransaction(filled);
   inputs.checkUnsigned?.(unsigned);
   lintAuthorizations(filled);
-  checkSelfAuthorizations(unsigned, inputs.from, inputs.method);
+  const self = checkSelfAuthorizations(unsigned, inputs.from, inputs.method);
+  await checkSelfDelegates(self, inputs.delegates, inputs.method);
   inputs.beforeSign?.();
   let signature: RecoverableSignature;
   try {

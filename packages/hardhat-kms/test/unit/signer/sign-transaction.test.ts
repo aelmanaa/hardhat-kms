@@ -22,6 +22,7 @@ import {
 } from "../../../src/internal/rpc/transactions.ts";
 import { KmsSigner } from "../../../src/internal/signer/kms-signer.ts";
 import type { KmsKeyAdapter } from "../../../src/internal/signer/types.ts";
+import { NO_ALLOWLIST } from "../../helpers/delegates.ts";
 import { fakeAdapter } from "../../helpers/fake-adapter.ts";
 import { fakeTxAdapter, otherBody, type TxBehaviour } from "../../helpers/fake-tx-adapter.ts";
 import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
@@ -86,6 +87,7 @@ async function signFilled(adapter: KmsKeyAdapter, filled: FilledTransaction) {
     method: "eth_signTransaction",
     params: [{ from: FROM }],
     from: FROM.toLowerCase(),
+    delegates: NO_ALLOWLIST,
   });
 }
 
@@ -179,6 +181,7 @@ describe("the adapter's signTransaction", () => {
         method: "eth_sendTransaction",
         params: [{ from: FROM }],
         from: FROM.toLowerCase(),
+        delegates: NO_ALLOWLIST,
       });
 
       assert.equal(signed.raw, expectedRaw(filled).raw);
