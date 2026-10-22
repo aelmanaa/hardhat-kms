@@ -8,7 +8,17 @@ import { recoverPublicKey, toLowS } from "../crypto/signature.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
 import { ConnectionChain, parseChainId } from "../rpc/chain-id.ts";
-import { checkDelegate, matchDelegate } from "../signer/delegates.ts";
+import { checkDelegate, matchDelegate, ZERO_ADDRESS } from "../signer/delegates.ts";
+import {
+  type AuthorizationReview,
+  authorizationWarnings,
+  ERC1967_IMPLEMENTATION_SLOT,
+  isPrecompile,
+  type NodeState,
+  refuseUnworkable,
+  summaryLines,
+} from "./auth-review.ts";
+import { confirm, processTerminal, type Terminal } from "./confirm.ts";
 import { findTaskKey, printLine, printNote, refuseListBypass, withTaskSigners } from "./keys.ts";
 
 /** The arguments of `kms sign-auth`. */
@@ -19,6 +29,7 @@ interface SignAuthArguments {
   nonce: string | undefined;
   selfBroadcast: boolean;
   force: boolean;
+  yes: boolean;
 }
 
 /**
@@ -39,8 +50,11 @@ const OPERATION = "kms sign-auth";
 const NONCE_LIMIT = 2n ** 64n - 1n;
 /** EIP-7702 encodes the chain id as a 256-bit integer. */
 const CHAIN_ID_LIMIT = 2n ** 256n;
-const ZERO_ADDRESS = `0x${"0".repeat(40)}`;
 const HEX_QUANTITY = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
+/** `0x` hex of whole bytes, as `eth_getCode` answers. */
+const HEX_DATA = /^0x(?:[0-9a-fA-F]{2})*$/;
+/** A storage word, as `eth_getStorageAt` answers; some nodes drop leading zeros. */
+const HEX_WORD = /^0x[0-9a-fA-F]{0,64}$/;
 
 /** What the command line asks for, checked before any KMS call. */
 interface AuthorizationInputs {
@@ -52,18 +66,55 @@ interface AuthorizationInputs {
 }
 
 /**
- * `kms sign-auth <key> <delegate>`: signs an EIP-7702 authorization that delegates the key's
- * account to `delegate`, and prints it as the JSON tuple `eth_sendTransaction` takes in its
- * `authorizationList`. The tuple must recover to the key before it is printed.
+ * Builds the action of `kms sign-auth <key> <delegate>`, which signs an EIP-7702 authorization
+ * that delegates the key's account to `delegate`, and prints it as the JSON tuple
+ * `eth_sendTransaction` takes in its `authorizationList`. Before the KMS signs, the task shows
+ * what the authorization does and, at a terminal, asks; it refuses an authorization that cannot
+ * apply (decision 0023). The tuple must recover to the key before it is printed.
  *
- * @param args - The task arguments.
- * @param hre - The Hardhat runtime.
- * @returns The signed authorization.
+ * @param terminal - Where to ask; tests pass another terminal.
+ * @returns The task action, which returns the signed authorization.
  */
-const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) => {
+export function signAuthAction(
+  terminal: () => Terminal = processTerminal,
+): NewTaskActionFunction<SignAuthArguments> {
+  return async (args, hre) => await kmsSignAuth(args, hre, terminal());
+}
+
+const kmsSignAuthAction: NewTaskActionFunction<SignAuthArguments> = signAuthAction();
+
+export default kmsSignAuthAction;
+
+async function kmsSignAuth(
+  args: SignAuthArguments,
+  hre: HardhatRuntimeEnvironment,
+  terminal: Terminal,
+): Promise<SignedAuthorization> {
   const key = findTaskKey(hre, args.key);
   const inputs = readInputs(args, hre);
+  const revoke = sameAddress(inputs.delegate, ZERO_ADDRESS);
+  // Without a terminal nobody can be asked, so the config must name the delegate and the run must
+  // pass --yes. Decided before the connection opens, since its network hook can call the KMS. A
+  // key without allowedDelegates, such as a --kms key, names none; the zero address always passes.
+  if (!terminal.interactive) {
+    if (!args.yes) {
+      throw catalogError(ERRORS.authNoTerminal, {}, { operation: OPERATION });
+    }
+    if (key.allowedDelegates === undefined && !revoke) {
+      throw catalogError(
+        ERRORS.authNotListedNoTerminal,
+        { name: key.name },
+        { operation: OPERATION },
+      );
+    }
+  }
   const configured = configuredChain(hre, inputs.network);
+  // Chain 0 from --chain or the config is refused before the connection opens; a node that
+  // reports chain 0 is refused below.
+  const knownChain = inputs.chain ?? (configured === undefined ? undefined : BigInt(configured));
+  if (knownChain === 0n && !args.force) {
+    throw catalogError(ERRORS.authChainZero, {}, { operation: OPERATION });
+  }
   // The allowlist first (#562). With --network the chain may need the connection, which can call
   // the KMS, so the delegate is matched before it opens: against the config's chainId when it
   // sets one, else against every chain.
@@ -90,24 +141,28 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
     }
   }
   // A --kms key has no list: refused when it is a config key that has one.
-  if (!sameAddress(inputs.delegate, ZERO_ADDRESS)) {
+  if (!revoke) {
     await refuseListBypass(hre, key, OPERATION);
   }
-  // The connection opens only for what neither the command line nor the config gives. Opening it
-  // runs the network hook, which can call the KMS, for example to fund a simulated network.
   let connection: Promise<NetworkConnection> | undefined;
   const connect = async (): Promise<NetworkConnection> =>
     await (connection ??= hre.network.create());
+  // One read per address: the code the pin check hashes is the code the question shows.
+  const codes = new Map<string, Promise<string>>();
+  const codeOf = async (address: string): Promise<string> => {
+    let code = codes.get(address);
+    if (code === undefined) {
+      code = connect().then(async (opened) => await readCode(opened, address));
+      codes.set(address, code);
+    }
+    return await code;
+  };
   try {
-    // A --network run without --nonce connects anyway, so the node's chain is checked against
-    // the config's then; with --nonce, the config's chainId is enough.
-    const chainId =
-      inputs.chain ??
-      (configured !== undefined && inputs.nonce !== undefined
-        ? BigInt(configured)
-        : await networkChain(await connect(), configured));
-    // No flag overrides the list. A pinned code hash is read from the --network node; with
-    // --chain there is none, so a pinned delegate is refused.
+    // With --network the task reads the node anyway, so the node's chain is always checked
+    // against the config's.
+    const chainId = inputs.chain ?? (await networkChain(await connect(), configured));
+    // No flag overrides the list, not even --yes. A pinned code hash is read from the --network
+    // node; with --chain there is none, so a pinned delegate is refused.
     const network = inputs.network;
     const allowed = await checkDelegate(
       {
@@ -116,8 +171,8 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
           network === undefined
             ? undefined
             : {
-                chainId: async () => await networkChain(await connect(), configured),
-                getCode: async (address) => await readCode(await connect(), address),
+                chainId: async () => chainId,
+                getCode: codeOf,
               },
         note: printNote,
         operation: OPERATION,
@@ -125,34 +180,43 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
       inputs.delegate,
       chainId,
     );
-    const label = allowed.kind === "listed" ? allowed.label : undefined;
     if (chainId === 0n && !args.force) {
       throw catalogError(ERRORS.authChainZero, {}, { operation: OPERATION });
     }
-    const chainSource =
-      inputs.network === undefined ? "from --chain" : `from --network ${inputs.network}`;
+    // --yes skips the question only for a delegate the config names, or the zero address. A key
+    // without allowedDelegates returns "unrestricted", which is not a listing.
+    const configApproves = allowed.kind === "listed" || revoke;
     const { authorization, nonce: signedNonce } = await withTaskSigners(hre, async (signerFor) => {
       const signer = await signerFor(key);
-      const authority = await signer.getAddress();
-      if (!sameAddress(inputs.delegate, ZERO_ADDRESS)) {
-        await refuseListBypass(hre, key, OPERATION, authority);
+      // A pinned key shows its pin, so a declined question makes no KMS call. Signing checks the
+      // pin, and the tuple is checked against the signer's address below.
+      const account = key.address ?? (await signer.getAddress());
+      if (!revoke) {
+        await refuseListBypass(hre, key, OPERATION, account);
       }
-      const nonce =
-        inputs.nonce ?? (await authorityNonce(await connect(), authority, args.selfBroadcast));
+      const node =
+        network === undefined
+          ? undefined
+          : await readNode(await connect(), network, account, inputs.delegate, revoke, codeOf);
+      const nonce = chooseNonce(inputs.nonce, node, args.selfBroadcast);
       if (nonce >= NONCE_LIMIT) {
         throw catalogError(ERRORS.authNonceTooLarge, { nonce }, { operation: OPERATION });
       }
-      // What is about to be signed, before the KMS call, which may wait for an approval.
-      printNote(
-        `authority ${authority}, chain ${chainId} (${chainSource}), nonce ${nonce}, delegate ${inputs.delegate}${label === undefined ? "" : ` (${label})`}`,
-      );
-      if (
-        connection !== undefined &&
-        inputs.network !== undefined &&
-        !sameAddress(inputs.delegate, ZERO_ADDRESS)
-      ) {
-        await warnIfNoCode(await connection, inputs.delegate, inputs.network);
-      }
+      const review: AuthorizationReview = {
+        keyName: key.name,
+        account,
+        delegate: inputs.delegate,
+        label: allowed.kind === "listed" ? allowed.label : undefined,
+        chainId,
+        network,
+        nonce,
+        nonceSource:
+          inputs.nonce !== undefined ? "option" : args.selfBroadcast ? "self-broadcast" : "node",
+        node,
+      };
+      refuseUnworkable(review, OPERATION);
+      const lines = summaryLines(review, authorizationWarnings(review));
+      await approve(hre, terminal, lines, args.yes, configApproves, key.name);
       const delegate = hexBytes(inputs.delegate);
       const signature = await signer.signDigest(
         authorizationDigest({ chainId, address: delegate, nonce }),
@@ -167,23 +231,15 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
       };
       // Decision 0004: nothing is printed unless it recovers to the key. The check reads the
       // tuple as printed, so it also covers the step from signature to output.
-      if (!recoversTo(signed, authority)) {
+      if (!recoversTo(signed, await signer.getAddress())) {
         throw catalogError(ERRORS.authNoRecovery, {}, { operation: OPERATION });
-      }
-      if (args.selfBroadcast) {
-        printNote(
-          `the authorization uses nonce ${nonce}: send it in a transaction from this key with nonce ${nonce - 1n}`,
-        );
       }
       return { authorization: signed, nonce };
     });
-    if (chainId === 0n) {
+    if (args.selfBroadcast) {
       printNote(
-        `this authorization is for chain 0: it is replayable on every chain where this account's nonce is ${signedNonce}`,
+        `the authorization uses nonce ${signedNonce}: send it in a transaction from this key with nonce ${signedNonce - 1n}`,
       );
-    }
-    if (sameAddress(authorization.address, ZERO_ADDRESS)) {
-      printNote("the delegate is the zero address: this authorization clears the delegation");
     }
     printLine(JSON.stringify(authorization));
     return authorization;
@@ -192,9 +248,34 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
     const opened = await connection?.catch(() => undefined);
     await opened?.close();
   }
-};
+}
 
-export default kmsSignAuth;
+/**
+ * Shows the summary and, unless the config and `--yes` approve, asks at the terminal (decision
+ * 0023). Without a terminal the caller has already refused what the config does not approve.
+ */
+async function approve(
+  hre: HardhatRuntimeEnvironment,
+  terminal: Terminal,
+  lines: readonly string[],
+  yes: boolean,
+  configApproves: boolean,
+  keyName: string,
+): Promise<void> {
+  if (!terminal.interactive || (yes && configApproves)) {
+    process.stderr.write(lines.map((line) => `${line}\n`).join(""));
+    return;
+  }
+  if (yes) {
+    // Only a key without allowedDelegates gets here with --yes: the list refuses what it does not
+    // name, and --yes skips the question for what it does.
+    printNote(`--yes does not skip the question: key "${keyName}" has no allowedDelegates`);
+  }
+  const agreed = await hre.interruptions.uninterrupted(async () => await confirm(terminal, lines));
+  if (!agreed) {
+    throw catalogError(ERRORS.authDeclined, {}, { operation: OPERATION });
+  }
+}
 
 function readInputs(args: SignAuthArguments, hre: HardhatRuntimeEnvironment): AuthorizationInputs {
   const network = hre.globalOptions.network;
@@ -216,12 +297,11 @@ function readInputs(args: SignAuthArguments, hre: HardhatRuntimeEnvironment): Au
   if (chain !== undefined && chain >= CHAIN_ID_LIMIT) {
     throw catalogError(ERRORS.authChainTooLarge, {}, { operation: OPERATION });
   }
-  return {
-    delegate: checksummed(args.delegate),
-    chain,
-    nonce: parseNonce(args.nonce),
-    network,
-  };
+  const delegate = checksummed(args.delegate);
+  if (isPrecompile(delegate)) {
+    throw catalogError(ERRORS.authDelegatePrecompile, { delegate }, { operation: OPERATION });
+  }
+  return { delegate, chain, nonce: parseNonce(args.nonce), network };
 }
 
 function checksummed(delegate: string): string {
@@ -271,50 +351,96 @@ async function networkChain(
 }
 
 /**
- * The authority's pending nonce from the `--network` node, plus one with `--self-broadcast`: the
- * transaction that carries the authorization is then from the same account and uses that nonce
- * first.
+ * The nonce to sign: `--nonce`, else the account's pending nonce from the node, plus one with
+ * `--self-broadcast`: the transaction that carries the authorization is then from the same account
+ * and uses that nonce first.
  */
-async function authorityNonce(
-  connection: NetworkConnection,
-  authority: string,
+function chooseNonce(
+  option: bigint | undefined,
+  node: NodeState | undefined,
   selfBroadcast: boolean,
+): bigint {
+  if (option !== undefined) {
+    return option;
+  }
+  if (node === undefined) {
+    // readInputs refuses this first; kept so the nonce never defaults.
+    throw catalogError(ERRORS.authNoNonce, {}, { operation: OPERATION });
+  }
+  return selfBroadcast ? node.pending + 1n : node.pending;
+}
+
+/**
+ * Reads what the question shows from the `--network` node: the account's nonce at `latest` and
+ * `pending`, the account's code, and, unless the delegate is the zero address, the delegate's code
+ * and ERC-1967 implementation slot. Every answer is checked for its shape; none is trusted for its
+ * content, since the node can lie.
+ */
+async function readNode(
+  connection: NetworkConnection,
+  network: string,
+  account: string,
+  delegate: string,
+  revoke: boolean,
+  codeOf: (address: string) => Promise<string>,
+): Promise<NodeState> {
+  const latest = await readCount(connection, account, "latest");
+  const pending = await readCount(connection, account, "pending");
+  const accountCode = await codeOf(account);
+  if (revoke) {
+    return {
+      network,
+      latest,
+      pending,
+      accountCode,
+      delegateCode: undefined,
+      implementationSlot: undefined,
+    };
+  }
+  const delegateCode = await codeOf(delegate);
+  const slot: unknown = await connection.provider.request({
+    method: "eth_getStorageAt",
+    params: [delegate, ERC1967_IMPLEMENTATION_SLOT, "latest"],
+  });
+  if (typeof slot !== "string" || !HEX_WORD.test(slot)) {
+    throw catalogError(ERRORS.authNodeStorage, {}, { operation: OPERATION });
+  }
+  return {
+    network,
+    latest,
+    pending,
+    accountCode,
+    delegateCode,
+    implementationSlot: BigInt(slot === "0x" ? "0x0" : slot),
+  };
+}
+
+/** The account's `eth_getTransactionCount` at a block tag. */
+async function readCount(
+  connection: NetworkConnection,
+  account: string,
+  tag: "latest" | "pending",
 ): Promise<bigint> {
   const response: unknown = await connection.provider.request({
     method: "eth_getTransactionCount",
-    params: [authority, "pending"],
+    params: [account, tag],
   });
   if (typeof response !== "string" || !HEX_QUANTITY.test(response)) {
     throw catalogError(ERRORS.authNodeNonce, {}, { operation: OPERATION });
   }
-  const pending = BigInt(response);
-  return selfBroadcast ? pending + 1n : pending;
+  return BigInt(response);
 }
 
-/** The delegate's code on the `--network` node, as the node answers it. */
-async function readCode(connection: NetworkConnection, address: string): Promise<unknown> {
+/** An address's code on the `--network` node, at `latest`, in lowercase `0x` hex. */
+async function readCode(connection: NetworkConnection, address: string): Promise<string> {
   const code: unknown = await connection.provider.request({
     method: "eth_getCode",
     params: [address, "latest"],
   });
-  return code;
-}
-
-/**
- * Warns when the delegate has no code on the `--network` node, which usually means an address
- * copied from another chain. The authorization is still signed: the code may be deployed later.
- */
-async function warnIfNoCode(
-  connection: NetworkConnection,
-  delegate: string,
-  network: string,
-): Promise<void> {
-  const code = await readCode(connection, delegate);
-  if (code === "0x") {
-    printNote(
-      `the delegate ${delegate} has no code on network ${network}: check that it is the address for this chain`,
-    );
+  if (typeof code !== "string" || !HEX_DATA.test(code)) {
+    throw catalogError(ERRORS.authNodeCode, {}, { operation: OPERATION });
   }
+  return code.toLowerCase();
 }
 
 /** Whether a signed authorization, read back from its printed fields, recovers to `address`. */

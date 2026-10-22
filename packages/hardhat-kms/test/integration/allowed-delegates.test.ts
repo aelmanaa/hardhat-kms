@@ -15,9 +15,11 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 import { type PrivateKeyAccount, privateKeyToAccount } from "viem/accounts";
 
 import hardhatKms from "../../src/index.ts";
+import { signAuthAction } from "../../src/internal/tasks/sign-auth.ts";
 import type { KmsAllowedDelegateUserConfig } from "../../src/types.ts";
 import { type FakeAdapter, fakeAdapter } from "../helpers/fake-adapter.ts";
 import { type FakeTxAdapter, fakeTxAdapter } from "../helpers/fake-tx-adapter.ts";
+import { answering } from "../helpers/terminal.ts";
 import { vaultKey } from "../helpers/vault-key.ts";
 import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
@@ -177,7 +179,12 @@ interface SignAuthArgs {
   force?: boolean;
 }
 
-/** Runs `kms sign-auth deployer`, with standard output and error captured. */
+/**
+ * Runs `kms sign-auth deployer --yes` at a terminal that answers `y`, with standard output and
+ * error captured. `--yes` skips the question for a listed delegate or the zero address (#563), and
+ * a key without a list, such as a `--kms` key, is asked and answers `y`, so the list and the
+ * `--kms` checks are what these tests see. `--yes` never overrides the list.
+ */
 async function signAuth(
   hre: HardhatRuntimeEnvironment,
   args: SignAuthArgs,
@@ -192,12 +199,18 @@ async function signAuth(
     return true;
   });
   try {
-    const result: unknown = await hre.tasks.getTask(["kms", "sign-auth"]).run({
-      key: "deployer",
-      selfBroadcast: false,
-      force: false,
-      ...args,
-    });
+    const result: unknown = await signAuthAction(() => answering("y\n").terminal)(
+      {
+        key: "deployer",
+        chain: undefined,
+        nonce: undefined,
+        selfBroadcast: false,
+        force: false,
+        yes: true,
+        ...args,
+      },
+      hre,
+    );
     return { result, ...output };
   } finally {
     write.mock.restore();
@@ -285,7 +298,7 @@ describe("allowedDelegates: kms sign-auth", () => {
       r: signed.r,
       s: signed.s,
     });
-    assert.ok(warned.includes(`delegate ${MAV2} (Modular Account v2)`), warned);
+    assert.ok(warned.includes(`\n  delegate    Modular Account v2 ${MAV2}\n`), warned);
   });
 
   it("signs the zero address with --chain and with --network", async () => {

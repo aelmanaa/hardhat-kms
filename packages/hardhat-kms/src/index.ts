@@ -187,7 +187,13 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
       })
       .addFlag({
         name: "force",
-        description: "Allow chain 0, which makes the authorization valid on every chain",
+        description:
+          "Allow chain 0, which makes the authorization valid on every chain. Does not skip the question",
+      })
+      .addFlag({
+        name: "yes",
+        description:
+          "Sign without asking, for a delegate in the key's allowedDelegates or the zero address. Required without a terminal",
       })
       .setAction(() => import("./internal/tasks/sign-auth.ts"))
       .build(),

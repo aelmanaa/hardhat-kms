@@ -2004,6 +2004,95 @@ export const ERRORS = {
     cause: "The network's node did not answer `eth_getTransactionCount` with a hex number.",
     fix: "Check the network's RPC URL, or pass `--nonce`.",
   },
+  authNodeCode: {
+    id: "core.task.auth-node-code",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the node answered eth_getCode with something other than hex data. Nothing was signed",
+    cause:
+      "`kms sign-auth --network` reads the code of the account and of the delegate before it asks, and the node's answer was not a `0x` hex string of whole bytes.",
+    fix: "Check the network's RPC URL and node. Retry with another node if it persists.",
+  },
+  authNodeStorage: {
+    id: "core.task.auth-node-storage",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the node answered eth_getStorageAt with something other than a 32-byte word. Nothing was signed",
+    cause:
+      "`kms sign-auth --network` reads the delegate's ERC-1967 implementation slot to tell whether it is a proxy, and the node's answer was not `0x` and at most 64 hex digits.",
+    fix: "Check the network's RPC URL and node. Retry with another node if it persists.",
+  },
+  authNonceStale: {
+    id: "core.task.auth-nonce-stale",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the nonce {nonce} is below the account's nonce {latest} on network {network}, so the authorization could never apply. Nothing was signed",
+    cause:
+      "An EIP-7702 authorization applies only when its nonce equals the account's nonce at that point, and the account's nonce never goes down. The node says the account has already used this nonce.",
+    fix: "Drop `--nonce` to let the task read the account's nonce, or pass the nonce the account will have when the transaction runs.",
+  },
+  authDelegateDelegated: {
+    id: "core.task.auth-delegate-delegated",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the delegate {delegate} is itself a delegated account on network {network}: its code starts with 0xef0100. Clients follow one delegation only, so every call to this account would fail. Nothing was signed",
+    cause:
+      "EIP-7702 clients load the delegate's code once and do not follow a second delegation (EIP-7702, Loops). An account delegated to another delegated account runs nothing.",
+    fix: "Delegate to the contract the other account delegates to, not to the account.",
+  },
+  authDelegatePrecompile: {
+    id: "core.task.auth-delegate-precompile",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the delegate {delegate} is a precompile address: every call to the account would succeed and do nothing. Nothing was signed",
+    cause:
+      "A delegation to a precompile runs empty code (EIP-7702, Precompiles). The task refuses addresses from 0x01 to 0x1ff, where Ethereum (0x01 to 0x11, and 0x100 for P256VERIFY) and Arbitrum (0x64 to 0xff) place precompiles. No contract can be deployed there.",
+    fix: "Check the delegate address. To clear a delegation, use the zero address.",
+  },
+  authAccountHasCode: {
+    id: "core.task.auth-account-has-code",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the account {account} has {size} bytes of contract code on network {network}, which is not a delegation, so nodes would skip the authorization. Nothing was signed",
+    cause:
+      "EIP-7702 skips an authorization whose authority has code other than a delegation (EIP-7702, Behavior). A key's address normally has no code; this node says it has contract code.",
+    fix: "Check the network and the key. If the node is wrong, use another node.",
+  },
+  authNoTerminal: {
+    id: "core.task.auth-no-terminal",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "without a terminal, kms sign-auth signs only with --yes, for a delegate in the key's allowedDelegates or the zero address. --yes was not passed. Nothing was signed",
+    cause:
+      "`kms sign-auth` ran without a terminal on standard input and standard error, so it could not ask. An EIP-7702 authorization lets the delegate's code act for the account, so without a person the delegate must be one the config allows, and the run must say so with `--yes`.",
+    fix: "Run the task at a terminal and answer the question. In CI, add the delegate to the key's `allowedDelegates` and pass `--yes`.",
+  },
+  authNotListedNoTerminal: {
+    id: "core.task.auth-not-listed-no-terminal",
+    kind: "error",
+    group: "Tasks",
+    template:
+      'without a terminal, --yes signs only for a delegate in the key\'s allowedDelegates or the zero address. Key "{name}" has no allowedDelegates. Nothing was signed',
+    cause:
+      "`kms sign-auth --yes` ran without a terminal for a key without `allowedDelegates`, so no config names the delegate. A key given with `--kms` has no config, so it cannot have the list either.",
+    fix: "Add the delegate to the key's `allowedDelegates` in the Hardhat config, or run the task at a terminal and answer the question.",
+  },
+  authDeclined: {
+    id: "core.task.auth-declined",
+    kind: "error",
+    group: "Tasks",
+    template: "the authorization was not signed: the question was not answered with y or yes",
+    cause:
+      "`kms sign-auth` asked at the terminal before signing, and the answer was not `y` or `yes`: `n`, an empty line, another word, or input that closed. Nothing was sent to the KMS for signing.",
+    fix: "Check the account, delegate, chain and nonce the question shows, and run the task again if they are right.",
+  },
   balancesNeedNetwork: {
     id: "core.task.balances-need-network",
     kind: "error",
