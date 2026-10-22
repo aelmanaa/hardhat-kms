@@ -72,10 +72,11 @@ const EMPTY_CODE_HASH: string =
   "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470";
 
 /**
- * Control (`Cc`) and format (`Cf`) characters, such as escapes, carriage returns and
- * bidirectional overrides, which could change how a terminal shows a label.
+ * Control, format, surrogate, private-use and unassigned characters (`\p{C}`), and the line and
+ * paragraph separators (U+2028, U+2029), such as escapes, carriage returns and bidirectional
+ * overrides, which could change how a terminal shows a label.
  */
-const UNPRINTABLE: RegExp = /[\p{Cc}\p{Cf}]/u;
+const UNPRINTABLE: RegExp = /[\p{C}\p{Zl}\p{Zp}]/u;
 const LABEL_MAX_LENGTH = 64;
 
 /** A delegate's address in `allowedDelegates`, checked as an address pin is. */
@@ -94,14 +95,19 @@ const delegateAddressSchema = z.string().superRefine((value, ctx) => {
 });
 
 const chainIdMessage = catalogMessage(ERRORS.delegateChainId, {});
+const chainZeroMessage = catalogMessage(ERRORS.delegateChainZero, {});
 const chainsMessage = catalogMessage(ERRORS.delegateChains, {});
 
 /** A chain id in an entry's `chains`: a whole number from 1 to 2^53 - 1. */
 const delegateChainIdSchema = z
   .number({ invalid_type_error: chainIdMessage })
-  .int(chainIdMessage)
-  .min(1, chainIdMessage)
-  .max(Number.MAX_SAFE_INTEGER, chainIdMessage);
+  .superRefine((chain, ctx) => {
+    if (chain === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: chainZeroMessage });
+    } else if (!Number.isSafeInteger(chain) || chain < 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: chainIdMessage });
+    }
+  });
 
 /** An entry's `chains`: `"all"` or a non-empty list of chain ids. */
 const delegateChainsSchema = conditionalUnionType(

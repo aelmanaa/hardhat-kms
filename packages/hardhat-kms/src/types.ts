@@ -50,7 +50,10 @@ export interface KmsAllowedDelegateUserConfig {
    * every chain, matches only an entry with `"all"`.
    */
   chains: "all" | readonly number[];
-  /** A name for the delegate, shown in errors. Up to 64 characters, no control characters. */
+  /**
+   * A name for the delegate, shown next to it in `kms sign-auth`'s note on standard error. 1 to 64
+   * characters, with no control, format or line-separator characters.
+   */
   label?: string;
   /**
    * The `keccak256` of the delegate's runtime code, as `0x` and 64 hex digits. When set, the plugin

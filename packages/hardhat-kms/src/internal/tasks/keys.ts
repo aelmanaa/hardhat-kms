@@ -1,6 +1,8 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 
 import type { KmsKeyConfig } from "../../types.ts";
+import { keyIdentity } from "../config/key-identity.ts";
+import { sameAddress } from "../crypto/address.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
 import { commandLineKeys } from "../hook-handlers/hre.ts";
@@ -85,6 +87,52 @@ export function findTaskKey(hre: HardhatRuntimeEnvironment, name: string): KmsKe
         suggestions: sameLetters.join('" or "'),
         known: known.join(", "),
       });
+}
+
+/**
+ * Refuses a `--kms` key that is the same KMS key as a config key with `allowedDelegates`: the
+ * `--kms` key has no config and so no list, and signing an authorization with it would skip the
+ * config key's list (#562). An unpinned config key is the same when its identifier names the same
+ * KMS key; a pinned one when the `--kms` key's address, once known, equals its `address` pin. The
+ * network hook refuses such a pair only on connections; `kms sign-auth --chain` and `kms sign-tx`
+ * check here.
+ *
+ * @param hre - The Hardhat runtime.
+ * @param key - The key the task signs with.
+ * @param operation - The task, for the error message.
+ * @param address - The key's address, when it is known.
+ */
+export async function refuseListBypass(
+  hre: HardhatRuntimeEnvironment,
+  key: KmsKeyConfig,
+  operation: string,
+  address?: string,
+): Promise<void> {
+  if (!commandLineKeys(hre).includes(key)) {
+    return;
+  }
+  const listed = taskKeys(hre).filter(
+    (candidate) => candidate.source !== "--kms" && candidate.key.allowedDelegates !== undefined,
+  );
+  if (listed.length === 0) {
+    return;
+  }
+  const id = await keyIdentity(key);
+  for (const { key: other } of listed) {
+    // As in the network hook, a pinned config key is compared by its pin, not read: reading it
+    // could ask for a variable or a keystore password the run would not otherwise need.
+    const same =
+      other.address === undefined
+        ? id !== undefined && id === (await keyIdentity(other))
+        : address !== undefined && sameAddress(address, other.address);
+    if (same) {
+      throw catalogError(
+        ERRORS.delegateCommandLineKey,
+        { name: key.name, other: other.name },
+        { operation },
+      );
+    }
+  }
 }
 
 /**

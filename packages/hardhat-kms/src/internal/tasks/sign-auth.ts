@@ -9,7 +9,7 @@ import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
 import { ConnectionChain, parseChainId } from "../rpc/chain-id.ts";
 import { checkDelegate, matchDelegate } from "../signer/delegates.ts";
-import { findTaskKey, printLine, printNote, withTaskSigners } from "./keys.ts";
+import { findTaskKey, printLine, printNote, refuseListBypass, withTaskSigners } from "./keys.ts";
 
 /** The arguments of `kms sign-auth`. */
 interface SignAuthArguments {
@@ -63,21 +63,38 @@ interface AuthorizationInputs {
 const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) => {
   const key = findTaskKey(hre, args.key);
   const inputs = readInputs(args, hre);
+  const configured = configuredChain(hre, inputs.network);
   // The allowlist first (#562). With --network the chain may need the connection, which can call
-  // the KMS, so a delegate the list names for no chain is refused before it opens.
-  if (
-    inputs.network !== undefined &&
-    matchDelegate(key.allowedDelegates, inputs.delegate, undefined).kind === "unlisted"
-  ) {
-    throw catalogError(
-      ERRORS.delegateNotListedNetwork,
-      { keyName: key.name, delegate: inputs.delegate, network: inputs.network },
-      { operation: OPERATION },
+  // the KMS, so the delegate is matched before it opens: against the config's chainId when it
+  // sets one, else against every chain.
+  if (inputs.network !== undefined) {
+    const early = matchDelegate(
+      key.allowedDelegates,
+      inputs.delegate,
+      configured === undefined ? undefined : BigInt(configured),
     );
+    if (configured !== undefined && (early.kind === "unlisted" || early.kind === "wrong-chain")) {
+      // Throws the error for this chain; no node is needed to refuse.
+      await checkDelegate(
+        { key, node: undefined, note: printNote, operation: OPERATION },
+        inputs.delegate,
+        BigInt(configured),
+      );
+    }
+    if (early.kind === "unlisted") {
+      throw catalogError(
+        ERRORS.delegateNotListedNetwork,
+        { keyName: key.name, delegate: inputs.delegate, network: inputs.network },
+        { operation: OPERATION },
+      );
+    }
+  }
+  // A --kms key has no list: refused when it is a config key that has one.
+  if (!sameAddress(inputs.delegate, ZERO_ADDRESS)) {
+    await refuseListBypass(hre, key, OPERATION);
   }
   // The connection opens only for what neither the command line nor the config gives. Opening it
   // runs the network hook, which can call the KMS, for example to fund a simulated network.
-  const configured = configuredChain(hre, inputs.network);
   let connection: Promise<NetworkConnection> | undefined;
   const connect = async (): Promise<NetworkConnection> =>
     await (connection ??= hre.network.create());
@@ -117,6 +134,9 @@ const kmsSignAuth: NewTaskActionFunction<SignAuthArguments> = async (args, hre) 
     const { authorization, nonce: signedNonce } = await withTaskSigners(hre, async (signerFor) => {
       const signer = await signerFor(key);
       const authority = await signer.getAddress();
+      if (!sameAddress(inputs.delegate, ZERO_ADDRESS)) {
+        await refuseListBypass(hre, key, OPERATION, authority);
+      }
       const nonce =
         inputs.nonce ?? (await authorityNonce(await connect(), authority, args.selfBroadcast));
       if (nonce >= NONCE_LIMIT) {

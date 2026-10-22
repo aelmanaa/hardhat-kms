@@ -18,7 +18,7 @@ import {
 } from "../rpc/transaction-filler.ts";
 import { type SignedTransaction, signTransaction } from "../rpc/transactions.ts";
 import { jsonErrorOffset, lineAndColumn } from "./json-position.ts";
-import { findTaskKey, printLine, printNote, withTaskSigners } from "./keys.ts";
+import { findTaskKey, printLine, printNote, refuseListBypass, withTaskSigners } from "./keys.ts";
 
 /** The arguments of `kms sign-tx`. */
 interface SignTxArguments {
@@ -252,9 +252,19 @@ const kmsSignTx: NewTaskActionFunction<SignTxArguments> = async ({ key, tx: file
     printNote("the transaction has no `to`: it creates a contract");
   }
   const keyConfig = findTaskKey(hre, key);
+  // A --kms key has no allowedDelegates; one that is a listed config key would skip its list for
+  // the self-authorizations of this transaction (#562).
+  const carriesAuthorizations =
+    Array.isArray(request.authorizationList) && request.authorizationList.length > 0;
+  if (carriesAuthorizations) {
+    await refuseListBypass(hre, keyConfig, OPERATION);
+  }
   const signed: SignedTransaction = await withTaskSigners(hre, async (signerFor) => {
     const signer = await signerFor(keyConfig);
     const address = (await signer.getAddress()).toLowerCase();
+    if (carriesAuthorizations) {
+      await refuseListBypass(hre, keyConfig, OPERATION, address);
+    }
     const { from } = request;
     if (from !== undefined && (typeof from !== "string" || !sameAddress(from, address))) {
       throw catalogError(

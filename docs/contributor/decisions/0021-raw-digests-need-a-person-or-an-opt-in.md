@@ -31,3 +31,7 @@ The question is the plugin's own helper (`src/internal/tasks/confirm.ts`), not `
 - The question stops callers without a terminal. It does not prove a person answered: a program that drives a pseudo-terminal passes the check (`isatty` on standard input and standard error) and can type `y`. For a key that holds funds or roles, the controls that hold are the opt-in left off and the cloud's or Turnkey's policy.
 - For a key without an `address` pin, the task reads the address from the KMS before it asks, so the question can show it. That call reads the public key and signs nothing.
 - A test drives the question through in-memory streams and through a child process whose standard input is closed. No pseudo-terminal test runs in CI.
+
+## Evidence
+
+- [#562](https://github.com/aelmanaa/hardhat-kms/issues/562) ([decision 0022](0022-per-key-delegate-allowlist.md)) freezes each resolved key and the `kms.keys` record, so the key objects are no longer editable in place. In-process code can still replace `hre.config.kms` or a network's `kmsAccounts`, edit the config before it loads, or call the cloud SDK, so the opt-in is still not a barrier against such code.

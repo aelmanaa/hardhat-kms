@@ -67,15 +67,17 @@ function resolveExternalKey(
  * @returns The resolved key.
  */
 export function resolveKey(key: KmsKeyUserConfig, context: KeyResolveContext): KmsKeyConfig {
+  // Frozen, so code that runs later cannot change a key's settings, such as its
+  // `allowedDelegates`, in place.
   const builtin = builtinProvider(key.provider);
   if (builtin !== undefined) {
-    return builtin.resolve(key, context);
+    return Object.freeze(builtin.resolve(key, context));
   }
   // KmsKeyConfig is an open union: third-party providers add their member by augmenting
   // KmsProviderConfigs, which TypeScript cannot see from here. Adding ExternalKmsKeyConfig to the
   // union instead would stop users from narrowing on `provider`.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- open union, allowed in scripts/type-escapes.json
-  return resolveExternalKey(key, context) as unknown as KmsKeyConfig;
+  return Object.freeze(resolveExternalKey(key, context)) as unknown as KmsKeyConfig;
 }
 
 /**
@@ -100,11 +102,13 @@ export function resolveKmsConfig(
     aws: region === undefined ? {} : { region },
     timeoutMs: user.defaults?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   };
-  const keys = Object.fromEntries(
-    Object.entries(user.keys ?? {}).map(([name, key]) => [
-      name,
-      resolveKey(key, { name, path: `kms.keys.${name}`, resolveVariable, defaults }),
-    ]),
+  const keys = Object.freeze(
+    Object.fromEntries(
+      Object.entries(user.keys ?? {}).map(([name, key]) => [
+        name,
+        resolveKey(key, { name, path: `kms.keys.${name}`, resolveVariable, defaults }),
+      ]),
+    ),
   );
   return {
     keys,
@@ -148,6 +152,8 @@ export function resolveKmsUserConfig(
           defaults: kms.defaults,
         });
       });
+      // Frozen in place: the network config keeps the array type Hardhat users read.
+      Object.freeze(kmsAccounts);
       return [network, { ...networkConfig, kmsAccounts }];
     }),
   );

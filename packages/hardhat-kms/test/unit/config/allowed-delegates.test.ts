@@ -114,19 +114,45 @@ describe("allowedDelegates: validation", () => {
     assert.equal(errors[0]?.path, at);
   });
 
-  it("refuses a chain id that is not a positive safe integer, chain 0 included", () => {
-    for (const chain of [0, -1, 1.5, "1", 1n, Number.MAX_SAFE_INTEGER + 1, Number.NaN]) {
-      assertError(
+  it("refuses a chain id that is not a positive safe integer, with a plain message", () => {
+    for (const chain of [-1, 1.5, "1", "0x1", 1n, Number.MAX_SAFE_INTEGER + 1, Number.NaN]) {
+      const errors = validate(
         inKeys({
           provider: "aws",
           keyId: "alias/a",
           allowedDelegates: [{ address: SIMPLE, chains: [1, chain] }],
         }),
-        "kms.keys.a.allowedDelegates.0.chains.1",
-        'A chain-0 authorization is allowed by chains: "all", not by 0',
-        1,
+      );
+      assert.deepEqual(
+        errors,
+        [
+          {
+            path: "kms.keys.a.allowedDelegates.0.chains.1",
+            message: "Expected a positive integer chain id, as a number",
+          },
+        ],
+        String(chain),
       );
     }
+  });
+
+  it("refuses chain 0 with a hint to use all", () => {
+    assert.deepEqual(
+      validate(
+        inKeys({
+          provider: "aws",
+          keyId: "alias/a",
+          allowedDelegates: [{ address: SIMPLE, chains: [0] }],
+        }),
+      ),
+      [
+        {
+          path: "kms.keys.a.allowedDelegates.0.chains.0",
+          message:
+            'Chain 0 cannot be listed. A chain-0 authorization is valid on every chain: allow it with chains: "all"',
+        },
+      ],
+    );
   });
 
   it("refuses a malformed code hash, and the hash of empty code", () => {
@@ -163,7 +189,21 @@ describe("allowedDelegates: validation", () => {
   });
 
   it("refuses a label that is empty, too long, padded or holds control characters", () => {
-    for (const label of ["", "x".repeat(65), " x", "x ", "a\u001b[2Jb", "a\nb", "a‮b", 1]) {
+    for (const label of [
+      "",
+      "x".repeat(65),
+      " x",
+      "x ",
+      "a\u001b[2Jb",
+      "a\nb",
+      "a\u202eb",
+      "a\u2028b",
+      "a\u2029b",
+      "a\ud800b",
+      "a\ue000b",
+      "a\u0085b",
+      1,
+    ]) {
       const errors = validate(
         inKeys({
           provider: "aws",
@@ -230,6 +270,11 @@ describe("allowedDelegates: resolution", () => {
     assert.ok(list.every((entry) => Object.isFrozen(entry)));
     assert.ok(Array.isArray(list[0]?.chains) && Object.isFrozen(list[0].chains));
     assert.equal(keys.b !== undefined && "allowedDelegates" in keys.b, false);
+    // Code that runs after the config loads cannot change a key, or the keys, in place.
+    const a = keys.a;
+    assert.ok(a !== undefined && Object.isFrozen(a) && Object.isFrozen(keys));
+    assert.equal(Reflect.set(a, "allowedDelegates", undefined), false);
+    assert.equal(Reflect.set(keys, "a", keys.b), false);
     assert.deepEqual(keys.c?.allowedDelegates, []);
   });
 
@@ -256,5 +301,7 @@ describe("allowedDelegates: resolution", () => {
     assert.deepEqual(network.kmsAccounts[0]?.allowedDelegates, [
       { address: SIMPLE, chains: "all" },
     ]);
+    assert.ok(Object.isFrozen(network.kmsAccounts));
+    assert.ok(Object.isFrozen(network.kmsAccounts[0]));
   });
 });

@@ -378,6 +378,22 @@ describe("self-authorization delegates (#562)", () => {
     assert.deepEqual(delegates.reads, []);
   });
 
+  it("checks every self tuple: a listed first one does not let an unlisted second one through", async () => {
+    const OTHER_DELEGATE = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+    const { adapter, result } = signSelfList(
+      [tuple(1n), tuple(2n, 31337n, HARDHAT_ACCOUNT_0.secretKey, OTHER_DELEGATE)],
+      0n,
+      delegatesOf([{ address: TO, chains: "all" }]),
+    );
+    await assert.rejects(
+      result,
+      new RegExp(
+        `authorizationList\\[1\\] is signed by the sender and delegates it to ${OTHER_DELEGATE} on chain 31337`,
+      ),
+    );
+    assert.equal(adapter.calls.signDigest, 0);
+  });
+
   it("does not check a tuple signed by another authority with the same delegate", async () => {
     const { adapter, result } = signSelfList(
       [tuple(40n, 31337n, COW_ACCOUNT.secretKey)],

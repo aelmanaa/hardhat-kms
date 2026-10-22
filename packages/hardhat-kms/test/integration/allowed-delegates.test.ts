@@ -17,6 +17,7 @@ import { type PrivateKeyAccount, privateKeyToAccount } from "viem/accounts";
 import hardhatKms from "../../src/index.ts";
 import type { KmsAllowedDelegateUserConfig } from "../../src/types.ts";
 import { type FakeAdapter, fakeAdapter } from "../helpers/fake-adapter.ts";
+import { type FakeTxAdapter, fakeTxAdapter } from "../helpers/fake-tx-adapter.ts";
 import { vaultKey } from "../helpers/vault-key.ts";
 import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
@@ -61,7 +62,7 @@ after(() => {
  * `sponsor` key has no list. Both are KMS accounts of the Prague `local` network, and every new
  * connection gets {@link CODE} at {@link PINNED} and {@link PINNED_OTHER}.
  */
-async function runtime(network?: string) {
+async function runtime(network?: string, options: { keeps?: boolean; kms?: string } = {}) {
   const hre = await createHardhatRuntimeEnvironment(
     {
       plugins: [hardhatKms],
@@ -69,19 +70,44 @@ async function runtime(network?: string) {
         keys: {
           deployer: { ...vaultKey("deployer"), allowedDelegates: ALLOWED },
           sponsor: vaultKey("sponsor"),
+          ...(options.kms === undefined
+            ? {}
+            : {
+                // The same AWS key as `--kms aws` with AWS_KMS_KEY_ID=alias/listed, by its id.
+                listed: { provider: "aws", keyId: "alias/listed", allowedDelegates: ALLOWED },
+                // A key with the deployer's address pin, which no id can match.
+                pinned: {
+                  ...vaultKey("pinned", ACCOUNT_0.address),
+                  allowedDelegates: ALLOWED,
+                },
+              }),
         },
+        defaults: { aws: { region: "eu-west-1" } },
         simulatedBalance: 10n ** 18n,
       },
       networks: {
         local: { type: "edr-simulated", hardfork: "prague", kmsAccounts: ["deployer", "sponsor"] },
+        // No chainId and no node: a refusal on it must come before any connection.
+        remote: { type: "http", url: "http://127.0.0.1:9", kmsAccounts: ["deployer"] },
+        optimism: {
+          type: "http",
+          url: "http://127.0.0.1:9",
+          chainId: 10,
+          kmsAccounts: ["deployer"],
+        },
       },
     },
-    network === undefined ? {} : { network },
+    {
+      ...(network === undefined ? {} : { network }),
+      ...(options.kms === undefined ? {} : { kms: options.kms }),
+    },
   );
   const created: FakeAdapter[] = [];
+  const keepers: FakeTxAdapter[] = [];
   const secretKeys: Record<string, string> = {
     deployer: HARDHAT_ACCOUNT_0.secretKey,
     sponsor: COW_ACCOUNT.secretKey,
+    AWS_KMS_KEY_ID: HARDHAT_ACCOUNT_0.secretKey,
   };
   hre.hooks.registerHandlers("kms", {
     createKeyAdapter: async (context, key, next) => {
@@ -89,7 +115,17 @@ async function runtime(network?: string) {
       if (secretKey === undefined) {
         return await next(context, key);
       }
-      const adapter = fakeAdapter({ secretKey: new Uint8Array(Buffer.from(secretKey, "hex")) });
+      const bytes = new Uint8Array(Buffer.from(secretKey, "hex"));
+      if (options.keeps === true) {
+        // A provider that keeps what it signs, as Turnkey does: eth_signTransaction then signs
+        // under the send lock (#537).
+        const keeping = Object.assign(fakeTxAdapter({ secretKey: bytes, behaviour: "honest" }), {
+          signTransactionOutlivesAbort: true,
+        });
+        keepers.push(keeping);
+        return keeping;
+      }
+      const adapter = fakeAdapter({ secretKey: bytes });
       created.push(adapter);
       return adapter;
     },
@@ -104,7 +140,11 @@ async function runtime(network?: string) {
     },
   });
   const signatures = (): number =>
-    created.reduce((total, adapter) => total + adapter.calls.signDigest, 0);
+    created.reduce((total, adapter) => total + adapter.calls.signDigest, 0) +
+    keepers.reduce(
+      (total, adapter) => total + adapter.calls.signDigest + adapter.calls.signTransaction,
+      0,
+    );
   return { hre, created, signatures };
 }
 
@@ -130,6 +170,7 @@ function delegateOf(tuple: unknown): unknown {
 }
 
 interface SignAuthArgs {
+  key?: string;
   delegate: string;
   chain?: string;
   nonce?: string;
@@ -171,13 +212,32 @@ describe("allowedDelegates: kms sign-auth", () => {
       signAuth(plain.hre, { delegate: UNLISTED, chain: "1", nonce: "0" }),
       `kms sign-auth: key deployer may not delegate to ${UNLISTED} on chain 1: no entry of its allowedDelegates allows that delegate on that chain. Nothing was signed`,
     );
+    // The config gives the chain: matched against it before connecting.
     const onNetwork = await runtime("local");
     await assertRefused(
       signAuth(onNetwork.hre, { delegate: UNLISTED }),
-      `kms sign-auth: key deployer may not delegate to ${UNLISTED} on network local: no entry of its allowedDelegates names that delegate. Nothing was signed`,
+      `kms sign-auth: key deployer may not delegate to ${UNLISTED} on chain 31337: no entry of its allowedDelegates allows that delegate on that chain. Nothing was signed`,
+    );
+    // A delegate listed for other chains than the config's, with no node to reach.
+    const optimism = await runtime("optimism");
+    await assertRefused(
+      signAuth(optimism.hre, { delegate: MAV2 }),
+      `kms sign-auth: key deployer may not delegate to ${MAV2} on chain 10:`,
+    );
+    // No chainId in the config: a delegate no entry names is refused before connecting.
+    const remote = await runtime("remote");
+    await assertRefused(
+      signAuth(remote.hre, { delegate: UNLISTED }),
+      `kms sign-auth: key deployer may not delegate to ${UNLISTED} on network remote: no entry of its allowedDelegates names that delegate. Nothing was signed`,
     );
     // Not even the public key: the delegate is refused before the connection or the signer opens.
-    assert.equal(plain.created.length + onNetwork.created.length, 0);
+    assert.equal(
+      plain.created.length +
+        onNetwork.created.length +
+        optimism.created.length +
+        remote.created.length,
+      0,
+    );
   });
 
   it("refuses a delegate listed for another chain, after reading the network's chain", async () => {
@@ -417,6 +477,31 @@ describe("allowedDelegates: a send's self-authorizations", () => {
     }
   });
 
+  it("refuses an unlisted self-authorization for a provider that keeps what it signs", async () => {
+    const { hre, signatures } = await runtime(undefined, { keeps: true });
+    const connection = await hre.network.create("local");
+    try {
+      const self = await rpcAuthorization(ACCOUNT_0, UNLISTED, 1);
+      await assertRefused(
+        connection.provider.request({
+          method: "eth_signTransaction",
+          params: [{ from: ACCOUNT_0.address, to: COW.address, authorizationList: [self] }],
+        }),
+        `eth_signTransaction: authorizationList[0] is signed by the sender and delegates it to ${UNLISTED} on chain 31337`,
+      );
+      assert.equal(signatures(), 0);
+      const listed = await rpcAuthorization(ACCOUNT_0, MAV2, 1);
+      const raw: unknown = await connection.provider.request({
+        method: "eth_signTransaction",
+        params: [{ from: ACCOUNT_0.address, to: COW.address, authorizationList: [listed] }],
+      });
+      assert.match(String(raw), /^0x04/);
+      assert.equal(signatures(), 1);
+    } finally {
+      await connection.close();
+    }
+  });
+
   it("refuses the same tuple in kms sign-tx, before any signature", async () => {
     const { hre, signatures } = await runtime("local");
     const self = await rpcAuthorization(ACCOUNT_0, PINNED_OTHER, 1);
@@ -445,6 +530,81 @@ describe("allowedDelegates: a send's self-authorizations", () => {
       });
     } finally {
       await connection.close();
+    }
+  });
+});
+
+/** Runs `use` with `AWS_KMS_KEY_ID` set to `keyId`, then restores it. */
+async function withAwsKeyId<T>(keyId: string, use: () => Promise<T>): Promise<T> {
+  const saved = process.env.AWS_KMS_KEY_ID;
+  process.env.AWS_KMS_KEY_ID = keyId;
+  try {
+    return await use();
+  } finally {
+    if (saved === undefined) {
+      Reflect.deleteProperty(process.env, "AWS_KMS_KEY_ID");
+    } else {
+      process.env.AWS_KMS_KEY_ID = saved;
+    }
+  }
+}
+
+/** The refusal of a `--kms` key that is the config key `other`. */
+const refusal = (other: string) =>
+  `the --kms key AWS_KMS_KEY_ID is the same KMS key as ${other}, which has allowedDelegates. Name ${other} instead, so its list applies. Nothing was signed`;
+
+describe("allowedDelegates: a --kms key that is a listed config key", () => {
+  it("kms sign-auth refuses it by key id before any KMS call, and by address pin before signing", async () => {
+    await withAwsKeyId("alias/listed", async () => {
+      const { hre, created } = await runtime(undefined, { kms: "aws" });
+      await assertRefused(
+        signAuth(hre, { key: "AWS_KMS_KEY_ID", delegate: UNLISTED, chain: "1", nonce: "0" }),
+        `kms sign-auth: ${refusal("listed")}`,
+      );
+      assert.equal(created.length, 0);
+    });
+    await withAwsKeyId("alias/other", async () => {
+      const { hre, signatures } = await runtime(undefined, { kms: "aws" });
+      await assertRefused(
+        signAuth(hre, { key: "AWS_KMS_KEY_ID", delegate: UNLISTED, chain: "1", nonce: "0" }),
+        `kms sign-auth: ${refusal("pinned")}`,
+      );
+      assert.equal(signatures(), 0);
+      // A revocation passes every list, so it signs.
+      const { result } = await signAuth(hre, {
+        key: "AWS_KMS_KEY_ID",
+        delegate: ZERO,
+        chain: "1",
+        nonce: "0",
+      });
+      assert.equal(delegateOf(result), ZERO);
+    });
+  });
+
+  it("kms sign-tx refuses it for a transaction with an authorization list", async () => {
+    const self = await rpcAuthorization(ACCOUNT_0, UNLISTED, 1);
+    const file = path.join(scratch, "kms-tx.json");
+    writeFileSync(file, JSON.stringify({ to: COW.address, authorizationList: [self] }));
+    const writeError = mock.method(process.stderr, "write", () => true);
+    try {
+      await withAwsKeyId("alias/listed", async () => {
+        const { hre, created } = await runtime("local", { kms: "aws" });
+        await assertRefused(
+          hre.tasks.getTask(["kms", "sign-tx"]).run({ key: "AWS_KMS_KEY_ID", tx: file }),
+          `kms sign-tx: ${refusal("listed")}`,
+        );
+        assert.equal(created.length, 0);
+      });
+      await withAwsKeyId("alias/other", async () => {
+        const { hre, signatures } = await runtime("local", { kms: "aws" });
+        await assertRefused(
+          hre.tasks.getTask(["kms", "sign-tx"]).run({ key: "AWS_KMS_KEY_ID", tx: file }),
+          `kms sign-tx: ${refusal("pinned")}`,
+        );
+        assert.equal(signatures(), 0);
+      });
+    } finally {
+      writeError.mock.restore();
     }
   });
 });

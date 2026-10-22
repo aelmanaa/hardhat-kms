@@ -95,11 +95,20 @@ export const ERRORS = {
     id: "core.config.delegate-chain-id",
     kind: "validation",
     group: "Configuration",
-    template:
-      'Expected a positive integer chain id. A chain-0 authorization is allowed by chains: "all", not by 0',
+    template: "Expected a positive integer chain id, as a number",
     cause:
-      "A chain id in an `allowedDelegates` entry's `chains` is not a whole number from 1 to 2^53 - 1. Chain 0 cannot be listed: an authorization for chain 0 is valid on every chain.",
-    fix: 'Write the chain id as a number, such as `11155111`. To allow chain-0 authorizations, set `chains: "all"`.',
+      "A chain id in an `allowedDelegates` entry's `chains` is not a whole number from 1 to 2^53 - 1, or is a string or a bigint.",
+    fix: "Write the chain id as a number, such as `11155111`.",
+  },
+  delegateChainZero: {
+    id: "core.config.delegate-chain-zero",
+    kind: "validation",
+    group: "Configuration",
+    template:
+      'Chain 0 cannot be listed. A chain-0 authorization is valid on every chain: allow it with chains: "all"',
+    cause:
+      "An `allowedDelegates` entry's `chains` lists 0. An authorization for chain 0 is valid on every chain, so only an entry for every chain allows it.",
+    fix: 'Remove 0 from the list. To allow chain-0 authorizations for this delegate, set `chains: "all"`.',
   },
   delegateLabel: {
     id: "core.config.delegate-label",
@@ -2568,6 +2577,16 @@ export const ERRORS = {
     cause:
       'An authorization for chain 0 is valid on every chain. An entry that lists chain ids allows the delegate on those chains only, so it does not match a chain-0 authorization. Only `chains: "all"` does, as in Ledger\'s Ethereum app.',
     fix: 'Sign the authorization for one chain. If the delegate is meant for every chain, set its entry\'s `chains` to `"all"`.',
+  },
+  delegateCommandLineKey: {
+    id: "core.delegate.command-line-key",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "the --kms key {name} is the same KMS key as {other}, which has allowedDelegates. Name {other} instead, so its list applies. Nothing was signed",
+    cause:
+      "A key from `--kms` has no config and so no `allowedDelegates`. It names the same KMS key, or has the same address pin, as a config key that limits its delegates, so signing an authorization with it would skip that key's list.",
+    fix: "Run the task with the config key's name instead of `--kms`.",
   },
   delegateNotListedNetwork: {
     id: "core.delegate.not-listed-network",

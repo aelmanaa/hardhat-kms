@@ -240,11 +240,11 @@ The rules:
 - With `codeHash`, the plugin reads the delegate's code on the network and refuses when its hash differs, when the address has no code, or when the node's answer is not hex data. When several entries match, one without `codeHash` is enough; otherwise the code must match one of their hashes. For a chain-0 authorization, the code is read on the connection's chain only, and a note says so. `kms sign-auth --chain` opens no connection, so it refuses a delegate whose matching entries all pin a hash: run it with `--network`.
 - The zero address always passes, since an authorization to it clears the delegation.
 - No flag or option overrides the list: not `--force` on `kms sign-auth`, and not `allowChainZeroAuthorization` on a library account.
-- Keys from `--kms` have no config, so they have no list.
+- Keys from `--kms` have no config, so they have no list. `kms sign-auth` and `kms sign-tx` refuse a `--kms` key that is the same KMS key as a config key with `allowedDelegates`, matched by key id or by that key's `address` pin: name the config key instead.
 
 The list is checked before any KMS sign request in [`kms sign-auth`](tasks.md#kms-sign-auth), in a library account's [`signAuthorization`](library-accounts.md#what-is-refused-before-any-kms-call), which the [Alchemy Wallet APIs](../guides/alchemy-wallet-apis.md) use, and for each authorization a KMS sender's transaction carries that recovers to the sender: [`eth_sendTransaction` and `eth_signTransaction`](rpc-methods.md), `kms sign-tx` and the library account's `signTransaction`. Authorizations signed by other accounts are not checked. A raw digest, from `kms sign --no-hash` or a `rawSign` account, can be an authorization's hash, and the list cannot see it: [`allowRawDigests`](#configuration) gates raw digests.
 
-The list lives in the Hardhat config, so whoever can edit the config can widen it. Code in the same process can read and change the resolved config too. The list guards against mistakes and driven signing, not against a leaked key: see [EIP-7702 delegates](../explanation/security-model.md#eip-7702-delegates) in the security model. The errors are in the [errors reference](errors.md#eip-7702-delegates).
+The list lives in the Hardhat config, so whoever can edit the config can widen it. The plugin freezes each resolved key and its list, but code in the same process can still replace the config's `kms` section or a network's `kmsAccounts`. The list guards against mistakes and driven signing, not against a leaked key: see [EIP-7702 delegates](../explanation/security-model.md#eip-7702-delegates) in the security model. The errors are in the [errors reference](errors.md#eip-7702-delegates).
 
 ## Keys from the command line
 

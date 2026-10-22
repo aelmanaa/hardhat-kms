@@ -71,12 +71,13 @@ export function matchDelegate(
     return { kind: "wrong-chain" };
   }
   // One entry without a pin is enough; otherwise the code must match one of the pins.
-  const unpinned = matching.find((entry) => entry.codeHash === undefined);
-  if (unpinned !== undefined) {
-    return { kind: "listed", label: unpinned.label, codeHashes: [] };
+  const codeHashes: string[] = [];
+  for (const entry of matching) {
+    if (entry.codeHash === undefined) {
+      return { kind: "listed", label: entry.label, codeHashes: [] };
+    }
+    codeHashes.push(entry.codeHash);
   }
-  // Stryker disable next-line ArrayDeclaration: every matching entry has a codeHash here, so the fallback is never used
-  const codeHashes = matching.flatMap((entry) => entry.codeHash ?? []);
   return { kind: "listed", label: first.label, codeHashes };
 }
 

@@ -64,7 +64,7 @@ describe("matchDelegate", () => {
     }
   });
 
-  it("matches a chain-0 authorization only to an entry for all chains (Ledger 1.22.3)", () => {
+  it("matches a chain-0 authorization only to an entry for all chains (Ledger 1.22.4)", () => {
     // A chain-0 authorization is valid on every chain, so an entry for chain 1 must not allow it.
     assert.deepEqual(matchDelegate(LIST, MAV2, 0n), { kind: "wrong-chain" });
     assert.deepEqual(matchDelegate([{ address: MAV2, chains: [1] }], MAV2, 0n), {
