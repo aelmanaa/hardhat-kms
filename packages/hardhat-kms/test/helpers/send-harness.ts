@@ -332,11 +332,11 @@ export async function setUp(
         return response.result;
       },
     };
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- only the fields the hook reads
     const connection = {
       networkName: network,
       networkConfig: configs[network],
       provider,
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- only the fields the hook reads
     } as NetworkConnection<string>;
     assert.ok(handlers.newConnection);
     return await handlers.newConnection(hre, async () => await Promise.resolve(connection));
