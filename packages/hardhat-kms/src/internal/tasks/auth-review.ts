@@ -147,6 +147,11 @@ export function authorizationWarnings(review: AuthorizationReview): string[] {
       `nonce ${review.nonce} is ahead of the account's next nonce ${next}: the signature stays valid until the account reaches it, and anyone who holds it can submit it then`,
     );
   }
+  if (review.nonceSource === "option" && review.nonce < node.pending) {
+    warnings.push(
+      `nonce ${review.nonce} is below the account's pending count ${node.pending}: a pending transaction will likely use it first, and the authorization then cannot apply`,
+    );
+  }
   const revoke = sameAddress(review.delegate, ZERO_ADDRESS);
   const current = delegationTarget(node.accountCode);
   if (!revoke && current !== undefined && !sameAddress(current, review.delegate)) {
@@ -169,7 +174,8 @@ export function authorizationWarnings(review: AuthorizationReview): string[] {
 
 /**
  * The lines the question shows, or the task prints when it does not ask. Node data appears only as
- * numbers, hashes and checksummed addresses, so a crafted answer cannot push the delegate off the
+ * bounded numbers (the task refuses nonces of 2^64 or more and chain ids of 2^256 or more), code
+ * sizes, hashes and checksummed addresses, so a crafted answer cannot push the delegate off the
  * screen.
  *
  * @param review - The authorization and the node's answers.

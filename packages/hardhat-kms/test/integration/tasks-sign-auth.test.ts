@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it, mock } from "node:test";
+import { after, afterEach, before, describe, it, mock } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
@@ -1053,7 +1053,7 @@ describe("kms sign-auth refuses authorizations that cannot apply", () => {
           { chain: "1", nonce: "0", delegate },
           { terminal: NO_TERMINAL, asked: () => "" },
         ),
-        `kms sign-auth: the delegate ${delegate} is a precompile address: every call to the account would succeed and do nothing. Nothing was signed`,
+        `kms sign-auth: the delegate ${delegate} is in the reserved precompile range 0x01 to 0x1ff: every call to the account would succeed and do nothing. Nothing was signed`,
       );
       assert.equal(created.length, 0);
     }
@@ -1150,6 +1150,160 @@ describe("kms sign-auth refuses authorizations that cannot apply", () => {
     });
     const { asked } = await signAuth(hre, {});
     assert.doesNotMatch(asked, /ERC-1967/);
+  });
+});
+
+/** The node {@link withAnswers} connects to; started by the suite that uses it. */
+let answersNode: RecordingNode | undefined;
+
+/**
+ * A runtime on `remote`, an HTTP network without a `chainId` in its config, whose answers are the
+ * values `answer` returns, and the node's for the rest. The chain comes from the node.
+ */
+async function withAnswers(
+  answer: (method: string, params: readonly unknown[]) => unknown,
+  deployer?: KmsKeyUserConfig,
+) {
+  assert.ok(answersNode !== undefined);
+  const made = await runtime({
+    network: "remote",
+    networks: { remote: { type: "http", url: answersNode.url } },
+    ...(deployer === undefined ? {} : { deployer }),
+  });
+  const requests: { method: string; params: readonly unknown[] }[] = [];
+  made.hre.hooks.registerHandlers("network", {
+    onRequest: async (context, connection, request, next) => {
+      const params: unknown = request.params;
+      const list: readonly unknown[] = Array.isArray(params) ? params : [];
+      requests.push({ method: request.method, params: list });
+      const result = answer(request.method, list);
+      return result === undefined
+        ? await next(context, connection, request)
+        : { jsonrpc: "2.0", id: request.id, result };
+    },
+  });
+  return { ...made, requests };
+}
+
+/** Different `latest` and `pending` counts. */
+const latestThreePendingFive = (method: string, params: readonly unknown[]) =>
+  method === "eth_getTransactionCount" ? (params[1] === "latest" ? "0x3" : "0x5") : undefined;
+
+describe("kms sign-auth: node answers", () => {
+  before(async () => {
+    answersNode = await startRecordingNode();
+  });
+  after(async () => {
+    await answersNode?.server.close();
+    answersNode = undefined;
+  });
+
+  it("refuses a nonce answer of 2^64 or more, which would stretch the question", async () => {
+    for (const tag of ["latest", "pending"]) {
+      const { hre, created } = await withAnswers((method, params) =>
+        method === "eth_getTransactionCount" && params[1] === tag
+          ? `0x1${"0".repeat(16)}`
+          : undefined,
+      );
+      await assertKmsError(
+        signAuth(hre, {}),
+        "the node answered eth_getTransactionCount with something other than a nonce",
+      );
+      assert.equal(output.asked, "");
+      assert.equal(signatures(created), 0);
+    }
+    // The largest account nonce passes.
+    const { hre } = await withAnswers((method) =>
+      method === "eth_getTransactionCount" ? `0x${"f".repeat(16)}` : undefined,
+    );
+    await assertKmsError(signAuth(hre, {}), "EIP-7702 needs one below 2^64 - 1");
+  });
+
+  it("refuses a node chain id of 2^256 or more, before any sign request", async () => {
+    const { hre, created } = await withAnswers((method) =>
+      method === "eth_chainId" ? `0x1${"0".repeat(64)}` : undefined,
+    );
+    await assertKmsError(
+      signAuth(hre, { nonce: "0" }),
+      "kms sign-auth: the node reported a chain id that does not fit in 256 bits, so no authorization can name it. Nothing was signed",
+    );
+    assert.equal(created.length, 0);
+  });
+
+  it("refuses chain 0 from a node without a configured chainId, even for a listed delegate with --yes", async () => {
+    const { hre, created } = await withAnswers(
+      (method) => (method === "eth_chainId" ? "0x0" : undefined),
+      {
+        ...vaultKey("deployer"),
+        allowedDelegates: [{ address: DELEGATE, chains: "all" }],
+      },
+    );
+    for (const terminal of [{ terminal: NO_TERMINAL, asked: () => "" }, answering("y\n")]) {
+      await assertKmsError(
+        signAuth(hre, { yes: true }, terminal),
+        "Pass --force to sign it anyway",
+      );
+    }
+    assert.equal(signatures(created), 0);
+  });
+
+  it("signs the pending nonce, not the latest one, when they differ, and adds one with --self-broadcast", async () => {
+    const plain = await withAnswers(latestThreePendingFive);
+    const self = await withAnswers(latestThreePendingFive);
+
+    const { printed, asked } = await signAuth(plain.hre, {});
+    assert.equal(tupleOf(printed).nonce, "0x5");
+    assert.ok(
+      asked.includes("\n  nonce       5; account nonce now 3 (5 pending); self-sponsored: no\n"),
+      asked,
+    );
+    const forSelf = await signAuth(self.hre, { selfBroadcast: true });
+    assert.equal(tupleOf(forSelf.printed).nonce, "0x6");
+  });
+
+  it("warns when --nonce is below the pending count", async () => {
+    const { hre } = await withAnswers(latestThreePendingFive);
+    const { asked } = await signAuth(hre, { nonce: "4" });
+    assert.ok(
+      asked.includes(
+        "\n  warning     nonce 4 is below the account's pending count 5: a pending transaction will likely use it first, and the authorization then cannot apply\n",
+      ),
+      asked,
+    );
+  });
+
+  it("reads a pinned delegate's code once, and shows the hash it checked", async () => {
+    const code = "0x60806040fe";
+    const hash = hashOf(code);
+    let reads = 0;
+    const { hre, requests } = await withAnswers(
+      (method, params) => {
+        if (method === "eth_getCode" && params[0] === DELEGATE) {
+          reads += 1;
+          // A node that changes its answer: only the first read may be used.
+          return reads === 1 ? code : "0x6000";
+        }
+        return undefined;
+      },
+      {
+        ...vaultKey("deployer"),
+        allowedDelegates: [{ address: DELEGATE, chains: "all", codeHash: hash }],
+      },
+    );
+
+    const { asked } = await signAuth(hre, { yes: true }, answering("y\n"));
+
+    assert.equal(
+      requests.filter(
+        (request) => request.method === "eth_getCode" && request.params[0] === DELEGATE,
+      ).length,
+      1,
+    );
+    assert.equal(asked, "");
+    assert.ok(
+      output.warned.includes(`\n  delegate    code 5 bytes, keccak ${hash}\n`),
+      output.warned,
+    );
   });
 });
 

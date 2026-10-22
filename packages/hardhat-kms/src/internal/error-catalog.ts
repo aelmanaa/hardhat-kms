@@ -2001,8 +2001,19 @@ export const ERRORS = {
     kind: "error",
     group: "Tasks",
     template: "the node answered eth_getTransactionCount with something other than a nonce",
-    cause: "The network's node did not answer `eth_getTransactionCount` with a hex number.",
+    cause:
+      "The network's node did not answer `eth_getTransactionCount` with a hex number below 2^64, the largest an account nonce can be (EIP-2681).",
     fix: "Check the network's RPC URL, or pass `--nonce`.",
+  },
+  authNodeChainTooLarge: {
+    id: "core.task.auth-node-chain-too-large",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the node reported a chain id that does not fit in 256 bits, so no authorization can name it. Nothing was signed",
+    cause:
+      "`kms sign-auth --network` takes the chain from the node when the network config sets no `chainId`, and the node's `eth_chainId` answer is 2^256 or more. EIP-7702 encodes the chain id in 256 bits.",
+    fix: "Check the network's RPC URL and node, or set `chainId` in the network config.",
   },
   authNodeCode: {
     id: "core.task.auth-node-code",
@@ -2049,7 +2060,7 @@ export const ERRORS = {
     kind: "error",
     group: "Tasks",
     template:
-      "the delegate {delegate} is a precompile address: every call to the account would succeed and do nothing. Nothing was signed",
+      "the delegate {delegate} is in the reserved precompile range 0x01 to 0x1ff: every call to the account would succeed and do nothing. Nothing was signed",
     cause:
       "A delegation to a precompile runs empty code (EIP-7702, Precompiles). The task refuses addresses from 0x01 to 0x1ff, where Ethereum (0x01 to 0x11, and 0x100 for P256VERIFY) and Arbitrum (0x64 to 0xff) place precompiles. No contract can be deployed there.",
     fix: "Check the delegate address. To clear a delegation, use the zero address.",

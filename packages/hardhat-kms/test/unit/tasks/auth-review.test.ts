@@ -148,6 +148,24 @@ describe("authorizationWarnings", () => {
     );
   });
 
+  it("warns about a --nonce below the pending count, and not about one the node chose", () => {
+    const pending = node({ latest: 11n, pending: 13n });
+    assert.deepEqual(
+      authorizationWarnings(review({ nonce: 12n, nonceSource: "option", node: pending })),
+      [
+        "nonce 12 is below the account's pending count 13: a pending transaction will likely use it first, and the authorization then cannot apply",
+      ],
+    );
+    assert.deepEqual(
+      authorizationWarnings(review({ nonce: 13n, nonceSource: "option", node: pending })),
+      [],
+    );
+    assert.deepEqual(
+      authorizationWarnings(review({ nonce: 12n, nonceSource: "node", node: pending })),
+      [],
+    );
+  });
+
   it("warns about a re-delegation to another delegate, not to the same one or a revoke", () => {
     assert.deepEqual(
       authorizationWarnings(review({ node: node({ accountCode: delegationTo(OTHER) }) })),

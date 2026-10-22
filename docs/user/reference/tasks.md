@@ -461,7 +461,7 @@ For the zero address, only the account is read. With `--chain` alone, nothing is
 
 ### The question
 
-When standard input and standard error are both terminals, the task shows what the authorization does and asks, before it sends anything to the KMS for signing:
+When standard input and standard error are both terminals, the task shows what the authorization does and asks, before it sends anything to the KMS for signing. In this example the delegate is the Simple7702Account deployment on Sepolia, with its code size and hash as Sepolia nodes return them; the account and nonce are illustrative:
 
 ```text
 [hardhat-kms] EIP-7702 authorization
@@ -470,7 +470,7 @@ When standard input and standard error are both terminals, the task shows what t
   delegate    Simple7702Account 0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9
   chain       sepolia, 11155111
   nonce       12; account nonce now 12; self-sponsored: no
-  delegate    code 4,321 bytes, keccak 0x8f1b5c7e2ad2a0e9f4a0e7c1b2f9b3d6a4c8e1f0b7d2c5a9e3f6b1d4c7a0e2f5
+  delegate    code 3,639 bytes, keccak 0x82c1e6c0f83d22eef579344e8eff26baf24db4dabe5408d681b00d0512bc3ec4
   account     now not delegated
   node        network sepolia; its answers are not verified
 This delegates the account until another authorization replaces it.
@@ -486,7 +486,7 @@ Sign? [y/N]
 - The second `account` line shows the account's current delegation: `now delegated to 0x…` or `now not delegated`.
 - With `--chain` alone, the nonce, code and delegation lines say `not checked`, and `node` says that nothing was read.
 - For the zero address, `action` reads `REVOKE delegation (account becomes a plain EOA again)`, the code line is left out, and the first closing line reads `This clears the account's delegation until another authorization sets one.`
-- Node data appears only as numbers, hashes and checksummed addresses, so a crafted answer cannot push the delegate off the screen.
+- Node data appears only as bounded numbers, code sizes, hashes and checksummed addresses, so a crafted answer cannot push the delegate off the screen. A nonce answer of 2^64 or more fails with [`core.task.auth-node-nonce`](errors.md#tasks), and a chain id of 2^256 or more from the node fails with [`core.task.auth-node-chain-too-large`](errors.md#tasks).
 
 Input that arrived before the question appeared is discarded. The default is no: only `y` or `yes`, in any case, signs. `n`, an empty line, any other answer, or input that closes (Ctrl-D) fails with [`core.task.auth-declined`](errors.md#tasks), exits non-zero, prints nothing on standard output and sends nothing to the KMS for signing. Unlike `cast wallet sign-auth`, which prints `Aborted.` and exits 0, a declined question is an error. For a key without an `address` pin, the task reads the key's address from the KMS before it asks, so that the question can show it; that call reads the public key and signs nothing.
 
@@ -501,7 +501,7 @@ The question stops callers without a terminal, such as CI or a script with piped
 | Any other, for a key without the list      | Asks. `--yes` does not skip the question. | Refused, with or without `--yes`.       |
 | Not allowed by a key's list, on that chain | Refused, with or without `--yes`.         | Refused, with or without `--yes`.       |
 
-The refusals are [`core.task.auth-no-terminal`](errors.md#tasks) (no `--yes`), [`core.task.auth-not-listed-no-terminal`](errors.md#tasks) (a key without `allowedDelegates`, which includes every key from `--kms`) and the [`core.delegate.*`](errors.md#eip-7702-delegates) errors of the list. They come before the connection opens and before any KMS call. When `--yes` skips the question, or without a terminal, the task writes the same summary to standard error, without the prompt, and signs. To sign in CI, add the delegate to the key's `allowedDelegates` and pass `--yes`:
+The refusals are [`core.task.auth-no-terminal`](errors.md#tasks) (no `--yes`), [`core.task.auth-not-listed-no-terminal`](errors.md#tasks) (a key without `allowedDelegates`, which includes every key from `--kms`) and the [`core.delegate.*`](errors.md#eip-7702-delegates) errors of the list. The two `core.task.auth-*` refusals come before the connection opens and before any KMS call. So does a delegate the list does not name, and one it names for other chains when the network config sets `chainId`. A wrong chain reported by a node without a configured `chainId`, and a `codeHash` mismatch, are found after the task connects, still before any sign request. When `--yes` skips the question, or without a terminal, the task writes the same summary to standard error, without the prompt, and signs. To sign in CI, add the delegate to the key's `allowedDelegates` and pass `--yes`:
 
 ```sh
 npx hardhat kms sign-auth --network sepolia --yes deployer 0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9
@@ -509,7 +509,7 @@ npx hardhat kms sign-auth --network sepolia --yes deployer 0x4Cd241E8d1510e30b20
 
 ### Refusals and warnings
 
-The task refuses, before the question and before any KMS call, an authorization that cannot apply:
+The task refuses, before the question and before any sign request, an authorization that cannot apply. The precompile check runs first, before any connection or KMS call; the others run after the task has connected and, for a key without an `address` pin, read its address:
 
 | Refused                                                 | Why                                                                                                       | Error                                                   |
 | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
@@ -526,6 +526,7 @@ The task warns, in the question or the summary, and still asks:
 | Warning                                                           | Why                                                                                                                 |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | The nonce is above the pending count (+1 with `--self-broadcast`) | The tuple stays valid until the account reaches that nonce, and anyone who holds it can submit it then.             |
+| `--nonce` is below the pending count                              | A pending transaction from the account will likely use that nonce first, and the authorization then cannot apply.   |
 | The account is delegated to another delegate now                  | Storage written under the old delegate stays, and the new one reads and writes the same slots.                      |
 | The delegate's ERC-1967 implementation slot is not zero           | The delegate looks like a proxy, so the code that runs can change after you sign. A `codeHash` pins the proxy only. |
 | The delegate has no code on the network                           | Usually an address copied from another chain. The code may also be deployed later.                                  |

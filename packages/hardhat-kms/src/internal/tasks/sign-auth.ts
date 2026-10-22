@@ -48,6 +48,8 @@ interface SignedAuthorization {
 const OPERATION = "kms sign-auth";
 /** EIP-7702 refuses an authorization whose nonce is 2^64 - 1 or more. */
 const NONCE_LIMIT = 2n ** 64n - 1n;
+/** EIP-2681: an account's nonce is below 2^64. */
+const ACCOUNT_NONCE_LIMIT = 2n ** 64n;
 /** EIP-7702 encodes the chain id as a 256-bit integer. */
 const CHAIN_ID_LIMIT = 2n ** 256n;
 const HEX_QUANTITY = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
@@ -161,6 +163,10 @@ async function kmsSignAuth(
     // With --network the task reads the node anyway, so the node's chain is always checked
     // against the config's.
     const chainId = inputs.chain ?? (await networkChain(await connect(), configured));
+    if (chainId >= CHAIN_ID_LIMIT) {
+      // Only a node can report one: --chain is bounded in readInputs.
+      throw catalogError(ERRORS.authNodeChainTooLarge, {}, { operation: OPERATION });
+    }
     // No flag overrides the list, not even --yes. A pinned code hash is read from the --network
     // node; with --chain there is none, so a pinned delegate is refused.
     const network = inputs.network;
@@ -252,7 +258,7 @@ async function kmsSignAuth(
 
 /**
  * Shows the summary and, unless the config and `--yes` approve, asks at the terminal (decision
- * 0023). Without a terminal the caller has already refused what the config does not approve.
+ * 0023). Without a terminal it signs only when both approve.
  */
 async function approve(
   hre: HardhatRuntimeEnvironment,
@@ -262,7 +268,14 @@ async function approve(
   configApproves: boolean,
   keyName: string,
 ): Promise<void> {
-  if (!terminal.interactive || (yes && configApproves)) {
+  // The caller refuses these before it connects; checked again here, next to the decision.
+  if (!terminal.interactive && !yes) {
+    throw catalogError(ERRORS.authNoTerminal, {}, { operation: OPERATION });
+  }
+  if (!terminal.interactive && !configApproves) {
+    throw catalogError(ERRORS.authNotListedNoTerminal, { name: keyName }, { operation: OPERATION });
+  }
+  if (yes && configApproves) {
     process.stderr.write(lines.map((line) => `${line}\n`).join(""));
     return;
   }
@@ -425,7 +438,13 @@ async function readCount(
     method: "eth_getTransactionCount",
     params: [account, tag],
   });
-  if (typeof response !== "string" || !HEX_QUANTITY.test(response)) {
+  // An account nonce stays below 2^64 (EIP-2681). A larger answer is refused, so a crafted one
+  // cannot stretch the question's nonce line.
+  if (
+    typeof response !== "string" ||
+    !HEX_QUANTITY.test(response) ||
+    BigInt(response) >= ACCOUNT_NONCE_LIMIT
+  ) {
     throw catalogError(ERRORS.authNodeNonce, {}, { operation: OPERATION });
   }
   return BigInt(response);
