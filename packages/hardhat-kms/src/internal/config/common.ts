@@ -68,7 +68,7 @@ export const secretSchema: z.ZodEffects<z.ZodUnknown> = z.unknown().superRefine(
 });
 
 /** The keccak256 of no bytes: the code hash of an address without code. */
-export const EMPTY_CODE_HASH: string =
+const EMPTY_CODE_HASH: string =
   "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470";
 
 /**
@@ -143,7 +143,7 @@ const allowedDelegateSchema = z
   .strict();
 
 /** A key's `allowedDelegates`: a list of entries, possibly empty. */
-export const allowedDelegatesSchema: z.ZodTypeAny = z.array(allowedDelegateSchema, {
+const allowedDelegatesSchema: z.ZodTypeAny = z.array(allowedDelegateSchema, {
   invalid_type_error: catalogMessage(ERRORS.delegateList, {}),
 });
 
