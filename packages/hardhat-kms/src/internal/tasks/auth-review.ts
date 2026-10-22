@@ -39,7 +39,7 @@ export interface NodeState {
 }
 
 /** Where the authorization's nonce came from. */
-export type NonceSource = "option" | "node" | "self-broadcast";
+type NonceSource = "option" | "node" | "self-broadcast";
 
 /** Everything the question shows. */
 export interface AuthorizationReview {
