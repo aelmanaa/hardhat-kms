@@ -20,7 +20,13 @@ const hre = await createHardhatRuntimeEnvironment(
   {
     plugins: [hardhatKms],
     kms: {
-      keys: { deployer: { ...vaultKey("deployer"), allowRawDigests: true } },
+      keys: {
+        deployer: {
+          ...vaultKey("deployer"),
+          allowRawDigests: true,
+          allowedDelegates: [{ address: TO, chains: "all" }],
+        },
+      },
       simulatedBalance: 10n ** 18n,
     },
     networks: {
@@ -73,7 +79,7 @@ const tasks: [string, Record<string, unknown>][] = [
     },
   ],
   ["sign-tx", { key: "deployer", tx: txFile }],
-  ["sign-auth", { key: "deployer", delegate: TO, selfBroadcast: false, force: false }],
+  ["sign-auth", { key: "deployer", delegate: TO, selfBroadcast: false, force: false, yes: true }],
 ];
 
 const ran: string[] = [];

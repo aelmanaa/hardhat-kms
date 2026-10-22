@@ -157,6 +157,8 @@ export async function openSmoke(settings: SmokeSettings): Promise<Smoke> {
     ...(transactionSigning === undefined ? {} : { transactionSigning }),
     // The cases sign raw digests with `kms sign --no-hash --yes`, without a terminal.
     allowRawDigests: true,
+    // `kms sign-auth --yes` signs without a terminal only for a delegate the key lists.
+    allowedDelegates: [{ address: DELEGATE, chains: "all" as const }],
   });
   const networks: Record<string, NetworkUserConfig> = {
     local: {
@@ -320,6 +322,7 @@ export const SMOKE_CASES: readonly SmokeCase[] = [
         nonce: "0",
         selfBroadcast: false,
         force: false,
+        yes: true,
       });
       const yParity = Number(hexOf(field(signed, "yParity"), "yParity"));
       assert.ok(yParity === 0 || yParity === 1);

@@ -13,15 +13,15 @@ Run `npx hardhat kms --help` to list the commands, and `npx hardhat kms <command
 
 All tasks live in the `kms` namespace. Each command's section below gives its purpose, a basic example, its options, its output, and what it needs and how it fails, then advanced use.
 
-| Task                                                                                                    | Purpose                                                                                                                                                                                                                                                                                               | Foundry equivalent                                      |
-| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `kms accounts [--network n] [--json] [--show-ids]`                                                      | Each configured key with its provider, key id and address. Checks access and prints ready-to-paste `address` pins.                                                                                                                                                                                    | `cast wallet list`; exits 0 when a source fails         |
-| `kms address <key>` / `kms public-key <key>`                                                            | The address, or the uncompressed public key.                                                                                                                                                                                                                                                          | `cast wallet address`; no equivalent for the public key |
-| `kms sign <key> <message> [--data [--from-file]] [--no-hash [--yes]]`                                   | EIP-191, EIP-712, or a raw 32-byte digest. Among the tasks, raw digest signing requires the explicit `--no-hash` option, which only this task has, and a person's answer at a terminal or the key's `allowRawDigests` opt-in with `--yes`; a library account with `rawSign: true` is the other route. | `cast wallet sign [--data [--from-file]] [--no-hash]`   |
-| `kms verify (--address a \| --key k) <message> <signature> [--data [--from-file]]`                      | Local signature verification against an address or a key. No `--no-hash`.                                                                                                                                                                                                                             | `cast wallet verify [--data [--from-file]]`             |
-| `kms sign-tx <key> <tx.json> --network n`                                                               | Filled on the network's node and signed, never sent. Prints the raw transaction, and its hash on standard error.                                                                                                                                                                                      | `cast mktx`                                             |
-| `kms sign-auth <key> <delegate> (--chain <id> \| --network n) [--nonce n] [--self-broadcast] [--force]` | EIP-7702 authorization, as the JSON tuple `authorizationList` takes. Chain 0 requires `--force`; `--self-broadcast` signs for the pending nonce + 1. The task sends nothing.                                                                                                                          | `cast wallet sign-auth`                                 |
-| `kms history <key> [--since t] [--until t] [--limit n] [--json] [--show-ids]`                           | The key's sign events, read from the provider's audit log.                                                                                                                                                                                                                                            | none                                                    |
+| Task                                                                                                            | Purpose                                                                                                                                                                                                                                                                                               | Foundry equivalent                                      |
+| --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `kms accounts [--network n] [--json] [--show-ids]`                                                              | Each configured key with its provider, key id and address. Checks access and prints ready-to-paste `address` pins.                                                                                                                                                                                    | `cast wallet list`; exits 0 when a source fails         |
+| `kms address <key>` / `kms public-key <key>`                                                                    | The address, or the uncompressed public key.                                                                                                                                                                                                                                                          | `cast wallet address`; no equivalent for the public key |
+| `kms sign <key> <message> [--data [--from-file]] [--no-hash [--yes]]`                                           | EIP-191, EIP-712, or a raw 32-byte digest. Among the tasks, raw digest signing requires the explicit `--no-hash` option, which only this task has, and a person's answer at a terminal or the key's `allowRawDigests` opt-in with `--yes`; a library account with `rawSign: true` is the other route. | `cast wallet sign [--data [--from-file]] [--no-hash]`   |
+| `kms verify (--address a \| --key k) <message> <signature> [--data [--from-file]]`                              | Local signature verification against an address or a key. No `--no-hash`.                                                                                                                                                                                                                             | `cast wallet verify [--data [--from-file]]`             |
+| `kms sign-tx <key> <tx.json> --network n`                                                                       | Filled on the network's node and signed, never sent. Prints the raw transaction, and its hash on standard error.                                                                                                                                                                                      | `cast mktx`                                             |
+| `kms sign-auth <key> <delegate> (--chain <id> \| --network n) [--nonce n] [--self-broadcast] [--force] [--yes]` | EIP-7702 authorization, as the JSON tuple `authorizationList` takes. Shows what it does and asks at a terminal; without one, needs `--yes` and a listed delegate or the zero address. Chain 0 requires `--force`; `--self-broadcast` signs for the pending nonce + 1. The task sends nothing.         | `cast wallet sign-auth`                                 |
+| `kms history <key> [--since t] [--until t] [--limit n] [--json] [--show-ids]`                                   | The key's sign events, read from the provider's audit log.                                                                                                                                                                                                                                            | none                                                    |
 
 ## Which commands need a network
 
@@ -35,7 +35,7 @@ All tasks live in the `kms` namespace. Each command's section below gives its pu
 | `kms sign`       | Only for typed data that names a chain | With `--data`, compares the typed data's `domain.chainId` with the network's chain. `--chain` names the chain instead and cannot be combined with `--network`; `--allow-cross-chain` or `kms.allowCrossChainTypedData: true` skips the check. Connects only when the config sets no `chainId` for the network. Messages and raw digests do not use it. |
 | `kms verify`     | Not used                               | Checks the signature locally.                                                                                                                                                                                                                                                                                                                          |
 | `kms sign-tx`    | Required                               | Fills the transaction on the network's node and checks its chain id.                                                                                                                                                                                                                                                                                   |
-| `kms sign-auth`  | Required unless `--chain` is given     | Signs for the network's chain. Connects to read the key's pending nonce when `--nonce` is not given, or the chain id when the config sets none. `--chain` without `--network` also needs `--nonce`.                                                                                                                                                    |
+| `kms sign-auth`  | Required unless `--chain` is given     | Signs for the network's chain. Always connects: checks the node's chain against the config's, and reads the account's nonce and code and the delegate's code and ERC-1967 slot for the question. `--chain` without `--network` reads nothing and also needs `--nonce`.                                                                                 |
 | `kms history`    | Not used                               | Reads the provider's audit log.                                                                                                                                                                                                                                                                                                                        |
 
 ## Naming a key
@@ -424,11 +424,11 @@ EIP-7702 needs EIP-1559 fees; an unavailable fee history requires both fee field
 Signs an EIP-7702 authorization that delegates the key's account to the code at `<delegate>`, and prints the signed tuple as one line of JSON. It is the entry an `eth_sendTransaction` request takes in its `authorizationList`. The task sends nothing.
 
 ```text
-npx hardhat kms sign-auth --chain <id> --nonce <n> [--force] <key> <delegate>
-npx hardhat kms sign-auth --network <name> [--nonce <n> | --self-broadcast] [--force] <key> <delegate>
+npx hardhat kms sign-auth --chain <id> --nonce <n> [--force] [--yes] <key> <delegate>
+npx hardhat kms sign-auth --network <name> [--nonce <n> | --self-broadcast] [--force] [--yes] <key> <delegate>
 ```
 
-For `kms sign-auth --chain 1 --nonce 0 deployer 0x5FbDB2315678afecb367f032d93F642f64180aa3` with the key of the examples above:
+For `kms sign-auth --chain 1 --nonce 0 deployer 0x5FbDB2315678afecb367f032d93F642f64180aa3` with the key of the examples above, answered `y` at the [question](#the-question):
 
 ```text
 {"chainId":"0x1","address":"0x5FbDB2315678afecb367f032d93F642f64180aa3","nonce":"0x0","yParity":"0x1","r":"0x3d3184060a9a58823c738a84e7df168975ac5d5dfc8fc6af423d0ac72392ab5e","s":"0x2e3ba5f338b5ad32bff79c15b8fe264f465026e2d2a3f1d2c2a04e0a0244881b"}
@@ -436,39 +436,113 @@ For `kms sign-auth --chain 1 --nonce 0 deployer 0x5FbDB2315678afecb367f032d93F64
 
 **Options**
 
-| Option             | What it does                                                                                                                                                                   |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--chain <id>`     | The chain to sign for, decimal or `0x` hex. Required unless `--network` is given, and not combined with it.                                                                    |
-| `--network <name>` | Signs for the network's `chainId` from the config, else the chain the node reports. When the config sets `chainId` and the task connects, the node must report the same chain. |
-| `--nonce <n>`      | The authority's nonce, decimal or `0x` hex, below 2^64 - 1. Without it, the task reads the key's pending nonce from the `--network` node, so `--chain` alone needs `--nonce`.  |
-| `--self-broadcast` | Signs for the pending nonce + 1, for when this key sends the transaction that carries the authorization, which takes the pending nonce. The task sends nothing.                |
-| `--force`          | Allows chain 0.                                                                                                                                                                |
+| Option             | What it does                                                                                                                                                                                                      |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--chain <id>`     | The chain to sign for, decimal or `0x` hex. Required unless `--network` is given, and not combined with it. Nothing is read from a node, so the question says "not checked" for the lines that need one.          |
+| `--network <name>` | Signs for the network's chain. The task connects, checks that the node reports the config's `chainId` when it sets one, and reads the account and the delegate (see [What the task reads](#what-the-task-reads)). |
+| `--nonce <n>`      | The authority's nonce, decimal or `0x` hex, below 2^64 - 1. Without it, the task uses the key's pending nonce from the `--network` node, so `--chain` alone needs `--nonce`.                                      |
+| `--self-broadcast` | Signs for the pending nonce + 1, for when this key sends the transaction that carries the authorization, which takes the pending nonce. The task sends nothing.                                                   |
+| `--force`          | Allows chain 0. It does not skip the question and does not stand for `--yes`.                                                                                                                                     |
+| `--yes`            | Skips the question for a delegate in the key's [`allowedDelegates`](configuration.md#limit-eip-7702-delegates) or the zero address. Required without a terminal. It never overrides the list.                     |
 
 **Output**
 
-Each number is a `0x` hex quantity, `r` and `s` are 32 bytes each, and `address` is the delegate with its EIP-55 checksum. Hardhat's `authorizationList` schema refuses decimal strings, so the tuple can go into a request as printed. The signed message is `keccak256(0x05 || rlp([chainId, address, nonce]))`. The task also writes [notes on standard error](#notes-on-standard-error).
+Each number is a `0x` hex quantity, `r` and `s` are 32 bytes each, and `address` is the delegate with its EIP-55 checksum. Hardhat's `authorizationList` schema refuses decimal strings, so the tuple can go into a request as printed. The signed message is `keccak256(0x05 || rlp([chainId, address, nonce]))`. Standard output holds only the tuple; the question, the summary and the [notes](#notes-on-standard-error) go to standard error.
 
-**Requirements and failures**
+### What the task reads
+
+With `--network`, before it asks, the task reads from the node:
+
+- `eth_getTransactionCount` for the account at `latest` and at `pending`;
+- `eth_getCode` for the account and for the delegate, once each;
+- `eth_getStorageAt` for the delegate's ERC-1967 implementation slot, `0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc`.
+
+For the zero address, only the account is read. With `--chain` alone, nothing is read. Answers that are not a hex number, hex bytes or a 32-byte word fail with [`core.task.auth-node-nonce`, `core.task.auth-node-code` or `core.task.auth-node-storage`](errors.md#tasks). The task cannot tell whether the node tells the truth: a node that lies can hide the delegate's code or the account's delegation. The question names the network it read.
+
+### The question
+
+When standard input and standard error are both terminals, the task shows what the authorization does and asks, before it sends anything to the KMS for signing. In this example the delegate is the Simple7702Account deployment on Sepolia, with its code size and hash as Sepolia nodes return them; the account and nonce are illustrative:
+
+```text
+[hardhat-kms] EIP-7702 authorization
+  action      DELEGATE the account to the code at the delegate
+  account     0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (key deployer)
+  delegate    Simple7702Account 0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9
+  chain       sepolia, 11155111
+  nonce       12; account nonce now 12; self-sponsored: no
+  delegate    code 3,639 bytes, keccak 0x82c1e6c0f83d22eef579344e8eff26baf24db4dabe5408d681b00d0512bc3ec4
+  account     now not delegated
+  node        network sepolia; its answers are not verified
+This delegates the account until another authorization replaces it.
+It is not undone if the transaction that carries it reverts.
+Anyone who holds the signature can submit it.
+Sign? [y/N]
+```
+
+- `delegate` shows the label of the key's `allowedDelegates` entry, when it has one, before the checksummed address. The label is config text; the address is what is signed.
+- `chain` reads `ALL CHAINS (chain id 0): valid on every chain where the account's nonce is <n>` for chain 0, and `<id> (from --chain)` with `--chain`.
+- `nonce` shows the nonce to sign, the account's `latest` nonce and, when it differs, the pending count. `self-sponsored` is `yes` with `--self-broadcast`, `no` when the task read the nonce, and `not known (--nonce)` with `--nonce`.
+- The second `delegate` line shows the delegate's code size and its keccak-256 hash, the hash a `codeHash` pin compares, or `none`.
+- The second `account` line shows the account's current delegation: `now delegated to 0x…` or `now not delegated`.
+- With `--chain` alone, the nonce, code and delegation lines say `not checked`, and `node` says that nothing was read.
+- For the zero address, `action` reads `REVOKE delegation (account becomes a plain EOA again)`, the code line is left out, and the first closing line reads `This clears the account's delegation until another authorization sets one.`
+- Node data appears only as bounded numbers, code sizes, hashes and checksummed addresses, so a crafted answer cannot push the delegate off the screen. A nonce answer of 2^64 or more fails with [`core.task.auth-node-nonce`](errors.md#tasks), and a chain id of 2^256 or more from the node fails with [`core.task.auth-node-chain-too-large`](errors.md#tasks).
+
+Input that arrived before the question appeared is discarded. The default is no: only `y` or `yes`, in any case, signs. `n`, an empty line, any other answer, or input that closes (Ctrl-D) fails with [`core.task.auth-declined`](errors.md#tasks), exits non-zero, prints nothing on standard output and sends nothing to the KMS for signing. Unlike `cast wallet sign-auth`, which prints `Aborted.` and exits 0, a declined question is an error. For a key without an `address` pin, the task reads the key's address from the KMS before it asks, so that the question can show it; that call reads the public key and signs nothing.
+
+The question stops callers without a terminal, such as CI or a script with piped input. It does not prove a person answered: a program that drives a pseudo-terminal passes the terminal check and can type `y`, and code in the same process can feed the input or edit the config ([Security model](../explanation/security-model.md#eip-7702-delegates)).
+
+### Without a terminal, and `--yes`
+
+| Delegate                                   | At a terminal                             | Without a terminal                      |
+| ------------------------------------------ | ----------------------------------------- | --------------------------------------- |
+| In the key's `allowedDelegates` (`listed`) | Asks, unless `--yes` is given.            | Signs with `--yes`. Refused without it. |
+| The zero address                           | Asks, unless `--yes` is given.            | Signs with `--yes`. Refused without it. |
+| Any other, for a key without the list      | Asks. `--yes` does not skip the question. | Refused, with or without `--yes`.       |
+| Not allowed by a key's list, on that chain | Refused, with or without `--yes`.         | Refused, with or without `--yes`.       |
+
+The refusals are [`core.task.auth-no-terminal`](errors.md#tasks) (no `--yes`), [`core.task.auth-not-listed-no-terminal`](errors.md#tasks) (a key without `allowedDelegates`, which includes every key from `--kms`) and the [`core.delegate.*`](errors.md#eip-7702-delegates) errors of the list. The two `core.task.auth-*` refusals come before the connection opens and before any KMS call. So does a delegate the list does not name, and one it names for other chains when the network config sets `chainId`. A wrong chain reported by a node without a configured `chainId`, and a `codeHash` mismatch, are found after the task connects, still before any sign request. When `--yes` skips the question, or without a terminal, the task writes the same summary to standard error, without the prompt, and signs. To sign in CI, add the delegate to the key's `allowedDelegates` and pass `--yes`:
+
+```sh
+npx hardhat kms sign-auth --network sepolia --yes deployer 0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9
+```
+
+### Refusals and warnings
+
+The task refuses, before the question and before any sign request, an authorization that cannot apply. The precompile check runs first, before any connection or KMS call; the others run after the task has connected and, for a key without an `address` pin, read its address:
+
+| Refused                                                 | Why                                                                                                       | Error                                                   |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| A nonce below the account's `latest` nonce              | The account's nonce never goes back, so the tuple can never apply.                                        | [`core.task.auth-nonce-stale`](errors.md#tasks)         |
+| A delegate whose code starts with `0xef0100`            | The delegate is itself a delegated account. Clients follow one delegation only, so every call would fail. | [`core.task.auth-delegate-delegated`](errors.md#tasks)  |
+| A delegate from `0x…01` to `0x…01ff`                    | Precompiles live there. A delegation to one runs empty code: every call succeeds and does nothing.        | [`core.task.auth-delegate-precompile`](errors.md#tasks) |
+| An account whose code is neither empty nor a delegation | Nodes skip an authorization from an account with contract code.                                           | [`core.task.auth-account-has-code`](errors.md#tasks)    |
+| Chain 0 without `--force`                               | A chain-0 tuple is valid on every chain.                                                                  | [`core.task.auth-chain-zero`](errors.md#tasks)          |
+
+The precompile range covers Ethereum's precompiles (0x01 to 0x11, and 0x100 for P256VERIFY) and Arbitrum's (0x64 to 0xff); no contract can be deployed there, so the check needs no node. The other three need `--network`.
+
+The task warns, in the question or the summary, and still asks:
+
+| Warning                                                           | Why                                                                                                                 |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| The nonce is above the pending count (+1 with `--self-broadcast`) | The tuple stays valid until the account reaches that nonce, and anyone who holds it can submit it then.             |
+| `--nonce` is below the pending count                              | A pending transaction from the account will likely use that nonce first, and the authorization then cannot apply.   |
+| The account is delegated to another delegate now                  | Storage written under the old delegate stays, and the new one reads and writes the same slots.                      |
+| The delegate's ERC-1967 implementation slot is not zero           | The delegate looks like a proxy, so the code that runs can change after you sign. A `codeHash` pins the proxy only. |
+| The delegate has no code on the network                           | Usually an address copied from another chain. The code may also be deployed later.                                  |
+
+**Other requirements and failures**
 
 - Before it prints the tuple, the task reads it back, recovers the authority from it, and checks that it is the key's address and that `s` is low. Nodes skip an authorization with a high `s`.
 - `--nonce` and `--self-broadcast` cannot be combined, as in cast.
-- When the key has [`allowedDelegates`](configuration.md#limit-eip-7702-delegates), the delegate must be allowed on the authorization's chain, and the task refuses it otherwise before it signs. A chain-0 authorization needs an entry with `chains: "all"`. No option overrides the list: `--force` allows chain 0 but not a delegate the list does not allow. The zero address always passes. With `--network`, the delegate is matched before the task connects: against the network's `chainId` when the config sets one, else against every chain. For an entry with `codeHash`, the task reads the delegate's code from the `--network` node and refuses on a mismatch or empty code; with `--chain` there is no node to read, so it refuses that delegate and asks for `--network`. A key from `--kms` has no config, so no list; the task refuses one that is the same KMS key as a config key with `allowedDelegates`, by key id or by that key's `address` pin.
-- The task opens a connection to `--network` only to read what the command line and the config do not give: the pending nonce, or a chain id the config does not set. Opening it runs the network hook, which can call the KMS, for example to fund the accounts of an `edr-simulated` network. `--network` can also come from the `HARDHAT_NETWORK` environment variable, so `--chain` fails while it is set.
+- When the key has [`allowedDelegates`](configuration.md#limit-eip-7702-delegates), the delegate must be allowed on the authorization's chain, and the task refuses it otherwise before it signs. A chain-0 authorization needs an entry with `chains: "all"`. No option overrides the list: not `--force`, which allows chain 0, and not `--yes`. The zero address always passes. With `--network`, the delegate is matched before the task connects: against the network's `chainId` when the config sets one, else against every chain. For an entry with `codeHash`, the task reads the delegate's code from the `--network` node and refuses on a mismatch or empty code; with `--chain` there is no node to read, so it refuses that delegate and asks for `--network`. A key from `--kms` has no config, so no list; the task refuses one that is the same KMS key as a config key with `allowedDelegates`, by key id or by that key's `address` pin.
+- Opening the `--network` connection runs the network hook, which can call the KMS, for example to fund the accounts of an `edr-simulated` network. `--network` can also come from the `HARDHAT_NETWORK` environment variable, so `--chain` fails while it is set.
 
 ### Notes on standard error
 
-Before it calls the KMS, the task writes one line that says what it signs:
-
-```text
-[hardhat-kms] authority 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, chain 1 (from --chain), nonce 0, delegate 0x5FbDB2315678afecb367f032d93F642f64180aa3
-```
-
-The chain is followed by `(from --chain)` or `(from --network <name>)`. When the key's [`allowedDelegates`](configuration.md#limit-eip-7702-delegates) entry for the delegate has a `label`, the label follows the delegate, as in `delegate 0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9 (Simple7702Account)`. Other notes:
-
-- With `--self-broadcast`, the nonce to send the transaction with: `the authorization uses nonce 1: send it in a transaction from this key with nonce 0`.
-- With `--network`, when the task has connected to the node and the delegate has no code there: `the delegate 0x… has no code on network sepolia: check that it is the address for this chain`. A delegate copied from another chain is the usual cause. The task still signs, since the code may be deployed later.
-- For chain 0, which the task refuses unless `--force` is given: `this authorization is for chain 0: it is replayable on every chain where this account's nonce is 5`.
-- For the delegate `0x0000000000000000000000000000000000000000`, which clears the account's delegation: `the delegate is the zero address: this authorization clears the delegation`.
+- With `--self-broadcast`, after signing, the nonce to send the transaction with: `the authorization uses nonce 1: send it in a transaction from this key with nonce 0`.
+- With `--yes` at a terminal for a key without `allowedDelegates`: `--yes does not skip the question: key "deployer" has no allowedDelegates`.
+- For a chain-0 authorization whose delegate's entry pins a `codeHash`, the chain the code was read on.
 
 ### Keep the tuple private until it is used
 

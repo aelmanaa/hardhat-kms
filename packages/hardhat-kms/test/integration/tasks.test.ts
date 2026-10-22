@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PassThrough, Writable } from "node:stream";
+import { Writable } from "node:stream";
 import { afterEach, describe, it, mock } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
@@ -21,6 +21,7 @@ import { signAction } from "../../src/internal/tasks/sign.ts";
 import type { KmsKeyUserConfig } from "../../src/types.ts";
 import { type FakeAdapter, fakeAdapter, type FakeAdapterOptions } from "../helpers/fake-adapter.ts";
 import { type RecordingNode, startRecordingNode } from "../helpers/recording-node.ts";
+import { answering, NO_TERMINAL } from "../helpers/terminal.ts";
 import { vaultKey } from "../helpers/vault-key.ts";
 import {
   COW_ACCOUNT,
@@ -440,41 +441,6 @@ const kmsCalls = (created: ClosableAdapter[]): number =>
     (total, { calls }) => total + calls.signDigest + calls.getPublicKey + calls.getAddress,
     0,
   );
-
-/** A run without a terminal: the task never reads or writes it. */
-const NO_TERMINAL: Terminal = {
-  interactive: false,
-  input: new PassThrough(),
-  output: new Writable({
-    write() {
-      throw new Error("the task wrote to a terminal it must not use");
-    },
-  }),
-};
-
-/**
- * A terminal that answers the task's question with `answer` once the prompt is shown, or closes
- * its input then when `answer` is `undefined`, and records what the task wrote to it. A line
- * written before the question would be discarded as type-ahead.
- */
-function answering(answer: string | undefined): { terminal: Terminal; asked: () => string } {
-  const input = new PassThrough();
-  let asked = "";
-  const output = new Writable({
-    write(chunk: Buffer, _encoding, done) {
-      asked += chunk.toString();
-      done();
-      if (asked.endsWith("Sign? [y/N] ")) {
-        if (answer === undefined) {
-          input.end();
-        } else {
-          input.write(answer);
-        }
-      }
-    },
-  });
-  return { terminal: { interactive: true, input, output }, asked: () => asked };
-}
 
 /**
  * Runs `kms sign` and returns its result and what it printed on stdout and stderr. A raw digest's

@@ -114,7 +114,7 @@ Run as `npx hardhat kms <task>`. A task takes a key by its name in `kms.keys` as
 | `kms address`    | Prints a key's address.                                                                 |
 | `kms public-key` | Prints a key's uncompressed public key.                                                 |
 | `kms sign`       | Signs an EIP-191 message, EIP-712 typed data or, with `--no-hash`, a raw digest.        |
-| `kms sign-auth`  | Signs an EIP-7702 authorization.                                                        |
+| `kms sign-auth`  | Signs an EIP-7702 authorization after a question at a terminal, or with `--yes`.        |
 | `kms sign-tx`    | Fills a transaction on the network's node and signs it without sending it.              |
 | `kms verify`     | Checks a signature against an address or a key, locally.                                |
 | `kms history`    | Lists a key's sign events from CloudTrail, Cloud Audit Logs or the Key Vault audit log. |
@@ -128,7 +128,7 @@ Explain these to the user rather than working around them:
 - A signature that does not recover to the key's address, and a key that no longer derives to its pinned `address`.
 - Signing a bare 32-byte digest over JSON-RPC. `eth_sign` and `personal_sign` add the EIP-191 prefix. Two routes sign a raw digest: `kms sign --no-hash`, which asks at a terminal and without one needs `allowRawDigests: true` on the key and `--yes`, and a library account from `connection.kms.getAccount(address, { rawSign: true })`, which always needs `allowRawDigests: true` on the key. A raw digest can be an EIP-7702 authorization, so set the opt-in only on a key that needs it.
 - Typed data whose `domain.chainId` differs from the connection's chain, unless `kms.allowCrossChainTypedData` is `true`.
-- An EIP-7702 authorization, from `kms sign-auth`, `signAuthorization` or the key's own tuple in a transaction, to a delegate the key's `allowedDelegates` does not allow on that chain, or whose code does not match the entry's `codeHash`. A chain-0 authorization needs an entry with `chains: "all"`. No flag overrides it. Ask the user before adding a delegate to the list: the list exists to stop delegations nobody planned.
+- An EIP-7702 authorization, from `kms sign-auth`, `signAuthorization` or the key's own tuple in a transaction, to a delegate the key's `allowedDelegates` does not allow on that chain, or whose code does not match the entry's `codeHash`. A chain-0 authorization needs an entry with `chains: "all"`. No flag overrides it. Ask the user before adding a delegate to the list: the list exists to stop delegations nobody planned. Without a terminal, `kms sign-auth` signs only with `--yes`, and only for a delegate in the key's `allowedDelegates` or the zero address. At a terminal it asks a person; do not answer that question for the user. It also refuses a nonce the account has passed, a delegate that is itself delegated, a precompile delegate, and an account with contract code.
 - EIP-4844 blob transactions, which Hardhat does not support either. Legacy (EIP-155), EIP-2930, EIP-1559 and EIP-7702 transactions are supported.
 - `connection.kms.getAccount` with a viem older than 2.55.13.
 - A key whose provider package is not in `plugins`: the error names the package to install.
