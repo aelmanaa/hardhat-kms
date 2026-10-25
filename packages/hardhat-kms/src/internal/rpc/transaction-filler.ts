@@ -1,5 +1,6 @@
 // A port of the transaction filling that Hardhat's built-in request handlers do before its
-// local-accounts handler signs (decision 0002). Pinned to Hardhat 3.18.0:
+// local-accounts handler signs (decision 0002). Pinned to Hardhat 3.18.0; the fill steps are
+// unchanged through 3.21.0:
 // dist/src/internal/builtin-plugins/network-manager/request-handlers/, files
 // handlers-array.js, handlers/gas/{automatic-gas-price,fixed-gas-price,automatic-gas,fixed-gas,
 // multiplied-gas-estimation}-handler.js and handlers/accounts/local-accounts.js
@@ -211,9 +212,13 @@ export class HardhatTransactionFiller implements TransactionFiller {
           ? await this.#estimateGas(filledParams, await this.#estimateTag(tx, method))
           : numberToHexString(this.#settings.gas);
     }
+    // applyRequestedType has read `type`, in any numeric form, and the fields decide the type, so
+    // the schema does not see it. From hardhat-zod-utils 3.0.7 the schema reads `type` and refuses
+    // a number or a quantity with leading zeros, which this filler accepts.
+    const { type: _type, ...untyped } = tx;
     // The node got r and s as quantities; Hardhat's schema wants them as 32 bytes.
     const [request] = validateParams(
-      [withPaddedAuthorizationSignatures(tx), ...rest],
+      [withPaddedAuthorizationSignatures(untyped), ...rest],
       rpcTransactionRequest,
     );
     const gas = requireGas(request, method);
@@ -496,7 +501,9 @@ const BLOB_TYPE_NAME = /^eip4844$/i;
  * The number of a request's `type`, in any numeric form a JSON-RPC caller can pass: a hex
  * quantity in either case, with or without leading zeros, a decimal string, a non-negative
  * integer or a non-negative bigint. Strings are trimmed first. Any other value, such as viem's
- * `"legacy"`, is not a number: the fields decide the type, as Hardhat's local accounts do.
+ * `"legacy"`, is not a number: the fields decide the type, as in Hardhat's local accounts. With
+ * hardhat-zod-utils 3.0.7 or later, those refuse a `type` that is not a `0x` quantity without
+ * leading zeros; the filler keeps it out of the copy it validates with that schema.
  *
  * @param type - The request's `type`.
  * @returns Its number, or undefined.
