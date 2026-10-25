@@ -1,5 +1,6 @@
 // A port of the transaction filling that Hardhat's built-in request handlers do before its
-// local-accounts handler signs (decision 0002). Pinned to Hardhat 3.18.0:
+// local-accounts handler signs (decision 0002). Pinned to Hardhat 3.18.0; the fill steps are
+// unchanged through 3.21.0:
 // dist/src/internal/builtin-plugins/network-manager/request-handlers/, files
 // handlers-array.js, handlers/gas/{automatic-gas-price,fixed-gas-price,automatic-gas,fixed-gas,
 // multiplied-gas-estimation}-handler.js and handlers/accounts/local-accounts.js
@@ -500,8 +501,9 @@ const BLOB_TYPE_NAME = /^eip4844$/i;
  * The number of a request's `type`, in any numeric form a JSON-RPC caller can pass: a hex
  * quantity in either case, with or without leading zeros, a decimal string, a non-negative
  * integer or a non-negative bigint. Strings are trimmed first. Any other value, such as viem's
- * `"legacy"`, is not a number: the fields decide the type, as Hardhat's local accounts did before
- * Hardhat 3.19. From 3.19 they refuse a `type` that is not a hex quantity without leading zeros.
+ * `"legacy"`, is not a number: the fields decide the type, as in Hardhat's local accounts. With
+ * hardhat-zod-utils 3.0.7 or later, those refuse a `type` that is not a `0x` quantity without
+ * leading zeros; the filler keeps it out of the copy it validates with that schema.
  *
  * @param type - The request's `type`.
  * @returns Its number, or undefined.

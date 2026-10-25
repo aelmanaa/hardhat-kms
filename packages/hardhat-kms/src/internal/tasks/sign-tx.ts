@@ -248,6 +248,8 @@ const kmsSignTx: NewTaskActionFunction<SignTxArguments> = async ({ key, tx: file
   }
   const tx = await readTransaction(file);
   const requestedType = checkFields(tx);
+  // The file's `type` only states what the caller expects, checked after the fill (checkType).
+  // Passed on, the filler would apply it: other errors, and type 0x1 signed with an empty list.
   const { type: _type, ...request } = tx;
   if (request.to === undefined || request.to === null) {
     printNote("the transaction has no `to`: it creates a contract");
