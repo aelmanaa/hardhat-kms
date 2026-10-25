@@ -44,7 +44,7 @@ catalog:
   "knip": "6.41.0"
   "lefthook": "2.2.2"
   "mermaid": "12.1.0"
-  "oxc-parser": "0.153.0"
+  "oxc-parser": "0.154.0"
   "oxfmt": "0.73.0"
   "oxlint": "1.88.0"
   "oxlint-tsgolint": "7.0.2004"
