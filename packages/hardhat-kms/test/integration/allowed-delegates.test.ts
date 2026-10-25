@@ -716,3 +716,51 @@ describe("allowedDelegates: a --kms key written differently from a listed config
     }
   });
 });
+
+describe("allowedDelegates: a --kms Azure key written differently from a listed config key (#589)", () => {
+  it("kms sign-auth refuses a versioned --kms key for an unversioned listed key, before any KMS call", async () => {
+    const saved = process.env.AZURE_KEY_VAULT_KEY_ID;
+    // The same key, with a version, another case and a trailing slash.
+    process.env.AZURE_KEY_VAULT_KEY_ID = "https://V.vault.azure.net/keys/Listed/0123abcd/";
+    try {
+      const hre = await createHardhatRuntimeEnvironment(
+        {
+          plugins: [hardhatKms],
+          kms: {
+            keys: {
+              listed: {
+                provider: "azure",
+                keyId: "https://v.vault.azure.net/keys/listed",
+                allowedDelegates: ALLOWED,
+              },
+            },
+          },
+        },
+        { kms: "azure" },
+      );
+      let adapters = 0;
+      hre.hooks.registerHandlers("kms", {
+        createKeyAdapter: async (context, key, next) => {
+          adapters += 1;
+          return await next(context, key);
+        },
+      });
+      await assertRefused(
+        signAuth(hre, {
+          key: "AZURE_KEY_VAULT_KEY_ID",
+          delegate: UNLISTED,
+          chain: "1",
+          nonce: "0",
+        }),
+        "kms sign-auth: the --kms key AZURE_KEY_VAULT_KEY_ID is the same KMS key as listed, which has allowedDelegates. Name listed instead, so its list applies. Nothing was signed",
+      );
+      assert.equal(adapters, 0);
+    } finally {
+      if (saved === undefined) {
+        Reflect.deleteProperty(process.env, "AZURE_KEY_VAULT_KEY_ID");
+      } else {
+        process.env.AZURE_KEY_VAULT_KEY_ID = saved;
+      }
+    }
+  });
+});

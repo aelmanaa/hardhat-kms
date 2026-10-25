@@ -62,7 +62,9 @@ export interface ListBypassIdentity {
  *   differ: only the KMS knows which key an alias points to.
  * - An Azure key counts by its vault and key name in lowercase, with or without a trailing slash.
  *   A key without a version, which signs with the latest one, matches every version of that key.
- * - A Google Cloud key version name has one form, so it counts as written.
+ * - A Google Cloud key version name counts as written. Google Cloud can take a project number in
+ *   place of the project id, and the two are not matched: only Google knows which id a number
+ *   belongs to. An `address` pin catches that.
  *
  * Contains identifier values, so never print it.
  *
