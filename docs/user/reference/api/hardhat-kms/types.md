@@ -597,9 +597,9 @@ are resolved, as Hardhat does for its own config.
 
 #### Type Parameters
 
-| Type Parameter                | Default type |
-| ----------------------------- | ------------ |
-| `Provider` _extends_ `string` | `string`     |
+| Type Parameter                                                     | Default type |
+| ------------------------------------------------------------------ | ------------ |
+| <a id="type-parameter-provider"></a> `Provider` _extends_ `string` | `string`     |
 
 #### Properties
 
@@ -3176,7 +3176,7 @@ A message for `signMessage`: UTF-8 text, or bytes given as hex or as a `Uint8Arr
 
 ### KmsTransactionSerializer
 
-> **KmsTransactionSerializer** = \{ `serialize`: `unknown`; \}\[`"serialize"`\]
+> **KmsTransactionSerializer** = \{ `serialize`(`transaction`: [`KmsTransactionRequest`](#kmstransactionrequest)): `unknown`; \}\[`"serialize"`\]
 
 A chain's transaction serializer, as viem passes it. Written as a method type, so that viem's
 serializers, whose parameter is viem's own transaction type, are assignable to it.
