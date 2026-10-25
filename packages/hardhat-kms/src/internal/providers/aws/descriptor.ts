@@ -6,6 +6,7 @@ import { awsKeySchema, resolveAwsKey } from "./config.ts";
 export const awsProvider: KmsProviderDescriptor = {
   id: "aws",
   schema: awsKeySchema,
+  /** Resolves a validated AWS key config. Throws an internal error for another provider's key. */
   resolve: (key, context) =>
     key.provider === "aws" ? resolveAwsKey(key, context) : wrongProvider("aws", key.provider),
   name: "AWS KMS",

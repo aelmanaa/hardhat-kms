@@ -6,6 +6,7 @@ import { azureKeySchema, resolveAzureKey } from "./config.ts";
 export const azureProvider: KmsProviderDescriptor = {
   id: "azure",
   schema: azureKeySchema,
+  /** Resolves a validated Azure key config. Throws an internal error for another provider's key. */
   resolve: (key, context) =>
     key.provider === "azure" ? resolveAzureKey(key, context) : wrongProvider("azure", key.provider),
   name: "Azure Key Vault",

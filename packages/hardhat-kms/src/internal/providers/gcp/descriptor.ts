@@ -6,6 +6,7 @@ import { gcpKeySchema, resolveGcpKey } from "./config.ts";
 export const gcpProvider: KmsProviderDescriptor = {
   id: "gcp",
   schema: gcpKeySchema,
+  /** Resolves a validated GCP key config. Throws an internal error for another provider's key. */
   resolve: (key, context) =>
     key.provider === "gcp" ? resolveGcpKey(key, context) : wrongProvider("gcp", key.provider),
   name: "Google Cloud KMS",
