@@ -274,6 +274,12 @@ A key opts in to raw digests with [`allowRawDigests: true`](configuration.md) in
 | With `allowRawDigests: true`      | Asks, unless `--yes` is given.            | Signs with `--yes`. Refused without it.                               |
 | From `--kms`, which has no config | Asks. `--yes` does not skip the question. | Refused ([`core.task.raw-digest-command-line-key`](errors.md#tasks)). |
 
+At a terminal, `--yes` for a key without `allowRawDigests: true`, which includes every key from `--kms`, prints a note to standard error before the question:
+
+```text
+[hardhat-kms] --yes does not skip the question: key "deployer" does not set allowRawDigests: true
+```
+
 Each refusal names what is missing, the opt-in or `--yes`, and makes no KMS call. With the opt-in and `--yes`, the task prints a warning to standard error and signs:
 
 ```text
@@ -535,7 +541,7 @@ The task warns, in the question or the summary, and still asks:
 
 - Before it prints the tuple, the task reads it back, recovers the authority from it, and checks that it is the key's address and that `s` is low. Nodes skip an authorization with a high `s`.
 - `--nonce` and `--self-broadcast` cannot be combined, as in cast.
-- When the key has [`allowedDelegates`](configuration.md#limit-eip-7702-delegates), the delegate must be allowed on the authorization's chain, and the task refuses it otherwise before it signs. A chain-0 authorization needs an entry with `chains: "all"`. No option overrides the list: not `--force`, which allows chain 0, and not `--yes`. The zero address always passes. With `--network`, the delegate is matched before the task connects: against the network's `chainId` when the config sets one, else against every chain. For an entry with `codeHash`, the task reads the delegate's code from the `--network` node and refuses on a mismatch or empty code; with `--chain` there is no node to read, so it refuses that delegate and asks for `--network`. A key from `--kms` has no config, so no list; the task refuses one that is the same KMS key as a config key with `allowedDelegates`, by key id or by that key's `address` pin.
+- When the key has [`allowedDelegates`](configuration.md#limit-eip-7702-delegates), the delegate must be allowed on the authorization's chain, and the task refuses it otherwise before it signs. A chain-0 authorization needs an entry with `chains: "all"`. No option overrides the list: not `--force`, which allows chain 0, and not `--yes`. The zero address always passes. With `--network`, the delegate is matched before the task connects: against the network's `chainId` when the config sets one, else against every chain. For an entry with `codeHash`, the task reads the delegate's code from the `--network` node and refuses on a mismatch or empty code; with `--chain` there is no node to read, so it refuses that delegate and asks for `--network`. A key from `--kms` has no config, so no list; the task refuses one that is the same KMS key as a config key with `allowedDelegates`, by that key's `address` pin, or by key id or alias for a key without one ([how keys are matched](configuration.md#limit-eip-7702-delegates)).
 - Opening the `--network` connection runs the network hook, which can call the KMS, for example to fund the accounts of an `edr-simulated` network. `--network` can also come from the `HARDHAT_NETWORK` environment variable, so `--chain` fails while it is set.
 
 ### Notes on standard error

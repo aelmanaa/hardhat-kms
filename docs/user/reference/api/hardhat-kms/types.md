@@ -1177,8 +1177,8 @@ it has no network to read the code from.
 
 > `optional` **label?**: `string`
 
-A name for the delegate, shown next to it in `kms sign-auth`'s note on standard error. 1 to 64
-characters, with no control, format or line-separator characters.
+A name for the delegate, shown before its address on the `delegate` line of `kms sign-auth`'s
+question and summary. 1 to 64 characters, with no control, format or line-separator characters.
 
 ---
 

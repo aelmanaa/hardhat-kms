@@ -16,7 +16,7 @@ import { type PrivateKeyAccount, privateKeyToAccount } from "viem/accounts";
 
 import hardhatKms from "../../src/index.ts";
 import { signAuthAction } from "../../src/internal/tasks/sign-auth.ts";
-import type { KmsAllowedDelegateUserConfig } from "../../src/types.ts";
+import type { AwsKmsKeyUserConfig, KmsAllowedDelegateUserConfig } from "../../src/types.ts";
 import { type FakeAdapter, fakeAdapter } from "../helpers/fake-adapter.ts";
 import { type FakeTxAdapter, fakeTxAdapter } from "../helpers/fake-tx-adapter.ts";
 import { answering } from "../helpers/terminal.ts";
@@ -62,9 +62,19 @@ after(() => {
 /**
  * A runtime whose `deployer` key is Hardhat's first account, with {@link ALLOWED}, and whose
  * `sponsor` key has no list. Both are KMS accounts of the Prague `local` network, and every new
- * connection gets {@link CODE} at {@link PINNED} and {@link PINNED_OTHER}.
+ * connection gets {@link CODE} at {@link PINNED} and {@link PINNED_OTHER}. With `kms`, the config
+ * also has `listed` and `pinned` keys: `listedKey` changes `listed`, and `awsRegion: false` drops
+ * `kms.defaults.aws.region`, so a `--kms aws` key has no region of its own.
  */
-async function runtime(network?: string, options: { keeps?: boolean; kms?: string } = {}) {
+async function runtime(
+  network?: string,
+  options: {
+    keeps?: boolean;
+    kms?: string;
+    listedKey?: Partial<AwsKmsKeyUserConfig>;
+    awsRegion?: false;
+  } = {},
+) {
   const hre = await createHardhatRuntimeEnvironment(
     {
       plugins: [hardhatKms],
@@ -76,7 +86,12 @@ async function runtime(network?: string, options: { keeps?: boolean; kms?: strin
             ? {}
             : {
                 // The same AWS key as `--kms aws` with AWS_KMS_KEY_ID=alias/listed, by its id.
-                listed: { provider: "aws", keyId: "alias/listed", allowedDelegates: ALLOWED },
+                listed: {
+                  provider: "aws",
+                  keyId: "alias/listed",
+                  allowedDelegates: ALLOWED,
+                  ...options.listedKey,
+                },
                 // A key with the deployer's address pin, which no id can match.
                 pinned: {
                   ...vaultKey("pinned", ACCOUNT_0.address),
@@ -84,7 +99,7 @@ async function runtime(network?: string, options: { keeps?: boolean; kms?: strin
                 },
               }),
         },
-        defaults: { aws: { region: "eu-west-1" } },
+        defaults: options.awsRegion === false ? {} : { aws: { region: "eu-west-1" } },
         simulatedBalance: 10n ** 18n,
       },
       networks: {
@@ -547,17 +562,27 @@ describe("allowedDelegates: a send's self-authorizations", () => {
   });
 });
 
-/** Runs `use` with `AWS_KMS_KEY_ID` set to `keyId`, then restores it. */
-async function withAwsKeyId<T>(keyId: string, use: () => Promise<T>): Promise<T> {
-  const saved = process.env.AWS_KMS_KEY_ID;
-  process.env.AWS_KMS_KEY_ID = keyId;
+/**
+ * Runs `use` with `AWS_KMS_KEY_ID` set to `keyId` and the other variables in `env` set, then
+ * restores them.
+ */
+async function withAwsKeyId<T>(
+  keyId: string,
+  use: () => Promise<T>,
+  env: Record<string, string> = {},
+): Promise<T> {
+  const set = { ...env, AWS_KMS_KEY_ID: keyId };
+  const saved = Object.fromEntries(Object.keys(set).map((name) => [name, process.env[name]]));
+  Object.assign(process.env, set);
   try {
     return await use();
   } finally {
-    if (saved === undefined) {
-      Reflect.deleteProperty(process.env, "AWS_KMS_KEY_ID");
-    } else {
-      process.env.AWS_KMS_KEY_ID = saved;
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, name);
+      } else {
+        process.env[name] = value;
+      }
     }
   }
 }
@@ -616,6 +641,76 @@ describe("allowedDelegates: a --kms key that is a listed config key", () => {
         );
         assert.equal(signatures(), 0);
       });
+    } finally {
+      writeError.mock.restore();
+    }
+  });
+});
+
+/**
+ * The same KMS key, written differently on the config key and on the `--kms` key (#589): the
+ * config key sets a region, profile or endpoint, or an ARN, and the `--kms` key reads its region
+ * from `AWS_REGION`.
+ */
+const SAME_KEY_WRITTEN_DIFFERENTLY: readonly [string, Partial<AwsKmsKeyUserConfig>, string][] = [
+  ["a region", { region: "eu-west-1" }, "alias/listed"],
+  ["another region", { region: "us-east-1" }, "alias/listed"],
+  ["a profile", { profile: "ops" }, "alias/listed"],
+  ["an endpoint", { endpoint: "http://127.0.0.1:9" }, "alias/listed"],
+  ["an alias ARN", { keyId: "arn:aws:kms:us-east-1:111122223333:alias/listed" }, "alias/listed"],
+  [
+    "a key id, for a key ARN",
+    { keyId: "1234abcd-12ab-34cd-56ef-1234567890ab", region: "us-east-1" },
+    "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+  ],
+];
+
+describe("allowedDelegates: a --kms key written differently from a listed config key (#589)", () => {
+  for (const [written, listedKey, kmsKeyId] of SAME_KEY_WRITTEN_DIFFERENTLY) {
+    it(`kms sign-auth refuses it when the config key sets ${written}, before any KMS call`, async () => {
+      await withAwsKeyId(
+        kmsKeyId,
+        async () => {
+          const { hre, created } = await runtime(undefined, {
+            kms: "aws",
+            listedKey,
+            awsRegion: false,
+          });
+          await assertRefused(
+            signAuth(hre, { key: "AWS_KMS_KEY_ID", delegate: UNLISTED, chain: "1", nonce: "0" }),
+            `kms sign-auth: ${refusal("listed")}`,
+          );
+          assert.equal(created.length, 0);
+        },
+        { AWS_REGION: "eu-west-1" },
+      );
+    });
+  }
+
+  it("kms sign-tx refuses it for a transaction with an authorization list, before any KMS call", async () => {
+    const self = await rpcAuthorization(ACCOUNT_0, UNLISTED, 1);
+    const file = path.join(scratch, "kms-tx-589.json");
+    writeFileSync(file, JSON.stringify({ to: COW.address, authorizationList: [self] }));
+    const writeError = mock.method(process.stderr, "write", () => true);
+    try {
+      for (const [, listedKey, kmsKeyId] of SAME_KEY_WRITTEN_DIFFERENTLY) {
+        await withAwsKeyId(
+          kmsKeyId,
+          async () => {
+            const { hre, created } = await runtime("local", {
+              kms: "aws",
+              listedKey,
+              awsRegion: false,
+            });
+            await assertRefused(
+              hre.tasks.getTask(["kms", "sign-tx"]).run({ key: "AWS_KMS_KEY_ID", tx: file }),
+              `kms sign-tx: ${refusal("listed")}`,
+            );
+            assert.equal(created.length, 0);
+          },
+          { AWS_REGION: "eu-west-1" },
+        );
+      }
     } finally {
       writeError.mock.restore();
     }

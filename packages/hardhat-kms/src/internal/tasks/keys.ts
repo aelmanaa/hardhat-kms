@@ -1,7 +1,7 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 
 import type { KmsKeyConfig } from "../../types.ts";
-import { keyIdentity } from "../config/key-identity.ts";
+import { listBypassIdentity, sameListBypassIdentity } from "../config/key-identity.ts";
 import { sameAddress } from "../crypto/address.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
@@ -93,9 +93,10 @@ export function findTaskKey(hre: HardhatRuntimeEnvironment, name: string): KmsKe
  * Refuses a `--kms` key that is the same KMS key as a config key with `allowedDelegates`: the
  * `--kms` key has no config and so no list, and signing an authorization with it would skip the
  * config key's list (#562). An unpinned config key is the same when its identifier names the same
- * KMS key; a pinned one when the `--kms` key's address, once known, equals its `address` pin. The
- * network hook refuses such a pair only on connections; `kms sign-auth --chain` and `kms sign-tx`
- * check here.
+ * KMS key, compared by {@link listBypassIdentity}: an AWS key id or alias whatever the region,
+ * profile or endpoint each key sets (#589). A pinned one is the same when the `--kms` key's
+ * address, once known, equals its `address` pin. The network hook refuses such a pair only on
+ * connections; `kms sign-auth --chain` and `kms sign-tx` check here.
  *
  * @param hre - The Hardhat runtime.
  * @param key - The key the task signs with.
@@ -117,13 +118,13 @@ export async function refuseListBypass(
   if (listed.length === 0) {
     return;
   }
-  const id = await keyIdentity(key);
+  const id = await listBypassIdentity(key);
   for (const { key: other } of listed) {
     // As in the network hook, a pinned config key is compared by its pin, not read: reading it
     // could ask for a variable or a keystore password the run would not otherwise need.
     const same =
       other.address === undefined
-        ? id !== undefined && id === (await keyIdentity(other))
+        ? sameListBypassIdentity(id, await listBypassIdentity(other))
         : address !== undefined && sameAddress(address, other.address);
     if (same) {
       throw catalogError(

@@ -234,39 +234,44 @@ describe("--kms on networks", () => {
     });
   });
 
+  // A config key with allowedDelegates too: `kms sign-auth` and `kms sign-tx` take the two for one
+  // key (#589), but a connection only refuses them when they derive to the same account.
   it("does not mistake the same AWS alias in another region or profile for a duplicate", async () => {
-    process.env.AWS_KMS_KEY_ID = "alias/deployer";
-    const hre = await createHardhatRuntimeEnvironment(
-      {
-        plugins: [hardhatKms],
-        kms: {
-          defaults: { aws: { region: "eu-west-1" } },
-          keys: {
-            config: {
-              provider: "aws",
-              keyId: "alias/deployer",
-              region: "us-east-1",
-              profile: "prod",
+    for (const listed of [{}, { allowedDelegates: [] }]) {
+      process.env.AWS_KMS_KEY_ID = "alias/deployer";
+      const hre = await createHardhatRuntimeEnvironment(
+        {
+          plugins: [hardhatKms],
+          kms: {
+            defaults: { aws: { region: "eu-west-1" } },
+            keys: {
+              config: {
+                provider: "aws",
+                keyId: "alias/deployer",
+                region: "us-east-1",
+                profile: "prod",
+                ...listed,
+              },
             },
           },
+          networks: { local: { type: "edr-simulated", kmsAccounts: ["config"] } },
         },
-        networks: { local: { type: "edr-simulated", kmsAccounts: ["config"] } },
-      },
-      { kms: "aws", network: "local" },
-    );
-    hre.hooks.registerHandlers("kms", {
-      createKeyAdapter: async (context, key, next) => {
-        const secret = SECRET_KEYS[key.name];
-        return secret === undefined
-          ? await next(context, key)
-          : fakeAdapter({ secretKey: new Uint8Array(Buffer.from(secret, "hex")) });
-      },
-    });
+        { kms: "aws", network: "local" },
+      );
+      hre.hooks.registerHandlers("kms", {
+        createKeyAdapter: async (context, key, next) => {
+          const secret = SECRET_KEYS[key.name];
+          return secret === undefined
+            ? await next(context, key)
+            : fakeAdapter({ secretKey: new Uint8Array(Buffer.from(secret, "hex")) });
+        },
+      });
 
-    assert.deepEqual((await kmsAccounts(hre, "local")).kms, [
-      addressOf("config"),
-      addressOf("AWS_KMS_KEY_ID"),
-    ]);
+      assert.deepEqual((await kmsAccounts(hre, "local")).kms, [
+        addressOf("config"),
+        addressOf("AWS_KMS_KEY_ID"),
+      ]);
+    }
   });
 
   it("does not read pinned config keys to look for duplicates", async () => {
