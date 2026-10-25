@@ -8677,7 +8677,7 @@ snapshots:
       json-stream-stringify: 3.1.7
       micro-eth-signer: 0.19.0
       rfdc: 1.4.1
-      undici: 7.30.0
+      undici: 7.30.1
 
   '@nomicfoundation/hardhat-vendored@3.0.4': {}
 
