@@ -1,5 +1,6 @@
 import type { KmsKeyConfig } from "../../types.ts";
 import { parseAwsKeyId } from "../providers/aws/key-id.ts";
+import { parseAzureKeyId } from "../providers/azure/key-id.ts";
 
 /**
  * What makes two keys of a first-party provider the same KMS key: the identifier, read the way
@@ -36,4 +37,80 @@ export async function keyIdentity(key: KmsKeyConfig): Promise<string | undefined
     return `aws\0${id}\0${region}\0${profile}\0${key.endpoint ?? ""}`;
   }
   return undefined;
+}
+
+/**
+ * What the list-bypass check compares: the key's identifier, with what it says written one way,
+ * and, for an Azure key, its version when it names one.
+ */
+export interface ListBypassIdentity {
+  /** The provider and the identifier, without an Azure key's version. */
+  key: string;
+  /** An Azure key's version, in lowercase, or `undefined` for the latest one or another provider. */
+  version?: string;
+}
+
+/**
+ * The identity a `--kms` key and a config key with `allowedDelegates` are compared by, before a
+ * task signs an authorization with the `--kms` key (#562, #589). Unlike {@link keyIdentity}, it
+ * leans towards a match: a false match only asks the user to name the config key, while a missed
+ * one signs without that key's list.
+ *
+ * - An AWS key counts by its key id or alias name alone, in lowercase, without the region,
+ *   profile or endpoint, and taken out of an ARN. The SDK may find the region in the environment,
+ *   so the config cannot tell where a key id or alias is looked up. A key ARN and an alias still
+ *   differ: only the KMS knows which key an alias points to.
+ * - An Azure key counts by its vault and key name in lowercase, with or without a trailing slash.
+ *   A key without a version, which signs with the latest one, matches every version of that key.
+ * - A Google Cloud key version name counts as written. Google Cloud can take a project number in
+ *   place of the project id, and the two are not matched: only Google knows which id a number
+ *   belongs to. An `address` pin catches that.
+ *
+ * Contains identifier values, so never print it.
+ *
+ * @param key - The resolved key.
+ * @returns The identity, or `undefined` for a key of a third-party provider.
+ */
+export async function listBypassIdentity(
+  key: KmsKeyConfig,
+): Promise<ListBypassIdentity | undefined> {
+  if (key.provider === "aws") {
+    const id = await key.keyId.get();
+    // An ARN ends in `key/<key id>` or in the alias name, after its last colon. A key id or an
+    // alias name has no colon.
+    const resource = id.slice(id.lastIndexOf(":") + 1).replace(/^key\//, "");
+    return { key: `aws\0${resource.toLowerCase()}` };
+  }
+  if (key.provider === "azure") {
+    const id = await key.keyId.get();
+    const parsed = parseAzureKeyId(id);
+    if (parsed === undefined) {
+      return { key: `azure\0${id}` };
+    }
+    const identity = { key: `azure\0${parsed.vaultUrl}/keys/${parsed.keyName}`.toLowerCase() };
+    return parsed.keyVersion === undefined
+      ? identity
+      : { ...identity, version: parsed.keyVersion.toLowerCase() };
+  }
+  const identity = await keyIdentity(key);
+  return identity === undefined ? undefined : { key: identity };
+}
+
+/**
+ * Whether two keys are the same KMS key for the list-bypass check.
+ *
+ * @param a - One key's {@link listBypassIdentity}.
+ * @param b - The other's.
+ * @returns Whether their identifiers match and, when both name an Azure key version, the versions.
+ */
+export function sameListBypassIdentity(
+  a: ListBypassIdentity | undefined,
+  b: ListBypassIdentity | undefined,
+): boolean {
+  return (
+    a !== undefined &&
+    b !== undefined &&
+    a.key === b.key &&
+    (a.version === undefined || b.version === undefined || a.version === b.version)
+  );
 }
