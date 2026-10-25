@@ -6,6 +6,7 @@ import { resolveTurnkeyKey, turnkeyKeySchema } from "./config.ts";
 export const turnkeyProvider: KmsProviderDescriptor = {
   id: "turnkey",
   schema: turnkeyKeySchema,
+  /** Resolves a validated Turnkey key config. Throws an internal error for another provider's key. */
   resolve: (key, context) =>
     key.provider === "turnkey"
       ? resolveTurnkeyKey(key, context)
