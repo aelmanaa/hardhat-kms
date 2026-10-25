@@ -204,7 +204,7 @@ describe("transaction filling matches Hardhat's local accounts", () => {
   it("signs as Hardhat a requested type that agrees with the fee fields, or a type without fee fields (#484, #496)", async () => {
     // A type that disagrees with the caller's fee fields is refused, a deliberate difference
     // from Hardhat that the unit tests cover. Hardhat gets each type as a quantity: from 3.19 it
-    // refuses a number or leading zeros, which the plugin reads as the same type (#566).
+    // refuses a number or leading zeros, which the plugin reads as the same type (#580).
     for (const [quantity, type] of [
       ["0x0", "0x0"],
       ["0x0", "0x00"],
@@ -281,7 +281,7 @@ describe("transaction filling matches Hardhat's local accounts", () => {
       },
     ];
     assert.equal(await compare("local", { from: FROM, to: FROM, authorizationList }), "eip7702");
-    // A type that agrees with the fields (#496); Hardhat gets it as a quantity (#566).
+    // A type that agrees with the fields (#496); Hardhat gets it as a quantity (#580).
     for (const type of ["0x4", 4]) {
       assert.equal(
         await compare(
