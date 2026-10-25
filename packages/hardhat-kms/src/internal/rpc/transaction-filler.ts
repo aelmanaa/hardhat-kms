@@ -211,9 +211,13 @@ export class HardhatTransactionFiller implements TransactionFiller {
           ? await this.#estimateGas(filledParams, await this.#estimateTag(tx, method))
           : numberToHexString(this.#settings.gas);
     }
+    // applyRequestedType has read `type`, in any numeric form, and the fields decide the type, so
+    // the schema does not see it. From hardhat-zod-utils 3.0.7 the schema reads `type` and refuses
+    // a number or a quantity with leading zeros, which this filler accepts.
+    const { type: _type, ...untyped } = tx;
     // The node got r and s as quantities; Hardhat's schema wants them as 32 bytes.
     const [request] = validateParams(
-      [withPaddedAuthorizationSignatures(tx), ...rest],
+      [withPaddedAuthorizationSignatures(untyped), ...rest],
       rpcTransactionRequest,
     );
     const gas = requireGas(request, method);
@@ -496,7 +500,8 @@ const BLOB_TYPE_NAME = /^eip4844$/i;
  * The number of a request's `type`, in any numeric form a JSON-RPC caller can pass: a hex
  * quantity in either case, with or without leading zeros, a decimal string, a non-negative
  * integer or a non-negative bigint. Strings are trimmed first. Any other value, such as viem's
- * `"legacy"`, is not a number: the fields decide the type, as Hardhat's local accounts do.
+ * `"legacy"`, is not a number: the fields decide the type, as Hardhat's local accounts did before
+ * Hardhat 3.19. From 3.19 they refuse a `type` that is not a hex quantity without leading zeros.
  *
  * @param type - The request's `type`.
  * @returns Its number, or undefined.

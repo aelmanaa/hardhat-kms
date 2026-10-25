@@ -529,10 +529,11 @@ describe("the kms namespace", () => {
 });
 
 describe("kms sign-tx's fields", () => {
-  it("are the fields of Hardhat's request schema, plus type", () => {
+  it("are the fields of Hardhat's request schema, which includes type", () => {
     const shape: unknown = Reflect.get(rpcTransactionRequest, "shape");
     assert.ok(typeof shape === "object" && shape !== null);
 
-    assert.deepEqual([...KNOWN_FIELDS].toSorted(), [...Object.keys(shape), "type"].toSorted());
+    assert.ok(Object.hasOwn(shape, "type"));
+    assert.deepEqual([...KNOWN_FIELDS].toSorted(), Object.keys(shape).toSorted());
   });
 });

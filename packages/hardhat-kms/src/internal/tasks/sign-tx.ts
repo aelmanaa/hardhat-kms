@@ -35,8 +35,9 @@ const OPERATION = "kms sign-tx";
  * request schema does not read.
  */
 /**
- * The fields of Hardhat 3.18's request schema (`rpcTransactionRequest`). The type makes the
- * compiler require every key of `RpcTransactionRequest` here, and no other.
+ * The fields of Hardhat's request schema (`rpcTransactionRequest`), which reads `type` from
+ * hardhat-zod-utils 3.0.7. The type makes the compiler require every key of
+ * `RpcTransactionRequest` here, and no other.
  */
 const SCHEMA_FIELDS: Readonly<Record<keyof RpcTransactionRequest, true>> = {
   from: true,
@@ -53,14 +54,14 @@ const SCHEMA_FIELDS: Readonly<Record<keyof RpcTransactionRequest, true>> = {
   authorizationList: true,
   blobs: true,
   blobVersionedHashes: true,
+  type: true,
 };
 
 /**
- * The fields the task reads: the schema's, plus `type`. Any other field is refused: the schema
- * drops unknown fields, so a misspelt `gasLimit` or an `input` would otherwise be signed as if it
- * were absent.
+ * The fields the task reads: the schema's. Any other field is refused: the schema drops unknown
+ * fields, so a misspelt `gasLimit` or an `input` would otherwise be signed as if it were absent.
  */
-export const KNOWN_FIELDS: ReadonlySet<string> = new Set([...Object.keys(SCHEMA_FIELDS), "type"]);
+export const KNOWN_FIELDS: ReadonlySet<string> = new Set(Object.keys(SCHEMA_FIELDS));
 
 /** The fields the unknown-field error lists: those the task signs, without the blob fields. */
 const LISTED_FIELDS = [...KNOWN_FIELDS].filter(
