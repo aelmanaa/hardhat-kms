@@ -33,7 +33,7 @@ export function siteChannel(value: string | undefined): SiteChannel {
 export const SITE_CHANNEL: SiteChannel = siteChannel(process.env["DOCS_SITE_CHANNEL"]);
 
 /** The path the site root is served under on GitHub Pages (decision 0017). */
-export const ROOT_BASE = "/hardhat-kms/";
+const ROOT_BASE = "/hardhat-kms/";
 
 /** The path this build is served under: the root, or `next/` below it. */
 export const SITE_BASE: string = SITE_CHANNEL === "next" ? `${ROOT_BASE}next/` : ROOT_BASE;

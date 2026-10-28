@@ -175,9 +175,8 @@ export function unreleasedPageProblems(
     problems.push(`${file}: has no unreleased banner`);
     return problems;
   }
-  // Vue's server rendering puts comments such as <!--[--> between the parts of the text.
-  const text = decodeEntities(element.replaceAll(/<[^>]*>/g, ""));
-  if (!text.includes(banner.text)) {
+  // Vue's server rendering writes the text as one text node, before the link.
+  if (!decodeEntities(element).includes(banner.text)) {
     problems.push(`${file}: the unreleased banner does not say "${banner.text}"`);
   }
   if (!tags(element, "a").some((link) => link.get("href") === banner.link)) {
