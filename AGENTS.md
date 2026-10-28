@@ -170,6 +170,7 @@ Decision records:
 - [0021: Raw digests need a person at a terminal or a per-key opt-in](docs/contributor/decisions/0021-raw-digests-need-a-person-or-an-opt-in.md)
 - [0022: Each key can limit its EIP-7702 delegates, per chain](docs/contributor/decisions/0022-per-key-delegate-allowlist.md)
 - [0023: Confirm EIP-7702 authorizations at a terminal, and refuse ones that cannot apply](docs/contributor/decisions/0023-confirm-authorizations-at-a-terminal.md)
+- [0024: The docs site root follows npm `latest`, and main's docs are under `next/`](docs/contributor/decisions/0024-docs-site-follows-npm-latest.md)
 
 Rules for every change:
 

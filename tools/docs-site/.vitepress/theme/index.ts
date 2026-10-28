@@ -50,16 +50,36 @@ function scheduleDraw(dark: boolean): void {
   });
 }
 
+/** The banner the site config sets for the `next` tree, which documents unreleased main. */
+interface UnreleasedBanner {
+  readonly text: string;
+  readonly link: string;
+  readonly linkText: string;
+}
+
 const Layout = defineComponent({
   setup() {
-    const { isDark } = useData();
+    const { isDark, theme } = useData<{ unreleasedBanner?: UnreleasedBanner }>();
     onContentUpdated(() => {
       scheduleDraw(isDark.value);
     });
     watch(isDark, (dark) => {
       scheduleDraw(dark);
     });
-    return () => h(DefaultTheme.Layout);
+    return () => {
+      const banner = theme.value.unreleasedBanner;
+      if (banner === undefined) {
+        return h(DefaultTheme.Layout);
+      }
+      return h(DefaultTheme.Layout, null, {
+        "layout-top": () =>
+          h("div", { class: "unreleased-banner", role: "note" }, [
+            `${banner.text} `,
+            h("a", { href: banner.link }, banner.linkText),
+            ".",
+          ]),
+      });
+    };
   },
 });
 
