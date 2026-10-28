@@ -149,6 +149,58 @@ export function iconProblems(
   return problems;
 }
 
+/**
+ * Checks a page of the `next` tree, which documents unreleased main (decision 0024): its head has
+ * one `<meta name="robots" content="noindex">`, and its body the unreleased banner, with its text
+ * and a link to the site root. Without `banner`, only the head is checked: VitePress renders the
+ * 404 page in the browser, so its HTML has an empty body.
+ */
+export function unreleasedPageProblems(
+  file: string,
+  html: string,
+  banner: { text: string; link: string } | undefined,
+): string[] {
+  const problems: string[] = [];
+  const robots = metaContents(headOf(html), "robots");
+  if (robots.length !== 1 || robots[0] !== "noindex") {
+    problems.push(
+      `${file}: expected one <meta name="robots" content="noindex">, found ${JSON.stringify(robots)}`,
+    );
+  }
+  if (banner === undefined) {
+    return problems;
+  }
+  const element = /<div class="unreleased-banner"[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1];
+  if (element === undefined) {
+    problems.push(`${file}: has no unreleased banner`);
+    return problems;
+  }
+  // Vue's server rendering writes the text as one text node, before the link.
+  if (!decodeEntities(element).includes(banner.text)) {
+    problems.push(`${file}: the unreleased banner does not say "${banner.text}"`);
+  }
+  if (!tags(element, "a").some((link) => link.get("href") === banner.link)) {
+    problems.push(`${file}: the unreleased banner does not link to ${banner.link}`);
+  }
+  return problems;
+}
+
+/** Whether a path on the root tree, relative to its base, is in the `next` tree. */
+export function isNextPath(path: string): boolean {
+  return path === "next" || path.startsWith("next/");
+}
+
+/**
+ * A link from a page of the root tree into `next/`, the docs of unreleased main. Only the landing
+ * page, the docs index, may link there (decision 0024).
+ */
+export function nextLinkProblem(file: string, path: string): string | undefined {
+  if (!isNextPath(path) || file === "index.html") {
+    return undefined;
+  }
+  return `${file}: links to ${path}, the unreleased docs of main; only the landing page may link into next/`;
+}
+
 /** The eight bytes every PNG file starts with. */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 

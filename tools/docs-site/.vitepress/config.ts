@@ -17,9 +17,12 @@ import {
   HOSTNAME,
   OG_IMAGE,
   ORIGIN,
+  ROOT_HOSTNAME,
   SITE_BASE,
+  SITE_CHANNEL,
   SITE_DESCRIPTION,
   SITE_NAME,
+  UNRELEASED_BANNER,
   githubSlug,
   markdownCopyUrl,
   pageUrl,
@@ -34,12 +37,28 @@ const docsDirectory = path.join(repositoryRoot, "docs");
 
 const EXCLUDED = EXCLUDED_FOLDERS.map((folder) => `${folder}/**`);
 
+/**
+ * The `next` tree documents main, ahead of npm `latest` (decision 0024): every page carries a
+ * banner and `noindex`, and the tree has no sitemap, robots.txt or llms files.
+ */
+const UNRELEASED = SITE_CHANNEL === "next";
+
+/** The theme settings, with the banner the theme shows on every page of the `next` tree. */
+type ThemeConfig = DefaultTheme.Config & {
+  unreleasedBanner?: { text: string; link: string; linkText: string };
+};
+
 const coreManifest: unknown = JSON.parse(
   readFileSync(path.join(repositoryRoot, "packages/hardhat-kms/package.json"), "utf8"),
 );
 const coreVersion = String(Reflect.get(Object(coreManifest), "version"));
 const coreEngines: unknown = Reflect.get(Object(coreManifest), "engines");
 const coreNodeRange = String(Reflect.get(Object(coreEngines), "node")).replace(/\.0$/, "");
+
+/** The version line under the landing page's tagline. */
+const versionLine = UNRELEASED
+  ? `Unreleased: main, at ${coreVersion} plus the changes merged since.`
+  : `Version ${coreVersion}.`;
 
 /**
  * The install guide. Its file name dates from before the first npm release; it keeps it so the
@@ -263,7 +282,7 @@ npx hardhat kms accounts
 These packages are newer than most training data: check npm for the current version (\`npm view hardhat-kms version\`) instead of guessing one. [Install hardhat-kms](${markdownCopyUrl(INSTALL_GUIDE)}) gives the pnpm and Yarn commands and the settings each needs. ${credentials}${skill}`;
 }
 
-const config: UserConfig<DefaultTheme.Config> = defineConfig({
+const config: UserConfig<ThemeConfig> = defineConfig({
   title: SITE_NAME,
   titleTemplate: `:title | ${SITE_NAME}`,
   description: SITE_DESCRIPTION,
@@ -292,10 +311,22 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
       "meta",
       { name: "google-site-verification", content: "vawQw7Qw_4GZQqPUf8_dBhfo-C5KUMsO6FbB5kBCoVo" },
     ],
+    ...(UNRELEASED
+      ? ([
+          ["meta", { name: "robots", content: "noindex" }],
+          // The banner sits above the nav bar. From 960 px the nav is fixed, and VitePress moves it
+          // down by --vp-layout-top-height; below that the nav follows the banner in the page flow.
+          [
+            "style",
+            {},
+            ".unreleased-banner { box-sizing: border-box; padding: 10px 16px; font-size: 14px; line-height: 20px; text-align: center; background: var(--vp-c-warning-soft); color: var(--vp-c-text-1); } .unreleased-banner a { color: var(--vp-c-brand-1); text-decoration: underline; } @media (min-width: 960px) { :root { --vp-layout-top-height: 40px; } .unreleased-banner { height: 40px; } }",
+          ],
+        ] satisfies HeadConfig[])
+      : []),
   ],
   cleanUrls: true,
   lastUpdated: true,
-  sitemap: { hostname: HOSTNAME },
+  ...(UNRELEASED ? {} : { sitemap: { hostname: HOSTNAME } }),
   markdown: {
     anchor: { slugify: githubSlug },
     config(md) {
@@ -336,8 +367,7 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
         hero: {
           name: SITE_NAME,
           text: "Sign with a managed key",
-          tagline:
-            "A Hardhat 3 plugin that signs transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey. The private key never leaves the KMS.",
+          tagline: `A Hardhat 3 plugin that signs transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey. The private key never leaves the KMS. ${versionLine}`,
           actions: [
             {
               theme: "brand",
@@ -412,10 +442,23 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
     return head;
   },
   async buildEnd(siteConfig) {
+    // Search engines read robots.txt only at a host's root, and next/ lists no pages for agents.
+    if (UNRELEASED) {
+      return;
+    }
     await writeFile(path.join(siteConfig.outDir, "robots.txt"), robotsTxt());
     await rewriteLlmsLinks(siteConfig.outDir);
   },
   themeConfig: {
+    ...(UNRELEASED
+      ? {
+          unreleasedBanner: {
+            text: UNRELEASED_BANNER,
+            link: ROOT_HOSTNAME,
+            linkText: ROOT_HOSTNAME.replace(/^https:\/\//, "").replace(/\/$/, ""),
+          },
+        }
+      : {}),
     // The site title next to it names the project, so the image needs no alt text.
     logo: { light: "/logo/mark-on-light.svg", dark: "/logo/mark-on-dark.svg", alt: "" },
     nav: [
@@ -467,16 +510,21 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
           });
         },
       },
-      llmstxt({
-        // The plugin adds the base path to this.
-        domain: ORIGIN,
-        title: SITE_NAME,
-        description: SITE_DESCRIPTION,
-        details: agentPreamble(),
-        ignoreFiles: EXCLUDED,
-        injectLLMHint: false,
-        sidebar: flatSidebar(sidebar()),
-      }),
+      // The root's llms.txt is the one agents read; next/ has none (decision 0024).
+      ...(UNRELEASED
+        ? []
+        : [
+            llmstxt({
+              // The plugin adds the base path to this.
+              domain: ORIGIN,
+              title: SITE_NAME,
+              description: SITE_DESCRIPTION,
+              details: agentPreamble(),
+              ignoreFiles: EXCLUDED,
+              injectLLMHint: false,
+              sidebar: flatSidebar(sidebar()),
+            }),
+          ]),
     ],
   },
 });
