@@ -59,10 +59,15 @@ jobs:
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
           args: --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'packages/*/README.md' 'examples/README.md' 'examples/*/README.md' 'docs/**/*.md' 'skills/**/*.md'
-      # The same build pages.yml deploys from main: dead links fail it, then the checks read the
-      # output (canonical URLs, titles, descriptions, Open Graph tags, anchors, sitemap, robots.txt,
-      # llms.txt, JSON-LD).
+      # The two trees pages.yml deploys (decision 0024): dead links fail a build, then the checks
+      # read the output (canonical URLs, titles, descriptions, Open Graph tags, anchors, sitemap,
+      # robots.txt, llms.txt, JSON-LD; noindex and the banner on next/). pages.yml builds the root
+      # from the release tag on npm latest; this job builds both from the pull request.
       - name: Docs site builds and passes the site checks
+        run: pnpm run docs:site:check
+      - name: Docs site for next/ builds and passes the site checks
+        env:
+          DOCS_SITE_CHANNEL: next
         run: pnpm run docs:site:check
 
   test:
@@ -311,6 +316,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+      - uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
         with:
           advanced-security: false

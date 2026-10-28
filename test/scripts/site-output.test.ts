@@ -10,6 +10,7 @@ import {
   jsonLdProblems,
   markdownLinkProblems,
   markdownLinkTargets,
+  nextLinkProblem,
   ogImageProblems,
   outputCandidates,
   pngProblems,
@@ -17,12 +18,14 @@ import {
   siteLinks,
   sitemapUrls,
   svgFontProblems,
+  unreleasedPageProblems,
 } from "../../scripts/site-output.ts";
 import type { SiteFacts } from "../../scripts/site-output.ts";
 import {
   HOSTNAME,
   markdownCopyUrl,
   rewriteMarkdownLinks,
+  siteChannel,
 } from "../../tools/docs-site/.vitepress/site.ts";
 
 const SITE: SiteFacts = {
@@ -496,5 +499,107 @@ describe("rewriteMarkdownLinks and markdownCopyUrl", () => {
       `${HOSTNAME}user/reference/api.md`,
     );
     assert.equal(markdownCopyUrl("README.md"), HOSTNAME);
+  });
+});
+
+/** A page with this head and body. */
+const bannerPage = (head: string, body: string): string =>
+  `<html><head>${head}</head><body>${body}</body></html>`;
+
+describe("unreleasedPageProblems", () => {
+  const banner = { text: "Unreleased: main.", link: "https://example.github.io/site/" };
+  const noindex = '<meta name="robots" content="noindex">';
+  // As Vue's server rendering writes it, with comments between the parts.
+  const bannerHtml =
+    '<div class="unreleased-banner" role="note"><!--[-->Unreleased: main. <a href="https://example.github.io/site/">example.github.io/site</a>.<!--]--></div>';
+
+  it("accepts a page with noindex and the banner", () => {
+    assert.deepEqual(unreleasedPageProblems("a.html", bannerPage(noindex, bannerHtml), banner), []);
+  });
+
+  it("reports a missing or other robots meta, and two of them", () => {
+    assert.match(
+      unreleasedPageProblems("a.html", bannerPage("", bannerHtml), banner).join(),
+      /found \[\]/,
+    );
+    assert.match(
+      unreleasedPageProblems(
+        "a.html",
+        bannerPage('<meta name="robots" content="index">', bannerHtml),
+        banner,
+      ).join(),
+      /expected one <meta name="robots" content="noindex">/,
+    );
+    assert.equal(
+      unreleasedPageProblems("a.html", bannerPage(noindex + noindex, bannerHtml), banner).length,
+      1,
+    );
+  });
+
+  it("checks only noindex without a banner, as for the 404 page", () => {
+    assert.deepEqual(
+      unreleasedPageProblems("404.html", bannerPage(noindex, '<div id="app"></div>'), undefined),
+      [],
+    );
+    assert.equal(unreleasedPageProblems("404.html", bannerPage("", ""), undefined).length, 1);
+  });
+
+  it("reports a missing banner, other text and a missing link to the root", () => {
+    assert.match(
+      unreleasedPageProblems("a.html", bannerPage(noindex, "<p>x</p>"), banner).join(),
+      /a\.html: has no unreleased banner/,
+    );
+    assert.match(
+      unreleasedPageProblems(
+        "a.html",
+        bannerPage(noindex, bannerHtml.replace("Unreleased: main.", "Hello.")),
+        banner,
+      ).join(),
+      /does not say "Unreleased: main\."/,
+    );
+    assert.match(
+      unreleasedPageProblems(
+        "a.html",
+        bannerPage(
+          noindex,
+          bannerHtml.replace('href="https://example.github.io/site/"', 'href="/site/"'),
+        ),
+        banner,
+      ).join(),
+      /does not link to https:\/\/example\.github\.io\/site\//,
+    );
+  });
+});
+
+describe("nextLinkProblem", () => {
+  it("lets only the landing page link into next/", () => {
+    assert.equal(nextLinkProblem("index.html", "next/"), undefined);
+    assert.equal(nextLinkProblem("index.html", "next/user/reference/configuration"), undefined);
+    assert.match(
+      nextLinkProblem("user/reference/configuration.html", "next/user/reference/configuration") ??
+        "",
+      /only the landing page may link into next\//,
+    );
+    assert.match(nextLinkProblem("user/index.html", "next") ?? "", /links to next/);
+  });
+
+  it("ignores links that are not into next/", () => {
+    assert.equal(nextLinkProblem("a.html", "nextgen/page"), undefined);
+    assert.equal(nextLinkProblem("a.html", "user/next/page"), undefined);
+    assert.equal(nextLinkProblem("a.html", ""), undefined);
+  });
+});
+
+describe("siteChannel", () => {
+  it("is latest when DOCS_SITE_CHANNEL is unset, empty or latest, and next for next", () => {
+    assert.equal(siteChannel(undefined), "latest");
+    assert.equal(siteChannel(""), "latest");
+    assert.equal(siteChannel("latest"), "latest");
+    assert.equal(siteChannel("next"), "next");
+  });
+
+  it("refuses any other value", () => {
+    assert.throws(() => siteChannel("Next"), /DOCS_SITE_CHANNEL is "Next"/);
+    assert.throws(() => siteChannel("beta"), /expected "latest", "next" or nothing/);
   });
 });

@@ -29,3 +29,4 @@ To add a record, copy [template.md](template.md) to the next number and open a p
 | [0021](0021-raw-digests-need-a-person-or-an-opt-in.md) | Raw digests need a person at a terminal or a per-key opt-in                      | Accepted                  |
 | [0022](0022-per-key-delegate-allowlist.md)             | Each key can limit its EIP-7702 delegates, per chain                             | Accepted                  |
 | [0023](0023-confirm-authorizations-at-a-terminal.md)   | Confirm EIP-7702 authorizations at a terminal, and refuse ones that cannot apply | Accepted                  |
+| [0024](0024-docs-site-follows-npm-latest.md)           | The docs site root follows npm `latest`, and main's docs are under `next/`       | Accepted                  |

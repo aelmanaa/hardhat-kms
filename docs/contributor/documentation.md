@@ -54,7 +54,7 @@ docker run --rm -v "$PWD:/repo" -w /repo lycheeverse/lychee:0.24.2 --offline --c
 
 ## The docs site
 
-The pages under `docs/` are also published as a site, at <https://aelmanaa.github.io/hardhat-kms/> ([decision 0017](decisions/0017-docs-hostname.md)). The Markdown stays the source: write a page for GitHub, with relative links to `.md` files, and the site renders it as it is. `tools/docs-site` is a private package, never published, that builds the site with VitePress; `.vitepress/config.ts` holds the settings and `.vitepress/site.ts` the hostname, base path and helpers that `scripts/check-site.ts` shares.
+The pages under `docs/` are also published as a site, at <https://aelmanaa.github.io/hardhat-kms/> ([decision 0017](decisions/0017-docs-hostname.md)). The root documents the version on npm `latest`, built from its release tag, and `next/` documents `main` ([decision 0024](decisions/0024-docs-site-follows-npm-latest.md)); [Two trees](#two-trees) describes how. The Markdown stays the source: write a page for GitHub, with relative links to `.md` files, and the site renders it as it is. `tools/docs-site` is a private package, never published, that builds the site with VitePress; `.vitepress/config.ts` holds the settings and `.vitepress/site.ts` the hostname, base path and helpers that `scripts/check-site.ts` shares.
 
 What the site contains and how it maps the Markdown:
 
@@ -87,7 +87,25 @@ pnpm run docs:og           # render docs/public/og-image.png from og-image.svg
 
 `pnpm run docs:site:check` runs `scripts/check-site.ts`, in the CI Docs job on every pull request. The build fails on a link to a page that does not exist. The script then reads the output directory and fails when a page under `docs/` (contributor pages aside) was not built, or its head lacks one canonical URL without `.html`, the title suffix, one meta description equal to the frontmatter `description`, an Open Graph tag, an image tag that names the social preview's URL, size and alt text from `site.ts`, or a `<link rel="icon">` with the right type for each favicon; when a link or asset does not start with `/hardhat-kms/`, which a local preview would serve but GitHub Pages would not, does not resolve to a built file, or names an `#anchor` that the target page lacks; when `sitemap.xml` misses a page, `robots.txt` does not name the sitemap or `llms.txt` or `llms-full.txt` is missing; when a link in `llms.txt`, `llms-full.txt` or a `.md` copy is relative, leaves out `/hardhat-kms/` or names a file that was not built; when the landing page's JSON-LD is missing, invalid or carries another version; when the social preview is not in the build, is not a PNG, is not 1280x640 or is over 1 MB; when `favicon-32.png` is not in the build or is not a 32x32 PNG; and when `docs/public/og-image.svg` names a font family other than `Inter` and `JetBrains Mono`, or `og-image.png` differs from a fresh render of the SVG. `scripts/site-output.ts` holds the checks and `test/scripts/site-output.test.ts` their tests.
 
-`.github/workflows/pages.yml` runs the same build and checks on every push to `main`, and on manual dispatch, then deploys the output with `actions/deploy-pages`. Only its deploy job has `pages: write` and `id-token: write`. GitHub Pages must be set to deploy from GitHub Actions (Settings, Pages, Source: GitHub Actions) before the first deploy succeeds.
+### Two trees
+
+The site has two trees ([decision 0024](decisions/0024-docs-site-follows-npm-latest.md)), so a reader of the root never meets an option the version they install lacks:
+
+- **The root**, `https://aelmanaa.github.io/hardhat-kms/`, documents the version on npm `latest` of `hardhat-kms`. It is built from a checkout of that version's `vX.Y.Z` tag, with the tag's own site code and checks, so a docs or site change merged to `main` reaches the root with the next promotion. Its landing page shows the version, and it alone has `sitemap.xml`, `robots.txt` and the llms files.
+- **`next/`**, `https://aelmanaa.github.io/hardhat-kms/next/`, documents `main`. The build sets `DOCS_SITE_CHANNEL=next`, which `site.ts` turns into the base `/hardhat-kms/next/`: canonical URLs and links point under `next/`. The config adds `<meta name="robots" content="noindex">` and the theme a banner above the nav bar on every page ("Unreleased: these docs describe main", with a link to the root), and the build writes no sitemap, `robots.txt` or llms files.
+
+Only the docs index, the landing page, links from the root into `next/`. To preview `next/` locally, set the variable for the dev server or the check: `DOCS_SITE_CHANNEL=next pnpm run docs:site:dev` serves it at `http://localhost:5173/hardhat-kms/next/`.
+
+`scripts/check-site.ts` reads the variable too. On the root it skips links into `next/`, which its build does not contain, and fails on any from a page other than the landing page. On `next/` it fails when `sitemap.xml`, `robots.txt`, `llms.txt` or `llms-full.txt` exists, when a page lacks one `noindex` robots tag, or when a page other than `404.html` lacks the banner's text or its link to the root; VitePress renders the 404 page in the browser, so its HTML has the head only. The CI Docs job runs the check on both trees, built from the pull request.
+
+`.github/workflows/pages.yml` deploys the two trees as one artifact, since GitHub Pages serves one artifact as the whole site:
+
+1. `resolve` reads `latest` of `hardhat-kms` with `scripts/site-release-tag.ts`, refuses a value that is not `X.Y.Z`, and refuses a version with no `vX.Y.Z` tag. Either refusal fails the run before anything deploys, and the last good site stays live.
+2. `root` checks out the tag, builds the site and runs that tag's `docs:site:check`, and fails if the output has a `next/` folder.
+3. `build` checks out `main`, builds and checks `next/`, puts it under the root's output and uploads the Pages artifact.
+4. `deploy` publishes it with `actions/deploy-pages`. Only this job has `pages: write` and `id-token: write`.
+
+It runs on every push to `main`, on manual dispatch, and when a Promote run ends (`workflow_run`), so the root follows `latest` without a push. A `release` trigger would not start: `promote.yml` edits the release with `GITHUB_TOKEN`, and GitHub starts no run for events that token causes. The `workflow_run` job reads the registry and checks out a tag and nothing else; it downloads nothing from the Promote run, which zizmor's `dangerous-triggers` audit warns about, so the trigger carries a `zizmor: ignore` with that reason. The `github-pages` environment stays limited to `main`: every trigger runs there, and the tag is checked out inside the run. GitHub Pages must be set to deploy from GitHub Actions (Settings, Pages, Source: GitHub Actions) before the first deploy succeeds.
 
 ### Logo files
 

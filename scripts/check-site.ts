@@ -8,14 +8,18 @@
 // - sitemap.xml lists every page, robots.txt names the sitemap, llms.txt and llms-full.txt exist,
 //   and every link in them and in the pages' Markdown copies is absolute and resolves to a built
 //   file;
-// - the landing page carries one JSON-LD SoftwareSourceCode block with the core's version.
+// - the landing page carries one JSON-LD SoftwareSourceCode block with the core's version;
 // - the social preview the pages name is built, and is a 1280x640 PNG under 1 MB;
 // - the PNG favicon is built, and is a 32x32 PNG;
 // - docs/public/og-image.svg names only the vendored font families, and docs/public/og-image.png
 //   has the same bytes as a fresh render of it (scripts/og-image.ts).
+// With DOCS_SITE_CHANNEL=next it builds and checks the tree of unreleased main, served under next/
+// (decision 0024): sitemap.xml, robots.txt and the llms files must be absent instead, and every
+// page carries `noindex` and the unreleased banner. On the root tree, only the landing page may
+// link into next/, which the root's build does not contain.
 // scripts/site-output.ts holds the checks and test/scripts/site-output.test.ts their tests.
 //
-// Usage: node scripts/check-site.ts [--no-build]
+// Usage: [DOCS_SITE_CHANNEL=next] node scripts/check-site.ts [--no-build]
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -28,8 +32,11 @@ import {
   HOSTNAME,
   OG_IMAGE,
   OG_IMAGE_MAX_BYTES,
+  ROOT_HOSTNAME,
   SITE_BASE,
+  SITE_CHANNEL,
   SITE_NAME,
+  UNRELEASED_BANNER,
   pageUrl,
   sitePage,
 } from "../tools/docs-site/.vitepress/site.ts";
@@ -45,8 +52,10 @@ import {
   frontmatterDescription,
   headProblems,
   iconProblems,
+  isNextPath,
   jsonLdProblems,
   markdownLinkProblems,
+  nextLinkProblem,
   ogImageProblems,
   outputCandidates,
   pngProblems,
@@ -54,6 +63,7 @@ import {
   siteLinks,
   sitemapUrls,
   svgFontProblems,
+  unreleasedPageProblems,
 } from "./site-output.ts";
 import type { SiteFacts } from "./site-output.ts";
 
@@ -80,6 +90,7 @@ if (!process.argv.includes("--no-build")) {
   process.stdout.write(`site built in ${((performance.now() - started) / 1000).toFixed(1)} s\n`);
 }
 
+const unreleased = SITE_CHANNEL === "next";
 const problems: string[] = [];
 const sources = files(docs).filter(
   (file) => file.endsWith(".md") && !EXCLUDED_FOLDERS.includes(file.split("/")[0] ?? ""),
@@ -87,7 +98,14 @@ const sources = files(docs).filter(
 const sitemap = existsSync(path.join(output, "sitemap.xml"))
   ? sitemapUrls(readFileSync(path.join(output, "sitemap.xml"), "utf8"))
   : new Set<string>();
-if (sitemap.size === 0) {
+if (unreleased) {
+  // Only the root is for search engines and agents.
+  for (const name of ["sitemap.xml", "robots.txt", "llms.txt", "llms-full.txt"]) {
+    if (existsSync(path.join(output, name))) {
+      problems.push(`${name} is in the next tree, which must not have one`);
+    }
+  }
+} else if (sitemap.size === 0) {
   problems.push("sitemap.xml is missing or empty");
 }
 
@@ -112,7 +130,7 @@ for (const source of sources) {
   if (url.endsWith(".html")) {
     problems.push(`docs/${source}: the canonical URL ends in .html`);
   }
-  if (sitemap.size > 0 && !sitemap.has(url)) {
+  if (!unreleased && sitemap.size > 0 && !sitemap.has(url)) {
     problems.push(`sitemap.xml does not list ${url}`);
   }
 }
@@ -120,13 +138,24 @@ for (const source of sources) {
 const anchorCache = new Map<string, Set<string>>();
 const outputFiles = existsSync(output) ? files(output) : [];
 for (const file of outputFiles.filter((entry) => entry.endsWith(".html"))) {
-  const { links, problems: linkProblems } = siteLinks(
-    file,
-    readFileSync(path.join(output, file), "utf8"),
-    site,
-  );
+  const html = readFileSync(path.join(output, file), "utf8");
+  if (unreleased) {
+    // VitePress renders the 404 page in the browser: its HTML has the head only.
+    const banner =
+      file === "404.html" ? undefined : { text: UNRELEASED_BANNER, link: ROOT_HOSTNAME };
+    problems.push(...unreleasedPageProblems(file, html, banner));
+  }
+  const { links, problems: linkProblems } = siteLinks(file, html, site);
   problems.push(...linkProblems);
   for (const link of links) {
+    // The root's build has no next/: pages.yml adds main's tree there after this check.
+    if (!unreleased && isNextPath(link.path)) {
+      const problem = nextLinkProblem(file, link.path);
+      if (problem !== undefined) {
+        problems.push(problem);
+      }
+      continue;
+    }
     const target = outputCandidates(link.path).find((candidate) =>
       existsSync(path.join(output, candidate)),
     );
@@ -151,15 +180,17 @@ for (const file of outputFiles.filter((entry) => entry.endsWith(".html"))) {
 }
 
 const robots = path.join(output, "robots.txt");
-problems.push(
-  ...(existsSync(robots)
-    ? robotsProblems(readFileSync(robots, "utf8"), site)
-    : ["robots.txt is missing"]),
-);
-for (const name of ["llms.txt", "llms-full.txt"]) {
-  const file = path.join(output, name);
-  if (!existsSync(file) || statSync(file).size === 0) {
-    problems.push(`${name} is missing or empty`);
+if (!unreleased) {
+  problems.push(
+    ...(existsSync(robots)
+      ? robotsProblems(readFileSync(robots, "utf8"), site)
+      : ["robots.txt is missing"]),
+  );
+  for (const name of ["llms.txt", "llms-full.txt"]) {
+    const file = path.join(output, name);
+    if (!existsSync(file) || statSync(file).size === 0) {
+      problems.push(`${name} is missing or empty`);
+    }
   }
 }
 // Every URL in llms.txt, llms-full.txt and the pages' Markdown copies resolves on the site.
@@ -225,5 +256,7 @@ if (problems.length > 0) {
   process.exit(1);
 }
 process.stdout.write(
-  `site check passed: ${sources.length} pages built with one canonical URL, a title, a description, Open Graph tags and the favicon links; ${outputFiles.filter((entry) => entry.endsWith(".html")).length} HTML files whose links and anchors resolve; every URL in llms.txt, llms-full.txt and the Markdown copies resolves; sitemap.xml, robots.txt, llms.txt, llms-full.txt, the landing page's JSON-LD, the 1280x640 social preview and the 32x32 PNG favicon are in place, and the preview matches a render of its SVG\n`,
+  unreleased
+    ? `site check passed for next/ (${SITE_BASE}): ${sources.length} pages built with one canonical URL under next/, a title, a description, Open Graph tags, the favicon links, noindex and the unreleased banner; ${outputFiles.filter((entry) => entry.endsWith(".html")).length} HTML files whose links and anchors resolve; no sitemap.xml, robots.txt or llms files; the landing page's JSON-LD, the social preview and the PNG favicon are in place\n`
+    : `site check passed: ${sources.length} pages built with one canonical URL, a title, a description, Open Graph tags and the favicon links; ${outputFiles.filter((entry) => entry.endsWith(".html")).length} HTML files whose links and anchors resolve; every URL in llms.txt, llms-full.txt and the Markdown copies resolves; sitemap.xml, robots.txt, llms.txt, llms-full.txt, the landing page's JSON-LD, the 1280x640 social preview and the 32x32 PNG favicon are in place, and the preview matches a render of its SVG\n`,
 );
