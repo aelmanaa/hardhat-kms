@@ -1331,7 +1331,7 @@ export const ERRORS = {
     template:
       "the authorizationList of an EIP-7702 transaction must be an array of authorizations. Nothing was signed or sent",
     cause:
-      "The transaction's `authorizationList` is an object, a string, a number or a boolean. It is refused before any request to the node; Hardhat's local accounts refuse it with a schema error after the fee and gas requests.",
+      "The transaction's `authorizationList` is not an array: an object, a string, a number or a boolean, or from code in the same process, a bigint or a byte array. It is refused before any request to the node; Hardhat's local accounts refuse it with a schema error after the fee and gas requests.",
     fix: "Pass `authorizationList` as an array of signed authorizations, or remove it to send an EIP-1559 transaction.",
   },
   txAuthorizationNotObject: {

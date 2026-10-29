@@ -862,7 +862,18 @@ describe("HardhatTransactionFiller checks", () => {
     const notAddress =
       "the `to` of an EIP-7702 transaction must be a 20-byte hex address. Nothing was signed or sent";
     // A bad `to` comes before an empty list.
-    for (const to of ["", "0x", 0, false, `0x${"ab".repeat(19)}`, `${TO}00`, TO.slice(2)]) {
+    for (const to of [
+      "",
+      "0x",
+      0,
+      false,
+      [TO],
+      `0x${"ab".repeat(19)}`,
+      `${TO}00`,
+      `zz${TO}`,
+      `0x${"g".repeat(40)}`,
+      TO.slice(2),
+    ]) {
       cases.push(
         [{ to, authorizationList: [authorization] }, notAddress],
         [{ to, authorizationList: [] }, notAddress],
