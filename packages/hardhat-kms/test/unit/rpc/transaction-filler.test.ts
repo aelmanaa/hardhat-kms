@@ -840,9 +840,9 @@ describe("HardhatTransactionFiller checks", () => {
       s: `0x${"22".repeat(32)}`,
     };
     const noTo =
-      "an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was sent to the node";
+      "an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was signed or sent";
     const empty =
-      "the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was sent to the node";
+      "the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was signed or sent";
     const cases: [Record<string, unknown>, string][] = [
       [{ authorizationList: [authorization] }, noTo],
       [{ to: null, authorizationList: [authorization] }, noTo],

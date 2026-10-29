@@ -1309,9 +1309,9 @@ export const ERRORS = {
     kind: "error",
     group: "Transactions",
     template:
-      "an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was sent to the node",
+      "an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was signed or sent",
     cause:
-      "The transaction has an `authorizationList` and no `to`, or `to: null`. EIP-7702 transactions cannot create contracts. Hardhat's local accounts refuse the same request (HHE726).",
+      "The transaction has an `authorizationList` and no `to`, or `to: null`. EIP-7702 transactions cannot create contracts. From 3.20, Hardhat's local accounts refuse the same request (HHE726).",
     fix: "Set `to`, or remove `authorizationList` to deploy a contract.",
   },
   txAuthorizationListEmpty: {
@@ -1319,9 +1319,9 @@ export const ERRORS = {
     kind: "error",
     group: "Transactions",
     template:
-      "the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was sent to the node",
+      "the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was signed or sent",
     cause:
-      "The transaction has `authorizationList: []`. An EIP-7702 transaction must carry at least one authorization. Hardhat's local accounts refuse the same request (HHE727).",
+      "The transaction has `authorizationList: []`. An EIP-7702 transaction must carry at least one authorization. From 3.20, Hardhat's local accounts refuse the same request (HHE727).",
     fix: "Add an authorization, or remove `authorizationList` to send an EIP-1559 transaction.",
   },
   txInvalidFields: {

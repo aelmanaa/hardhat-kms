@@ -845,9 +845,9 @@ export function requireGas(request: RpcTransactionRequest, method: string): bigi
 }
 
 /**
- * Refuses a request that cannot be an EIP-7702 transaction, as Hardhat's local accounts do
- * (HHE726, then HHE727): an `authorizationList` without `to`, or an empty one. It runs before any
- * node request, so neither the fee and gas requests nor `eth_estimateGas` see it (#586).
+ * Refuses a request that cannot be an EIP-7702 transaction, as Hardhat's local accounts do from
+ * 3.20 (HHE726, then HHE727): an `authorizationList` without `to`, or an empty one. It runs before
+ * the fill's node requests, so neither the fee and gas requests nor `eth_estimateGas` see it (#586).
  *
  * @param tx - The request.
  * @param method - The RPC method or task, for error messages.

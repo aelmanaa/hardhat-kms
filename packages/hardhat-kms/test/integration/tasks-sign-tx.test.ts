@@ -420,11 +420,11 @@ describe("kms sign-tx over HTTP", () => {
       const cases: [Record<string, unknown>, string][] = [
         [
           { authorizationList: [RPC_AUTHORIZATION] },
-          "kms sign-tx: an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was sent to the node",
+          "kms sign-tx: an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was signed or sent",
         ],
         [
           { to: TO, gas: "0x5208", authorizationList: [] },
-          "kms sign-tx: the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was sent to the node",
+          "kms sign-tx: the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was signed or sent",
         ],
       ];
       for (const [request, message] of cases) {

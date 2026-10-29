@@ -313,24 +313,26 @@ describe("transaction filling matches Hardhat's local accounts", () => {
         s: `0x${signed.s.toString(16).padStart(64, "0")}`,
       },
     ];
-    const cases: [Record<string, unknown>, string, string][] = [
+    // Each case: the request, the node's eth_estimateGas error that Hardhat shows without gas,
+    // the starts of Hardhat's own refusal with gas (from 3.20, then before 3.20), and the plugin's.
+    const cases: [Record<string, unknown>, string, [string, string], string][] = [
       [
-        { from: FROM, data: "0x", authorizationList },
-        "HHE726",
-        "eth_sendTransaction: an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was sent to the node",
+        { from: FROM, authorizationList },
+        "Invalid EIP-7702 transaction: to (receiver) parameter is missing.",
+        ["HHE726:", "HHE721:"],
+        "eth_sendTransaction: an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was signed or sent",
       ],
       [
         { from: FROM, to: FROM, authorizationList: [] },
-        "HHE727",
-        "eth_sendTransaction: the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was sent to the node",
+        "Invalid EIP-7702 transaction: authorization list is empty.",
+        ["HHE727:", "fields had validation errors"],
+        "eth_sendTransaction: the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was signed or sent",
       ],
     ];
-    for (const [request, hardhat, plugin] of cases) {
+    for (const [request, node, hardhat, plugin] of cases) {
       for (const gas of [{}, { gas: "0x186a0" }]) {
         const connection: NetworkConnection<string> = await hre.network.create("local");
         try {
-          // With gas, Hardhat refuses with its own error from 3.20, and before 3.20 with
-          // micro-eth-signer's; without gas, it fails at eth_estimateGas with the node's message.
           const raw = main.raw.length;
           await assert.rejects(
             connection.provider.request({
@@ -340,8 +342,8 @@ describe("transaction filling matches Hardhat's local accounts", () => {
             (error: unknown) => {
               const message = messageOf(error);
               return "gas" in gas
-                ? message.startsWith(hardhat) || message === "fields had validation errors"
-                : !message.startsWith("HHE");
+                ? hardhat.some((start) => message.startsWith(start))
+                : message === node;
             },
           );
           assert.equal(main.raw.length, raw);
