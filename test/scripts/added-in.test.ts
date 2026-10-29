@@ -91,9 +91,22 @@ describe("missingNotes", () => {
     assert.deepEqual(missingNotes("p.md", current, released), []);
   });
 
-  it("treats a row under another heading as new", () => {
-    const current = PAGE.replace("## `kms sign`", "## `kms sign-tx`");
-    assert.equal(missingNotes("p.md", current, released).length, 1);
+  it("keeps a row under a renamed heading, and an option written with another placeholder", () => {
+    const renamed = PAGE.replace("## `kms sign`", "## `kms sign-tx`").replace(
+      "`--chain <id>`",
+      "`--chain id`",
+    );
+    assert.deepEqual(missingNotes("p.md", renamed, released), []);
+  });
+
+  it("treats a renamed row as new unless it keeps the version that added it", () => {
+    const renamed = PAGE.replace(
+      "`--chain <id>`     | The chain.",
+      "`--chain-id <id>`  | The chain.",
+    );
+    assert.equal(missingNotes("p.md", renamed, released).length, 1);
+    const kept = renamed.replace("| The chain.", "| The chain. Added in 1.0.0.");
+    assert.deepEqual(missingNotes("p.md", kept, released), []);
   });
 });
 

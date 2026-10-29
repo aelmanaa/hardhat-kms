@@ -33,8 +33,10 @@ const NOTE = /\bAdded in (next|\d+\.\d+\.\d+)\./;
 
 /** A row of a noted table. */
 export interface ReferenceRow {
-  /** The heading above the table, then the row's first cell. */
+  /** The heading above the table, then the row's name. */
   key: string;
+  /** The row's name, from its first cell (see {@link rowName}). */
+  name: string;
   /** The 1-based line number. */
   line: number;
   /** The version the row's note names, `next`, or undefined without a note. */
@@ -54,9 +56,13 @@ function cells(line: string): string[] {
 /**
  * A row's name: its first cell, with each code span cut before its first ` <`, ` [` or ` (`, so
  * that `kms sign <key> [--yes]` is `kms sign` and a new flag in a task's usage keeps the row's name.
+ * An option's span is cut at its first space, so `--nonce <n>` and `--nonce n` are both `--nonce`.
  */
 function rowName(cell: string): string {
-  return cell.replaceAll(/`([^`]*)`/g, (_span, code: string) => `\`${code.split(/ [<[(]/)[0]}\``);
+  return cell.replaceAll(/`([^`]*)`/g, (_span, code: string) => {
+    const name = code.startsWith("-") ? code.split(" ")[0] : code.split(/ [<[(]/)[0];
+    return `\`${name ?? code}\``;
+  });
 }
 
 /**
@@ -97,8 +103,10 @@ export function referenceRows(markdown: string): ReferenceRow[] {
     if (!noted || /^[\s|:-]+$/.test(line)) {
       continue;
     }
+    const name = rowName(first);
     rows.push({
-      key: `${heading} > ${rowName(first)}`,
+      key: `${heading} > ${name}`,
+      name,
       line: index + 1,
       added: NOTE.exec(line)?.[1],
     });
@@ -107,7 +115,9 @@ export function referenceRows(markdown: string): ReferenceRow[] {
 }
 
 /**
- * The rows of `current` that `released` lacks and that carry no note.
+ * The rows of `current` that `released` lacks and that carry no note. A row is known by its heading
+ * and name, or by its name anywhere on the page. Any version counts as a note, so a renamed row can
+ * keep the version that added it rather than say next.
  *
  * @param page - The page's path, for the messages.
  * @param current - The page now.
@@ -115,9 +125,12 @@ export function referenceRows(markdown: string): ReferenceRow[] {
  * @returns One message per such row.
  */
 export function missingNotes(page: string, current: string, released: string): string[] {
-  const known = new Set(referenceRows(released).map((row) => row.key));
+  const before = referenceRows(released);
+  const keys = new Set(before.map((row) => row.key));
+  // A row under a renamed heading, or moved to another table, is matched by its name alone.
+  const names = new Set(before.map((row) => row.name));
   return referenceRows(current)
-    .filter((row) => !known.has(row.key) && row.added === undefined)
+    .filter((row) => !keys.has(row.key) && !names.has(row.name) && row.added === undefined)
     .map(
       (row) =>
         `${page}:${row.line}: the row "${row.key}" is not in the release on npm latest; end its description with "Added in next."`,

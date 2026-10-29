@@ -225,12 +225,12 @@ To also pin the delegate's code, add its hash to the entry:
 
 The fields of an entry:
 
-| Field      | Meaning                                                                                                                                                                                                                   |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `address`  | The delegate. All lowercase, all uppercase, or with a valid EIP-55 checksum; a wrong checksum fails when the config loads.                                                                                                |
-| `chains`   | The chain ids the delegate is allowed on, or `"all"`.                                                                                                                                                                     |
-| `label`    | Optional. A name shown before the delegate's address on the `delegate` line of `kms sign-auth`'s question and summary.                                                                                                    |
-| `codeHash` | Optional. The `keccak256` of the delegate's runtime code, for example from `cast keccak $(cast code <address> --rpc-url <url>)`. The plugin reads the code with `eth_getCode` before it signs, and refuses on a mismatch. |
+| Field      | Meaning                                                                                                                                                                                                                                   |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `address`  | The delegate. All lowercase, all uppercase, or with a valid EIP-55 checksum; a wrong checksum fails when the config loads. Added in 1.3.0.                                                                                                |
+| `chains`   | The chain ids the delegate is allowed on, or `"all"`. Added in 1.3.0.                                                                                                                                                                     |
+| `label`    | Optional. A name shown before the delegate's address on the `delegate` line of `kms sign-auth`'s question and summary. Added in 1.3.0.                                                                                                    |
+| `codeHash` | Optional. The `keccak256` of the delegate's runtime code, for example from `cast keccak $(cast code <address> --rpc-url <url>)`. The plugin reads the code with `eth_getCode` before it signs, and refuses on a mismatch. Added in 1.3.0. |
 
 The rules:
 
