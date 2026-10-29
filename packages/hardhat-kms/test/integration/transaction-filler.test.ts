@@ -315,7 +315,7 @@ describe("transaction filling matches Hardhat's local accounts", () => {
     ];
     const cases: [Record<string, unknown>, string, string][] = [
       [
-        { from: FROM, authorizationList },
+        { from: FROM, data: "0x", authorizationList },
         "HHE726",
         "eth_sendTransaction: an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was sent to the node",
       ],
@@ -329,15 +329,20 @@ describe("transaction filling matches Hardhat's local accounts", () => {
       for (const gas of [{}, { gas: "0x186a0" }]) {
         const connection: NetworkConnection<string> = await hre.network.create("local");
         try {
-          // With gas, Hardhat refuses with its own error; without, it fails at eth_estimateGas
-          // with the node's message.
+          // With gas, Hardhat refuses with its own error from 3.20, and before 3.20 with
+          // micro-eth-signer's; without gas, it fails at eth_estimateGas with the node's message.
           const raw = main.raw.length;
           await assert.rejects(
             connection.provider.request({
               method: "eth_sendTransaction",
               params: [{ ...request, ...gas }],
             }),
-            (error: unknown) => messageOf(error).startsWith(hardhat) === "gas" in gas,
+            (error: unknown) => {
+              const message = messageOf(error);
+              return "gas" in gas
+                ? message.startsWith(hardhat) || message === "fields had validation errors"
+                : !message.startsWith("HHE");
+            },
           );
           assert.equal(main.raw.length, raw);
           const start = main.methods.length;
