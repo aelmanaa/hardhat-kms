@@ -846,8 +846,11 @@ export function requireGas(request: RpcTransactionRequest, method: string): bigi
 
 /**
  * Refuses a request that cannot be an EIP-7702 transaction, as Hardhat's local accounts do from
- * 3.20 (HHE726, then HHE727): an `authorizationList` without `to`, or an empty one. It runs before
- * the fill's node requests, so neither the fee and gas requests nor `eth_estimateGas` see it (#586).
+ * 3.20 (HHE726, then HHE727): an `authorizationList` without `to`, or an empty one (#586). It also
+ * refuses a list that is not an array, an item that is not an object, and a `to` that is not an
+ * address, which Hardhat's schema refuses only after the fill (#607). It runs before the fill's
+ * node requests, so neither the fee and gas requests nor `eth_estimateGas` see the request. A
+ * `null` list is left to {@link refuseNullTypeFields}.
  *
  * @param tx - The request.
  * @param method - The RPC method or task, for error messages.
@@ -857,11 +860,23 @@ export function checkAuthorizationRequest(tx: Record<string, unknown>, method: s
   if (list === undefined || list === null) {
     return;
   }
+  if (!Array.isArray(list)) {
+    throw catalogError(ERRORS.txAuthorizationListNotArray, {}, { operation: method });
+  }
   if (tx.to === undefined || tx.to === null) {
     throw catalogError(ERRORS.txAuthorizationNoTo, {}, { operation: method });
   }
-  if (Array.isArray(list) && list.length === 0) {
+  if (typeof tx.to !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(tx.to)) {
+    throw catalogError(ERRORS.txAuthorizationToNotAddress, {}, { operation: method });
+  }
+  if (list.length === 0) {
     throw catalogError(ERRORS.txAuthorizationListEmpty, {}, { operation: method });
+  }
+  // entries() visits the holes of a sparse array too, as undefined.
+  for (const [index, item] of list.entries()) {
+    if (!isObject(item)) {
+      throw catalogError(ERRORS.txAuthorizationNotObject, { index }, { operation: method });
+    }
   }
 }
 

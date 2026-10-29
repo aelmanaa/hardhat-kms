@@ -1324,6 +1324,36 @@ export const ERRORS = {
       "The transaction has `authorizationList: []`. An EIP-7702 transaction must carry at least one authorization. From 3.20, Hardhat's local accounts refuse the same request (HHE727).",
     fix: "Add an authorization, or remove `authorizationList` to send an EIP-1559 transaction.",
   },
+  txAuthorizationListNotArray: {
+    id: "core.tx.authorization-list-not-array",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "the authorizationList of an EIP-7702 transaction must be an array of authorizations. Nothing was signed or sent",
+    cause:
+      "The transaction's `authorizationList` is not an array: an object, a string, a number or a boolean, or from code in the same process, a bigint or a byte array. It is refused before any request to the node; Hardhat's local accounts refuse it with a schema error after the fee and gas requests.",
+    fix: "Pass `authorizationList` as an array of signed authorizations, or remove it to send an EIP-1559 transaction.",
+  },
+  txAuthorizationNotObject: {
+    id: "core.tx.authorization-not-object",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "authorizationList[{index}] must be a signed authorization object. Nothing was signed or sent",
+    cause:
+      "An item of the `authorizationList` is `null`, missing (a hole in the array), an array or not an object. It is refused before any request to the node; Hardhat's local accounts refuse it with a schema error after the fee and gas requests.",
+    fix: "Make each item a signed authorization with `chainId`, `address`, `nonce`, `yParity`, `r` and `s`, for example from `kms sign-auth`.",
+  },
+  txAuthorizationToNotAddress: {
+    id: "core.tx.authorization-to-not-address",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "the `to` of an EIP-7702 transaction must be a 20-byte hex address. Nothing was signed or sent",
+    cause:
+      'The transaction has an `authorizationList` and a `to` that is not `0x` followed by 40 hex digits, such as `""`, `"0x"`, a number or a boolean. It is refused before any request to the node; Hardhat\'s local accounts refuse it with a schema error after the fee and gas requests.',
+    fix: "Set `to` to the address the transaction calls, often the account itself.",
+  },
   txInvalidFields: {
     id: "core.tx.invalid-fields",
     kind: "error",

@@ -249,7 +249,14 @@ const kmsSignTx: NewTaskActionFunction<SignTxArguments> = async ({ key, tx: file
   }
   const tx = await readTransaction(file);
   const requestedType = checkFields(tx);
-  // Before the key opens: such a request cannot be an EIP-7702 transaction (#586).
+  // Before the key opens: such a request cannot be an EIP-7702 transaction (#586, #607).
+  if (tx.authorizationList === null) {
+    throw catalogError(
+      ERRORS.txNullField,
+      { field: "authorizationList" },
+      { operation: OPERATION },
+    );
+  }
   checkAuthorizationRequest(tx, OPERATION);
   // The file's `type` only states what the caller expects, checked after the fill (checkType).
   // Passed on, the filler would apply it: other errors, and type 0x1 signed with an empty list.
