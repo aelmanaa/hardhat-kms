@@ -66,7 +66,9 @@ after(() => {
  * also has `listed` and `pinned` keys: `listedKey` changes `listed`, and `awsRegion: false` drops
  * `kms.defaults.aws.region`, so a `--kms aws` key has no region of its own. The `bare` network has
  * no `kmsAccounts`, so on it `--kms` keys are the only KMS accounts. `kmsSecretKey` gives the
- * `--kms aws` key another account than the deployer's.
+ * `--kms aws` key another account than the deployer's. `inlineListed` adds the `elsewhere` network, whose only
+ * KMS account is a key with {@link ALLOWED} written inline, the same AWS key as `--kms aws` with
+ * AWS_KMS_KEY_ID=alias/inline.
  */
 async function runtime(
   network?: string,
@@ -76,6 +78,7 @@ async function runtime(
     listedKey?: Partial<AwsKmsKeyUserConfig>;
     awsRegion?: false;
     kmsSecretKey?: string;
+    inlineListed?: true;
   } = {},
 ) {
   const hre = await createHardhatRuntimeEnvironment(
@@ -116,6 +119,18 @@ async function runtime(
           chainId: 10,
           kmsAccounts: ["deployer"],
         },
+        ...(options.inlineListed === undefined
+          ? {}
+          : {
+              elsewhere: {
+                type: "http" as const,
+                url: "http://127.0.0.1:9",
+                chainId: 10,
+                kmsAccounts: [
+                  { provider: "aws" as const, keyId: "alias/inline", allowedDelegates: ALLOWED },
+                ],
+              },
+            }),
       },
     },
     {
@@ -753,6 +768,30 @@ describe("allowedDelegates: a --kms key that is a listed config key", () => {
           params: [COW.address, "latest"],
         });
         assert.equal(code, `0xef0100${UNLISTED.slice(2).toLowerCase()}`);
+      } finally {
+        await connection.close();
+      }
+    });
+  });
+
+  it("a connection refuses a --kms copy of a listed key written inline in another network's kmsAccounts (#593)", async () => {
+    await withAwsKeyId("alias/inline", async () => {
+      const { hre, signatures } = await runtime("bare", {
+        kms: "aws",
+        kmsSecretKey: COW_ACCOUNT.secretKey,
+        inlineListed: true,
+      });
+      const connection = await hre.network.create("bare");
+      try {
+        const self = await rpcAuthorization(COW, UNLISTED, 1);
+        await assertRefused(
+          connection.provider.request({
+            method: "eth_sendTransaction",
+            params: [{ from: COW.address, to: ACCOUNT_0.address, authorizationList: [self] }],
+          }),
+          `eth_sendTransaction: ${refusal("elsewhere.kmsAccounts[0]")}`,
+        );
+        assert.equal(signatures(), 0);
       } finally {
         await connection.close();
       }
