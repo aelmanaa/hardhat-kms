@@ -24,7 +24,8 @@ import {
   resultOf,
   ZERO,
 } from "../../helpers/dispatch-fixture.ts";
-import { COW_ACCOUNT } from "../../helpers/vectors.ts";
+import { vaultKey } from "../../helpers/vault-key.ts";
+import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
 
 const cow = COW.toLowerCase();
 let nextChainId = 70_000n;
@@ -629,5 +630,77 @@ describe("a raw transaction while a library send of another address holds a lock
     assert.equal(resultOf(await fixture.request("eth_sendRawTransaction", [raw])), hashOf(raw));
     assert.equal(fixture.sends.highWaterOf(cow), undefined, "nothing learned for cow");
     await resetLibraryNonce(fixture.transactions, zero, fixture.chainId);
+  });
+});
+
+describe("a --kms copy of a listed config key (#593)", () => {
+  it("refuses its self-authorization in eth_sendTransaction and eth_signTransaction, before any signature", async () => {
+    // `listed` has cow's address pin and a list, and is no account of `remote`. `zero` is one,
+    // pinned and with a list: a config key is never taken for a copy of itself.
+    const fixture = await fixtureOnOwnChain({
+      keys: {
+        zero: { ...vaultKey("zero", ZERO), allowedDelegates: [{ address: COW, chains: "all" }] },
+        cow: vaultKey("cow"),
+        listed: { ...vaultKey("listed", COW), allowedDelegates: [] },
+      },
+      networks: {
+        remote: { type: "http", url: "http://127.0.0.1:1", kmsAccounts: ["zero"] },
+        cli: { type: "http", url: "http://127.0.0.1:1", kmsAccounts: ["cow"] },
+      },
+      commandLineFrom: "cli",
+      listed: true,
+    });
+    accept(fixture);
+    const tuple = authorization.sign(
+      { chainId: fixture.chainId, address: COW, nonce: 1n },
+      COW_ACCOUNT.secretKey,
+    );
+    const authorizationList = [
+      {
+        address: tuple.address,
+        chainId: `0x${tuple.chainId.toString(16)}`,
+        nonce: "0x1",
+        yParity: `0x${tuple.yParity.toString(16)}`,
+        r: `0x${tuple.r.toString(16).padStart(64, "0")}`,
+        s: `0x${tuple.s.toString(16).padStart(64, "0")}`,
+      },
+    ];
+    const transaction = {
+      from: COW,
+      to: ZERO,
+      maxFeePerGas: "0x2",
+      maxPriorityFeePerGas: "0x1",
+      authorizationList,
+    };
+    for (const method of ["eth_sendTransaction", "eth_signTransaction"]) {
+      await assert.rejects(fixture.request(method, [transaction]), {
+        message: `${method}: the --kms key cow is the same KMS key as listed, which has allowedDelegates. Name listed instead, so its list applies. Nothing was signed`,
+      });
+    }
+    assert.equal(signatures(fixture), 0);
+    assert.deepEqual(broadcasts(fixture), []);
+    // A send without authorizations signs as before.
+    await fixture.request("eth_sendTransaction", [{ from: COW, to: ZERO }]);
+    assert.equal(broadcasts(fixture).length, 1);
+    const own = authorization.sign(
+      { chainId: fixture.chainId, address: COW, nonce: 1n },
+      HARDHAT_ACCOUNT_0.secretKey,
+    );
+    await fixture.request("eth_sendTransaction", [
+      {
+        ...transaction,
+        from: ZERO,
+        authorizationList: [
+          {
+            ...authorizationList[0],
+            yParity: `0x${own.yParity.toString(16)}`,
+            r: `0x${own.r.toString(16).padStart(64, "0")}`,
+            s: `0x${own.s.toString(16).padStart(64, "0")}`,
+          },
+        ],
+      },
+    ]);
+    assert.equal(broadcasts(fixture).length, 2);
+    fixture.sends.close();
   });
 });

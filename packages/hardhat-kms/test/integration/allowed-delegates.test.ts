@@ -64,7 +64,9 @@ after(() => {
  * `sponsor` key has no list. Both are KMS accounts of the Prague `local` network, and every new
  * connection gets {@link CODE} at {@link PINNED} and {@link PINNED_OTHER}. With `kms`, the config
  * also has `listed` and `pinned` keys: `listedKey` changes `listed`, and `awsRegion: false` drops
- * `kms.defaults.aws.region`, so a `--kms aws` key has no region of its own.
+ * `kms.defaults.aws.region`, so a `--kms aws` key has no region of its own. The `bare` network has
+ * no `kmsAccounts`, so on it `--kms` keys are the only KMS accounts. `kmsSecretKey` gives the
+ * `--kms aws` key another account than the deployer's.
  */
 async function runtime(
   network?: string,
@@ -73,6 +75,7 @@ async function runtime(
     kms?: string;
     listedKey?: Partial<AwsKmsKeyUserConfig>;
     awsRegion?: false;
+    kmsSecretKey?: string;
   } = {},
 ) {
   const hre = await createHardhatRuntimeEnvironment(
@@ -104,6 +107,7 @@ async function runtime(
       },
       networks: {
         local: { type: "edr-simulated", hardfork: "prague", kmsAccounts: ["deployer", "sponsor"] },
+        bare: { type: "edr-simulated", hardfork: "prague" },
         // No chainId and no node: a refusal on it must come before any connection.
         remote: { type: "http", url: "http://127.0.0.1:9", kmsAccounts: ["deployer"] },
         optimism: {
@@ -124,7 +128,7 @@ async function runtime(
   const secretKeys: Record<string, string> = {
     deployer: HARDHAT_ACCOUNT_0.secretKey,
     sponsor: COW_ACCOUNT.secretKey,
-    AWS_KMS_KEY_ID: HARDHAT_ACCOUNT_0.secretKey,
+    AWS_KMS_KEY_ID: options.kmsSecretKey ?? HARDHAT_ACCOUNT_0.secretKey,
   };
   hre.hooks.registerHandlers("kms", {
     createKeyAdapter: async (context, key, next) => {
@@ -644,6 +648,115 @@ describe("allowedDelegates: a --kms key that is a listed config key", () => {
     } finally {
       writeError.mock.restore();
     }
+  });
+
+  // `listed` and `pinned` are in kms.keys only: `bare` lists no config key (#593).
+  const BY_ID_AND_BY_PIN = [
+    ["alias/listed", "listed"],
+    ["alias/other", "pinned"],
+  ] as const;
+
+  it("a connection refuses it for a self-authorization in eth_sendTransaction and eth_signTransaction, when no network of its own lists it (#593)", async () => {
+    const self = await rpcAuthorization(ACCOUNT_0, UNLISTED, 1);
+    for (const [keyId, other] of BY_ID_AND_BY_PIN) {
+      await withAwsKeyId(keyId, async () => {
+        const { hre, signatures } = await runtime("bare", { kms: "aws" });
+        const connection = await hre.network.create("bare");
+        try {
+          for (const method of ["eth_sendTransaction", "eth_signTransaction"]) {
+            await assertRefused(
+              connection.provider.request({
+                method,
+                params: [{ from: ACCOUNT_0.address, to: COW.address, authorizationList: [self] }],
+              }),
+              `${method}: ${refusal(other)}`,
+            );
+          }
+          assert.equal(signatures(), 0);
+          // No authorization, or one that clears the delegation, skips no list.
+          await connection.provider.request({
+            method: "eth_sendTransaction",
+            params: [{ from: ACCOUNT_0.address, to: COW.address }],
+          });
+          const clear = await rpcAuthorization(ACCOUNT_0, ZERO, 2);
+          await connection.provider.request({
+            method: "eth_sendTransaction",
+            params: [{ from: ACCOUNT_0.address, to: COW.address, authorizationList: [clear] }],
+          });
+        } finally {
+          await connection.close();
+        }
+      });
+    }
+  });
+
+  it("a library account refuses it in signAuthorization and signTransaction (#593)", async () => {
+    for (const [keyId, other] of BY_ID_AND_BY_PIN) {
+      await withAwsKeyId(keyId, async () => {
+        const { hre, signatures } = await runtime("bare", { kms: "aws" });
+        const connection = await hre.network.create("bare");
+        try {
+          const account = await connection.kms.getAccount(ACCOUNT_0.address);
+          await assertRefused(
+            account.signAuthorization({ address: UNLISTED, chainId: CHAIN_ID, nonce: 0 }),
+            `signAuthorization: ${refusal(other)}`,
+          );
+          const self = await rpcAuthorization(ACCOUNT_0, UNLISTED, 1);
+          await assertRefused(
+            account.signTransaction({
+              type: "eip7702",
+              chainId: CHAIN_ID,
+              nonce: 0,
+              to: COW.address,
+              gas: 100_000n,
+              maxFeePerGas: 10n ** 9n,
+              maxPriorityFeePerGas: 0n,
+              authorizationList: [
+                {
+                  address: UNLISTED,
+                  chainId: CHAIN_ID,
+                  nonce: 1,
+                  r: self.r,
+                  s: self.s,
+                  yParity: Number(self.yParity),
+                },
+              ],
+            }),
+            `signTransaction: ${refusal(other)}`,
+          );
+          assert.equal(signatures(), 0);
+          const cleared = await account.signAuthorization({
+            address: ZERO,
+            chainId: CHAIN_ID,
+            nonce: 0,
+          });
+          assert.equal(cleared.address, ZERO);
+        } finally {
+          await connection.close();
+        }
+      });
+    }
+  });
+
+  it("a connection signs as before with a --kms key that is no listed config key (#593)", async () => {
+    await withAwsKeyId("alias/other", async () => {
+      const { hre } = await runtime("bare", { kms: "aws", kmsSecretKey: COW_ACCOUNT.secretKey });
+      const connection = await hre.network.create("bare");
+      try {
+        const self = await rpcAuthorization(COW, UNLISTED, 1);
+        await connection.provider.request({
+          method: "eth_sendTransaction",
+          params: [{ from: COW.address, to: ACCOUNT_0.address, authorizationList: [self] }],
+        });
+        const code: unknown = await connection.provider.request({
+          method: "eth_getCode",
+          params: [COW.address, "latest"],
+        });
+        assert.equal(code, `0xef0100${UNLISTED.slice(2).toLowerCase()}`);
+      } finally {
+        await connection.close();
+      }
+    });
   });
 });
 

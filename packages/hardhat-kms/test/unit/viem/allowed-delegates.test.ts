@@ -8,7 +8,7 @@ import type { Address, SignedAuthorizationList } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 import { createKmsNetworkConnection } from "../../../src/internal/viem/account.ts";
-import type { KmsAllowedDelegate } from "../../../src/types.ts";
+import type { KmsAllowedDelegate, KmsKeyConfig } from "../../../src/types.ts";
 import {
   ADDRESS,
   assertRefused,
@@ -172,6 +172,60 @@ describe("signTransaction's self-authorizations with allowedDelegates", () => {
       nonce: 1,
     });
     const request = transaction([self]);
+    assert.equal(
+      await account.signTransaction(request),
+      await VIEM_ACCOUNT.signTransaction(request),
+    );
+  });
+});
+
+describe("a --kms copy of a listed config key (#593)", () => {
+  // The helper's key is alias/deployer; this config key has its address pin.
+  const pinned: KmsKeyConfig = {
+    provider: "aws",
+    name: "listed",
+    timeoutMs: 10_000,
+    displayId: "aws:listed",
+    keyId: { get: async () => await Promise.resolve("alias/listed"), display: "alias/listed" },
+    address: ADDRESS,
+    allowedDelegates: LIST,
+  };
+  const refusal =
+    "the --kms key deployer is the same KMS key as listed, which has allowedDelegates. Name listed instead, so its list applies. Nothing was signed";
+
+  async function copy() {
+    const made = setup({ listed: [pinned] });
+    const account = await createKmsNetworkConnection(made.connection).getAccount(ADDRESS);
+    return { ...made, account };
+  }
+
+  it("refuses signAuthorization and a self-authorization, before the KMS call", async () => {
+    const { adapter, account } = await copy();
+    const before = kmsCalls(adapter);
+    await assertRefused(
+      adapter,
+      async () => await account.signAuthorization({ address: SIMPLE, chainId: CHAIN_ID, nonce: 0 }),
+      `signAuthorization: ${refusal}`,
+    );
+    const self = await VIEM_ACCOUNT.signAuthorization({
+      address: SIMPLE,
+      chainId: CHAIN_ID,
+      nonce: 1,
+    });
+    await assertRefused(
+      adapter,
+      async () => await account.signTransaction(transaction([self])),
+      `signTransaction: ${refusal}`,
+    );
+    assert.equal(kmsCalls(adapter), before);
+  });
+
+  it("signs the zero address, and a transaction whose authorizations another authority signed", async () => {
+    const { account } = await copy();
+    const cleared = await account.signAuthorization({ address: ZERO, chainId: CHAIN_ID, nonce: 0 });
+    assert.equal(cleared.address, ZERO);
+    const other = await COW.signAuthorization({ address: TO, chainId: CHAIN_ID, nonce: 5 });
+    const request = transaction([other]);
     assert.equal(
       await account.signTransaction(request),
       await VIEM_ACCOUNT.signTransaction(request),

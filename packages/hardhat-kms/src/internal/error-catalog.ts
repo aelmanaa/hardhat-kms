@@ -2685,8 +2685,8 @@ export const ERRORS = {
     template:
       "the --kms key {name} is the same KMS key as {other}, which has allowedDelegates. Name {other} instead, so its list applies. Nothing was signed",
     cause:
-      "A key from `--kms` has no config and so no `allowedDelegates`. It names the same KMS key, or has the same address pin, as a config key that limits its delegates, so signing an authorization with it would skip that key's list.",
-    fix: "Run the task with the config key's name instead of `--kms`.",
+      "A key from `--kms` has no config and so no `allowedDelegates`. It names the same KMS key, or has the same address pin, as a config key that limits its delegates, in `kms.keys` or any network's `kmsAccounts`, so signing an authorization with it would skip that key's list. A task checks before it signs; a connection checks each authorization the key signs, alone or in a transaction.",
+    fix: "Use the config key instead of `--kms`: give a task the config key's name, or add the key to the network's `kmsAccounts` and run without `--kms`.",
   },
   delegateNotListedNetwork: {
     id: "core.delegate.not-listed-network",

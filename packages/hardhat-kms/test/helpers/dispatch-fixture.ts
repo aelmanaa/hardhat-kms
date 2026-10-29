@@ -17,6 +17,7 @@ import {
 } from "../../src/internal/rpc/dispatcher.ts";
 import { ConnectionSends } from "../../src/internal/rpc/send-guard.ts";
 import { HardhatTransactionFiller } from "../../src/internal/rpc/transaction-filler.ts";
+import { keysWithLists } from "../../src/internal/signer/delegates.ts";
 import { SignerCache } from "../../src/internal/signer/key-cache.ts";
 import type { KmsKeyConfig, KmsKeyUserConfig } from "../../src/types.ts";
 import { type FakeAdapter, fakeAdapter } from "./fake-adapter.ts";
@@ -58,6 +59,8 @@ export interface FixtureOptions {
   network?: string;
   /** A network whose `kmsAccounts` act as the keys chosen with `--kms`. */
   commandLineFrom?: string;
+  /** Gives the connection every config key with `allowedDelegates`, as the network hook does (#593). */
+  listed?: boolean;
   /** Called before each signature, by key name. */
   beforeSign?: (name: string) => Promise<void>;
   /** Makes each adapter's identity call fail this many times. */
@@ -155,6 +158,7 @@ export async function dispatchFixture(options: FixtureOptions = {}): Promise<Dis
     config: networkKeys(hre, name),
     commandLine:
       options.commandLineFrom === undefined ? [] : networkKeys(hre, options.commandLineFrom),
+    listed: options.listed === true ? keysWithLists(hre.config) : [],
   });
   const sends = new ConnectionSends({ highWater: true, timers });
 
