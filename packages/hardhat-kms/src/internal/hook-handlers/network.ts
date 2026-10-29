@@ -13,6 +13,7 @@ import {
 } from "../rpc/dispatcher.ts";
 import { ConnectionSends } from "../rpc/send-guard.ts";
 import { createTransactionFiller, type TransactionFiller } from "../rpc/transaction-filler.ts";
+import { keysWithLists } from "../signer/delegates.ts";
 import { SignerCache } from "../signer/key-cache.ts";
 import { systemTimers, type Timers } from "../signer/timeout.ts";
 import { createKmsNetworkConnection, type LoadViem, loadViem } from "../viem/account.ts";
@@ -37,7 +38,9 @@ function connectionKeys(context: HookContext, connection: NetworkConnection<stri
   // The selected network is the --network value, or "default" when none is given.
   const selected = context.globalOptions.network ?? "default";
   const commandLine = connection.networkName === selected ? commandLineKeys(context) : [];
-  return { name: connection.networkName, config: network.kmsAccounts, commandLine };
+  // Every config key's list, not only this network's: a --kms copy of any of them skips it (#593).
+  const listed = commandLine.length === 0 ? [] : keysWithLists(context.config);
+  return { name: connection.networkName, config: network.kmsAccounts, commandLine, listed };
 }
 
 /**

@@ -2,16 +2,21 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import { HardhatPluginError } from "hardhat/plugins";
 
+import hardhatKms from "../../../src/index.ts";
 import {
   checkDelegate,
   type DelegateCheck,
   type DelegateNode,
+  keysWithLists,
   matchDelegate,
+  refuseListedCopy,
   ZERO_ADDRESS,
 } from "../../../src/internal/signer/delegates.ts";
-import type { KmsAllowedDelegate } from "../../../src/types.ts";
+import type { AwsKmsKeyConfig, KmsAllowedDelegate, KmsIdentifier } from "../../../src/types.ts";
+import { vaultKey } from "../../helpers/vault-key.ts";
 
 /** Simple7702Account, the delegate eth-infinitism deploys at the same address on every chain. */
 const SIMPLE = "0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9";
@@ -276,5 +281,128 @@ describe("checkDelegate", () => {
         "listed",
       );
     });
+  });
+});
+
+/** An identifier; with `readable: false`, reading it fails the test. */
+function identifier(value: string, readable = true): KmsIdentifier {
+  return {
+    get: async () => {
+      assert.ok(readable, `${value} was read`);
+      return await Promise.resolve(value);
+    },
+    display: value,
+  };
+}
+
+/** An AWS key named `name`, with an `address` pin when given. */
+function awsKey(
+  name: string,
+  keyId: string,
+  options: { address?: string; readable?: boolean } = {},
+): AwsKmsKeyConfig {
+  return {
+    name,
+    displayId: name,
+    timeoutMs: 30_000,
+    provider: "aws",
+    keyId: identifier(keyId, options.readable),
+    ...(options.address === undefined ? {} : { address: options.address }),
+  };
+}
+
+const COMMAND_LINE = awsKey("AWS_KMS_KEY_ID", "alias/deployer");
+
+/** The refusal of {@link COMMAND_LINE} as a copy of `other`. */
+const copyOf = (other: string): string =>
+  `test: the --kms key AWS_KMS_KEY_ID is the same KMS key as ${other}, which has allowedDelegates. Name ${other} instead, so its list applies. Nothing was signed`;
+
+describe("refuseListedCopy (#593)", () => {
+  it("refuses a copy of an unpinned config key by its identifier, naming both keys", async () => {
+    const listed = [
+      awsKey("other", "alias/other"),
+      awsKey("listed", "arn:aws:kms:eu-west-1:111122223333:alias/Deployer"),
+    ];
+    await assertRefused(refuseListedCopy(COMMAND_LINE, listed, "test"), copyOf("listed"));
+  });
+
+  it("refuses a copy of a pinned config key by its pin, in any case, without reading it", async () => {
+    const pinned = awsKey("pinned", "alias/unreadable", {
+      address: OTHER.toLowerCase(),
+      readable: false,
+    });
+    await assertRefused(
+      refuseListedCopy(COMMAND_LINE, [pinned], "test", OTHER.toUpperCase().replace("0X", "0x")),
+      copyOf("pinned"),
+    );
+    // Before the address is known, or with another one, the pin does not match.
+    await refuseListedCopy(COMMAND_LINE, [pinned], "test");
+    await refuseListedCopy(COMMAND_LINE, [pinned], "test", SIMPLE);
+  });
+
+  it("passes a key that is no listed key, and reads nothing when no key has a list", async () => {
+    await refuseListedCopy(COMMAND_LINE, [awsKey("other", "alias/other")], "test", SIMPLE);
+    await refuseListedCopy(awsKey("AWS_KMS_KEY_ID", "alias/x", { readable: false }), [], "test");
+  });
+});
+
+describe("checkDelegate with a --kms key (#593)", () => {
+  const commandLine = {
+    key: COMMAND_LINE,
+    address: SIMPLE,
+    listed: [awsKey("listed", "alias/deployer")],
+  };
+
+  it("refuses a copy of a listed key before its own list, which it does not have", async () => {
+    await assertRefused(
+      checkDelegate(check(undefined, { commandLine }), OTHER, 1n),
+      copyOf("listed"),
+    );
+  });
+
+  it("lets the zero address through, and a key that is no copy", async () => {
+    // The --kms key has no list of its own.
+    assert.deepEqual(await checkDelegate(check(undefined, { commandLine }), ZERO_ADDRESS, 1n), {
+      kind: "unrestricted",
+    });
+    const other = { ...commandLine, listed: [awsKey("listed", "alias/other")] };
+    assert.deepEqual(await checkDelegate(check(undefined, { commandLine: other }), OTHER, 1n), {
+      kind: "unrestricted",
+    });
+  });
+});
+
+describe("keysWithLists (#593)", () => {
+  it("lists each config key with allowedDelegates once: kms.keys, then inline network keys", async () => {
+    const list = [{ address: SIMPLE, chains: "all" as const }];
+    const hre = await createHardhatRuntimeEnvironment({
+      plugins: [hardhatKms],
+      kms: {
+        keys: {
+          named: { ...vaultKey("named"), allowedDelegates: list },
+          plain: vaultKey("plain"),
+        },
+      },
+      networks: {
+        first: {
+          type: "edr-simulated",
+          kmsAccounts: ["named", { ...vaultKey("inline"), allowedDelegates: [] }],
+        },
+        second: {
+          type: "http",
+          url: "http://127.0.0.1:1",
+          kmsAccounts: [
+            "named",
+            "plain",
+            vaultKey("unlisted"),
+            { ...vaultKey("remote"), allowedDelegates: [] },
+          ],
+        },
+      },
+    });
+    assert.deepEqual(
+      keysWithLists(hre.config).map((key) => key.name),
+      ["named", "first.kmsAccounts[1]", "second.kmsAccounts[3]"],
+    );
   });
 });

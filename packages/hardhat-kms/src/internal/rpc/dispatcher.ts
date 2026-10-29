@@ -18,6 +18,7 @@ import { toChecksumAddress } from "../crypto/address.ts";
 import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, catalogMessage, errorName } from "../errors.ts";
+import type { CommandLineKeyCheck } from "../signer/delegates.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { warn } from "../warnings.ts";
@@ -52,6 +53,11 @@ export interface NetworkKeys {
   config: readonly KmsKeyConfig[];
   /** The keys chosen with `--kms`, when this is the selected network. */
   commandLine: readonly KmsKeyConfig[];
+  /**
+   * Every config key with `allowedDelegates`, in `kms.keys` or any network's `kmsAccounts`, which
+   * a `--kms` key must not be a copy of (#593). Empty or absent when there are no `--kms` keys.
+   */
+  listed?: readonly KmsKeyConfig[];
 }
 
 /** The methods the dispatcher looks at; every other method passes through (rule 1). */
@@ -194,6 +200,21 @@ export class ConnectionAccounts {
   ): Promise<{ result: T } | undefined> {
     const key = await this.keyFor(address);
     return key === undefined ? undefined : { result: await this.signWith(key, sign) };
+  }
+
+  /**
+   * What the delegate checks need about a key chosen with `--kms`: the config keys with
+   * `allowedDelegates` it must not be a copy of (#593).
+   *
+   * @param key - A key from {@link ConnectionAccounts.keyFor}.
+   * @param address - Its address.
+   * @returns The check, or `undefined` for a config key or when no config key has a list.
+   */
+  public commandLineCheck(key: KmsKeyConfig, address: string): CommandLineKeyCheck | undefined {
+    const listed = this.#network.listed ?? [];
+    return this.#network.commandLine.includes(key) && listed.length > 0
+      ? { key, address, listed }
+      : undefined;
   }
 
   /**
@@ -687,14 +708,17 @@ async function kmsTransactionOf(
 
 /**
  * What a KMS account's transaction needs to check the delegates of its self-authorizations: the
- * key's `allowedDelegates`, and the connection's node to read a pinned delegate's code from.
+ * key's `allowedDelegates`, the config keys with lists a `--kms` key must not be a copy of (#593),
+ * and the connection's node to read a pinned delegate's code from.
  */
 function transactionDelegates(
-  key: KmsKeyConfig,
+  accounts: ConnectionAccounts,
+  kms: KmsTransaction,
   transactions: ConnectionTransactions,
 ): TransactionDelegates {
   return {
-    key,
+    key: kms.key,
+    commandLine: accounts.commandLineCheck(kms.key, kms.address),
     node: {
       chainId: async () => await transactions.chainId(),
       getCode: async (address) => await transactions.request("eth_getCode", [address, "latest"]),
@@ -770,7 +794,7 @@ async function sendTransaction(
           method: request.method,
           params: kms.params,
           from: address,
-          delegates: transactionDelegates(kms.key, transactions),
+          delegates: transactionDelegates(accounts, kms, transactions),
           // Under the send lock, before it passes on: the next send must skip the nonce (#537).
           holdNonce: (nonce, copyHash) => {
             sends.holdOutstanding(address, nonce, copyHash);
@@ -836,7 +860,7 @@ async function signOnly(
           method: request.method,
           params: kms.params,
           from: address,
-          delegates: transactionDelegates(kms.key, transactions),
+          delegates: transactionDelegates(accounts, kms, transactions),
           chooseNonce: kms.callerNonce ? undefined : (pending) => sends.nonceFor(address, pending),
         }),
     );
@@ -858,7 +882,7 @@ async function signOnly(
           method: request.method,
           params: kms.params,
           from: address,
-          delegates: transactionDelegates(kms.key, transactions),
+          delegates: transactionDelegates(accounts, kms, transactions),
           chooseNonce: kms.callerNonce
             ? undefined
             : async (pending) => await sends.chooseNonce(address, pending, lookUp),
