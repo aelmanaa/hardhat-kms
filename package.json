@@ -34,6 +34,7 @@
     "coverage": "pnpm run build && pnpm -r run coverage",
     "pkg:check": "pnpm run build && node scripts/check-packages.ts && node scripts/check-deprecated-packages.ts && knip",
     "docs:check": "pnpm run build && node scripts/check-docs.ts",
+    "docs:added-in": "node scripts/added-in.ts",
     "docs:errors": "node scripts/generate-errors-doc.ts",
     "docs:api": "node scripts/generate-api-docs.ts",
     "docs:og": "node scripts/render-og-image.ts",
@@ -43,7 +44,7 @@
     "docs:site:check": "node scripts/check-site.ts",
     "prepare": "lefthook install && node scripts/install-git-hooks.ts",
     "changeset": "changeset",
-    "version-packages": "changeset version && pnpm install --lockfile-only --ignore-scripts"
+    "version-packages": "changeset version && node scripts/added-in.ts --stamp && oxfmt docs/user/reference/configuration.md docs/user/reference/tasks.md && pnpm install --lockfile-only --ignore-scripts"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",
