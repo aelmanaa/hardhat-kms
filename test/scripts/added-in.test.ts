@@ -108,6 +108,34 @@ describe("missingNotes", () => {
     const kept = renamed.replace("| The chain.", "| The chain. Added in 1.0.0.");
     assert.deepEqual(missingNotes("p.md", kept, released), []);
   });
+
+  it("flags a row whose name is known elsewhere, in a new section or a new table under a kept heading", () => {
+    const table =
+      "\n| Option  | What it does |\n| ------- | ------------ |\n| `--yes` | Skips.       |\n";
+    // A new section whose option shares a name with an existing one.
+    const section = `${PAGE}\n## \`kms rotate\`\n${table}`;
+    assert.deepEqual(
+      missingNotes("p.md", section, released).map((problem) => problem.split('"')[1]),
+      ["`kms rotate` > `--yes`"],
+    );
+    // A new Field table under a heading the release has, with a known field name.
+    const field = PAGE.replace(
+      "## Tasks\n",
+      "## Tasks\n\n| Field      | Meaning |\n| ---------- | ------- |\n| `kms.keys` | Again.  |\n",
+    );
+    assert.deepEqual(
+      missingNotes("p.md", field, released).map((problem) => problem.split('"')[1]),
+      ["Tasks > `kms.keys`"],
+    );
+    // A renamed heading lends its rows' names only to rows under a heading the release lacks.
+    const both = field
+      .replace("## `kms sign`", "## `kms sign-tx`")
+      .replace("`kms.keys` | Again.", "`--yes`    | Again.");
+    assert.deepEqual(
+      missingNotes("p.md", both, released).map((problem) => problem.split('"')[1]),
+      ["Tasks > `--yes`"],
+    );
+  });
 });
 
 describe("nextNotes", () => {

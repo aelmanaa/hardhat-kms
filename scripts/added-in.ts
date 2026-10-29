@@ -35,6 +35,8 @@ const NOTE = /\bAdded in (next|\d+\.\d+\.\d+)\./;
 export interface ReferenceRow {
   /** The heading above the table, then the row's name. */
   key: string;
+  /** The heading above the table. */
+  heading: string;
   /** The row's name, from its first cell (see {@link rowName}). */
   name: string;
   /** The 1-based line number. */
@@ -106,6 +108,7 @@ export function referenceRows(markdown: string): ReferenceRow[] {
     const name = rowName(first);
     rows.push({
       key: `${heading} > ${name}`,
+      heading,
       name,
       line: index + 1,
       added: NOTE.exec(line)?.[1],
@@ -116,7 +119,7 @@ export function referenceRows(markdown: string): ReferenceRow[] {
 
 /**
  * The rows of `current` that `released` lacks and that carry no note. A row is known by its heading
- * and name, or by its name anywhere on the page. Any version counts as a note, so a renamed row can
+ * and name, or, under a renamed heading, by its name among the rows of headings the page lost. Any version counts as a note, so a renamed row can
  * keep the version that added it rather than say next.
  *
  * @param page - The page's path, for the messages.
@@ -126,11 +129,19 @@ export function referenceRows(markdown: string): ReferenceRow[] {
  */
 export function missingNotes(page: string, current: string, released: string): string[] {
   const before = referenceRows(released);
+  const now = referenceRows(current);
   const keys = new Set(before.map((row) => row.key));
-  // A row under a renamed heading, or moved to another table, is matched by its name alone.
-  const names = new Set(before.map((row) => row.name));
-  return referenceRows(current)
-    .filter((row) => !keys.has(row.key) && !names.has(row.name) && row.added === undefined)
+  // A renamed heading: a row under a heading the release lacks matches, by name, a released row
+  // whose heading the page no longer has. A new table under a kept heading gets no such match.
+  const releasedHeadings = new Set(before.map((row) => row.heading));
+  const currentHeadings = new Set(now.map((row) => row.heading));
+  const orphans = new Set(
+    before.filter((row) => !currentHeadings.has(row.heading)).map((row) => row.name),
+  );
+  const known = (row: ReferenceRow): boolean =>
+    keys.has(row.key) || (!releasedHeadings.has(row.heading) && orphans.has(row.name));
+  return now
+    .filter((row) => !known(row) && row.added === undefined)
     .map(
       (row) =>
         `${page}:${row.line}: the row "${row.key}" is not in the release on npm latest; end its description with "Added in next."`,
