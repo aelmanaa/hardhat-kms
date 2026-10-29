@@ -5,7 +5,8 @@
 //   tags, the Twitter card and a link to each favicon;
 // - every link and asset on the site starts with the base path and resolves to a built file, and
 //   every #anchor to an element of that page;
-// - sitemap.xml lists every page, robots.txt names the sitemap, llms.txt and llms-full.txt exist,
+// - sitemap.xml lists every page, llms.txt and llms-full.txt exist, there is no robots.txt (crawlers
+//   read it only at a host's root, #582),
 //   and every link in them and in the pages' Markdown copies is absolute and resolves to a built
 //   file;
 // - the landing page carries one JSON-LD SoftwareSourceCode block with the core's version;
@@ -14,7 +15,7 @@
 // - docs/public/og-image.svg names only the vendored font families, and docs/public/og-image.png
 //   has the same bytes as a fresh render of it (scripts/og-image.ts).
 // With DOCS_SITE_CHANNEL=next it builds and checks the tree of unreleased main, served under next/
-// (decision 0024): sitemap.xml, robots.txt and the llms files must be absent instead, and every
+// (decision 0024): sitemap.xml and the llms files must be absent instead, and every
 // page carries `noindex` and the unreleased banner. On the root tree, only the landing page may
 // link into next/, which the root's build does not contain.
 // scripts/site-output.ts holds the checks and test/scripts/site-output.test.ts their tests.
@@ -59,7 +60,6 @@ import {
   ogImageProblems,
   outputCandidates,
   pngProblems,
-  robotsProblems,
   siteLinks,
   sitemapUrls,
   svgFontProblems,
@@ -100,7 +100,7 @@ const sitemap = existsSync(path.join(output, "sitemap.xml"))
   : new Set<string>();
 if (unreleased) {
   // Only the root is for search engines and agents.
-  for (const name of ["sitemap.xml", "robots.txt", "llms.txt", "llms-full.txt"]) {
+  for (const name of ["sitemap.xml", "llms.txt", "llms-full.txt"]) {
     if (existsSync(path.join(output, name))) {
       problems.push(`${name} is in the next tree, which must not have one`);
     }
@@ -179,13 +179,11 @@ for (const file of outputFiles.filter((entry) => entry.endsWith(".html"))) {
   }
 }
 
-const robots = path.join(output, "robots.txt");
+// Crawlers read robots.txt only at a host's root, so one under the base path would do nothing (#582).
+if (existsSync(path.join(output, "robots.txt"))) {
+  problems.push("robots.txt is built, but crawlers read it only at a host's root");
+}
 if (!unreleased) {
-  problems.push(
-    ...(existsSync(robots)
-      ? robotsProblems(readFileSync(robots, "utf8"), site)
-      : ["robots.txt is missing"]),
-  );
   for (const name of ["llms.txt", "llms-full.txt"]) {
     const file = path.join(output, name);
     if (!existsSync(file) || statSync(file).size === 0) {

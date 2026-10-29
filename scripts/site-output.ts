@@ -371,14 +371,6 @@ export function sitemapUrls(xml: string): Set<string> {
   );
 }
 
-/** Checks robots.txt names the sitemap. */
-export function robotsProblems(text: string, site: SiteFacts): string[] {
-  const sitemap = `Sitemap: ${site.hostname}sitemap.xml`;
-  return text.split("\n").some((line) => line.trim() === sitemap)
-    ? []
-    : [`robots.txt: no "${sitemap}" line`];
-}
-
 /** The JSON-LD fields the landing page must set. */
 const JSON_LD_FIELDS = [
   "name",
