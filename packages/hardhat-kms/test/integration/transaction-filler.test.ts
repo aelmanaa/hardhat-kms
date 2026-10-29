@@ -298,6 +298,61 @@ describe("transaction filling matches Hardhat's local accounts", () => {
     );
   });
 
+  it("refuses an authorizationList without to, or an empty one, as Hardhat does, before any node request (#586)", async () => {
+    const signed = authorization.sign(
+      { chainId: 31337n, address: TO, nonce: 1n },
+      `0x${HARDHAT_ACCOUNT_0.secretKey}`,
+    );
+    const authorizationList = [
+      {
+        chainId: "0x7a69",
+        address: signed.address,
+        nonce: "0x1",
+        yParity: `0x${signed.yParity.toString(16)}`,
+        r: `0x${signed.r.toString(16).padStart(64, "0")}`,
+        s: `0x${signed.s.toString(16).padStart(64, "0")}`,
+      },
+    ];
+    const cases: [Record<string, unknown>, string, string][] = [
+      [
+        { from: FROM, authorizationList },
+        "HHE726",
+        "eth_sendTransaction: an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was sent to the node",
+      ],
+      [
+        { from: FROM, to: FROM, authorizationList: [] },
+        "HHE727",
+        "eth_sendTransaction: the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was sent to the node",
+      ],
+    ];
+    for (const [request, hardhat, plugin] of cases) {
+      for (const gas of [{}, { gas: "0x186a0" }]) {
+        const connection: NetworkConnection<string> = await hre.network.create("local");
+        try {
+          // With gas, Hardhat refuses with its own error; without, it fails at eth_estimateGas
+          // with the node's message.
+          const raw = main.raw.length;
+          await assert.rejects(
+            connection.provider.request({
+              method: "eth_sendTransaction",
+              params: [{ ...request, ...gas }],
+            }),
+            (error: unknown) => messageOf(error).startsWith(hardhat) === "gas" in gas,
+          );
+          assert.equal(main.raw.length, raw);
+          const start = main.methods.length;
+          await assert.rejects(
+            fillerFor(connection).fill("eth_sendTransaction", [{ ...request, ...gas }]),
+            { message: plugin },
+          );
+          assert.deepEqual(main.methods.slice(start), []);
+        } finally {
+          await connection.close();
+        }
+      }
+    }
+  });
+
   it("fills an EIP-1559 transaction with an access list", async () => {
     assert.equal(
       await compare("local", { from: FROM, to: TO, accessList: ACCESS_LIST }),

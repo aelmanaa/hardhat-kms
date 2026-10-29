@@ -830,6 +830,42 @@ describe("HardhatTransactionFiller checks", () => {
     );
   });
 
+  it("refuses an authorizationList without to, or an empty one, before any node request (#586)", async () => {
+    const authorization = {
+      chainId: "0x7a69",
+      address: TO,
+      nonce: "0x0",
+      yParity: "0x1",
+      r: `0x${"11".repeat(32)}`,
+      s: `0x${"22".repeat(32)}`,
+    };
+    const noTo =
+      "an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was sent to the node";
+    const empty =
+      "the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was sent to the node";
+    const cases: [Record<string, unknown>, string][] = [
+      [{ authorizationList: [authorization] }, noTo],
+      [{ to: null, authorizationList: [authorization] }, noTo],
+      // Without to and empty: no `to` comes first, as in Hardhat.
+      [{ authorizationList: [] }, noTo],
+      [{ to: TO, authorizationList: [] }, empty],
+    ];
+    for (const method of ["eth_sendTransaction", "eth_signTransaction"]) {
+      for (const gas of [{}, { gas: "0x5208" }]) {
+        for (const [fields, message] of cases) {
+          const { node, filler: instance } = filler(EIP1559_NODE);
+          await assert.rejects(instance.fill(method, [{ from: FROM, ...gas, ...fields }]), {
+            message: `${method}: ${message}`,
+          });
+          assert.deepEqual(node.methods(), [], JSON.stringify(fields));
+        }
+      }
+    }
+    // A list with `to` fills as before.
+    const { node } = await fill(EIP1559_NODE, { authorizationList: [authorization] });
+    assert.ok(node.methods().length > 0);
+  });
+
   it("refuses blob transactions before any request", async () => {
     for (const extra of [
       { blobs: [] },
@@ -1463,6 +1499,26 @@ describe("buildUnsignedTransaction", () => {
       },
     );
     assert.equal(rawOf(buildUnsignedTransaction(filledTx({}))).gasPrice, 0n);
+  });
+
+  it("names each field micro-eth-signer refuses, without long numbers (#586)", () => {
+    assert.throws(
+      () =>
+        buildUnsignedTransaction(
+          filledTx({ maxFeePerGas: 10n ** 30n, maxPriorityFeePerGas: 10n ** 30n + 1n }),
+        ),
+      {
+        message:
+          "sign transaction: the eip1559 transaction has invalid fields: maxPriorityFeePerGas (cannot be bigger than maxFeePerGas=<number>). Nothing was signed",
+      },
+    );
+    assert.throws(
+      () => buildUnsignedTransaction(filledTx({ maxFeePerGas: 5n, maxPriorityFeePerGas: 6n })),
+      {
+        message:
+          "sign transaction: the eip1559 transaction has invalid fields: maxPriorityFeePerGas (cannot be bigger than maxFeePerGas=5). Nothing was signed",
+      },
+    );
   });
 
   it("builds an EIP-2930 transaction from an access list", () => {
