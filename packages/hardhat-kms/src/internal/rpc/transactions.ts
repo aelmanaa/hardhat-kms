@@ -181,8 +181,11 @@ export function checkSelfAuthorizations(
   return self;
 }
 
-/** What {@link checkSelfDelegates} needs: the sender's key, its node, and where notes go. */
-export type TransactionDelegates = Pick<DelegateCheck, "key" | "node" | "note">;
+/**
+ * What {@link checkSelfDelegates} needs: the sender's key, the config keys a `--kms` key must not
+ * copy, its node, and where notes go.
+ */
+export type TransactionDelegates = Pick<DelegateCheck, "key" | "commandLine" | "node" | "note">;
 
 /**
  * Refuses a transaction whose self-authorization delegates the sender to a contract the key's

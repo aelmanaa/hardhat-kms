@@ -69,7 +69,10 @@ export interface AccountConnection {
   /** The network's name, for messages. */
   network: string;
   /** The connection's KMS accounts. */
-  accounts: Pick<ConnectionAccounts, "keys" | "keyFor" | "addresses" | "signWith">;
+  accounts: Pick<
+    ConnectionAccounts,
+    "keys" | "keyFor" | "addresses" | "signWith" | "commandLineCheck"
+  >;
   /** The connection's chain id. */
   chainId(): Promise<bigint>;
   /**
@@ -357,11 +360,15 @@ interface AccountContext {
   withSigner: WithSigner;
 }
 
-/** The account's key and node, for the `allowedDelegates` checks. */
+/**
+ * The account's key and node, for the `allowedDelegates` checks, and for a `--kms` key the config
+ * keys with lists it must not be a copy of (#593).
+ */
 function accountDelegates(context: AccountContext): TransactionDelegates {
   const { connection } = context;
   return {
     key: context.key,
+    commandLine: connection.accounts.commandLineCheck(context.key, context.address),
     node: {
       chainId: async () => await connection.chainId(),
       getCode: async (address) => await connection.getCode(address),

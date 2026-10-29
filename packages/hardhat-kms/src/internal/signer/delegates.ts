@@ -2,8 +2,10 @@
 // EIP-7702 authorization, per chain. `kms sign-auth`, the library account's `signAuthorization` and
 // the self-authorizations of a transaction all check here, before any KMS call.
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import type { HardhatConfig } from "hardhat/types/config";
 
-import type { KmsAllowedDelegate, KmsKeyCommonConfig } from "../../types.ts";
+import type { KmsAllowedDelegate, KmsKeyCommonConfig, KmsKeyConfig } from "../../types.ts";
+import { listBypassIdentity, sameListBypassIdentity } from "../config/key-identity.ts";
 import { sameAddress } from "../crypto/address.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
@@ -104,6 +106,77 @@ export interface DelegateCheck {
    * `core.delegate.not-allowed` errors; a transaction's self-authorization names its index.
    */
   refuse?: ((chainId: bigint) => Error) | undefined;
+  /** Set when the signing key came from `--kms` and config keys have lists (#593). */
+  commandLine?: CommandLineKeyCheck | undefined;
+}
+
+/** A key chosen with `--kms`, which has no list, and the config keys whose lists it must not skip. */
+export interface CommandLineKeyCheck {
+  /** The `--kms` key. */
+  key: KmsKeyConfig;
+  /** Its address. */
+  address: string;
+  /** Every config key with `allowedDelegates`. */
+  listed: readonly KmsKeyConfig[];
+}
+
+/**
+ * The config keys with `allowedDelegates`, each once: those in `kms.keys`, then the inline keys of
+ * each network's `kmsAccounts`. A network entry that names a key in `kms.keys` is that key.
+ *
+ * @param config - The resolved Hardhat config.
+ * @returns The keys, in that order.
+ */
+export function keysWithLists(config: HardhatConfig): KmsKeyConfig[] {
+  const keys = new Set<KmsKeyConfig>(Object.values(config.kms.keys));
+  for (const network of Object.values(config.networks)) {
+    if (network.type === "http" || network.type === "edr-simulated") {
+      for (const key of network.kmsAccounts) {
+        keys.add(key);
+      }
+    }
+  }
+  return [...keys].filter((key) => key.allowedDelegates !== undefined);
+}
+
+/**
+ * Refuses a `--kms` key that is the same KMS key as a config key with `allowedDelegates`: the
+ * `--kms` key has no config and so no list, and signing an authorization with it would skip the
+ * config key's list (#562). An unpinned config key is the same when its identifier names the same
+ * KMS key, compared by {@link listBypassIdentity}: an AWS key id or alias whatever the region,
+ * profile or endpoint each key sets (#589). A pinned one is the same when the `--kms` key's
+ * address, once known, equals its `address` pin.
+ *
+ * @param key - The `--kms` key.
+ * @param listed - The config keys with `allowedDelegates`.
+ * @param operation - The operation, for the error message.
+ * @param address - The `--kms` key's address, when it is known.
+ */
+export async function refuseListedCopy(
+  key: KmsKeyConfig,
+  listed: readonly KmsKeyConfig[],
+  operation: string,
+  address?: string,
+): Promise<void> {
+  if (listed.length === 0) {
+    return;
+  }
+  const id = await listBypassIdentity(key);
+  for (const other of listed) {
+    // A pinned config key is compared by its pin, not read: reading it could ask for a variable or
+    // a keystore password the run would not otherwise need.
+    const same =
+      other.address === undefined
+        ? sameListBypassIdentity(id, await listBypassIdentity(other))
+        : address !== undefined && sameAddress(address, other.address);
+    if (same) {
+      throw catalogError(
+        ERRORS.delegateCommandLineKey,
+        { name: key.name, other: other.name },
+        { operation },
+      );
+    }
+  }
 }
 
 /** `0x` hex of whole bytes, as `eth_getCode` answers. */
@@ -128,6 +201,11 @@ export async function checkDelegate(
   chainId: bigint,
 ): Promise<DelegateMatch> {
   const { key, operation } = check;
+  // Every list allows the zero address, so clearing a delegation skips no list.
+  if (check.commandLine !== undefined && !sameAddress(delegate, ZERO_ADDRESS)) {
+    const { listed, address } = check.commandLine;
+    await refuseListedCopy(check.commandLine.key, listed, operation, address);
+  }
   const match = matchDelegate(key.allowedDelegates, delegate, chainId);
   if (match.kind === "unlisted" || match.kind === "wrong-chain") {
     if (check.refuse !== undefined) {

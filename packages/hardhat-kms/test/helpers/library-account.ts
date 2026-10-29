@@ -87,6 +87,8 @@ export function setup(
     allowedDelegates?: KmsKeyConfig["allowedDelegates"];
     /** The node's `eth_getCode` answer for each lowercase address; `0x` for others. */
     code?: Record<string, unknown>;
+    /** Makes the key a `--kms` key, with these config keys that have `allowedDelegates` (#593). */
+    listed?: readonly KmsKeyConfig[];
   } = {},
 ): Setup {
   const key: KmsKeyConfig = {
@@ -118,6 +120,10 @@ export function setup(
         await Promise.resolve(address === ADDRESS.toLowerCase() ? key : undefined),
       addresses: async () => await Promise.resolve([ADDRESS]),
       signWith: async (_key, use) => await use(signer),
+      commandLineCheck: (commandLineKey, address) =>
+        options.listed === undefined
+          ? undefined
+          : { key: commandLineKey, address, listed: options.listed },
     },
     chainId: async () => {
       chainCalls.count++;
