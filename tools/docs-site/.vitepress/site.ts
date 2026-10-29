@@ -120,32 +120,6 @@ export function githubSlug(text: string): string {
     .replaceAll(" ", "-");
 }
 
-/** Crawlers that fetch a page to answer a search or a user's question, which the site allows. */
-const ALLOWED_CRAWLERS: readonly string[] = [
-  "Googlebot",
-  "Bingbot",
-  "OAI-SearchBot",
-  "ChatGPT-User",
-  "Claude-SearchBot",
-  "Claude-User",
-  "PerplexityBot",
-  "Perplexity-User",
-];
-
-/** The site's robots.txt. */
-export function robotsTxt(): string {
-  const allowed = ALLOWED_CRAWLERS.map((agent) => `User-agent: ${agent}\nAllow: /\n`).join("\n");
-  return `# Search engines and answer engines may read every page.
-${allowed}
-# Crawlers that collect training data (GPTBot, ClaudeBot, CCBot, Google-Extended) fall under the
-# default group below, which allows them. To refuse one, add a group for it with "Disallow: /".
-User-agent: *
-Allow: /
-
-Sitemap: ${HOSTNAME}sitemap.xml
-`;
-}
-
 /**
  * The URL of the Markdown copy of a page that `vitepress-plugin-llms` writes, from the source path
  * relative to docs/: `user/guides/key-loss.md` is `<hostname>user/guides/key-loss.md`, a folder's

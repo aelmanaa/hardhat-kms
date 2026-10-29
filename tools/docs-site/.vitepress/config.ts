@@ -27,7 +27,6 @@ import {
   markdownCopyUrl,
   pageUrl,
   rewriteMarkdownLinks,
-  robotsTxt,
   sitePage,
 } from "./site.ts";
 
@@ -39,7 +38,7 @@ const EXCLUDED = EXCLUDED_FOLDERS.map((folder) => `${folder}/**`);
 
 /**
  * The `next` tree documents main, ahead of npm `latest` (decision 0024): every page carries a
- * banner and `noindex`, and the tree has no sitemap, robots.txt or llms files.
+ * banner and `noindex`, and the tree has no sitemap or llms files.
  */
 const UNRELEASED = SITE_CHANNEL === "next";
 
@@ -442,11 +441,10 @@ const config: UserConfig<ThemeConfig> = defineConfig({
     return head;
   },
   async buildEnd(siteConfig) {
-    // Search engines read robots.txt only at a host's root, and next/ lists no pages for agents.
+    // next/ lists no pages for agents. No robots.txt: crawlers read it only at a host's root (#582).
     if (UNRELEASED) {
       return;
     }
-    await writeFile(path.join(siteConfig.outDir, "robots.txt"), robotsTxt());
     await rewriteLlmsLinks(siteConfig.outDir);
   },
   themeConfig: {

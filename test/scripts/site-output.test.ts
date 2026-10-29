@@ -14,7 +14,6 @@ import {
   ogImageProblems,
   outputCandidates,
   pngProblems,
-  robotsProblems,
   siteLinks,
   sitemapUrls,
   svgFontProblems,
@@ -377,18 +376,10 @@ describe("outputCandidates", () => {
   });
 });
 
-describe("sitemap and robots.txt", () => {
+describe("sitemap", () => {
   it("reads the sitemap's URLs", () => {
     const xml = `<urlset><url><loc>${URL}</loc></url><url><loc>${SITE.hostname}</loc></url></urlset>`;
     assert.deepEqual(sitemapUrls(xml), new Set([URL, SITE.hostname]));
-  });
-
-  it("needs robots.txt to name the sitemap", () => {
-    assert.deepEqual(
-      robotsProblems(`User-agent: *\nAllow: /\n\nSitemap: ${SITE.hostname}sitemap.xml\n`, SITE),
-      [],
-    );
-    assert.equal(robotsProblems("User-agent: *\nAllow: /\n", SITE).length, 1);
   });
 });
 
