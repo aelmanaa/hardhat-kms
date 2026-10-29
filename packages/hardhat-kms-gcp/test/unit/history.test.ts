@@ -126,6 +126,13 @@ function networkError(code: string): Error {
 
 const FIRST_DELAY_MS = RETRY_DELAYS_MS[0] ?? 0;
 const noPause = async (): Promise<void> => {};
+
+/** Lets the event loop turn a few times, so every promise that can settle without a timer does. */
+async function eventLoopTurns(): Promise<void> {
+  for (let turn = 0; turn < 10; turn++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
 const options = { pause: noPause, now: () => NOW };
 
 async function read(answers: unknown[], request: Partial<KmsHistoryRequest> = {}) {
@@ -946,21 +953,27 @@ describe("the Google Cloud history reader", () => {
       assert.equal(calls, 1);
     });
 
-    it("ends a pause before a retry when the signal aborts", async () => {
+    it("ends a pause before a retry when the signal aborts", async (t) => {
+      // The pause's timer never fires under mock timers, so only the abort can end it (#576).
+      t.mock.timers.enable({ apis: ["setTimeout"] });
       const controller = new AbortController();
       const fake = fakeList([httpError(503, "UNAVAILABLE"), { entries: [] }]);
-      const started = Date.now();
+      let settled = false;
       const reading = readGcpSignHistory(
         gcpKey(),
         historyRequest({ signal: controller.signal }),
         fake.list,
         { now: () => NOW },
-      );
-      setTimeout(() => {
-        controller.abort(new Error("deadline"));
-      }, 20);
+      ).finally(() => {
+        settled = true;
+      });
+      reading.catch(() => undefined);
+      await eventLoopTurns();
+      assert.equal(settled, false, "the reader did not pause before the retry");
+      controller.abort(new Error("deadline"));
+      await eventLoopTurns();
+      assert.ok(settled, "the pause ran to its end");
       await assert.rejects(reading, /deadline/);
-      assert.ok(Date.now() - started < FIRST_DELAY_MS, "the pause ran to its end");
       assert.equal(fake.requests.length, 1);
     });
 

@@ -1886,16 +1886,28 @@ const EXAMPLES: ["http" | "edr-simulated", Step[]][] = [
   ...KNOWN_537.map((known): ["http" | "edr-simulated", Step[]] => [known.type, known.steps]),
 ];
 
+/** The last property run, which outlives its test when that test times out. */
+let lastRun: Promise<void> = Promise.resolve();
+
 /**
  * Runs random sequences on both network types and fails on the first violation of one of `kinds`.
+ *
+ * node:test does not stop a test that times out, so its property keeps running (#576). Its
+ * remaining runs do nothing, and the next property starts only once it has settled: the sequence
+ * still running would otherwise take send locks the next test counts as leaked, and set timers on
+ * the next test's mock.
  */
 async function check(t: TestContext, kinds: ReadonlySet<Kind>): Promise<void> {
+  await lastRun.catch(() => undefined);
   mockGlobals(t);
-  await fc.assert(
+  lastRun = fc.assert(
     fc.asyncProperty(
       fc.constantFrom<"http" | "edr-simulated">("http", "edr-simulated"),
       steps,
       async (type, sequence) => {
+        if (t.signal.aborted) {
+          return;
+        }
         await runSequence(t, type, sequence, kinds);
       },
     ),
@@ -1910,6 +1922,7 @@ async function check(t: TestContext, kinds: ReadonlySet<Kind>): Promise<void> {
       ...(PATH === undefined ? {} : { path: PATH }),
     },
   );
+  await lastRun;
 }
 
 /** The shrunk counterexamples of the `-434` kinds, as fixed regression cases. */
