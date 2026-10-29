@@ -15,6 +15,10 @@ on:
     workflows: [Promote]
     types: [completed]
     branches: [main]
+  # Daily, so a docs fix merged into release/X.Y reaches the root without a dispatch (#603). A push
+  # to release/* cannot start this file: it would run that branch's copy, and only main may deploy.
+  schedule:
+    - cron: "17 5 * * *"
   workflow_dispatch:
 
 permissions:
@@ -32,6 +36,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      ref: ${{ steps.ref.outputs.ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,16 +57,26 @@ jobs:
             echo "::error::$TAG is on npm latest but is not a tag of this repository; nothing deploys"
             exit 1
           fi
+      # The tag's release/X.Y, when it holds only docs fixes on top of the tag (#603). The checkout
+      # fetched branches as remote-tracking refs, but fetch them by name so the choice never depends
+      # on how it did.
+      - id: ref
+        name: The tag, or its release branch with docs fixes only
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          git fetch --no-tags origin "+refs/heads/release/*:refs/remotes/origin/release/*"
+          node scripts/site-release-tag.ts --ref-for="$TAG" --output="$GITHUB_OUTPUT"
 
   root:
-    name: Build the root from the release tag
+    name: Build the root from the release tag or its docs fixes
     needs: resolve
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ needs.resolve.outputs.tag }}
+          ref: ${{ needs.resolve.outputs.ref }}
           # The whole history, so each page's "Last updated" date comes from its own last commit.
           fetch-depth: 0
           persist-credentials: false
@@ -71,8 +86,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      # The tag's own build and checks. A tag older than decision 0024 has no channel and builds the
-      # root as it did at its release.
+      # The tag's own build and checks, or the release branch's, whose code is the tag's. A tag older
+      # than decision 0024 has no channel and builds the root as it did at its release.
       - name: Build the site and check its output
         env:
           DOCS_SITE_CHANNEL: latest

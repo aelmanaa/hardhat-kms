@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { siteReleaseTag } from "../../scripts/site-release-tag.ts";
+import { releaseBranchOf, siteReleaseTag, siteRootRef } from "../../scripts/site-release-tag.ts";
 
 describe("siteReleaseTag", () => {
   it("returns v and the version on latest, from npm 11's object and npm 12's array", () => {
@@ -34,5 +34,70 @@ describe("siteReleaseTag", () => {
     assert.throws(() => siteReleaseTag('"1.3.0"'), /not a dist-tags object/);
     assert.throws(() => siteReleaseTag("null"), /not a dist-tags object/);
     assert.throws(() => siteReleaseTag('[{"latest":"1.3.0"},{"latest":"1.2.0"}]'), /an array of 2/);
+  });
+});
+
+describe("siteRootRef", () => {
+  const COMMIT = "0123456789abcdef0123456789abcdef01234567";
+
+  it("names the release branch of a tag", () => {
+    assert.equal(releaseBranchOf("v1.3.0"), "release/1.3");
+    assert.equal(releaseBranchOf("v10.0.12"), "release/10.0");
+    assert.throws(() => releaseBranchOf("1.3.0"), /is not a vX\.Y\.Z tag/);
+    assert.throws(() => releaseBranchOf("v1.3.0-next.0"), /is not a vX\.Y\.Z tag/);
+  });
+
+  it("builds from the tag when there is no release branch", () => {
+    assert.deepEqual(siteRootRef("v1.3.0", { commit: undefined, descends: false, changed: [] }), {
+      ref: "refs/tags/v1.3.0",
+      reason: "v1.3.0: there is no release/1.3",
+    });
+  });
+
+  it("builds from the branch when it adds only docs changes to the tag", () => {
+    assert.deepEqual(
+      siteRootRef("v1.3.0", {
+        commit: COMMIT,
+        descends: true,
+        changed: ["docs/user/reference/tasks.md"],
+      }),
+      {
+        ref: COMMIT,
+        reason: `release/1.3 at ${COMMIT}: v1.3.0 with 1 docs file backported`,
+      },
+    );
+    assert.equal(
+      siteRootRef("v1.3.0", { commit: COMMIT, descends: true, changed: [] }).ref,
+      COMMIT,
+    );
+  });
+
+  it("builds from the tag when the branch changes anything outside docs/", () => {
+    const { ref, reason } = siteRootRef("v1.3.0", {
+      commit: COMMIT,
+      descends: true,
+      changed: [
+        "docs/user/guides/key-loss.md",
+        "packages/hardhat-kms/package.json",
+        ".changeset/x.md",
+      ],
+    });
+    assert.equal(ref, "refs/tags/v1.3.0");
+    assert.match(
+      reason,
+      /changes 2 files outside docs\/ \(packages\/hardhat-kms\/package\.json, \.changeset\/x\.md\)/,
+    );
+    // A path that only starts like docs/ is outside it.
+    assert.equal(
+      siteRootRef("v1.3.0", { commit: COMMIT, descends: true, changed: ["docs-site.md"] }).ref,
+      "refs/tags/v1.3.0",
+    );
+  });
+
+  it("builds from the tag when the branch does not descend from it", () => {
+    assert.deepEqual(
+      siteRootRef("v1.3.0", { commit: COMMIT, descends: false, changed: ["docs/README.md"] }),
+      { ref: "refs/tags/v1.3.0", reason: "v1.3.0: release/1.3 does not descend from v1.3.0" },
+    );
   });
 });

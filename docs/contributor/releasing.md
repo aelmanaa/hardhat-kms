@@ -259,6 +259,16 @@ To apply a file, use the repository's Rulesets settings (Import a ruleset), or `
 
 The publish job stages a hotfix under its own dist-tag, `release-X.Y` (`release-1.0` for 1.0.1), never under `beta`, so a hotfix of an older line leaves `beta` and `latest` where they are. `verify-release-tag.ts` chooses the dist-tag with the branch: `beta` when the commit is on `main`, `release-X.Y` when it is only on `release/X.Y`. Users of the line install it with `npm install hardhat-kms@release-1.0`. `promote.yml` accepts a version at `beta` or at the `release-X.Y` of its own line, and refuses to move `latest` to a version below the current `latest`, in its verify job and again just before the move. So for a hotfix of an older line, run `promote.yml` with `target: verify` only: it publishes the GitHub Release as a prerelease and not as the latest release. With `live-run: fork`, the live job runs the suite of `main` against the hotfix version (the job checks out the ref the workflow was dispatched from, and a tag's own suite may predate registry mode); a case for a feature that line lacks fails. Use `sepolia:<proof commit>` from the release branch, or `none` where the live rule allows it. A hotfix of the newest line, above the current `latest`, can be promoted with `target: latest` as usual.
 
+### Docs fix on the line on `latest`
+
+The site root documents the version on npm `latest` and is built from its tag ([decision 0024](decisions/0024-docs-site-follows-npm-latest.md)). A docs fix merged into `main` reaches the root with the next release. A fix that cannot wait goes to `release/X.Y` for that version, created as above when it does not exist (`git switch -c release/1.3 v1.3.0`, pushed by a repository admin):
+
+- Backport only a fix that is true of X.Y.Z: a wrong command or option, a broken link, a security or recovery step. Never backport a page for a feature that X.Y.Z lacks.
+- A backport is a pull request into `release/X.Y` that cherry-picks a pull request merged into `main`, says "Backport of #n" in its body, and carries no changeset. It runs the CI Docs job, so its snippets typecheck against X.Y.Z's code.
+- After it merges, run `gh workflow run pages.yml --ref main`, or wait for the daily run. A push to `release/X.Y` does not start `pages.yml`.
+
+`pages.yml` builds the root from the branch's tip only while the branch differs from the tag under `docs/` alone (`siteRootRef` in `scripts/site-release-tag.ts`). Once a hotfix adds code, a changeset or a version to the branch, the root stays on the tag until the hotfix is on `latest`, and the run's notice says why. A later hotfix tag on the branch carries the docs fixes; `docs/` is in no package's `files`, so the tarballs are the same.
+
 ## 6. Bad release runbook
 
 Versions on npm are immutable. Every entry below ends in a new version number, never in a rerun that republishes the same one.
