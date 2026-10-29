@@ -416,6 +416,26 @@ describe("kms sign-tx over HTTP", () => {
       await refused({ to: TO, color: "blue" }, ["unknown transaction field color."]);
     });
 
+    it("refuses an authorizationList without to, or an empty one, before the key opens (#586)", async () => {
+      const cases: [Record<string, unknown>, string][] = [
+        [
+          { authorizationList: [RPC_AUTHORIZATION] },
+          "kms sign-tx: an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was signed or sent",
+        ],
+        [
+          { to: TO, gas: "0x5208", authorizationList: [] },
+          "kms sign-tx: the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was signed or sent",
+        ],
+      ];
+      for (const [request, message] of cases) {
+        const { hre, created } = await runtime(networks, { network: "kms" });
+        const start = node.methods.length;
+        await assertKmsError(signTx(hre, "zero", txFile(request)), [message]);
+        assert.equal(created.length, 0, "the key was not opened");
+        assert.deepEqual(node.methods.slice(start), [], "nothing reached the node");
+      }
+    });
+
     it("refuses a mixed-case address whose EIP-55 checksum is wrong, before the key is read", async () => {
       // TO with one letter's case flipped.
       const typo = `${TO.slice(0, 10)}${TO.slice(10, 11).toLowerCase()}${TO.slice(11)}`;

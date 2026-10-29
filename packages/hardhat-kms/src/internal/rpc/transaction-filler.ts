@@ -191,6 +191,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     ) {
       throw catalogError(ERRORS.txBlob, {}, { operation: method });
     }
+    checkAuthorizationRequest(first, method);
     // A deep copy: the caller's objects, including access and authorization lists, stay as they are.
     const tx: Record<string, unknown> = first;
     applyRequestedType(tx, method, this.#settings.gasPrice === "auto");
@@ -844,6 +845,27 @@ export function requireGas(request: RpcTransactionRequest, method: string): bigi
 }
 
 /**
+ * Refuses a request that cannot be an EIP-7702 transaction, as Hardhat's local accounts do from
+ * 3.20 (HHE726, then HHE727): an `authorizationList` without `to`, or an empty one. It runs before
+ * the fill's node requests, so neither the fee and gas requests nor `eth_estimateGas` see it (#586).
+ *
+ * @param tx - The request.
+ * @param method - The RPC method or task, for error messages.
+ */
+export function checkAuthorizationRequest(tx: Record<string, unknown>, method: string): void {
+  const list = tx.authorizationList;
+  if (list === undefined || list === null) {
+    return;
+  }
+  if (tx.to === undefined || tx.to === null) {
+    throw catalogError(ERRORS.txAuthorizationNoTo, {}, { operation: method });
+  }
+  if (Array.isArray(list) && list.length === 0) {
+    throw catalogError(ERRORS.txAuthorizationListEmpty, {}, { operation: method });
+  }
+}
+
+/**
  * The fee checks of LocalAccountsHandler#modifyRequest, in its order.
  *
  * @param request - The validated request.
@@ -921,6 +943,62 @@ export function createTransactionFiller(
   );
 }
 
+/** A field micro-eth-signer refused, and why. */
+interface FieldError {
+  field: string;
+  error: string;
+}
+
+/**
+ * The fields of micro-eth-signer's `AggregatedError`, which its package does not export.
+ *
+ * @param error - What `Transaction.prepare` threw.
+ * @returns The field errors, or `undefined` for any other error.
+ */
+function fieldErrors(error: unknown): FieldError[] | undefined {
+  const errors: unknown = error instanceof Error ? Reflect.get(error, "errors") : undefined;
+  if (!Array.isArray(errors) || errors.length === 0) {
+    return undefined;
+  }
+  const fields: FieldError[] = [];
+  for (const item of errors) {
+    if (!isObject(item) || typeof item.field !== "string" || typeof item.error !== "string") {
+      return undefined;
+    }
+    fields.push({ field: item.field, error: item.error });
+  }
+  return fields;
+}
+
+/**
+ * A field's reason without long numbers: micro-eth-signer quotes some values in decimal, such as
+ * an authorization's `r` or `s` out of range, and a signature must not reach an error.
+ */
+function withoutValues(reason: string): string {
+  return reason.replaceAll(/\d{21,}/g, "<number>");
+}
+
+/**
+ * Runs `Transaction.prepare` and turns micro-eth-signer's field errors into a catalogue error that
+ * names each field and its reason.
+ */
+function prepareChecked<T>(type: string, prepare: () => T): T {
+  try {
+    return prepare();
+  } catch (error) {
+    const fields = fieldErrors(error);
+    if (fields === undefined) {
+      throw error;
+    }
+    const problems = fields.map(({ field, error: why }) => `${field} (${withoutValues(why)})`);
+    throw catalogError(
+      ERRORS.txInvalidFields,
+      { type, problems: problems.join(", ") },
+      { operation: "sign transaction" },
+    );
+  }
+}
+
 /**
  * Builds the unsigned transaction field for field like Hardhat's
  * `LocalAccountsHandler#getSignedTransaction`, with micro-eth-signer's strict mode off. The type
@@ -965,13 +1043,19 @@ export function buildUnsignedTransaction(tx: FilledTransaction): UnsignedTransac
     }
     const fees = { ...base, maxFeePerGas, maxPriorityFeePerGas, accessList: accessList ?? [] };
     return authorizationList === undefined
-      ? Transaction.prepare({ type: "eip1559", ...fees }, strict)
-      : Transaction.prepare({ type: "eip7702", ...fees, authorizationList }, strict);
+      ? prepareChecked("eip1559", () => Transaction.prepare({ type: "eip1559", ...fees }, strict))
+      : prepareChecked("eip7702", () =>
+          Transaction.prepare({ type: "eip7702", ...fees, authorizationList }, strict),
+        );
   }
   const gasPrice = tx.gasPrice ?? 0n;
   return accessList === undefined
-    ? Transaction.prepare({ type: "legacy", ...base, gasPrice }, strict)
-    : Transaction.prepare({ type: "eip2930", ...base, gasPrice, accessList }, strict);
+    ? prepareChecked("legacy", () =>
+        Transaction.prepare({ type: "legacy", ...base, gasPrice }, strict),
+      )
+    : prepareChecked("eip2930", () =>
+        Transaction.prepare({ type: "eip2930", ...base, gasPrice, accessList }, strict),
+      );
 }
 
 /**

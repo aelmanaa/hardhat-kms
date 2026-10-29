@@ -1304,6 +1304,35 @@ export const ERRORS = {
       "The transaction has an `authorizationList` and a `gasPrice`. EIP-7702 transactions use EIP-1559 fees.",
     fix: "Remove `gasPrice`, or set `maxFeePerGas` and `maxPriorityFeePerGas` instead.",
   },
+  txAuthorizationNoTo: {
+    id: "core.tx.authorization-no-to",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was signed or sent",
+    cause:
+      "The transaction has an `authorizationList` and no `to`, or `to: null`. EIP-7702 transactions cannot create contracts. From 3.20, Hardhat's local accounts refuse the same request (HHE726).",
+    fix: "Set `to`, or remove `authorizationList` to deploy a contract.",
+  },
+  txAuthorizationListEmpty: {
+    id: "core.tx.authorization-list-empty",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was signed or sent",
+    cause:
+      "The transaction has `authorizationList: []`. An EIP-7702 transaction must carry at least one authorization. From 3.20, Hardhat's local accounts refuse the same request (HHE727).",
+    fix: "Add an authorization, or remove `authorizationList` to send an EIP-1559 transaction.",
+  },
+  txInvalidFields: {
+    id: "core.tx.invalid-fields",
+    kind: "error",
+    group: "Transactions",
+    template: "the {type} transaction has invalid fields: {problems}. Nothing was signed",
+    cause:
+      "micro-eth-signer, which builds the unsigned transaction, refused these fields. Hardhat's local accounts build it with the same code and refuse the same fields. Numbers of 21 digits or more in a reason are left out, so the message holds no signature value.",
+    fix: "Correct each field the message names.",
+  },
   txBothFees: {
     id: "core.tx.both-fees",
     kind: "error",
