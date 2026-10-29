@@ -55,6 +55,10 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Snippets typecheck, every page is indexed, generated pages are current
         run: pnpm run docs:check
+      # A reference row the release on npm latest lacks needs an "Added in" note (#602). Reads npm and
+      # fetches that release's tag.
+      - name: New reference rows carry "Added in"
+        run: pnpm run docs:added-in
       - name: Internal links and anchors
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:

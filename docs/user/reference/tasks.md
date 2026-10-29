@@ -449,7 +449,7 @@ For `kms sign-auth --chain 1 --nonce 0 deployer 0x5FbDB2315678afecb367f032d93F64
 | `--nonce <n>`      | The authority's nonce, decimal or `0x` hex, below 2^64 - 1. Without it, the task uses the key's pending nonce from the `--network` node, so `--chain` alone needs `--nonce`.                                      |
 | `--self-broadcast` | Signs for the pending nonce + 1, for when this key sends the transaction that carries the authorization, which takes the pending nonce. The task sends nothing.                                                   |
 | `--force`          | Allows chain 0. It does not skip the question and does not stand for `--yes`.                                                                                                                                     |
-| `--yes`            | Skips the question for a delegate in the key's [`allowedDelegates`](configuration.md#limit-eip-7702-delegates) or the zero address. Required without a terminal. It never overrides the list.                     |
+| `--yes`            | Skips the question for a delegate in the key's [`allowedDelegates`](configuration.md#limit-eip-7702-delegates) or the zero address. Required without a terminal. It never overrides the list. Added in 1.3.0.     |
 
 **Output**
 

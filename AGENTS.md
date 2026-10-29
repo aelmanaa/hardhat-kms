@@ -110,6 +110,7 @@ pnpm run test:live:aws          # AWS adapter against real KMS (needs HARDHAT_KM
 pnpm run coverage               # tests with the 95% coverage threshold
 pnpm run pkg:check              # build, publint, arethetypeswrong, knip
 pnpm run docs:check             # doc snippets typecheck, every page is indexed, generated pages are current, frontmatter and skills are valid, Mermaid blocks parse
+pnpm run docs:added-in          # every reference row the release on npm latest lacks says "Added in"
 pnpm run docs:errors            # regenerate docs/user/reference/errors.md from the error catalogues
 pnpm run docs:api               # build, then regenerate docs/user/reference/api/ from TSDoc
 pnpm run docs:site:check        # build the docs site from docs/ and check its output
