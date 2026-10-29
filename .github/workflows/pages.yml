@@ -1,7 +1,8 @@
 name: Docs site
 
 # Builds the docs site and deploys it to GitHub Pages at https://aelmanaa.github.io/hardhat-kms/
-# (decision 0017). The root documents the version on npm `latest`, built from its release tag; main's
+# (decision 0017). The root documents the version on npm `latest`, built from its release tag, or from
+# release/X.Y when that branch adds only docs fixes to the tag (#603); main's
 # docs are under next/, with a banner and noindex on every page (decision 0024). Pull requests build
 # and check both trees in the Docs job of ci.yml without deploying them.
 on:
@@ -10,7 +11,8 @@ on:
   # After a promotion, so the root follows `latest` without a push to main. A `release` trigger
   # would not run: promote.yml edits the release with GITHUB_TOKEN, and GitHub starts no run for
   # events that token causes. This run downloads nothing from the run that triggered it: it reads
-  # the registry and checks out a tag. Promote runs only on a manual dispatch from main.
+  # the registry and checks out a tag or its release branch. Promote runs only on a manual dispatch
+  # from main.
   workflow_run: # zizmor: ignore[dangerous-triggers] uses no input or artifact of the triggering run
     workflows: [Promote]
     types: [completed]
@@ -81,10 +83,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No dependency cache: this job builds a tag or a release branch, and a cache it saved would be
+      # restored by main's runs.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
+          package-manager-cache: false
       - run: pnpm install --frozen-lockfile --ignore-scripts
       # The tag's own build and checks, or the release branch's, whose code is the tag's. A tag older
       # than decision 0024 has no channel and builds the root as it did at its release.
@@ -111,6 +115,9 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
+      # The commit the run is for: main on a push, a schedule, a Promote run or a dispatch from main.
+      # A dispatch from another branch builds that branch, but the github-pages environment refuses
+      # its deploy: only main may deploy.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0

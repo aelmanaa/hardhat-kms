@@ -16,11 +16,11 @@ Other projects take one of three routes. The Foundry book regenerates its refere
 
 The site root, `https://aelmanaa.github.io/hardhat-kms/`, documents the version on npm `latest` of `hardhat-kms`. `pages.yml` reads it from the registry (`scripts/site-release-tag.ts`), refuses anything that is not `X.Y.Z` and a version with no `vX.Y.Z` tag, and builds the root from a checkout of that tag with the tag's own site code and checks.
 
-The root builds from the tip of `release/X.Y` instead when that branch exists, the tag is its ancestor, and the two differ only under `docs/` (`siteRootRef` in the same script). A docs fix backported there then reaches readers without a release. Any other difference, such as a hotfix's code or version that npm `latest` does not have yet, keeps the root on the tag, and the run's notice says why. [Releasing](../releasing.md#5-hotfix-on-an-older-line) says when to backport a docs fix.
+The root builds from the tip of `release/X.Y` instead when that branch exists, the tag is its ancestor, and every file that differs is a regular Markdown or image file under `docs/`, renames counted as a deletion and an addition (`siteRootRef` in the same script). VitePress reads `docs/` as its source, so a `.vue`, `.ts`, `.js` or HTML file, a symlink or an executable there keeps the root on the tag. A docs fix backported there then reaches readers without a release. Any other difference, such as a hotfix's code or version that npm `latest` does not have yet, keeps the root on the tag, and the run's notice says why. [Releasing](../releasing.md#5-hotfix-on-an-older-line) says when to backport a docs fix.
 
 Main's docs are built into `next/` (`DOCS_SITE_CHANNEL=next`, base `/hardhat-kms/next/`). Every page there carries a banner that says the docs describe unreleased main and links to the root, and `<meta name="robots" content="noindex">`. `next/` has no sitemap, `robots.txt` or llms files, and its canonical URLs point at `next/`. Only the docs index, the landing page, links from the root into `next/`.
 
-`pages.yml` runs on a push to `main`, on manual dispatch, daily, and on `workflow_run` of Promote, so the root follows `latest` as soon as a promotion ends. The `workflow_run` job reads the registry and checks out a tag; it uses nothing from the run that triggered it.
+`pages.yml` runs on a push to `main`, on manual dispatch, daily, and on `workflow_run` of Promote, so the root follows `latest` as soon as a promotion ends. The `workflow_run` job reads the registry and checks out a tag or its release branch; it uses nothing from the run that triggered it.
 
 ## Consequences
 
@@ -30,4 +30,5 @@ Main's docs are built into `next/` (`DOCS_SITE_CHANNEL=next`, base `/hardhat-kms
 - A value on `latest` that is not `X.Y.Z`, or has no tag, fails the run before anything deploys, and the last good site stays live.
 - The root is built with the site code of the tag. A change to the site itself (layout, checks, the docs index's link to `next/`) reaches the root with the release after it merges.
 - Each run builds the site twice, which roughly doubles its time.
+- Before #603 only a tag, which only an admin can push, changed the root. A squash-merged pull request into `release/X.Y` that passes the required checks now can too, the same gate as `main`; only an admin can create the branch.
 - Revisit if past versions need their own trees, which this decision leaves out. The two follow-ups of #581 are done: "Added in X.Y.Z" notes ([#602](https://github.com/aelmanaa/hardhat-kms/issues/602)) and docs fixes on `release/X.Y` ([#603](https://github.com/aelmanaa/hardhat-kms/issues/603)).
