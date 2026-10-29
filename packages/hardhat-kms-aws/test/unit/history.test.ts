@@ -123,6 +123,13 @@ function page(events: Array<string | undefined>, nextToken?: string) {
   return { events, nextToken };
 }
 
+/** Lets the event loop turn a few times, so every promise that can settle without a timer does. */
+async function eventLoopTurns(): Promise<void> {
+  for (let turn = 0; turn < 10; turn++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
 describe("AWS history reader", () => {
   it("maps a recorded plugin Sign event field by field", async () => {
     const { result } = await read({ pages: [page([recorded(PLUGIN)])] });
@@ -656,20 +663,26 @@ describe("AWS history reader", () => {
     assert.equal(calls.find((call) => call.method === "resolveKeyArn")?.signal, controller.signal);
   });
 
-  it("waits between pages with a sleep that the signal ends", async () => {
+  it("waits between pages with a sleep that the signal ends", async (t) => {
+    // The sleep's timer never fires under mock timers, so only the abort can end it (#576).
+    t.mock.timers.enable({ apis: ["setTimeout"] });
     const controller = new AbortController();
     const { api } = fakeHistoryApi({ pages: () => page([], "more") });
     const key = awsKey(FIXTURE.keyArn);
+    let settled = false;
     const reading = readAwsSignHistory(
       key,
       { key, since: SINCE, until: UNTIL, limit: 100, signal: controller.signal },
       api,
-    );
-    const started = Date.now();
-    setImmediate(() => {
-      controller.abort(new Error("stop"));
+    ).finally(() => {
+      settled = true;
     });
+    reading.catch(() => undefined);
+    await eventLoopTurns();
+    assert.equal(settled, false, "the reader did not wait between pages");
+    controller.abort(new Error("stop"));
+    await eventLoopTurns();
+    assert.ok(settled, "the sleep did not end on abort");
     await assert.rejects(reading);
-    assert.ok(Date.now() - started < PAGE_INTERVAL_MS, "the sleep did not end on abort");
   });
 });
