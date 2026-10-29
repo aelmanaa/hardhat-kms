@@ -416,7 +416,7 @@ describe("kms sign-tx over HTTP", () => {
       await refused({ to: TO, color: "blue" }, ["unknown transaction field color."]);
     });
 
-    it("refuses an authorizationList without to, or an empty one, before the key opens (#586)", async () => {
+    it("refuses an authorizationList without to, an empty or null one, or one of another shape, before the key opens (#586, #607)", async () => {
       const cases: [Record<string, unknown>, string][] = [
         [
           { authorizationList: [RPC_AUTHORIZATION] },
@@ -425,6 +425,22 @@ describe("kms sign-tx over HTTP", () => {
         [
           { to: TO, gas: "0x5208", authorizationList: [] },
           "kms sign-tx: the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was signed or sent",
+        ],
+        [
+          { to: TO, authorizationList: null },
+          "kms sign-tx: the transaction's authorizationList is null; set a value or leave the field out. Nothing was signed.",
+        ],
+        [
+          { to: TO, authorizationList: {} },
+          "kms sign-tx: the authorizationList of an EIP-7702 transaction must be an array of authorizations. Nothing was signed or sent",
+        ],
+        [
+          { to: "0x", authorizationList: [RPC_AUTHORIZATION] },
+          "kms sign-tx: the `to` of an EIP-7702 transaction must be a 20-byte hex address. Nothing was signed or sent",
+        ],
+        [
+          { to: TO, authorizationList: [RPC_AUTHORIZATION, null] },
+          "kms sign-tx: authorizationList[1] must be a signed authorization object. Nothing was signed or sent",
         ],
       ];
       for (const [request, message] of cases) {

@@ -830,7 +830,7 @@ describe("HardhatTransactionFiller checks", () => {
     );
   });
 
-  it("refuses an authorizationList without to, or an empty one, before any node request (#586)", async () => {
+  it("refuses an authorizationList without to, an empty one, or one of another shape, before any node request (#586, #607)", async () => {
     const authorization = {
       chainId: "0x7a69",
       address: TO,
@@ -850,6 +850,35 @@ describe("HardhatTransactionFiller checks", () => {
       [{ authorizationList: [] }, noTo],
       [{ to: TO, authorizationList: [] }, empty],
     ];
+    const notArray =
+      "the authorizationList of an EIP-7702 transaction must be an array of authorizations. Nothing was signed or sent";
+    // A list that is not an array comes first, even without `to`.
+    for (const list of [{}, "0x", 0, false, { length: 0 }]) {
+      cases.push(
+        [{ to: TO, authorizationList: list }, notArray],
+        [{ authorizationList: list }, notArray],
+      );
+    }
+    const notAddress =
+      "the `to` of an EIP-7702 transaction must be a 20-byte hex address. Nothing was signed or sent";
+    // A bad `to` comes before an empty list.
+    for (const to of ["", "0x", 0, false, `0x${"ab".repeat(19)}`, `${TO}00`, TO.slice(2)]) {
+      cases.push(
+        [{ to, authorizationList: [authorization] }, notAddress],
+        [{ to, authorizationList: [] }, notAddress],
+      );
+    }
+    const notObject = "must be a signed authorization object. Nothing was signed or sent";
+    for (const item of [null, undefined, [], "0x", 1]) {
+      cases.push([
+        { to: TO, authorizationList: [authorization, item] },
+        `authorizationList[1] ${notObject}`,
+      ]);
+    }
+    // A hole, which entries() visits as undefined.
+    const sparse: unknown[] = [];
+    sparse.length = 1;
+    cases.push([{ to: TO, authorizationList: sparse }, `authorizationList[0] ${notObject}`]);
     for (const method of ["eth_sendTransaction", "eth_signTransaction"]) {
       for (const gas of [{}, { gas: "0x5208" }]) {
         for (const [fields, message] of cases) {
@@ -1865,8 +1894,11 @@ async function refusal(authorizationList: unknown): Promise<string> {
 }
 
 describe("HardhatTransactionFiller malformed authorization lists", () => {
-  it("leave an item that is not an object to the schema", async () => {
-    assert.match(await refusal([null]), /Expected object, received null/);
+  it("refuse an item that is not an object before the schema (#607)", async () => {
+    assert.equal(
+      await refusal([null]),
+      "eth_sendTransaction: authorizationList[0] must be a signed authorization object. Nothing was signed or sent",
+    );
   });
 
   it("leave an r or s that is not a string to the schema, even one that reads as a quantity", async () => {
