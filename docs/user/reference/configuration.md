@@ -234,7 +234,7 @@ The fields of an entry:
 
 The rules:
 
-- Without `allowedDelegates`, nothing changes: the key may delegate to any contract. With it, a delegate must match an entry for the authorization's chain. An empty list allows only the zero address.
+- Without `allowedDelegates`, nothing changes: the key may delegate to any contract. With it, a delegate must match an entry for the authorization's chain. An empty list allows only the zero address. To lock a deployer or admin key against any delegation, set `allowedDelegates: []`: every path below refuses a delegate other than the zero address, with or without a terminal, and a revoke still works. Leave `allowRawDigests` unset on such a key, since a raw digest can be an authorization the list never sees. `kms accounts` shows the key as `revoke only`.
 - An authorization for chain N matches entries that list N, and entries with `chains: "all"`.
 - An authorization for chain 0 is valid on every chain, so it matches only entries with `chains: "all"`. An entry that lists chain ids never allows a chain-0 authorization, as in Ledger's Ethereum app.
 - With `codeHash`, the plugin reads the delegate's code on the network and refuses when its hash differs, when the address has no code, or when the node's answer is not hex data. When several entries match, one without `codeHash` is enough; otherwise the code must match one of their hashes. For a chain-0 authorization, the code is read on the connection's chain only, and a note says so. `kms sign-auth --chain` opens no connection, so it refuses a delegate whose matching entries all pin a hash: run it with `--network`.

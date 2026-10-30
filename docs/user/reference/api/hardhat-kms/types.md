@@ -27,6 +27,19 @@ One key in the output of `kms accounts`.
 
 The EIP-55 address, or `null` if the key failed.
 
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: `number`
+
+Only for a key with `allowedDelegates`: the number of its entries. `0` means the key may sign
+an EIP-7702 authorization only to the zero address, which clears a delegation.
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+Only for a key with `allowRawDigests: true`: `true`.
+
 ##### balance?
 
 > `optional` **balance?**: `string` \| `null`
@@ -191,7 +204,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
 
 ##### allowRawDigests?
 
@@ -201,7 +214,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### displayId
 
@@ -295,7 +308,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
 
 ##### allowRawDigests?
 
@@ -308,7 +321,7 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### endpoint?
 
@@ -388,7 +401,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
 
 ##### allowRawDigests?
 
@@ -401,7 +414,7 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### keyName
 
@@ -461,7 +474,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
 
 ##### allowRawDigests?
 
@@ -471,7 +484,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### displayId
 
@@ -547,7 +560,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
 
 ##### allowRawDigests?
 
@@ -560,7 +573,7 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### keyId
 
@@ -621,7 +634,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
 
 ##### allowRawDigests?
 
@@ -631,7 +644,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### displayId
 
@@ -705,7 +718,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
 
 ##### allowRawDigests?
 
@@ -718,7 +731,7 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### keyName
 
@@ -786,7 +799,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
 
 ##### allowRawDigests?
 
@@ -796,7 +809,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### displayId
 
@@ -872,7 +885,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
 
 ##### allowRawDigests?
 
@@ -885,7 +898,7 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### keyVersionName
 
@@ -2888,7 +2901,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
 
 ##### allowRawDigests?
 
@@ -2898,7 +2911,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### apiPrivateKey
 
@@ -2993,7 +3006,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
 
 ##### allowRawDigests?
 
@@ -3006,7 +3019,7 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### apiPrivateKey
 

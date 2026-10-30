@@ -664,6 +664,69 @@ describe("kms accounts", () => {
     );
   });
 
+  it("shows each key's EIP-7702 delegate limit and its raw-digest opt-in (#564)", async () => {
+    const delegate = { address: COW_ACCOUNT.address, chains: "all" } as const;
+    const { hre } = await runtime({
+      keys: {
+        open: vaultKey("open"),
+        locked: { ...vaultKey("locked"), allowedDelegates: [] },
+        listed: {
+          ...vaultKey("listed"),
+          allowedDelegates: [delegate, { address: HARDHAT_ACCOUNT_0.address, chains: [1] }],
+        },
+        raw: { ...vaultKey("raw"), allowRawDigests: true },
+      },
+      adapters: {
+        open: () => closableAdapter(),
+        locked: () => closableAdapter(),
+        listed: () => closableAdapter(),
+        raw: () => closableAdapter(),
+      },
+    });
+
+    const run = await accounts(hre);
+
+    assert.deepEqual(
+      run.accounts.map(({ name, allowedDelegates, allowRawDigests }) => ({
+        name,
+        allowedDelegates,
+        allowRawDigests,
+      })),
+      [
+        { name: "open", allowedDelegates: undefined, allowRawDigests: undefined },
+        { name: "locked", allowedDelegates: 0, allowRawDigests: undefined },
+        { name: "listed", allowedDelegates: 2, allowRawDigests: undefined },
+        { name: "raw", allowedDelegates: undefined, allowRawDigests: true },
+      ],
+    );
+    assert.deepEqual(lines(run.printed).slice(0, 6), [
+      "NAME    PROVIDER  SOURCE    ADDRESS                                     PIN   DELEGATES    KEY ID",
+      `open    myvault   kms.keys  ${HARDHAT_ACCOUNT_0.address}  none  any          myvault:open`,
+      `locked  myvault   kms.keys  ${HARDHAT_ACCOUNT_0.address}  none  revoke only  myvault:locked`,
+      `listed  myvault   kms.keys  ${HARDHAT_ACCOUNT_0.address}  none  2 listed     myvault:listed`,
+      `raw     myvault   kms.keys  ${HARDHAT_ACCOUNT_0.address}  none  any          myvault:raw`,
+      "  raw digests: allowed (allowRawDigests), which no delegate limit can check",
+    ]);
+
+    // Without a key that limits its delegates, the column is left out; the opt-in still shows.
+    const { hre: plain } = await runtime({
+      keys: { raw: { ...vaultKey("raw"), allowRawDigests: true } },
+      adapters: { raw: () => closableAdapter() },
+    });
+    assert.deepEqual(lines((await accounts(plain)).printed).slice(0, 3), [
+      "NAME  PROVIDER  SOURCE    ADDRESS                                     PIN   KEY ID",
+      `raw   myvault   kms.keys  ${HARDHAT_ACCOUNT_0.address}  none  myvault:raw`,
+      "  raw digests: allowed (allowRawDigests), which no delegate limit can check",
+    ]);
+
+    const json = await accounts(hre, { json: true });
+    const parsed: unknown = JSON.parse(json.printed);
+    assert.deepEqual(parsed, { version: 1, accounts: json.accounts });
+    assert.equal(json.accounts[1]?.allowedDelegates, 0);
+    assert.equal(Object.hasOwn(json.accounts[0] ?? {}, "allowedDelegates"), false);
+    assert.equal(Object.hasOwn(json.accounts[0] ?? {}, "allowRawDigests"), false);
+  });
+
   it("prints JSON with --json and nothing else on standard output", async () => {
     const { hre } = await runtime({
       keys: { deployer: vaultKey("deployer"), broken: vaultKey("broken") },
@@ -726,13 +789,21 @@ describe("kms accounts", () => {
       assert.equal(created.length, 1);
     });
 
-    it("keeps keys apart when their pin, region or provider differ", async () => {
+    it("keeps keys apart when their pin, region, provider or signing limits differ", async () => {
       const { hre } = await runtime({
         keys: {
           plain: { provider: "aws", keyId: "alias/deployer" },
           pinned: { provider: "aws", keyId: "alias/deployer", address: HARDHAT_ACCOUNT_0.address },
           otherPin: { provider: "aws", keyId: "alias/deployer", address: COW_ACCOUNT.address },
           elsewhere: { provider: "aws", keyId: "alias/deployer", region: "eu-west-1" },
+          // What the key may sign differs, so each keeps its row (#564).
+          locked: { provider: "aws", keyId: "alias/deployer", allowedDelegates: [] },
+          listed: {
+            provider: "aws",
+            keyId: "alias/deployer",
+            allowedDelegates: [{ address: COW_ACCOUNT.address, chains: "all" }],
+          },
+          rawDigests: { provider: "aws", keyId: "alias/deployer", allowRawDigests: true },
           vaultA: vaultKey("same"),
           vaultB: vaultKey("same"),
         },
@@ -741,6 +812,9 @@ describe("kms accounts", () => {
           pinned: () => closableAdapter(),
           otherPin: () => closableAdapter(),
           elsewhere: () => closableAdapter(),
+          locked: () => closableAdapter(),
+          listed: () => closableAdapter(),
+          rawDigests: () => closableAdapter(),
           vaultA: () => closableAdapter(),
           vaultB: () => closableAdapter(),
         },
@@ -750,7 +824,17 @@ describe("kms accounts", () => {
 
       assert.deepEqual(
         run.accounts.map((entry) => entry.name),
-        ["plain", "pinned", "otherPin", "elsewhere", "vaultA", "vaultB"],
+        [
+          "plain",
+          "pinned",
+          "otherPin",
+          "elsewhere",
+          "locked",
+          "listed",
+          "rawDigests",
+          "vaultA",
+          "vaultB",
+        ],
       );
     });
   });
