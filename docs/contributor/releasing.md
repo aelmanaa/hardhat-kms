@@ -72,7 +72,7 @@ Why the manifests read `0.8.0` before the first release: `changeset version` app
    - `ci.yml`, the Linux jobs. It runs on every push to `main`, so a commit of `main` usually has a run already.
    - `ci-all-os.yml`, whose macOS and Windows test jobs both passed.
    - `hardhat-versions.yml`, the Hardhat floor and latest, with every job passed.
-   - `sdk-floors.yml`, the cloud SDK and viem floors, with every job passed.
+   - `sdk-floors.yml`, the cloud SDK, viem and Hardhat library floors, with every job passed.
 
    The job waits up to 90 minutes in all (`scripts/release-gate-ci.ts`). When a workflow has no passing run on the commit, the job follows this table, the same as `RETRY_RULES` in the script:
 
@@ -81,7 +81,7 @@ Why the manifests read `0.8.0` before the first release: `changeset version` app
    | `ci.yml`               | Dispatch once               | Stop the gate         | hermetic: frozen lockfile, actions and images pinned                               |
    | `ci-all-os.yml`        | Dispatch once               | Dispatch once more    | runs on macos-latest and windows-latest, and its scheduled run may predate the tag |
    | `hardhat-versions.yml` | Dispatch once               | Dispatch once more    | tests the latest Hardhat 3 release at run time                                     |
-   | `sdk-floors.yml`       | Dispatch once               | Stop the gate         | hermetic: pinned SDK and viem floors, frozen lockfile                              |
+   | `sdk-floors.yml`       | Dispatch once               | Stop the gate         | hermetic: pinned SDK, viem and Hardhat library floors, frozen lockfile             |
 
    A run was not fully tested when it was cancelled, as when a newer push to `main` replaces a pending run, or when it concluded `success` with a skipped job. `ci.yml` skips some jobs on push by design, so the gate reads only its run conclusion. Any other run that did not conclude `success` failed. The gate dispatches on the tag and waits. A run dispatched on the commit that did not pass stops the gate, whatever its conclusion, so re-running the job grants no further dispatch. A second run of a hermetic workflow tests the same inputs, so it could only hide a flaky failure; the two retried workflows depend on inputs outside the commit, so a second run can test something the first did not.
 
