@@ -316,12 +316,12 @@ async function identityOf(key: KmsKeyConfig): Promise<string | undefined> {
 }
 
 /**
- * What else keeps two entries for one KMS key apart in the list: a Turnkey key's API keys, by
- * their comparison forms (a variable's name, never its value), and its `transactionSigning`. The
- * API key decides which user asks and which policies apply, so `--check-sign` checks each one.
+ * What else keeps two entries for one KMS key apart in the list: what each entry lets the key
+ * sign (`allowedDelegates` and `allowRawDigests`) and, for a Turnkey key, its API keys, by their
+ * comparison forms (a variable's name, never its value), and its `transactionSigning`. The API key
+ * decides which user asks and which policies apply, so `--check-sign` checks each one.
  */
 function listedSettings(key: KmsKeyConfig): string {
-  // What each entry lets the key sign: entries that differ keep rows of their own.
   const limits = [key.allowedDelegates ?? null, key.allowRawDigests === true];
   if (key.provider !== "turnkey") {
     return JSON.stringify(limits);
@@ -336,8 +336,8 @@ function listedSettings(key: KmsKeyConfig): string {
 
 /**
  * Lists each KMS key once: keys with the same identity, the same pin, the same `allowedDelegates`
- * and `allowRawDigests` and, for Turnkey, the same API keys and `transactionSigning` are one entry, under the first name, with the others in
- * `otherNames`. Keys of third-party providers, and keys whose identifier cannot be read, are never
+ * and `allowRawDigests` and, for Turnkey, the same API keys and `transactionSigning` are one
+ * entry, under the first name, with the others in `otherNames`. Keys of third-party providers, and keys whose identifier cannot be read, are never
  * merged; reading them fails again when they are resolved.
  */
 async function distinctKeys(keys: TaskKey[]): Promise<ListedKey[]> {

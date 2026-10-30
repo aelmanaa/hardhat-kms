@@ -638,6 +638,8 @@ describe("kms accounts", () => {
         otherUser: { ...turnkey, apiPrivateKey: configVariable("HHKMS_TEST_TURNKEY_SECOND_KEY") },
         otherPublicKey: { ...turnkey, apiPublicKey: configVariable("HHKMS_TEST_TURNKEY_PUBLIC") },
         digest: { ...turnkey, transactionSigning: "digest" },
+        // Other signing limits: a row of its own.
+        locked: { ...turnkey, allowedDelegates: [] },
         // Another account in the same organization: a row of its own.
         other: { ...turnkey, address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" },
       },
@@ -646,6 +648,7 @@ describe("kms accounts", () => {
         otherUser: () => closableAdapter(),
         otherPublicKey: () => closableAdapter(),
         digest: () => closableAdapter(),
+        locked: () => closableAdapter(),
         other: () => closableAdapter(),
       },
     });
@@ -659,6 +662,7 @@ describe("kms accounts", () => {
         ["otherUser", []],
         ["otherPublicKey", []],
         ["digest", []],
+        ["locked", []],
         ["other", []],
       ],
     );
