@@ -23,6 +23,7 @@ import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { warn } from "../warnings.ts";
 import type { ConnectionChain } from "./chain-id.ts";
+import { rpcDataBytes } from "./rpc-data.ts";
 import {
   canonicalJson,
   type ConnectionSends,
@@ -390,7 +391,7 @@ export async function dispatch(
   if (request.method === "eth_sign") {
     const signed = await signFor(accounts, request.method, params[0], async (signer) => {
       const [, data] = validateParams(params, rpcAddress, rpcData);
-      return await signer.signPersonalMessage(data);
+      return await signer.signPersonalMessage(rpcDataBytes(params[1], data));
     });
     if (signed !== undefined) {
       return response(request, signed.result);
@@ -398,7 +399,7 @@ export async function dispatch(
   } else if (request.method === "personal_sign") {
     const signed = await signFor(accounts, request.method, params[1], async (signer) => {
       const [data] = validateParams(params, rpcData, rpcAddress);
-      return await signer.signPersonalMessage(data);
+      return await signer.signPersonalMessage(rpcDataBytes(params[0], data));
     });
     if (signed !== undefined) {
       return response(request, signed.result);
