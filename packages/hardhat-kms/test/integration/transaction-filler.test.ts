@@ -385,8 +385,25 @@ describe("transaction filling matches Hardhat's local accounts", () => {
   });
 
   it("applies the network's gas multiplier", async () => {
-    assert.equal(await compare("multiplied", { from: FROM, to: TO, data: "0x" }), "eip1559");
+    // No data "0x" here: Hardhat signs 0x00 for it with hardhat-utils before 5.1.1 (#614).
+    assert.equal(await compare("multiplied", { from: FROM, to: TO }), "eip1559");
     assert.equal(await compare("multiplied11", { from: FROM, to: TO, data: "0x1234" }), "eip1559");
+  });
+
+  it("signs no calldata for data 0x (#614)", async () => {
+    // hardhat-utils before 5.1.1, which hardhat-zod-utils may resolve, reads "0x" as one zero
+    // byte, and Hardhat's own signer then signs 0x00 too. So this checks the plugin's bytes rather
+    // than comparing them with Hardhat's.
+    const connection: NetworkConnection<string> = await hre.network.create("local");
+    try {
+      const filled = await fillerFor(connection).fill("eth_sendTransaction", [
+        { from: FROM, to: TO, data: "0x" },
+      ]);
+      assert.deepEqual(filled.data, new Uint8Array());
+      assert.equal(fields(buildUnsignedTransaction(filled).raw).data, "0x");
+    } finally {
+      await connection.close();
+    }
   });
 
   it("caps the multiplied estimate below the block gas limit", async () => {
