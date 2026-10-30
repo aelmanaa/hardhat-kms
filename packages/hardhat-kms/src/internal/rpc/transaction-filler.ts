@@ -33,6 +33,7 @@ import { addr, Transaction } from "micro-eth-signer";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
 import type { ConnectionChain } from "./chain-id.ts";
+import { rpcDataBytes } from "./rpc-data.ts";
 
 /** Sends one JSON-RPC request on the connection, through the whole hook chain. */
 export type RequestFunction = (method: string, params?: unknown[]) => Promise<unknown>;
@@ -218,10 +219,15 @@ export class HardhatTransactionFiller implements TransactionFiller {
     // a number or a quantity with leading zeros, which this filler accepts.
     const { type: _type, ...untyped } = tx;
     // The node got r and s as quantities; Hardhat's schema wants them as 32 bytes.
-    const [request] = validateParams(
+    const [parsed] = validateParams(
       [withPaddedAuthorizationSignatures(untyped), ...rest],
       rpcTransactionRequest,
     );
+    // The schema's copy of hardhat-utils may read "0x" as one zero byte; see rpcDataBytes.
+    const request =
+      parsed.data === undefined
+        ? parsed
+        : { ...parsed, data: rpcDataBytes(untyped.data, parsed.data) };
     const gas = requireGas(request, method);
     checkFeeFields(request, method);
     const chainId = await this.#checkChain(request.chainId, method);

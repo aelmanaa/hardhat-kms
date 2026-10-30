@@ -18,7 +18,8 @@
     "src/internal/rpc/send-guard.ts",
     "src/internal/rpc/dispatcher.ts",
     "src/internal/rpc/transaction-filler.ts",
-    "src/internal/rpc/transactions.ts"
+    "src/internal/rpc/transactions.ts",
+    "src/internal/rpc/rpc-data.ts"
   ],
   "ignorePatterns": ["dist", "coverage", ".tmp", "test/fixture-projects"],
   "tsconfigFile_comment": "Points at a file that does not exist on purpose. Stryker rewrites tsconfig.json in its sandbox with typescript's parseConfigFileTextToJson, which TypeScript 7 does not export. The rewrite only serves Stryker's TypeScript checker, which this setup does not use. See docs/contributor/testing.md, layer 8.",
