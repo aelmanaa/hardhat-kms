@@ -131,7 +131,7 @@ For an exact-version install, name the same version in both package specs, such 
 
 Yarn 4.14 and later run no install scripts by default and print `YN0004` for `esbuild` and `protobufjs`; the plugin needs neither.
 
-`@hardhat-kms/gcp`: Yarn 1 and pnpm 10 can install the deprecated `google-gax` 6.11.0; [Keep google-gax off 6.11.0](gcp-kms-setup.md#keep-google-gax-off-6110) says how to check and how to override it.
+`@hardhat-kms/gcp`: a lockfile or pnpm cache from 2026-10-06 or 07 can hold the deprecated `google-gax` 6.11.0; [Keep google-gax off 6.11.0](gcp-kms-setup.md#keep-google-gax-off-6110) says how to check and how to override it.
 
 ## 2. Register the plugin
 
