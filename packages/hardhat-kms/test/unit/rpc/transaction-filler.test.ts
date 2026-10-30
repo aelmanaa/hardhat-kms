@@ -904,6 +904,11 @@ describe("HardhatTransactionFiller checks", () => {
     // A list with `to` fills as before.
     const { node } = await fill(EIP1559_NODE, { authorizationList: [authorization] });
     assert.ok(node.methods().length > 0);
+    // As Hardhat's rpcAddress, a `0X` prefix and either case of hex digits are an address (#618).
+    for (const to of [`0X${TO.slice(2)}`, `0x${TO.slice(2).toUpperCase()}`, TO.toLowerCase()]) {
+      const { node: other } = await fill(EIP1559_NODE, { to, authorizationList: [authorization] });
+      assert.ok(other.methods().length > 0, to);
+    }
   });
 
   it("refuses blob transactions before any request", async () => {

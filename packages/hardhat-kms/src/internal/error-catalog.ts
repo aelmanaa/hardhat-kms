@@ -1351,7 +1351,7 @@ export const ERRORS = {
     template:
       "the `to` of an EIP-7702 transaction must be a 20-byte hex address. Nothing was signed or sent",
     cause:
-      'The transaction has an `authorizationList` and a `to` that is not `0x` followed by 40 hex digits, such as `""`, `"0x"`, a number or a boolean. It is refused before any request to the node; Hardhat\'s local accounts refuse it with a schema error after the fee and gas requests.',
+      'The transaction has an `authorizationList` and a `to` that is not `0x` or `0X` followed by 40 hex digits, such as `""`, `"0x"`, a number or a boolean. It is refused before any request to the node; Hardhat\'s local accounts refuse it with a schema error after the fee and gas requests.',
     fix: "Set `to` to the address the transaction calls, often the account itself.",
   },
   txInvalidFields: {
