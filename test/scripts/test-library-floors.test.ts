@@ -10,18 +10,18 @@ describe("floorRuns", () => {
       floorRuns({
         "@nomicfoundation/hardhat-errors": ["3.1.0"],
         "@nomicfoundation/hardhat-utils": ["4.3.0", "5.0.0"],
-        "@nomicfoundation/hardhat-zod-utils": ["3.0.8"],
+        "@nomicfoundation/hardhat-zod-utils": ["3.0.7"],
       }),
       [
         {
           "@nomicfoundation/hardhat-errors": "3.1.0",
           "@nomicfoundation/hardhat-utils": "4.3.0",
-          "@nomicfoundation/hardhat-zod-utils": "3.0.8",
+          "@nomicfoundation/hardhat-zod-utils": "3.0.7",
         },
         {
           "@nomicfoundation/hardhat-errors": "3.1.0",
           "@nomicfoundation/hardhat-utils": "5.0.0",
-          "@nomicfoundation/hardhat-zod-utils": "3.0.8",
+          "@nomicfoundation/hardhat-zod-utils": "3.0.7",
         },
       ],
     );

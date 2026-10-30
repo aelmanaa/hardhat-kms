@@ -128,6 +128,6 @@ describe("floorsOf", () => {
     };
     assert.deepEqual(floors("@nomicfoundation/hardhat-utils"), ["4.3.0", "5.0.0"]);
     assert.deepEqual(floors("@nomicfoundation/hardhat-errors"), ["3.1.0"]);
-    assert.deepEqual(floors("@nomicfoundation/hardhat-zod-utils"), ["3.0.8"]);
+    assert.deepEqual(floors("@nomicfoundation/hardhat-zod-utils"), ["3.0.7"]);
   });
 });

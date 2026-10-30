@@ -314,7 +314,7 @@ importers:
         specifier: ^4.3.0 || ^5.0.0
         version: 5.1.1
       '@nomicfoundation/hardhat-zod-utils':
-        specifier: ^3.0.8
+        specifier: ^3.0.7
         version: 3.0.8(zod@3.25.76)
       micro-eth-signer:
         specifier: ^0.19.0

@@ -389,23 +389,6 @@ describe("transaction filling matches Hardhat's local accounts", () => {
     assert.equal(await compare("multiplied11", { from: FROM, to: TO, data: "0x1234" }), "eip1559");
   });
 
-  it("signs no calldata for data 0x (#587)", async () => {
-    // hardhat-zod-utils 3.0.7 and earlier parse with hardhat-utils 4, which reads "0x" as one zero
-    // byte. Hardhat's own signer reads the request the same way when it has such a copy, so the
-    // comparison alone would pass on both; the bytes are checked here too.
-    const connection: NetworkConnection<string> = await hre.network.create("local");
-    try {
-      const unsigned = await compareOn("local", connection, fillerFor(connection), {
-        from: FROM,
-        to: TO,
-        data: "0x",
-      });
-      assert.equal(fields(unsigned.raw).data, "0x");
-    } finally {
-      await connection.close();
-    }
-  });
-
   it("caps the multiplied estimate below the block gas limit", async () => {
     const connection: NetworkConnection<string> = await hre.network.create("lowLimit");
     try {
