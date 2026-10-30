@@ -103,6 +103,7 @@ pnpm test                       # unit and integration tests
 pnpm run test:localstack        # AWS adapter against LocalStack (needs Docker)
 pnpm run test:examples          # the projects in examples/ against LocalStack (needs Docker)
 pnpm run test:sdk-floors        # provider packages against their lowest SDK versions
+pnpm run test:library-floors    # the core against the lowest hardhat-utils, hardhat-errors and hardhat-zod-utils
 pnpm run test:hardhat-versions  # fill tests on the Hardhat floor and latest 3.x
 pnpm run test:mutation          # Stryker on the core's crypto/ and signer/ (incremental)
 pnpm run test:live              # deploys, sends and signs with each configured key on a Sepolia fork (needs anvil); HARDHAT_KMS_LIVE_NETWORK=sepolia runs it on real Sepolia

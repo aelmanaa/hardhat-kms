@@ -1,9 +1,11 @@
 // Reads the floor of a dependency range for the scripts that test a floor
-// (scripts/test-sdk-floors.ts). A tested range is a caret range on the floor, such as `^6.5.0`. It
+// (scripts/test-sdk-floors.ts, scripts/test-library-floors.ts). A tested range is a caret range on the floor, such as `^6.5.0`. It
 // may skip releases of the same major, such as a deprecated one, as alternatives joined by `||`:
 // `^6.5.0 <6.11.0 || ^6.11.1` allows 6.5.0 up to 6.10.x, then 6.11.1 and later 6.x releases. Every
 // alternative is a caret range on the same major, so the range never allows another major, and the
-// first alternative's version is the floor.
+// first alternative's version is the floor. A range that accepts several majors, such as
+// `^4.3.0 || ^5.0.0`, has one floor per major (floorsOf), and each major's part follows the same
+// rules.
 
 /** One alternative: `^x.y.z`, optionally with an upper bound `<x.b.c` in the same major. */
 const ALTERNATIVE = /^\^(\d+)\.(\d+)\.(\d+)(?: <(\d+)\.(\d+)\.(\d+))?$/;
@@ -69,4 +71,32 @@ export function floorOf(range: string): string {
     }
   });
   return format(first.low);
+}
+
+/**
+ * The floors of a range that may accept several majors: one per major, in order.
+ *
+ * @param range - The range from package.json, such as `^4.3.0 || ^5.0.0`.
+ * @returns One floor per major, such as `["4.3.0", "5.0.0"]`.
+ * @throws When a major's part fails {@link floorOf}, or the majors are out of order.
+ */
+export function floorsOf(range: string): string[] {
+  const parts: string[][] = [];
+  let previous: number | undefined;
+  for (const alternative of range.split("||")) {
+    const major = /^\^(\d+)\./.exec(alternative.trim())?.[1];
+    if (major === undefined) {
+      // floorOf names the forms it accepts.
+      return [floorOf(range)];
+    }
+    if (previous === Number(major)) {
+      parts.at(-1)?.push(alternative);
+    } else if (previous === undefined || previous < Number(major)) {
+      parts.push([alternative]);
+      previous = Number(major);
+    } else {
+      throw new Error(`the majors must come in ascending order (got ${range})`);
+    }
+  }
+  return parts.map((part) => floorOf(part.join("||")));
 }

@@ -79,7 +79,7 @@ export const RETRY_RULES: Readonly<Record<DispatchedWorkflow, RetryRule>> = {
   },
   [SDK_FLOORS_WORKFLOW]: {
     retriesFailure: false,
-    why: "hermetic: pinned SDK and viem floors, frozen lockfile",
+    why: "hermetic: pinned SDK, viem and Hardhat library floors, frozen lockfile",
   },
 };
 
