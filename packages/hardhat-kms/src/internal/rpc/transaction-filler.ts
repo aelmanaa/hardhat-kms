@@ -872,7 +872,8 @@ export function checkAuthorizationRequest(tx: Record<string, unknown>, method: s
   if (tx.to === undefined || tx.to === null) {
     throw catalogError(ERRORS.txAuthorizationNoTo, {}, { operation: method });
   }
-  if (typeof tx.to !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(tx.to)) {
+  // As Hardhat's rpcAddress: `0x` or `0X`, then 40 hex digits in any case (#618).
+  if (typeof tx.to !== "string" || !/^0x[0-9a-f]{40}$/i.test(tx.to)) {
     throw catalogError(ERRORS.txAuthorizationToNotAddress, {}, { operation: method });
   }
   if (list.length === 0) {
