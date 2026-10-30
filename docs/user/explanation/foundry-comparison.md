@@ -41,7 +41,18 @@ Neither tool keeps secrets in its config: both read cloud credentials the way th
 
 The AWS row with a profile and access keys is the one that changes which identity signs. A Foundry job that exports access keys and also sets `AWS_PROFILE` signs with the keys; the same environment under hardhat-kms signs with the profile. Set one or the other, never both ([Never set a profile and environment keys together](../reference/credentials.md#aws)).
 
-## Other comparisons
+## Fireblocks
+
+Neither tool has a Fireblocks signer. Foundry's signers are local keys, Ledger, Trezor, AWS, Google Cloud and Turnkey (foundry-core `fe2413a`, read 2026-10-16), and hardhat-kms's Fireblocks provider is planned ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)). Fireblocks documents Foundry through its local JSON-RPC proxy, `fireblocks-json-rpc`, with `forge script --unlocked --slow` ([EVM local JSON-RPC](https://developers.fireblocks.com/reference/evm-local-json-rpc)). Hardhat can use the same proxy as an HTTP network: [Use Fireblocks through its JSON-RPC proxy](../guides/fireblocks-json-rpc.md), not yet run against a Fireblocks workspace.
+
+| Behaviour            | Foundry with the proxy                                                     | Hardhat with the proxy                                                      |
+| -------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Signing              | Fireblocks signs and broadcasts a contract call                            | The same                                                                    |
+| Nonce                | Forge plans one; Fireblocks assigns its own                                | Hardhat sets none; Ignition plans one; Fireblocks assigns its own           |
+| Gas and fees         | Forge sets them, and the proxy forwards them                               | Hardhat fills them, and the proxy forwards them                             |
+| Waiting for approval | One RPC call, 45 s unless `--rpc-timeout` is set                           | One RPC call, the network's `timeout`, 5 minutes by default                 |
+| hardhat-kms checks   | Not applicable                                                             | None: the plugin passes requests on a network without `kmsAccounts` through |
+| API key              | In the proxy's environment, and in its URL path unless `--httpPath` is set | The same                                                                    |
 
 - [Compared with other KMS signers](other-kms-signers.md): the Hardhat 2 `hardhat-kms-signer` packages and their forks.
 - [A KMS key or a private key in .env](kms-or-env-key.md): the setup most Hardhat and Foundry projects start from.

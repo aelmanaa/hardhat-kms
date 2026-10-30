@@ -11,6 +11,7 @@ The [docs site](https://aelmanaa.github.io/hardhat-kms/) documents the version o
 - I need a key and want a first deploy: Deploy a Hardhat contract to Sepolia with [AWS KMS](user/tutorials/first-deploy-aws.md), [Google Cloud KMS](user/tutorials/first-deploy-gcp.md) or [Azure Key Vault](user/tutorials/first-deploy-azure.md).
 - I already have a secp256k1 key in a KMS: start at step 2 of the setup guide for [AWS KMS](user/guides/aws-kms-setup.md#2-allow-signing-and-nothing-else), [Google Cloud KMS](user/guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) or [Azure Key Vault](user/guides/azure-key-vault-setup.md#2-allow-get-and-sign-and-nothing-else).
 - I keep the key in Turnkey: [Set up a Turnkey wallet account](user/guides/turnkey-setup.md), with a non-root API user and a least-privilege policy.
+- I keep the key in Fireblocks: [Use Fireblocks through its JSON-RPC proxy](user/guides/fireblocks-json-rpc.md), without hardhat-kms's checks.
 - I want to deploy my contracts: [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md).
 - I want CI to sign with no stored credentials: [Sign from GitHub Actions with OIDC](user/guides/github-actions-oidc.md).
 - A command or script failed: [Errors](user/reference/errors.md) has every error with its cause and fix. Search the page for a fixed part of the message.
@@ -57,6 +58,7 @@ The [docs site](https://aelmanaa.github.io/hardhat-kms/) documents the version o
 | [Find who signed with a key](user/guides/who-signed.md)                         | How-to      |
 | [Move KMS signing from Foundry to Hardhat](user/guides/migrate-from-foundry.md) | How-to      |
 | [Use a KMS key with Alchemy Wallet APIs](user/guides/alchemy-wallet-apis.md)    | How-to      |
+| [Use Fireblocks through its JSON-RPC proxy](user/guides/fireblocks-json-rpc.md) | How-to      |
 | [Verify a release](user/guides/verify-a-release.md)                             | How-to      |
 | [Comparison with Foundry](user/explanation/foundry-comparison.md)               | Explanation |
 | [Compared with other KMS signers](user/explanation/other-kms-signers.md)        | Explanation |
