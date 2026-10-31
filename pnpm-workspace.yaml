@@ -7,6 +7,15 @@ packages:
 # installs them from npm does. This links them to the workspace packages instead.
 linkWorkspacePackages: true
 
+# CI runs `pnpm dedupe --check`, which puts every project on one version where one serves them
+# all. Since pnpm 12.16.0, `pnpm install` does that only with autoDedupe, so without it an
+# install after a dependency bump could write a lockfile the check refuses (pnpm#17235).
+autoDedupe: true
+# Record autoDedupe in pnpm-lock.yaml. Without it, every install that is not frozen, as a
+# `pnpm run` or `pnpm exec` that checks the dependencies first, resolves the lockfile again.
+lockfile:
+  includeResolutionSettings: true
+
 # Install scripts of dependencies do not run unless listed here. None is needed: esbuild's
 # only checks its platform binary, lefthook's only runs `lefthook install`, which `prepare` does.
 # keccak, node-hid and usb come with @nomicfoundation/hardhat-ledger, which only the
