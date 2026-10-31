@@ -200,7 +200,7 @@ Building needs:
 
 - Git, to clone the repository.
 - Node.js 22.18 or later. The repository's scripts are TypeScript files that run with plain `node`.
-- pnpm 12, which the repository pins in `packageManager`. Run `corepack enable`, or `npm install -g pnpm@12.8.1`.
+- pnpm 12, which the repository pins in `packageManager`. Run `corepack enable`, or `npm install -g pnpm@12.16.1`.
 
 Your Hardhat project needs none of them: it uses the packed files with npm, pnpm or Yarn on the [supported Node.js versions](../reference/support.md).
 
