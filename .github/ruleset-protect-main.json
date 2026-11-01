@@ -59,6 +59,9 @@
             "context": "Test (Linux, Node 26.0.0)"
           },
           {
+            "context": "Test at the bumped versions"
+          },
+          {
             "context": "Consumer typecheck (TypeScript 5.9.3)"
           },
           {
