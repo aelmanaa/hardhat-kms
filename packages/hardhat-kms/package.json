@@ -1,6 +1,6 @@
 {
   "name": "hardhat-kms",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Hardhat 3 plugin signing transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey; works with viem, ethers, Ignition and a Foundry-style --kms option.",
   "keywords": [
     "hardhat-plugin",

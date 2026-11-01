@@ -1,5 +1,12 @@
 # @hardhat-kms/azure
 
+## 1.4.1
+
+### Patch Changes
+
+- Updated dependencies [[`4609f97`](https://github.com/aelmanaa/hardhat-kms/commit/4609f9754b9f30200ed2eb9cc6ff416872f5f460)]:
+  - hardhat-kms@1.4.1
+
 ## 1.4.0
 
 ### Patch Changes
