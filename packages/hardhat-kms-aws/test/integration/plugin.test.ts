@@ -152,13 +152,25 @@ describe("@hardhat-kms/aws plugin", () => {
   it("explains a missing region the real SDK reports", async () => {
     const hre = await runtime();
     const adapter = await createAdapter(hre, "noRegion");
+    server.requests.length = 0;
 
-    await assert.rejects(adapter.getPublicKey?.(signContext()) ?? Promise.resolve(), (error) => {
-      assert.ok(error instanceof Error);
-      assert.match(error.message, /no AWS region is configured/);
-      return true;
-    });
+    const pending = adapter.getPublicKey?.(signContext());
+    assert.ok(pending, "the AWS adapter has getPublicKey");
+    const outcome = await pending.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
     await adapter.close?.();
+
+    // A resolution means the SDK found a region somewhere: name it, from the request's signature.
+    const signedFor = /\/([^/]+)\/kms\/aws4_request/.exec(
+      String(server.requests[0]?.headers.authorization),
+    )?.[1];
+    assert.ok(
+      outcome instanceof Error,
+      `getPublicKey resolved for a key with no region; the SDK signed the request for region ${String(signedFor)}`,
+    );
+    assert.match(outcome.message, /no AWS region is configured/);
   });
 
   it("refuses AWS keys when hardhat-kms is another version, and passes other keys on", async () => {
