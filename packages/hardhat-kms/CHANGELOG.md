@@ -1,5 +1,11 @@
 # hardhat-kms
 
+## 1.4.1
+
+### Patch Changes
+
+- [#633](https://github.com/aelmanaa/hardhat-kms/pull/633) [`4609f97`](https://github.com/aelmanaa/hardhat-kms/commit/4609f9754b9f30200ed2eb9cc6ff416872f5f460) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The README on npm shows the Hardhat plugin badge: hardhat-kms is listed on Hardhat's community plugins page.
+
 ## 1.4.0
 
 ### Minor Changes
