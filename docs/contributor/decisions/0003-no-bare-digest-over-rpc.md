@@ -1,6 +1,6 @@
 # 0003: No RPC method signs a bare digest
 
-Status: Accepted
+Status: Accepted, amended by [0021](0021-raw-digests-need-a-person-or-an-opt-in.md)
 
 ## Context
 
@@ -19,3 +19,5 @@ Over RPC, the plugin signs only structured requests: transactions it filled itse
 ## Later change
 
 Noted on 2026-10-07. [0014](0014-library-account-raw-sign.md) adds a second route, so this record's "only through the task" no longer holds. A library account created with `connection.kms.getAccount(address, { rawSign: true })` also signs a raw digest, with a warning each time such an account is made. No RPC method signs one.
+
+Noted on 2026-10-20. [0021](0021-raw-digests-need-a-person-or-an-opt-in.md) changes "asks for no confirmation": a raw digest can be an EIP-7702 authorization, so `kms sign --no-hash` now asks at a terminal, and without one it signs only for a key with `allowRawDigests: true` and with `--yes`.

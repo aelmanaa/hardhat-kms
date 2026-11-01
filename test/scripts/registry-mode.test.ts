@@ -17,7 +17,7 @@ import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { pack } from "../../scripts/pack.ts";
-import { stagingDistTags } from "../../scripts/registry-release.ts";
+import { NAME_PLACEHOLDERS, stagingDistTags } from "../../scripts/registry-release.ts";
 import { PACKAGES, YARN_BERRY, yarnBerrySettings } from "../../scripts/registry.ts";
 import { RELEASE_PACKAGES } from "../../scripts/release-packages.ts";
 import { readJson } from "../../scripts/temporary-install.ts";
@@ -109,6 +109,8 @@ describe("registry mode against a local registry", { timeout: 2_100_000 }, () =>
   let sandbox = "";
   let registry = "";
   let verdaccio: ChildProcess | undefined;
+  /** The npmrc that holds the throwaway publisher's token. */
+  let npmrc = "";
 
   before(async () => {
     sandbox = mkdtempSync(path.join(tmpdir(), "hardhat-kms-test-"));
@@ -188,7 +190,7 @@ describe("registry mode against a local registry", { timeout: 2_100_000 }, () =>
     assert.equal(created.status, 201, body);
     const token: unknown = Reflect.get(Object(JSON.parse(body)), "token");
     assert.ok(typeof token === "string" && token !== "");
-    const npmrc = path.join(home, "npmrc");
+    npmrc = path.join(home, "npmrc");
     writeFileSync(npmrc, `//127.0.0.1:${port}/:_authToken=${token}\n`);
     for (const tarball of tarballs) {
       // The packages ask for provenance, which only a CI publish to npm can give.
@@ -374,6 +376,58 @@ describe("registry mode against a local registry", { timeout: 2_100_000 }, () =>
       "ok   99.0.0 is a stable version",
       `FAIL 99.0.0 is not published for ${PACKAGES.join(", ")}`,
     ]);
+  });
+
+  it("check-registry-release: a new package's latest at a name placeholder passes once deprecated", async () => {
+    // releasing.md, First publish of a new package: the owner's placeholder holds latest of the
+    // newest package until its first promotion. The test publishes one, moves latest to it, and
+    // puts latest back afterwards for the tests that follow.
+    const name = PACKAGES.at(-1) ?? "";
+    const placeholder = "0.0.0-placeholder.0";
+    const message = NAME_PLACEHOLDERS.get(placeholder) ?? "";
+    const auth = { env: { ...process.env, NPM_CONFIG_USERCONFIG: npmrc } };
+    const npmRun = async (args: string[]): Promise<void> => {
+      const run = await exec(npm, [...args, "--registry", registry], auth);
+      assert.equal(run.status, 0, run.output);
+    };
+    const directory = mkdtempSync(path.join(sandbox, "placeholder-"));
+    writeFileSync(
+      path.join(directory, "package.json"),
+      JSON.stringify({ name, version: placeholder, license: "MIT", description: "Placeholder" }),
+    );
+    await npmRun(["publish", directory, "--tag", "placeholder", "--access", "public"]);
+    await npmRun(["dist-tag", "add", `${name}@${placeholder}`, "latest"]);
+    try {
+      const empty = mkdtempSync(path.join(sandbox, "no-tags-"));
+      execFileSync("git", ["init", "--quiet", empty]);
+      const check = async (): Promise<Completed> =>
+        await script("check-registry-release.ts", [version, "--registry", registry], {
+          ...process.env,
+          GIT_DIR: path.join(empty, ".git"),
+        });
+      const staged = [
+        `ok   ${version} is a stable version`,
+        `ok   ${version} is published for ${PACKAGES.join(", ")}`,
+        `ok   ${version} is staged under ${stagingDistTags(version).join(" or ")} for the ${PACKAGES.length} packages`,
+      ];
+      const undeprecated = await check();
+      assert.equal(undeprecated.status, 1, undeprecated.output);
+      assert.deepEqual(reported(undeprecated.output), [
+        ...staged,
+        `FAIL ${name} has latest at ${placeholder}, a name placeholder that is not deprecated; deprecate it first: npm deprecate ${name}@${placeholder} "${message}"`,
+      ]);
+      await npmRun(["deprecate", `${name}@${placeholder}`, message]);
+      const deprecated = await check();
+      assert.equal(deprecated.status, 1, deprecated.output);
+      assert.deepEqual(reported(deprecated.output), [
+        ...staged,
+        `ok   latest is ${version}, not above ${version}`,
+        `ok   ${name} has latest at the deprecated name placeholder ${placeholder}; ${version} replaces it`,
+        `FAIL tag v${version} is not in this checkout; run git fetch origin tag v${version}`,
+      ]);
+    } finally {
+      await npmRun(["dist-tag", "add", `${name}@${version}`, "latest"]);
+    }
   });
 
   it("examples: the copies install from the registry with npm and deploy on LocalStack", async () => {

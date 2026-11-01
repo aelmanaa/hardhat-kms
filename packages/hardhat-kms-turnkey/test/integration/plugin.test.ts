@@ -19,6 +19,8 @@ import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import {
   type Address,
+  createWalletClient,
+  custom,
   getAddress,
   type Hex,
   isHex,
@@ -27,6 +29,7 @@ import {
   verifyTypedData,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { hardhat } from "viem/chains";
 
 import {
   COW_ACCOUNT,
@@ -42,6 +45,7 @@ import {
   API_PRIVATE_KEY,
   API_PUBLIC_KEY,
   ORGANIZATION,
+  signContext,
 } from "../helpers/keys.ts";
 import {
   POLL_PATH,
@@ -50,6 +54,7 @@ import {
   SIGN_TRANSACTION_TYPE,
   type SignMode,
   TurnkeyStub,
+  turnkeyError,
 } from "../helpers/turnkey-stub.ts";
 
 const ownVersion = String(
@@ -95,11 +100,16 @@ after(async () => {
 afterEach(() => {
   stub.mode = "good";
   stub.firstStatus = "ACTIVITY_STATUS_COMPLETED";
+  stub.stuck = undefined;
   stub.requests.length = 0;
 });
 
 /** A runtime whose Turnkey adapters talk to the stub, through the package's own handler. */
-async function runtime(network?: string, transactionSigning?: "transaction" | "digest") {
+async function runtime(
+  network?: string,
+  transactionSigning?: "transaction" | "digest",
+  timeoutMs?: number,
+) {
   const hre = await createHardhatRuntimeEnvironment(
     {
       plugins: [hardhatKmsTurnkey, hardhatViem, hardhatEthers],
@@ -112,6 +122,8 @@ async function runtime(network?: string, transactionSigning?: "transaction" | "d
             apiPrivateKey: configVariable("HHKMS_TEST_TURNKEY_API_PRIVATE_KEY"),
             apiPublicKey: API_PUBLIC_KEY,
             ...(transactionSigning === undefined ? {} : { transactionSigning }),
+            ...(timeoutMs === undefined ? {} : { timeoutMs }),
+            allowRawDigests: true,
           },
         },
         simulatedBalance: 10n ** 20n,
@@ -123,6 +135,14 @@ async function runtime(network?: string, transactionSigning?: "transaction" | "d
           hardfork: "prague",
           accounts: [],
           kmsAccounts: ["deployer"],
+        },
+        // Without automine, the node queues a transaction past a nonce gap instead of refusing it.
+        queued: {
+          type: "edr-simulated",
+          hardfork: "prague",
+          accounts: [],
+          kmsAccounts: ["deployer"],
+          mining: { auto: false, interval: 0 },
         },
       },
     },
@@ -169,6 +189,11 @@ function sentTypes(): string[] {
     assert.equal(parsed.r, undefined, "the request carries no signature");
     return String(parsed.type);
   });
+}
+
+/** How many sign_transaction and sign_raw_payload requests the stub got. */
+function signRequestCounts(): number[] {
+  return [stub.bodies(SIGN_TRANSACTION_PATH).length, stub.bodies(SIGN_PATH).length];
 }
 
 /** An authorization from another account, for a type 4 transaction. */
@@ -438,6 +463,61 @@ describe("@hardhat-kms/turnkey in a Hardhat runtime", () => {
     assert.ok(stub.requests.every((request) => request.stamped));
   });
 
+  for (const [configured, overridden] of [
+    ["transaction", "digest"],
+    ["digest", "transaction"],
+  ] as const) {
+    it(`sends through the override's transactionSigning, ${overridden}, after a send in ${configured}`, async () => {
+      const inline = {
+        provider: "turnkey",
+        organizationId: configVariable("HHKMS_TEST_TURNKEY_ORGANIZATION"),
+        address: ACCOUNT.address,
+        apiPrivateKey: configVariable("HHKMS_TEST_TURNKEY_API_PRIVATE_KEY"),
+        apiPublicKey: API_PUBLIC_KEY,
+      } as const;
+      const hre = await createHardhatRuntimeEnvironment({
+        plugins: [hardhatKmsTurnkey, hardhatViem],
+        kms: { simulatedBalance: 10n ** 20n },
+        networks: {
+          local: {
+            type: "edr-simulated",
+            hardfork: "prague",
+            accounts: [],
+            kmsAccounts: [{ ...inline, transactionSigning: configured }],
+          },
+        },
+      });
+      hre.hooks.registerHandlers(
+        "kms",
+        kmsHandlers(
+          ownVersion,
+          async () => async (key) => await createTurnkeyKeyAdapter(key, { transport: { baseUrl } }),
+        ),
+      );
+      // Two connections to one simulated network do not share its state, so each sends nonce 0.
+      const sends = async (connection: Awaited<ReturnType<typeof hre.network.create>>) => {
+        const wallet = await connection.viem.getWalletClient(ADDRESS);
+        const hash = await wallet.sendTransaction({ to: OTHER.address, value: 1n });
+        const receipt = await (
+          await connection.viem.getPublicClient()
+        ).waitForTransactionReceipt({
+          hash,
+        });
+        assert.equal(receipt.status, "success");
+      };
+
+      await sends(await hre.network.create("local"));
+      assert.deepEqual(signRequestCounts(), configured === "transaction" ? [1, 0] : [0, 1]);
+      await sends(
+        await hre.network.create({
+          network: "local",
+          override: { kmsAccounts: [{ ...inline, transactionSigning: overridden }] },
+        }),
+      );
+      assert.deepEqual(signRequestCounts(), [1, 1]);
+    });
+  }
+
   it("signs with kms sign-tx through sign_transaction", async () => {
     const hre = await runtime("local");
     const scratch = mkdtempSync(path.join(tmpdir(), "hardhat-kms-turnkey-sign-tx-"));
@@ -494,6 +574,7 @@ describe("@hardhat-kms/turnkey in a Hardhat runtime", () => {
       fromFile: false,
       noHash: true,
       allowCrossChain: false,
+      yes: true,
     });
     assert.match(String(raw.result), /^0x[0-9a-f]{130}$/);
 
@@ -567,6 +648,112 @@ describe("@hardhat-kms/turnkey in a Hardhat runtime", () => {
     );
     stub.pendingPolls = 0;
   });
+});
+
+/** Runs `run` with the variable unset, then sets it back. */
+async function withUnset(name: keyof typeof VARIABLES, run: () => Promise<void>): Promise<void> {
+  Reflect.deleteProperty(process.env, name);
+  try {
+    await run();
+  } finally {
+    process.env[name] = VARIABLES[name];
+  }
+}
+
+/** Checks that a text names the variable as Hardhat does, and holds no variable's value. */
+function assertNames(text: string, name: string): void {
+  assert.ok(
+    text.includes(`Configuration Variable "${name}" not found`),
+    `"${text}" should name ${name}`,
+  );
+  for (const value of Object.values(VARIABLES)) {
+    assert.ok(!text.includes(value), "the text holds a variable's value");
+  }
+}
+
+/** Checks a thrown error the way `assertNames` checks a text, its stack included. */
+function failsNaming(name: string): (error: unknown) => boolean {
+  return (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assertNames(error.message, name);
+    assertNames(String(error.stack), name);
+    return true;
+  };
+}
+
+describe("a Turnkey key whose configuration variable is unset (#544)", () => {
+  for (const name of [
+    "HHKMS_TEST_TURNKEY_API_PRIVATE_KEY",
+    "HHKMS_TEST_TURNKEY_ORGANIZATION",
+  ] as const) {
+    it(`names ${name} in kms sign`, async () => {
+      const hre = await runtime();
+      await withUnset(name, async () => {
+        await assert.rejects(
+          task(hre, "sign", {
+            key: "deployer",
+            message: "hello",
+            data: false,
+            fromFile: false,
+            noHash: false,
+            allowCrossChain: false,
+          }),
+          failsNaming(name),
+        );
+      });
+      assert.equal(stub.requests.length, 0);
+    });
+
+    it(`names ${name} in kms accounts --check-sign`, async () => {
+      const hre = await runtime();
+      await withUnset(name, async () => {
+        const { printed } = await task(hre, "accounts", {
+          json: true,
+          showIds: false,
+          balances: false,
+          checkSign: true,
+        });
+        const report: unknown = JSON.parse(printed);
+        const [entry] = Reflect.get(Object(report), "accounts");
+        assert.equal(Reflect.get(Object(entry), "signCheck"), null);
+        assertNames(String(Reflect.get(Object(entry), "error")), name);
+        for (const value of Object.values(VARIABLES)) {
+          assert.ok(!printed.includes(value), "the output holds a variable's value");
+        }
+      });
+      assert.equal(stub.requests.length, 0);
+    });
+
+    it(`names ${name} in a send`, async () => {
+      const hre = await runtime();
+      const { provider } = await hre.network.create("local");
+      await withUnset(name, async () => {
+        await assert.rejects(
+          provider.request({
+            method: "eth_sendTransaction",
+            params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
+          }),
+          failsNaming(name),
+        );
+      });
+      assert.equal(stub.requests.length, 0);
+    });
+
+    it(`names ${name} through the adapter, with the key Hardhat resolved`, async () => {
+      const hre = await runtime();
+      const key = hre.config.kms.keys.deployer;
+      assert.equal(key?.provider, "turnkey");
+      await withUnset(name, async () => {
+        const adapter = await createTurnkeyKeyAdapter(key, { transport: { baseUrl } });
+        await assert.rejects(
+          adapter.signDigest?.({ digest: new Uint8Array(32).fill(7) }, signContext()) ??
+            Promise.reject(new Error("the adapter has no signDigest")),
+          failsNaming(name),
+        );
+      });
+      assert.equal(stub.requests.length, 0);
+    });
+  }
 });
 
 describe("the core's checks on Turnkey's signatures", () => {
@@ -686,3 +873,334 @@ describe("the Turnkey adapter's checks on signed transactions", () => {
     });
   }
 });
+
+/** The nonce and value of a sign_transaction body's unsigned transaction. */
+function unsignedOf(body: unknown): { nonce: number; value: bigint } {
+  const parameters: unknown = Reflect.get(Object(body), "parameters");
+  const parsed = parseTransaction(
+    `0x${String(Reflect.get(Object(parameters), "unsignedTransaction"))}`,
+  );
+  return { nonce: parsed.nonce ?? 0, value: parsed.value ?? 0n };
+}
+
+/** Keeps the sign_transaction activity of the transaction with this value pending. */
+const stuckOn =
+  (value: bigint) =>
+  (body: unknown): boolean =>
+    Reflect.get(Object(body), "type") === SIGN_TRANSACTION_TYPE && unsignedOf(body).value === value;
+
+/** The nonces of the sign_transaction requests, in the order the stub got them. */
+function signedNonces(): number[] {
+  return stub.bodies(SIGN_TRANSACTION_PATH).map((body) => unsignedOf(body).nonce);
+}
+
+/** Every message in an error's cause chain, as viem wraps the plugin's error. */
+function causeText(error: unknown): string {
+  let text = "";
+  for (let cause: unknown = error; cause instanceof Error; cause = cause.cause) {
+    text += `${cause.message}\n`;
+  }
+  return text;
+}
+
+describe("a Turnkey transaction that Turnkey has not finished when the plugin gives up (#537)", () => {
+  const TIMEOUT_MS = 1300;
+
+  it("keeps the nonce held after a timeout while polling, names the activity, and the next send takes the next nonce", async () => {
+    const hre = await runtime(undefined, undefined, TIMEOUT_MS);
+    const { provider, viem } = await hre.network.create("queued");
+    const client = await viem.getPublicClient();
+    stub.stuck = stuckOn(1n);
+
+    await assert.rejects(
+      provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(
+          error.message,
+          /^turnkey, sign transaction, key turnkey:<HHKMS_TEST_TURNKEY_ORGANIZATION>\/0x[0-9a-fA-F]{40}: no answer within 1300 ms\. The request reached the provider, and Turnkey may still sign this transaction \(activity 00000000-0000-4000-8000-[0-9]{12}\); anyone who can read it there can then broadcast it with nonce 0\. Reject the activity in the Turnkey dashboard while it is pending; then, or if it completed, send a replacement transaction with nonce 0, before any other transaction from this account\. Until nonce 0 is mined, the provider's copy itself reaches the node through this network connection, or the connection closes, the connection's sends from this account skip nonce 0/,
+        );
+        assert.ok(!error.message.includes(ORGANIZATION));
+        return true;
+      },
+    );
+    assert.ok(stub.requests.some((request) => request.path === POLL_PATH));
+    stub.stuck = undefined;
+
+    // The next send skips nonce 0: a gap, never a second transaction with nonce 0.
+    const queued = await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x2" }],
+    });
+    assert.deepEqual(signedNonces(), [0, 1]);
+    assert.equal(await client.getTransactionCount({ address: ADDRESS }), 0);
+
+    // The replacement the error asks for fills the gap, and both are mined.
+    const replacement = await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x3", nonce: "0x0" }],
+    });
+    await provider.request({ method: "evm_mine", params: [] });
+    assert.equal(
+      (await client.waitForTransactionReceipt({ hash: assertHash(replacement) })).status,
+      "success",
+    );
+    assert.equal(
+      (await client.waitForTransactionReceipt({ hash: assertHash(queued) })).status,
+      "success",
+    );
+    assert.equal(await client.getTransactionCount({ address: ADDRESS }), 2);
+    assert.equal(await client.getBalance({ address: OTHER.address }), 5n);
+  });
+
+  it("keeps the nonce held after an abort while polling, through viem's reset", async () => {
+    const hre = await runtime();
+    const { provider, kms } = await hre.network.create("queued");
+    // A Turnkey key has no public-key call: its first signature reveals the key to getAccount.
+    const [vector] = PERSONAL_SIGN_VECTORS;
+    await provider.request({ method: "personal_sign", params: [`0x${vector.message}`, ADDRESS] });
+    const controller = new AbortController();
+    const account = await kms.getAccount(ADDRESS, { signal: controller.signal });
+    const wallet = createWalletClient({ account, chain: hardhat, transport: custom(provider) });
+    stub.stuck = stuckOn(5n);
+
+    const sending = wallet.sendTransaction({ to: OTHER.address, value: 5n });
+    while (!stub.requests.some((request) => request.path === POLL_PATH)) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    controller.abort();
+    await assert.rejects(sending, (error: unknown) => {
+      assert.match(
+        causeText(error),
+        /cancelled by the caller's abort signal\. The request reached the provider, and Turnkey may still sign this transaction \(activity [0-9a-f-]{36}\); anyone who can read it there can then broadcast it with nonce 0/,
+      );
+      return true;
+    });
+    stub.stuck = undefined;
+
+    await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x6" }],
+    });
+    assert.deepEqual(signedNonces(), [0, 1]);
+  });
+
+  it("keeps the nonce held when the activity needs approval, and names the cause and the activity", async () => {
+    const hre = await runtime(undefined, undefined, TIMEOUT_MS);
+    const { provider } = await hre.network.create("queued");
+    stub.firstStatus = "ACTIVITY_STATUS_CONSENSUS_NEEDED";
+
+    await assert.rejects(
+      provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(
+          error.message,
+          /^turnkey, sign transaction, key [^ ]+: Turnkey holds activity (00000000-0000-4000-8000-[0-9]{12}) until it gets more approvals \(ACTIVITY_STATUS_CONSENSUS_NEEDED\)\. .*Reject it in the Turnkey dashboard, so that nobody approves it later\. The request reached the provider, and Turnkey may still sign this transaction \(activity \1\); anyone who can read it there can then broadcast it with nonce 0\. Reject the activity in the Turnkey dashboard while it is pending; then, or if it completed, send a replacement transaction with nonce 0,/,
+        );
+        return true;
+      },
+    );
+    stub.firstStatus = "ACTIVITY_STATUS_COMPLETED";
+
+    await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x2" }],
+    });
+    assert.deepEqual(signedNonces(), [0, 1]);
+  });
+
+  it("keeps the nonce held after a signed transaction it refused, or a failed poll", async () => {
+    const hre = await runtime(undefined, undefined, TIMEOUT_MS);
+    const { provider } = await hre.network.create("queued");
+    stub.mode = "other-body";
+    await assert.rejects(
+      provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
+      }),
+      /Turnkey signed a transaction whose value differs .*The request reached the provider, and Turnkey may still sign this transaction \(activity [0-9a-f-]{36}\); anyone who can read it there can then broadcast it with nonce 0\./,
+    );
+    stub.mode = "good";
+    // A pending activity the stub does not know, so its poll answers 404.
+    stub.answer({
+      status: 200,
+      json: {
+        activity: {
+          id: "00000000-0000-4000-8000-0000000000fe",
+          organizationId: ORGANIZATION,
+          status: "ACTIVITY_STATUS_PENDING",
+          type: SIGN_TRANSACTION_TYPE,
+        },
+      },
+    });
+    await assert.rejects(
+      provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: ADDRESS, to: OTHER.address, value: "0x2" }],
+      }),
+      /Turnkey answered 404 NOT_FOUND.*The request reached the provider, and Turnkey may still sign this transaction \(activity 00000000-0000-4000-8000-0000000000fe\); .*broadcast it with nonce 1\./,
+    );
+    await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x3" }],
+    });
+    assert.deepEqual(signedNonces(), [0, 1, 2]);
+  });
+
+  it("releases the nonce when Turnkey refuses the request for certain", async () => {
+    const hre = await runtime(undefined, undefined, TIMEOUT_MS);
+    const { provider, viem } = await hre.network.create("local");
+    const client = await viem.getPublicClient();
+    const rejected = {
+      status: 200,
+      json: {
+        activity: {
+          id: "00000000-0000-4000-8000-0000000000ff",
+          organizationId: ORGANIZATION,
+          status: "ACTIVITY_STATUS_REJECTED",
+          type: SIGN_TRANSACTION_TYPE,
+        },
+      },
+    };
+    for (const refusal of [turnkeyError(403, "POLICY_DENIED"), rejected]) {
+      stub.answer(refusal);
+      await assert.rejects(
+        provider.request({
+          method: "eth_sendTransaction",
+          params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
+        }),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.ok(!error.message.includes("The request reached the provider"), error.message);
+          return true;
+        },
+      );
+    }
+    const hash = await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x2" }],
+    });
+    assert.equal(
+      (await client.waitForTransactionReceipt({ hash: assertHash(hash) })).status,
+      "success",
+    );
+    assert.deepEqual(signedNonces(), [0, 0, 0]);
+  });
+
+  it("releases the nonce in digest mode, whose activity holds only a hash", async () => {
+    const hre = await runtime(undefined, "digest", TIMEOUT_MS);
+    const { provider, viem } = await hre.network.create("local");
+    const client = await viem.getPublicClient();
+    stub.stuck = () => true;
+
+    await assert.rejects(
+      provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
+      }),
+      /: no answer within 1300 ms$/,
+    );
+    stub.stuck = undefined;
+
+    const hash = await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x2" }],
+    });
+    const mined = await client.waitForTransactionReceipt({ hash: assertHash(hash) });
+    assert.equal(mined.status, "success");
+    assert.equal((await client.getTransaction({ hash: mined.transactionHash })).nonce, 0);
+    assert.equal(stub.bodies(SIGN_TRANSACTION_PATH).length, 0);
+  });
+
+  it("releases the nonce when the request fails before it leaves", async () => {
+    const hre = await runtime(undefined, undefined, TIMEOUT_MS);
+    const { provider, viem } = await hre.network.create("local");
+    const client = await viem.getPublicClient();
+    const variable = "HHKMS_TEST_TURNKEY_API_PRIVATE_KEY";
+    Reflect.deleteProperty(process.env, variable);
+    try {
+      await assert.rejects(
+        provider.request({
+          method: "eth_sendTransaction",
+          params: [{ from: ADDRESS, to: OTHER.address, value: "0x1" }],
+        }),
+        /Configuration Variable "HHKMS_TEST_TURNKEY_API_PRIVATE_KEY" not found/,
+      );
+    } finally {
+      process.env[variable] = API_PRIVATE_KEY;
+    }
+    assert.equal(stub.requests.length, 0);
+
+    const hash = await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x2" }],
+    });
+    assert.equal(
+      (await client.waitForTransactionReceipt({ hash: assertHash(hash) })).status,
+      "success",
+    );
+    assert.deepEqual(signedNonces(), [0]);
+  });
+
+  it("keeps ten parallel sends on distinct nonces when one of them hangs", async () => {
+    const hre = await runtime(undefined, undefined, TIMEOUT_MS);
+    const { provider, viem } = await hre.network.create("queued");
+    const client = await viem.getPublicClient();
+    stub.stuck = stuckOn(3n);
+
+    const results = await Promise.all(
+      Array.from({ length: 10 }, async (_, value) => {
+        try {
+          const hash: unknown = await provider.request({
+            method: "eth_sendTransaction",
+            params: [{ from: ADDRESS, to: OTHER.address, value: `0x${value.toString(16)}` }],
+          });
+          return hash;
+        } catch (error) {
+          return error;
+        }
+      }),
+    );
+
+    const failed = results.filter((result) => result instanceof Error);
+    assert.equal(failed.length, 1);
+    assert.ok(results[3] instanceof Error);
+    assert.match(results[3].message, /broadcast it with nonce 3\./);
+    const nonces = signedNonces();
+    assert.deepEqual(
+      nonces.toSorted((a, b) => a - b),
+      [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    );
+    // Nine transactions reach the node, none of them with the held nonce 3.
+    const sent = await Promise.all(
+      results
+        .filter((result) => !(result instanceof Error))
+        .map(async (hash) => await client.getTransaction({ hash: assertHash(hash) })),
+    );
+    assert.deepEqual(
+      sent.map((transaction) => transaction.nonce).toSorted((a, b) => a - b),
+      [0, 1, 2, 4, 5, 6, 7, 8, 9],
+    );
+    stub.stuck = undefined;
+    const replacement = await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from: ADDRESS, to: OTHER.address, value: "0x0", nonce: "0x3" }],
+    });
+    await provider.request({ method: "evm_mine", params: [] });
+    await client.waitForTransactionReceipt({ hash: assertHash(replacement) });
+    assert.equal(await client.getTransactionCount({ address: ADDRESS }), 10);
+  });
+});
+
+/** A transaction hash from an RPC answer. */
+function assertHash(value: unknown): Hex {
+  assert.ok(typeof value === "string" && isHex(value) && value.length === 66, String(value));
+  return value;
+}

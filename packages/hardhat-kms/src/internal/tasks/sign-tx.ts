@@ -10,6 +10,7 @@ import { ERRORS } from "../error-catalog.ts";
 import { catalogError, errorName } from "../errors.ts";
 import { createConnectionChain } from "../rpc/chain-id.ts";
 import {
+  checkAuthorizationRequest,
   createTransactionFiller,
   describeType,
   isBlobType,
@@ -18,7 +19,7 @@ import {
 } from "../rpc/transaction-filler.ts";
 import { type SignedTransaction, signTransaction } from "../rpc/transactions.ts";
 import { jsonErrorOffset, lineAndColumn } from "./json-position.ts";
-import { printLine, printNote, withNamedSigner } from "./keys.ts";
+import { findTaskKey, printLine, printNote, refuseListBypass, withTaskSigners } from "./keys.ts";
 
 /** The arguments of `kms sign-tx`. */
 interface SignTxArguments {
@@ -35,8 +36,9 @@ const OPERATION = "kms sign-tx";
  * request schema does not read.
  */
 /**
- * The fields of Hardhat 3.18's request schema (`rpcTransactionRequest`). The type makes the
- * compiler require every key of `RpcTransactionRequest` here, and no other.
+ * The fields of Hardhat's request schema (`rpcTransactionRequest`), which reads `type` from
+ * hardhat-zod-utils 3.0.7. The type makes the compiler require every key of
+ * `RpcTransactionRequest` here, and no other.
  */
 const SCHEMA_FIELDS: Readonly<Record<keyof RpcTransactionRequest, true>> = {
   from: true,
@@ -53,14 +55,14 @@ const SCHEMA_FIELDS: Readonly<Record<keyof RpcTransactionRequest, true>> = {
   authorizationList: true,
   blobs: true,
   blobVersionedHashes: true,
+  type: true,
 };
 
 /**
- * The fields the task reads: the schema's, plus `type`. Any other field is refused: the schema
- * drops unknown fields, so a misspelt `gasLimit` or an `input` would otherwise be signed as if it
- * were absent.
+ * The fields the task reads: the schema's. Any other field is refused: the schema drops unknown
+ * fields, so a misspelt `gasLimit` or an `input` would otherwise be signed as if it were absent.
  */
-export const KNOWN_FIELDS: ReadonlySet<string> = new Set([...Object.keys(SCHEMA_FIELDS), "type"]);
+export const KNOWN_FIELDS: ReadonlySet<string> = new Set(Object.keys(SCHEMA_FIELDS));
 
 /** The fields the unknown-field error lists: those the task signs, without the blob fields. */
 const LISTED_FIELDS = [...KNOWN_FIELDS].filter(
@@ -247,12 +249,35 @@ const kmsSignTx: NewTaskActionFunction<SignTxArguments> = async ({ key, tx: file
   }
   const tx = await readTransaction(file);
   const requestedType = checkFields(tx);
+  // Before the key opens: such a request cannot be an EIP-7702 transaction (#586, #607).
+  if (tx.authorizationList === null) {
+    throw catalogError(
+      ERRORS.txNullField,
+      { field: "authorizationList" },
+      { operation: OPERATION },
+    );
+  }
+  checkAuthorizationRequest(tx, OPERATION);
+  // The file's `type` only states what the caller expects, checked after the fill (checkType).
+  // Passed on, the filler would apply it: other errors, and type 0x1 signed with an empty list.
   const { type: _type, ...request } = tx;
   if (request.to === undefined || request.to === null) {
     printNote("the transaction has no `to`: it creates a contract");
   }
-  const signed: SignedTransaction = await withNamedSigner(hre, key, async (signer) => {
+  const keyConfig = findTaskKey(hre, key);
+  // A --kms key has no allowedDelegates; one that is a listed config key would skip its list for
+  // the self-authorizations of this transaction (#562).
+  const carriesAuthorizations =
+    Array.isArray(request.authorizationList) && request.authorizationList.length > 0;
+  if (carriesAuthorizations) {
+    await refuseListBypass(hre, keyConfig, OPERATION);
+  }
+  const signed: SignedTransaction = await withTaskSigners(hre, async (signerFor) => {
+    const signer = await signerFor(keyConfig);
     const address = (await signer.getAddress()).toLowerCase();
+    if (carriesAuthorizations) {
+      await refuseListBypass(hre, keyConfig, OPERATION, address);
+    }
     const { from } = request;
     if (from !== undefined && (typeof from !== "string" || !sameAddress(from, address))) {
       throw catalogError(
@@ -267,11 +292,26 @@ const kmsSignTx: NewTaskActionFunction<SignTxArguments> = async ({ key, tx: file
     }
     const connection = await hre.network.create(network);
     try {
+      const chain = createConnectionChain(connection);
       return await signTransaction(signer, {
-        filler: createTransactionFiller(connection, createConnectionChain(connection)),
+        filler: createTransactionFiller(connection, chain),
         method: OPERATION,
         params: [{ ...request, from: address }],
         from: address,
+        delegates: {
+          key: keyConfig,
+          node: {
+            chainId: async () => await chain.chainId(),
+            getCode: async (codeAddress) => {
+              const code: unknown = await connection.provider.request({
+                method: "eth_getCode",
+                params: [codeAddress, "latest"],
+              });
+              return code;
+            },
+          },
+          note: printNote,
+        },
         checkUnsigned: (unsigned) => {
           checkType(requestedType, unsigned);
         },

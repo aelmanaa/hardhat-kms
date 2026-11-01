@@ -49,20 +49,25 @@ export default defineConfig({
 - `address`: the wallet account's address. Required: the plugin signs with it and checks every signature against it.
 - `apiPrivateKey`: the private key of a P-256 Turnkey API key, as a configuration variable only. Set it in the environment or in `hardhat-keystore`.
 - `apiPublicKey`: optional. The plugin derives it from the private key; when you set it, the plugin checks that the two match before it sends anything.
+- `transactionSigning`: optional, `"transaction"` (the default) or `"digest"`. It decides how transactions reach Turnkey, as the next section shows.
 
 ## What Turnkey receives
 
-Each signature is one `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2` activity, with `signWith` set to the address. The key's Turnkey policies must allow all three forms:
+Each signature is one Turnkey activity, with `signWith` set to the address. A transaction is an `ACTIVITY_TYPE_SIGN_TRANSACTION_V2` activity by default, so Turnkey's policies can read its fields as `eth.tx.*`. With `transactionSigning: "digest"`, the plugin sends the transaction's 32-byte hash as a raw payload instead, as Foundry's `cast --turnkey` does. Everything else is an `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2` activity. The key's Turnkey policies must allow each form the project uses:
 
-| Request                                                                    | `encoding`                     | `hashFunction`            | `payload`                       |
-| -------------------------------------------------------------------------- | ------------------------------ | ------------------------- | ------------------------------- |
-| Transactions, EIP-7702 authorizations, `kms sign-tx`, `kms sign --no-hash` | `PAYLOAD_ENCODING_HEXADECIMAL` | `HASH_FUNCTION_NO_OP`     | the 32-byte digest              |
-| `personal_sign`, `eth_sign`, `kms sign`                                    | `PAYLOAD_ENCODING_HEXADECIMAL` | `HASH_FUNCTION_KECCAK256` | the EIP-191 message with prefix |
-| `eth_signTypedData_v4`, `kms sign --data`                                  | `PAYLOAD_ENCODING_EIP712`      | `HASH_FUNCTION_NO_OP`     | the typed data as JSON          |
+| Request                                                                                                          | Activity (`activity.kind`) | `encoding`                     | `hash_function`           | What Turnkey receives           |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------- | ------------------------------ | ------------------------- | ------------------------------- |
+| Transactions: `eth_sendTransaction`, `eth_signTransaction`, a library account's `signTransaction`, `kms sign-tx` | `SIGN_TRANSACTION`         | none                           | none                      | the unsigned transaction        |
+| The same transactions, for a key with `transactionSigning: "digest"`                                             | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_HEXADECIMAL` | `HASH_FUNCTION_NO_OP`     | the 32-byte digest              |
+| EIP-7702 authorizations, `kms sign-auth`, `kms sign --no-hash`                                                   | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_HEXADECIMAL` | `HASH_FUNCTION_NO_OP`     | the 32-byte digest              |
+| `personal_sign`, `eth_sign`, `kms sign`                                                                          | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_HEXADECIMAL` | `HASH_FUNCTION_KECCAK256` | the EIP-191 message with prefix |
+| `eth_signTypedData_v4`, `kms sign --data`                                                                        | `SIGN_RAW_PAYLOAD`         | `PAYLOAD_ENCODING_EIP712`      | `HASH_FUNCTION_NO_OP`     | the typed data as JSON          |
+
+For a transaction, the plugin decodes the signed transaction Turnkey returns, refuses it unless every field equals the transaction it sent, and keeps only the signature. It sends its own transaction, never Turnkey's bytes.
 
 A key whose policy needs approval from other users or another authenticator fails at once, and the error names the pending activity so that you can reject it in the Turnkey dashboard. The plugin does not wait for approvals.
 
-- [Set up a Turnkey wallet account](https://aelmanaa.github.io/hardhat-kms/user/guides/turnkey-setup): a non-root API user, policies that allow the three forms above and deny credential changes, the API key in a variable, quota and approvals.
+- [Set up a Turnkey wallet account](https://aelmanaa.github.io/hardhat-kms/user/guides/turnkey-setup): a non-root API user, policies that allow the forms above and deny credential changes, the API key in a variable, quota and approvals.
 - [Policies written for Foundry](https://aelmanaa.github.io/hardhat-kms/user/guides/turnkey-setup#policies-written-for-foundry) and [rejecting a pending activity](https://aelmanaa.github.io/hardhat-kms/user/guides/turnkey-setup#reject-the-pending-activity).
 - [Configuration reference](https://aelmanaa.github.io/hardhat-kms/user/reference/configuration).
 - [All docs](https://aelmanaa.github.io/hardhat-kms/).

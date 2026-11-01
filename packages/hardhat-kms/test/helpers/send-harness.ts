@@ -81,14 +81,36 @@ export interface FakeNode {
   onRaw: RawHandler | undefined;
   /** The methods it was asked, in order. */
   methods: string[];
+  /**
+   * The node's answer to eth_getTransactionCount, by its block tag; the pending count when
+   * undefined. It throws when this throws.
+   */
+  count: ((tag: unknown) => unknown) | undefined;
   /** The node's answer to eth_getTransactionByHash; it throws when this throws. */
   lookUp: (hash: unknown, connection: NetworkConnection<string>) => unknown;
 }
+
+/** The provider's id for a transaction request that {@link SignState.hang} leaves pending. */
+export const PENDING_REQUEST_ID = "1b4e28ba-2fa1-11d2-883f-0016d3cca427";
+
+/**
+ * What an outliving adapter's `signTransaction` does with a transaction instead of signing it:
+ * wait for the abort after it reported the request sent (`sent`, as Turnkey's pending activity
+ * does), or before (`unsent`, as a request that never left); or throw after it reported the
+ * request sent, either without more (`fails`, as an activity that needs approval) or after it
+ * said that the provider refused it (`refused`, as a 403 or a rejected activity).
+ */
+export type Hang = "sent" | "unsent" | "fails" | "refused";
 
 /** The fake KMS adapters' shared state. */
 export interface SignState {
   /** Awaited before each signature, by key name. */
   beforeSign: ((name: string) => Promise<void>) | undefined;
+  /**
+   * With `outliving` set up: decides, from a transaction's nonce and value, whether
+   * `signTransaction` hangs instead of signing it. Undefined signs every transaction.
+   */
+  hang: ((transaction: { nonce: bigint; value: bigint }) => Hang | undefined) | undefined;
   /** The signatures made. */
   signatures: number;
   /** The adapters closed. */
@@ -126,6 +148,17 @@ export interface SendHarness {
   ) => Promise<{ response: JsonRpcResponse; forwarded: JsonRpcRequest[] }>;
 }
 
+/** How {@link setUp} builds the fake adapters. */
+export interface SetUpOptions {
+  /**
+   * Give the adapters `signTransaction` and `signTransactionOutlivesAbort`, as Turnkey's adapter
+   * has in transaction mode (#537); {@link SignState.hang} then makes a transaction hang.
+   */
+  outliving?: boolean;
+  /** The keys' `timeoutMs`; the plugin's default when absent. */
+  timeoutMs?: number;
+}
+
 /**
  * The network hook's handlers with fake timers, a runtime with two third-party keys (cow, zero),
  * and a fake node. The network sets a fixed gas and gas price, so a fill only reads the chain id
@@ -139,11 +172,15 @@ export interface SendHarness {
 export async function setUp(
   type: "http" | "edr-simulated" = "http",
   chainId = 31337,
+  options: SetUpOptions = {},
 ): Promise<SendHarness> {
   const keys = Object.fromEntries(Object.keys(SECRETS).map((name) => [name, vaultKey(name)]));
   const hre = await createHardhatRuntimeEnvironment({
     plugins: [hardhatKms],
-    kms: { keys },
+    kms: {
+      keys,
+      ...(options.timeoutMs === undefined ? {} : { defaults: { timeoutMs: options.timeoutMs } }),
+    },
     networks: {
       remote: {
         type: "http",
@@ -156,7 +193,7 @@ export async function setUp(
       plain: { type: "http", url: "http://127.0.0.1:1", chainId, gas: 21_000, gasPrice: 1 },
     },
   });
-  const state: SignState = { beforeSign: undefined, signatures: 0, closed: 0 };
+  const state: SignState = { beforeSign: undefined, hang: undefined, signatures: 0, closed: 0 };
   hre.hooks.registerHandlers("kms", {
     createKeyAdapter: async (_context, key) => {
       const secret = SECRETS[key.name];
@@ -168,11 +205,45 @@ export async function setUp(
           await state.beforeSign?.(key.name);
         },
       });
-      return {
-        ...adapter,
+      const closing = {
         close: async () => {
           state.closed++;
           await Promise.resolve();
+        },
+      };
+      if (options.outliving !== true) {
+        return { ...adapter, ...closing };
+      }
+      return {
+        ...adapter,
+        ...closing,
+        signTransactionOutlivesAbort: true,
+        signTransaction: async (request, ctx) => {
+          const { nonce, value } = Transaction.fromHex(
+            Buffer.from(request.unsigned).toString("hex"),
+            false,
+          ).raw;
+          const hang = state.hang?.({ nonce, value });
+          if (hang !== "unsent") {
+            ctx.requestSent?.();
+            ctx.requestSent?.(PENDING_REQUEST_ID);
+          }
+          if (hang !== undefined) {
+            if (hang === "refused") {
+              ctx.requestRefused?.();
+            }
+            if (hang === "fails" || hang === "refused") {
+              throw new Error(hang);
+            }
+            await new Promise<never>((_, reject) => {
+              ctx.signal.addEventListener("abort", () => {
+                reject(new Error("aborted"));
+              });
+            });
+          }
+          const signature = await adapter.signDigest?.({ digest: request.digest }, ctx);
+          assert.ok(signature !== undefined, "the fake adapter signs digests");
+          return signature;
         },
       };
     },
@@ -182,6 +253,7 @@ export async function setUp(
     pending: 0n,
     raw: [],
     onRaw: undefined,
+    count: undefined,
     methods: [],
     lookUp: () => null,
   };
@@ -195,7 +267,11 @@ export async function setUp(
       case "eth_chainId":
         return ok(`0x${chainId.toString(16)}`);
       case "eth_getTransactionCount":
-        return ok(`0x${node.pending.toString(16)}`);
+        return ok(
+          node.count === undefined
+            ? `0x${node.pending.toString(16)}`
+            : node.count(Array.isArray(request.params) ? request.params[1] : undefined),
+        );
       case "eth_fillTransaction":
         return ok({ raw: "0x", tx: { nonce: `0x${node.pending.toString(16)}` } });
       case "eth_getTransactionByHash":
@@ -256,11 +332,11 @@ export async function setUp(
         return response.result;
       },
     };
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- only the fields the hook reads
     const connection = {
       networkName: network,
       networkConfig: configs[network],
       provider,
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- only the fields the hook reads
     } as NetworkConnection<string>;
     assert.ok(handlers.newConnection);
     return await handlers.newConnection(hre, async () => await Promise.resolve(connection));

@@ -17,7 +17,13 @@ import {
   ORGANIZATION,
 } from "../helpers/keys.ts";
 import { BASE_URL, testTransport } from "../helpers/transport.ts";
-import { SIGN_PATH, type StubAnswer, TurnkeyStub, turnkeyError } from "../helpers/turnkey-stub.ts";
+import {
+  SIGN_PATH,
+  type StubAnswer,
+  TurnkeyStub,
+  turnkeyError,
+  turnkeyPolicyDenied,
+} from "../helpers/turnkey-stub.ts";
 
 const DISPLAY_ID = "turnkey:<TURNKEY_ORGANIZATION_ID>/0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const BODY = JSON.stringify({ organizationId: ORGANIZATION, timestampMs: "1" });
@@ -318,6 +324,16 @@ describe("TurnkeyClient answers", () => {
       "403",
       turnkeyError(403, "REQUEST_NOT_AUTHORIZED", TURNKEY_MESSAGE),
       /Turnkey answered 403 REQUEST_NOT_AUTHORIZED: no policy lets the API key's user sign this request with this address \(the hint\)\. Add a policy/,
+    ],
+    [
+      "403 from a policy, without a code, as the live run saw it",
+      turnkeyPolicyDenied(TURNKEY_MESSAGE),
+      /Turnkey answered 403: no policy lets the API key's user sign this request with this address \(the hint\)\. Add a policy/,
+    ],
+    [
+      "a stale timestamp as a 400 without a code, as the live run saw it",
+      turnkeyError(400, undefined, "the request's timestamp is too old"),
+      /Turnkey answered 400: it refused the request's time/,
     ],
     [
       "404",

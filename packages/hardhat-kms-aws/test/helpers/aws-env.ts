@@ -13,11 +13,18 @@ const CLEARED = [
   "AWS_IGNORE_CONFIGURED_ENDPOINT_URLS",
   "AWS_MAX_ATTEMPTS",
   "AWS_RETRY_MODE",
+  "AWS_EC2_METADATA_SERVICE_ENDPOINT",
+  "AWS_EC2_METADATA_SERVICE_ENDPOINT_MODE",
 ];
 
 /**
- * Points the AWS SDK at test credentials and nothing else: no profile, no config files, no FIPS or
- * dual-stack setting. Tests that talk to a local endpoint call it before creating clients.
+ * Points the AWS SDK at test credentials and nothing else: no profile, no config files, no instance
+ * metadata, no FIPS or dual-stack setting. Tests that talk to a local endpoint call it before
+ * creating clients.
+ *
+ * Without a region, the SDK asks the instance metadata service at 169.254.169.254 and takes the body
+ * of any 2xx answer as the region, so a runner that answers there gives a key with no region one
+ * (#626).
  *
  * @returns A function that restores the previous environment.
  */
@@ -27,6 +34,7 @@ export function isolateAwsEnvironment(): () => void {
   process.env.AWS_SECRET_ACCESS_KEY = "test";
   process.env.AWS_CONFIG_FILE = "/nonexistent/hardhat-kms-aws/config";
   process.env.AWS_SHARED_CREDENTIALS_FILE = "/nonexistent/hardhat-kms-aws/credentials";
+  process.env.AWS_EC2_METADATA_DISABLED = "true";
   for (const name of CLEARED) {
     Reflect.deleteProperty(process.env, name);
   }

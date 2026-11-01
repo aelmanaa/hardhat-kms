@@ -167,10 +167,10 @@ Run it with `npx hardhat run scripts/check-kms.ts`. The KMS address comes last i
 
 npm marks `google-gax` 6.11.0 as deprecated "due to a known bug". `@hardhat-kms/gcp` depends on `google-gax` `^6.5.0 <6.11.0 || ^6.11.1`, and the plugin sends its Cloud KMS requests through that copy, so they never run on 6.11.0.
 
-`@google-cloud/kms` asks for its own `google-gax` `^6.0.0`. npm, Yarn 4 and pnpm 11 and later skip a deprecated version when another one fits, so they give it the plugin's copy. Three cases can still add a 6.11.0 copy under `@google-cloud/kms`:
+`@google-cloud/kms` asks for its own `google-gax` `^6.0.0`. A fresh install gives it 6.12.0 or later with every package manager. A 6.11.0 copy under `@google-cloud/kms` comes only from a lockfile or a pnpm registry cache written on 2026-10-06 or 07, while 6.11.0 was the newest release:
 
-- Yarn 1 takes the `latest` tag when it fits a range, and `latest` was 6.11.0 on 2026-10-07.
-- pnpm 10 does not skip deprecated versions: on its own, `@google-cloud/kms` resolves to 6.11.0 there, even with an empty cache.
+- Yarn 1 takes the `latest` tag when it fits a range, and `latest` was 6.11.0 then.
+- pnpm 10 does not skip deprecated versions, and picks the highest version that fits.
 - pnpm 11 and later can pick 6.11.0 when their cached registry data predates the deprecation.
 
 The client library uses that second copy only for its debug logger and to decode error details. To remove a 6.11.0 copy that `npm ls google-gax --all`, `pnpm why google-gax` or `yarn why google-gax` shows, override the version in your project:

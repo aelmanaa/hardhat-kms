@@ -1,5 +1,137 @@
 # hardhat-kms
 
+## 1.4.0
+
+### Minor Changes
+
+- [#616](https://github.com/aelmanaa/hardhat-kms/pull/616) [`74d2388`](https://github.com/aelmanaa/hardhat-kms/commit/74d23886a1a1a78bec325adc2f1fcc104c644588) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `kms accounts` now shows what each key may delegate its account to with an EIP-7702 authorization. When any listed key has `allowedDelegates`, a `DELEGATES` column shows `any`, `revoke only` (an empty list, which allows only the zero address) or `N listed`, and `--json` adds `allowedDelegates`, the number of entries, to those keys. A key with `allowRawDigests: true` gets a line under its row saying so, and `allowRawDigests: true` in the JSON. Entries for one KMS key that differ in either setting are no longer merged into one row. The configuration reference now says how to lock a deployer or admin key against any delegation with `allowedDelegates: []`, and the key rotation guide how to retire authorizations a key signed that nobody sent.
+  
+  Issue: [#564](https://github.com/aelmanaa/hardhat-kms/issues/564)
+
+### Patch Changes
+
+- [#606](https://github.com/aelmanaa/hardhat-kms/pull/606) [`b7446c7`](https://github.com/aelmanaa/hardhat-kms/commit/b7446c7d5c105ef338013a95367a64dceeb9bec8) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `eth_sendTransaction`, `eth_signTransaction` and `kms sign-tx` now refuse an `authorizationList` without `to`, and an empty `authorizationList`, before the fee and gas requests, with `core.tx.authorization-no-to` and `core.tx.authorization-list-empty`. `kms sign-tx` refuses them before it opens the key. Before, such a request failed late with micro-eth-signer's `fields had validation errors`, or at `eth_estimateGas` with the node's message. Any other field micro-eth-signer refuses now fails with `core.tx.invalid-fields`, which names each field and its reason.
+  
+  Issue: [#586](https://github.com/aelmanaa/hardhat-kms/issues/586)
+
+- [#609](https://github.com/aelmanaa/hardhat-kms/pull/609) [`a9a4a45`](https://github.com/aelmanaa/hardhat-kms/commit/a9a4a458236a07c2ec0e4fd3c850052681d11554) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `eth_sendTransaction`, `eth_signTransaction` and `kms sign-tx` now refuse an `authorizationList` that is not an array, an item of it that is not an object, and a `to` beside it that is not a 20-byte hex address, before the fee and gas requests, with `core.tx.authorization-list-not-array`, `core.tx.authorization-not-object` and `core.tx.authorization-to-not-address`. Before, such a request reached the node's fee and gas requests and then failed with a schema error. `kms sign-tx` refuses them, and `authorizationList: null`, before it opens the key.
+  
+  Issue: [#607](https://github.com/aelmanaa/hardhat-kms/issues/607)
+
+- [#615](https://github.com/aelmanaa/hardhat-kms/pull/615) [`0cb9268`](https://github.com/aelmanaa/hardhat-kms/commit/0cb92683b9ec2701e11326a7d7522a6cded0d3d1) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A transaction with `data: "0x"` is now signed with no calldata, and `personal_sign` or `eth_sign` with the message `"0x"` signs the empty message. Before, when the project's `@nomicfoundation/hardhat-zod-utils` used an `@nomicfoundation/hardhat-utils` release older than 5.1.1, the plugin read `"0x"` as one zero byte: it signed calldata `0x00`, so a contract ran its `fallback` function instead of `receive`, or a one-byte message. Which `hardhat-utils` copy is installed depends on the lockfile, so the plugin now decodes these fields itself. `eth_sendTransaction`, `eth_signTransaction` and `kms sign-tx` are fixed.
+  
+  Issue: [#614](https://github.com/aelmanaa/hardhat-kms/issues/614)
+
+- [#613](https://github.com/aelmanaa/hardhat-kms/pull/613) [`efa27ca`](https://github.com/aelmanaa/hardhat-kms/commit/efa27cab01f0c0c7d16e0aade3c957f63cb1a2f3) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `hardhat-kms` now accepts `@nomicfoundation/hardhat-utils` 5 as well as 4 (`^4.3.0 || ^5.0.0`), so a project on Hardhat 3.20 or later can install one copy of it instead of both majors. The `@nomicfoundation/hardhat-zod-utils` floor rises from 3.0.5 to 3.0.7, since earlier releases have no `type` in the transaction request schema that `kms sign-tx` and the transaction filler read. The `@nomicfoundation/hardhat-errors` range stays `^3.1.0`. Each floor, both majors of `hardhat-utils` included, is now tested before every release.
+  
+  Issue: [#587](https://github.com/aelmanaa/hardhat-kms/issues/587)
+
+- [#605](https://github.com/aelmanaa/hardhat-kms/pull/605) [`fa7b517`](https://github.com/aelmanaa/hardhat-kms/commit/fa7b517e28dbfa53168a49ef67638a17e314b39a) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `eth_sendTransaction`, `eth_signTransaction` and a library account's `signAuthorization` and `signTransaction` now refuse an EIP-7702 authorization from a `--kms` key that is the same KMS key as a config key with `allowedDelegates`, with `core.delegate.command-line-key`. The config key can be in `kms.keys` or in any network's `kmsAccounts`. Before, a connection compared `--kms` keys only with its own network's `kmsAccounts`, so a copy of a listed key from elsewhere in the config signed with no list. An authorization to the zero address still signs, as every list allows it.
+  
+  Issue: [#593](https://github.com/aelmanaa/hardhat-kms/issues/593)
+
+## 1.3.0
+
+### Minor Changes
+
+- [#574](https://github.com/aelmanaa/hardhat-kms/pull/574) [`a2ec3d5`](https://github.com/aelmanaa/hardhat-kms/commit/a2ec3d50a46442ee91655961515f93dd87d19bc8) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A key can now set `allowedDelegates` to limit the contracts it may delegate its account to with an EIP-7702 authorization. Each entry has an `address`, the `chains` it is allowed on or `"all"`, and an optional `label` and `codeHash`. `kms sign-auth`, a library account's `signAuthorization`, and a transaction that carries the key's own authorization refuse any other delegate before the KMS signs. A chain-0 authorization matches only entries with `chains: "all"`. With `codeHash`, the plugin reads the delegate's code from the network and refuses a mismatch. The zero address always passes. No flag overrides the list. `kms sign-auth` and `kms sign-tx` refuse a `--kms` key that is the same KMS key as a config key with `allowedDelegates`. Keys without `allowedDelegates` work as before.
+  
+  Resolved keys in `hre.config.kms.keys` and each network's `kmsAccounts` are now frozen. What should I do? Nothing, unless a plugin or script changes a resolved key in place. Change the user config before Hardhat loads it instead.
+  
+  Issue: [#562](https://github.com/aelmanaa/hardhat-kms/issues/562)
+
+- [#572](https://github.com/aelmanaa/hardhat-kms/pull/572) [`3892d18`](https://github.com/aelmanaa/hardhat-kms/commit/3892d181b937ff20e156ed014168e16db61be0a0) Thanks [@aelmanaa](https://github.com/aelmanaa)! - Security change. `kms sign --no-hash` now asks at a terminal before it signs a raw digest, and signs only after `y` or `yes`. A raw digest can be the hash of an EIP-7702 authorization, and the plugin cannot tell. Without a terminal, the task signs only for a key with the new `allowRawDigests: true` field and with the new `--yes` flag. `--yes` skips the question only for such a key. A declined or unanswered question fails with `core.task.raw-digest-declined` and makes no sign request. `connection.kms.getAccount(address, { rawSign: true })` now fails with `core.account.raw-sign-not-allowed` unless the key sets `allowRawDigests: true`. Keys given with `--kms` cannot set it, so their raw digests need a terminal. Turnkey sends raw digests and EIP-7702 authorizations as the same `HASH_FUNCTION_NO_OP` request, so a Turnkey policy on authorizations binds only when that request is denied, as the Turnkey setup guide now shows.
+  
+  What should I do? Add `allowRawDigests: true` to each key in `kms.keys` or `kmsAccounts` that signs raw digests in CI or with `rawSign`, and pass `--yes` to `kms sign --no-hash` where no terminal is attached. Leave it off every other key.
+  
+  Issue: [#561](https://github.com/aelmanaa/hardhat-kms/issues/561)
+
+- [#575](https://github.com/aelmanaa/hardhat-kms/pull/575) [`cce6a8d`](https://github.com/aelmanaa/hardhat-kms/commit/cce6a8dc4dc6043fbf8dfb7e1398c24dbfb17243) Thanks [@aelmanaa](https://github.com/aelmanaa)! - Security change. `kms sign-auth` now shows what an EIP-7702 authorization does and asks before it signs. With `--network` it reads the account's nonce and code and the delegate's code and ERC-1967 slot, and the question shows the account, the delegate with its `allowedDelegates` label, the chain (`ALL CHAINS` for chain 0), the nonce against the account's nonce, the delegate's code size and hash, and the account's current delegation. At a terminal only `y` or `yes` signs; any other answer or closed input fails with `core.task.auth-declined` and exits non-zero. The new `--yes` skips the question, but only for a delegate in the key's `allowedDelegates` or the zero address. Without a terminal the task signs only with `--yes` and such a delegate; a key without `allowedDelegates`, which includes every `--kms` key, can then only revoke. `--force` still allows chain 0 and does not skip the question. The task now refuses authorizations that cannot apply: a nonce the account has passed, a delegate that is itself delegated, a precompile delegate, and an account with contract code. It warns about a nonce far ahead, a `--nonce` a pending transaction will likely use first, a re-delegation, a proxy delegate and a delegate without code. With `--network` the task now always connects to the node.
+  
+  What should I do? Add the delegate to the key's `allowedDelegates` and pass `--yes` in CI. To sign without a node, use `--chain` with `--nonce`.
+  
+  Issue: [#563](https://github.com/aelmanaa/hardhat-kms/issues/563)
+
+### Patch Changes
+
+- [#592](https://github.com/aelmanaa/hardhat-kms/pull/592) [`342cda7`](https://github.com/aelmanaa/hardhat-kms/commit/342cda7df0c047ad8c29c5014236d6320f349e78) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `kms sign-auth` and `kms sign-tx` now refuse a `--kms` AWS key with the same key id or alias as a config key with `allowedDelegates`, even when the two keys set the region, profile or endpoint differently, or one of them writes the key as an ARN. Before, a config key that set its own `region` while the `--kms` key took its region from `AWS_REGION` was not refused, so the config key's list did not apply. An Azure key URL now matches whatever its case or trailing slash, and a key URL without a version matches every version of that key.
+  
+  Issue: [#589](https://github.com/aelmanaa/hardhat-kms/issues/589)
+
+- [#583](https://github.com/aelmanaa/hardhat-kms/pull/583) [`3a7cf41`](https://github.com/aelmanaa/hardhat-kms/commit/3a7cf414aa7f08a858b8ee5aecc3b0c6ce510fff) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `eth_sendTransaction` and `eth_signTransaction` from a KMS account accept a `type` such as `2`, `"0x02"`, `"0X2"` or `"2"` again. With `@nomicfoundation/hardhat-zod-utils` 3.0.7 or later, which a fresh install of any Hardhat 3 release gets, these requests failed with a raw schema error and nothing was signed. Hardhat's own local accounts refuse these forms. A request that also goes to a Hardhat account should send `type` as a `0x` quantity without leading zeros, such as `"0x2"`.
+  
+  Issue: [#585](https://github.com/aelmanaa/hardhat-kms/issues/585)
+
+## 1.2.0
+
+### Minor Changes
+
+- [#528](https://github.com/aelmanaa/hardhat-kms/pull/528) [`3bed0ce`](https://github.com/aelmanaa/hardhat-kms/commit/3bed0ce8dbf90616398403549b9c61a60ea117d8) Thanks [@aelmanaa](https://github.com/aelmanaa)! - Provider adapters can now implement `signTransaction`. The plugin calls it for every transaction from `eth_sendTransaction`, `eth_signTransaction`, a library account's `signTransaction` and `kms sign-tx`. It receives the unsigned serialized transaction, its digest, its type and its chain id, and returns only the signature. The plugin checks that signature against its own digest and the key, and sends or prints its own transaction. Adapters without `signTransaction` keep signing transactions through `signDigest`. EIP-7702 authorizations, `kms sign-auth` and `kms sign --no-hash` still go to `signDigest`.
+  
+  What should I do? Nothing, unless you maintain a provider plugin whose adapter already has a method named `signTransaction`. The provider contract has reserved that name since 1.0. Such an adapter now receives every transaction through it, so rename the method or make it follow the contract.
+  
+  Issue: [#514](https://github.com/aelmanaa/hardhat-kms/issues/514)
+
+- [#518](https://github.com/aelmanaa/hardhat-kms/pull/518) [`f735ed1`](https://github.com/aelmanaa/hardhat-kms/commit/f735ed128e40066f4bb0b1e0c8bb74f591306ba4) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A key with `provider: "turnkey"` now passes config validation. Before, `turnkey` in any case failed with `core.config.provider-reserved`. Its `apiPrivateKey` takes only `configVariable(NAME)`, without a `default` or a `format`: a literal API private key fails validation with `core.config.secret-variable`, and the error never shows the value. `Turnkey`, `turnky` and other near misses of the id fail with `core.config.provider-misspelled`. The configuration reference lists the key's fields.
+  
+  What should I do? Nothing, unless your code narrows a resolved key on `provider`. `KmsKeyConfig` now includes `TurnkeyKmsKeyConfig`, so code that reads `keyId` from every key that is not a `gcp` key needs a `turnkey` case.
+  
+  Issue: [#510](https://github.com/aelmanaa/hardhat-kms/issues/510)
+
+- [#520](https://github.com/aelmanaa/hardhat-kms/pull/520) [`f952e64`](https://github.com/aelmanaa/hardhat-kms/commit/f952e64f38fd4d0aaaf936caadec2e8973a5ca61) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The new package `@hardhat-kms/turnkey` signs with the `turnkey` keys of a `kms` config. It calls Turnkey's API with the key's API key and has no runtime dependencies. Transactions go through Turnkey's `sign_transaction` activity, or as a 32-byte digest for a key with `transactionSigning: "digest"`. Messages reach Turnkey as the EIP-191 message, which Turnkey hashes with Keccak-256. Typed data reaches Turnkey as EIP-712 JSON. EIP-7702 authorizations reach Turnkey as a 32-byte digest. A key whose Turnkey policy needs an approval fails at once, and the error names the pending activity to reject. After a rate limit, a server error or no answer, the plugin sends the request again with the same body, so Turnkey signs it once. Errors show Turnkey's HTTP status and error code, never its message.
+  
+  `kms accounts` lists two Turnkey keys that name the same organization and address once when they also use the same API keys and the same `transactionSigning`; otherwise each gets a row of its own, and `--check-sign` checks each.
+  
+  Issue: [#511](https://github.com/aelmanaa/hardhat-kms/issues/511)
+
+- [#529](https://github.com/aelmanaa/hardhat-kms/pull/529) [`c839a8a`](https://github.com/aelmanaa/hardhat-kms/commit/c839a8ac7e4ffa9787dbfb9707857cfe95cb9df0) Thanks [@aelmanaa](https://github.com/aelmanaa)! - Turnkey keys sign transactions through Turnkey's `sign_transaction` activity (`ACTIVITY_TYPE_SIGN_TRANSACTION_V2`). Turnkey parses the transaction, so its policies can read the transaction's fields (`eth.tx.*`): a policy can limit a key to one contract, one chain or a value. The plugin decodes the signed transaction Turnkey returns, refuses it unless its type and every field equal the transaction it sent (`turnkey.sign.transaction-mismatch`), and keeps only the signature. It sends its own transaction, never Turnkey's bytes. Messages, typed data, EIP-7702 authorizations, `kms sign-auth` and `kms sign --no-hash` go through `sign_raw_payload`.
+  
+  A Turnkey key takes an optional field, `transactionSigning`: `"transaction"`, the default, or `"digest"`, which signs each transaction's hash through `sign_raw_payload` with `HASH_FUNCTION_NO_OP`, as Foundry does. The core validates it and resolves it to `"transaction"` when unset.
+  
+  What should I do? Nothing. When a key and its Turnkey policy are shared with Foundry and the policy allows only `SIGN_RAW_PAYLOAD`, set `transactionSigning: "digest"` on the key, or add the second policy of the Turnkey setup guide, which allows `SIGN_TRANSACTION`.
+  
+  Issue: [#515](https://github.com/aelmanaa/hardhat-kms/issues/515)
+
+- [#540](https://github.com/aelmanaa/hardhat-kms/pull/540) [`93f9e40`](https://github.com/aelmanaa/hardhat-kms/commit/93f9e40f196efd4488279aef2e8ee1c39759f992) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A Turnkey transaction that fails after its request reached Turnkey no longer lets the plugin sign its nonce again. This covers a timeout, an abort by a library account's `signal`, an activity that needs approval, a status query that fails, an answer the plugin cannot read, and a signed transaction it refused. Turnkey keeps working on an activity it accepted, and a completed `sign_transaction` activity holds the signed transaction, which every user of the organization can read and broadcast. Before, the next send took the same nonce, so two valid transactions could exist for it. Now the error, `core.signer.transaction-outstanding`, starts with the cause and names the nonce and the activity id, and the network connection's later sends from the account skip that nonce: a gap, never a duplicate. The hold covers `eth_sendTransaction`, `eth_signTransaction` and a library account's `signTransaction`, and ends once the nonce is mined, when Turnkey's copy itself reaches the node through the connection, or when the connection closes. These release the nonce as before: a definite refusal by Turnkey (a 4xx answer, or an activity that ended `FAILED` or `REJECTED`), a request that failed before it left, a key with `transactionSigning: "digest"`, and AWS, Google Cloud and Azure keys.
+  
+  Turnkey also keeps every transaction it signs. A Turnkey transaction that the node refused for certain, for example for insufficient funds, now fails with `core.tx.refused-provider-copy`, which names the nonce, the kind of refusal and the node's code, and the nonce stays held: Turnkey's copy becomes valid once the cause goes away. A refusal at a nonce the node has already mined past is passed on unchanged, and "already known" counts as sent. With a Turnkey key, `eth_signTransaction` holds its nonce until it is mined, or its signed transaction reaches the node through the connection. When held nonces put a send above the node's pending count, the plugin warns that the transaction waits behind them.
+  
+  For every provider, `eth_signTransaction` without a `nonce` now signs the nonce a send would take, past the account's earlier sends on the connection, its reserved nonces and its held ones, instead of the node's pending count. It still does not wait for sends, except with a Turnkey key that signs with `sign_transaction`: there it takes its turn like a send, so two `eth_signTransaction` calls, or one next to a send, no longer sign the same nonce.
+  
+  A send that waited for its account's earlier send, or for the plugin's look-up of an unanswered transaction, while its connection closed now fails with `core.tx.connection-closed` before it asks the provider to sign. Before, it signed and then refused to broadcast, which with Turnkey left a signed transaction behind.
+  
+  Provider plugins get three optional members: `KmsKeyAdapter.signTransactionOutlivesAbort`, for a provider that may still sign a transaction after the plugin gave up on it; `SignContext.requestSent`, which such an adapter calls when its request may have reached the provider; and `SignContext.requestRefused`, which it calls when the provider refused the request for certain. `@hardhat-kms/turnkey` sets the flag for keys that sign with `sign_transaction`.
+  
+  What should I do? If you use `eth_signTransaction` and expected the node's pending count, note that it may now be higher after sends on the same connection; pass `nonce` to choose it yourself. If a Turnkey send fails with `core.tx.refused-provider-copy`, fix the cause it names, then send a replacement with that nonce, or broadcast Turnkey's signed transaction. If a Turnkey send fails with `core.signer.transaction-outstanding`, open the activity the message names in the Turnkey dashboard before you send anything else from the account. Reject it while it is pending; then, or if it completed, send a replacement transaction with the nonce the message names. If you maintain a provider plugin, nothing changes unless your provider keeps signing a transaction after the call ends and stores the result where others can broadcast it; then set `signTransactionOutlivesAbort` and call `ctx.requestSent` and `ctx.requestRefused`, as the provider guide describes.
+  
+  Issue: [#537](https://github.com/aelmanaa/hardhat-kms/issues/537)
+
+### Patch Changes
+
+- [#551](https://github.com/aelmanaa/hardhat-kms/pull/551) [`37cd6d5`](https://github.com/aelmanaa/hardhat-kms/commit/37cd6d557b8e6403d59709ba817751fb21229c1a) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The package description and keywords now mention Turnkey.
+
+- [#527](https://github.com/aelmanaa/hardhat-kms/pull/527) [`9af93d1`](https://github.com/aelmanaa/hardhat-kms/commit/9af93d152b9d8542c238b0dfa3177c036b6ec788) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `kms history` on a Turnkey key fails with `core.history.unsupported`, which says that the task does not read Turnkey keys yet. The message names neither the organization id nor the key's address. A key of AWS KMS, Google Cloud KMS or Azure Key Vault whose provider package is missing still gets `core.history.no-reader-builtin`.
+  
+  What should I do? Nothing. Read a Turnkey key's activities in the Turnkey dashboard, or with Turnkey's `list_activities` query.
+  
+  Issue: [#524](https://github.com/aelmanaa/hardhat-kms/issues/524)
+
+- [#517](https://github.com/aelmanaa/hardhat-kms/pull/517) [`fab818f`](https://github.com/aelmanaa/hardhat-kms/commit/fab818fdc97795ba134aa491343cb087fc4f03d5) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A key whose `provider` is `pkcs11`, in any case, now fails config validation with `core.config.provider-reserved`. The message links the issue that tracks the planned PKCS#11 HSM provider. The core also refuses to build an adapter for such a key. A third-party plugin's `kms` handler never receives one.
+  
+  What should I do? Nothing, unless a third-party plugin serves keys under `pkcs11`. Give that plugin's provider another id, and change the `provider` of its keys to match.
+  
+  Issue: [#516](https://github.com/aelmanaa/hardhat-kms/issues/516)
+
+- [#539](https://github.com/aelmanaa/hardhat-kms/pull/539) [`465ac83`](https://github.com/aelmanaa/hardhat-kms/commit/465ac838524bd847325e836d903f4b5db5e836ba) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A Turnkey key's `transactionSigning` now decides which signer it gets. Before, a connection whose config override changed only `transactionSigning` shared the first connection's signer, so the override was ignored without an error: a key overridden to `"digest"` still signed through `sign_transaction`, and the reverse. `kms accounts` now lists Turnkey keys for one account as one entry only when they use the same API keys and the same `transactionSigning`, so `--check-sign` checks each API user.
+  
+  Issue: [#536](https://github.com/aelmanaa/hardhat-kms/issues/536)
+
+- [#550](https://github.com/aelmanaa/hardhat-kms/pull/550) [`1b68eec`](https://github.com/aelmanaa/hardhat-kms/commit/1b68eec706df0665dfb135ddf34543fa2a3a9fdb) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A Turnkey key whose `apiPrivateKey` or `organizationId` variable is not set now fails with Hardhat's own error, which names the variable, for example `HHE7: Configuration Variable "TURNKEY_API_PRIVATE_KEY" not found`. Before, `kms sign`, `kms accounts --check-sign` and a send failed with `the provider call failed (HardhatError)`, which did not say which variable was missing. The error names the variable, never a value. The signer passes on only this error, rebuilt from the variable's name; Hardhat's other errors still show as `the provider call failed (HardhatError)`, since some quote a value. AWS, Google Cloud and Azure keys read their variables when the adapter is created, so their errors do not change.
+  
+  What should I do? Nothing. If a Turnkey key fails with the HHE7 error, set the variable it names in the environment or in `hardhat-keystore`.
+  
+  Issue: [#544](https://github.com/aelmanaa/hardhat-kms/issues/544)
+
 ## 1.1.0
 
 ### Minor Changes

@@ -830,6 +830,87 @@ describe("HardhatTransactionFiller checks", () => {
     );
   });
 
+  it("refuses an authorizationList without to, an empty one, or one of another shape, before any node request (#586, #607)", async () => {
+    const authorization = {
+      chainId: "0x7a69",
+      address: TO,
+      nonce: "0x0",
+      yParity: "0x1",
+      r: `0x${"11".repeat(32)}`,
+      s: `0x${"22".repeat(32)}`,
+    };
+    const noTo =
+      "an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was signed or sent";
+    const empty =
+      "the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was signed or sent";
+    const cases: [Record<string, unknown>, string][] = [
+      [{ authorizationList: [authorization] }, noTo],
+      [{ to: null, authorizationList: [authorization] }, noTo],
+      // Without to and empty: no `to` comes first, as in Hardhat.
+      [{ authorizationList: [] }, noTo],
+      [{ to: TO, authorizationList: [] }, empty],
+    ];
+    const notArray =
+      "the authorizationList of an EIP-7702 transaction must be an array of authorizations. Nothing was signed or sent";
+    // A list that is not an array comes first, even without `to`.
+    for (const list of [{}, "0x", 0, false, { length: 0 }]) {
+      cases.push(
+        [{ to: TO, authorizationList: list }, notArray],
+        [{ authorizationList: list }, notArray],
+      );
+    }
+    const notAddress =
+      "the `to` of an EIP-7702 transaction must be a 20-byte hex address. Nothing was signed or sent";
+    // A bad `to` comes before an empty list.
+    for (const to of [
+      "",
+      "0x",
+      0,
+      false,
+      [TO],
+      `0x${"ab".repeat(19)}`,
+      `${TO}00`,
+      `zz${TO}`,
+      `0x${"g".repeat(40)}`,
+      TO.slice(2),
+    ]) {
+      cases.push(
+        [{ to, authorizationList: [authorization] }, notAddress],
+        [{ to, authorizationList: [] }, notAddress],
+      );
+    }
+    const notObject = "must be a signed authorization object. Nothing was signed or sent";
+    for (const item of [null, undefined, [], "0x", 1]) {
+      cases.push([
+        { to: TO, authorizationList: [authorization, item] },
+        `authorizationList[1] ${notObject}`,
+      ]);
+    }
+    // A hole, which entries() visits as undefined.
+    const sparse: unknown[] = [];
+    sparse.length = 1;
+    cases.push([{ to: TO, authorizationList: sparse }, `authorizationList[0] ${notObject}`]);
+    for (const method of ["eth_sendTransaction", "eth_signTransaction"]) {
+      for (const gas of [{}, { gas: "0x5208" }]) {
+        for (const [fields, message] of cases) {
+          const { node, filler: instance } = filler(EIP1559_NODE);
+          await assert.rejects(instance.fill(method, [{ from: FROM, ...gas, ...fields }]), {
+            message: `${method}: ${message}`,
+          });
+          assert.deepEqual(node.methods(), [], JSON.stringify(fields));
+        }
+      }
+    }
+    // A list with `to` fills as before.
+    const { node } = await fill(EIP1559_NODE, { authorizationList: [authorization] });
+    assert.ok(node.methods().length > 0);
+    // As Hardhat's rpcAddress, a `0X` prefix and either case of hex digits are an address (#618).
+    for (const to of [`0X${TO.slice(2)}`, `0x${TO.slice(2).toUpperCase()}`, TO.toLowerCase()]) {
+      const { node: other } = await fill(EIP1559_NODE, { to, authorizationList: [authorization] });
+      assert.ok(other.methods().length > 0, to);
+    }
+  });
+
   it("refuses blob transactions before any request", async () => {
     for (const extra of [
       { blobs: [] },
@@ -1465,6 +1546,26 @@ describe("buildUnsignedTransaction", () => {
     assert.equal(rawOf(buildUnsignedTransaction(filledTx({}))).gasPrice, 0n);
   });
 
+  it("names each field micro-eth-signer refuses, without long numbers (#586)", () => {
+    assert.throws(
+      () =>
+        buildUnsignedTransaction(
+          filledTx({ maxFeePerGas: 10n ** 30n, maxPriorityFeePerGas: 10n ** 30n + 1n }),
+        ),
+      {
+        message:
+          "sign transaction: the eip1559 transaction has invalid fields: maxPriorityFeePerGas (cannot be bigger than maxFeePerGas=<number>). Nothing was signed",
+      },
+    );
+    assert.throws(
+      () => buildUnsignedTransaction(filledTx({ maxFeePerGas: 5n, maxPriorityFeePerGas: 6n })),
+      {
+        message:
+          "sign transaction: the eip1559 transaction has invalid fields: maxPriorityFeePerGas (cannot be bigger than maxFeePerGas=5). Nothing was signed",
+      },
+    );
+  });
+
   it("builds an EIP-2930 transaction from an access list", () => {
     const tx = buildUnsignedTransaction(
       filledTx({
@@ -1809,8 +1910,11 @@ async function refusal(authorizationList: unknown): Promise<string> {
 }
 
 describe("HardhatTransactionFiller malformed authorization lists", () => {
-  it("leave an item that is not an object to the schema", async () => {
-    assert.match(await refusal([null]), /Expected object, received null/);
+  it("refuse an item that is not an object before the schema (#607)", async () => {
+    assert.equal(
+      await refusal([null]),
+      "eth_sendTransaction: authorizationList[0] must be a signed authorization object. Nothing was signed or sent",
+    );
   });
 
   it("leave an r or s that is not a string to the schema, even one that reads as a quantity", async () => {

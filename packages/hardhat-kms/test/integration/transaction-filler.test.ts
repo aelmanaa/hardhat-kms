@@ -95,13 +95,15 @@ describe("transaction filling matches Hardhat's local accounts", () => {
 
   /**
    * Signs the request as a local account and fills it with the plugin on the same connection,
-   * then compares them.
+   * then compares them. The plugin fills `pluginRequest` when given, such as the same request
+   * with its `type` in a form Hardhat no longer reads.
    */
   async function compareOn(
     network: string,
     connection: NetworkConnection<string>,
     filler: TransactionFiller,
     request: Record<string, unknown>,
+    pluginRequest: Record<string, unknown> = request,
   ): Promise<UnsignedTransaction> {
     const node = nodeOf(network);
     const sent = node.raw.length;
@@ -112,7 +114,7 @@ describe("transaction filling matches Hardhat's local accounts", () => {
     const signed = Transaction.fromHex(node.raw[sent] ?? "", false);
     assert.equal(signed.sender, FROM);
 
-    const filled = await filler.fill("eth_sendTransaction", [structuredClone(request)]);
+    const filled = await filler.fill("eth_sendTransaction", [structuredClone(pluginRequest)]);
     const unsigned = buildUnsignedTransaction(filled);
 
     const expected = signed.removeSignature();
@@ -125,13 +127,30 @@ describe("transaction filling matches Hardhat's local accounts", () => {
   }
 
   /** Compares one request on a fresh connection; returns the transaction type. */
-  async function compare(network: string, request: Record<string, unknown>): Promise<string> {
+  async function compare(
+    network: string,
+    request: Record<string, unknown>,
+    pluginRequest: Record<string, unknown> = request,
+  ): Promise<string> {
     const connection: NetworkConnection<string> = await hre.network.create(network);
     try {
-      return (await compareOn(network, connection, fillerFor(connection), request)).type;
+      return (await compareOn(network, connection, fillerFor(connection), request, pluginRequest))
+        .type;
     } finally {
       await connection.close();
     }
+  }
+
+  /**
+   * Compares a request whose `type` Hardhat gets as the quantity `quantity` and the plugin gets as
+   * `type`, the same type in another form.
+   */
+  async function typed(
+    request: Record<string, unknown>,
+    quantity: string,
+    type: unknown,
+  ): Promise<string> {
+    return await compare("local", { ...request, type: quantity }, { ...request, type });
   }
 
   /** Requires Hardhat and the plugin to refuse the request with the same message. */
@@ -184,37 +203,50 @@ describe("transaction filling matches Hardhat's local accounts", () => {
 
   it("signs as Hardhat a requested type that agrees with the fee fields, or a type without fee fields (#484, #496)", async () => {
     // A type that disagrees with the caller's fee fields is refused, a deliberate difference
-    // from Hardhat that the unit tests cover.
-    for (const type of ["0x0", "0x00", 0]) {
+    // from Hardhat that the unit tests cover. Hardhat gets each type as a quantity: from 3.19 it
+    // refuses a number or leading zeros, which the plugin reads as the same type (#580).
+    for (const [quantity, type] of [
+      ["0x0", "0x0"],
+      ["0x0", "0x00"],
+      ["0x0", 0],
+    ] as const) {
       assert.equal(
-        await compare("local", { from: FROM, to: TO, gasPrice: "0x3b9aca00", type }),
+        await typed({ from: FROM, to: TO, gasPrice: "0x3b9aca00" }, quantity, type),
         "legacy",
       );
     }
-    for (const type of ["0x0", "0x2", 2]) {
-      assert.equal(await compare("local", { from: FROM, to: TO, type }), "eip1559");
+    for (const [quantity, type] of [
+      ["0x0", "0x0"],
+      ["0x2", "0x2"],
+      ["0x2", 2],
+    ] as const) {
+      assert.equal(await typed({ from: FROM, to: TO }, quantity, type), "eip1559");
     }
-    for (const type of ["0x1", "0x01", 1]) {
+    for (const [quantity, type] of [
+      ["0x1", "0x1"],
+      ["0x1", "0x01"],
+      ["0x1", 1],
+    ] as const) {
       assert.equal(
-        await compare("local", {
-          from: FROM,
-          to: TO,
-          gasPrice: "0x3b9aca00",
-          accessList: ACCESS_LIST,
+        await typed(
+          { from: FROM, to: TO, gasPrice: "0x3b9aca00", accessList: ACCESS_LIST },
+          quantity,
           type,
-        }),
+        ),
         "eip2930",
       );
     }
-    for (const type of ["0x2", "0x02", 2]) {
+    for (const [quantity, type] of [
+      ["0x2", "0x2"],
+      ["0x2", "0x02"],
+      ["0x2", 2],
+    ] as const) {
       assert.equal(
-        await compare("local", {
-          from: FROM,
-          to: TO,
-          maxFeePerGas: "0x77359400",
-          maxPriorityFeePerGas: "0x3b9aca00",
+        await typed(
+          { from: FROM, to: TO, maxFeePerGas: "0x77359400", maxPriorityFeePerGas: "0x3b9aca00" },
+          quantity,
           type,
-        }),
+        ),
         "eip1559",
       );
     }
@@ -249,10 +281,14 @@ describe("transaction filling matches Hardhat's local accounts", () => {
       },
     ];
     assert.equal(await compare("local", { from: FROM, to: FROM, authorizationList }), "eip7702");
-    // A type that agrees with the fields (#496).
+    // A type that agrees with the fields (#496); Hardhat gets it as a quantity (#580).
     for (const type of ["0x4", 4]) {
       assert.equal(
-        await compare("local", { from: FROM, to: FROM, authorizationList, type }),
+        await compare(
+          "local",
+          { from: FROM, to: FROM, authorizationList, type: "0x4" },
+          { from: FROM, to: FROM, authorizationList, type },
+        ),
         "eip7702",
       );
     }
@@ -260,6 +296,68 @@ describe("transaction filling matches Hardhat's local accounts", () => {
       await compare("local", { from: FROM, to: FROM, authorizationList, accessList: ACCESS_LIST }),
       "eip7702",
     );
+  });
+
+  it("refuses an authorizationList without to, or an empty one, as Hardhat does, before any node request (#586)", async () => {
+    const signed = authorization.sign(
+      { chainId: 31337n, address: TO, nonce: 1n },
+      `0x${HARDHAT_ACCOUNT_0.secretKey}`,
+    );
+    const authorizationList = [
+      {
+        chainId: "0x7a69",
+        address: signed.address,
+        nonce: "0x1",
+        yParity: `0x${signed.yParity.toString(16)}`,
+        r: `0x${signed.r.toString(16).padStart(64, "0")}`,
+        s: `0x${signed.s.toString(16).padStart(64, "0")}`,
+      },
+    ];
+    // Each case: the request, the node's eth_estimateGas error that Hardhat shows without gas,
+    // the starts of Hardhat's own refusal with gas (from 3.20, then before 3.20), and the plugin's.
+    const cases: [Record<string, unknown>, string, [string, string], string][] = [
+      [
+        { from: FROM, authorizationList },
+        "Invalid EIP-7702 transaction: to (receiver) parameter is missing.",
+        ["HHE726:", "HHE721:"],
+        "eth_sendTransaction: an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was signed or sent",
+      ],
+      [
+        { from: FROM, to: FROM, authorizationList: [] },
+        "Invalid EIP-7702 transaction: authorization list is empty.",
+        ["HHE727:", "fields had validation errors"],
+        "eth_sendTransaction: the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was signed or sent",
+      ],
+    ];
+    for (const [request, node, hardhat, plugin] of cases) {
+      for (const gas of [{}, { gas: "0x186a0" }]) {
+        const connection: NetworkConnection<string> = await hre.network.create("local");
+        try {
+          const raw = main.raw.length;
+          await assert.rejects(
+            connection.provider.request({
+              method: "eth_sendTransaction",
+              params: [{ ...request, ...gas }],
+            }),
+            (error: unknown) => {
+              const message = messageOf(error);
+              return "gas" in gas
+                ? hardhat.some((start) => message.startsWith(start))
+                : message === node;
+            },
+          );
+          assert.equal(main.raw.length, raw);
+          const start = main.methods.length;
+          await assert.rejects(
+            fillerFor(connection).fill("eth_sendTransaction", [{ ...request, ...gas }]),
+            { message: plugin },
+          );
+          assert.deepEqual(main.methods.slice(start), []);
+        } finally {
+          await connection.close();
+        }
+      }
+    }
   });
 
   it("fills an EIP-1559 transaction with an access list", async () => {
@@ -287,8 +385,25 @@ describe("transaction filling matches Hardhat's local accounts", () => {
   });
 
   it("applies the network's gas multiplier", async () => {
-    assert.equal(await compare("multiplied", { from: FROM, to: TO, data: "0x" }), "eip1559");
+    // No data "0x" here: Hardhat signs 0x00 for it with hardhat-utils before 5.1.1 (#614).
+    assert.equal(await compare("multiplied", { from: FROM, to: TO }), "eip1559");
     assert.equal(await compare("multiplied11", { from: FROM, to: TO, data: "0x1234" }), "eip1559");
+  });
+
+  it("signs no calldata for data 0x (#614)", async () => {
+    // hardhat-utils before 5.1.1, which hardhat-zod-utils may resolve, reads "0x" as one zero
+    // byte, and Hardhat's own signer then signs 0x00 too. So this checks the plugin's bytes rather
+    // than comparing them with Hardhat's.
+    const connection: NetworkConnection<string> = await hre.network.create("local");
+    try {
+      const filled = await fillerFor(connection).fill("eth_sendTransaction", [
+        { from: FROM, to: TO, data: "0x" },
+      ]);
+      assert.deepEqual(filled.data, new Uint8Array());
+      assert.equal(fields(buildUnsignedTransaction(filled).raw).data, "0x");
+    } finally {
+      await connection.close();
+    }
   });
 
   it("caps the multiplied estimate below the block gas limit", async () => {

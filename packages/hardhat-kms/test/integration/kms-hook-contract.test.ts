@@ -103,6 +103,32 @@ describe("kms hook adapter contract", () => {
     );
   });
 
+  it("rejects a signTransactionOutlivesAbort that is set but is not a boolean (#537)", async () => {
+    for (const value of [1, "true", null, {}, () => true]) {
+      await assertRejects(
+        {
+          describe: describeKey,
+          signDigest: sign,
+          getPublicKey: publicKey,
+          signTransactionOutlivesAbort: value,
+        },
+        [
+          "myvault, create adapter, key myvault:vault: the adapter's signTransactionOutlivesAbort is not a boolean",
+        ],
+      );
+    }
+    for (const value of [true, false, undefined]) {
+      const adapter = {
+        describe: describeKey,
+        signDigest: sign,
+        getPublicKey: publicKey,
+        signTransactionOutlivesAbort: value,
+      };
+      const hre = await runtimeReturning(adapter);
+      assert.equal(await createKeyAdapter(hre, keyOf(hre, "vault")), adapter);
+    }
+  });
+
   it("closes an adapter it refuses, so its clients cannot keep the process running", async () => {
     let closed = 0;
     const close = async () => {

@@ -3,7 +3,7 @@
 //
 // Usage: node scripts/consumer-typecheck.ts [--from-registry <version> [--commit <ref>] [--registry <url>]] <typescript-version>
 //
-// With --from-registry the consumer installs the four packages at that version from the registry,
+// With --from-registry the consumer installs the published packages at that version from the registry,
 // with no build and no pack here, and the install is followed by a check that the project
 // resolves that version. The run without viem is unchanged.
 import { execFileSync } from "node:child_process";

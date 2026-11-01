@@ -46,6 +46,14 @@ export const ERRORS = {
       "`timeoutMs`, on a key or in `kms.defaults`, is larger than Node.js timers accept (2^31 - 1 ms, about 24.8 days).",
     fix: "Use a smaller value.",
   },
+  allowRawDigestsType: {
+    id: "core.config.allow-raw-digests-type",
+    kind: "validation",
+    group: "Configuration",
+    template: "Expected true or false",
+    cause: 'A key\'s `allowRawDigests` is not a boolean, for example the string `"true"`.',
+    fix: "Write `allowRawDigests: true`, or remove the field to keep raw digests behind a person at a terminal.",
+  },
   addressPin: {
     id: "core.config.address",
     kind: "validation",
@@ -55,6 +63,79 @@ export const ERRORS = {
     cause:
       "A key's `address` pin is not an address, or it is mixed-case and its EIP-55 checksum is wrong, which usually means a typo.",
     fix: "Copy the address from `npx hardhat kms address <key>`, or write it in lowercase.",
+  },
+  delegateList: {
+    id: "core.config.delegate-list",
+    kind: "validation",
+    group: "Configuration",
+    template: "Expected a list of delegates, each with `address` and `chains`",
+    cause: "A key's `allowedDelegates` is not a list.",
+    fix: 'Write it as a list, such as `[{ address: "0x...", chains: [11155111] }]`, or remove it to allow every delegate.',
+  },
+  delegateAddress: {
+    id: "core.config.delegate-address",
+    kind: "validation",
+    group: "Configuration",
+    template:
+      "Expected a 0x-prefixed 20-byte address, all lowercase, all uppercase or with a valid EIP-55 checksum",
+    cause:
+      "An `allowedDelegates` entry's `address` is not an address, or it is mixed-case and its EIP-55 checksum is wrong, which usually means a typo.",
+    fix: "Copy the delegate's address from its deployment or its explorer page, or write it in lowercase.",
+  },
+  delegateChains: {
+    id: "core.config.delegate-chains",
+    kind: "validation",
+    group: "Configuration",
+    template: 'Expected "all" or a non-empty list of chain ids',
+    cause:
+      'An `allowedDelegates` entry\'s `chains` is missing, empty, or neither a list nor the string `"all"`.',
+    fix: 'List the chain ids the delegate is allowed on, such as `[1, 11155111]`, or write `"all"`.',
+  },
+  delegateChainId: {
+    id: "core.config.delegate-chain-id",
+    kind: "validation",
+    group: "Configuration",
+    template: "Expected a positive integer chain id, as a number",
+    cause:
+      "A chain id in an `allowedDelegates` entry's `chains` is not a whole number from 1 to 2^53 - 1, or is a string or a bigint.",
+    fix: "Write the chain id as a number, such as `11155111`.",
+  },
+  delegateChainZero: {
+    id: "core.config.delegate-chain-zero",
+    kind: "validation",
+    group: "Configuration",
+    template:
+      'Chain 0 cannot be listed. A chain-0 authorization is valid on every chain: allow it with chains: "all"',
+    cause:
+      "An `allowedDelegates` entry's `chains` lists 0. An authorization for chain 0 is valid on every chain, so only an entry for every chain allows it.",
+    fix: 'Remove 0 from the list. To allow chain-0 authorizations for this delegate, set `chains: "all"`.',
+  },
+  delegateLabel: {
+    id: "core.config.delegate-label",
+    kind: "validation",
+    group: "Configuration",
+    template:
+      "Expected a label of 1 to 64 characters, with no control characters and no surrounding whitespace",
+    cause:
+      "An `allowedDelegates` entry's `label` is empty, too long, has whitespace around it, or holds a control or format character, which could change how a terminal shows it.",
+    fix: "Use a short plain name, such as `Simple7702Account`.",
+  },
+  delegateCodeHash: {
+    id: "core.config.delegate-code-hash",
+    kind: "validation",
+    group: "Configuration",
+    template: "Expected a 0x-prefixed 32-byte keccak256 hash",
+    cause: "An `allowedDelegates` entry's `codeHash` is not `0x` followed by 64 hex digits.",
+    fix: "Set it to the keccak256 of the delegate's runtime code, such as the output of `cast keccak $(cast code <address> --rpc-url <url>)`.",
+  },
+  delegateCodeHashEmpty: {
+    id: "core.config.delegate-code-hash-empty",
+    kind: "validation",
+    group: "Configuration",
+    template: "This is the hash of empty code; a delegate without code cannot be pinned",
+    cause:
+      "An `allowedDelegates` entry's `codeHash` is the keccak256 of no bytes, which an address without code has. The plugin refuses a pinned delegate without code, so the entry could never match.",
+    fix: "Read the code from the chain where the delegate is deployed, and hash that.",
   },
   nonEmptyString: {
     id: "core.config.non-empty",
@@ -419,7 +500,7 @@ export const ERRORS = {
     template:
       '--kms {provider}: unknown provider. Did you mean "{suggestion}"? Expected aws, gcp or azure',
     cause: "`--kms` names a provider that is close to a built-in one, such as `AWS` or `gpc`.",
-    fix: "Use the suggested id. `--kms` reads only the built-in providers' variables.",
+    fix: "Use the suggested id. `--kms` reads only the variables of `aws`, `gcp` and `azure`.",
   },
   kmsOptionUnknown: {
     id: "core.kms-option.unknown-provider",
@@ -427,7 +508,7 @@ export const ERRORS = {
     group: "The `--kms` option",
     template: "--kms {provider}: unknown provider. Expected aws, gcp or azure",
     cause:
-      "`--kms` names a provider other than `aws`, `gcp` and `azure`. Third-party providers are configured in `kms.keys` only.",
+      "`--kms` names a provider other than `aws`, `gcp` and `azure`, such as `turnkey`. `--kms` reads only the variables of these three providers. Turnkey keys and third-party providers' keys are configured in `kms.keys` only.",
     fix: "Use `aws`, `gcp` or `azure`, or configure the key in the Hardhat config.",
   },
   kmsOptionListedTwice: {
@@ -509,6 +590,15 @@ export const ERRORS = {
     group: "Provider plugins",
     template: "the adapter's {method} is not a function",
     cause: "The adapter has a property with a method's name, but it is not a function.",
+    fix: "Report it to the provider plugin.",
+  },
+  adapterNotBoolean: {
+    id: "core.provider.adapter-not-boolean",
+    kind: "error",
+    group: "Provider plugins",
+    template: "the adapter's {property} is not a boolean",
+    cause:
+      "The adapter has a property with the name of a flag of the adapter contract, such as `signTransactionOutlivesAbort`, but its value is not `true` or `false`.",
     fix: "Report it to the provider plugin.",
   },
   adapterNoSigning: {
@@ -753,6 +843,16 @@ export const ERRORS = {
     cause:
       "The `signal` given to `connection.kms.getAccount` aborted before or during a KMS call, so the plugin stopped waiting and returned nothing. It does not retry a cancelled call. A request that already reached the provider can still be signed there and show in its audit log, but the plugin never returns that signature.",
     fix: "Nothing, if the abort was meant. To sign again, get a new account with a signal that has not aborted.",
+  },
+  signerTransactionOutstanding: {
+    id: "core.signer.transaction-outstanding",
+    kind: "error",
+    group: "Signing",
+    template:
+      "{reason}. The request reached the provider, and {who} may still sign this transaction ({request}); anyone who can read it there can then broadcast it with nonce {nonce}. {reject} while it is pending; then, or if it completed, send a replacement transaction with nonce {nonce}, before any other transaction from this account{hold}",
+    cause:
+      "The key's adapter declares that a transaction request it gave up on may still be signed at the provider (`signTransactionOutlivesAbort`), as Turnkey's `sign_transaction` does, and the call failed after the request was sent: it timed out, was cancelled, or the adapter threw an error without saying that the provider refused the request (`ctx.requestRefused`), such as Turnkey's `turnkey.activity.approval-needed`, an unreachable or failing service while it polled, or a signed transaction it refused. The message starts with that cause. Turnkey keeps working on an accepted activity and stores the signed transaction, which every user of the organization can read and broadcast. Two valid transactions with one nonce could then exist, so the plugin keeps the nonce held instead of signing it again: on `eth_sendTransaction`, `eth_signTransaction` and a library account's `signTransaction`, the network connection's later sends from the account skip it. The hold ends once the nonce is mined (or, on an HTTP network, when any transaction with it reaches the node through the connection), when the provider's copy itself reaches the node through the connection, or when the connection closes. A Turnkey id is shown only when it is a UUID.",
+    fix: 'For Turnkey, open the activity in the dashboard. If it is still pending, reject it, so that nobody approves or completes it later. Then, or if it completed, send a replacement with the nonce the message names, with an explicit `nonce`, before anything else (or broadcast the transaction the completed activity holds); the replacement also fills the gap that the plugin\'s later sends wait behind. Raise `timeoutMs` if Turnkey is slow to answer. See the Turnkey setup guide, "When Turnkey does not answer in time".',
   },
   signerCallFailed: {
     id: "core.signer.provider-call-failed",
@@ -1057,6 +1157,16 @@ export const ERRORS = {
     cause: "A self-authorization names another chain. The node would skip it.",
     fix: "Sign the authorization for the transaction chain, or deliberately use chain 0.",
   },
+  txSelfAuthorizationDelegate: {
+    id: "core.tx.self-authorization-delegate",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "authorizationList[{index}] is signed by the sender and delegates it to {delegate} on chain {chain}, which the allowedDelegates of key {keyName} do not allow; nothing was signed",
+    cause:
+      "The transaction carries an EIP-7702 authorization signed by the sending KMS key, and its delegate is not in the key's `allowedDelegates` for the authorization's chain. A chain-0 authorization matches only entries with `chains: \"all\"`. Authorizations signed by other accounts are not checked.",
+    fix: "Remove the authorization, or add the delegate to the key's `allowedDelegates` for that chain if it is intended.",
+  },
   txAuthorizationFees: {
     id: "core.tx.authorization-fees",
     kind: "error",
@@ -1194,6 +1304,65 @@ export const ERRORS = {
       "The transaction has an `authorizationList` and a `gasPrice`. EIP-7702 transactions use EIP-1559 fees.",
     fix: "Remove `gasPrice`, or set `maxFeePerGas` and `maxPriorityFeePerGas` instead.",
   },
+  txAuthorizationNoTo: {
+    id: "core.tx.authorization-no-to",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "an EIP-7702 transaction (authorizationList) needs `to`: it cannot create a contract. Nothing was signed or sent",
+    cause:
+      "The transaction has an `authorizationList` and no `to`, or `to: null`. EIP-7702 transactions cannot create contracts. From 3.20, Hardhat's local accounts refuse the same request (HHE726).",
+    fix: "Set `to`, or remove `authorizationList` to deploy a contract.",
+  },
+  txAuthorizationListEmpty: {
+    id: "core.tx.authorization-list-empty",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "the authorizationList of an EIP-7702 transaction is empty: it needs at least one authorization. Nothing was signed or sent",
+    cause:
+      "The transaction has `authorizationList: []`. An EIP-7702 transaction must carry at least one authorization. From 3.20, Hardhat's local accounts refuse the same request (HHE727).",
+    fix: "Add an authorization, or remove `authorizationList` to send an EIP-1559 transaction.",
+  },
+  txAuthorizationListNotArray: {
+    id: "core.tx.authorization-list-not-array",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "the authorizationList of an EIP-7702 transaction must be an array of authorizations. Nothing was signed or sent",
+    cause:
+      "The transaction's `authorizationList` is not an array: an object, a string, a number or a boolean, or from code in the same process, a bigint or a byte array. It is refused before any request to the node; Hardhat's local accounts refuse it with a schema error after the fee and gas requests.",
+    fix: "Pass `authorizationList` as an array of signed authorizations, or remove it to send an EIP-1559 transaction.",
+  },
+  txAuthorizationNotObject: {
+    id: "core.tx.authorization-not-object",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "authorizationList[{index}] must be a signed authorization object. Nothing was signed or sent",
+    cause:
+      "An item of the `authorizationList` is `null`, missing (a hole in the array), an array or not an object. It is refused before any request to the node; Hardhat's local accounts refuse it with a schema error after the fee and gas requests.",
+    fix: "Make each item a signed authorization with `chainId`, `address`, `nonce`, `yParity`, `r` and `s`, for example from `kms sign-auth`.",
+  },
+  txAuthorizationToNotAddress: {
+    id: "core.tx.authorization-to-not-address",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "the `to` of an EIP-7702 transaction must be a 20-byte hex address. Nothing was signed or sent",
+    cause:
+      'The transaction has an `authorizationList` and a `to` that is not `0x` or `0X` followed by 40 hex digits, such as `""`, `"0x"`, a number or a boolean. It is refused before any request to the node; Hardhat\'s local accounts refuse it with a schema error after the fee and gas requests.',
+    fix: "Set `to` to the address the transaction calls, often the account itself.",
+  },
+  txInvalidFields: {
+    id: "core.tx.invalid-fields",
+    kind: "error",
+    group: "Transactions",
+    template: "the {type} transaction has invalid fields: {problems}. Nothing was signed",
+    cause:
+      "micro-eth-signer, which builds the unsigned transaction, refused these fields. Hardhat's local accounts build it with the same code and refuse the same fields. Numbers of 21 digits or more in a reason are left out, so the message holds no signature value.",
+    fix: "Correct each field the message names.",
+  },
   txBothFees: {
     id: "core.tx.both-fees",
     kind: "error",
@@ -1324,6 +1493,16 @@ export const ERRORS = {
     cause:
       "A `wallet_sendCalls` (EIP-5792) request named a KMS account as `from`. The plugin sends a KMS account's transactions through `eth_sendTransaction` only, so it answers this method with JSON-RPC error -32601 (method not found) and does not pass it to the node. viem's `sendCalls` sends it.",
     fix: "Pass `experimental_fallback: true` to viem's `sendCalls`: on -32601 viem sends each call with `eth_sendTransaction`, and the KMS key signs each one. Or send each call yourself with `sendTransaction`.",
+  },
+  txRefusedProviderCopy: {
+    id: "core.tx.refused-provider-copy",
+    kind: "error",
+    group: "Transactions",
+    template:
+      "the node refused the transaction with nonce {nonce} ({reason}, code {code}), but {who} keeps it signed ({request}), and anyone who can read it there can broadcast it once the node would take it. This connection's sends from the account skip nonce {nonce} until it is mined, or the provider's copy itself reaches the node through the connection. Fix the cause, such as the account's funds or the fees, then send a replacement transaction with nonce {nonce}, or broadcast that signed transaction",
+    cause:
+      "The key's adapter declares that the provider keeps what it signs (`signTransactionOutlivesAbort`), as Turnkey's `sign_transaction` does, and the node refused the signed transaction for certain, for example for insufficient funds or too low a fee. The provider's copy stays valid, and becomes acceptable once the cause goes away, so the plugin keeps its nonce held rather than sign a second transaction with it. The message names the kind of refusal (`insufficient funds`, `fee too low` or `refused`) and the node's JSON-RPC code, never the node's text. When the node's mined transaction count is above the nonce, the nonce is used on chain and the copy can never be valid, so the node's answer goes on unchanged instead; an answer that the node already knows the transaction counts as sent.",
+    fix: 'Fix what the node refused, then send a replacement with the nonce the message names, with an explicit `nonce`, or broadcast the provider\'s signed transaction. For Turnkey, it is the completed activity the message names. See the Turnkey setup guide, "When Turnkey does not answer in time".',
   },
   sendConnectionClosed: {
     id: "core.tx.connection-closed",
@@ -1580,6 +1759,64 @@ export const ERRORS = {
     cause: "`kms sign --no-hash` signs a digest as given, and the hex is not 32 bytes.",
     fix: "Pass a 32-byte hash as `0x` and 64 hex digits.",
   },
+  yesNeedsNoHash: {
+    id: "core.task.yes-needs-no-hash",
+    kind: "error",
+    group: "Tasks",
+    template: "--yes applies only to --no-hash",
+    cause:
+      "`kms sign` asks a question only before it signs a raw digest, so `--yes` has nothing to skip for a message or typed data.",
+    fix: "Drop `--yes`, or add `--no-hash` if the input is a 32-byte digest.",
+  },
+  rawDigestDeclined: {
+    id: "core.task.raw-digest-declined",
+    kind: "error",
+    group: "Tasks",
+    template: "the raw digest was not signed: the question was not answered with y or yes",
+    cause:
+      "`kms sign --no-hash` asked at the terminal before signing, and the answer was not `y` or `yes`: `n`, an empty line, another word, or input that closed. Nothing was sent to the KMS for signing.",
+    fix: "Run the task again and answer `y` if you computed the digest yourself and know what it authorizes.",
+  },
+  rawDigestNoTerminal: {
+    id: "core.task.raw-digest-no-terminal",
+    kind: "error",
+    group: "Tasks",
+    template:
+      'without a terminal, --no-hash signs only with a key that sets allowRawDigests: true, and with --yes. Key "{name}" does not set allowRawDigests: true, and --yes was not passed',
+    cause:
+      "`kms sign --no-hash` ran without a terminal on standard input and standard error, so it could not ask. A raw digest can be any transaction, permit or EIP-7702 authorization, so without a person the key must opt in and the run must pass `--yes`.",
+    fix: "Run the task at a terminal and answer the question. To sign raw digests in CI or from code, set `allowRawDigests: true` on the key in the Hardhat config and pass `--yes`.",
+  },
+  rawDigestNotAllowed: {
+    id: "core.task.raw-digest-not-allowed",
+    kind: "error",
+    group: "Tasks",
+    template:
+      'without a terminal, --no-hash signs only with a key that sets allowRawDigests: true. Key "{name}" does not set it, so --yes cannot skip the question',
+    cause:
+      "`kms sign --no-hash --yes` ran without a terminal for a key without `allowRawDigests: true`. `--yes` skips the question only for a key that opts in.",
+    fix: "Set `allowRawDigests: true` on the key in the Hardhat config if it should sign raw digests without a person, or run the task at a terminal and answer the question.",
+  },
+  rawDigestNeedsYes: {
+    id: "core.task.raw-digest-needs-yes",
+    kind: "error",
+    group: "Tasks",
+    template:
+      'without a terminal, --no-hash needs --yes. Key "{name}" sets allowRawDigests: true, and --yes was not passed',
+    cause:
+      "`kms sign --no-hash` ran without a terminal for a key with `allowRawDigests: true`. Without a terminal, each run confirms the raw digest with `--yes`.",
+    fix: "Pass `--yes`, or run the task at a terminal and answer the question.",
+  },
+  rawDigestCommandLineKey: {
+    id: "core.task.raw-digest-command-line-key",
+    kind: "error",
+    group: "Tasks",
+    template:
+      'key "{name}" comes from --kms and has no config, so it cannot set allowRawDigests: true. Without a terminal, --no-hash cannot sign with it',
+    cause:
+      "`kms sign --no-hash` ran without a terminal with a key chosen with `--kms`. Such a key has no config entry, so it cannot opt in to raw digests, and only a person at a terminal can approve one.",
+    fix: "Run the task at a terminal and answer the question, or add the key to `kms.keys` with `allowRawDigests: true` and pass `--yes`.",
+  },
   signNoChainToCompare: {
     id: "core.task.sign-no-chain",
     kind: "error",
@@ -1823,8 +2060,108 @@ export const ERRORS = {
     kind: "error",
     group: "Tasks",
     template: "the node answered eth_getTransactionCount with something other than a nonce",
-    cause: "The network's node did not answer `eth_getTransactionCount` with a hex number.",
+    cause:
+      "The network's node did not answer `eth_getTransactionCount` with a hex number below 2^64, the largest an account nonce can be (EIP-2681).",
     fix: "Check the network's RPC URL, or pass `--nonce`.",
+  },
+  authNodeChainTooLarge: {
+    id: "core.task.auth-node-chain-too-large",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the node reported a chain id that does not fit in 256 bits, so no authorization can name it. Nothing was signed",
+    cause:
+      "`kms sign-auth --network` takes the chain from the node when the network config sets no `chainId`, and the node's `eth_chainId` answer is 2^256 or more. EIP-7702 encodes the chain id in 256 bits.",
+    fix: "Check the network's RPC URL and node, or set `chainId` in the network config.",
+  },
+  authNodeCode: {
+    id: "core.task.auth-node-code",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the node answered eth_getCode with something other than hex data. Nothing was signed",
+    cause:
+      "`kms sign-auth --network` reads the code of the account and of the delegate before it asks, and the node's answer was not a `0x` hex string of whole bytes.",
+    fix: "Check the network's RPC URL and node. Retry with another node if it persists.",
+  },
+  authNodeStorage: {
+    id: "core.task.auth-node-storage",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the node answered eth_getStorageAt with something other than a 32-byte word. Nothing was signed",
+    cause:
+      "`kms sign-auth --network` reads the delegate's ERC-1967 implementation slot to tell whether it is a proxy, and the node's answer was not `0x` and at most 64 hex digits.",
+    fix: "Check the network's RPC URL and node. Retry with another node if it persists.",
+  },
+  authNonceStale: {
+    id: "core.task.auth-nonce-stale",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the nonce {nonce} is below the account's nonce {latest} on network {network}, so the authorization could never apply. Nothing was signed",
+    cause:
+      "An EIP-7702 authorization applies only when its nonce equals the account's nonce at that point, and the account's nonce never goes down. The node says the account has already used this nonce.",
+    fix: "Drop `--nonce` to let the task read the account's nonce, or pass the nonce the account will have when the transaction runs.",
+  },
+  authDelegateDelegated: {
+    id: "core.task.auth-delegate-delegated",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the delegate {delegate} is itself a delegated account on network {network}: its code starts with 0xef0100. Clients follow one delegation only, so every call to this account would fail. Nothing was signed",
+    cause:
+      "EIP-7702 clients load the delegate's code once and do not follow a second delegation (EIP-7702, Loops). An account delegated to another delegated account runs nothing.",
+    fix: "Delegate to the contract the other account delegates to, not to the account.",
+  },
+  authDelegatePrecompile: {
+    id: "core.task.auth-delegate-precompile",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the delegate {delegate} is in the reserved precompile range 0x01 to 0x1ff: every call to the account would succeed and do nothing. Nothing was signed",
+    cause:
+      "A delegation to a precompile runs empty code (EIP-7702, Precompiles). The task refuses addresses from 0x01 to 0x1ff, where Ethereum (0x01 to 0x11, and 0x100 for P256VERIFY) and Arbitrum (0x64 to 0xff) place precompiles. No contract can be deployed there.",
+    fix: "Check the delegate address. To clear a delegation, use the zero address.",
+  },
+  authAccountHasCode: {
+    id: "core.task.auth-account-has-code",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "the account {account} has {size} bytes of contract code on network {network}, which is not a delegation, so nodes would skip the authorization. Nothing was signed",
+    cause:
+      "EIP-7702 skips an authorization whose authority has code other than a delegation (EIP-7702, Behavior). A key's address normally has no code; this node says it has contract code.",
+    fix: "Check the network and the key. If the node is wrong, use another node.",
+  },
+  authNoTerminal: {
+    id: "core.task.auth-no-terminal",
+    kind: "error",
+    group: "Tasks",
+    template:
+      "without a terminal, kms sign-auth signs only with --yes, for a delegate in the key's allowedDelegates or the zero address. --yes was not passed. Nothing was signed",
+    cause:
+      "`kms sign-auth` ran without a terminal on standard input and standard error, so it could not ask. An EIP-7702 authorization lets the delegate's code act for the account, so without a person the delegate must be one the config allows, and the run must say so with `--yes`.",
+    fix: "Run the task at a terminal and answer the question. In CI, add the delegate to the key's `allowedDelegates` and pass `--yes`.",
+  },
+  authNotListedNoTerminal: {
+    id: "core.task.auth-not-listed-no-terminal",
+    kind: "error",
+    group: "Tasks",
+    template:
+      'without a terminal, --yes signs only for a delegate in the key\'s allowedDelegates or the zero address. Key "{name}" has no allowedDelegates. Nothing was signed',
+    cause:
+      "`kms sign-auth --yes` ran without a terminal for a key without `allowedDelegates`, so no config names the delegate. A key given with `--kms` has no config, so it cannot have the list either.",
+    fix: "Add the delegate to the key's `allowedDelegates` in the Hardhat config, or run the task at a terminal and answer the question.",
+  },
+  authDeclined: {
+    id: "core.task.auth-declined",
+    kind: "error",
+    group: "Tasks",
+    template: "the authorization was not signed: the question was not answered with y or yes",
+    cause:
+      "`kms sign-auth` asked at the terminal before signing, and the answer was not `y` or `yes`: `n`, an empty line, another word, or input that closed. Nothing was sent to the KMS for signing.",
+    fix: "Check the account, delegate, chain and nonce the question shows, and run the task again if they are right.",
   },
   balancesNeedNetwork: {
     id: "core.task.balances-need-network",
@@ -2045,6 +2382,16 @@ export const ERRORS = {
     cause:
       "`getAccount`, or a method of the account it returned, was called after the `signal` passed in its options aborted. The account refuses before any KMS call and reserves no nonce.",
     fix: "Call `getAccount` again, with a signal that has not aborted or with none.",
+  },
+  accountRawSignNotAllowed: {
+    id: "core.account.raw-sign-not-allowed",
+    kind: "error",
+    group: "Library accounts",
+    template:
+      "the key of {address} does not set allowRawDigests: true, so its account cannot have sign({ hash }). Set it on the key in the Hardhat config to use rawSign",
+    cause:
+      "`getAccount(address, { rawSign: true })` asks for an account that signs any 32-byte digest, which can be a transaction, a permit or an EIP-7702 authorization. Only a key with `allowRawDigests: true` in the Hardhat config gets one. A key given with `--kms` has no config, so it never does. The plugin refuses before it signs anything, and before any KMS call when the config alone shows that no key at that address opts in.",
+    fix: "Set `allowRawDigests: true` on the key in `kms.keys` or the network's `kmsAccounts` if its owner needs `sign`, such as a Coinbase smart account. Otherwise drop `rawSign`.",
   },
   accountOption: {
     id: "core.account.option",
@@ -2368,6 +2715,88 @@ export const ERRORS = {
     fix: "Read the account's code again just before `prepareCalls`, then prepare the calls again.",
   },
 
+  // EIP-7702 delegates: a key's allowedDelegates, checked before any KMS call by kms sign-auth,
+  // signAuthorization and the self-authorizations of a transaction.
+  delegateNotAllowed: {
+    id: "core.delegate.not-allowed",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "key {keyName} may not delegate to {delegate} on chain {chain}: no entry of its allowedDelegates allows that delegate on that chain. Nothing was signed",
+    cause:
+      'The key has `allowedDelegates`, and none of its entries names the delegate with this chain id or with `chains: "all"`. No flag overrides the list.',
+    fix: "Check the delegate address and the chain. If the delegate is intended, add it to the key's `allowedDelegates` for that chain.",
+  },
+  delegateNotAllowedChainZero: {
+    id: "core.delegate.not-allowed-chain-zero",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      'key {keyName} may not delegate to {delegate} on chain 0, which is every chain: only an allowedDelegates entry with chains: "all" allows a chain-0 authorization. Nothing was signed',
+    cause:
+      'An authorization for chain 0 is valid on every chain. An entry that lists chain ids allows the delegate on those chains only, so it does not match a chain-0 authorization. Only `chains: "all"` does, as in Ledger\'s Ethereum app.',
+    fix: 'Sign the authorization for one chain. If the delegate is meant for every chain, set its entry\'s `chains` to `"all"`.',
+  },
+  delegateCommandLineKey: {
+    id: "core.delegate.command-line-key",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "the --kms key {name} is the same KMS key as {other}, which has allowedDelegates. Name {other} instead, so its list applies. Nothing was signed",
+    cause:
+      "A key from `--kms` has no config and so no `allowedDelegates`. It names the same KMS key, or has the same address pin, as a config key that limits its delegates, in `kms.keys` or any network's `kmsAccounts`, so signing an authorization with it would skip that key's list. A task checks before it signs; a connection checks each authorization the key signs, alone or in a transaction.",
+    fix: "Use the config key instead of `--kms`: give a task the config key's name, or add the key to the network's `kmsAccounts` and run without `--kms`.",
+  },
+  delegateNotListedNetwork: {
+    id: "core.delegate.not-listed-network",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "key {keyName} may not delegate to {delegate} on network {network}: no entry of its allowedDelegates names that delegate. Nothing was signed",
+    cause:
+      "`kms sign-auth --network` checks the delegate against the key's `allowedDelegates` before it connects to the network, and no entry names it for any chain.",
+    fix: "Check the delegate address. If the delegate is intended, add it to the key's `allowedDelegates`.",
+  },
+  delegateCodeNoNetwork: {
+    id: "core.delegate.code-no-network",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "key {keyName} pins the code hash of delegate {delegate}, and with --chain there is no network to read its code from. Pass --network instead. Nothing was signed",
+    cause:
+      "The key's `allowedDelegates` entry for this delegate has a `codeHash`. `kms sign-auth --chain` opens no connection, so the plugin cannot read the delegate's code, and it refuses rather than sign unchecked.",
+    fix: "Run `kms sign-auth` with `--network <name>` for the chain the authorization is for. For a chain-0 authorization, which needs `--chain 0`, use an entry without `codeHash`.",
+  },
+  delegateCodeMismatch: {
+    id: "core.delegate.code-mismatch",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "the code of delegate {delegate} on chain {chain} has hash {actual}, which no codeHash in the allowedDelegates of key {keyName} matches. Nothing was signed",
+    cause:
+      "The key's `allowedDelegates` pins the delegate's code hash, and the node returned other code: the address is wrong for this chain, the contract was replaced, or the node is not the one you expect.",
+    fix: "Check the delegate address and the network. If the new code is intended, update `codeHash` to the hash shown.",
+  },
+  delegateNoCode: {
+    id: "core.delegate.no-code",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "delegate {delegate} has no code on chain {chain}, and the allowedDelegates of key {keyName} pin its code hash. Nothing was signed",
+    cause:
+      "The key's `allowedDelegates` pins the delegate's code hash, and the node says the address has no code on this chain.",
+    fix: "Check that the delegate is deployed on this chain at this address, and that `--network` is the network you mean.",
+  },
+  delegateCodeUnreadable: {
+    id: "core.delegate.code-unreadable",
+    kind: "error",
+    group: "EIP-7702 delegates",
+    template:
+      "the node's eth_getCode answer for delegate {delegate} is not hex data, so its pinned code hash cannot be checked. Nothing was signed",
+    cause:
+      "The key's `allowedDelegates` pins the delegate's code hash, and the node's `eth_getCode` answer is not a `0x` hex string of whole bytes.",
+    fix: "Check the network's URL and node. Retry with another node if it persists.",
+  },
   // Internal: only a bug or a broken install reaches these. They are plain `Error`s.
   identifierPartMissing: {
     id: "core.internal.identifier-part",

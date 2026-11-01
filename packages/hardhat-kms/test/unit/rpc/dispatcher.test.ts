@@ -239,6 +239,21 @@ describe("dispatch: messages and typed data", () => {
     assert.deepEqual(fixture.forwarded, []);
   });
 
+  it("signs the empty message for 0x with eth_sign and personal_sign (#614)", async () => {
+    const fixture = await dispatchFixture();
+    for (const [method, params] of [
+      ["eth_sign", [COW, "0x"]],
+      ["personal_sign", ["0x", COW]],
+    ] as const) {
+      const result = resultOf(await fixture.request(method, params));
+      assert.ok(typeof result === "string" && result.startsWith("0x"), String(result));
+      const signature = `0x${result.slice(2)}` as const;
+      assert.equal(await recoverMessageAddress({ message: { raw: "0x" }, signature }), COW);
+      // One zero byte, which hardhat-utils before 5.1.1 makes of "0x", is another message.
+      assert.notEqual(await recoverMessageAddress({ message: { raw: "0x00" }, signature }), COW);
+    }
+  });
+
   it("refuses a KMS address given as 20 bytes, for each signing method, before any signature", async () => {
     const bytes = Buffer.from(COW.slice(2), "hex");
     for (const address of [bytes, new Uint8Array(bytes)]) {

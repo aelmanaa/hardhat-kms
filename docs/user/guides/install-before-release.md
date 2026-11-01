@@ -7,13 +7,14 @@ description: Install hardhat-kms and a provider package with npm, pnpm or Yarn, 
 
 This page installs hardhat-kms and the provider package for your cloud with npm, pnpm or Yarn, registers the plugin in `hardhat.config.ts` and checks that Hardhat lists its tasks.
 
-hardhat-kms is two packages: the core, `hardhat-kms`, and the provider package for the cloud that holds your key. Install both at the same version:
+hardhat-kms is two packages: the core, `hardhat-kms`, and the provider package for the service that holds your key. Install both at the same version:
 
-| Cloud                          | Provider package     | Plugin export     |
-| ------------------------------ | -------------------- | ----------------- |
-| AWS KMS                        | `@hardhat-kms/aws`   | `hardhatKmsAws`   |
-| Google Cloud KMS               | `@hardhat-kms/gcp`   | `hardhatKmsGcp`   |
-| Azure Key Vault or Managed HSM | `@hardhat-kms/azure` | `hardhatKmsAzure` |
+| Keys in                        | Provider package       | Plugin export       |
+| ------------------------------ | ---------------------- | ------------------- |
+| AWS KMS                        | `@hardhat-kms/aws`     | `hardhatKmsAws`     |
+| Google Cloud KMS               | `@hardhat-kms/gcp`     | `hardhatKmsGcp`     |
+| Azure Key Vault or Managed HSM | `@hardhat-kms/azure`   | `hardhatKmsAzure`   |
+| Turnkey                        | `@hardhat-kms/turnkey` | `hardhatKmsTurnkey` |
 
 The packages need Hardhat ^3.18.0 and one of the [supported Node.js versions](../reference/support.md). Run the steps in a Hardhat 3 project. If you have none yet, `npx hardhat --init` (`pnpm dlx hardhat --init`, `yarn dlx hardhat --init`) creates one in a new directory.
 
@@ -130,7 +131,7 @@ For an exact-version install, name the same version in both package specs, such 
 
 Yarn 4.14 and later run no install scripts by default and print `YN0004` for `esbuild` and `protobufjs`; the plugin needs neither.
 
-`@hardhat-kms/gcp`: Yarn 1 and pnpm 10 can install the deprecated `google-gax` 6.11.0; [Keep google-gax off 6.11.0](gcp-kms-setup.md#keep-google-gax-off-6110) says how to check and how to override it.
+`@hardhat-kms/gcp`: a lockfile or pnpm cache from 2026-10-06 or 07 can hold the deprecated `google-gax` 6.11.0; [Keep google-gax off 6.11.0](gcp-kms-setup.md#keep-google-gax-off-6110) says how to check and how to override it.
 
 ## 2. Register the plugin
 
@@ -199,7 +200,7 @@ Building needs:
 
 - Git, to clone the repository.
 - Node.js 22.18 or later. The repository's scripts are TypeScript files that run with plain `node`.
-- pnpm 12, which the repository pins in `packageManager`. Run `corepack enable`, or `npm install -g pnpm@12.8.1`.
+- pnpm 12, which the repository pins in `packageManager`. Run `corepack enable`, or `npm install -g pnpm@12.16.1`.
 
 Your Hardhat project needs none of them: it uses the packed files with npm, pnpm or Yarn on the [supported Node.js versions](../reference/support.md).
 

@@ -662,6 +662,7 @@ describe("SignerCache identity", () => {
       turnkeyKey({ apiPublicKey: variable("TURNKEY_API_PUBLIC_KEY", noRead) }),
     ],
     "a Turnkey address": [turnkeyKey(), turnkeyKey({ address: HARDHAT_ACCOUNT_0.address })],
+    "a Turnkey transactionSigning": [turnkeyKey(), turnkeyKey({ transactionSigning: "digest" })],
   };
   for (const [setting, [first, second]] of Object.entries(variants)) {
     it(`gives keys that differ only in ${setting} separate signers`, async () => {

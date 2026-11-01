@@ -1,6 +1,6 @@
 {
   "name": "@hardhat-kms/turnkey",
-  "version": "1.1.0",
+  "version": "1.4.0",
   "description": "Turnkey signer for Hardhat 3 (hardhat-kms provider): signs with a Turnkey wallet account through Turnkey's API, with an API key stamp.",
   "keywords": [
     "hardhat-plugin",
@@ -12,6 +12,8 @@
     "kms",
     "signer",
     "turnkey",
+    "remote-signer",
+    "secp256k1",
     "wallet",
     "viem",
     "ethers"
@@ -60,7 +62,8 @@
     "test": "pnpm run test:unit && pnpm run test:integration",
     "test:unit": "node ../../scripts/node-test.ts unit \"test/unit/**/*.test.ts\"",
     "test:integration": "node ../../scripts/node-test.ts integration --test-concurrency=1 \"test/integration/**/*.test.ts\"",
-    "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\""
+    "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
+    "test:live:turnkey": "node --test --test-concurrency=1 --test-timeout=900000 \"test/live/**/*.test.ts\""
   },
   "devDependencies": {
     "@noble/curves": "^2.4.0",

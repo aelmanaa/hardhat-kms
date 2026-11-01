@@ -6,9 +6,14 @@ import { createRequire } from "node:module";
 
 import { isObject } from "@nomicfoundation/hardhat-utils/lang";
 
-import { addressFromPublicKey, sameAddress } from "../crypto/address.ts";
+import type { KmsKeyConfig } from "../../types.ts";
+import { addressFromPublicKey, sameAddress, toChecksumAddress } from "../crypto/address.ts";
 import { authorizationDigest } from "../crypto/digests.ts";
-import { recoverPublicKey, toRpcSignature } from "../crypto/signature.ts";
+import {
+  type RecoverableSignature,
+  recoverPublicKey,
+  toRpcSignature,
+} from "../crypto/signature.ts";
 import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, errorName } from "../errors.ts";
@@ -20,10 +25,18 @@ import {
 import {
   assembleSignedTransaction,
   checkSelfAuthorizations,
+  checkSelfDelegates,
+  type TransactionDelegates,
   transactionToSign,
 } from "../rpc/transactions.ts";
 import { checkTypedDataChain } from "../rpc/typed-data.ts";
-import type { KmsSigner, SignerCallOptions } from "../signer/kms-signer.ts";
+import { checkDelegate } from "../signer/delegates.ts";
+import {
+  type KmsSigner,
+  outstandingNonce,
+  providerCopyOf,
+  type SignerCallOptions,
+} from "../signer/kms-signer.ts";
 import { CancelledError } from "../signer/timeout.ts";
 import { warn } from "../warnings.ts";
 import {
@@ -56,9 +69,17 @@ export interface AccountConnection {
   /** The network's name, for messages. */
   network: string;
   /** The connection's KMS accounts. */
-  accounts: Pick<ConnectionAccounts, "keyFor" | "addresses" | "signWith">;
+  accounts: Pick<
+    ConnectionAccounts,
+    "keys" | "keyFor" | "addresses" | "signWith" | "commandLineCheck"
+  >;
   /** The connection's chain id. */
   chainId(): Promise<bigint>;
+  /**
+   * `eth_getCode` for an address on the connection's node, to check a pinned delegate's code
+   * (`allowedDelegates`, #562).
+   */
+  getCode(address: string): Promise<unknown>;
   /** `kms.allowCrossChainTypedData`. */
   allowCrossChainTypedData: boolean;
   /** Whether the connection is closed; its accounts then refuse to sign. */
@@ -72,6 +93,11 @@ export interface AccountConnection {
     choose(request: LibraryNonceRequest): Promise<bigint>;
     /** Notes that the account signed a transaction with this nonce. */
     signed(address: string, nonce: bigint): void;
+    /**
+     * Keeps a nonce held whose transaction the provider may still sign after the account gave up
+     * on it (#537), before viem's `reset` for the failed send ends its hold or reservation.
+     */
+    outstanding(address: string, nonce: bigint, copyHash?: string): void;
     /** Ends the hold or the reservation of a send that failed. */
     reset(address: string, chainId: bigint): Promise<void>;
   };
@@ -277,6 +303,25 @@ function checkNotCancelled(signal: AbortSignal | undefined, operation: string): 
   }
 }
 
+/**
+ * Refuses `rawSign` for a key without `allowRawDigests: true` (decision 0021). Called before the
+ * key lookup with the keys that could be at the address, so that the config alone refuses with no
+ * KMS call, and again with the key the lookup found.
+ *
+ * @param keys - The keys that could hold the address.
+ * @param address - The checksummed address.
+ * @param operation - The account method, for the error message.
+ */
+function checkRawSignAllowed(
+  keys: readonly KmsKeyConfig[],
+  address: string,
+  operation: string,
+): void {
+  if (!keys.some((key) => key.allowRawDigests === true)) {
+    throw catalogError(ERRORS.accountRawSignNotAllowed, { address }, { operation });
+  }
+}
+
 /** A `0x`-prefixed hex string, typed as such. */
 function hex(value: string): KmsHex {
   return `0x${value.slice(2)}`;
@@ -310,7 +355,26 @@ interface AccountContext {
   options: AccountOptions;
   /** The checksummed address. */
   address: KmsHex;
+  /** The account's key: its `allowedDelegates` limit the delegates it signs for. */
+  key: KmsKeyConfig;
   withSigner: WithSigner;
+}
+
+/**
+ * The account's key and node, for the `allowedDelegates` checks, and for a `--kms` key the config
+ * keys with lists it must not be a copy of (#593).
+ */
+function accountDelegates(context: AccountContext): TransactionDelegates {
+  const { connection } = context;
+  return {
+    key: context.key,
+    commandLine: connection.accounts.commandLineCheck(context.key, context.address),
+    node: {
+      chainId: async () => await connection.chainId(),
+      getCode: async (address) => await connection.getCode(address),
+    },
+    note: warn,
+  };
 }
 
 /**
@@ -337,7 +401,8 @@ async function signTransaction(
   }
   // The signer signs the same bytes the serializer's output is compared with.
   const toSign = transactionToSign(input.unsigned, input.chainId);
-  checkSelfAuthorizations(input.unsigned, address, operation);
+  const self = checkSelfAuthorizations(input.unsigned, address, operation);
+  await checkSelfDelegates(self, accountDelegates(context), operation);
   const custom = options?.serializer;
   const serializer = custom ?? context.viem.serializeTransaction;
   const serializerName = custom === undefined ? "viem's serializeTransaction" : "the serializer";
@@ -360,8 +425,25 @@ async function signTransaction(
   }
   log("%s: signing a %s transaction for chain %s", address, input.type, chainId.toString());
   const signed = await context.withSigner(operation, async (signer, call) => {
-    const signature = await signer.signTransaction(toSign, call);
-    return assembleSignedTransaction(input.unsigned, signature, address, operation);
+    let signature: RecoverableSignature;
+    try {
+      signature = await signer.signTransaction(toSign, { ...call, holdsNonce: true });
+    } catch (error) {
+      // Before the error reaches viem, whose reset then ends this send's hold or reservation.
+      const nonce = outstandingNonce(error);
+      if (nonce !== undefined) {
+        connection.nonces.outstanding(address.toLowerCase(), nonce);
+      }
+      throw error;
+    }
+    const assembled = assembleSignedTransaction(input.unsigned, signature, address, operation);
+    // The provider keeps a copy of the signed transaction: its nonce stays held until a
+    // transaction with it reaches the node through the connection (#537).
+    const copy = providerCopyOf(signature);
+    if (copy !== undefined) {
+      connection.nonces.outstanding(address.toLowerCase(), copy.nonce, `0x${assembled.hash}`);
+    }
+    return assembled;
   });
   // After the signature: a reservation whose transaction was signed is the one most likely sent.
   connection.nonces.signed(address.toLowerCase(), input.unsigned.raw.nonce);
@@ -391,6 +473,12 @@ async function signAuthorization(
       );
     }
   }
+  // No option overrides the key's allowedDelegates (#562), allowChainZeroAuthorization included.
+  await checkDelegate(
+    { ...accountDelegates(context), operation },
+    toChecksumAddress(request.delegate),
+    BigInt(request.chainId),
+  );
   const digest = authorizationDigest({
     chainId: BigInt(request.chainId),
     address: request.delegateBytes,
@@ -590,6 +678,16 @@ export function createKmsNetworkConnection(
     checkNotCancelled(checked.signal, operation);
     const checksummed = readAddress(address, "address", operation);
     const { accounts } = connection;
+    if (checked.rawSign) {
+      // The keys pinned to the address, and those without a pin, which could derive to it.
+      const candidates = accounts.keys.filter(
+        (candidate) =>
+          candidate.address === undefined || sameAddress(candidate.address, checksummed),
+      );
+      if (candidates.length > 0) {
+        checkRawSignAllowed(candidates, checksummed, operation);
+      }
+    }
     const key = await accounts.keyFor(checksummed.toLowerCase());
     if (key === undefined) {
       const sentence = kmsAccountsSentence(await accounts.addresses());
@@ -602,6 +700,9 @@ export function createKmsNetworkConnection(
         },
         { operation },
       );
+    }
+    if (checked.rawSign) {
+      checkRawSignAllowed([key], checksummed, operation);
     }
     const { signal } = checked;
     const withSigner: WithSigner = async (method, use) => {
@@ -618,12 +719,12 @@ export function createKmsNetworkConnection(
     );
     if (checked.rawSign) {
       warn(
-        `the account ${checksummed} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,
+        `the account ${checksummed} signs any 32-byte digest with sign({ hash }), which can be a transaction or a permit for any chain, or an EIP-7702 authorization of this account. Use rawSign only for an owner that needs it, such as a Coinbase smart account.`,
       );
     }
     log("%s: account for network %s", checksummed, connection.network);
     return buildAccount(
-      { connection, viem, options: checked, address: checksummed, withSigner },
+      { connection, viem, options: checked, address: checksummed, key, withSigner },
       bytesHex(publicKey),
     );
   }

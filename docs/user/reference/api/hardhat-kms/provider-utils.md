@@ -1,6 +1,6 @@
 ---
 title: hardhat-kms/provider-utils
-description: Helpers for writing a KMS provider plugin for hardhat-kms, the same ones the AWS, Google Cloud and Azure packages use; experimental.
+description: Helpers for writing a KMS provider plugin for hardhat-kms, the same ones the AWS, Google Cloud, Azure and Turnkey packages use; experimental.
 ---
 
 # hardhat-kms/provider-utils
@@ -139,10 +139,10 @@ how to fix it. `docs/user/reference/errors.md` is generated from the catalogues.
 
 #### Type Parameters
 
-| Type Parameter                             | Default type              |
-| ------------------------------------------ | ------------------------- |
-| `Template` _extends_ `string`              | `string`                  |
-| `Kind` _extends_ [`ErrorKind`](#errorkind) | [`ErrorKind`](#errorkind) |
+| Type Parameter                                                              | Default type              |
+| --------------------------------------------------------------------------- | ------------------------- |
+| <a id="type-parameter-template"></a> `Template` _extends_ `string`          | `string`                  |
+| <a id="type-parameter-kind"></a> `Kind` _extends_ [`ErrorKind`](#errorkind) | [`ErrorKind`](#errorkind) |
 
 #### Properties
 
@@ -290,9 +290,9 @@ read from each `{` to the next `}`, as the catalogue helpers fill it.
 
 #### Type Parameters
 
-| Type Parameter                |
-| ----------------------------- |
-| `Template` _extends_ `string` |
+| Type Parameter                                                       |
+| -------------------------------------------------------------------- |
+| <a id="type-parameter-template-1"></a> `Template` _extends_ `string` |
 
 ---
 
@@ -363,9 +363,9 @@ For hardhat-kms and its first-party provider packages; a third-party provider us
 
 #### Type Parameters
 
-| Type Parameter                |
-| ----------------------------- |
-| `Template` _extends_ `string` |
+| Type Parameter                                                       |
+| -------------------------------------------------------------------- |
+| <a id="type-parameter-template-2"></a> `Template` _extends_ `string` |
 
 #### Parameters
 
@@ -395,9 +395,9 @@ For hardhat-kms and its first-party provider packages; a third-party provider us
 
 #### Type Parameters
 
-| Type Parameter                |
-| ----------------------------- |
-| `Template` _extends_ `string` |
+| Type Parameter                                                       |
+| -------------------------------------------------------------------- |
+| <a id="type-parameter-template-3"></a> `Template` _extends_ `string` |
 
 #### Parameters
 
@@ -473,9 +473,9 @@ For hardhat-kms and its first-party provider packages; a third-party provider us
 
 #### Type Parameters
 
-| Type Parameter                |
-| ----------------------------- |
-| `Template` _extends_ `string` |
+| Type Parameter                                                       |
+| -------------------------------------------------------------------- |
+| <a id="type-parameter-template-4"></a> `Template` _extends_ `string` |
 
 #### Parameters
 

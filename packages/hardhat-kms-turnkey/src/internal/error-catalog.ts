@@ -8,7 +8,8 @@ import type { ErrorEntry } from "hardhat-kms/provider-utils";
  *
  * No message quotes Turnkey's response: its `message` can name organizations. A message carries at
  * most the HTTP status and Turnkey's `turnkeyErrorCode` when that code matches
- * `^[A-Z][A-Z0-9_]{0,63}$`. Only `turnkey.activity.approval-needed` carries the activity id.
+ * `^[A-Z][A-Z0-9_]{0,63}$`. Only `turnkey.activity.approval-needed` carries the activity id here;
+ * the core's `core.signer.transaction-outstanding` carries it too, from `ctx.requestSent` (#537).
  */
 
 /** The @hardhat-kms/turnkey error catalogue. */
@@ -60,7 +61,7 @@ export const ERRORS = {
     template:
       "Turnkey answered {status}: no policy lets the API key's user sign this request with this address{request}. Add a policy that allows it, as the Turnkey setup guide shows",
     cause:
-      "No Turnkey policy allows this API user to sign with this wallet account, or a policy denies it. A transaction is sent as `ACTIVITY_TYPE_SIGN_TRANSACTION_V2`, which a policy matches with `activity.kind == 'SIGN_TRANSACTION'`. A message is sent with `HASH_FUNCTION_KECCAK256`, typed data with `PAYLOAD_ENCODING_EIP712` and a digest with `HASH_FUNCTION_NO_OP` and `PAYLOAD_ENCODING_HEXADECIMAL`, all as `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2`. For a transaction, a message or typed data, the error names what the request used: a policy that allows only `SIGN_RAW_PAYLOAD` denies transactions, and a policy written for Foundry, which sends every request as a `HASH_FUNCTION_NO_OP` digest, may allow only that, and then denies messages, and typed data too when it also requires `PAYLOAD_ENCODING_HEXADECIMAL`. Turnkey also answers 403 when API access is disabled.",
+      "No Turnkey policy allows this API user to sign with this wallet account, or a policy denies it. A transaction is sent as `ACTIVITY_TYPE_SIGN_TRANSACTION_V2`, which a policy matches with `activity.kind == 'SIGN_TRANSACTION'`. A message is sent with `HASH_FUNCTION_KECCAK256`, typed data with `PAYLOAD_ENCODING_EIP712` and a digest with `HASH_FUNCTION_NO_OP` and `PAYLOAD_ENCODING_HEXADECIMAL`, all as `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2`. A digest is an EIP-7702 authorization, `kms sign --no-hash`, or a transaction of a key with `transactionSigning: \"digest\"`. The error names what the request used: a policy that allows only `SIGN_RAW_PAYLOAD` denies transactions, a policy that allows only `SIGN_TRANSACTION` or only `HASH_FUNCTION_KECCAK256` denies digests, and a policy written for Foundry, which sends every request as a `HASH_FUNCTION_NO_OP` digest, may allow only that, and then denies messages, and typed data too when it also requires `PAYLOAD_ENCODING_HEXADECIMAL`. Turnkey also answers 403 when API access is disabled.",
     fix: 'Add a policy that allows `ACTIVITY_TYPE_SIGN_TRANSACTION_V2` and `ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2` for this user and wallet account, with the hash function and encoding of each raw payload the plugin sends, as the Turnkey setup guide shows. For a key whose policy is shared with Foundry and allows only `SIGN_RAW_PAYLOAD`, set the key\'s `transactionSigning` to `"digest"` instead: transactions are then sent as a `HASH_FUNCTION_NO_OP` digest, as Foundry sends them.',
   },
   notFound: {
@@ -137,8 +138,8 @@ export const ERRORS = {
     template:
       "Turnkey holds {activity} until it gets {need}. The plugin does not wait for approvals, and the activity stays pending in Turnkey. Reject it in the Turnkey dashboard, so that nobody approves it later",
     cause:
-      "A policy on the key requires consensus (`ACTIVITY_STATUS_CONSENSUS_NEEDED`) or another authenticator (`ACTIVITY_STATUS_AUTHENTICATORS_NEEDED`). The plugin fails at once. The activity stays in Turnkey: if someone approves it later, a signature exists for a request the plugin gave up on, with a nonce the plugin may use again. The message shows the activity id when it is a UUID, so that the activity can be found.",
-    fix: "Reject the pending activity in the Turnkey dashboard. To sign with this key from the plugin, use a policy that allows these requests without approval.",
+      "A policy on the key requires consensus (`ACTIVITY_STATUS_CONSENSUS_NEEDED`) or another authenticator (`ACTIVITY_STATUS_AUTHENTICATORS_NEEDED`). The plugin fails at once. The activity stays in Turnkey: if someone approves it later, a signature exists for a request the plugin gave up on. For a transaction the core then fails with `core.signer.transaction-outstanding`, which starts with this message and keeps the transaction's nonce held. The message shows the activity id when it is a UUID, so that the activity can be found.",
+    fix: "Reject the pending activity in the Turnkey dashboard. For a transaction, then send a replacement with the nonce the message names. To sign with this key from the plugin, use a policy that allows these requests without approval.",
   },
   activityFailed: {
     id: "turnkey.activity.failed",

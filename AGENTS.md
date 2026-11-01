@@ -64,7 +64,7 @@ Pages:
 - Set up an AWS KMS key (key spec, IAM policy, the `@hardhat-kms/aws` package, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
 - Set up an Azure Key Vault key (key type and curve, RBAC role or access policy, credential order, the `@hardhat-kms/azure` package): [docs/user/guides/azure-key-vault-setup.md](docs/user/guides/azure-key-vault-setup.md)
 - Set up a Google Cloud KMS key (algorithm, HSM protection level, IAM roles, the `@hardhat-kms/gcp` package, config, errors): [docs/user/guides/gcp-kms-setup.md](docs/user/guides/gcp-kms-setup.md)
-- Set up a Turnkey wallet account (a non-root API user, the least-privilege policy for the three request forms, the API key in a variable, quota, approvals and rejecting a pending activity, the `@hardhat-kms/turnkey` package): [docs/user/guides/turnkey-setup.md](docs/user/guides/turnkey-setup.md)
+- Set up a Turnkey wallet account (a non-root API user, two allow policies, one for raw payloads and one for `SIGN_TRANSACTION`, and a deny policy for credential changes, `transactionSigning` for policies shared with Foundry, the API key in a variable, quota, approvals and rejecting a pending activity, the `@hardhat-kms/turnkey` package): [docs/user/guides/turnkey-setup.md](docs/user/guides/turnkey-setup.md)
 - A key was deleted or nobody can reach it, or a key is being retired (each provider's waiting period and undo, guardrails, lockout, backups): [docs/user/guides/key-loss.md](docs/user/guides/key-loss.md)
 - Rotate a key, or catch an alias or Azure key version that changed under the config (what rotation does per provider, `address` pins, moving to a new key): [docs/user/guides/key-rotation.md](docs/user/guides/key-rotation.md)
 - Sign from a GitHub Actions job with no stored cloud credential (an environment with required reviewers, the OIDC trust per cloud scoped to the job's subject, the workflow with SHA-pinned login actions, `kms accounts --check-sign` in CI, common failures): [docs/user/guides/github-actions-oidc.md](docs/user/guides/github-actions-oidc.md)
@@ -104,6 +104,7 @@ pnpm test                       # unit and integration tests
 pnpm run test:localstack        # AWS adapter against LocalStack (needs Docker)
 pnpm run test:examples          # the projects in examples/ against LocalStack (needs Docker)
 pnpm run test:sdk-floors        # provider packages against their lowest SDK versions
+pnpm run test:library-floors    # the core against the lowest hardhat-utils, hardhat-errors and hardhat-zod-utils
 pnpm run test:hardhat-versions  # fill tests on the Hardhat floor and latest 3.x
 pnpm run test:mutation          # Stryker on the core's crypto/ and signer/ (incremental)
 pnpm run test:live              # deploys, sends and signs with each configured key on a Sepolia fork (needs anvil); HARDHAT_KMS_LIVE_NETWORK=sepolia runs it on real Sepolia
@@ -111,6 +112,7 @@ pnpm run test:live:aws          # AWS adapter against real KMS (needs HARDHAT_KM
 pnpm run coverage               # tests with the 95% coverage threshold
 pnpm run pkg:check              # build, publint, arethetypeswrong, knip
 pnpm run docs:check             # doc snippets typecheck, every page is indexed, generated pages are current, frontmatter and skills are valid, Mermaid blocks parse
+pnpm run docs:added-in          # every reference row the release on npm latest lacks says "Added in"
 pnpm run docs:errors            # regenerate docs/user/reference/errors.md from the error catalogues
 pnpm run docs:api               # build, then regenerate docs/user/reference/api/ from TSDoc
 pnpm run docs:site:check        # build the docs site from docs/ and check its output
@@ -150,7 +152,7 @@ Decision records:
 
 - [0001: Vendor the EIP-712 encoder from micro-eth-signer 0.19](docs/contributor/decisions/0001-vendor-eip712-encoder.md)
 - [0002: Fill transactions in the plugin](docs/contributor/decisions/0002-fill-transactions-in-plugin.md)
-- [0003: No RPC method signs a bare digest](docs/contributor/decisions/0003-no-bare-digest-over-rpc.md)
+- [0003: No RPC method signs a bare digest](docs/contributor/decisions/0003-no-bare-digest-over-rpc.md) (amended by 0021)
 - [0004: Recover the parity against the known key and verify every signature](docs/contributor/decisions/0004-verify-every-signature.md)
 - [0005: Load cloud SDKs lazily from the user's project](docs/contributor/decisions/0005-lazy-sdk-loading.md) (superseded by 0009)
 - [0006: A plugin-owned `kms` hook for third-party providers](docs/contributor/decisions/0006-kms-hook-for-providers.md)
@@ -161,13 +163,17 @@ Decision records:
 - [0011: Check typed data's chain only when it names one](docs/contributor/decisions/0011-typed-data-chain-check.md)
 - [0012: Generate the API reference with TypeDoc on TypeScript 6](docs/contributor/decisions/0012-api-reference-generator.md)
 - [0013: Signing history comes only from the cloud audit logs](docs/contributor/decisions/0013-history-from-cloud-logs.md)
-- [0014: The library account signs bare digests only when asked](docs/contributor/decisions/0014-library-account-raw-sign.md)
+- [0014: The library account signs bare digests only when asked](docs/contributor/decisions/0014-library-account-raw-sign.md) (amended by 0021)
 - [0015: npm names: an unscoped core and scoped providers](docs/contributor/decisions/0015-npm-names.md)
 - [0016: Release from a signed tag, stage to `beta`, promote by dist-tag](docs/contributor/decisions/0016-release-process.md)
 - [0017: The docs site lives at aelmanaa.github.io/hardhat-kms](docs/contributor/decisions/0017-docs-hostname.md)
 - [0018: Refuse a requested type that disagrees with the caller's fee fields](docs/contributor/decisions/0018-refuse-requested-type-mismatch.md)
 - [0019: Call Turnkey's API without a Turnkey SDK](docs/contributor/decisions/0019-turnkey-without-sdk.md)
 - [0020: Fail at once when a Turnkey activity needs approval](docs/contributor/decisions/0020-turnkey-approvals-fail-fast.md)
+- [0021: Raw digests need a person at a terminal or a per-key opt-in](docs/contributor/decisions/0021-raw-digests-need-a-person-or-an-opt-in.md)
+- [0022: Each key can limit its EIP-7702 delegates, per chain](docs/contributor/decisions/0022-per-key-delegate-allowlist.md)
+- [0023: Confirm EIP-7702 authorizations at a terminal, and refuse ones that cannot apply](docs/contributor/decisions/0023-confirm-authorizations-at-a-terminal.md)
+- [0024: The docs site root follows npm `latest`, and main's docs are under `next/`](docs/contributor/decisions/0024-docs-site-follows-npm-latest.md)
 
 Rules for every change:
 

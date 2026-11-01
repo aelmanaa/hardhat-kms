@@ -4,6 +4,8 @@ hardhat-kms is a Hardhat 3 plugin that signs transactions, messages and typed da
 
 Each page except the generated API reference opens with an `Audience:` line that names who it is for and what it assumes. [Release channels and versioning](user/explanation/versioning.md#channels) says which release to install and what a version promises.
 
+The [docs site](https://aelmanaa.github.io/hardhat-kms/) documents the version on npm `latest`. The docs of `main`, with changes not released yet, are at [next/](https://aelmanaa.github.io/hardhat-kms/next/).
+
 ## Start here
 
 - I need a key and want a first deploy: Deploy a Hardhat contract to Sepolia with [AWS KMS](user/tutorials/first-deploy-aws.md), [Google Cloud KMS](user/tutorials/first-deploy-gcp.md) or [Azure Key Vault](user/tutorials/first-deploy-azure.md).

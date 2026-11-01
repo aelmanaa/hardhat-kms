@@ -20,7 +20,7 @@ const KEY_ARGUMENT_DESCRIPTION =
 
 /**
  * The hardhat-kms plugin: sign transactions, messages and typed data with keys held in AWS KMS,
- * Google Cloud KMS and Azure Key Vault or Managed HSM.
+ * Google Cloud KMS, Azure Key Vault or Managed HSM, or Turnkey.
  *
  * Add it to the `plugins` array of your Hardhat config.
  */
@@ -89,7 +89,12 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
       .addFlag({
         name: "noHash",
         description:
-          "Sign the message as a raw 32-byte digest, with no EIP-191 prefix. Only for digests you computed yourself",
+          "Sign the message as a raw 32-byte digest, with no EIP-191 prefix. Asks first at a terminal. Only for digests you computed yourself",
+      })
+      .addFlag({
+        name: "yes",
+        description:
+          "With --no-hash: sign without asking, for a key with allowRawDigests: true. Required without a terminal",
       })
       .addOption({
         name: "chain",
@@ -182,7 +187,13 @@ const hardhatKmsPlugin: HardhatPlugin = definePlugin({
       })
       .addFlag({
         name: "force",
-        description: "Allow chain 0, which makes the authorization valid on every chain",
+        description:
+          "Allow chain 0, which makes the authorization valid on every chain. Does not skip the question",
+      })
+      .addFlag({
+        name: "yes",
+        description:
+          "Sign without asking, for a delegate in the key's allowedDelegates or the zero address. Required without a terminal",
       })
       .setAction(() => import("./internal/tasks/sign-auth.ts"))
       .build(),

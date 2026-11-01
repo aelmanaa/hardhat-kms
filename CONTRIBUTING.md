@@ -15,6 +15,7 @@ pnpm test                       # unit + integration tests
 pnpm run test:localstack        # AWS adapter against LocalStack (needs Docker)
 pnpm run test:examples          # the projects in examples/ against LocalStack (needs Docker)
 pnpm run test:sdk-floors        # provider packages against their lowest SDK versions
+pnpm run test:library-floors    # the core against the lowest hardhat-utils, hardhat-errors and hardhat-zod-utils
 pnpm run test:hardhat-versions  # fill tests on the Hardhat floor and latest 3.x
 pnpm run test:mutation          # Stryker on the core's crypto/ and signer/ (incremental)
 pnpm run test:live              # deploys, sends and signs with each configured key on a Sepolia fork (needs anvil)
@@ -60,7 +61,7 @@ A changeset is a release note. From 0.9.0, its text becomes the `CHANGELOG.md` e
 - A breaking or behaviour change carries a second paragraph that starts with "What should I do?" and names the config key, task or command to change.
 - A Hardhat, Node.js or SDK floor change states the new floor in the entry.
 - A security fix names the advisory and the affected version range.
-- Which bump: `patch` for a fix or a docs-only change to a published file, such as a package README; `minor` for a new task, option, config key or provider capability; `major` for a removed or renamed one, a dropped Hardhat major or an error code removed from the catalogue. The four packages are one fixed group and get the same version, so name only the packages whose changelog should carry the entry.
+- Which bump: `patch` for a fix or a docs-only change to a published file, such as a package README; `minor` for a new task, option, config key or provider capability; `major` for a removed or renamed one, a dropped Hardhat major or an error code removed from the catalogue. The published packages are one fixed group and get the same version, so name only the packages whose changelog should carry the entry.
 - A change under `packages/` with nothing to tell users, such as tests or an internal refactor, gets an empty changeset: `pnpm changeset add --empty`. A pull request that changes `packages/` carries one or the other.
 - A changeset describes the published packages. A pull request that changes nothing under `packages/` carries no changeset, not even an empty one. That covers CI and release workflows, scripts, tests outside `packages/`, the examples and the docs under `docs/`. A change of this kind that users can see, such as how a release is marked on GitHub, is documented in `docs/user`, not in a package changelog.
 - CI enforces both directions: the `Changeset` check fails a pull request that changes a published package with no changeset (`pnpm changeset status`), and one that adds a changeset with no change under `packages/` (`scripts/check-changeset-scope.ts`). Both compare with the merge base of the pull request's base branch, so a pull request into `release/X.Y` is compared with that branch.

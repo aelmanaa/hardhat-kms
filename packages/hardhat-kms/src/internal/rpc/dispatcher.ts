@@ -18,9 +18,12 @@ import { toChecksumAddress } from "../crypto/address.ts";
 import { coreDebug } from "../debug.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, catalogMessage, errorName } from "../errors.ts";
+import type { CommandLineKeyCheck } from "../signer/delegates.ts";
 import type { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
+import { warn } from "../warnings.ts";
 import type { ConnectionChain } from "./chain-id.ts";
+import { rpcDataBytes } from "./rpc-data.ts";
 import {
   canonicalJson,
   type ConnectionSends,
@@ -30,6 +33,7 @@ import {
   describeSendKey,
   expectLibraryReset,
   holdForLibrary,
+  warnAboutHeldNonces,
   holdsSendLock,
   libraryHoldOf,
   libraryHoldsActive,
@@ -37,7 +41,7 @@ import {
   withSendLock,
 } from "./send-guard.ts";
 import { notPlainData, stringResult, type TransactionFiller } from "./transaction-filler.ts";
-import { signTransaction } from "./transactions.ts";
+import { signTransaction, type TransactionDelegates } from "./transactions.ts";
 import { checkTypedDataChain, readTypedData } from "./typed-data.ts";
 
 const log = coreDebug("rpc");
@@ -50,6 +54,11 @@ export interface NetworkKeys {
   config: readonly KmsKeyConfig[];
   /** The keys chosen with `--kms`, when this is the selected network. */
   commandLine: readonly KmsKeyConfig[];
+  /**
+   * Every config key with `allowedDelegates`, in `kms.keys` or any network's `kmsAccounts`, which
+   * a `--kms` key must not be a copy of (#593). Empty or absent when there are no `--kms` keys.
+   */
+  listed?: readonly KmsKeyConfig[];
 }
 
 /** The methods the dispatcher looks at; every other method passes through (rule 1). */
@@ -149,6 +158,11 @@ export class ConnectionAccounts {
     return this.#known !== undefined;
   }
 
+  /** The connection's KMS keys: its network's `kmsAccounts`, then the keys chosen with `--kms`. */
+  public get keys(): readonly KmsKeyConfig[] {
+    return this.#keys;
+  }
+
   /** Whether the connection has KMS keys at all. */
   public get isEmpty(): boolean {
     return this.#keys.length === 0;
@@ -187,6 +201,21 @@ export class ConnectionAccounts {
   ): Promise<{ result: T } | undefined> {
     const key = await this.keyFor(address);
     return key === undefined ? undefined : { result: await this.signWith(key, sign) };
+  }
+
+  /**
+   * What the delegate checks need about a key chosen with `--kms`: the config keys with
+   * `allowedDelegates` it must not be a copy of (#593).
+   *
+   * @param key - A key from {@link ConnectionAccounts.keyFor}.
+   * @param address - Its address.
+   * @returns The check, or `undefined` for a config key or when no config key has a list.
+   */
+  public commandLineCheck(key: KmsKeyConfig, address: string): CommandLineKeyCheck | undefined {
+    const listed = this.#network.listed ?? [];
+    return this.#network.commandLine.includes(key) && listed.length > 0
+      ? { key, address, listed }
+      : undefined;
   }
 
   /**
@@ -362,7 +391,7 @@ export async function dispatch(
   if (request.method === "eth_sign") {
     const signed = await signFor(accounts, request.method, params[0], async (signer) => {
       const [, data] = validateParams(params, rpcAddress, rpcData);
-      return await signer.signPersonalMessage(data);
+      return await signer.signPersonalMessage(rpcDataBytes(params[1], data));
     });
     if (signed !== undefined) {
       return response(request, signed.result);
@@ -370,7 +399,7 @@ export async function dispatch(
   } else if (request.method === "personal_sign") {
     const signed = await signFor(accounts, request.method, params[1], async (signer) => {
       const [data] = validateParams(params, rpcData, rpcAddress);
-      return await signer.signPersonalMessage(data);
+      return await signer.signPersonalMessage(rpcDataBytes(params[0], data));
     });
     if (signed !== undefined) {
       return response(request, signed.result);
@@ -389,19 +418,7 @@ export async function dispatch(
       return await sendTransaction(accounts, request, outcome.kms, transactions, next);
     }
     if (outcome !== undefined && "kms" in outcome) {
-      // eth_signTransaction takes no lock and leaves the high-water mark alone (rule 5).
-      const { key, address, params: signParams } = outcome.kms;
-      const signed = await accounts.signWith(
-        key,
-        async (signer) =>
-          await signTransaction(signer, {
-            filler: transactions.filler(),
-            method: request.method,
-            params: signParams,
-            from: address,
-          }),
-      );
-      return response(request, signed.raw);
+      return await signOnly(accounts, request, outcome.kms, transactions);
     }
     if (outcome !== undefined) {
       return await passThrough(accounts, { ...request, params: outcome.params }, next);
@@ -691,6 +708,27 @@ async function kmsTransactionOf(
 }
 
 /**
+ * What a KMS account's transaction needs to check the delegates of its self-authorizations: the
+ * key's `allowedDelegates`, the config keys with lists a `--kms` key must not be a copy of (#593),
+ * and the connection's node to read a pinned delegate's code from.
+ */
+function transactionDelegates(
+  accounts: ConnectionAccounts,
+  kms: KmsTransaction,
+  transactions: ConnectionTransactions,
+): TransactionDelegates {
+  return {
+    key: kms.key,
+    commandLine: accounts.commandLineCheck(kms.key, kms.address),
+    node: {
+      chainId: async () => await transactions.chainId(),
+      getCode: async (address) => await transactions.request("eth_getCode", [address, "latest"]),
+    },
+    note: warn,
+  };
+}
+
+/**
  * Sends a KMS account's transaction under the send lock for its chain and address (rule 4).
  * Inside the lock: a retry entry for the same request is sent again; otherwise the transaction is
  * filled and signed inside `signWith`, then broadcast once with `next`, after `signWith` has
@@ -738,12 +776,16 @@ async function sendTransaction(
         transactions,
       });
     }
+    // A send that waited for the lock while its connection closed asks the KMS for nothing: a
+    // provider such as Turnkey keeps what it signs where others can broadcast it.
+    refuseIfClosed(transactions, request.method);
     if (!kms.callerNonce) {
       await settleUncertain(
         address,
         sends,
         async (hash) => await lookUpTransaction(transactions, hash),
       );
+      await settleMinedHolds(transactions, sends, address);
     }
     const signed = await accounts.signWith(
       kms.key,
@@ -753,11 +795,21 @@ async function sendTransaction(
           method: request.method,
           params: kms.params,
           from: address,
+          delegates: transactionDelegates(accounts, kms, transactions),
+          // Under the send lock, before it passes on: the next send must skip the nonce (#537).
+          holdNonce: (nonce, copyHash) => {
+            sends.holdOutstanding(address, nonce, copyHash);
+          },
+          // Again after the uncertain lookups, the fill and the nonce choice, which all await.
+          beforeSign: () => {
+            refuseIfClosed(transactions, request.method);
+          },
           chooseNonce: kms.callerNonce
             ? undefined
             : async (pending) =>
-                await sends.chooseNonce(
+                await chooseSendNonce(
                   address,
+                  sends,
                   pending,
                   async (hash) => await lookUpTransaction(transactions, hash),
                 ),
@@ -774,6 +826,95 @@ async function sendTransaction(
       transactions,
     });
   });
+}
+
+/**
+ * Signs a KMS account's transaction for `eth_signTransaction`. It never broadcasts and never moves
+ * the mark (rule 5). Without the caller's nonce it takes the nonce a send would take
+ * (`ConnectionSends.nonceFor`): past the mark, the reservations and the held nonces.
+ *
+ * For a key whose provider keeps what it signs (`keepsSignedTransactions`, Turnkey), it runs under
+ * the send lock, as a send does up to its signature (#537): the uncertain transactions are looked
+ * up first, the nonce is chosen as a send's, and it is held from the signature on, so a send or
+ * another `eth_signTransaction` cannot take it while the KMS signs it. Any other key takes no lock
+ * and has no stall limit, as before: its signed transaction exists only in the caller's hands, so
+ * signatures at one nonce cost nothing, and serializing them would only make them wait.
+ */
+async function signOnly(
+  accounts: ConnectionAccounts,
+  request: JsonRpcRequest,
+  kms: KmsTransaction,
+  transactions: ConnectionTransactions,
+): Promise<JsonRpcResponse> {
+  const sends = transactions.sends();
+  const { address } = kms;
+  const keeps = await accounts.signWith(
+    kms.key,
+    async (signer) => await Promise.resolve(signer.keepsSignedTransactions()),
+  );
+  if (!keeps) {
+    const signed = await accounts.signWith(
+      kms.key,
+      async (signer) =>
+        await signTransaction(signer, {
+          filler: transactions.filler(),
+          method: request.method,
+          params: kms.params,
+          from: address,
+          delegates: transactionDelegates(accounts, kms, transactions),
+          chooseNonce: kms.callerNonce ? undefined : (pending) => sends.nonceFor(address, pending),
+        }),
+    );
+    return response(request, signed.raw);
+  }
+  const chainId = await transactions.chainId();
+  const lookUp = async (hash: string): Promise<boolean | undefined> =>
+    await lookUpTransaction(transactions, hash);
+  return await withSendLock(`${chainId}:${address}`, async () => {
+    if (!kms.callerNonce) {
+      await settleUncertain(address, sends, lookUp);
+      await settleMinedHolds(transactions, sends, address);
+    }
+    const signed = await accounts.signWith(
+      kms.key,
+      async (signer) =>
+        await signTransaction(signer, {
+          filler: transactions.filler(),
+          method: request.method,
+          params: kms.params,
+          from: address,
+          delegates: transactionDelegates(accounts, kms, transactions),
+          chooseNonce: kms.callerNonce
+            ? undefined
+            : async (pending) => await sends.chooseNonce(address, pending, lookUp),
+          // The provider may still sign it, or keeps its copy: the next send skips it (#537).
+          holdNonce: (nonce, copyHash) => {
+            sends.holdOutstanding(address, nonce, copyHash);
+          },
+        }),
+    );
+    return response(request, signed.raw);
+  });
+}
+
+/**
+ * Chooses the nonce of a send without the caller's nonce (`ConnectionSends.chooseNonce`), and warns
+ * when held nonces put it above the node's pending count: the node cannot mine the send until
+ * transactions with those nonces are.
+ */
+async function chooseSendNonce(
+  address: string,
+  sends: ConnectionSends,
+  pending: bigint,
+  lookUp: (hash: string) => Promise<boolean | undefined>,
+): Promise<bigint> {
+  const nonce = await sends.chooseNonce(address, pending, lookUp);
+  // Stryker disable next-line EqualityOperator: the chosen nonce is never a held one, so <= is <
+  const behind = sends.outstandingNonces(address).filter((held) => held >= pending && held < nonce);
+  if (behind.length > 0) {
+    warnAboutHeldNonces(address, nonce, behind);
+  }
+  return nonce;
 }
 
 /**
@@ -1057,9 +1198,11 @@ async function broadcast(
       return accepted();
     }
     sends.settleUncertain(address, transaction.hash);
+    await refuseProviderCopy(request, transaction, error, context);
     return passOn();
   }
-  if (resend && isAlreadyKnown(message)) {
+  // The node has these very bytes. With a provider copy too: it is the same transaction (#537).
+  if ((resend || transaction.providerCopy !== undefined) && isAlreadyKnown(message)) {
     return accepted();
   }
   if (isUncertainAnswer(code, message)) {
@@ -1077,7 +1220,127 @@ async function broadcast(
     return accepted();
   }
   sends.settleUncertain(address, transaction.hash);
+  await refuseProviderCopy(request, transaction, error, context);
   return passOn();
+}
+
+/**
+ * Handles a broadcast the node refused for certain, when the provider keeps a copy of the signed
+ * transaction (#537); without a copy it does nothing, and the node's answer goes on as before.
+ *
+ * - The node's mined transaction count (`eth_getTransactionCount` at `latest`) is above the
+ *   nonce: the nonce is used on chain, so the copy cannot be valid, whatever the node's message
+ *   says (Geth's "nonce too low", Nethermind's `OldNonce`). The answer goes on, and the holds
+ *   below the mined count end. The pending count is not enough: a transaction in the pool can
+ *   still be dropped. A failed count counts as not past.
+ * - Otherwise the copy can become valid once the cause goes away. The nonce stays held (it was
+ *   held at the signature), and the send fails with `core.tx.refused-provider-copy`, which names
+ *   a fixed kind of refusal and the node's code, never the node's text (allow-listed error fields).
+ *
+ * "already known" never gets here: the node has the transaction, and the send succeeds.
+ */
+async function refuseProviderCopy(
+  request: JsonRpcRequest,
+  transaction: SentTransaction,
+  error: Record<string, unknown>,
+  context: BroadcastContext,
+): Promise<void> {
+  const copy = transaction.providerCopy;
+  if (copy === undefined) {
+    return;
+  }
+  // A failed count counts as 0: nothing mined.
+  const mined = (await minedCount(context.transactions, context.address)) ?? 0n;
+  if (mined > copy.nonce) {
+    context.sends.settleMined(context.address, mined);
+    return;
+  }
+  const { code, message } = error;
+  throw catalogError(
+    ERRORS.txRefusedProviderCopy,
+    {
+      nonce: copy.nonce,
+      reason: refusalKind(String(message)),
+      // A number only: anything else from the node prints as NaN.
+      code: String(Number(code)),
+      who: copy.who,
+      request: copy.request,
+    },
+    { operation: request.method },
+  );
+}
+
+/** A JSON-RPC quantity of at most 64 bits: `0x`, then hex digits without leading zeros. */
+const QUANTITY = /^0x(?:0|[1-9a-f][0-9a-f]{0,15})$/i;
+
+/**
+ * The node's transaction count for the sender at a block tag, or `undefined` when the request
+ * fails or the answer is not a quantity of at most 64 bits.
+ */
+async function transactionCount(
+  transactions: ConnectionTransactions,
+  address: string,
+  tag: "latest" | "pending",
+): Promise<bigint | undefined> {
+  const count: unknown = await transactions
+    .request("eth_getTransactionCount", [address, tag])
+    .catch(() => undefined);
+  return typeof count === "string" && QUANTITY.test(count) ? BigInt(count) : undefined;
+}
+
+/**
+ * The node's mined transaction count for the sender (`latest`), trusted only when the node's
+ * pending count, read after it, is not below it, as it never is on a consistent node; otherwise
+ * `undefined`. Every caller treats `undefined` as nothing mined: a failed, malformed or
+ * inconsistent answer must never end a hold (#537).
+ */
+async function minedCount(
+  transactions: ConnectionTransactions,
+  address: string,
+): Promise<bigint | undefined> {
+  const mined = await transactionCount(transactions, address, "latest");
+  if (mined === undefined) {
+    return undefined;
+  }
+  const pending = await transactionCount(transactions, address, "pending");
+  // A failed pending count trusts nothing: no mined count is at or below -1.
+  return mined <= (pending ?? -1n) ? mined : undefined;
+}
+
+/**
+ * Ends the sender's holds below the node's mined count (#537), before a nonce choice. It asks the
+ * node only while the sender holds a nonce. A failed count ends nothing.
+ */
+async function settleMinedHolds(
+  transactions: ConnectionTransactions,
+  sends: ConnectionSends,
+  address: string,
+): Promise<void> {
+  if (sends.outstandingNonces(address).length === 0) {
+    return;
+  }
+  // A failed count counts as 0, which ends no hold.
+  sends.settleMined(address, (await minedCount(transactions, address)) ?? 0n);
+}
+
+/**
+ * The kind of a node's refusal, in fixed words: the node's own text is never shown. Only messages
+ * from client source: Geth's `core.ErrInsufficientFunds` ("insufficient funds for gas * price +
+ * value"), `txpool.ErrUnderpriced` ("transaction underpriced"), `txpool.ErrReplaceUnderpriced`
+ * ("replacement transaction underpriced") and `core.ErrFeeCapTooLow` ("max fee per gas less than
+ * block base fee"). Anything else is `refused`.
+ */
+function refusalKind(message: string): string {
+  if (message.includes("insufficient funds")) {
+    return "insufficient funds";
+  }
+  if (
+    message.includes("underpriced") ||
+    message.includes("max fee per gas less than block base fee")
+  ) {
+    return "fee too low";
+  }
+  return "refused";
 }
 
 /**
@@ -1298,6 +1561,7 @@ export async function libraryNonce(
       sends,
       async (hash) => await lookUpTransaction(transactions, hash),
     );
+    await settleMinedHolds(transactions, sends, address);
     requireOpen();
     return await sends.chooseNonce(
       address,

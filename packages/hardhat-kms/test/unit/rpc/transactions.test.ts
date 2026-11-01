@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it, type TestContext } from "node:test";
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import { HardhatPluginError } from "hardhat/plugins";
 import { authorization, Transaction } from "micro-eth-signer";
 
@@ -14,8 +15,11 @@ import {
 import {
   assembleSignedTransaction,
   signTransaction,
+  type TransactionDelegates,
 } from "../../../src/internal/rpc/transactions.ts";
 import { KmsSigner } from "../../../src/internal/signer/kms-signer.ts";
+import type { KmsAllowedDelegate } from "../../../src/types.ts";
+import { NO_ALLOWLIST } from "../../helpers/delegates.ts";
 import { fakeAdapter } from "../../helpers/fake-adapter.ts";
 import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../../helpers/vectors.ts";
 
@@ -152,6 +156,7 @@ describe("signTransaction", () => {
         method: "eth_signTransaction",
         params: [{ from: FROM }],
         from: FROM.toLowerCase(),
+        delegates: NO_ALLOWLIST,
       }),
       (error: unknown) => {
         assert.ok(error instanceof HardhatPluginError, String(error));
@@ -175,6 +180,7 @@ describe("signTransaction", () => {
         method: "eth_signTransaction",
         params: [{ from: FROM }],
         from: FROM.toLowerCase(),
+        delegates: NO_ALLOWLIST,
         checkUnsigned: (tx) => {
           seen.push(tx.type);
           throw new Error("refused by the check");
@@ -211,8 +217,13 @@ function fillerOf(filled: FilledTransaction): TransactionFiller {
 const bytes32 = (value: bigint) => hex(value.toString(16).padStart(64, "0"));
 
 /** An authorization of TO for chain 31337, signed by cow, with its signature fields as bytes. */
-function signedAuthorization(nonce: bigint, secretKey = COW_ACCOUNT.secretKey, chainId = 31337n) {
-  const request = { chainId, address: hex(TO.slice(2)), nonce };
+function signedAuthorization(
+  nonce: bigint,
+  secretKey = COW_ACCOUNT.secretKey,
+  chainId = 31337n,
+  delegate = TO,
+) {
+  const request = { chainId, address: hex(delegate.slice(2)), nonce };
   const signature = secp256k1.sign(authorizationDigest(request), hex(secretKey), {
     prehash: false,
     lowS: true,
@@ -222,8 +233,13 @@ function signedAuthorization(nonce: bigint, secretKey = COW_ACCOUNT.secretKey, c
   return { request, r: parsed.r, s: parsed.s, yParity: parsed.recovery };
 }
 
-const tuple = (nonce: bigint, chainId = 31337n, secretKey = HARDHAT_ACCOUNT_0.secretKey) => {
-  const signed = signedAuthorization(nonce, secretKey, chainId);
+const tuple = (
+  nonce: bigint,
+  chainId = 31337n,
+  secretKey = HARDHAT_ACCOUNT_0.secretKey,
+  delegate = TO,
+) => {
+  const signed = signedAuthorization(nonce, secretKey, chainId, delegate);
   return {
     ...signed.request,
     r: bytes32(signed.r),
@@ -231,7 +247,11 @@ const tuple = (nonce: bigint, chainId = 31337n, secretKey = HARDHAT_ACCOUNT_0.se
     yParity: hex(`0${signed.yParity}`),
   };
 };
-function signSelfList(list: NonNullable<FilledTransaction["authorizationList"]>, nonce = 0n) {
+function signSelfList(
+  list: NonNullable<FilledTransaction["authorizationList"]>,
+  nonce = 0n,
+  delegates: TransactionDelegates = NO_ALLOWLIST,
+) {
   const adapter = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
   const signer = new KmsSigner(adapter, { timeoutMs: 30_000, displayMessage: async () => {} });
   const result = signTransaction(signer, {
@@ -239,6 +259,7 @@ function signSelfList(list: NonNullable<FilledTransaction["authorizationList"]>,
     method: "eth_sendTransaction",
     params: [{ from: FROM }],
     from: FROM.toLowerCase(),
+    delegates,
     chooseNonce: () => nonce,
   });
   return { adapter, result };
@@ -288,6 +309,147 @@ describe("final self-authorization checks (#435)", () => {
   });
 });
 
+/** A key named `deployer` with these `allowedDelegates`, on a node that answers `code`. */
+function delegatesOf(
+  allowedDelegates: readonly KmsAllowedDelegate[],
+  code: unknown = "0x",
+): TransactionDelegates & { notes: string[]; reads: string[] } {
+  const notes: string[] = [];
+  const reads: string[] = [];
+  return {
+    key: { name: "deployer", allowedDelegates },
+    node: {
+      chainId: async () => await Promise.resolve(31337n),
+      getCode: async (address) => {
+        reads.push(address);
+        return await Promise.resolve(code);
+      },
+    },
+    note: (message) => {
+      notes.push(message);
+    },
+    notes,
+    reads,
+  };
+}
+
+const ZERO = "0x0000000000000000000000000000000000000000";
+const CODE = "0x60fe";
+const CODE_HASH = `0x${Buffer.from(keccak_256(hex(CODE.slice(2)))).toString("hex")}`;
+
+describe("self-authorization delegates (#562)", () => {
+  it("refuses a self tuple whose delegate the key does not allow, before the KMS call", async () => {
+    const { adapter, result } = signSelfList([tuple(1n)], 0n, delegatesOf([]));
+    await assert.rejects(
+      result,
+      new RegExp(
+        `^HardhatPluginError: eth_sendTransaction: authorizationList\\[0\\] is signed by the sender and delegates it to ${TO} on chain 31337, which the allowedDelegates of key deployer do not allow; nothing was signed$`,
+      ),
+    );
+    assert.equal(adapter.calls.signDigest, 0);
+  });
+
+  it("refuses a delegate listed for another chain, and names the tuple's index", async () => {
+    const list = [{ address: TO, chains: [1] }] as const;
+    const { adapter, result } = signSelfList(
+      [tuple(40n, 1n, COW_ACCOUNT.secretKey), tuple(1n)],
+      0n,
+      delegatesOf(list),
+    );
+    await assert.rejects(
+      result,
+      /authorizationList\[1\] is signed by the sender and delegates it to/,
+    );
+    assert.equal(adapter.calls.signDigest, 0);
+  });
+
+  it("signs a transaction without an authorization list for a key with a list", async () => {
+    const adapter = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
+    const signer = new KmsSigner(adapter, { timeoutMs: 30_000, displayMessage: async () => {} });
+    const delegates = delegatesOf([]);
+    await signTransaction(signer, {
+      filler: fillerOf(filledFrom(FROM)),
+      method: "eth_sendTransaction",
+      params: [{ from: FROM }],
+      from: FROM.toLowerCase(),
+      delegates,
+    });
+    assert.equal(adapter.calls.signDigest, 1);
+    assert.deepEqual(delegates.reads, []);
+  });
+
+  it("checks every self tuple: a listed first one does not let an unlisted second one through", async () => {
+    const OTHER_DELEGATE = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+    const { adapter, result } = signSelfList(
+      [tuple(1n), tuple(2n, 31337n, HARDHAT_ACCOUNT_0.secretKey, OTHER_DELEGATE)],
+      0n,
+      delegatesOf([{ address: TO, chains: "all" }]),
+    );
+    await assert.rejects(
+      result,
+      new RegExp(
+        `authorizationList\\[1\\] is signed by the sender and delegates it to ${OTHER_DELEGATE} on chain 31337`,
+      ),
+    );
+    assert.equal(adapter.calls.signDigest, 0);
+  });
+
+  it("does not check a tuple signed by another authority with the same delegate", async () => {
+    const { adapter, result } = signSelfList(
+      [tuple(40n, 31337n, COW_ACCOUNT.secretKey)],
+      0n,
+      delegatesOf([]),
+    );
+    await result;
+    assert.equal(adapter.calls.signDigest, 1);
+  });
+
+  it("signs a self tuple for a listed delegate, and one that clears the delegation", async () => {
+    const listed = signSelfList([tuple(1n)], 0n, delegatesOf([{ address: TO, chains: [31337] }]));
+    await listed.result;
+    const revoke = signSelfList(
+      [tuple(1n, 31337n, HARDHAT_ACCOUNT_0.secretKey, ZERO)],
+      0n,
+      delegatesOf([]),
+    );
+    await revoke.result;
+    assert.equal(revoke.adapter.calls.signDigest, 1);
+  });
+
+  it("matches a chain-0 self tuple only to an entry for all chains", async () => {
+    const forChain = signSelfList(
+      [tuple(1n, 0n)],
+      0n,
+      delegatesOf([{ address: TO, chains: [31337] }]),
+    );
+    await assert.rejects(
+      forChain.result,
+      /delegates it to .* on chain 0, which the allowedDelegates/,
+    );
+    assert.equal(forChain.adapter.calls.signDigest, 0);
+    const forAll = signSelfList([tuple(1n, 0n)], 0n, delegatesOf([{ address: TO, chains: "all" }]));
+    await forAll.result;
+  });
+
+  it("reads a pinned delegate's code from the node and refuses a mismatch", async () => {
+    const pinned = [{ address: TO, chains: "all", codeHash: CODE_HASH }] as const;
+    const mismatch = delegatesOf(pinned, "0x6000");
+    const refused = signSelfList([tuple(1n)], 0n, mismatch);
+    await assert.rejects(refused.result, /has hash 0x[0-9a-f]{64}, which no codeHash/);
+    assert.equal(refused.adapter.calls.signDigest, 0);
+    assert.deepEqual(mismatch.reads, [TO]);
+
+    const empty = signSelfList([tuple(1n)], 0n, delegatesOf(pinned, "0x"));
+    await assert.rejects(empty.result, /has no code on chain 31337/);
+
+    const matching = delegatesOf(pinned, CODE);
+    await signSelfList([tuple(1n, 0n)], 0n, matching).result;
+    assert.deepEqual(matching.notes, [
+      `the authorization is for chain 0, valid on every chain: the code hash of ${TO} was checked on chain 31337 only`,
+    ]);
+  });
+});
+
 /** Signs a transfer with an authorization list and returns the warnings it printed. */
 async function signWithList(
   t: TestContext,
@@ -304,6 +466,7 @@ async function signWithList(
     method: "eth_sendTransaction",
     params: [{ from: FROM }],
     from: FROM.toLowerCase(),
+    delegates: NO_ALLOWLIST,
   });
   const type = authorizationList === undefined ? "eip1559" : "eip7702";
   assert.equal(Transaction.fromHex(signed.raw, false).type, type);

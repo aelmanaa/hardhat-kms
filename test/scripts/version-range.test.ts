@@ -1,13 +1,14 @@
 // The floor that scripts/test-sdk-floors.ts reads from a dependency range
 // (`scripts/version-range.ts`): a caret range, or caret alternatives in one major that skip some
-// releases, and nothing that allows another major.
+// releases, and nothing that allows another major. floorsOf, for scripts/test-library-floors.ts,
+// reads one such floor per major.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { floorOf } from "../../scripts/version-range.ts";
+import { floorOf, floorsOf } from "../../scripts/version-range.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -83,5 +84,50 @@ describe("floorOf", () => {
 
   it("names the forms it accepts", () => {
     assert.throws(() => floorOf("~6.5.0"), /\^1\.2\.3 <1\.4\.0 \|\| \^1\.4\.1 \(got ~6\.5\.0\)/);
+  });
+});
+
+describe("floorsOf", () => {
+  it("reads one floor per major", () => {
+    assert.deepEqual(floorsOf("^4.3.0 || ^5.0.0"), ["4.3.0", "5.0.0"]);
+    assert.deepEqual(floorsOf("^3.0.8"), ["3.0.8"]);
+    assert.deepEqual(floorsOf("^4.3.0 <4.4.0 || ^4.4.1 || ^5.0.2"), ["4.3.0", "5.0.2"]);
+  });
+
+  it("applies floorOf's rules to each major's part", () => {
+    for (const range of [
+      "^4.3.0 || ^4.2.0 || ^5.0.0",
+      "^4.3.0 <5.1.0 || ^5.0.0",
+      "^0.19.0 || ^1.0.0",
+      "^4.3.0 || ~5.0.0",
+      ">=4.3.0",
+      "",
+    ]) {
+      assert.throws(() => floorsOf(range), Error, range);
+    }
+  });
+
+  it("rejects majors out of order", () => {
+    assert.throws(() => floorsOf("^5.0.0 || ^4.3.0"), /ascending/);
+  });
+
+  it("tests hardhat-kms's Hardhat libraries at each major's floor", () => {
+    const manifest: unknown = JSON.parse(
+      readFileSync(path.join(root, "packages", "hardhat-kms", "package.json"), "utf8"),
+    );
+    const dependencies: unknown =
+      typeof manifest === "object" && manifest !== null
+        ? Reflect.get(manifest, "dependencies")
+        : undefined;
+    const floors = (name: string): string[] => {
+      const range: unknown =
+        typeof dependencies === "object" && dependencies !== null
+          ? Reflect.get(dependencies, name)
+          : undefined;
+      return floorsOf(String(range));
+    };
+    assert.deepEqual(floors("@nomicfoundation/hardhat-utils"), ["4.3.0", "5.0.0"]);
+    assert.deepEqual(floors("@nomicfoundation/hardhat-errors"), ["3.1.0"]);
+    assert.deepEqual(floors("@nomicfoundation/hardhat-zod-utils"), ["3.0.7"]);
   });
 });

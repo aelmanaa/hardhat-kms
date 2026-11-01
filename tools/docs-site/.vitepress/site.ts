@@ -6,18 +6,57 @@ export const SITE_NAME = "hardhat-kms";
 /** The GitHub repository, as owner/name. */
 export const GITHUB_REPOSITORY = "aelmanaa/hardhat-kms";
 
-/** The path the site is served under on GitHub Pages (decision 0017). */
-export const SITE_BASE = "/hardhat-kms/";
+/**
+ * Which tree a build makes (decision 0024): `latest`, the site root, built from the release tag of
+ * the version on npm `latest`, or `next`, built from main and served under `next/`.
+ */
+export type SiteChannel = "latest" | "next";
+
+/**
+ * Parses the `DOCS_SITE_CHANNEL` environment variable. Unset or empty is `latest`, so a release
+ * tag's own build, which predates the variable, makes the root as before.
+ */
+export function siteChannel(value: string | undefined): SiteChannel {
+  if (value === undefined || value === "" || value === "latest") {
+    return "latest";
+  }
+  if (value === "next") {
+    return "next";
+  }
+  throw new Error(
+    `DOCS_SITE_CHANNEL is ${JSON.stringify(value)}; expected "latest", "next" or nothing`,
+  );
+}
+
+/** The tree this build makes. */
+// oxlint-disable-next-line node/no-process-env -- the build input pages.yml and the CI Docs job set
+export const SITE_CHANNEL: SiteChannel = siteChannel(process.env["DOCS_SITE_CHANNEL"]);
+
+/** The path the site root is served under on GitHub Pages (decision 0017). */
+const ROOT_BASE = "/hardhat-kms/";
+
+/** The path this build is served under: the root, or `next/` below it. */
+export const SITE_BASE: string = SITE_CHANNEL === "next" ? `${ROOT_BASE}next/` : ROOT_BASE;
 
 /** The scheme and host the site is served from (decision 0017). */
 export const ORIGIN = "https://aelmanaa.github.io";
 
-/** The site's address, with the base path and a trailing slash. */
+/** The site root's address, which documents the version on npm `latest`. */
+export const ROOT_HOSTNAME: string = `${ORIGIN}${ROOT_BASE}`;
+
+/** This build's address, with the base path and a trailing slash. */
 export const HOSTNAME: string = `${ORIGIN}${SITE_BASE}`;
+
+/**
+ * The banner on every page of the `next` tree, before the link to the site root. scripts/check-site.ts
+ * checks that each page carries it.
+ */
+export const UNRELEASED_BANNER =
+  "Unreleased: these docs describe main. Install docs for the current version are at";
 
 /** The description of a page that has none of its own. */
 export const SITE_DESCRIPTION =
-  "Sign Hardhat 3 transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS or Azure Key Vault.";
+  "Sign Hardhat 3 transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey.";
 
 /**
  * The social preview, `docs/public/og-image.png`, served at the site root; `docs/public/og-image.svg`
@@ -32,7 +71,7 @@ export const OG_IMAGE: {
   url: `${HOSTNAME}og-image.png`,
   width: 1280,
   height: 640,
-  alt: "hardhat-kms, a plugin for Hardhat 3: sign with cloud-managed keys. The private key never leaves the KMS: a digest goes in and a signature comes out. Works with AWS KMS, Google Cloud KMS and Azure Key Vault.",
+  alt: "hardhat-kms, a plugin for Hardhat 3: sign with managed keys. The private key never leaves the KMS: a digest goes in and a signature comes out. Works with AWS KMS, Google Cloud KMS, Azure Key Vault and Turnkey.",
 };
 
 /** The largest social preview `docs:site:check` accepts, in bytes. */
@@ -79,32 +118,6 @@ export function githubSlug(text: string): string {
     .toLowerCase()
     .replaceAll(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, "")
     .replaceAll(" ", "-");
-}
-
-/** Crawlers that fetch a page to answer a search or a user's question, which the site allows. */
-const ALLOWED_CRAWLERS: readonly string[] = [
-  "Googlebot",
-  "Bingbot",
-  "OAI-SearchBot",
-  "ChatGPT-User",
-  "Claude-SearchBot",
-  "Claude-User",
-  "PerplexityBot",
-  "Perplexity-User",
-];
-
-/** The site's robots.txt. */
-export function robotsTxt(): string {
-  const allowed = ALLOWED_CRAWLERS.map((agent) => `User-agent: ${agent}\nAllow: /\n`).join("\n");
-  return `# Search engines and answer engines may read every page.
-${allowed}
-# Crawlers that collect training data (GPTBot, ClaudeBot, CCBot, Google-Extended) fall under the
-# default group below, which allows them. To refuse one, add a group for it with "Disallow: /".
-User-agent: *
-Allow: /
-
-Sitemap: ${HOSTNAME}sitemap.xml
-`;
 }
 
 /**

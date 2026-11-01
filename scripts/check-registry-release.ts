@@ -1,6 +1,7 @@
 // Checks a version on the registry before it goes to `latest`: the first step of the promotion
 // workflow, and what no other package check covers. The version must be stable, published for the
-// published packages, at their `beta` dist-tag (or `release-X.Y` for a hotfix) and not below `latest`; the published core's `gitHead`
+// published packages, at their `beta` dist-tag (or `release-X.Y` for a hotfix) and not below `latest`
+// (a deprecated name placeholder on `latest`, a new package's, is below any version); the published core's `gitHead`
 // must be the commit of tag `v<version>`; and in a scratch project `npm install --ignore-scripts`
 // of the published packages followed by `npm audit signatures` must verify a provenance attestation for
 // each. The guards are in scripts/registry-release.ts.
@@ -23,6 +24,8 @@ import {
   assertGitHead,
   assertNotBelowLatest,
   assertPublished,
+  NAME_PLACEHOLDERS,
+  parseDeprecated,
   parseGitHead,
   parsePackageView,
   parseVerified,
@@ -91,9 +94,18 @@ try {
   stableVersion(version);
   ok(`${version} is a stable version`);
 
-  const views = PACKAGES.map((name) =>
-    parsePackageView(name, npmJson(["view", name, "dist-tags", "versions"])),
-  );
+  // A new package's latest is a name placeholder until its first promotion: the guard needs to
+  // know whether it is deprecated, which only `npm view <name>@<placeholder> deprecated` says.
+  const views = PACKAGES.map((name) => {
+    const view = parsePackageView(name, npmJson(["view", name, "dist-tags", "versions"]));
+    const latest = view.distTags.latest;
+    return latest !== undefined && NAME_PLACEHOLDERS.has(latest)
+      ? {
+          ...view,
+          latestDeprecated: parseDeprecated(npmJson(["view", `${name}@${latest}`, "deprecated"])),
+        }
+      : view;
+  });
   assertPublished(views, version);
   ok(`${version} is published for ${PACKAGES.join(", ")}`);
   assertStagedTag(views, version);
@@ -103,6 +115,13 @@ try {
   assertNotBelowLatest(views, version);
   const latest = views[0]?.distTags.latest;
   ok(latest === undefined ? "no latest yet" : `latest is ${latest}, not above ${version}`);
+  for (const view of views) {
+    if (view.latestDeprecated !== undefined) {
+      ok(
+        `${view.name} has latest at the deprecated name placeholder ${String(view.distTags.latest)}; ${version} replaces it`,
+      );
+    }
+  }
 
   const tagCommit = ((): string => {
     try {

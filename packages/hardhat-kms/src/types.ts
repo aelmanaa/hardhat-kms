@@ -24,6 +24,43 @@ export interface KmsKeyCommonUserConfig {
   address?: string;
   /** Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defaults.timeoutMs`. */
   timeoutMs?: number;
+  /**
+   * Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+   * with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+   * `false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+   * and the plugin cannot tell which, so set it only on a key that needs it.
+   */
+  allowRawDigests?: boolean;
+  /**
+   * The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+   * When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+   * carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+   * zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+   * only the zero address.
+   */
+  allowedDelegates?: readonly KmsAllowedDelegateUserConfig[];
+}
+
+/** An entry of a key's `allowedDelegates`. */
+export interface KmsAllowedDelegateUserConfig {
+  /** The delegate's address: all lowercase, all uppercase, or with a valid EIP-55 checksum. */
+  address: string;
+  /**
+   * The chain ids this entry allows the delegate on, or `"all"`. A chain-0 authorization, valid on
+   * every chain, matches only an entry with `"all"`.
+   */
+  chains: "all" | readonly number[];
+  /**
+   * A name for the delegate, shown before its address on the `delegate` line of `kms sign-auth`'s
+   * question and summary. 1 to 64 characters, with no control, format or line-separator characters.
+   */
+  label?: string;
+  /**
+   * The `keccak256` of the delegate's runtime code, as `0x` and 64 hex digits. When set, the plugin
+   * reads the delegate's code with `eth_getCode` and refuses on a mismatch, on empty code, or when
+   * it has no network to read the code from.
+   */
+  codeHash?: string;
 }
 
 /** An AWS KMS key. */
@@ -189,6 +226,17 @@ export interface KmsIdentifier {
   readonly display: string;
 }
 
+/** A resolved entry of a key's `allowedDelegates`. */
+export interface KmsAllowedDelegate {
+  /** The checksummed delegate address. */
+  readonly address: string;
+  /** The chain ids the entry allows, or `"all"`. */
+  readonly chains: "all" | readonly number[];
+  readonly label?: string;
+  /** The pinned code hash, lowercase. */
+  readonly codeHash?: string;
+}
+
 /** Resolved settings shared by every key. */
 export interface KmsKeyCommonConfig {
   /** The key's name in `kms.keys`, or `<network>.kmsAccounts[<index>]` for an inline key. */
@@ -196,6 +244,10 @@ export interface KmsKeyCommonConfig {
   /** The checksummed address pin, if one was configured. */
   address?: string;
   timeoutMs: number;
+  /** `true` when the config sets `allowRawDigests: true`; unset otherwise. */
+  allowRawDigests?: true;
+  /** The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes. */
+  allowedDelegates?: readonly KmsAllowedDelegate[];
   /**
    * A description of the key that is safe to print, such as `aws:alias/deployer`. It never contains
    * a configuration variable's value.

@@ -21,6 +21,8 @@ const OPTIONAL_METHODS = [
   ...IDENTITY_METHODS,
   "close",
 ] as const;
+/** The adapter's optional flags: when set, each must be `true` or `false`. */
+const FLAGS = ["signTransactionOutlivesAbort"] as const;
 
 /**
  * Checks that an adapter a handler returned implements the contract, so a broken third-party
@@ -60,6 +62,10 @@ function adapterProblem(
   const notFunction = OPTIONAL_METHODS.find((name) => method(name) !== undefined && !has(name));
   if (notFunction !== undefined) {
     return catalogError(ERRORS.adapterNotFunction, { method: notFunction }, details);
+  }
+  const notBoolean = FLAGS.find((name) => !["boolean", "undefined"].includes(typeof method(name)));
+  if (notBoolean !== undefined) {
+    return catalogError(ERRORS.adapterNotBoolean, { property: notBoolean }, details);
   }
   if (!SIGNING_METHODS.some(has)) {
     return catalogError(ERRORS.adapterNoSigning, { methods: SIGNING_METHODS.join(", ") }, details);

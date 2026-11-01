@@ -7,6 +7,7 @@ import type { Result } from "hardhat/types/utils";
 import { errorResult, successfulResult } from "hardhat/utils/result";
 
 import type { KmsIdentifier, KmsKeyConfig } from "../../types.ts";
+import { identifierComparisonForm } from "../config/identifiers.ts";
 import { keyIdentity } from "../config/key-identity.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError, catalogMessage, errorName } from "../errors.ts";
@@ -83,6 +84,13 @@ export interface AccountEntry extends AccountName {
    * recovered to its address, or `null` if the key or the signature failed.
    */
   signCheck?: "ok" | null;
+  /**
+   * Only for a key with `allowedDelegates`: the number of its entries. `0` means the key may sign
+   * an EIP-7702 authorization only to the zero address, which clears a delegation.
+   */
+  allowedDelegates?: number;
+  /** Only for a key with `allowRawDigests: true`: `true`. */
+  allowRawDigests?: true;
   /**
    * Why the key failed, or `null`. A pin mismatch names both addresses. A failed balance read and a
    * failed sign check are each described, separated by `; `.
@@ -191,6 +199,10 @@ async function listAccounts(
           pinStatus: null,
           ...(source.kind === "off" ? {} : { balance: null }),
           ...(checkSign ? { signCheck: null } : {}),
+          ...(task.key.allowedDelegates === undefined
+            ? {}
+            : { allowedDelegates: task.key.allowedDelegates.length }),
+          ...(task.key.allowRawDigests === true ? { allowRawDigests: true as const } : {}),
           error: null,
         };
         let signer: KmsSigner;
@@ -242,6 +254,7 @@ async function listAccounts(
     printTable(accounts, keyIdCells(rows, showIds), {
       balances: source.kind !== "off",
       checkSign,
+      delegates: accounts.some((entry) => entry.allowedDelegates !== undefined),
     });
   }
   return accounts.some((entry) => entry.error !== null)
@@ -303,15 +316,37 @@ async function identityOf(key: KmsKeyConfig): Promise<string | undefined> {
 }
 
 /**
- * Lists each KMS key once: keys with the same identity and the same pin are one entry, under the
- * first name, with the others in `otherNames`. Keys of third-party providers, and keys whose
- * identifier cannot be read, are never merged; reading them fails again when they are resolved.
+ * What else keeps two entries for one KMS key apart in the list: what each entry lets the key
+ * sign (`allowedDelegates` and `allowRawDigests`) and, for a Turnkey key, its API keys, by their
+ * comparison forms (a variable's name, never its value), and its `transactionSigning`. The API key
+ * decides which user asks and which policies apply, so `--check-sign` checks each one.
+ */
+function listedSettings(key: KmsKeyConfig): string {
+  const limits = [key.allowedDelegates ?? null, key.allowRawDigests === true];
+  if (key.provider !== "turnkey") {
+    return JSON.stringify(limits);
+  }
+  return JSON.stringify([
+    ...limits,
+    identifierComparisonForm(key.apiPrivateKey),
+    key.apiPublicKey === undefined ? null : identifierComparisonForm(key.apiPublicKey),
+    key.transactionSigning,
+  ]);
+}
+
+/**
+ * Lists each KMS key once: keys with the same identity, the same pin, the same `allowedDelegates`
+ * and `allowRawDigests` and, for Turnkey, the same API keys and `transactionSigning` are one
+ * entry, under the first name, with the others in `otherNames`. Keys of third-party providers, and keys whose identifier cannot be read, are never
+ * merged; reading them fails again when they are resolved.
  */
 async function distinctKeys(keys: TaskKey[]): Promise<ListedKey[]> {
   const identities = await Promise.all(
     keys.map(async ({ key }) => {
       const identity = await identityOf(key);
-      return identity === undefined ? undefined : `${identity}\0${key.address ?? ""}`;
+      return identity === undefined
+        ? undefined
+        : `${identity}\0${key.address ?? ""}\0${listedSettings(key)}`;
     }),
   );
   const listed: ListedKey[] = [];
@@ -468,6 +503,14 @@ async function mapWithLimit<T, R>(
   return results;
 }
 
+/** The text of the DELEGATES column: what EIP-7702 delegates a key may sign for. */
+function delegatesCell(entry: AccountEntry): string {
+  if (entry.allowedDelegates === undefined) {
+    return "any";
+  }
+  return entry.allowedDelegates === 0 ? "revoke only" : `${entry.allowedDelegates} listed`;
+}
+
 /** The text of the PIN column. */
 const PIN_LABELS: Record<NonNullable<AccountEntry["pinStatus"]>, string> = {
   match: "matches",
@@ -476,14 +519,15 @@ const PIN_LABELS: Record<NonNullable<AccountEntry["pinStatus"]>, string> = {
 };
 
 /**
- * Prints the accounts as a table on standard output, with a key's other names and its failure on
- * the lines under it, then an `address` line to paste into each config entry of a key that has no
+ * Prints the accounts as a table on standard output, with a key's other names, its raw-digest
+ * opt-in and its failure on the lines under it. The DELEGATES column appears when any key has
+ * `allowedDelegates`; then an `address` line to paste into each config entry of a key that has no
  * pin.
  */
 function printTable(
   accounts: AccountEntry[],
   keyIds: string[],
-  columns: { balances: boolean; checkSign: boolean },
+  columns: { balances: boolean; checkSign: boolean; delegates: boolean },
 ): void {
   if (accounts.length === 0) {
     printNote(
@@ -497,6 +541,7 @@ function printTable(
     "SOURCE",
     "ADDRESS",
     "PIN",
+    ...(columns.delegates ? ["DELEGATES"] : []),
     ...(columns.balances ? ["BALANCE (ETH)"] : []),
     ...(columns.checkSign ? ["SIGN"] : []),
     "KEY ID",
@@ -510,6 +555,7 @@ function printTable(
     entry.source,
     entry.address ?? "FAILED",
     entry.pinStatus === null ? "-" : PIN_LABELS[entry.pinStatus],
+    ...(columns.delegates ? [delegatesCell(entry)] : []),
     ...(columns.balances
       ? [
           checkCell(
@@ -534,6 +580,9 @@ function printTable(
     printLine(format(rows[index] ?? []));
     if (entry.otherNames.length > 0) {
       printLine(`  also: ${entry.otherNames.map(({ name }) => name).join(", ")}`);
+    }
+    if (entry.allowRawDigests === true) {
+      printLine("  raw digests: allowed (allowRawDigests), which no delegate limit can check");
     }
     if (entry.error !== null) {
       // One line under the row; the JSON keeps the message as it is.

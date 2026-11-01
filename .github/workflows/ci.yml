@@ -55,14 +55,23 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Snippets typecheck, every page is indexed, generated pages are current
         run: pnpm run docs:check
+      # A reference row the release on npm latest lacks needs an "Added in" note (#602). Reads npm and
+      # fetches that release's tag.
+      - name: New reference rows carry "Added in"
+        run: pnpm run docs:added-in
       - name: Internal links and anchors
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
           args: --offline --config lychee.toml README.md AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md packages/hardhat-kms/THIRD_PARTY_NOTICES.md .github/pull_request_template.md 'packages/*/README.md' 'examples/README.md' 'examples/*/README.md' 'docs/**/*.md' 'skills/**/*.md'
-      # The same build pages.yml deploys from main: dead links fail it, then the checks read the
-      # output (canonical URLs, titles, descriptions, Open Graph tags, anchors, sitemap, robots.txt,
-      # llms.txt, JSON-LD).
+      # The two trees pages.yml deploys (decision 0024): dead links fail a build, then the checks
+      # read the output (canonical URLs, titles, descriptions, Open Graph tags, anchors, sitemap,
+      # no robots.txt, llms.txt, JSON-LD; noindex and the banner on next/). pages.yml builds the root
+      # from the release tag on npm latest; this job builds both from the pull request.
       - name: Docs site builds and passes the site checks
+        run: pnpm run docs:site:check
+      - name: Docs site for next/ builds and passes the site checks
+        env:
+          DOCS_SITE_CHANNEL: next
         run: pnpm run docs:site:check
 
   test:
@@ -116,6 +125,30 @@ jobs:
         env:
           NODE_OPTIONS: ${{ matrix.node == '22.13.0' && '--import tsx' || matrix.node == '26.0.0' && format('--import {0}/scripts/fail-on-deprecation.mjs', github.workspace) || '' }}
         run: pnpm test
+
+  bumped:
+    # The tests at the versions the next Version Packages pull request will set: the pending
+    # changesets applied in a scratch worktree, then `pnpm test` (scripts/test-bumped-versions.ts);
+    # `pnpm test` only, not lint, docs, examples or the consumer typecheck.
+    # The manifests on main keep the released version until that pull request merges, so the test
+    # job cannot see a test that hard-codes it; the 1.2.0 pull request (#519) failed on one. It runs
+    # on pull requests and on every push to main, so main is known to pass at the bumped versions
+    # before a maintainer approves the Version Packages pull request's workflows. It passes without
+    # testing when no changeset bumps a version. The scratch copy turns the changelog off, so
+    # `changeset version` needs no token. No dependency cache: the job restores nothing.
+    name: Test at the bumped versions
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: node scripts/test-bumped-versions.ts
 
   localstack:
     name: LocalStack (AWS KMS)
@@ -287,6 +320,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+      - uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
         with:
           advanced-security: false

@@ -86,6 +86,17 @@ export interface RequestContext {
   requestId: string;
   /** Text the 403 error adds after "with this address", naming what the request sent. */
   forbiddenHint: string;
+  /**
+   * Called right before each attempt's request leaves, after its stamp is made and the signal was
+   * checked, so that the core knows Turnkey may have the request (`SignContext.requestSent`).
+   */
+  sent?: (() => void) | undefined;
+  /**
+   * Called right before the client throws an answer that refused the request for certain: a 4xx
+   * (a rate limit too), when no earlier attempt of this body lost its answer or got a 5xx, either
+   * of which Turnkey may have acted on (`SignContext.requestRefused`).
+   */
+  refused?: (() => void) | undefined;
 }
 
 /** Turnkey's error code from an error answer's `details`, when it is safe to show. */
@@ -183,18 +194,30 @@ export class TurnkeyClient {
    */
   public async send(path: string, body: string, ctx: RequestContext): Promise<Answer> {
     const { signal } = ctx;
+    // Whether an earlier attempt may have reached Turnkey without a definite answer.
+    let unsure = false;
+    /** Reports a definite refusal, unless an earlier attempt left the outcome open. */
+    const refuse = (): void => {
+      if (!unsure) {
+        ctx.refused?.();
+      }
+    };
     for (let attempt = 1; ; attempt++) {
       signal.throwIfAborted();
       const started = this.#transport.now();
       let response: Response;
       // `undefined` for a redirect, whose body the client never reads.
       let text: string | undefined;
+      const stamp = stampBody(body, this.#apiKey);
+      // Nothing between this and fetch awaits, so the signal cannot abort before the request
+      // starts: once the core hears of it, the request may be at Turnkey.
+      ctx.sent?.();
       try {
         response = await this.#transport.fetch(`${this.#transport.baseUrl}${path}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            [STAMP_HEADER]: stampBody(body, this.#apiKey),
+            [STAMP_HEADER]: stamp,
           },
           body,
           redirect: "manual",
@@ -205,6 +228,7 @@ export class TurnkeyClient {
         text = isRedirect(response) ? undefined : await response.text();
       } catch (error) {
         signal.throwIfAborted();
+        unsure = true;
         const reason = failureReason(error);
         log("%s %s: no answer (%s), attempt %d", ctx.requestId, path, reason, attempt);
         if (attempt < MAX_ATTEMPTS) {
@@ -238,14 +262,19 @@ export class TurnkeyClient {
       const shown = { status: code === undefined ? String(status) : `${status} ${code}` };
       const rateLimited = status === 429 && (code === undefined || code === RATE_LIMIT_CODE);
       if (status >= 500 || rateLimited) {
+        unsure ||= status >= 500;
         if (attempt < MAX_ATTEMPTS) {
           await this.#backOff(attempt, signal);
           continue;
         }
         if (rateLimited) {
+          refuse();
           throw this.#error(ctx.operation, ERRORS.throttled, { ...shown, attempts: attempt });
         }
         throw this.#error(ctx.operation, ERRORS.answered, shown);
+      }
+      if (status >= 400 && status < 500) {
+        refuse();
       }
       throw this.#explain(status, code, answer, shown, ctx);
     }

@@ -1,5 +1,26 @@
 # @hardhat-kms/gcp
 
+## 1.4.0
+
+### Patch Changes
+
+- Updated dependencies [[`74d2388`](https://github.com/aelmanaa/hardhat-kms/commit/74d23886a1a1a78bec325adc2f1fcc104c644588), [`b7446c7`](https://github.com/aelmanaa/hardhat-kms/commit/b7446c7d5c105ef338013a95367a64dceeb9bec8), [`a9a4a45`](https://github.com/aelmanaa/hardhat-kms/commit/a9a4a458236a07c2ec0e4fd3c850052681d11554), [`0cb9268`](https://github.com/aelmanaa/hardhat-kms/commit/0cb92683b9ec2701e11326a7d7522a6cded0d3d1), [`efa27ca`](https://github.com/aelmanaa/hardhat-kms/commit/efa27cab01f0c0c7d16e0aade3c957f63cb1a2f3), [`fa7b517`](https://github.com/aelmanaa/hardhat-kms/commit/fa7b517e28dbfa53168a49ef67638a17e314b39a)]:
+  - hardhat-kms@1.4.0
+
+## 1.3.0
+
+### Patch Changes
+
+- Updated dependencies [[`a2ec3d5`](https://github.com/aelmanaa/hardhat-kms/commit/a2ec3d50a46442ee91655961515f93dd87d19bc8), [`342cda7`](https://github.com/aelmanaa/hardhat-kms/commit/342cda7df0c047ad8c29c5014236d6320f349e78), [`3892d18`](https://github.com/aelmanaa/hardhat-kms/commit/3892d181b937ff20e156ed014168e16db61be0a0), [`cce6a8d`](https://github.com/aelmanaa/hardhat-kms/commit/cce6a8dc4dc6043fbf8dfb7e1398c24dbfb17243), [`3a7cf41`](https://github.com/aelmanaa/hardhat-kms/commit/3a7cf414aa7f08a858b8ee5aecc3b0c6ce510fff)]:
+  - hardhat-kms@1.3.0
+
+## 1.2.0
+
+### Patch Changes
+
+- Updated dependencies [[`3bed0ce`](https://github.com/aelmanaa/hardhat-kms/commit/3bed0ce8dbf90616398403549b9c61a60ea117d8), [`37cd6d5`](https://github.com/aelmanaa/hardhat-kms/commit/37cd6d557b8e6403d59709ba817751fb21229c1a), [`9af93d1`](https://github.com/aelmanaa/hardhat-kms/commit/9af93d152b9d8542c238b0dfa3177c036b6ec788), [`fab818f`](https://github.com/aelmanaa/hardhat-kms/commit/fab818fdc97795ba134aa491343cb087fc4f03d5), [`465ac83`](https://github.com/aelmanaa/hardhat-kms/commit/465ac838524bd847325e836d903f4b5db5e836ba), [`f735ed1`](https://github.com/aelmanaa/hardhat-kms/commit/f735ed128e40066f4bb0b1e0c8bb74f591306ba4), [`f952e64`](https://github.com/aelmanaa/hardhat-kms/commit/f952e64f38fd4d0aaaf936caadec2e8973a5ca61), [`c839a8a`](https://github.com/aelmanaa/hardhat-kms/commit/c839a8ac7e4ffa9787dbfb9707857cfe95cb9df0), [`93f9e40`](https://github.com/aelmanaa/hardhat-kms/commit/93f9e40f196efd4488279aef2e8ee1c39759f992), [`1b68eec`](https://github.com/aelmanaa/hardhat-kms/commit/1b68eec706df0665dfb135ddf34543fa2a3a9fdb)]:
+  - hardhat-kms@1.2.0
+
 ## 1.1.0
 
 ### Patch Changes

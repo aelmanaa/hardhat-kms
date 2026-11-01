@@ -4,6 +4,7 @@ import type { KmsKeyConfig } from "../../types.ts";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
 import { commandLineKeys } from "../hook-handlers/hre.ts";
+import { keysWithLists, refuseListedCopy } from "../signer/delegates.ts";
 import { SignerCache } from "../signer/key-cache.ts";
 import type { KmsSigner } from "../signer/kms-signer.ts";
 import { systemTimers } from "../signer/timeout.ts";
@@ -85,6 +86,28 @@ export function findTaskKey(hre: HardhatRuntimeEnvironment, name: string): KmsKe
         suggestions: sameLetters.join('" or "'),
         known: known.join(", "),
       });
+}
+
+/**
+ * Refuses a `--kms` key that is the same KMS key as a config key with `allowedDelegates`, with
+ * {@link refuseListedCopy}. `kms sign-auth` and `kms sign-tx` check here, before they connect; on
+ * a connection, `checkDelegate` makes the same check (#593).
+ *
+ * @param hre - The Hardhat runtime.
+ * @param key - The key the task signs with.
+ * @param operation - The task, for the error message.
+ * @param address - The key's address, when it is known.
+ */
+export async function refuseListBypass(
+  hre: HardhatRuntimeEnvironment,
+  key: KmsKeyConfig,
+  operation: string,
+  address?: string,
+): Promise<void> {
+  if (!commandLineKeys(hre).includes(key)) {
+    return;
+  }
+  await refuseListedCopy(key, keysWithLists(hre.config), operation, address);
 }
 
 /**

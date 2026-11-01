@@ -100,7 +100,7 @@ describe("signer debug lines", () => {
   it("names the adapter method each signature goes to", async () => {
     const kms = new KmsSigner(fakeTxAdapter({ secretKey }), baseOptions);
     await kms.getAddress();
-    const transaction = { unsigned: Uint8Array.of(0xc0), type: 0, chainId: 1n };
+    const transaction = { unsigned: Uint8Array.of(0xc0), type: 0, chainId: 1n, nonce: 0n };
 
     // Without signTransaction, a transaction goes to signDigest.
     const plain = new KmsSigner(fakeAdapter({ secretKey }), baseOptions);

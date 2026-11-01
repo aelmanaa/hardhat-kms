@@ -4,7 +4,9 @@
 #   sepolia:<commit> the proof check (test/live/check-release-proof.ts: the commit is on main or
 #   release/X.Y, its test/live/proof.json covers the three providers and tested the tag's commit),
 #   then scripts/check-registry-release.ts (beta, or release-X.Y for a hotfix, is the version, the
-#   published packages have it, it is not below latest, so latest never moves backwards, no
+#   published packages have it, it is not below latest, so latest never moves backwards (a
+#   deprecated name placeholder on latest, a new package's, may move unless the package publishes
+#   a stable version above this one), no
 #   prerelease, a provenance attestation for each, gitHead is the tag's commit), the package checks,
 #   the consumer typecheck on three TypeScript versions, the peer-install matrix and the examples
 #   against LocalStack, all installing the version from npm (--from-registry). The package
@@ -342,7 +344,8 @@ jobs:
           node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
       # The verify job checked the dist-tags, possibly hours before the approval, so the packages
       # (the verify job's list for the tagged commit) are checked again just before the move: beta, or release-X.Y for a hotfix staged
-      # from the release branch of its line, is the version, and latest is not above it. All of them
+      # from the release branch of its line, is the version, and latest is not above it (or is a
+      # name placeholder, for a new package). All of them
       # are checked before any tag moves, so one package's bad state leaves no package moved. A
       # package whose latest already is the version is skipped, so a re-run after the maintainer
       # moved the tags by hand only edits the release.
@@ -362,6 +365,10 @@ jobs:
           # prints the object, and refuses any other shape or npm's error. unwrapNpmView in
           # scripts/npm-view.ts has the same rule; change the two together.
           unwrap='const what = "npm view " + process.argv[1] + " dist-tags --json printed "; let t = JSON.parse(process.argv[2]); if (Array.isArray(t)) { if (t.length !== 1) { console.error("::error::" + what + "an array of " + t.length + " entries; expected one object or a one-element array"); process.exit(1); } t = t[0]; } if (typeof t !== "object" || t === null || Array.isArray(t) || "error" in t) { console.error("::error::" + what + JSON.stringify(t) + ", not a dist-tags object"); process.exit(1); } console.log(JSON.stringify(t));'
+          # Prints the highest stable X.Y.Z of `npm view <name> versions --json` that is above the
+          # version, or nothing. npm prints one version as a string and several as an array, and
+          # may wrap either in a one-element array; npm's error or any other shape fails.
+          newer='const what = "npm view " + process.argv[1] + " versions --json printed "; let v = JSON.parse(process.argv[2]); if (typeof v === "string") { v = [v]; } if (!Array.isArray(v) || !v.flat().every((s) => typeof s === "string")) { console.error("::error::" + what + JSON.stringify(v) + ", not a list of versions"); process.exit(1); } const n = (s) => s.split(".").map(Number); const cmp = (a, b) => n(a).map((x, i) => x - n(b)[i]).find((d) => d !== 0) ?? 0; const above = v.flat().filter((s) => /^[0-9]+\.[0-9]+\.[0-9]+$/.test(s) && cmp(s, process.argv[3]) > 0).sort(cmp); console.log(above.at(-1) ?? "");'
           # The list comes from the verify job; each name must be the core or one of its scope.
           read -r -a names <<< "$PACKAGES"
           if [ "${#names[@]}" -eq 0 ]; then
@@ -386,10 +393,34 @@ jobs:
               echo "::error::$name has beta at ${beta:-nothing} and $line at ${hotfix:-nothing}, not $VERSION; run release.yml for $VERSION first"
               exit 1
             fi
-            if [ -n "$current" ] && ! node -e 'const [a, b] = process.argv.slice(1).map((v) => v.split(".").map(Number)); const d = a.map((n, i) => n - b[i]).find((n) => n !== 0) ?? 0; process.exit(d > 0 ? 1 : 0);' "$current" "$VERSION"; then
-              echo "::error::$name has latest at $current, above $VERSION; latest never moves backwards"
-              exit 1
-            fi
+            # A new package's latest is a name placeholder until this move, the owner's
+            # 0.0.0-placeholder.0 or npm's 0.0.0-stage (the verify job checked it is deprecated). It
+            # may move, unless the package already publishes a stable version above this one: then
+            # latest was set to the placeholder by mistake, and moving it would go backwards. Any
+            # other latest that is not X.Y.Z stops the job here, before the compare reads it as
+            # numbers. assertNotBelowLatest and NAME_PLACEHOLDERS in scripts/registry-release.ts
+            # have the same rule; change the two together.
+            case "$current" in
+              "") ;;
+              0.0.0-placeholder.0 | 0.0.0-stage)
+                versions="$(npm view "$name" versions --json)"
+                above="$(node -e "$newer" "$name" "$versions" "$VERSION")"
+                if [ -n "$above" ]; then
+                  echo "::error::$name has latest at the name placeholder $current, but publishes $above, above $VERSION; latest never moves backwards"
+                  exit 1
+                fi
+                ;;
+              *)
+                if [[ ! "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                  echo "::error::$name has latest at $current, which is neither a stable X.Y.Z nor a name placeholder; fix the dist-tag first"
+                  exit 1
+                fi
+                if ! node -e 'const [a, b] = process.argv.slice(1).map((v) => v.split(".").map(Number)); const d = a.map((n, i) => n - b[i]).find((n) => n !== 0) ?? 0; process.exit(d > 0 ? 1 : 0);' "$current" "$VERSION"; then
+                  echo "::error::$name has latest at $current, above $VERSION; latest never moves backwards"
+                  exit 1
+                fi
+                ;;
+            esac
             if [ "$current" = "$VERSION" ]; then
               echo "- $name: latest already is $VERSION" >> "$GITHUB_STEP_SUMMARY"
               continue

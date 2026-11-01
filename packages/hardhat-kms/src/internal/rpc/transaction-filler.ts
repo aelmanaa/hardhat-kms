@@ -1,5 +1,6 @@
 // A port of the transaction filling that Hardhat's built-in request handlers do before its
-// local-accounts handler signs (decision 0002). Pinned to Hardhat 3.18.0:
+// local-accounts handler signs (decision 0002). Pinned to Hardhat 3.18.0; the fill steps are
+// unchanged through 3.21.0:
 // dist/src/internal/builtin-plugins/network-manager/request-handlers/, files
 // handlers-array.js, handlers/gas/{automatic-gas-price,fixed-gas-price,automatic-gas,fixed-gas,
 // multiplied-gas-estimation}-handler.js and handlers/accounts/local-accounts.js
@@ -32,6 +33,7 @@ import { addr, Transaction } from "micro-eth-signer";
 import { ERRORS } from "../error-catalog.ts";
 import { catalogError } from "../errors.ts";
 import type { ConnectionChain } from "./chain-id.ts";
+import { rpcDataBytes } from "./rpc-data.ts";
 
 /** Sends one JSON-RPC request on the connection, through the whole hook chain. */
 export type RequestFunction = (method: string, params?: unknown[]) => Promise<unknown>;
@@ -190,6 +192,7 @@ export class HardhatTransactionFiller implements TransactionFiller {
     ) {
       throw catalogError(ERRORS.txBlob, {}, { operation: method });
     }
+    checkAuthorizationRequest(first, method);
     // A deep copy: the caller's objects, including access and authorization lists, stay as they are.
     const tx: Record<string, unknown> = first;
     applyRequestedType(tx, method, this.#settings.gasPrice === "auto");
@@ -211,11 +214,20 @@ export class HardhatTransactionFiller implements TransactionFiller {
           ? await this.#estimateGas(filledParams, await this.#estimateTag(tx, method))
           : numberToHexString(this.#settings.gas);
     }
+    // applyRequestedType has read `type`, in any numeric form, and the fields decide the type, so
+    // the schema does not see it. From hardhat-zod-utils 3.0.7 the schema reads `type` and refuses
+    // a number or a quantity with leading zeros, which this filler accepts.
+    const { type: _type, ...untyped } = tx;
     // The node got r and s as quantities; Hardhat's schema wants them as 32 bytes.
-    const [request] = validateParams(
-      [withPaddedAuthorizationSignatures(tx), ...rest],
+    const [parsed] = validateParams(
+      [withPaddedAuthorizationSignatures(untyped), ...rest],
       rpcTransactionRequest,
     );
+    // The schema's copy of hardhat-utils may read "0x" as one zero byte; see rpcDataBytes.
+    const request =
+      parsed.data === undefined
+        ? parsed
+        : { ...parsed, data: rpcDataBytes(untyped.data, parsed.data) };
     const gas = requireGas(request, method);
     checkFeeFields(request, method);
     const chainId = await this.#checkChain(request.chainId, method);
@@ -496,7 +508,9 @@ const BLOB_TYPE_NAME = /^eip4844$/i;
  * The number of a request's `type`, in any numeric form a JSON-RPC caller can pass: a hex
  * quantity in either case, with or without leading zeros, a decimal string, a non-negative
  * integer or a non-negative bigint. Strings are trimmed first. Any other value, such as viem's
- * `"legacy"`, is not a number: the fields decide the type, as Hardhat's local accounts do.
+ * `"legacy"`, is not a number: the fields decide the type, as in Hardhat's local accounts. With
+ * hardhat-zod-utils 3.0.7 or later, those refuse a `type` that is not a `0x` quantity without
+ * leading zeros; the filler keeps it out of the copy it validates with that schema.
  *
  * @param type - The request's `type`.
  * @returns Its number, or undefined.
@@ -837,6 +851,43 @@ export function requireGas(request: RpcTransactionRequest, method: string): bigi
 }
 
 /**
+ * Refuses a request that cannot be an EIP-7702 transaction, as Hardhat's local accounts do from
+ * 3.20 (HHE726, then HHE727): an `authorizationList` without `to`, or an empty one (#586). It also
+ * refuses a list that is not an array, an item that is not an object, and a `to` that is not an
+ * address, which Hardhat's schema refuses only after the fill (#607). It runs before the fill's
+ * node requests, so neither the fee and gas requests nor `eth_estimateGas` see the request. A
+ * `null` list is left to {@link refuseNullTypeFields}.
+ *
+ * @param tx - The request.
+ * @param method - The RPC method or task, for error messages.
+ */
+export function checkAuthorizationRequest(tx: Record<string, unknown>, method: string): void {
+  const list = tx.authorizationList;
+  if (list === undefined || list === null) {
+    return;
+  }
+  if (!Array.isArray(list)) {
+    throw catalogError(ERRORS.txAuthorizationListNotArray, {}, { operation: method });
+  }
+  if (tx.to === undefined || tx.to === null) {
+    throw catalogError(ERRORS.txAuthorizationNoTo, {}, { operation: method });
+  }
+  // As Hardhat's rpcAddress: `0x` or `0X`, then 40 hex digits in any case (#618).
+  if (typeof tx.to !== "string" || !/^0x[0-9a-f]{40}$/i.test(tx.to)) {
+    throw catalogError(ERRORS.txAuthorizationToNotAddress, {}, { operation: method });
+  }
+  if (list.length === 0) {
+    throw catalogError(ERRORS.txAuthorizationListEmpty, {}, { operation: method });
+  }
+  // entries() visits the holes of a sparse array too, as undefined.
+  for (const [index, item] of list.entries()) {
+    if (!isObject(item)) {
+      throw catalogError(ERRORS.txAuthorizationNotObject, { index }, { operation: method });
+    }
+  }
+}
+
+/**
  * The fee checks of LocalAccountsHandler#modifyRequest, in its order.
  *
  * @param request - The validated request.
@@ -914,6 +965,62 @@ export function createTransactionFiller(
   );
 }
 
+/** A field micro-eth-signer refused, and why. */
+interface FieldError {
+  field: string;
+  error: string;
+}
+
+/**
+ * The fields of micro-eth-signer's `AggregatedError`, which its package does not export.
+ *
+ * @param error - What `Transaction.prepare` threw.
+ * @returns The field errors, or `undefined` for any other error.
+ */
+function fieldErrors(error: unknown): FieldError[] | undefined {
+  const errors: unknown = error instanceof Error ? Reflect.get(error, "errors") : undefined;
+  if (!Array.isArray(errors) || errors.length === 0) {
+    return undefined;
+  }
+  const fields: FieldError[] = [];
+  for (const item of errors) {
+    if (!isObject(item) || typeof item.field !== "string" || typeof item.error !== "string") {
+      return undefined;
+    }
+    fields.push({ field: item.field, error: item.error });
+  }
+  return fields;
+}
+
+/**
+ * A field's reason without long numbers: micro-eth-signer quotes some values in decimal, such as
+ * an authorization's `r` or `s` out of range, and a signature must not reach an error.
+ */
+function withoutValues(reason: string): string {
+  return reason.replaceAll(/\d{21,}/g, "<number>");
+}
+
+/**
+ * Runs `Transaction.prepare` and turns micro-eth-signer's field errors into a catalogue error that
+ * names each field and its reason.
+ */
+function prepareChecked<T>(type: string, prepare: () => T): T {
+  try {
+    return prepare();
+  } catch (error) {
+    const fields = fieldErrors(error);
+    if (fields === undefined) {
+      throw error;
+    }
+    const problems = fields.map(({ field, error: why }) => `${field} (${withoutValues(why)})`);
+    throw catalogError(
+      ERRORS.txInvalidFields,
+      { type, problems: problems.join(", ") },
+      { operation: "sign transaction" },
+    );
+  }
+}
+
 /**
  * Builds the unsigned transaction field for field like Hardhat's
  * `LocalAccountsHandler#getSignedTransaction`, with micro-eth-signer's strict mode off. The type
@@ -958,13 +1065,19 @@ export function buildUnsignedTransaction(tx: FilledTransaction): UnsignedTransac
     }
     const fees = { ...base, maxFeePerGas, maxPriorityFeePerGas, accessList: accessList ?? [] };
     return authorizationList === undefined
-      ? Transaction.prepare({ type: "eip1559", ...fees }, strict)
-      : Transaction.prepare({ type: "eip7702", ...fees, authorizationList }, strict);
+      ? prepareChecked("eip1559", () => Transaction.prepare({ type: "eip1559", ...fees }, strict))
+      : prepareChecked("eip7702", () =>
+          Transaction.prepare({ type: "eip7702", ...fees, authorizationList }, strict),
+        );
   }
   const gasPrice = tx.gasPrice ?? 0n;
   return accessList === undefined
-    ? Transaction.prepare({ type: "legacy", ...base, gasPrice }, strict)
-    : Transaction.prepare({ type: "eip2930", ...base, gasPrice, accessList }, strict);
+    ? prepareChecked("legacy", () =>
+        Transaction.prepare({ type: "legacy", ...base, gasPrice }, strict),
+      )
+    : prepareChecked("eip2930", () =>
+        Transaction.prepare({ type: "eip2930", ...base, gasPrice, accessList }, strict),
+      );
 }
 
 /**

@@ -1,11 +1,26 @@
 name: Docs site
 
-# Builds the docs site from docs/ and deploys it to GitHub Pages at
-# https://aelmanaa.github.io/hardhat-kms/ (decision 0017). Pull requests build and check the
-# site in the Docs job of ci.yml without deploying it.
+# Builds the docs site and deploys it to GitHub Pages at https://aelmanaa.github.io/hardhat-kms/
+# (decision 0017). The root documents the version on npm `latest`, built from its release tag, or from
+# release/X.Y when that branch adds only docs fixes to the tag (#603); main's
+# docs are under next/, with a banner and noindex on every page (decision 0024). Pull requests build
+# and check both trees in the Docs job of ci.yml without deploying them.
 on:
   push:
     branches: [main]
+  # After a promotion, so the root follows `latest` without a push to main. A `release` trigger
+  # would not run: promote.yml edits the release with GITHUB_TOKEN, and GitHub starts no run for
+  # events that token causes. This run downloads nothing from the run that triggered it: it reads
+  # the registry and checks out a tag or its release branch. Promote runs only on a manual dispatch
+  # from main.
+  workflow_run: # zizmor: ignore[dangerous-triggers] uses no input or artifact of the triggering run
+    workflows: [Promote]
+    types: [completed]
+    branches: [main]
+  # Daily, so a docs fix merged into release/X.Y reaches the root without a dispatch (#603). A push
+  # to release/* cannot start this file: it would run that branch's copy, and only main may deploy.
+  schedule:
+    - cron: "17 5 * * *"
   workflow_dispatch:
 
 permissions:
@@ -17,14 +32,94 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build
+  resolve:
+    name: Resolve the release on npm latest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      ref: ${{ steps.ref.outputs.ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The tags, to refuse a version on npm that has no release tag.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - id: tag
+        name: The release tag of the version on npm latest
+        run: node scripts/site-release-tag.ts --output="$GITHUB_OUTPUT"
+      - name: Refuse a version with no release tag
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if ! git rev-parse --verify --quiet "refs/tags/$TAG" > /dev/null; then
+            echo "::error::$TAG is on npm latest but is not a tag of this repository; nothing deploys"
+            exit 1
+          fi
+      # The tag's release/X.Y, when it holds only docs fixes on top of the tag (#603). The checkout
+      # fetched branches as remote-tracking refs, but fetch them by name so the choice never depends
+      # on how it did.
+      - id: ref
+        name: The tag, or its release branch with docs fixes only
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          git fetch --no-tags origin "+refs/heads/release/*:refs/remotes/origin/release/*"
+          node scripts/site-release-tag.ts --ref-for="$TAG" --output="$GITHUB_OUTPUT"
+
+  root:
+    name: Build the root from the release tag or its docs fixes
+    needs: resolve
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.resolve.outputs.ref }}
           # The whole history, so each page's "Last updated" date comes from its own last commit.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No dependency cache: this job builds a tag or a release branch, and a cache it saved would be
+      # restored by main's runs.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # The tag's own build and checks, or the release branch's, whose code is the tag's. A tag older
+      # than decision 0024 has no channel and builds the root as it did at its release.
+      - name: Build the site and check its output
+        env:
+          DOCS_SITE_CHANNEL: latest
+        run: pnpm run docs:site:check
+      - name: Refuse a next folder in the root's build
+        run: |
+          if [ -e tools/docs-site/.vitepress/dist/next ]; then
+            echo "::error::the root's build has a next/ folder, where main's docs go"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site-root
+          path: tools/docs-site/.vitepress/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Build next from main and assemble the site
+    needs: root
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      # The commit the run is for: main on a push, a schedule, a Promote run or a dispatch from main.
+      # A dispatch from another branch builds that branch, but the github-pages environment refuses
+      # its deploy: only main may deploy.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
           fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -33,11 +128,19 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Build the site and check its output
+      - name: Build next and check its output
+        env:
+          DOCS_SITE_CHANNEL: next
         run: pnpm run docs:site:check
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site-root
+          path: site
+      - name: Put next under the root
+        run: mv tools/docs-site/.vitepress/dist site/next
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: tools/docs-site/.vitepress/dist
+          path: site
 
   deploy:
     name: Deploy

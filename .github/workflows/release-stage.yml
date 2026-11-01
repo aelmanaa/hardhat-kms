@@ -221,6 +221,18 @@ jobs:
       # Builds, then publint, arethetypeswrong, the deprecated-package check and knip.
       - name: Build and check the packages
         run: pnpm run pkg:check
+      # version-packages names the version in each "Added in next." note; a note still saying next
+      # would reach the root of the docs site with this release (#602). Main keeps such notes, so a
+      # dry run without a tag skips the check, as does the next channel, whose versions are not stamped.
+      # A tag from before #602 has no script and no notes: a dry run of it skips the check too.
+      - name: No reference row says "Added in next."
+        if: inputs.channel == 'stable' && needs.verify-tag.outputs.tag != 'none'
+        run: |
+          if [ ! -f scripts/added-in.ts ]; then
+            echo "::notice::the tagged commit predates \"Added in\" notes (#602); nothing to check"
+            exit 0
+          fi
+          node scripts/added-in.ts --release
       - name: Publish plan
         env:
           DIST_TAG: ${{ needs.verify-tag.outputs.dist-tag }}

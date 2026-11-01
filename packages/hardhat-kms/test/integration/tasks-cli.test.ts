@@ -106,6 +106,13 @@ export default {
       deployer: { provider: "myvault", name: "deployer" },
       chatty: { provider: "myvault", name: "chatty" },
       pinned: { provider: "myvault", name: "pinned", address: ${JSON.stringify(COW_ACCOUNT.address)} },
+      raw: { provider: "myvault", name: "raw", allowRawDigests: true },
+      // kms sign-auth signs without a terminal only with --yes, for a delegate the key lists.
+      delegator: {
+        provider: "myvault",
+        name: "delegator",
+        allowedDelegates: [{ address: "0x5FbDB2315678afecb367f032d93F642f64180aa3", chains: "all", label: "batcher" }],
+      },
     },
   },
   networks: {
@@ -175,7 +182,10 @@ describe("kms tasks from the Hardhat CLI", () => {
 
     assert.notEqual(run.status, null, `the task did not exit:\n${run.report}`);
     assert.notEqual(run.status, 0, run.report);
-    assert.match(run.output, /unknown key "nobody"\. Known keys: deployer, chatty, pinned\./);
+    assert.match(
+      run.output,
+      /unknown key "nobody"\. Known keys: deployer, chatty, pinned, raw, delegator\./,
+    );
   });
 
   it("fails on a pin mismatch after opening the adapter, and still exits on its own", async () => {
@@ -379,16 +389,36 @@ describe("kms tasks from the Hardhat CLI", () => {
     );
   });
 
-  it("signs a raw digest with --no-hash, with the warning on stderr only", async () => {
+  it("signs a raw digest with --no-hash --yes for a key with allowRawDigests, with the warning on stderr only", async () => {
     const digest: `0x${string}` = `0x${"ab".repeat(32)}`;
-    const run = await hardhat(["kms", "sign", "--no-hash", "deployer", digest]);
+    const run = await hardhat(["kms", "sign", "--no-hash", "--yes", "raw", digest]);
 
     assert.equal(run.status, 0, run.report);
     assert.equal(
       run.stdout,
       `${await privateKeyToAccount(`0x${HARDHAT_ACCOUNT_0.secretKey}`).sign({ hash: digest })}\n`,
     );
-    assert.match(run.stderr, /\[hardhat-kms\] --no-hash signs the 32 bytes as they are/);
+    assert.match(
+      run.stderr,
+      /\[hardhat-kms\] --no-hash signs the 32 bytes as they are, with no EIP-191 prefix\. Raw digest: the plugin cannot tell what it authorizes\./,
+    );
+  });
+
+  it("refuses --no-hash without a terminal unless the key opts in and --yes is given", async () => {
+    const digest = `0x${"ab".repeat(32)}`;
+    for (const [args, text] of [
+      [["deployer"], /Key "deployer" does not set allowRawDigests: true, and --yes was not passed/],
+      [["--yes", "deployer"], /Key "deployer" does not set it, so --yes cannot skip the question/],
+      [["raw"], /--no-hash needs --yes\. Key "raw" sets allowRawDigests: true/],
+    ] as const) {
+      const run = await hardhat(["kms", "sign", "--no-hash", ...args, digest]);
+
+      assert.notEqual(run.status, null, `the task did not exit:\n${run.report}`);
+      assert.notEqual(run.status, 0, run.report);
+      assert.equal(run.stdout, "");
+      assert.match(run.output, text);
+      assert.doesNotMatch(run.output, /Sign\? \[y\/N\]/);
+    }
   });
 
   it("refuses a --no-hash value that is not 32 bytes", async () => {
@@ -597,11 +627,12 @@ describe("kms tasks from the Hardhat CLI", () => {
     const run = await hardhat([
       "kms",
       "sign-auth",
+      "--yes",
       "--chain",
       "1",
       "--nonce",
       "0",
-      "deployer",
+      "delegator",
       delegate,
     ]);
 
@@ -615,6 +646,32 @@ describe("kms tasks from the Hardhat CLI", () => {
       run.stdout,
       `${JSON.stringify({ chainId: "0x1", address: delegate, nonce: "0x0", yParity: `0x${signed.yParity}`, r: signed.r, s: signed.s })}\n`,
     );
+    // Without a terminal the summary goes to stderr, and nothing is asked.
+    assert.ok(run.stderr.includes(`\n  delegate    batcher ${delegate}\n`), run.stderr);
+    assert.doesNotMatch(run.stderr, /Sign\?/);
+  });
+
+  it("refuses an authorization without a terminal unless --yes is given for a listed delegate", async () => {
+    const delegate = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+    for (const [args, message] of [
+      [["delegator"], /without a terminal, kms sign-auth signs only with --yes/],
+      [["--yes", "deployer"], /Key "deployer" has no allowedDelegates/],
+    ] as const) {
+      const run = await hardhat([
+        "kms",
+        "sign-auth",
+        "--chain",
+        "1",
+        "--nonce",
+        "0",
+        ...args,
+        delegate,
+      ]);
+
+      assert.equal(run.status, 1, run.report);
+      assert.equal(run.stdout, "");
+      assert.match(run.output, message);
+    }
   });
 
   it("reads the nonce from a simulated --network, adds one with --self-broadcast and exits", async () => {
@@ -624,7 +681,8 @@ describe("kms tasks from the Hardhat CLI", () => {
       "--network",
       "local",
       "--self-broadcast",
-      "deployer",
+      "--yes",
+      "delegator",
       "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     ]);
 
@@ -639,7 +697,7 @@ describe("kms tasks from the Hardhat CLI", () => {
     );
     assert.ok(
       run.stderr.includes(
-        `[hardhat-kms] authority ${HARDHAT_ACCOUNT_0.address}, chain 31337 (from --network local), nonce 1, delegate 0x5FbDB2315678afecb367f032d93F642f64180aa3\n`,
+        "\n  nonce       1; account nonce now 0; self-sponsored: yes\n  delegate    code none\n",
       ),
       run.stderr,
     );
@@ -653,7 +711,8 @@ describe("kms tasks from the Hardhat CLI", () => {
       "0",
       "--nonce",
       "0",
-      "deployer",
+      "--yes",
+      "delegator",
       "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     ]);
 

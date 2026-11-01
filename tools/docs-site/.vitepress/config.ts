@@ -17,14 +17,16 @@ import {
   HOSTNAME,
   OG_IMAGE,
   ORIGIN,
+  ROOT_HOSTNAME,
   SITE_BASE,
+  SITE_CHANNEL,
   SITE_DESCRIPTION,
   SITE_NAME,
+  UNRELEASED_BANNER,
   githubSlug,
   markdownCopyUrl,
   pageUrl,
   rewriteMarkdownLinks,
-  robotsTxt,
   sitePage,
 } from "./site.ts";
 
@@ -34,12 +36,28 @@ const docsDirectory = path.join(repositoryRoot, "docs");
 
 const EXCLUDED = EXCLUDED_FOLDERS.map((folder) => `${folder}/**`);
 
+/**
+ * The `next` tree documents main, ahead of npm `latest` (decision 0024): every page carries a
+ * banner and `noindex`, and the tree has no sitemap or llms files.
+ */
+const UNRELEASED = SITE_CHANNEL === "next";
+
+/** The theme settings, with the banner the theme shows on every page of the `next` tree. */
+type ThemeConfig = DefaultTheme.Config & {
+  unreleasedBanner?: { text: string; link: string; linkText: string };
+};
+
 const coreManifest: unknown = JSON.parse(
   readFileSync(path.join(repositoryRoot, "packages/hardhat-kms/package.json"), "utf8"),
 );
 const coreVersion = String(Reflect.get(Object(coreManifest), "version"));
 const coreEngines: unknown = Reflect.get(Object(coreManifest), "engines");
 const coreNodeRange = String(Reflect.get(Object(coreEngines), "node")).replace(/\.0$/, "");
+
+/** The version line under the landing page's tagline. */
+const versionLine = UNRELEASED
+  ? `Unreleased: main, at ${coreVersion} plus the changes merged since.`
+  : `Version ${coreVersion}.`;
 
 /**
  * The install guide. Its file name dates from before the first npm release; it keeps it so the
@@ -247,22 +265,23 @@ function agentPreamble(): string {
     : "";
   const configure = `add the plugin and the key to \`hardhat.config.ts\` ([configuration reference](${markdownCopyUrl("user/reference/configuration.md")})) and list the key's address with \`npx hardhat kms accounts\``;
   const credentials =
-    "Credentials never come from the Hardhat config: AWS and Google Cloud use their SDK's credential discovery, and Azure uses the plugin's own chain.";
+    "Credentials never come from the Hardhat config: AWS and Google Cloud use their SDK's credential discovery, Azure uses the plugin's own chain, and a Turnkey key reads its API private key from a configuration variable.";
   return `## Start here for agents
 
-Install the core and the provider package for the cloud that holds the key, ${configure}:
+Install the core and the provider package for the cloud or service that holds the key, ${configure}:
 
 \`\`\`sh
-npm install --save-dev hardhat-kms @hardhat-kms/aws     # AWS KMS
-npm install --save-dev hardhat-kms @hardhat-kms/gcp     # Google Cloud KMS
-npm install --save-dev hardhat-kms @hardhat-kms/azure   # Azure Key Vault
+npm install --save-dev hardhat-kms @hardhat-kms/aws       # AWS KMS
+npm install --save-dev hardhat-kms @hardhat-kms/gcp       # Google Cloud KMS
+npm install --save-dev hardhat-kms @hardhat-kms/azure     # Azure Key Vault
+npm install --save-dev hardhat-kms @hardhat-kms/turnkey   # Turnkey
 npx hardhat kms accounts
 \`\`\`
 
 These packages are newer than most training data: check npm for the current version (\`npm view hardhat-kms version\`) instead of guessing one. [Install hardhat-kms](${markdownCopyUrl(INSTALL_GUIDE)}) gives the pnpm and Yarn commands and the settings each needs. ${credentials}${skill}`;
 }
 
-const config: UserConfig<DefaultTheme.Config> = defineConfig({
+const config: UserConfig<ThemeConfig> = defineConfig({
   title: SITE_NAME,
   titleTemplate: `:title | ${SITE_NAME}`,
   description: SITE_DESCRIPTION,
@@ -291,10 +310,22 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
       "meta",
       { name: "google-site-verification", content: "vawQw7Qw_4GZQqPUf8_dBhfo-C5KUMsO6FbB5kBCoVo" },
     ],
+    ...(UNRELEASED
+      ? ([
+          ["meta", { name: "robots", content: "noindex" }],
+          // The banner sits above the nav bar. From 960 px the nav is fixed, and VitePress moves it
+          // down by --vp-layout-top-height; below that the nav follows the banner in the page flow.
+          [
+            "style",
+            {},
+            ".unreleased-banner { box-sizing: border-box; padding: 10px 16px; font-size: 14px; line-height: 20px; text-align: center; background: var(--vp-c-warning-soft); color: var(--vp-c-text-1); } .unreleased-banner a { color: var(--vp-c-brand-1); text-decoration: underline; } @media (min-width: 960px) { :root { --vp-layout-top-height: 40px; } .unreleased-banner { height: 40px; } }",
+          ],
+        ] satisfies HeadConfig[])
+      : []),
   ],
   cleanUrls: true,
   lastUpdated: true,
-  sitemap: { hostname: HOSTNAME },
+  ...(UNRELEASED ? {} : { sitemap: { hostname: HOSTNAME } }),
   markdown: {
     anchor: { slugify: githubSlug },
     config(md) {
@@ -328,15 +359,14 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
       pageData.frontmatter = { ...pageData.frontmatter, editLink: false };
     }
     if (pageData.relativePath === "index.md" || pageData.filePath === "README.md") {
-      pageData.title = "Sign Hardhat 3 transactions with a cloud KMS key";
+      pageData.title = "Sign Hardhat 3 transactions with a KMS or Turnkey key";
       pageData.frontmatter = {
         ...pageData.frontmatter,
         layout: "home",
         hero: {
           name: SITE_NAME,
-          text: "Sign with a cloud key",
-          tagline:
-            "A Hardhat 3 plugin that signs transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS or Azure Key Vault. The private key never leaves the KMS.",
+          text: "Sign with a managed key",
+          tagline: `A Hardhat 3 plugin that signs transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey. The private key never leaves the KMS. ${versionLine}`,
           actions: [
             {
               theme: "brand",
@@ -345,6 +375,7 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
             },
             { theme: "alt", text: "Google Cloud KMS", link: "/user/tutorials/first-deploy-gcp" },
             { theme: "alt", text: "Azure Key Vault", link: "/user/tutorials/first-deploy-azure" },
+            { theme: "alt", text: "Turnkey", link: "/user/guides/turnkey-setup" },
             { theme: "alt", text: "Install", link: "/user/guides/install-before-release" },
           ],
         },
@@ -410,10 +441,22 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
     return head;
   },
   async buildEnd(siteConfig) {
-    await writeFile(path.join(siteConfig.outDir, "robots.txt"), robotsTxt());
+    // next/ lists no pages for agents. No robots.txt: crawlers read it only at a host's root (#582).
+    if (UNRELEASED) {
+      return;
+    }
     await rewriteLlmsLinks(siteConfig.outDir);
   },
   themeConfig: {
+    ...(UNRELEASED
+      ? {
+          unreleasedBanner: {
+            text: UNRELEASED_BANNER,
+            link: ROOT_HOSTNAME,
+            linkText: ROOT_HOSTNAME.replace(/^https:\/\//, "").replace(/\/$/, ""),
+          },
+        }
+      : {}),
     // The site title next to it names the project, so the image needs no alt text.
     logo: { light: "/logo/mark-on-light.svg", dark: "/logo/mark-on-dark.svg", alt: "" },
     nav: [
@@ -442,7 +485,7 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
     socialLinks: [{ icon: "github", link: `https://github.com/${GITHUB_REPOSITORY}` }],
     footer: {
       message:
-        "MIT licensed. A community plugin, not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google or Microsoft.",
+        "MIT licensed. A community plugin, not affiliated with or endorsed by Nomic Foundation, Amazon Web Services, Google, Microsoft or Turnkey.",
     },
   },
   vite: {
@@ -465,16 +508,21 @@ const config: UserConfig<DefaultTheme.Config> = defineConfig({
           });
         },
       },
-      llmstxt({
-        // The plugin adds the base path to this.
-        domain: ORIGIN,
-        title: SITE_NAME,
-        description: SITE_DESCRIPTION,
-        details: agentPreamble(),
-        ignoreFiles: EXCLUDED,
-        injectLLMHint: false,
-        sidebar: flatSidebar(sidebar()),
-      }),
+      // The root's llms.txt is the one agents read; next/ has none (decision 0024).
+      ...(UNRELEASED
+        ? []
+        : [
+            llmstxt({
+              // The plugin adds the base path to this.
+              domain: ORIGIN,
+              title: SITE_NAME,
+              description: SITE_DESCRIPTION,
+              details: agentPreamble(),
+              ignoreFiles: EXCLUDED,
+              injectLLMHint: false,
+              sidebar: flatSidebar(sidebar()),
+            }),
+          ]),
     ],
   },
 });

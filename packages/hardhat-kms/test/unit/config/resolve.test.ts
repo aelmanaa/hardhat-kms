@@ -91,6 +91,45 @@ describe("resolveKmsConfig", () => {
     assert.equal("address" in plain, false);
   });
 
+  it("keeps allowRawDigests only when it is true, for every provider", () => {
+    const config: HardhatUserConfig = {
+      kms: {
+        keys: {
+          aws: { provider: "aws", keyId: "alias/a", allowRawDigests: true },
+          gcp: {
+            provider: "gcp",
+            keyVersionName: "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1",
+            allowRawDigests: true,
+          },
+          azure: {
+            provider: "azure",
+            keyId: "https://v.vault.azure.net/keys/k/1",
+            allowRawDigests: true,
+          },
+          turnkey: {
+            provider: "turnkey",
+            organizationId: "5f4b4a4e-2a83-4f49-9c41-7d0b1a3e6d10",
+            address: ADDRESS,
+            apiPrivateKey: configVariable("TURNKEY_API_PRIVATE_KEY"),
+            allowRawDigests: true,
+          },
+          off: { provider: "aws", keyId: "alias/b", allowRawDigests: false },
+          unset: { provider: "aws", keyId: "alias/c" },
+        },
+      },
+    };
+    for (const name of ["aws", "gcp", "azure", "turnkey"]) {
+      assert.equal(key(config, name).allowRawDigests, true, name);
+    }
+    assert.equal("allowRawDigests" in key(config, "off"), false);
+    assert.equal("allowRawDigests" in key(config, "unset"), false);
+    const external = resolveKmsConfig(
+      { kms: { keys: { v: { provider: "myvault", name: "v", allowRawDigests: true } } } },
+      resolver,
+    ).keys.v;
+    assert.equal(external?.allowRawDigests, true);
+  });
+
   it("keeps the AWS profile and endpoint", async () => {
     const aws = awsKey(
       {

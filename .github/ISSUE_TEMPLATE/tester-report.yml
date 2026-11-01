@@ -5,11 +5,11 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thank you for testing. [Tester reports](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/support.md#tester-reports) links the tutorial for each cloud. Use a test key on Sepolia.
+        Thank you for testing. [Tester reports](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/support.md#tester-reports) links the tutorial for each cloud, and the setup guide for Turnkey, which has no tutorial. Use a test key on Sepolia.
 
-        Never paste credentials: access keys, client secrets, service account key files, API keys or the contents of a `.env` file or Hardhat keystore.
+        Never paste credentials: access keys, client secrets, service account key files, API keys, Turnkey API private keys or the contents of a `.env` file or Hardhat keystore.
 
-        Remove identifiers before you submit: key ids, key ARNs and key resource names, AWS account ids, Google Cloud project ids, Azure tenant, subscription, client and object ids, vault names, Etherscan API keys, and RPC URLs that contain an API key. Replace each with a placeholder such as `<KEY_ARN>`. Sepolia addresses and transaction hashes can stay.
+        Remove identifiers before you submit: key ids, key ARNs and key resource names, AWS account ids, Google Cloud project ids, Azure tenant, subscription, client and object ids, vault names, Turnkey organization ids, user ids and API public keys, Etherscan API keys, and RPC URLs that contain an API key. Replace each with a placeholder such as `<KEY_ARN>`. Sepolia addresses and transaction hashes can stay.
   - type: checkboxes
     id: redacted
     attributes:
@@ -21,7 +21,7 @@ body:
     id: provider
     attributes:
       label: Cloud
-      options: [AWS KMS, Google Cloud KMS, Azure Key Vault]
+      options: [AWS KMS, Google Cloud KMS, Azure Key Vault, Turnkey]
     validations:
       required: true
   - type: dropdown
@@ -38,7 +38,7 @@ body:
     id: versions
     attributes:
       label: Versions
-      description: hardhat-kms, the provider package, Hardhat and Node.js. `npm ls hardhat hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure` (or `pnpm ls` with the same arguments) and `node --version` print them.
+      description: hardhat-kms, the provider package, Hardhat and Node.js. `npm ls hardhat hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure @hardhat-kms/turnkey` (or `pnpm ls` with the same arguments) and `node --version` print them.
       placeholder: hardhat-kms x.y.z, @hardhat-kms/aws x.y.z, hardhat 3.18.0, Node.js 24.16.0
     validations:
       required: true

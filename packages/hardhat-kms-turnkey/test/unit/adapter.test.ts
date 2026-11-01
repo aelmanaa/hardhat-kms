@@ -35,6 +35,7 @@ import {
   SIGN_TRANSACTION_PATH,
   SIGN_TRANSACTION_TYPE,
   SIGN_TYPE,
+  type SignMode,
   type StubAnswer,
   TurnkeyStub,
   turnkeyError,
@@ -251,6 +252,27 @@ describe("the Turnkey adapter", () => {
     await assert.rejects(sign(second.adapter, "digest"), /variable not set/);
     await sign(second.adapter, "digest");
     assert.equal(reads, 2);
+  });
+
+  it("passes the error of an unset variable on unchanged, for either credential (#544)", async () => {
+    for (const field of ["apiPrivateKey", "organizationId"] as const) {
+      const name =
+        field === "apiPrivateKey" ? "TURNKEY_API_PRIVATE_KEY" : "TURNKEY_ORGANIZATION_ID";
+      const unset = new Error(`Configuration Variable "${name}" not found.`);
+      const { stub, adapter } = await setUp(
+        turnkeyKey({
+          [field]: {
+            display: `<${name}>`,
+            get: async () => await Promise.reject(unset),
+          },
+        }),
+      );
+      await assert.rejects(sign(adapter, "digest"), (error: unknown) => {
+        assert.equal(error, unset);
+        return failsWith(new RegExp(`"${name}" not found`))(error);
+      });
+      assert.equal(stub.requests.length, 0);
+    }
   });
 
   it("refuses an API private key that is not 64 hex characters, before any request", async () => {
@@ -489,13 +511,19 @@ describe("the Turnkey adapter's errors", () => {
     });
   }
 
-  it("names neither encoding nor hash function in a 403 for a digest", async () => {
+  it("names the hash function and encoding of a digest in a 403, and no transaction", async () => {
     const { stub, adapter } = await setUp();
     stub.answer(turnkeyError(403, "REQUEST_NOT_AUTHORIZED", TURNKEY_MESSAGE));
     await assert.rejects(sign(adapter, "digest"), (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.match(error.message, /sign this request with this address\. Add a policy/);
-      assert.doesNotMatch(error.message, /KECCAK256|EIP712|HASH_FUNCTION|PAYLOAD_ENCODING/);
+      assert.match(
+        error.message,
+        /^turnkey, sign digest, key [^:]+:[^:]+: Turnkey answered 403 REQUEST_NOT_AUTHORIZED: no policy lets the API key's user sign this request with this address \(a digest, sent with HASH_FUNCTION_NO_OP and PAYLOAD_ENCODING_HEXADECIMAL: a policy that allows only SIGN_TRANSACTION, or only HASH_FUNCTION_KECCAK256, denies it\)\. Add a policy/,
+      );
+      assert.doesNotMatch(
+        error.message,
+        /a transaction|ACTIVITY_TYPE_SIGN_TRANSACTION|transactionSigning/,
+      );
       return true;
     });
   });
@@ -818,6 +846,155 @@ describe("the Turnkey adapter's transactions", () => {
     await adapter.signTransaction?.(request, signContext());
     assert.deepEqual(request.unsigned, before.unsigned);
     assert.deepEqual(request.digest, before.digest);
+  });
+
+  it("declares that an abandoned transaction may still be signed, in transaction mode only (#537)", async () => {
+    const transaction = await setUp(turnkeyKey({ transactionSigning: "transaction" }));
+    assert.equal(transaction.adapter.signTransactionOutlivesAbort, true);
+    const digest = await setUp(turnkeyKey({ transactionSigning: "digest" }));
+    assert.ok(!("signTransactionOutlivesAbort" in digest.adapter));
+  });
+
+  it("tells the core right before each sign_transaction attempt leaves, then the activity id (#537)", async () => {
+    const [, , [, eip1559] = [2, {}]] = TRANSACTIONS;
+    const { stub, adapter } = await setUp();
+    // Each entry records how many requests the stub had when the core heard of the next one.
+    const ctx = signContext(() => stub.requests.length);
+    stub.answer(
+      turnkeyError(500),
+      activity("ACTIVITY_STATUS_PENDING", { type: SIGN_TRANSACTION_TYPE }),
+    );
+    stub.pendingPolls = 0;
+
+    await assert.rejects(
+      adapter.signTransaction?.(transactionRequest(2, eip1559), ctx) ?? Promise.resolve(),
+      // The queued activity is not the stub's own, so the poll finds no such activity.
+      /Turnkey answered 404/,
+    );
+
+    assert.deepEqual(
+      stub.requests.map((request) => request.path),
+      [SIGN_TRANSACTION_PATH, SIGN_TRANSACTION_PATH, POLL_PATH],
+    );
+    assert.deepEqual(ctx.sent, [
+      [null, 0],
+      [null, 1],
+      [ACTIVITY_ID, 2],
+    ]);
+  });
+
+  it("tells the core when Turnkey refused the request for certain, and only then (#537)", async () => {
+    const [, , [, eip1559] = [2, {}]] = TRANSACTIONS;
+    const pending = activity("ACTIVITY_STATUS_PENDING", { type: SIGN_TRANSACTION_TYPE });
+    const ended = (status: string): StubAnswer =>
+      activity(status, { type: SIGN_TRANSACTION_TYPE, failure: { details: [] } });
+    const cases: Array<{ name: string; answers: StubAnswer[]; refused: boolean; mode?: SignMode }> =
+      [
+        {
+          name: "a 403 at submission",
+          answers: [turnkeyError(403, "POLICY_DENIED")],
+          refused: true,
+        },
+        { name: "a 400 at submission", answers: [turnkeyError(400)], refused: true },
+        {
+          name: "a 401 at submission",
+          answers: [turnkeyError(401, "UNAUTHENTICATED")],
+          refused: true,
+        },
+        {
+          name: "a rate limit on every attempt",
+          answers: Array.from({ length: 4 }, () => turnkeyError(429)),
+          refused: true,
+        },
+        {
+          name: "a rejected activity",
+          answers: [ended("ACTIVITY_STATUS_REJECTED")],
+          refused: true,
+        },
+        { name: "a failed activity", answers: [ended("ACTIVITY_STATUS_FAILED")], refused: true },
+        {
+          name: "an activity rejected while polling",
+          answers: [pending, ended("ACTIVITY_STATUS_REJECTED")],
+          refused: true,
+        },
+        {
+          name: "a 400 after a 500",
+          answers: [turnkeyError(500), turnkeyError(400)],
+          refused: false,
+        },
+        {
+          name: "a 500 on every attempt",
+          answers: Array.from({ length: 4 }, () => turnkeyError(500)),
+          refused: false,
+        },
+        {
+          name: "an activity that needs approval",
+          answers: [activity("ACTIVITY_STATUS_CONSENSUS_NEEDED", { type: SIGN_TRANSACTION_TYPE })],
+          refused: false,
+        },
+        { name: "a poll answered 403", answers: [pending, turnkeyError(403)], refused: false },
+        {
+          name: "an answer for another organization",
+          answers: [
+            activity("ACTIVITY_STATUS_PENDING", {
+              type: SIGN_TRANSACTION_TYPE,
+              organizationId: "other",
+            }),
+          ],
+          refused: false,
+        },
+        {
+          name: "a signed transaction for another body",
+          answers: [],
+          refused: false,
+          mode: "other-body",
+        },
+      ];
+    for (const { name, answers, refused, mode } of cases) {
+      const { stub, adapter } = await setUp();
+      stub.answer(...answers);
+      stub.mode = mode ?? "good";
+      const ctx = signContext();
+      await assert.rejects(
+        adapter.signTransaction?.(transactionRequest(2, eip1559), ctx) ?? Promise.resolve(),
+        name,
+      );
+      assert.equal(
+        ctx.sent.some(([id]) => id === "refused"),
+        refused,
+        `${name}: ${JSON.stringify(ctx.sent)}`,
+      );
+      assert.equal(ctx.sent[0]?.[0], null, `${name}: sent before the refusal`);
+    }
+  });
+
+  it("tells the core nothing when no sign_transaction request leaves (#537)", async () => {
+    const [, , [, eip1559] = [2, {}]] = TRANSACTIONS;
+    const refused = await setUp();
+    const unsupported = signContext();
+    await assert.rejects(
+      refused.adapter.signTransaction?.(transactionRequest(3, eip1559), unsupported) ??
+        Promise.resolve(),
+    );
+    assert.deepEqual(unsupported.sent, []);
+
+    const aborted = signContext();
+    aborted.controller.abort(new Error("cancelled"));
+    await assert.rejects(
+      refused.adapter.signTransaction?.(transactionRequest(2, eip1559), aborted) ??
+        Promise.resolve(),
+      /cancelled/,
+    );
+    assert.deepEqual(aborted.sent, []);
+
+    const badKey = await setUp(turnkeyKey({}, { privateKey: "00" }));
+    const failed = signContext();
+    await assert.rejects(
+      badKey.adapter.signTransaction?.(transactionRequest(2, eip1559), failed) ?? Promise.resolve(),
+      /is not a P-256 private key/,
+    );
+    assert.deepEqual(failed.sent, []);
+    assert.equal(refused.stub.requests.length + badKey.stub.requests.length, 0);
   });
 
   it("has no signTransaction with transactionSigning digest, and signs digests as before", async () => {

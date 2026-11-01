@@ -37,7 +37,7 @@ function settingForm(setting: KmsIdentifier | undefined): string | null | undefi
  * key. Google Cloud and Azure keys have no other connection settings: credentials and endpoints
  * come from the environment, and an Azure key URL names its vault. A Turnkey key's identifier is
  * its organization id, and its API private and public keys count as settings, by their
- * comparison forms: the variable's name, never its value.
+ * comparison forms: the variable's name, never its value, and so does its `transactionSigning`.
  *
  * Never print or log the identity: a variable's `default` can be a secret.
  *
@@ -48,11 +48,11 @@ function settingForm(setting: KmsIdentifier | undefined): string | null | undefi
 export function signerIdentity(key: KmsKeyConfig): string | undefined {
   let parts: unknown[];
   let identifier: KmsIdentifier;
-  // The identity is only compared for equality. An AWS identity has 9 parts, a Turnkey one 8, a
-  // Google Cloud or Azure one 6, so the provider tags only have to tell Google Cloud from Azure:
-  // changing any one of them, or dropping it, still leaves every provider's identities apart. This
-  // rests on the lengths: a new provider whose identity also has 6 parts needs a test that tells
-  // its tag apart.
+  // The identity is only compared for equality. An AWS or Turnkey identity has 9 parts, a Google
+  // Cloud or Azure one 6, so the provider tags have to tell AWS from Turnkey and Google Cloud from
+  // Azure. Each pair has two tags, so changing any one tag still leaves the pair apart, and
+  // dropping one changes the length. This rests on the lengths: a new provider whose identity also
+  // has 6 or 9 parts needs a test that tells its tag apart.
   if ("keyVersionName" in key) {
     // Stryker disable next-line ArrayDeclaration,StringLiteral: one tag alone is redundant
     parts = ["gcp"];
@@ -62,16 +62,17 @@ export function signerIdentity(key: KmsKeyConfig): string | undefined {
     parts = ["azure"];
     identifier = key.keyId;
   } else if (key.provider === "turnkey") {
-    // The API keys select the credentials, so two keys that differ only in them get two signers.
-    // A key always has an API private key; config resolution builds both forms without reading
-    // either variable.
+    // The API keys select the credentials, and `transactionSigning` decides whether the adapter
+    // has `signTransaction`, so two keys that differ only in them get two signers. A key always
+    // has an API private key; config resolution builds both forms without reading either
+    // variable.
     const privateKey = identifierComparisonForm(key.apiPrivateKey);
     const publicKey = settingForm(key.apiPublicKey);
     if (privateKey === undefined || publicKey === undefined) {
       return undefined;
     }
     // Stryker disable next-line StringLiteral: one tag alone is redundant
-    parts = ["turnkey", privateKey, publicKey];
+    parts = ["turnkey", privateKey, publicKey, key.transactionSigning];
     identifier = key.organizationId;
   } else if (
     // A resolved third-party key keeps its own fields under `userConfig`, so it has no `keyId`:

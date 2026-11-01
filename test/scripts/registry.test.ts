@@ -1,5 +1,5 @@
 // The shared registry-mode helper of the package checks (`scripts/registry.ts`): the option
-// parsing, the four specs, the check of the installed version and the Yarn 4 settings. Runs in `pnpm test`.
+// parsing, the install specs of the published packages, the check of the installed version and the Yarn 4 settings. Runs in `pnpm test`.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -272,7 +272,7 @@ describe("yarnBerrySettings", () => {
     });
   });
 
-  it("exempts the four packages, and nothing else, from the age gate in registry mode", () => {
+  it("exempts the published packages, and nothing else, from the age gate in registry mode", () => {
     assert.deepEqual(parse(yarnBerrySettings(true)), {
       nodeLinker: "node-modules",
       enableScripts: false,

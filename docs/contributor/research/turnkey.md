@@ -2,7 +2,7 @@
 
 Audience: contributors working on the Turnkey provider ([#54](https://github.com/aelmanaa/hardhat-kms/issues/54)), and reviewers who want to know why it works as it does. Assumes the [provider contract](../providers.md) and the [signing pipeline](../signing-pipeline.md). Does not assume Turnkey knowledge.
 
-Status: the research and design as written on 2026-10-15 and 2026-10-16, before the code, with the decisions taken on 2026-10-17 in [section 7](#7-decisions). Every "verified" fact was read in Turnkey's docs or source on those dates; nothing was run against the live Turnkey API. Where the shipped code differs from the design, a note says so. The user-facing result is [Set up a Turnkey wallet account](../../user/guides/turnkey-setup.md); the decision records are [0019](../decisions/0019-turnkey-without-sdk.md) and [0020](../decisions/0020-turnkey-approvals-fail-fast.md).
+Status: the research and design as written on 2026-10-15 and 2026-10-16, before the code, with the decisions taken on 2026-10-17 in [section 7](#7-decisions). Every "verified" fact was read in Turnkey's docs or source on those dates; nothing was run against the live Turnkey API. Where the shipped code differs from the design, a note says so. The largest difference: D3 planned digest-only transactions for 1.2 and `sign_transaction` for a later minor; both shipped in 1.2.0, with `sign_transaction` as the default and the digest behind `transactionSigning: "digest"`. The table in section 3.3, D3 and section 9 describe the plan, not what shipped. The user-facing result is [Set up a Turnkey wallet account](../../user/guides/turnkey-setup.md); the decision records are [0019](../decisions/0019-turnkey-without-sdk.md) and [0020](../decisions/0020-turnkey-approvals-fail-fast.md).
 
 It corrects the original issue text, which said that Turnkey has no public-key call. Turnkey returns `publicKey` on wallet accounts and private keys (`get_wallet_account`, `list_wallet_accounts`, `get_private_key`). What it lacks is a lookup by address alone: `get_wallet_account` needs a `walletId`. The address-pinned design holds for that reason.
 
@@ -89,6 +89,8 @@ The descriptor lives in the core, as for the other providers, so `provider: "tur
 | `eth_signTypedData_v4`, `kms sign --data`                          | `signTypedData`                         | `sign_raw_payload`, `EIP712`, `NO_OP`, payload = serialized typed data                             | `eth.eip_712.{primary_type,domain,message}`                                                                  |
 | Phase 2: transactions                                              | `signTransaction` (planned core method) | `sign_transaction`, `TRANSACTION_TYPE_ETHEREUM`, `unsignedTransaction` = the core's unsigned bytes | `eth.tx.*`, including `chain_id`, `to`, `value`, ABI-decoded calls                                           |
 
+As shipped in 1.2.0, the last row is the default for transactions and `kms sign-tx` (`signTransaction` is a core method since [#514](https://github.com/aelmanaa/hardhat-kms/issues/514)). The first row's transactions apply only to a key with `transactionSigning: "digest"`.
+
 Each sign builds a fresh `timestampMs`. The adapter reads the response as follows:
 
 1. HTTP 2xx and JSON. Check `activity.organizationId` equals the configured organization and `activity.type` is the type it sent. A mismatch fails (`turnkey.sign.response-mismatch`), as Azure checks the `kid`.
@@ -124,7 +126,7 @@ A catalogue in `packages/hardhat-kms-turnkey/src/internal/error-catalog.ts`, ids
 | `turnkey.credential.public-key-mismatch`        | `apiPublicKey` does not match the private key                                                                  | Check that the two variables are from the same key pair                                                           |
 | `turnkey.service.unauthenticated`               | 401: `SIGNATURE_INVALID`, `PUBLIC_KEY_NOT_FOUND`, `API_KEY_EXPIRED`, `CREDENTIAL_NOT_FOUND`, `UNAUTHENTICATED` | The key is not registered in this organization or its parent, or has expired                                      |
 | `turnkey.service.timestamp`                     | 401/400 for a stale or future `timestampMs` (F14; matched on code when Turnkey sends one, unverified)          | Sync the clock                                                                                                    |
-| `turnkey.service.forbidden`                     | 403 `REQUEST_NOT_AUTHORIZED`                                                                                   | Add a policy that lets this API user sign with this address; check for a policy that denies `HASH_FUNCTION_NO_OP` |
+| `turnkey.service.forbidden`                     | 403, with no `turnkeyErrorCode` (live run)                                                                     | Add a policy that lets this API user sign with this address; check for a policy that denies `HASH_FUNCTION_NO_OP` |
 | `turnkey.service.not-found`                     | 404, `ORGANIZATION_NOT_FOUND`                                                                                  | Check `organizationId`                                                                                            |
 | `turnkey.service.bad-request`                   | 400, for example the address is not in the organization                                                        | Check `address` and `organizationId`                                                                              |
 | `turnkey.service.quota`                         | 429 `SIGNING_QUOTA_EXCEEDED`                                                                                   | 25 free signatures a month; add a plan                                                                            |
@@ -290,6 +292,7 @@ Cost: the Free plan's 25 signatures a month cover about 3 smoke runs. Release ru
 - D7. Make `address` required (recommended), or also accept `walletId` and fetch the public key now.
 - D8. Turnkey policies written for Foundry (Foundry parity, Note 3). Foundry sends a `NO_OP` digest for everything, so a policy that allows only `NO_OP` denies this design's messages and typed data. Options: (a) keep D4 and the `EIP712` encoding; the setup guide gives one policy that allows all three request shapes, and the 403 message for a message or typed-data request names the encoding it used (recommended); (b) also add a per-key option that signs everything as a `NO_OP` digest, as Foundry does, for teams that share one key and one policy between the two tools; (c) on a 403, retry as a digest. (c) is not recommended: it quietly gets around a policy the organization chose.
 - D9. Activity id in the consensus error. Foundry prints it; 3.5 keeps it out of all output. The user needs it to find and reject the pending activity (3.7). Put the activity id in the `turnkey.activity.approval-needed` message only (recommended; it is an opaque id that identifies no organization), or keep it out and tell users to search the dashboard by time.
+- Shipped: D3 changed before the release. 1.2.0 signs transactions through `sign_transaction` by default ([#515](https://github.com/aelmanaa/hardhat-kms/issues/515)), and keeps the digest for a key with `transactionSigning: "digest"`, which also covers D8's option (b) for transactions.
 - **Chosen on 2026-10-17: D1 to D5 and D7 to D9 as recommended** (own stamper, no Turnkey dependency; fail fast on consensus; digest-only transactions first, `signTransaction` in a later minor; messages as preimage with `KECCAK256`; `baseUrl` test-only; `address` required; Foundry-style policies handled by the guide policy and a 403 that names the encoding; activity id in the approval-needed error only). D6: Free plan (above).
 
 ## 8. Risks
@@ -314,6 +317,8 @@ Cost: the Free plan's 25 signatures a month cover about 3 smoke runs. Release ru
 5. Core `signTransaction` contract method (#514), with its signer routing and tests. M.
 6. v1.2.x: Turnkey `signTransaction` through `sign_transaction` (#515). S to M.
 
+As shipped: items 1, 2, 3, 5 and 6 all landed in 1.2.0. Item 4's smoke test is in the package ([#532](https://github.com/aelmanaa/hardhat-kms/pull/532)); its first run against Turnkey is tracked in [#513](https://github.com/aelmanaa/hardhat-kms/issues/513), and Turnkey is not in the live proof.
+
 Follow-ups for the backlog: approval wait mode (D2), reject on abort, `walletId` and `getPublicKey` (D7), EIP-7702 authorization encoding, `kms history` reader from `list_activities`, `--kms turnkey`.
 
 ## 10. Not verified
@@ -322,7 +327,7 @@ Follow-ups for the backlog: approval wait mode (D2), reject on abort, `walletId`
 - Whether `r` and `s` are always 64 hex characters (left-padded).
 - The encoding of `publicKey` on wallet accounts (compressed or uncompressed).
 - Whether `signWith` matching is case-sensitive for addresses (alloy sends the checksummed form).
-- The exact `turnkeyErrorCode` for stale timestamps, and for an address not in the organization.
+- The exact `turnkeyErrorCode` for an address not in the organization. Answered for stale timestamps and policy denials by the first live run (2026-10-18): neither has one. A stale `timestampMs` gets HTTP 400 with an empty `turnkeyErrorCode`, and a policy 403 has an empty `turnkeyErrorCode` and the policy evaluations in `details` ([Turnkey live findings](../testing.md#turnkey-live-findings)).
 - Whether denied or failed sign activities count toward the signing quota.
 - Whether an API user can reject its own pending activity.
 - Whether a parent organization's API key can sign for a sub-organization's wallet, and under which policies.

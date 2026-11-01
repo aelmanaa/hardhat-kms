@@ -27,6 +27,19 @@ One key in the output of `kms accounts`.
 
 The EIP-55 address, or `null` if the key failed.
 
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: `number`
+
+Only for a key with `allowedDelegates`: the number of its entries. `0` means the key may sign
+an EIP-7702 authorization only to the zero address, which clears a delegation.
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+Only for a key with `allowRawDigests: true`: `true`.
+
 ##### balance?
 
 > `optional` **balance?**: `string` \| `null`
@@ -181,7 +194,27 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### displayId
 
@@ -261,7 +294,34 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### endpoint?
 
@@ -327,7 +387,34 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### keyName
 
@@ -377,7 +464,27 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### displayId
 
@@ -439,7 +546,34 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### keyId
 
@@ -476,9 +610,9 @@ are resolved, as Hardhat does for its own config.
 
 #### Type Parameters
 
-| Type Parameter                | Default type |
-| ----------------------------- | ------------ |
-| `Provider` _extends_ `string` | `string`     |
+| Type Parameter                                                     | Default type |
+| ------------------------------------------------------------------ | ------------ |
+| <a id="type-parameter-provider"></a> `Provider` _extends_ `string` | `string`     |
 
 #### Properties
 
@@ -490,7 +624,27 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### displayId
 
@@ -550,7 +704,34 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### keyName
 
@@ -608,7 +789,27 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### displayId
 
@@ -670,7 +871,34 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### keyVersionName
 
@@ -884,8 +1112,10 @@ Let `signAuthorization` sign for chain 0, which makes the authorization valid on
 
 > `optional` **rawSign?**: `boolean`
 
-Add `sign({ hash })`, which signs a bare digest. Off by default (decision 0014); some smart
-account owners need it. A warning is printed when it is on.
+Add `sign({ hash })`, which signs a bare digest. Off by default (decisions 0014 and 0021);
+some smart account owners need it. It works only for a key with `allowRawDigests: true` in the
+Hardhat config, since a bare digest can be an EIP-7702 authorization of the account;
+`getAccount` refuses it for any other key. A warning is printed when it is on.
 
 ##### signal?
 
@@ -896,6 +1126,72 @@ Stops the account's KMS calls when it aborts. A KMS call in flight then rejects 
 `getAccount` called with the same signal, refuses before any KMS call. A request that already
 reached the KMS can still be signed there; the account never returns that signature, so viem
 never sends it.
+
+---
+
+### KmsAllowedDelegate
+
+A resolved entry of a key's `allowedDelegates`.
+
+#### Properties
+
+##### address
+
+> `readonly` **address**: `string`
+
+The checksummed delegate address.
+
+##### chains
+
+> `readonly` **chains**: `"all"` \| readonly `number`[]
+
+The chain ids the entry allows, or `"all"`.
+
+##### codeHash?
+
+> `readonly` `optional` **codeHash?**: `string`
+
+The pinned code hash, lowercase.
+
+##### label?
+
+> `readonly` `optional` **label?**: `string`
+
+---
+
+### KmsAllowedDelegateUserConfig
+
+An entry of a key's `allowedDelegates`.
+
+#### Properties
+
+##### address
+
+> **address**: `string`
+
+The delegate's address: all lowercase, all uppercase, or with a valid EIP-55 checksum.
+
+##### chains
+
+> **chains**: `"all"` \| readonly `number`[]
+
+The chain ids this entry allows the delegate on, or `"all"`. A chain-0 authorization, valid on
+every chain, matches only an entry with `"all"`.
+
+##### codeHash?
+
+> `optional` **codeHash?**: `string`
+
+The `keccak256` of the delegate's runtime code, as `0x` and 64 hex digits. When set, the plugin
+reads the delegate's code with `eth_getCode` and refuses on a mismatch, on empty code, or when
+it has no network to read the code from.
+
+##### label?
+
+> `optional` **label?**: `string`
+
+A name for the delegate, shown before its address on the `delegate` line of `kms sign-auth`'s
+question and summary. 1 to 64 characters, with no control, format or line-separator characters.
 
 ---
 
@@ -1635,6 +1931,22 @@ to `signDigest`; it always verifies the returned signature against the key.
 
 Stable from 1.0: a minor may add optional methods; changing or removing one needs a major.
 
+#### Properties
+
+##### signTransactionOutlivesAbort?
+
+> `readonly` `optional` **signTransactionOutlivesAbort?**: `boolean`
+
+`true` when a `signTransaction` request that the core abandons may still produce a signed
+transaction outside the plugin: the provider keeps working on it after the call's `signal`
+aborts, and keeps the signed transaction where others can read and broadcast it (Turnkey's
+`sign_transaction`). For such an adapter, a `signTransaction` that fails in any way after the
+adapter called `ctx.requestSent` (a timeout, a cancellation or an error it throws) keeps the
+transaction's nonce held, unless the adapter called `ctx.requestRefused` after it: the core's
+sends from the account skip the nonce, a gap rather than two valid transactions at one nonce.
+A failure before `ctx.requestSent` releases the nonce as before. The core reads the flag once,
+when it builds the signer.
+
 #### Methods
 
 ##### close()?
@@ -1797,6 +2109,18 @@ Resolved settings shared by every key.
 
 The checksummed address pin, if one was configured.
 
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
 ##### displayId
 
 > **displayId**: `string`
@@ -1837,6 +2161,25 @@ Settings shared by every key, whatever its provider.
 
 The address the key must derive to. Optional, recommended: the plugin then skips a KMS call to
 learn the address, and refuses to sign if the key turns out to be different.
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
 
 ##### timeoutMs?
 
@@ -1899,8 +2242,9 @@ The address of one of the connection's KMS accounts.
 
 **options**
 
-Options; `rawSign: true` adds `sign({ hash })`, and `signal` cancels the
-account's KMS calls.
+Options; `rawSign: true` adds `sign({ hash })`, which needs
+`allowRawDigests: true` on the key because a bare digest can be an EIP-7702 authorization, and
+`signal` cancels the account's KMS calls.
 
 ###### Returns
 
@@ -2109,8 +2453,9 @@ The uncompressed public key, 65 bytes starting with `0x04`.
 
 > `readonly` **sign**: (`parameters`: \{ `hash`: `` `0x${string}` ``; \}) => `Promise`\<`` `0x${string}` ``\>
 
-Signs a 32-byte digest as it is, with no prefix. Whatever the digest stands for is signed,
-a transaction for any chain included.
+Signs a 32-byte digest as it is, with no prefix. Whatever the digest stands for is signed: a
+transaction or a permit for any chain, or an EIP-7702 authorization that delegates the account
+to any contract. Only a key with `allowRawDigests: true` in the Hardhat config has this method.
 
 ###### Parameters
 
@@ -2465,6 +2810,43 @@ Stable from 1.0: a minor may add optional fields; changing or removing one needs
 
 Identifies this call in the plugin's debug output.
 
+##### requestRefused?
+
+> `optional` **requestRefused?**: () => `void`
+
+Tells the core that the provider definitely refused the request and made no signature, so a
+transaction's nonce is free again: for example an answer that refused it before the provider
+accepted it, or a request the provider ended without a signature. An adapter that sets
+[KmsKeyAdapter.signTransactionOutlivesAbort](#signtransactionoutlivesabort) calls it from `signTransaction` right before
+it throws such an error. Without it, every failure after `requestSent` keeps the nonce held.
+A later `requestSent` cancels it. The core reads it only for `signTransaction` on an adapter
+with that flag.
+
+###### Returns
+
+`void`
+
+##### requestSent?
+
+> `optional` **requestSent?**: (`providerRequestId?`: `string`) => `void`
+
+Tells the core that the request may now be at the provider. An adapter that sets
+[KmsKeyAdapter.signTransactionOutlivesAbort](#signtransactionoutlivesabort) calls it from `signTransaction` right before
+each request that asks the provider to sign leaves, and never after `signal` has aborted. It
+may call it again with the provider's id for the request once it knows it, such as Turnkey's
+activity id; the core shows the id in its error only when it is a UUID. The core reads it only
+for `signTransaction` on an adapter with that flag.
+
+###### Parameters
+
+| Parameter            | Type     | Description                                  |
+| -------------------- | -------- | -------------------------------------------- |
+| `providerRequestId?` | `string` | The provider's id for the request, if known. |
+
+###### Returns
+
+`void`
+
 ##### signal
 
 > **signal**: `AbortSignal`
@@ -2509,7 +2891,27 @@ The checksummed address of the wallet account. Always set for a Turnkey key.
 
 ###### Overrides
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-14)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegate`](#kmsalloweddelegate)[]
+
+The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase code hashes.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `true`
+
+`true` when the config sets `allowRawDigests: true`; unset otherwise.
+
+###### Inherited from
+
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
 
 ##### apiPrivateKey
 
@@ -2590,7 +2992,34 @@ The wallet account's address. Required: the plugin signs with it and pins the ke
 
 ###### Overrides
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-15)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### apiPrivateKey
 
@@ -2760,7 +3189,7 @@ A message for `signMessage`: UTF-8 text, or bytes given as hex or as a `Uint8Arr
 
 ### KmsTransactionSerializer
 
-> **KmsTransactionSerializer** = \{ `serialize`: `unknown`; \}\[`"serialize"`\]
+> **KmsTransactionSerializer** = \{ `serialize`(`transaction`: [`KmsTransactionRequest`](#kmstransactionrequest)): `unknown`; \}\[`"serialize"`\]
 
 A chain's transaction serializer, as viem passes it. Written as a method type, so that viem's
 serializers, whose parameter is viem's own transaction type, are assignable to it.

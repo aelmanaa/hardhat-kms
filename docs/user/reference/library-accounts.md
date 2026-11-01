@@ -98,7 +98,7 @@ console.log(authorization);
 
 `getAccount` needs the `viem` package in the project. viem is an optional peer dependency of hardhat-kms: nothing else in the plugin loads it, and a project without it runs every task. Calling `getAccount` there fails with `connection.kms.getAccount needs the viem package, which could not be loaded`. The lowest viem version tested is 2.55.13, the floor of the peer range `^2.55.13`: earlier releases do not reset the account's nonce manager after every failed send, or can reset it for a send that never asked it for a nonce ([Sending](#sending)). Depending on the package manager and the project's own viem range, an install can leave viem below the range ([Package managers and the peer ranges](#package-managers-and-the-peer-ranges)), so `getAccount` checks viem's version too and refuses one below 2.55.13 with [`core.account.viem-too-old`](errors.md#library-accounts), before any KMS call. The check reads the viem that hardhat-kms resolves. In a workspace where the client's code resolves another, nested copy of viem, the check can pass while the client runs an older one; it is a best-effort check.
 
-`getAccount` asks the KMS for the key's public key once, which also checks the key's `address` pin. Each signing method of the account then asks the KMS for a signature and verifies it. That is usually one signing request; retries can add more ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)).
+`getAccount` asks the KMS for the key's public key once, which also checks the key's `address` pin. A Turnkey key is the exception: Turnkey returns only the account's address, so `getAccount` fails with `core.signer.address-only` until the key has signed once in the run. Sign once first, for example a message or a transaction, then call `getAccount`; or sign an EIP-7702 authorization with [`kms sign-auth`](tasks.md#kms-sign-auth). See [Set up a Turnkey wallet account](../guides/turnkey-setup.md#7-check-that-the-key-signs). Each signing method of the account then asks the KMS for a signature and verifies it. That is usually one signing request; retries can add more ([How many sign requests one call can send](../explanation/security-model.md#how-many-sign-requests-one-call-can-send)).
 
 The account belongs to its connection. After `connection.close()`, `getAccount` and every method of the accounts it returned refuse, before any KMS call, with `the connection to network … is closed`.
 
@@ -136,11 +136,13 @@ Measured with Hardhat 3.18.0, Node 24.16.0 and npm 11.15.0; CI repeats the insta
 
 ## Options
 
-| Option                        | Default | Effect                                                                                                                                                             |
-| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `rawSign`                     | `false` | Adds `sign({ hash })`, which signs a 32-byte digest as it is. A warning is printed each time such an account is made.                                              |
-| `allowChainZeroAuthorization` | `false` | Lets `signAuthorization` sign for chain 0. A chain-0 authorization is valid on every chain where the account's nonce matches, as `kms sign-auth --force` signs it. |
-| `signal`                      | none    | A Node.js `AbortSignal` that cancels the account's KMS calls when it aborts ([Cancelling with a signal](#cancelling-with-a-signal)).                               |
+| Option                        | Default | Effect                                                                                                                                                                        |
+| ----------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rawSign`                     | `false` | Adds `sign({ hash })`, which signs a 32-byte digest as it is. Needs `allowRawDigests: true` on the key in the config. A warning is printed each time such an account is made. |
+| `allowChainZeroAuthorization` | `false` | Lets `signAuthorization` sign for chain 0. A chain-0 authorization is valid on every chain where the account's nonce matches, as `kms sign-auth --force` signs it.            |
+| `signal`                      | none    | A Node.js `AbortSignal` that cancels the account's KMS calls when it aborts ([Cancelling with a signal](#cancelling-with-a-signal)).                                          |
+
+`rawSign` works only for a key with [`allowRawDigests: true`](configuration.md) in the Hardhat config. A raw digest can be the hash of a transaction, a permit or an EIP-7702 authorization of the account, and nothing in the 32 bytes tells the plugin which, so the opt-in sits on the key, where a reviewer of the config sees it, not in the code that asks for the account. For any other key, `getAccount` fails with [`core.account.raw-sign-not-allowed`](errors.md#library-accounts) before it signs anything. When the config alone shows that no key at the address opts in, it fails before any KMS call; otherwise it may first read the public keys of keys without an `address` pin, to find the account's key. A key from `--kms` has no config, so it never gets `sign`.
 
 Any other key in the options object is refused, so that a misspelled option is not silently ignored. Only the object's own properties count: an option inherited from a prototype, such as one a prototype-pollution bug sets on `Object.prototype`, is ignored.
 
@@ -162,19 +164,23 @@ Outside viem's types, the digests can differ. A string `domain.chainId`, such as
 
 ## What is refused before any KMS call
 
-| Request                                                                                                                    | Error                                                                                                         |
-| -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| A transaction without `chainId`, or for another chain than the connection's                                                | `the transaction has no chainId…`, `the transaction is for chain …, but network … is chain …`                 |
-| A blob transaction (type 3), by `type` or by its blob fields                                                               | `blob transactions (EIP-4844) cannot be signed with KMS accounts…`                                            |
-| Another `type`, such as a chain's deposit type                                                                             | `transaction type … is not signed…`                                                                           |
-| A transaction that viem's serializer, or the chain serializer viem passes, encodes differently from the plugin, or refuses | `… encodes the transaction differently from hardhat-kms, so it was not signed`, `… failed on the transaction` |
-| An authorization for chain 0 without `allowChainZeroAuthorization`                                                         | `an authorization for chain 0 is valid on every chain…`                                                       |
-| An authorization for another chain than the connection's                                                                   | `the authorization is for chain …, but network … is chain …`                                                  |
-| Typed data for another chain, without `kms.allowCrossChainTypedData`                                                       | `the typed data is for chain …, but network … is chain …`                                                     |
-| A value of a form viem never passes                                                                                        | `… must be …`                                                                                                 |
-| Any call after the `signal` given to `getAccount` aborted                                                                  | `the signal given to getAccount has aborted…`                                                                 |
+| Request                                                                                                                    | Error                                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| A transaction without `chainId`, or for another chain than the connection's                                                | `the transaction has no chainId…`, `the transaction is for chain …, but network … is chain …`                  |
+| A blob transaction (type 3), by `type` or by its blob fields                                                               | `blob transactions (EIP-4844) cannot be signed with KMS accounts…`                                             |
+| Another `type`, such as a chain's deposit type                                                                             | `transaction type … is not signed…`                                                                            |
+| A transaction that viem's serializer, or the chain serializer viem passes, encodes differently from the plugin, or refuses | `… encodes the transaction differently from hardhat-kms, so it was not signed`, `… failed on the transaction`  |
+| An authorization for chain 0 without `allowChainZeroAuthorization`                                                         | `an authorization for chain 0 is valid on every chain…`                                                        |
+| An authorization for another chain than the connection's                                                                   | `the authorization is for chain …, but network … is chain …`                                                   |
+| An authorization, or a transaction's self-authorization, whose delegate the key's `allowedDelegates` does not allow        | `key … may not delegate to … on chain …`, `authorizationList[…] is signed by the sender and delegates it to …` |
+| A delegate whose entry pins a `codeHash` that its code on the connection's node does not match, or that has no code        | `the code of delegate … has hash …`, `delegate … has no code on chain …`                                       |
+| Typed data for another chain, without `kms.allowCrossChainTypedData`                                                       | `the typed data is for chain …, but network … is chain …`                                                      |
+| A value of a form viem never passes                                                                                        | `… must be …`                                                                                                  |
+| Any call after the `signal` given to `getAccount` aborted                                                                  | `the signal given to getAccount has aborted…`                                                                  |
 
 Each error is listed with its cause and fix in the [errors reference](errors.md#library-accounts).
+
+The `allowedDelegates` checks follow [Limit EIP-7702 delegates](configuration.md#limit-eip-7702-delegates). `allowChainZeroAuthorization` does not widen the list: a chain-0 authorization still needs an entry with `chains: "all"`. A pinned delegate's code is read with `eth_getCode` on the account's connection, and for a chain-0 authorization a warning says it was checked on that chain only. The zero address always passes. Self-authorizations in `signTransaction` are the authorizations that recover to the account; authorizations signed by other accounts are not checked. These errors are listed in the [errors reference](errors.md#eip-7702-delegates).
 
 ## Cancelling with a signal
 
@@ -202,7 +208,7 @@ When the signal aborts:
 - After that, every method of the account, and `getAccount` called with the same signal, refuses before any KMS call with `the signal given to getAccount has aborted` ([`core.account.cancelled`](errors.md#library-accounts)). `nonceManager.consume` and `get` refuse too, so no nonce is reserved. A `consume` that is waiting for the key's send lock stops waiting. To sign again, call `getAccount` with a new signal.
 - A `sendTransaction` whose transaction the account has not signed yet fails before its broadcast, and viem's `reset` then ends the nonce's hold, so the plugin's next send from the key does not wait for it. The reset after a refused `consume` ends no other send's hold. Once the account has returned the signed transaction, the abort does not stop viem from broadcasting it.
 
-The abort stops the plugin's wait, not the KMS's work. A sign request that already reached the KMS can still be signed there and show in the key's audit log, as after a timeout ([When a KMS call times out](../explanation/security-model.md#when-a-kms-call-times-out)). The key's public key lookup is shared by every caller of the key, so an abort during `getAccount` only stops that caller's wait; the lookup itself runs on, bounded by `timeoutMs`.
+The abort stops the plugin's wait, not the KMS's work. A sign request that already reached the KMS can still be signed there and show in the key's audit log, as after a timeout ([When a KMS call times out](../explanation/security-model.md#when-a-kms-call-times-out)). For a Turnkey key that signs with `sign_transaction`, Turnkey can still complete the transaction and keep it where every user of the organization can broadcast it, so `signTransaction` then fails with `core.signer.transaction-outstanding`, which names the nonce and the activity, and the account's sends through its connection skip that nonce, even after viem's `reset` ([When Turnkey does not answer in time](../guides/turnkey-setup.md#when-turnkey-does-not-answer-in-time)). The key's public key lookup is shared by every caller of the key, so an abort during `getAccount` only stops that caller's wait; the lookup itself runs on, bounded by `timeoutMs`.
 
 Hardhat's `provider.request` takes no signal, so requests through `connection.provider`, such as `eth_sendTransaction` from a KMS account, cannot be cancelled this way. They stay bounded by `timeoutMs`.
 
@@ -295,7 +301,20 @@ await sponsor.sendTransaction({ authorizationList: [authorization], to: authorit
 
 The sponsor can also be a key from a config variable in the network's `accounts`, such as `accounts: [configVariable("SPONSOR_KEY")]`. Never put a private key in the code: the well-known keys of Hardhat's test accounts are drained on public networks as soon as they are funded.
 
-A Coinbase smart account needs `sign` from its owner, so its owner needs `rawSign`:
+A Coinbase smart account needs `sign` from its owner, so its owner needs `rawSign`, and its key needs `allowRawDigests: true` in the config:
+
+<!-- docs-check: skip -->
+
+```ts
+owner: {
+  provider: "aws",
+  keyId: "alias/smart-account-owner",
+  address: "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826",
+  allowRawDigests: true,
+},
+```
+
+Then:
 
 ```ts
 import "hardhat-kms";
@@ -315,6 +334,6 @@ const smartAccount = await toCoinbaseSmartAccount({
 });
 ```
 
-With `rawSign`, the owner signs any 32-byte digest it is given, which can be the hash of a transaction or a permit for any chain. Ask for it only for an owner that needs it.
+With `rawSign`, the owner signs any 32-byte digest it is given, which can be the hash of a transaction, a permit for any chain, or an EIP-7702 authorization that delegates the owner's account. Set `allowRawDigests` and ask for `rawSign` only for an owner that needs them, and use a key for it that holds no funds or roles of its own.
 
 viem types the owner of `toSimple7702SmartAccount` as a `PrivateKeyAccount`, whose `source` is `"privateKey"`, so no KMS account matches that type, with or without `rawSign`. The function calls only the owner's `address`, `signMessage`, `signTypedData` and `signAuthorization`, so the account works there, but the call site needs a cast, such as `owner: account as unknown as PrivateKeyAccount`. Making the account a `PrivateKeyAccount` is not a goal: it would claim a key the account does not hold.
