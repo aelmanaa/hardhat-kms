@@ -2,6 +2,7 @@
 [![CI](https://github.com/aelmanaa/hardhat-kms/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aelmanaa/hardhat-kms/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/aelmanaa/hardhat-kms)](https://github.com/aelmanaa/hardhat-kms/blob/main/LICENSE)
 [![node](https://img.shields.io/node/v/hardhat-kms)](https://aelmanaa.github.io/hardhat-kms/user/reference/support)
+[![hardhat](https://hardhat.org/hardhat-plugin-badge.svg)](https://hardhat.org)
 
 # hardhat-kms
 
