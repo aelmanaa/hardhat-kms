@@ -1,5 +1,35 @@
 # hardhat-kms
 
+## 1.4.0
+
+### Minor Changes
+
+- [#616](https://github.com/aelmanaa/hardhat-kms/pull/616) [`74d2388`](https://github.com/aelmanaa/hardhat-kms/commit/74d23886a1a1a78bec325adc2f1fcc104c644588) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `kms accounts` now shows what each key may delegate its account to with an EIP-7702 authorization. When any listed key has `allowedDelegates`, a `DELEGATES` column shows `any`, `revoke only` (an empty list, which allows only the zero address) or `N listed`, and `--json` adds `allowedDelegates`, the number of entries, to those keys. A key with `allowRawDigests: true` gets a line under its row saying so, and `allowRawDigests: true` in the JSON. Entries for one KMS key that differ in either setting are no longer merged into one row. The configuration reference now says how to lock a deployer or admin key against any delegation with `allowedDelegates: []`, and the key rotation guide how to retire authorizations a key signed that nobody sent.
+  
+  Issue: [#564](https://github.com/aelmanaa/hardhat-kms/issues/564)
+
+### Patch Changes
+
+- [#606](https://github.com/aelmanaa/hardhat-kms/pull/606) [`b7446c7`](https://github.com/aelmanaa/hardhat-kms/commit/b7446c7d5c105ef338013a95367a64dceeb9bec8) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `eth_sendTransaction`, `eth_signTransaction` and `kms sign-tx` now refuse an `authorizationList` without `to`, and an empty `authorizationList`, before the fee and gas requests, with `core.tx.authorization-no-to` and `core.tx.authorization-list-empty`. `kms sign-tx` refuses them before it opens the key. Before, such a request failed late with micro-eth-signer's `fields had validation errors`, or at `eth_estimateGas` with the node's message. Any other field micro-eth-signer refuses now fails with `core.tx.invalid-fields`, which names each field and its reason.
+  
+  Issue: [#586](https://github.com/aelmanaa/hardhat-kms/issues/586)
+
+- [#609](https://github.com/aelmanaa/hardhat-kms/pull/609) [`a9a4a45`](https://github.com/aelmanaa/hardhat-kms/commit/a9a4a458236a07c2ec0e4fd3c850052681d11554) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `eth_sendTransaction`, `eth_signTransaction` and `kms sign-tx` now refuse an `authorizationList` that is not an array, an item of it that is not an object, and a `to` beside it that is not a 20-byte hex address, before the fee and gas requests, with `core.tx.authorization-list-not-array`, `core.tx.authorization-not-object` and `core.tx.authorization-to-not-address`. Before, such a request reached the node's fee and gas requests and then failed with a schema error. `kms sign-tx` refuses them, and `authorizationList: null`, before it opens the key.
+  
+  Issue: [#607](https://github.com/aelmanaa/hardhat-kms/issues/607)
+
+- [#615](https://github.com/aelmanaa/hardhat-kms/pull/615) [`0cb9268`](https://github.com/aelmanaa/hardhat-kms/commit/0cb92683b9ec2701e11326a7d7522a6cded0d3d1) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A transaction with `data: "0x"` is now signed with no calldata, and `personal_sign` or `eth_sign` with the message `"0x"` signs the empty message. Before, when the project's `@nomicfoundation/hardhat-zod-utils` used an `@nomicfoundation/hardhat-utils` release older than 5.1.1, the plugin read `"0x"` as one zero byte: it signed calldata `0x00`, so a contract ran its `fallback` function instead of `receive`, or a one-byte message. Which `hardhat-utils` copy is installed depends on the lockfile, so the plugin now decodes these fields itself. `eth_sendTransaction`, `eth_signTransaction` and `kms sign-tx` are fixed.
+  
+  Issue: [#614](https://github.com/aelmanaa/hardhat-kms/issues/614)
+
+- [#613](https://github.com/aelmanaa/hardhat-kms/pull/613) [`efa27ca`](https://github.com/aelmanaa/hardhat-kms/commit/efa27cab01f0c0c7d16e0aade3c957f63cb1a2f3) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `hardhat-kms` now accepts `@nomicfoundation/hardhat-utils` 5 as well as 4 (`^4.3.0 || ^5.0.0`), so a project on Hardhat 3.20 or later can install one copy of it instead of both majors. The `@nomicfoundation/hardhat-zod-utils` floor rises from 3.0.5 to 3.0.7, since earlier releases have no `type` in the transaction request schema that `kms sign-tx` and the transaction filler read. The `@nomicfoundation/hardhat-errors` range stays `^3.1.0`. Each floor, both majors of `hardhat-utils` included, is now tested before every release.
+  
+  Issue: [#587](https://github.com/aelmanaa/hardhat-kms/issues/587)
+
+- [#605](https://github.com/aelmanaa/hardhat-kms/pull/605) [`fa7b517`](https://github.com/aelmanaa/hardhat-kms/commit/fa7b517e28dbfa53168a49ef67638a17e314b39a) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `eth_sendTransaction`, `eth_signTransaction` and a library account's `signAuthorization` and `signTransaction` now refuse an EIP-7702 authorization from a `--kms` key that is the same KMS key as a config key with `allowedDelegates`, with `core.delegate.command-line-key`. The config key can be in `kms.keys` or in any network's `kmsAccounts`. Before, a connection compared `--kms` keys only with its own network's `kmsAccounts`, so a copy of a listed key from elsewhere in the config signed with no list. An authorization to the zero address still signs, as every list allows it.
+  
+  Issue: [#593](https://github.com/aelmanaa/hardhat-kms/issues/593)
+
 ## 1.3.0
 
 ### Minor Changes
