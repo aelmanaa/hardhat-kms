@@ -4,7 +4,7 @@ The AWS KMS provider for [hardhat-kms](https://github.com/aelmanaa/hardhat-kms):
 
 Works with AWS KMS. Not affiliated with or endorsed by Amazon Web Services.
 
-0.9.0 is the release candidate for 1.0.0; install it to test. Until 1.0.0 is published, use it with test keys on testnets.
+Stable since 1.0.0. Install the same version as `hardhat-kms`: the packages are released together.
 
 ## Key type
 

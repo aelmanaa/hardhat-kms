@@ -18,7 +18,7 @@ Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated
 
 ## Release status
 
-Versions below 1.0.0 are release candidates; use them with test keys on testnets. The packages support Hardhat ^3.18.0 and Node.js 22.13.0 or later. [Release channels and versioning](docs/user/explanation/versioning.md) says what a version promises.
+Stable since 1.0.0: npm `latest` holds the current release, and `beta` holds the next one while it is checked. The packages support Hardhat ^3.18.0 and Node.js 22.13.0 or later. [Release channels and versioning](docs/user/explanation/versioning.md) says what a version promises.
 
 ## Install
 
