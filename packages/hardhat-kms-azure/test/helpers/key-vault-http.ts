@@ -41,6 +41,11 @@ export interface KeyVaultHttpOptions {
   highS?: boolean;
   /** Return this many bytes instead of the 64-byte signature. */
   signatureLength?: number;
+  /**
+   * Answer authenticated requests with this status and JSON body: all of them, or only reads
+   * (`GET`) or only signatures (`POST`).
+   */
+  failWith?: { status: number; body: unknown; method?: "GET" | "POST" };
 }
 
 /** The fake vault and what it received. */
@@ -116,6 +121,12 @@ export function keyVaultHttp(options: KeyVaultHttpOptions): KeyVaultHttp {
       }
       if (authorization !== `Bearer ${TOKEN}`) {
         return respond(request, 401, { error: { code: "Unauthorized", message: "bad token" } });
+      }
+      if (
+        options.failWith !== undefined &&
+        (options.failWith.method === undefined || options.failWith.method === request.method)
+      ) {
+        return respond(request, options.failWith.status, options.failWith.body);
       }
       const [, collection, name, version, action] = url.pathname.split("/");
       if (collection !== "keys" || name !== options.keyName) {

@@ -20,6 +20,7 @@ import type {
 } from "hardhat-kms/types";
 
 import { ERRORS } from "./error-catalog.ts";
+import { errorCodes, field, SAFE_CODE } from "./error-codes.ts";
 
 /** Key Vault's name for ECDSA over secp256k1 on a pre-hashed 32-byte digest. */
 const ALGORITHM = "ES256K";
@@ -90,7 +91,6 @@ type CryptographyClient<Key extends KeyVaultKeyLike> = InstanceType<
 const NO_CREDENTIAL = new Set(["CredentialUnavailableError", "AggregateAuthenticationError"]);
 /** Error names of @azure/identity when a configured credential source could not sign in. */
 const FAILED_CREDENTIAL = new Set(["AuthenticationError", "AuthenticationRequiredError"]);
-const SAFE_CODE = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
 
 /** A short value from a response, or a placeholder when it is missing or looks unusual. */
 function shown(value: unknown): string {
@@ -337,18 +337,42 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
         ? this.#error(operation, ERRORS.unreachable, {})
         : this.#error(operation, ERRORS.unreachableCode, { code: shownCode });
     }
-    // The status, then Key Vault's error code when it has a safe one, such as "403 Forbidden".
-    const answer = { status: `${status}${shownCode === undefined ? "" : ` ${shownCode}`}` };
+    // Key Vault's inner error codes, which @azure/keyvault-keys puts in `details.error.innerError`.
+    const innerCodes =
+      shownCode === undefined
+        ? []
+        : errorCodes(
+            field(field(Reflect.get(error, "details"), "error"), "innerError"),
+            "innerError",
+          );
+    // The status, then Key Vault's error codes as far as they are safe, such as "403 Forbidden" or
+    // "403 Forbidden/ForbiddenByRbac".
+    const codes = shownCode === undefined ? "" : ` ${[shownCode, ...innerCodes].join("/")}`;
+    const answer = { status: `${status}${codes}` };
     if (status === 401) {
       return this.#error(operation, ERRORS.unauthorized, answer);
     }
     if (status === 403) {
-      return this.#error(operation, ERRORS.forbidden, answer);
+      return this.#forbidden(operation, innerCodes, answer);
     }
     if (status === 404) {
       return this.#error(operation, ERRORS.notFound, answer);
     }
     return this.#error(operation, ERRORS.answered, answer);
+  }
+
+  /** Explains a 403 by Key Vault's inner error code where the fix differs from the generic one. */
+  #forbidden(operation: string, innerCodes: string[], answer: { status: string }): Error {
+    if (innerCodes.includes("ForbiddenByRbac")) {
+      return this.#error(operation, ERRORS.forbiddenByRbac, answer);
+    }
+    if (innerCodes.includes("AccessDenied")) {
+      return this.#error(operation, ERRORS.forbiddenByAccessPolicy, answer);
+    }
+    if (innerCodes.includes("ForbiddenByFirewall")) {
+      return this.#error(operation, ERRORS.forbiddenByFirewall, answer);
+    }
+    return this.#error(operation, ERRORS.forbidden, answer);
   }
 
   #error<Template extends string>(
