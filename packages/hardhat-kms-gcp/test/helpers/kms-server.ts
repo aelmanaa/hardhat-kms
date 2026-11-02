@@ -26,8 +26,15 @@ export interface ServerFaults {
   corruptDigest: number;
   /** Return these bytes instead of a DER signature, with a matching checksum. */
   signature?: Uint8Array | undefined;
-  /** Answer every request with this error, as Cloud KMS reports one over REST. */
-  error?: { http: number; status: string; message: string } | undefined;
+  /**
+   * Answer every request with this error, as Cloud KMS reports one over REST, with `details`
+   * such as a `google.rpc.ErrorInfo` when given.
+   */
+  error?:
+    | { http: number; status: string; message: string; details?: unknown[] | undefined }
+    | undefined;
+  /** Answer every request with this body, not a Google error, as a proxy or firewall would. */
+  page?: { http: number; contentType: string; body: string } | undefined;
 }
 
 /** A running local KMS endpoint. */
@@ -69,9 +76,17 @@ export async function startKmsServer(secretKey: Uint8Array): Promise<KmsServer> 
       const body = typeof parsed === "object" && parsed !== null ? { ...parsed } : {};
       const path = new URL(request.url ?? "/", "http://localhost").pathname;
       requests.push({ method: request.method ?? "", path, headers: request.headers, body });
+      if (faults.page !== undefined) {
+        const { http, contentType, body: page } = faults.page;
+        response.writeHead(http, { "content-type": contentType });
+        response.end(page);
+        return;
+      }
       if (faults.error !== undefined) {
-        const { http, status, message } = faults.error;
-        send(response, http, { error: { code: http, message, status } });
+        const { http, status, message, details } = faults.error;
+        send(response, http, {
+          error: { code: http, message, status, ...(details === undefined ? {} : { details }) },
+        });
         return;
       }
       const publicKey = PUBLIC_KEY.exec(path);

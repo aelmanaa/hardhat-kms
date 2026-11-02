@@ -173,6 +173,23 @@ async function withCredentialsFile(
   }
 }
 
+/**
+ * The details of a 403 as Google sends it: the ErrorInfo's metadata and the Help link name the
+ * consumer project, which no message may show.
+ */
+const permissionDeniedDetails = (reason: string): unknown[] => [
+  {
+    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+    reason,
+    domain: "googleapis.com",
+    metadata: { consumer: "projects/secret-project", service: "cloudkms.googleapis.com" },
+  },
+  {
+    "@type": "type.googleapis.com/google.rpc.Help",
+    links: [{ description: "x", url: "https://console.cloud.google.com?project=secret-project" }],
+  },
+];
+
 describe("@hardhat-kms/gcp plugin", () => {
   before(async () => {
     server = await startKmsServer(secretKey);
@@ -459,6 +476,130 @@ describe("@hardhat-kms/gcp plugin", () => {
             return true;
           },
         );
+        await adapter.close?.();
+      }
+    } finally {
+      server.faults.error = undefined;
+    }
+  });
+
+  it("names the key version state Cloud KMS gives with FAILED_PRECONDITION", async () => {
+    const hre = await runtime();
+    const name = "projects/secret-project/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1";
+    const cases: Array<[string, string]> = [
+      [
+        `The request cannot be fulfilled. Resource ${name} has value PENDING_GENERATION in field crypto_key_version.state.`,
+        "the key version is still being generated (FAILED_PRECONDITION, PENDING_GENERATION). Retry in a minute",
+      ],
+      [
+        `The request cannot be fulfilled. Resource ${name} has value DISABLED in field crypto_key_version.state.`,
+        "its state is DISABLED, and only an ENABLED version signs (FAILED_PRECONDITION)",
+      ],
+      [
+        `${name} is not enabled, current state is: DESTROY_SCHEDULED.`,
+        "its state is DESTROY_SCHEDULED, and only an ENABLED version signs (FAILED_PRECONDITION)",
+      ],
+      [
+        `Resource ${name} has crypto_key_version.state: DESTROYED, but ENABLED is required.`,
+        "its state is DESTROYED, and only an ENABLED version signs (FAILED_PRECONDITION)",
+      ],
+      [`${name} cannot be used`, "may be disabled, destroyed or scheduled for destruction"],
+    ];
+    try {
+      for (const [serverMessage, message] of cases) {
+        server.faults.error = { http: 400, status: "FAILED_PRECONDITION", message: serverMessage };
+        const adapter = await createAdapter(hre, "deployer");
+        await assert.rejects(
+          adapter.getPublicKey?.(signContext()) ?? Promise.resolve(),
+          (error) => {
+            assert.ok(error instanceof Error);
+            assert.ok(error.message.includes(message), error.message);
+            assert.ok(!error.message.includes("secret-project"), error.message);
+            return true;
+          },
+        );
+        await adapter.close?.();
+      }
+    } finally {
+      server.faults.error = undefined;
+    }
+  });
+
+  it("does not take a proxy's 4xx page for Cloud KMS's FAILED_PRECONDITION", async () => {
+    const hre = await runtime();
+    const cases = [
+      { http: 412, contentType: "text/html", body: "<html>secret-proxy blocked DISABLED</html>" },
+      { http: 407, contentType: "text/html", body: "<html>secret-proxy needs a login</html>" },
+      { http: 418, contentType: "text/plain", body: "" },
+    ];
+    try {
+      for (const page of cases) {
+        server.faults.page = page;
+        const adapter = await createAdapter(hre, "deployer");
+        await assert.rejects(
+          adapter.getPublicKey?.(signContext()) ?? Promise.resolve(),
+          (error) => {
+            assert.ok(error instanceof Error);
+            assert.ok(
+              error.message.includes(
+                `the request was refused with HTTP ${page.http}, by something other than Google Cloud KMS`,
+              ),
+              error.message,
+            );
+            assert.ok(!error.message.includes("secret-proxy"), error.message);
+            assert.ok(!error.message.includes("FAILED_PRECONDITION"), error.message);
+            return true;
+          },
+        );
+        await adapter.close?.();
+      }
+    } finally {
+      server.faults.page = undefined;
+    }
+  });
+
+  it("names a disabled API or an unusable quota project from the 403's ErrorInfo reason", async () => {
+    const hre = await runtime();
+    const cases: Array<[unknown[] | undefined, string]> = [
+      [
+        permissionDeniedDetails("SERVICE_DISABLED"),
+        "the Cloud KMS API is not enabled in the project the request is billed to (PERMISSION_DENIED, SERVICE_DISABLED). Enable it with `gcloud services enable cloudkms.googleapis.com --project p`",
+      ],
+      [
+        permissionDeniedDetails("USER_PROJECT_DENIED"),
+        "the quota project of the Google Cloud credentials cannot be used (PERMISSION_DENIED, USER_PROJECT_DENIED). Pick another with `gcloud auth application-default set-quota-project`",
+      ],
+      [
+        permissionDeniedDetails("CONSUMER_INVALID"),
+        "the quota project of the Google Cloud credentials cannot be used (PERMISSION_DENIED, CONSUMER_INVALID)",
+      ],
+      // Any other reason, or none, keeps the IAM hint.
+      [
+        permissionDeniedDetails("IAM_PERMISSION_DENIED"),
+        "permission denied (PERMISSION_DENIED). The caller needs",
+      ],
+      [undefined, "permission denied (PERMISSION_DENIED). The caller needs"],
+    ];
+    try {
+      for (const [errorDetails, message] of cases) {
+        server.faults.error = {
+          http: 403,
+          status: "PERMISSION_DENIED",
+          message: "Cloud KMS API has not been used in project secret-project before",
+          details: errorDetails,
+        };
+        const adapter = await createAdapter(hre, "deployer");
+        for (const call of [
+          () => adapter.getPublicKey?.(signContext()),
+          () => adapter.signDigest?.({ digest: new Uint8Array(32) }, signContext()),
+        ]) {
+          await assert.rejects(call() ?? Promise.resolve(), (error) => {
+            assert.ok(error instanceof Error);
+            assert.ok(error.message.includes(message), error.message);
+            assert.ok(!error.message.includes("secret-project"), error.message);
+            return true;
+          });
+        }
         await adapter.close?.();
       }
     } finally {

@@ -43,6 +43,19 @@ The plugin builds its own chain rather than `DefaultAzureCredential`, in the ord
 
 `AZURE_CLIENT_ID` selects a user-assigned managed identity. The managed identity has 10 s to return a token, after which it counts as unavailable, and each of its HTTP requests times out after 3 s. @azure/identity does not pass an abort signal on to those requests, so the request timeout is what ends one to an endpoint that never answers and lets `hardhat run` exit. Where the managed identity refuses a client id (Azure Cloud Shell, Service Fabric), it is left out of the chain. A source that is not configured is skipped; a configured source that fails, such as a service principal with a wrong secret, stops the chain with its error. All Azure keys of a run share the chain and its tokens, so `az login` users see one `az` call per run, not one per key. See [Set up an Azure Key Vault key](../guides/azure-key-vault-setup.md#3-sign-in).
 
+When no source returns a token, `azure.credential.none` gives one reason per source, in the order above, sources left out of the chain included. On a laptop where `az` is installed but not signed in, it reads:
+
+```text
+no Azure credential returned a token (AggregateAuthenticationError). By source: service principal
+from the environment: not set up, it needs AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET
+or AZURE_CLIENT_CERTIFICATE_PATH; workload identity: not set up, it needs AZURE_TENANT_ID,
+AZURE_CLIENT_ID and AZURE_FEDERATED_TOKEN_FILE; Azure CLI: not signed in, run `az login`; Azure
+Developer CLI: not installed; managed identity: its endpoint gave no token, as happens outside Azure.
+Run `az login`, or set AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET for a service principal
+```
+
+A source is not set up or left out, not installed, not signed in, needs a new sign-in for a claims challenge (with the `az login --claims-challenge … --scope …` or `azd auth login` command that answers it), or gets no token from its managed identity endpoint. The plugin reads these from the fixed messages of @azure/identity. Any other failure is reported as a reason hardhat-kms does not show, because a source's own text and the output of `az` or `azd` can name the tenant; set `AZURE_LOG_LEVEL=info` to see @azure/identity's log. The reasons are listed under [Errors](errors.md), as `azure.credential.source-*`.
+
 **No username and password sign-in.** With `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_USERNAME` and `AZURE_PASSWORD` set and no secret or certificate, `EnvironmentCredential` would sign in as that user with the password alone. That sign-in cannot do multifactor authentication, Microsoft has deprecated it, and with it a leaked password would be enough to sign. The plugin refuses it: signing and `kms history` fail with `azure.credential.username-password` before any source is asked for a token, even when `az login` or workload identity would have worked. The message names the variables, never their values. Unset `AZURE_USERNAME` and `AZURE_PASSWORD`, or set a secret or certificate.
 
 In every other case the plugin ignores `AZURE_USERNAME` and `AZURE_PASSWORD` and writes one `hardhat:kms:azure` debug line that names them. Such cases include a stray `AZURE_USERNAME` next to `az login`, and both variables next to a client secret. The rest of the chain works as described above.

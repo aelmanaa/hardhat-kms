@@ -23,9 +23,14 @@ export interface KmsServer {
  * protocol the real SDK speaks, for one secp256k1 key.
  *
  * @param secretKey - The key's private key.
+ * @param errorType - When set, every call fails with this AWS error type, as AWS KMS reports a
+ *   disabled key or a refused call, with a message that names the key.
  * @returns The server; close it when done.
  */
-export async function startKmsServer(secretKey: Uint8Array): Promise<KmsServer> {
+export async function startKmsServer(
+  secretKey: Uint8Array,
+  errorType?: string,
+): Promise<KmsServer> {
   const requests: KmsRequest[] = [];
   const server = createServer((request, response) => {
     const chunks: Buffer[] = [];
@@ -36,6 +41,11 @@ export async function startKmsServer(secretKey: Uint8Array): Promise<KmsServer> 
       requests.push({ headers: request.headers, body });
       const target = request.headers["x-amz-target"];
       let answer: Record<string, unknown>;
+      if (errorType !== undefined) {
+        response.writeHead(400, { "content-type": "application/x-amz-json-1.1" });
+        response.end(JSON.stringify({ __type: errorType, message: `${errorType} for ${KEY_ARN}` }));
+        return;
+      }
       if (target === "TrentService.GetPublicKey") {
         answer = {
           KeyId: KEY_ARN,

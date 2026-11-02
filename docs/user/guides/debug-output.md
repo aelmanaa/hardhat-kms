@@ -42,3 +42,18 @@ It never contains:
 - a provider's error messages, which can carry request details. Only the error class name is shown, such as `TypeError`.
 
 A test runs the plugin with `DEBUG=hardhat:kms:*` and secrets planted in configuration variables and in a provider's error message, and fails if any secret appears in the output.
+
+## Google Cloud's own logs
+
+`GOOGLE_SDK_NODE_LOGGING` is not the plugin's debug output, and you do not need it to see what the plugin does. It turns on the logs of Google's client libraries, which print to standard error in full:
+
+- `@google-cloud/kms` logs under `kms` every `getPublicKey` and `asymmetricSign` request and response, with the full key version name and the digest.
+- `google-auth-library` logs under `auth` the URL of every request it sends, which for Cloud KMS holds the key version name, and the body of every response, including the access token of each token refresh or token exchange and the log entries `kms history` reads.
+
+Its value is a comma-separated list of these namespaces: `kms`, `auth`, `*` or `all` for every one. The libraries ignore case, and a value that names neither, such as `true`, turns on nothing. When the value turns on `kms` or `auth`, the plugin prints this once, the first time a Google Cloud key is used or `kms history` reads one, and does not change the variable:
+
+```text
+hardhat-kms: GOOGLE_SDK_NODE_LOGGING is set, so Google's client libraries print every request and response on standard error: …
+```
+
+Unset it outside a local debugging session, and never set it in CI, whose logs others can read. An access token in a log lets anyone who reads it call Google Cloud as your identity until the token expires, about an hour later. The warning's entry is `gcp.debug.sdk-logging` in the [errors reference](../reference/errors.md).

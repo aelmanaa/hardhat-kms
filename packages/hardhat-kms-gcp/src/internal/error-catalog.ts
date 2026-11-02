@@ -157,8 +157,29 @@ export const ERRORS = {
     group: "Google Cloud KMS answers",
     template:
       "permission denied (PERMISSION_DENIED). The caller needs cloudkms.cryptoKeyVersions.viewPublicKey and cloudkms.cryptoKeyVersions.useToSign on the key, for example through roles/cloudkms.signer and roles/cloudkms.publicKeyViewer",
-    cause: "The identity lacks `viewPublicKey` or `useToSign` on this key.",
+    cause:
+      "The identity lacks `viewPublicKey` or `useToSign` on this key. A disabled Cloud KMS API or an unusable quota project has its own error, `gcp.status.service-disabled` or `gcp.status.quota-project`.",
     fix: "Grant the roles the message names on the key, as in the setup guide.",
+  },
+  serviceDisabled: {
+    id: "gcp.status.service-disabled",
+    kind: "error",
+    group: "Google Cloud KMS answers",
+    template:
+      "the Cloud KMS API is not enabled in the project the request is billed to (PERMISSION_DENIED, SERVICE_DISABLED). Enable it with `gcloud services enable cloudkms.googleapis.com --project {project}`, or in the quota project of the credentials if they set one",
+    cause:
+      "Cloud KMS refused the call because its API is not enabled in the project the request is billed to: the key's project, or the quota project the credentials name, such as the one `gcloud auth application-default login` writes. Only the reason is read from the answer: its metadata names that project.",
+    fix: "Run the `gcloud services enable` command the message gives. If the credentials name a quota project, enable the API there, or pick another one with `gcloud auth application-default set-quota-project`.",
+  },
+  quotaProject: {
+    id: "gcp.status.quota-project",
+    kind: "error",
+    group: "Google Cloud KMS answers",
+    template:
+      "the quota project of the Google Cloud credentials cannot be used (PERMISSION_DENIED, {reason}). Pick another with `gcloud auth application-default set-quota-project`, or grant the caller roles/serviceusage.serviceUsageConsumer on it",
+    cause:
+      "The credentials name a quota project, the project the request is billed to, that Cloud KMS cannot use: the caller lacks `serviceusage.services.use` on it (`USER_PROJECT_DENIED`), or it does not exist or was deleted (`CONSUMER_INVALID`). `gcloud auth application-default login` writes the quota project into the credentials file; `GOOGLE_CLOUD_QUOTA_PROJECT` overrides it. Only the reason is read from the answer: its metadata names that project.",
+    fix: "Run `gcloud auth application-default set-quota-project` with a project the caller can use, sign in again with `gcloud auth application-default login --disable-quota-project` to name none, or grant the caller `roles/serviceusage.serviceUsageConsumer` on the quota project. Check that `GOOGLE_CLOUD_QUOTA_PROJECT` is not set to another project.",
   },
   failedPrecondition: {
     id: "gcp.status.failed-precondition",
@@ -166,8 +187,39 @@ export const ERRORS = {
     group: "Google Cloud KMS answers",
     template:
       "the key version cannot be used (FAILED_PRECONDITION). It may be disabled, destroyed or scheduled for destruction; enable it or configure another version",
-    cause: "The key version is disabled, scheduled for destruction or destroyed.",
-    fix: "Enable it with `gcloud kms keys versions enable`, restore it first with `gcloud kms keys versions restore`, or configure another version.",
+    cause:
+      "The key version is not `ENABLED`, and Cloud KMS's message names no state this plugin reads: it may be disabled, scheduled for destruction or destroyed.",
+    fix: "See its state with `gcloud kms keys versions describe`. Enable it with `gcloud kms keys versions enable`, restore it first with `gcloud kms keys versions restore`, or configure another version.",
+  },
+  keyVersionState: {
+    id: "gcp.status.key-version-state",
+    kind: "error",
+    group: "Google Cloud KMS answers",
+    template:
+      "the key version cannot be used: its state is {state}, and only an ENABLED version signs (FAILED_PRECONDITION). Enable or restore it, or configure another version",
+    cause:
+      "Cloud KMS refused the call because the key version is not `ENABLED`, and named its state, such as `DISABLED`, `DESTROY_SCHEDULED` or `DESTROYED`. Only the state name is shown.",
+    fix: "`DISABLED`: enable it with `gcloud kms keys versions enable`. `DESTROY_SCHEDULED`: restore it with `gcloud kms keys versions restore`, then enable it. `DESTROYED`, `GENERATION_FAILED` and the other states: configure another version.",
+  },
+  keyVersionPending: {
+    id: "gcp.status.key-version-pending",
+    kind: "error",
+    group: "Google Cloud KMS answers",
+    template:
+      "the key version is still being generated (FAILED_PRECONDITION, PENDING_GENERATION). Retry in a minute",
+    cause:
+      "The key version was created moments ago, and Cloud KMS is still generating its key material: an HSM key version can take a minute or so.",
+    fix: "Wait, then run again. `gcloud kms keys versions describe` shows `ENABLED` once it is ready.",
+  },
+  nonGoogleAnswer: {
+    id: "gcp.status.not-google",
+    kind: "error",
+    group: "Google Cloud KMS answers",
+    template:
+      "the request was refused with HTTP {status}, by something other than Google Cloud KMS: the answer is not a Google error. Check any proxy or firewall between this machine and Google Cloud",
+    cause:
+      "A 4xx answer whose body is not a Google API error, such as a proxy's or firewall's HTML page. The SDK reports such an answer as FAILED_PRECONDITION, which would read as a disabled key version. The answer's body is not shown.",
+    fix: "Check `HTTPS_PROXY` and any proxy, firewall or TLS-inspecting gateway in front of `cloudkms.googleapis.com`.",
   },
   unauthenticated: {
     id: "gcp.status.unauthenticated",
@@ -300,6 +352,16 @@ export const ERRORS = {
     cause:
       "The `entries.list` answer, or an `AsymmetricSign` entry in it, lacks a field such an answer always has. The reader fails rather than show part of the history as if it were all of it.",
     fix: "Run again; if it repeats, report it with the problem the message names.",
+  },
+  sdkLogging: {
+    id: "gcp.debug.sdk-logging",
+    kind: "warning",
+    group: "Debug output",
+    template:
+      "GOOGLE_SDK_NODE_LOGGING is set, so Google's client libraries print every request and response on standard error: Cloud KMS calls with the full key version name, the Cloud Logging entries kms history reads, and access tokens. Unset it outside a local debugging session; DEBUG=hardhat:kms:* shows the plugin's own steps without them",
+    cause:
+      "`GOOGLE_SDK_NODE_LOGGING` turns on the logs of @google-cloud/kms (namespace `kms`) and google-auth-library (namespace `auth`). Its value is a comma-separated list of namespaces, in which `*` matches any text and `all` alone matches every namespace. The warning is printed once per process: when a Google Cloud key's adapter is created and the value matches `kms` or `auth`, or when `kms history` reads a Google Cloud key and the value matches `auth`. `kms` logs each `getPublicKey` and `asymmetricSign` request and response; `auth` logs the body of every response google-auth-library receives, the access token of each token refresh or exchange included. The plugin does not change the variable.",
+    fix: "Unset `GOOGLE_SDK_NODE_LOGGING` outside a local debugging session, and never set it in CI, whose logs others can read. To see what the plugin does, use `DEBUG=hardhat:kms:*`, which prints no tokens and hides configuration-variable values.",
   },
   noPackageVersion: {
     id: "gcp.internal.no-package-version",
