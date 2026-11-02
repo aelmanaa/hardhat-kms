@@ -51,7 +51,7 @@ aws kms cancel-key-deletion --key-id <key id or ARN>
 aws kms enable-key --key-id <key id or ARN>
 ```
 
-`cancel-key-deletion` takes a key id or ARN, not an alias. While the key is pending deletion, Hardhat shows `the provider call failed (KMSInvalidStateException)`; between the cancel and the enable, it shows `the provider call failed (DisabledException)`.
+`cancel-key-deletion` takes a key id or ARN, not an alias. While the key is pending deletion, Hardhat shows `the key's state does not allow the call (KMSInvalidStateException)`; between the cancel and the enable, it shows `the key is disabled (DisabledException)`.
 
 Checked on 2026-10-01 on a throwaway `ECC_SECG_P256K1` key: signing failed with `KMSInvalidStateException` while the key was pending deletion, the key was `Disabled` after the cancel, signing failed with `DisabledException` until `enable-key`, and worked after it. A 6-day window was refused with `PendingWindowInDays must be between 7 and 30`.
 

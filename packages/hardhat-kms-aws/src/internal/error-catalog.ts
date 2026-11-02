@@ -98,6 +98,104 @@ export const ERRORS = {
       "The AWS SDK found no region for the key: the key id is not an ARN, and no region is set anywhere the SDK looks.",
     fix: "Set `region` on the key or `kms.defaults.aws.region`, set `AWS_REGION`, give the profile a region, or use a key ARN.",
   },
+  noCredentials: {
+    id: "aws.connect.no-credentials",
+    kind: "error",
+    group: "Connecting",
+    template:
+      "no AWS credentials were found. Sign in with `aws login` or `aws sso login`, set AWS_PROFILE or the key's `profile`, or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY",
+    cause:
+      "No source in the AWS SDK's default credential chain had credentials: no environment keys, no usable profile, no container or instance role. An `aws login` session whose token could not be refreshed also ends here.",
+    fix: "Sign in with `aws login` or `aws sso login` and set `AWS_PROFILE` or the key's `profile` to that profile, or set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. Check that the profile name is spelt as in `~/.aws/config`. See the AWS setup guide.",
+  },
+  ssoSession: {
+    id: "aws.connect.sso-session",
+    kind: "error",
+    group: "Connecting",
+    template:
+      "the AWS IAM Identity Center (SSO) session has expired or has not started. Run `aws sso login` with the profile the key uses",
+    cause:
+      "The profile signs in through IAM Identity Center, and its cached token is missing, expired, or cannot be refreshed.",
+    fix: "Run `aws sso login --profile <profile>` with the profile the key uses, then run the command again.",
+  },
+  loginSession: {
+    id: "aws.connect.login-session",
+    kind: "error",
+    group: "Connecting",
+    template:
+      "the `aws login` session has no usable token. Run `aws login` with the profile the key uses",
+    cause:
+      "The profile signs in with `aws login` (its `login_session` setting), and its cached token is missing, unreadable, or cannot be refreshed.",
+    fix: "Run `aws login --profile <profile>` with the profile the key uses, then run the command again.",
+  },
+  mfaRequired: {
+    id: "aws.connect.mfa-required",
+    kind: "error",
+    group: "Connecting",
+    template:
+      "the AWS profile assumes a role that needs an MFA code, which the plugin cannot ask for. Get temporary credentials first, and pass them in the environment without the profile",
+    cause:
+      "The profile has `role_arn` and `mfa_serial`. The AWS SDK needs a callback to ask for the MFA code, and the plugin has none: it signs without prompting.",
+    fix: 'Export temporary credentials with `eval "$(aws configure export-credentials --profile <profile> --format env)"`, which asks for the code, then unset `AWS_PROFILE` and the key\'s `profile`: while a profile is set, the AWS SDK skips the environment keys. Or use a profile that signs in with `aws sso login`.',
+  },
+  expiredToken: {
+    id: "aws.connect.expired-token",
+    kind: "error",
+    group: "Connecting",
+    template:
+      "AWS refused the call because the session token has expired (ExpiredTokenException). Sign in again, or get new temporary credentials",
+    cause:
+      "The temporary credentials, often `AWS_SESSION_TOKEN` and its keys in the environment, have expired.",
+    fix: "Sign in again, or export new temporary credentials. A profile that signs in with `aws login` or `aws sso login` refreshes them itself while its session lasts.",
+  },
+  notFound: {
+    id: "aws.key.not-found",
+    kind: "error",
+    group: "Keys",
+    template:
+      "AWS KMS has no such key in region {region} (NotFoundException). Check `keyId`, and that the region is the key's",
+    cause:
+      "The key id or alias does not exist in this account and region. An alias or a bare key id is looked up in the client's region, so a key in another region, or another account, is not found.",
+    fix: "Check `keyId`. Set the key's `region`, or use the key ARN, which names its region.",
+  },
+  accessDenied: {
+    id: "aws.key.access-denied",
+    kind: "error",
+    group: "Keys",
+    template:
+      "AWS KMS refused the call in region {region} (AccessDeniedException). Grant kms:GetPublicKey and kms:Sign on the key to the identity the credentials belong to, and check that the region is the key's",
+    cause:
+      "The identity lacks `kms:GetPublicKey` or `kms:Sign` on this key, the `Sign` conditions do not match, or the key policy does not allow IAM access. A key looked up in another region can also give this error.",
+    fix: "Grant the two permissions as in the AWS setup guide, step 2. Check which identity signs with `aws sts get-caller-identity` and the same profile, and check the region.",
+  },
+  disabled: {
+    id: "aws.key.disabled",
+    kind: "error",
+    group: "Keys",
+    template:
+      "the key is disabled (DisabledException). Enable it with aws kms enable-key --key-id <key id or ARN>",
+    cause: "The key is disabled, for example right after its deletion was cancelled.",
+    fix: "Run `aws kms enable-key --key-id <key id or ARN>`. It takes a key id or key ARN, not an alias.",
+  },
+  invalidState: {
+    id: "aws.key.invalid-state",
+    kind: "error",
+    group: "Keys",
+    template:
+      "the key's state does not allow the call (KMSInvalidStateException), usually because it is pending deletion. Check it with aws kms describe-key",
+    cause:
+      "The key is pending deletion, or in another state that does not allow signing, such as pending import.",
+    fix: "For a key pending deletion, run `aws kms cancel-key-deletion --key-id <key id or ARN>`, then `aws kms enable-key --key-id <key id or ARN>`. Both take a key id or key ARN, not an alias. See the key loss guide.",
+  },
+  unavailable: {
+    id: "aws.key.unavailable",
+    kind: "error",
+    group: "Keys",
+    template: "AWS KMS could not use the key just now (KeyUnavailableException). Run again",
+    cause:
+      "AWS KMS could not reach the key's material for a moment, after the AWS SDK's own retries.",
+    fix: "Run the command again. If it repeats, check the AWS Health Dashboard for AWS KMS in the key's region.",
+  },
   historyKeyLookupDenied: {
     id: "aws.history.key-lookup-denied",
     kind: "error",
