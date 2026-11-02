@@ -144,7 +144,7 @@ npx hardhat --network sepolia kms accounts --balances --check-sign
 NAME                    PROVIDER  SOURCE       ADDRESS                                     PIN      BALANCE (ETH)  SIGN    KEY ID
 sepolia.kmsAccounts[0]  aws       kmsAccounts  0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266  matches  0.25           ok      aws:alias/deployer
 sepolia.kmsAccounts[1]  aws       kmsAccounts  0x70997970C51812dc3A010C7d01b50e0d17dc79C8  matches  0              FAILED  aws:alias/ops
-  error: the sign check failed: aws, sign, key aws:alias/ops: the provider call failed (AccessDeniedException)
+  error: the sign check failed: aws, sign, key aws:alias/ops: AWS KMS refused the call in region us-east-1 (AccessDeniedException). Grant kms:GetPublicKey and kms:Sign on the key to the identity the credentials belong to, and check that the region is the key's
 ```
 
 - **`--balances`.** Adds a `BALANCE (ETH)` column with each address's balance on the `--network` network, read with `eth_getBalance` at the latest block and written in ether units (the network's native token, 18 decimals). It needs `--network`; without it the task fails before it opens any key, with `--balances reads balances on one network: pass --network <name>`. On an `edr-simulated` network with `kms.simulatedBalance`, opening the connection gives each KMS account that balance first, as for any connection. Funding needs every key, so there one broken key fails every row's balance. A balance that cannot be read fails its row with `could not read the balance:` and the reason, and the table shows `FAILED` in the column.

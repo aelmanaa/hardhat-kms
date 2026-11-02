@@ -19,7 +19,9 @@ import type {
   KmsHistoryResult,
 } from "hardhat-kms/types";
 
+import { credentialReasons } from "./credential-reasons.ts";
 import { ERRORS } from "./error-catalog.ts";
+import { errorCodes, field, SAFE_CODE } from "./error-codes.ts";
 
 /** The body of a Log Analytics query request. */
 export interface QueryRequest {
@@ -85,8 +87,6 @@ const WORKSPACE_ID = /^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/;
 const HOST = /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/;
 const KEY_NAME = /^[0-9A-Za-z-]{1,127}$/;
 const KEY_VERSION = /^[0-9A-Za-z]{1,64}$/;
-/** A code from an answer, shown only when it has this shape. */
-const SAFE_CODE = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
 
 /**
  * The columns the query returns, in this order. The query names the first four directly, since it
@@ -225,11 +225,6 @@ export function keyTarget(keyId: string): KeyTarget | TargetProblem {
 /** Why an answer could not be read; the text is the reader's own, with no value from the answer. */
 class BadResponse extends Error {
   public override readonly name = "BadResponse";
-}
-
-/** Reads a property of a value that may not be an object. */
-function field(value: unknown, name: string): unknown {
-  return typeof value === "object" && value !== null ? Reflect.get(value, name) : undefined;
 }
 
 /** A non-empty string, or `null`. */
@@ -433,20 +428,6 @@ function rowsOf(body: unknown): Array<(column: Column) => unknown> {
   });
 }
 
-/** The codes of an error answer and its inner errors, outermost first, as far as each is safe. */
-function errorCodes(error: unknown): string[] {
-  const codes: string[] = [];
-  for (let inner = error; inner !== undefined && codes.length < 5;) {
-    const code = field(inner, "code");
-    if (typeof code !== "string" || !SAFE_CODE.test(code)) {
-      break;
-    }
-    codes.push(code);
-    inner = field(inner, "innererror");
-  }
-  return codes;
-}
-
 /** The innermost error of an error answer. */
 function innermost(error: unknown): unknown {
   let inner = error;
@@ -483,7 +464,7 @@ function explainStatus(
   fail: Fail,
   details: { provider: string; operation: string; key: string },
 ): Error {
-  const codes = errorCodes(error);
+  const codes = errorCodes(error, "innererror");
   const shown = [String(status), ...codes].join(" ");
   if (status === 400 && missingTable(error)) {
     return fail(ERRORS.historyNoTable, {});
@@ -568,7 +549,9 @@ export async function readAzureSignHistory(
     throw explainStatus(answer.status, error, fail, details);
   }
   if (error !== undefined) {
-    throw fail(ERRORS.historyPartial, { code: errorCodes(error).join(" ") || "no code" });
+    throw fail(ERRORS.historyPartial, {
+      code: errorCodes(error, "innererror").join(" ") || "no code",
+    });
   }
 
   const events: KmsHistoryEvent[] = [];
@@ -624,7 +607,7 @@ function explainThrown(error: unknown, fail: Fail): unknown {
     return error;
   }
   if (NO_CREDENTIAL.has(name)) {
-    return fail(ERRORS.noCredential, { errorName: name });
+    return fail(ERRORS.noCredential, { errorName: name, reasons: credentialReasons(error) });
   }
   if (FAILED_CREDENTIAL.has(name)) {
     return fail(ERRORS.credentialFailed, { errorName: name });

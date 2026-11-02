@@ -14,6 +14,7 @@ import type { AccessToken, GetTokenOptions, TokenCredential } from "@azure/ident
 import * as identity from "@azure/identity";
 import type { DebugValue, KmsDebugLogger } from "hardhat-kms/provider-utils";
 
+import { credentialReasons } from "../../src/internal/credential-reasons.ts";
 import {
   type AzureEnvironment,
   type AzureIdentitySdk,
@@ -122,10 +123,11 @@ function fakeIdentity(
       public constructor(...sources: TokenCredential[]) {
         this.#sources = sources;
         recorded.order = sources.map((item) =>
-          String(Reflect.get(item, "sourceName") ?? "timeout"),
+          String(Reflect.get(item, "source") ?? Reflect.get(item, "sourceName") ?? "timeout"),
         );
       }
       public async getToken(scopes: string | string[], options?: GetTokenOptions) {
+        const errors: unknown[] = [];
         for (const item of this.#sources) {
           try {
             return await item.getToken(scopes, options);
@@ -133,9 +135,12 @@ function fakeIdentity(
             if (!(error instanceof CredentialUnavailableError)) {
               throw error;
             }
+            errors.push(error);
           }
         }
-        const error = new Error("ChainedTokenCredential authentication failed.");
+        const error = Object.assign(new Error("ChainedTokenCredential authentication failed."), {
+          errors,
+        });
         error.name = "AggregateAuthenticationError";
         throw error;
       }
@@ -200,13 +205,13 @@ describe("Azure credential chain", () => {
     const { sdk, recorded } = fakeIdentity({ managedIdentity: { token: "mi" } }, true);
     const credential = createAzureCredential(sdk, { ...IDS, AZURE_CLIENT_SECRET: "secret" });
 
-    // The wrapped service principal and the managed identity's time limit have no source name.
+    // The wrapped service principal has no source name; the others carry their name in reasons.
     assert.deepEqual(recorded.order, [
       "timeout",
-      "workload",
-      "azureCli",
-      "azureDeveloperCli",
-      "timeout",
+      "workload identity",
+      "Azure CLI",
+      "Azure Developer CLI",
+      "managed identity",
     ]);
     await assert.rejects(credential.getToken(SCOPE), { name: "AuthenticationError" });
     assert.deepEqual(recorded.asked, ["secret"]);
@@ -370,8 +375,18 @@ describe("Azure credential chain", () => {
       },
     };
     const credential = createAzureCredential(unavailable, { AZURE_CLIENT_ID: "client" });
-    await assert.rejects(credential.getToken(SCOPE), { name: "AggregateAuthenticationError" });
-    assert.deepEqual(recorded.order, ["azureCli", "azureDeveloperCli"]);
+    await assert.rejects(credential.getToken(SCOPE), (error: unknown) => {
+      assert.ok(error instanceof Error && error.name === "AggregateAuthenticationError");
+      // Its reason comes last, where it would have been in the chain.
+      assert.ok(
+        credentialReasons(error).endsWith(
+          "; Azure Developer CLI: no token, for a reason hardhat-kms does not show; managed identity: left out, it cannot use AZURE_CLIENT_ID here (Azure Cloud Shell or Service Fabric).",
+        ),
+        credentialReasons(error),
+      );
+      return true;
+    });
+    assert.deepEqual(recorded.order, ["Azure CLI", "Azure Developer CLI"]);
 
     const broken: AzureIdentitySdk = {
       ...sdk,
@@ -656,7 +671,7 @@ describe("the service principal from the environment", () => {
       const fake = fakeIdentity({ workload: { token: "wi" } }, true);
       const credential = createAzureCredential(fake.sdk, env);
       assert.deepEqual(fake.recorded.built, []);
-      assert.equal(fake.recorded.order[0], "workload");
+      assert.equal(fake.recorded.order[0], "workload identity");
       assert.equal((await credential.getToken(SCOPE))?.token, "wi");
     }
   });
