@@ -14,10 +14,73 @@ export const ERRORS = {
     kind: "error",
     group: "Credentials",
     template:
-      "no Azure credential returned a token ({errorName}). Run `az login`, or set AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET for a service principal",
+      "no Azure credential returned a token ({errorName}).{reasons} Run `az login`, or set AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET for a service principal",
     cause:
-      "No credential source of the chain is configured: no service principal, workload identity, managed identity or `az login`.",
-    fix: "Run `az login`, or set the variables of a service principal or workload identity, as the setup guide describes.",
+      "No source of the credential chain returned a token: no service principal or workload identity is set up, and `az`, `azd` and the managed identity had none. The message then gives one reason per source, in the order of the chain, from the `azure.credential.source-*` entries. It never shows a source's own error text, which can name the tenant.",
+    fix: "Act on the reason of the source you mean to use: run `az login`, or set the variables of a service principal or workload identity, as the setup guide describes.",
+  },
+  sourceNotSetUp: {
+    id: "azure.credential.source-not-set-up",
+    kind: "reason",
+    group: "Credentials",
+    template: "{source}: not set up, it needs {variables}",
+    cause:
+      "The service principal or the workload identity is not in the chain, because the environment does not set all of its variables. An empty variable counts as unset.",
+    fix: "To use that source, set the variables the reason names. Otherwise use another source.",
+  },
+  sourceLeftOut: {
+    id: "azure.credential.source-left-out",
+    kind: "reason",
+    group: "Credentials",
+    template:
+      "{source}: left out, it cannot use AZURE_CLIENT_ID here (Azure Cloud Shell or Service Fabric)",
+    cause:
+      "In Azure Cloud Shell and Service Fabric, the managed identity refuses a client id, so with `AZURE_CLIENT_ID` set the plugin leaves it out of the chain.",
+    fix: "Unset `AZURE_CLIENT_ID` to use the system-assigned managed identity, or sign in with `az login`.",
+  },
+  sourceNotInstalled: {
+    id: "azure.credential.source-not-installed",
+    kind: "reason",
+    group: "Credentials",
+    template: "{source}: not installed",
+    cause:
+      "@azure/identity did not find `az` or `azd` on the `PATH` of the process that runs Hardhat.",
+    fix: "Install the tool and sign in with it, or use another source.",
+  },
+  sourceNotSignedIn: {
+    id: "azure.credential.source-not-signed-in",
+    kind: "reason",
+    group: "Credentials",
+    template: "{source}: not signed in, run `{command}`",
+    cause: "The tool is installed, but has no signed-in account, or its sign-in has expired.",
+    fix: "Run the command the reason names: `az login` or `azd auth login`.",
+  },
+  sourceClaimsChallenge: {
+    id: "azure.credential.source-claims-challenge",
+    kind: "reason",
+    group: "Credentials",
+    template: "{source}: the vault asks for a new sign-in (a claims challenge), run `{command}`",
+    cause:
+      "Key Vault refused the token and asked for one with more claims, for example under a Conditional Access policy that needs multifactor authentication, and `az` or `azd` cannot get such a token without a new sign-in. For `az`, the command carries the challenge, Base64-encoded, and the scope. It names no tenant.",
+    fix: "Run the command the reason names, with `--tenant` and your tenant id added when your account has several, then run Hardhat again.",
+  },
+  sourceUnreachable: {
+    id: "azure.credential.source-unreachable",
+    kind: "reason",
+    group: "Credentials",
+    template: "{source}: its endpoint gave no token, as happens outside Azure",
+    cause:
+      "The managed identity endpoint gave no token: the request failed on the network, as where there is no such endpoint, the endpoint gave an answer @azure/identity could not use, or no token came within the time limit (`azure.credential.managed-identity-timeout`). This is the usual reason on a laptop or in CI outside Azure.",
+    fix: "Outside Azure, use another source. On Azure, check that a managed identity is assigned to the resource.",
+  },
+  sourceUnknown: {
+    id: "azure.credential.source-unknown",
+    kind: "reason",
+    group: "Credentials",
+    template: "{source}: no token, for a reason hardhat-kms does not show",
+    cause:
+      "The source failed with a message hardhat-kms does not know. It shows only messages it recognises, since others can carry the tenant or the output of `az` or `azd`.",
+    fix: "Set `AZURE_LOG_LEVEL=info` to see @azure/identity's own log, which names the failure. That log can show tenant and client ids: do not share it as is.",
   },
   credentialFailed: {
     id: "azure.credential.failed",
@@ -73,7 +136,7 @@ export const ERRORS = {
     group: "Credentials",
     template: "ManagedIdentityCredential: no token within {seconds} s",
     cause:
-      "The managed identity endpoint gave no token in time, which happens outside Azure when the endpoint accepts a connection and never answers. The managed identity is the last source of the credential chain, so the chain then fails, and the plugin reports `azure.credential.none` with the chain's class name. This text is the message of that source's `CredentialUnavailableError`.",
+      "The managed identity endpoint gave no token in time, which happens outside Azure when the endpoint accepts a connection and never answers. The managed identity is the last source of the credential chain, so the chain then fails, and the plugin reports `azure.credential.none` with the managed identity's reason `azure.credential.source-unreachable`. This text is the message of that source's `CredentialUnavailableError`.",
     fix: "Outside Azure, sign in with `az login` or a service principal. On Azure, check that the managed identity is assigned to the resource.",
   },
   unreachable: {

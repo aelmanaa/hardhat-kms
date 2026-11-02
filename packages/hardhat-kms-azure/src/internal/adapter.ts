@@ -19,6 +19,7 @@ import type {
   SignContext,
 } from "hardhat-kms/types";
 
+import { credentialReasons } from "./credential-reasons.ts";
 import { ERRORS } from "./error-catalog.ts";
 
 /** Key Vault's name for ECDSA over secp256k1 on a pre-hashed 32-byte digest. */
@@ -320,7 +321,10 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
       return undefined;
     }
     if (NO_CREDENTIAL.has(error.name)) {
-      return this.#error(operation, ERRORS.noCredential, { errorName: error.name });
+      return this.#error(operation, ERRORS.noCredential, {
+        errorName: error.name,
+        reasons: credentialReasons(error),
+      });
     }
     if (FAILED_CREDENTIAL.has(error.name)) {
       return this.#error(operation, ERRORS.credentialFailed, { errorName: error.name });

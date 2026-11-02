@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import type { AzureKmsKeyConfig, KmsAuditConfig, KmsHistoryRequest } from "hardhat-kms/types";
 
+import { noteChainReasons } from "../../src/internal/credential-reasons.ts";
 import {
   keyTarget,
   kqlString,
@@ -614,6 +615,13 @@ describe("the Azure history reader", () => {
       assert.match(
         error.message,
         /no Azure credential returned a token \(CredentialUnavailableError\)/,
+      );
+      const chain = named("AggregateAuthenticationError");
+      noteChainReasons(chain, ["Azure CLI: not installed"], []);
+      const { error: explained } = await readError([chain]);
+      assert.match(
+        explained.message,
+        /no Azure credential returned a token \(AggregateAuthenticationError\)\. By source: Azure CLI: not installed\. Run `az login`/,
       );
       const { error: failed } = await readError([named("AuthenticationError")]);
       assert.match(failed.message, /could not sign in \(AuthenticationError\)/);

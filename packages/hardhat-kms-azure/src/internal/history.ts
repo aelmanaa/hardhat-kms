@@ -19,6 +19,7 @@ import type {
   KmsHistoryResult,
 } from "hardhat-kms/types";
 
+import { credentialReasons } from "./credential-reasons.ts";
 import { ERRORS } from "./error-catalog.ts";
 
 /** The body of a Log Analytics query request. */
@@ -624,7 +625,7 @@ function explainThrown(error: unknown, fail: Fail): unknown {
     return error;
   }
   if (NO_CREDENTIAL.has(name)) {
-    return fail(ERRORS.noCredential, { errorName: name });
+    return fail(ERRORS.noCredential, { errorName: name, reasons: credentialReasons(error) });
   }
   if (FAILED_CREDENTIAL.has(name)) {
     return fail(ERRORS.credentialFailed, { errorName: name });
