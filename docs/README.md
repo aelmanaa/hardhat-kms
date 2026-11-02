@@ -71,24 +71,25 @@ Runnable projects for viem, ethers and Ignition are in [examples/](../examples/R
 
 ## Contributing
 
-| Page                                                                     | What it covers                                                   |
-| ------------------------------------------------------------------------ | ---------------------------------------------------------------- |
-| [CONTRIBUTING.md](../CONTRIBUTING.md)                                    | Setup, commands, workflow, issue-first rule                      |
-| [Architecture](contributor/architecture.md)                              | Module map, code map, request flows, cloud access                |
-| [Signing pipeline and security](contributor/signing-pipeline.md)         | Signature checks, key pinning, threat model                      |
-| [Security review](contributor/security-review.md)                        | The checklist for signing, sending and release changes           |
-| [Provider contract](contributor/providers.md)                            | The adapter interface for KMS and HSM providers                  |
-| [Transactions](contributor/transactions.md)                              | Filling, nonces, the send lock, chain-id checks                  |
-| [Testing](contributor/testing.md)                                        | Test layers and conventions                                      |
-| [Live proof](live-proof.md)                                              | Transactions of the latest live run on Sepolia                   |
-| [Tooling](contributor/tooling.md)                                        | Quality gates, hooks, CI                                         |
-| [Releasing](contributor/releasing.md)                                    | Who releases, the signed tag, staging and promotion              |
-| [Documentation](contributor/documentation.md)                            | How the docs are organised and the rules for them                |
-| [Decision records](contributor/decisions/README.md)                      | Why the main decisions were made                                 |
-| [Signing prior art](contributor/research/signing-prior-art.md)           | How other signers compare, and why each check exists             |
-| [Turnkey provider: research and design](contributor/research/turnkey.md) | Turnkey's API, the provider's design and its parity with Foundry |
-| [Roadmap](contributor/roadmap.md)                                        | What ships in 1.0 and what comes after                           |
-| [1.0.0 launch note](contributor/launch-notes/1.0.0.md)                   | The 1.0.0 announcement text, and the template for the next major |
-| [Adoption metrics](contributor/adoption-metrics.md)                      | The monthly check of downloads, search and referrers             |
-| [SECURITY.md](../SECURITY.md)                                            | Reporting vulnerabilities                                        |
-| [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md)                              | Contributor Covenant 2.1 and how to report a breach              |
+| Page                                                                                 | What it covers                                                                                    |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| [CONTRIBUTING.md](../CONTRIBUTING.md)                                                | Setup, commands, workflow, issue-first rule                                                       |
+| [Architecture](contributor/architecture.md)                                          | Module map, code map, request flows, cloud access                                                 |
+| [Signing pipeline and security](contributor/signing-pipeline.md)                     | Signature checks, key pinning, threat model                                                       |
+| [Security review](contributor/security-review.md)                                    | The checklist for signing, sending and release changes                                            |
+| [Provider contract](contributor/providers.md)                                        | The adapter interface for KMS and HSM providers                                                   |
+| [Transactions](contributor/transactions.md)                                          | Filling, nonces, the send lock, chain-id checks                                                   |
+| [Testing](contributor/testing.md)                                                    | Test layers and conventions                                                                       |
+| [Live proof](live-proof.md)                                                          | Transactions of the latest live run on Sepolia                                                    |
+| [Tooling](contributor/tooling.md)                                                    | Quality gates, hooks, CI                                                                          |
+| [Releasing](contributor/releasing.md)                                                | Who releases, the signed tag, staging and promotion                                               |
+| [Documentation](contributor/documentation.md)                                        | How the docs are organised and the rules for them                                                 |
+| [Decision records](contributor/decisions/README.md)                                  | Why the main decisions were made                                                                  |
+| [Signing prior art](contributor/research/signing-prior-art.md)                       | How other signers compare, and why each check exists                                              |
+| [Turnkey provider: research and design](contributor/research/turnkey.md)             | Turnkey's API, the provider's design and its parity with Foundry                                  |
+| [Sending from smart accounts and Safes](contributor/research/smart-account-sends.md) | What Hardhat 3 offers for Safe and smart-account sends, demand, and why Safe proposals come first |
+| [Roadmap](contributor/roadmap.md)                                                    | What ships in 1.0 and what comes after                                                            |
+| [1.0.0 launch note](contributor/launch-notes/1.0.0.md)                               | The 1.0.0 announcement text, and the template for the next major                                  |
+| [Adoption metrics](contributor/adoption-metrics.md)                                  | The monthly check of downloads, search and referrers                                              |
+| [SECURITY.md](../SECURITY.md)                                                        | Reporting vulnerabilities                                                                         |
+| [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md)                                          | Contributor Covenant 2.1 and how to report a breach                                               |
