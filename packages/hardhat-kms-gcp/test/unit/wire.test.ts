@@ -5,9 +5,11 @@ import {
   authFailure,
   crc32cMatches,
   credentialFailure,
+  errorInfoReason,
   int64Value,
   keyProject,
   networkErrorCode,
+  sdkErrorReason,
   statusOf,
 } from "../../src/internal/wire.ts";
 import {
@@ -19,6 +21,14 @@ import {
 
 const withCode = (code: unknown) => Object.assign(new Error("x"), { code });
 const withCause = (cause: unknown) => Object.assign(new Error("x"), { cause });
+
+/** A Google API error answer whose ErrorInfo gives `reason`, after another detail. */
+const info = (reason: unknown): unknown => ({
+  details: [
+    { "@type": "type.googleapis.com/google.rpc.Help", links: [] },
+    { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason, metadata: {} },
+  ],
+});
 
 describe("Google Cloud KMS wire formats", () => {
   it("reads Int64Value checksums in every form the SDK uses", () => {
@@ -263,5 +273,76 @@ describe("Google Cloud KMS wire formats", () => {
       deep = Object.assign(new Error("x"), { cause: deep });
     }
     assert.equal(authFailure(deep), undefined);
+  });
+
+  it("reads only allow-listed ErrorInfo reasons from a Google API error answer", () => {
+    for (const reason of ["SERVICE_DISABLED", "USER_PROJECT_DENIED", "CONSUMER_INVALID"]) {
+      assert.equal(errorInfoReason(info(reason)), reason);
+    }
+    for (const other of [
+      info("IAM_PERMISSION_DENIED"),
+      info("service_disabled"),
+      info(undefined),
+      { details: "SERVICE_DISABLED" },
+      { details: [null, "SERVICE_DISABLED"] },
+      {},
+      null,
+      "SERVICE_DISABLED",
+    ]) {
+      assert.equal(errorInfoReason(other), undefined);
+    }
+  });
+
+  it("reads the reason of an SDK error from gax, the 403 body or the gaxios response", () => {
+    const body = JSON.stringify({
+      error: {
+        code: 403,
+        status: "PERMISSION_DENIED",
+        details: [
+          { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "SERVICE_DISABLED" },
+        ],
+      },
+    });
+    // As google-gax wraps a 403 over REST: the body is the message of both errors.
+    const gaxios = Object.assign(new Error(body), { status: 403 });
+    assert.equal(
+      sdkErrorReason(Object.assign(new Error(body), { code: 7, cause: gaxios })),
+      "SERVICE_DISABLED",
+    );
+    assert.equal(
+      sdkErrorReason(Object.assign(new Error("x"), { code: 7, cause: gaxios })),
+      "SERVICE_DISABLED",
+    );
+    // gax's decoded reason, and a gaxios response that kept the body, as text or parsed.
+    assert.equal(
+      sdkErrorReason(Object.assign(new Error("x"), { reason: "USER_PROJECT_DENIED" })),
+      "USER_PROJECT_DENIED",
+    );
+    for (const data of [body, JSON.parse(body)]) {
+      const kept = Object.assign(new Error("x"), { response: { data } });
+      assert.equal(
+        sdkErrorReason(Object.assign(new Error("x"), { cause: kept })),
+        "SERVICE_DISABLED",
+      );
+    }
+    for (const other of [
+      Object.assign(new Error("x"), { reason: "IAM_PERMISSION_DENIED" }),
+      new Error(body.replace("SERVICE_DISABLED", "BILLING_DISABLED")),
+      new Error(`${body} `.padEnd(70_000)),
+      new Error(` ${body}`),
+      new Error("{not json"),
+      new Error("null"),
+      Object.assign(new Error("x"), { response: { data: 42 } }),
+      body,
+      undefined,
+    ]) {
+      assert.equal(sdkErrorReason(other), undefined);
+    }
+    // A cause chain is followed only so far.
+    let deep = new Error(body);
+    for (let depth = 0; depth < 4; depth++) {
+      deep = Object.assign(new Error("x"), { cause: deep });
+    }
+    assert.equal(sdkErrorReason(deep), undefined);
   });
 });
