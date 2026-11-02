@@ -347,6 +347,15 @@ export const ERRORS = {
     cause: "A Google Cloud key's `keyVersionName` is not the resource name of a key version.",
     fix: "Copy the name from `gcloud kms keys versions list`; it ends with `/cryptoKeyVersions/<version>`.",
   },
+  gcpProtectionLevel: {
+    id: "core.config.gcp-protection-level",
+    kind: "validation",
+    group: "Configuration",
+    template: "Expected SOFTWARE, HSM, HSM_SINGLE_TENANT, EXTERNAL or EXTERNAL_VPC",
+    cause:
+      "A Google Cloud key's `protectionLevel` is not one of Cloud KMS's protection levels, for example `\"hsm\"` in lowercase.",
+    fix: 'Write the level as Cloud KMS names it, such as `protectionLevel: "HSM"`, or remove the field to allow any level.',
+  },
   gcpKeyVersionType: {
     id: "core.config.gcp-key-version-type",
     kind: "validation",

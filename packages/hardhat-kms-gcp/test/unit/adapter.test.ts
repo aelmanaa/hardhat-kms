@@ -46,15 +46,27 @@ it("retries a failed call at most three times, as the docs say", () => {
 });
 
 /** A resolved Google Cloud key, as hardhat-kms passes it to the adapter. */
-function gcpKey(name = KEY_VERSION_NAME, display = name): GcpKmsKeyConfig {
+function gcpKey(
+  name = KEY_VERSION_NAME,
+  display = name,
+  settings: Pick<GcpKmsKeyConfig, "protectionLevel"> = {},
+): GcpKmsKeyConfig {
   return {
     provider: "gcp",
     name: "deployer",
     keyVersionName: { get: async () => await Promise.resolve(name), display },
     timeoutMs: 1234,
     displayId: `gcp:${display}`,
+    ...settings,
   };
 }
+
+/** A level newer than the installed SDK, which it decodes as the level's number. */
+const NEWER_LEVEL: number = 9;
+
+/** A key that must have the given protection level. */
+const pinned = (protectionLevel: NonNullable<GcpKmsKeyConfig["protectionLevel"]>) =>
+  gcpKey(KEY_VERSION_NAME, KEY_VERSION_NAME, { protectionLevel });
 
 async function adapterFor(options: Partial<FakeKmsOptions> = {}, key = gcpKey()) {
   const fake = fakeGcpKmsSdk({ secretKey, ...options });
@@ -659,6 +671,56 @@ describe("Google Cloud KMS adapter", () => {
         // Only a failed initialization replaces the client; a failed call does not.
         assert.equal(clients.length, 1);
         assert.equal(clients[0]?.closed, 0);
+      }
+    });
+  });
+
+  describe("protection level (#637)", () => {
+    it("reports the level of the last public key response, and none before it", async () => {
+      for (const level of ["HSM", "SOFTWARE", "EXTERNAL_VPC", "HSM_SINGLE_TENANT"] as const) {
+        const { adapter } = await adapterFor({ protectionLevel: level });
+        assert.equal(adapter.protectionLevel?.(), undefined);
+        await lookUp(adapter);
+        assert.equal(adapter.protectionLevel?.(), level);
+      }
+    });
+
+    it("reports no level that the response leaves out or that this SDK cannot name", async () => {
+      for (const protectionLevel of [null, NEWER_LEVEL]) {
+        const { adapter } = await adapterFor({ protectionLevel });
+        await lookUp(adapter);
+        assert.equal(adapter.protectionLevel?.(), undefined);
+      }
+    });
+
+    it("signs with a key version at the configured level", async () => {
+      const { adapter, methods } = await adapterFor({ protectionLevel: "HSM" }, pinned("HSM"));
+      assert.ok((await sign(adapter)) !== undefined);
+      assert.equal(methods("asymmetricSign"), 1);
+    });
+
+    it("signs at any level when none is configured", async () => {
+      const { adapter, methods } = await adapterFor({ protectionLevel: "SOFTWARE" });
+      assert.ok((await sign(adapter)) !== undefined);
+      assert.equal(methods("asymmetricSign"), 1);
+    });
+
+    it("refuses a key version at another level, or none, before it signs", async () => {
+      for (const [reported, shown] of [
+        ["SOFTWARE", "SOFTWARE"],
+        ["HSM_SINGLE_TENANT", "HSM_SINGLE_TENANT"],
+        [null, "not reported"],
+        [NEWER_LEVEL, "not reported"],
+      ] as const) {
+        const { adapter, methods } = await adapterFor({ protectionLevel: reported }, pinned("HSM"));
+        await assertGcpError(lookUp(adapter), [
+          "gcp, get public key, key gcp:projects/p/",
+          `the key version's protection level is ${shown}, not HSM as the key's protectionLevel requires`,
+        ]);
+        // Asked to sign first, it looks the key up, refuses, and never signs.
+        await assertGcpError(sign(adapter), ["protection level"]);
+        assert.equal(methods("getPublicKey"), 2);
+        assert.equal(methods("asymmetricSign"), 0);
       }
     });
   });

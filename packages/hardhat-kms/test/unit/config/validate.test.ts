@@ -566,3 +566,45 @@ describe("validateKmsUserConfig: Turnkey keys", () => {
     }
   });
 });
+
+const gcpByName = (fields: Record<string, unknown> = {}): Record<string, unknown> => ({
+  provider: "gcp",
+  keyVersionName: GCP_NAME,
+  ...fields,
+});
+const gcpByParts = (fields: Record<string, unknown> = {}): Record<string, unknown> => ({
+  provider: "gcp",
+  projectId: "p",
+  location: "l",
+  keyRing: "r",
+  keyName: "k",
+  keyVersion: 1,
+  ...fields,
+});
+
+describe("validateKmsUserConfig: a Google Cloud key's protectionLevel", () => {
+  it("accepts every Cloud KMS protection level, in both key forms", () => {
+    for (const level of ["SOFTWARE", "HSM", "HSM_SINGLE_TENANT", "EXTERNAL", "EXTERNAL_VPC"]) {
+      for (const key of [
+        gcpByName({ protectionLevel: level }),
+        gcpByParts({ protectionLevel: level }),
+      ]) {
+        assert.deepEqual(validate(inKeys(key)), []);
+        assert.deepEqual(validate(inline(key)), []);
+      }
+    }
+  });
+
+  it("fails any other value at the field, with the catalogue message", () => {
+    const message = "Expected SOFTWARE, HSM, HSM_SINGLE_TENANT, EXTERNAL or EXTERNAL_VPC";
+    for (const level of ["hsm", "Hsm", "PROTECTION_LEVEL_UNSPECIFIED", "", 2, true, null]) {
+      for (const key of [
+        gcpByName({ protectionLevel: level }),
+        gcpByParts({ protectionLevel: level }),
+      ]) {
+        assertError(inKeys(key), "kms.keys.a.protectionLevel", message, 1);
+        assertError(inline(key), "networks.sepolia.kmsAccounts.0.protectionLevel", message, 1);
+      }
+    }
+  });
+});

@@ -105,6 +105,13 @@ AWS keys only: the configured profile, or `null` for the SDK's default. A profil
 configuration variable shows as `<VARIABLE_NAME>` unless `--show-ids` is given. With
 `--show-ids`, an empty value shows as `null`.
 
+##### protectionLevel?
+
+> `optional` **protectionLevel?**: `string`
+
+Only for a key whose provider reports one, such as a Google Cloud key: the protection level the
+provider reported for it, such as `HSM`. Absent if the key failed before the provider answered.
+
 ##### provider
 
 > **provider**: `string`
@@ -194,7 +201,7 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-17)
 
 ##### allowedDelegates?
 
@@ -204,7 +211,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-11)
 
 ##### allowRawDigests?
 
@@ -214,7 +221,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### displayId
 
@@ -271,7 +278,7 @@ instead, and a conflicting `region` is an error when the key is first used.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-10)
 
 ---
 
@@ -294,7 +301,7 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-18)
 
 ##### allowedDelegates?
 
@@ -308,7 +315,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-12)
 
 ##### allowRawDigests?
 
@@ -321,7 +328,7 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-12)
 
 ##### endpoint?
 
@@ -364,7 +371,7 @@ Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defa
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-11)
 
 ---
 
@@ -387,7 +394,7 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-18)
 
 ##### allowedDelegates?
 
@@ -401,7 +408,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-12)
 
 ##### allowRawDigests?
 
@@ -414,7 +421,7 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-12)
 
 ##### keyName
 
@@ -436,7 +443,7 @@ Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defa
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-11)
 
 ##### vaultUrl
 
@@ -464,7 +471,7 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-17)
 
 ##### allowedDelegates?
 
@@ -474,7 +481,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-11)
 
 ##### allowRawDigests?
 
@@ -484,7 +491,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### displayId
 
@@ -523,7 +530,7 @@ The key's name in `kms.keys`, or `<network>.kmsAccounts[<index>]` for an inline 
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-10)
 
 ---
 
@@ -546,7 +553,7 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-18)
 
 ##### allowedDelegates?
 
@@ -560,7 +567,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-12)
 
 ##### allowRawDigests?
 
@@ -573,7 +580,7 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-12)
 
 ##### keyId
 
@@ -594,7 +601,7 @@ Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defa
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-11)
 
 ---
 
@@ -624,7 +631,7 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-17)
 
 ##### allowedDelegates?
 
@@ -634,7 +641,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-11)
 
 ##### allowRawDigests?
 
@@ -644,7 +651,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### displayId
 
@@ -677,7 +684,7 @@ The key's name in `kms.keys`, or `<network>.kmsAccounts[<index>]` for an inline 
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-10)
 
 ##### userConfig
 
@@ -691,7 +698,7 @@ A Google Cloud KMS key version, given as its components.
 
 #### Extends
 
-- [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig)
+- [`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig)
 
 #### Properties
 
@@ -704,7 +711,7 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`address`](#address-9)
 
 ##### allowedDelegates?
 
@@ -718,7 +725,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`allowedDelegates`](#alloweddelegates-9)
 
 ##### allowRawDigests?
 
@@ -731,7 +738,7 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`allowRawDigests`](#allowrawdigests-9)
 
 ##### keyName
 
@@ -755,9 +762,25 @@ The key version. Always required: the plugin never picks a version for you.
 
 > **projectId**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
 
+##### protectionLevel?
+
+> `optional` **protectionLevel?**: [`GcpProtectionLevel`](#gcpprotectionlevel)
+
+The protection level the key version must have, such as `"HSM"`. Optional: when set, the
+plugin reads the level from the key's public key response and refuses to sign with a key
+version whose level differs. Without it, every level passes.
+
+###### Inherited from
+
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`protectionLevel`](#protectionlevel-3)
+
 ##### provider
 
 > **provider**: `"gcp"`
+
+###### Inherited from
+
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`provider`](#provider-9)
 
 ##### timeoutMs?
 
@@ -767,7 +790,7 @@ Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defa
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-10)
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`timeoutMs`](#timeoutms-8)
 
 ---
 
@@ -789,7 +812,7 @@ The checksummed address pin, if one was configured.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-17)
 
 ##### allowedDelegates?
 
@@ -799,7 +822,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-11)
 
 ##### allowRawDigests?
 
@@ -809,7 +832,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### displayId
 
@@ -838,6 +861,12 @@ The key's name in `kms.keys`, or `<network>.kmsAccounts[<index>]` for an inline 
 
 [`KmsKeyCommonConfig`](#kmskeycommonconfig).[`name`](#name-6)
 
+##### protectionLevel?
+
+> `optional` **protectionLevel?**: [`GcpProtectionLevel`](#gcpprotectionlevel)
+
+The protection level the key version must have, when the config sets one.
+
 ##### provider
 
 > **provider**: `"gcp"`
@@ -848,17 +877,22 @@ The key's name in `kms.keys`, or `<network>.kmsAccounts[<index>]` for an inline 
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-10)
 
 ---
 
-### GcpKmsKeyVersionNameUserConfig
+### GcpKmsKeySettingsUserConfig
 
-A Google Cloud KMS key version, given as its full resource name.
+Settings shared by both forms of a Google Cloud KMS key.
 
 #### Extends
 
 - [`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig)
+
+#### Extended by
+
+- [`GcpKmsKeyVersionNameUserConfig`](#gcpkmskeyversionnameuserconfig)
+- [`GcpKmsKeyComponentsUserConfig`](#gcpkmskeycomponentsuserconfig)
 
 #### Properties
 
@@ -871,7 +905,7 @@ learn the address, and refuses to sign if the key turns out to be different.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-18)
 
 ##### allowedDelegates?
 
@@ -885,7 +919,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-12)
 
 ##### allowRawDigests?
 
@@ -898,13 +932,15 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-12)
 
-##### keyVersionName
+##### protectionLevel?
 
-> **keyVersionName**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
+> `optional` **protectionLevel?**: [`GcpProtectionLevel`](#gcpprotectionlevel)
 
-`projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<v>`.
+The protection level the key version must have, such as `"HSM"`. Optional: when set, the
+plugin reads the level from the key's public key response and refuses to sign with a key
+version whose level differs. Without it, every level passes.
 
 ##### provider
 
@@ -918,7 +954,93 @@ Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defa
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-11)
+
+---
+
+### GcpKmsKeyVersionNameUserConfig
+
+A Google Cloud KMS key version, given as its full resource name.
+
+#### Extends
+
+- [`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig)
+
+#### Properties
+
+##### address?
+
+> `optional` **address?**: `string`
+
+The address the key must derive to. Optional, recommended: the plugin then skips a KMS call to
+learn the address, and refuses to sign if the key turns out to be different.
+
+###### Inherited from
+
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`address`](#address-9)
+
+##### allowedDelegates?
+
+> `optional` **allowedDelegates?**: readonly [`KmsAllowedDelegateUserConfig`](#kmsalloweddelegateuserconfig)[]
+
+The contracts this key may delegate its account to with an EIP-7702 authorization, per chain.
+When set, `kms sign-auth`, a library account's `signAuthorization`, and a transaction that
+carries a self-authorization refuse a delegate that no entry allows, before any KMS call. The
+zero address, which clears a delegation, always passes. Unset: no limit. An empty list allows
+only the zero address.
+
+###### Inherited from
+
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`allowedDelegates`](#alloweddelegates-9)
+
+##### allowRawDigests?
+
+> `optional` **allowRawDigests?**: `boolean`
+
+Let this key sign raw 32-byte digests without a person at a terminal: `kms sign --no-hash`
+with `--yes`, and library accounts from `getAccount(address, { rawSign: true })`. Default:
+`false`. A raw digest can be the hash of any transaction, permit or EIP-7702 authorization,
+and the plugin cannot tell which, so set it only on a key that needs it.
+
+###### Inherited from
+
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`allowRawDigests`](#allowrawdigests-9)
+
+##### keyVersionName
+
+> **keyVersionName**: [`KmsIdentifierUserConfig`](#kmsidentifieruserconfig)
+
+`projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<v>`.
+
+##### protectionLevel?
+
+> `optional` **protectionLevel?**: [`GcpProtectionLevel`](#gcpprotectionlevel)
+
+The protection level the key version must have, such as `"HSM"`. Optional: when set, the
+plugin reads the level from the key's public key response and refuses to sign with a key
+version whose level differs. Without it, every level passes.
+
+###### Inherited from
+
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`protectionLevel`](#protectionlevel-3)
+
+##### provider
+
+> **provider**: `"gcp"`
+
+###### Inherited from
+
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`provider`](#provider-9)
+
+##### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defaults.timeoutMs`.
+
+###### Inherited from
+
+[`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig).[`timeoutMs`](#timeoutms-8)
 
 ---
 
@@ -2001,6 +2123,19 @@ Returns the 65-byte uncompressed public key. Called once per key and cached.
 
 `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
 
+##### protectionLevel()?
+
+> `optional` **protectionLevel**(): `string` \| `undefined`
+
+Returns the key's protection level as the provider last reported it, such as Google Cloud's
+`HSM`, for `kms accounts` to show. `undefined` before `getPublicKey` or `getAddress` has
+returned, or when the provider reports none. The core shows only a value of 1 to 32 uppercase
+letters, digits and `_`, and ignores any other.
+
+###### Returns
+
+`string` \| `undefined`
+
 ##### signDigest()?
 
 > `optional` **signDigest**(`request`: \{ `digest`: `Uint8Array`; \}, `ctx`: [`SignContext`](#signcontext)): `Promise`\<[`SignatureOutput`](#signatureoutput)\>
@@ -2147,8 +2282,7 @@ Settings shared by every key, whatever its provider.
 #### Extended by
 
 - [`AwsKmsKeyUserConfig`](#awskmskeyuserconfig)
-- [`GcpKmsKeyVersionNameUserConfig`](#gcpkmskeyversionnameuserconfig)
-- [`GcpKmsKeyComponentsUserConfig`](#gcpkmskeycomponentsuserconfig)
+- [`GcpKmsKeySettingsUserConfig`](#gcpkmskeysettingsuserconfig)
 - [`AzureKmsKeyIdUserConfig`](#azurekmskeyiduserconfig)
 - [`AzureKmsKeyComponentsUserConfig`](#azurekmskeycomponentsuserconfig)
 - [`TurnkeyKmsKeyUserConfig`](#turnkeykmskeyuserconfig)
@@ -2427,7 +2561,7 @@ The checksummed address.
 
 ###### Inherited from
 
-[`KmsAccount`](#kmsaccount).[`address`](#address-11)
+[`KmsAccount`](#kmsaccount).[`address`](#address-12)
 
 ##### nonceManager
 
@@ -2891,7 +3025,7 @@ The checksummed address of the wallet account. Always set for a Turnkey key.
 
 ###### Overrides
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-16)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`address`](#address-17)
 
 ##### allowedDelegates?
 
@@ -2901,7 +3035,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowedDelegates`](#alloweddelegates-11)
 
 ##### allowRawDigests?
 
@@ -2911,7 +3045,7 @@ The key's `allowedDelegates`, frozen, with checksummed addresses and lowercase c
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-10)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`allowRawDigests`](#allowrawdigests-11)
 
 ##### apiPrivateKey
 
@@ -2963,7 +3097,7 @@ The organization id, checked to be a UUID when read.
 
 ###### Inherited from
 
-[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-9)
+[`KmsKeyCommonConfig`](#kmskeycommonconfig).[`timeoutMs`](#timeoutms-10)
 
 ##### transactionSigning
 
@@ -2992,7 +3126,7 @@ The wallet account's address. Required: the plugin signs with it and pins the ke
 
 ###### Overrides
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-17)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`address`](#address-18)
 
 ##### allowedDelegates?
 
@@ -3006,7 +3140,7 @@ only the zero address.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowedDelegates`](#alloweddelegates-12)
 
 ##### allowRawDigests?
 
@@ -3019,7 +3153,7 @@ and the plugin cannot tell which, so set it only on a key that needs it.
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-11)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`allowRawDigests`](#allowrawdigests-12)
 
 ##### apiPrivateKey
 
@@ -3053,7 +3187,7 @@ Time budget for each KMS call for this key, in milliseconds. Overrides `kms.defa
 
 ###### Inherited from
 
-[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-10)
+[`KmsKeyCommonUserConfig`](#kmskeycommonuserconfig).[`timeoutMs`](#timeoutms-11)
 
 ##### transactionSigning?
 
@@ -3114,6 +3248,15 @@ An Azure Key Vault or Managed HSM key.
 > **GcpKmsKeyUserConfig** = [`GcpKmsKeyVersionNameUserConfig`](#gcpkmskeyversionnameuserconfig) \| [`GcpKmsKeyComponentsUserConfig`](#gcpkmskeycomponentsuserconfig)
 
 A Google Cloud KMS key version.
+
+---
+
+### GcpProtectionLevel
+
+> **GcpProtectionLevel** = `"SOFTWARE"` \| `"HSM"` \| `"HSM_SINGLE_TENANT"` \| `"EXTERNAL"` \| `"EXTERNAL_VPC"`
+
+A Google Cloud KMS protection level, as Cloud KMS names it: where the key version's private key
+is kept and used.
 
 ---
 

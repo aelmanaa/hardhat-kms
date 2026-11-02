@@ -246,6 +246,23 @@ describe("resolveKmsConfig", () => {
     );
   });
 
+  it("keeps a Google Cloud key's protectionLevel, in both forms, and leaves it unset otherwise", () => {
+    const name = "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1";
+    const parts = { projectId: "p", location: "l", keyRing: "r", keyName: "k", keyVersion: 1 };
+    const config: HardhatUserConfig = {
+      kms: {
+        keys: {
+          named: { provider: "gcp", keyVersionName: name, protectionLevel: "HSM" },
+          parts: { provider: "gcp", ...parts, protectionLevel: "EXTERNAL" },
+          none: { provider: "gcp", keyVersionName: name },
+        },
+      },
+    };
+    assert.equal(gcpKey(config, "named").protectionLevel, "HSM");
+    assert.equal(gcpKey(config, "parts").protectionLevel, "EXTERNAL");
+    assert.ok(!("protectionLevel" in gcpKey(config, "none")));
+  });
+
   it("builds Azure key ids from components, versioned or not", async () => {
     const config: HardhatUserConfig = {
       kms: {

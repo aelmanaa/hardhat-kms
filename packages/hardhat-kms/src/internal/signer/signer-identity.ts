@@ -35,7 +35,8 @@ function settingForm(setting: KmsIdentifier | undefined): string | null | undefi
  * ARN: the profile selects the credentials, and the endpoint where requests go. The key's name is
  * part of the identity too, so two names for one key get two signers and errors name the right
  * key. Google Cloud and Azure keys have no other connection settings: credentials and endpoints
- * come from the environment, and an Azure key URL names its vault. A Turnkey key's identifier is
+ * come from the environment, and an Azure key URL names its vault. A Google Cloud key's
+ * `protectionLevel` counts too, since its adapter refuses a key version at another level. A Turnkey key's identifier is
  * its organization id, and its API private and public keys count as settings, by their
  * comparison forms: the variable's name, never its value, and so does its `transactionSigning`.
  *
@@ -49,13 +50,15 @@ export function signerIdentity(key: KmsKeyConfig): string | undefined {
   let parts: unknown[];
   let identifier: KmsIdentifier;
   // The identity is only compared for equality. An AWS or Turnkey identity has 9 parts, a Google
-  // Cloud or Azure one 6, so the provider tags have to tell AWS from Turnkey and Google Cloud from
-  // Azure. Each pair has two tags, so changing any one tag still leaves the pair apart, and
-  // dropping one changes the length. This rests on the lengths: a new provider whose identity also
-  // has 6 or 9 parts needs a test that tells its tag apart.
+  // Cloud one 7 and an Azure one 6, so the provider tags have to tell AWS from Turnkey. Each pair
+  // has two tags, so changing any one tag still leaves the pair apart, and dropping one changes the
+  // length. This rests on the lengths: a new provider whose identity also has 6, 7 or 9 parts needs
+  // a test that tells its tag apart.
   if ("keyVersionName" in key) {
-    // Stryker disable next-line ArrayDeclaration,StringLiteral: one tag alone is redundant
-    parts = ["gcp"];
+    // `protectionLevel` decides what the adapter refuses, so two keys that differ only in it get
+    // two signers.
+    // Stryker disable next-line StringLiteral: one tag alone is redundant
+    parts = ["gcp", key.protectionLevel ?? null];
     identifier = key.keyVersionName;
   } else if (key.provider === "azure") {
     // Stryker disable next-line ArrayDeclaration,StringLiteral: one tag alone is redundant

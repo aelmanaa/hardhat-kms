@@ -66,6 +66,8 @@ type Times = number;
 export interface FakeKmsOptions {
   secretKey: Uint8Array;
   algorithm?: protos.google.cloud.kms.v1.IPublicKey["algorithm"];
+  /** The public key's protection level; `HSM` by default, and `null` for none. */
+  protectionLevel?: protos.google.cloud.kms.v1.IPublicKey["protectionLevel"];
   /** The `name` getPublicKey returns instead of the one requested; `null` for none. */
   publicKeyName?: string | null;
   /** The `name` asymmetricSign returns instead of the one requested; `null` for none. */
@@ -207,6 +209,9 @@ export function fakeGcpKmsSdk(options: FakeKmsOptions): FakeGcpKms {
       const response = {
         name: options.publicKeyName === undefined ? request.name : options.publicKeyName,
         algorithm: options.algorithm ?? "EC_SIGN_SECP256K1_SHA256",
+        ...(options.protectionLevel === null
+          ? {}
+          : { protectionLevel: options.protectionLevel ?? "HSM" }),
         ...(options.omitPem === true ? {} : { pem }),
         ...(options.omitPemCrc32c === true
           ? {}

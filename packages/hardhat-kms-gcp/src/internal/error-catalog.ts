@@ -43,6 +43,16 @@ export const ERRORS = {
     cause: "The key version is not a secp256k1 signing key.",
     fix: "A key's algorithm cannot be changed. Create a new key with the command the message gives, and point the config at it.",
   },
+  protectionLevel: {
+    id: "gcp.key.protection-level",
+    kind: "error",
+    group: "Keys",
+    template:
+      "the key version's protection level is {level}, not {expected} as the key's protectionLevel requires",
+    cause:
+      "The key's config sets `protectionLevel`, and Cloud KMS reports another protection level for the key version, or none. The plugin refuses to sign with it.",
+    fix: "A key version's protection level cannot be changed. Check that `keyVersionName` names the key you meant. To use this key, change or remove `protectionLevel`; to keep the level, create a key with `--protection-level` set to it and point the config at that key.",
+  },
   lookupUnfinished: {
     id: "gcp.sign.lookup-unfinished",
     kind: "error",

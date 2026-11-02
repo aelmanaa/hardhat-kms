@@ -75,7 +75,7 @@ The accepted key forms are a superset of Foundry's.
 | Provider  | Key forms                                                                                                                                                                                                        |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `aws`     | `keyId` as a key id, key ARN, alias name or alias ARN. Optional `region` and `profile`, each literal or a configuration variable, and `endpoint`.                                                                |
-| `gcp`     | Either `keyVersionName`, or the components `projectId`, `location`, `keyRing`, `keyName`, `keyVersion`. The version is always required and never auto-selected.                                                  |
+| `gcp`     | Either `keyVersionName`, or the components `projectId`, `location`, `keyRing`, `keyName`, `keyVersion`. The version is always required and never auto-selected. Optional `protectionLevel`.                      |
 | `azure`   | Either `keyId` (the full URL, versioned or not, including `*.managedhsm.azure.net`), or `vaultUrl` + `keyName` + optional `keyVersion`. An unversioned key is resolved once and the resulting version is pinned. |
 | `turnkey` | `organizationId`, `address` and `apiPrivateKey`, all required, and optional `apiPublicKey` and `transactionSigning`. The API private key is a configuration variable only.                                       |
 
@@ -87,6 +87,8 @@ An AWS key's `region` and `profile`, and `kms.defaults.aws.region`, take a liter
 - An empty value means the field is unset. An empty `region` falls through to `defaults.aws.region`, then to the SDK's chain. An empty `profile` leaves the credentials to the SDK's chain, environment keys included.
 - An unset variable without a `default` fails when the key is first used, with Hardhat's error that names the variable. Write `configVariable("AWS_KMS_PROFILE", { default: "" })` to make the profile optional: a laptop sets the variable, CI leaves it unset. [One config for a laptop and CI](../guides/aws-kms-setup.md#one-config-for-a-laptop-and-ci) shows the pattern.
 - Errors and `kms accounts` show the variable as `<VARIABLE_NAME>`. `kms history` masks its value as `<hidden>`, except a value shorter than 6 characters ([security model](../explanation/security-model.md#audit-logs)). `--show-ids` prints the values in both tasks.
+
+A Google Cloud key can set `protectionLevel` to the level its key version must have: `"SOFTWARE"`, `"HSM"`, `"HSM_SINGLE_TENANT"`, `"EXTERNAL"` or `"EXTERNAL_VPC"`, written as Cloud KMS names them. Any other value, such as `"hsm"`, fails when the config loads with `core.config.gcp-protection-level`. The plugin reads the level from the `GetPublicKey` response, which it calls before the key's first signature whether or not the key has an `address` pin, and refuses a key version at another level, or one whose response names no level, with `gcp.key.protection-level`. Nothing is signed. Without the field, every level passes, and `kms accounts` still shows the level ([`kms accounts`](tasks.md#kms-accounts)). Keys from `--kms` have no config and cannot set it. Added in 1.5.0.
 
 A Turnkey key names a wallet account in a Turnkey organization, and the API key that signs with it. [Set up a Turnkey wallet account](../guides/turnkey-setup.md) creates both:
 

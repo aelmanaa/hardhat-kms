@@ -637,6 +637,11 @@ describe("SignerCache identity", () => {
       }),
     ],
     "a Google Cloud time budget": [gcpKey(), gcpKey({ timeoutMs: 2000 })],
+    "a Google Cloud protectionLevel set or not": [gcpKey(), gcpKey({ protectionLevel: "HSM" })],
+    "a Google Cloud protectionLevel": [
+      gcpKey({ protectionLevel: "HSM" }),
+      gcpKey({ protectionLevel: "SOFTWARE" }),
+    ],
     "an Azure key": [
       azureKey(),
       azureKey({ keyId: literal("https://vault.vault.azure.net/keys/j") }),

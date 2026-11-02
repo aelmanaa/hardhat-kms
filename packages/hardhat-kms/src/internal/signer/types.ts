@@ -69,6 +69,13 @@ export interface KmsKeyAdapter {
   getPublicKey?(ctx: SignContext): Promise<Uint8Array>;
   /** Returns the key's address, for signers that cannot export a public key. */
   getAddress?(ctx: SignContext): Promise<string>;
+  /**
+   * Returns the key's protection level as the provider last reported it, such as Google Cloud's
+   * `HSM`, for `kms accounts` to show. `undefined` before `getPublicKey` or `getAddress` has
+   * returned, or when the provider reports none. The core shows only a value of 1 to 32 uppercase
+   * letters, digits and `_`, and ignores any other.
+   */
+  protectionLevel?(): string | undefined;
   /** Signs a 32-byte digest. */
   signDigest?(request: { digest: Uint8Array }, ctx: SignContext): Promise<SignatureOutput>;
   /** Signs an EIP-191 message; `digest` is what the core expects to be signed. */

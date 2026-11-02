@@ -4,6 +4,7 @@ import {
   catalogMessage,
   crc32c,
   type ErrorEntry,
+  kmsDebug,
   publicKeyFromSpkiPem,
   type TemplateParams,
 } from "hardhat-kms/provider-utils";
@@ -26,6 +27,24 @@ import {
 } from "./wire.ts";
 
 const ALGORITHM = "EC_SIGN_SECP256K1_SHA256";
+
+/**
+ * A protection level as the SDK decodes it: an enum name such as `HSM`. A level this SDK version
+ * does not know arrives as a number, and is not passed on.
+ */
+const PROTECTION_LEVEL = /^[A-Z][A-Z0-9_]{0,31}$/;
+
+const log = kmsDebug("gcp");
+
+/**
+ * The protection level of a response, if it names one.
+ *
+ * @param value - The response's `protectionLevel`.
+ * @returns The level's name, or `undefined`.
+ */
+function protectionLevelName(value: unknown): string | undefined {
+  return typeof value === "string" && PROTECTION_LEVEL.test(value) ? value : undefined;
+}
 
 /**
  * How many times a call is repeated after a checksum mismatch or an unavailable service, so at
@@ -149,6 +168,9 @@ const STATUS_ERRORS: Partial<Record<StatusName, StatusEntry>> = {
  * goes with `digestCrc32c`, and the response must confirm it with `verifiedDigestCrc32c` and carry
  * a matching `signatureCrc32c`; a public key must match its `pemCrc32c`. A mismatch repeats the
  * call, at most {@link MAX_RETRIES} times. A response for another key version fails at once.
+ *
+ * Before the first signature, the public key response must name the secp256k1 algorithm and,
+ * when the key's config sets `protectionLevel`, that protection level.
  */
 class GcpKeyAdapter implements KmsKeyAdapter {
   readonly #key: GcpKmsKeyConfig;
@@ -158,6 +180,8 @@ class GcpKeyAdapter implements KmsKeyAdapter {
   #client: GcpKmsClient | undefined;
   readonly #userAgent: string;
   #checked = false;
+  /** The protection level of the last public key response, for `kms accounts`. */
+  #protectionLevel: string | undefined;
 
   public constructor(
     key: GcpKmsKeyConfig,
@@ -197,10 +221,20 @@ class GcpKeyAdapter implements KmsKeyAdapter {
       if (!crc32cMatches(new TextEncoder().encode(pem), key.pemCrc32c)) {
         throw new RetryableFailure("checksum", catalogMessage(ERRORS.pemChecksum, {}));
       }
-      return { pem, algorithm: key.algorithm };
+      return { pem, algorithm: key.algorithm, protectionLevel: key.protectionLevel };
     });
     if (response.algorithm !== ALGORITHM) {
       throw this.#error(operation, ERRORS.algorithm, { algorithm: String(response.algorithm) });
+    }
+    const level = protectionLevelName(response.protectionLevel);
+    this.#protectionLevel = level;
+    log("%s: protection level %s", this.#key.displayId, level ?? "not reported");
+    const expected = this.#key.protectionLevel;
+    if (expected !== undefined && level !== expected) {
+      throw this.#error(operation, ERRORS.protectionLevel, {
+        level: level ?? "not reported",
+        expected,
+      });
     }
     const publicKey = publicKeyFromSpkiPem(response.pem);
     // Trust the algorithm only from a call that was not abandoned, as the signer does.
@@ -208,6 +242,10 @@ class GcpKeyAdapter implements KmsKeyAdapter {
       this.#checked = true;
     }
     return publicKey;
+  }
+
+  public protectionLevel(): string | undefined {
+    return this.#protectionLevel;
   }
 
   public async signDigest(

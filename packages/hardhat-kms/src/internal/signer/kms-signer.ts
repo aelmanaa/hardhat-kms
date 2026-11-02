@@ -198,6 +198,9 @@ export interface TransactionToSign {
   nonce: bigint;
 }
 
+/** A protection level the signer passes on: 1 to 32 uppercase letters, digits and `_`. */
+const PROTECTION_LEVEL = /^[A-Z0-9_]{1,32}$/;
+
 /** What is being signed, which decides the digest, the adapter method and the final check. */
 type SignRequest =
   | { kind: "digest"; digest: Uint8Array }
@@ -326,6 +329,29 @@ export class KmsSigner {
     );
     this.#assertPin(address);
     return { address, confirmed: true };
+  }
+
+  /**
+   * Returns the key's protection level as the adapter last reported it, for display. The adapter's
+   * method is third-party code: a value in another form, a throw, or a property that is not a
+   * method gives `undefined`.
+   *
+   * @returns The level, such as `HSM`, or `undefined` when the adapter reports none.
+   */
+  public protectionLevel(): string | undefined {
+    // Read and type-checked here, not when the adapter is created: an adapter written for an
+    // earlier minor may have a property of this name that is not a method.
+    const read: unknown = Reflect.get(this.#adapter, "protectionLevel");
+    if (typeof read !== "function") {
+      return undefined;
+    }
+    let level: unknown;
+    try {
+      level = Reflect.apply(read, this.#adapter, []);
+    } catch {
+      return undefined;
+    }
+    return typeof level === "string" && PROTECTION_LEVEL.test(level) ? level : undefined;
   }
 
   /**

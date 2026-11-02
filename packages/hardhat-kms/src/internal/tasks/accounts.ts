@@ -89,6 +89,11 @@ export interface AccountEntry extends AccountName {
    * an EIP-7702 authorization only to the zero address, which clears a delegation.
    */
   allowedDelegates?: number;
+  /**
+   * Only for a key whose provider reports one, such as a Google Cloud key: the protection level the
+   * provider reported for it, such as `HSM`. Absent if the key failed before the provider answered.
+   */
+  protectionLevel?: string;
   /** Only for a key with `allowRawDigests: true`: `true`. */
   allowRawDigests?: true;
   /**
@@ -211,6 +216,10 @@ async function listAccounts(
           const { address, confirmed } = await signer.confirmedAddress();
           entry.address = address;
           entry.pinStatus = confirmed ? (entry.pin === null ? "none" : "match") : "unchecked";
+          const level = signer.protectionLevel();
+          if (level !== undefined) {
+            entry.protectionLevel = level;
+          }
         } catch (error) {
           entry.error = describeError(error);
           return { entry, key: task.key };
@@ -255,6 +264,7 @@ async function listAccounts(
       balances: source.kind !== "off",
       checkSign,
       delegates: accounts.some((entry) => entry.allowedDelegates !== undefined),
+      protection: accounts.some((entry) => entry.protectionLevel !== undefined),
     });
   }
   return accounts.some((entry) => entry.error !== null)
@@ -317,12 +327,16 @@ async function identityOf(key: KmsKeyConfig): Promise<string | undefined> {
 
 /**
  * What else keeps two entries for one KMS key apart in the list: what each entry lets the key
- * sign (`allowedDelegates` and `allowRawDigests`) and, for a Turnkey key, its API keys, by their
+ * sign (`allowedDelegates` and `allowRawDigests`), for a Google Cloud key its `protectionLevel`,
+ * and, for a Turnkey key, its API keys, by their
  * comparison forms (a variable's name, never its value), and its `transactionSigning`. The API key
  * decides which user asks and which policies apply, so `--check-sign` checks each one.
  */
 function listedSettings(key: KmsKeyConfig): string {
   const limits = [key.allowedDelegates ?? null, key.allowRawDigests === true];
+  if (key.provider === "gcp") {
+    return JSON.stringify([...limits, key.protectionLevel ?? null]);
+  }
   if (key.provider !== "turnkey") {
     return JSON.stringify(limits);
   }
@@ -336,8 +350,8 @@ function listedSettings(key: KmsKeyConfig): string {
 
 /**
  * Lists each KMS key once: keys with the same identity, the same pin, the same `allowedDelegates`
- * and `allowRawDigests` and, for Turnkey, the same API keys and `transactionSigning` are one
- * entry, under the first name, with the others in `otherNames`. Keys of third-party providers, and keys whose identifier cannot be read, are never
+ * and `allowRawDigests` and, for Google Cloud, the same `protectionLevel` and, for Turnkey, the
+ * same API keys and `transactionSigning` are one entry, under the first name, with the others in `otherNames`. Keys of third-party providers, and keys whose identifier cannot be read, are never
  * merged; reading them fails again when they are resolved.
  */
 async function distinctKeys(keys: TaskKey[]): Promise<ListedKey[]> {
@@ -520,14 +534,15 @@ const PIN_LABELS: Record<NonNullable<AccountEntry["pinStatus"]>, string> = {
 
 /**
  * Prints the accounts as a table on standard output, with a key's other names, its raw-digest
- * opt-in and its failure on the lines under it. The DELEGATES column appears when any key has
+ * opt-in and its failure on the lines under it. The PROTECTION column appears when any key's
+ * provider reported a protection level, and the DELEGATES column when any key has
  * `allowedDelegates`; then an `address` line to paste into each config entry of a key that has no
  * pin.
  */
 function printTable(
   accounts: AccountEntry[],
   keyIds: string[],
-  columns: { balances: boolean; checkSign: boolean; delegates: boolean },
+  columns: { balances: boolean; checkSign: boolean; delegates: boolean; protection: boolean },
 ): void {
   if (accounts.length === 0) {
     printNote(
@@ -541,6 +556,7 @@ function printTable(
     "SOURCE",
     "ADDRESS",
     "PIN",
+    ...(columns.protection ? ["PROTECTION"] : []),
     ...(columns.delegates ? ["DELEGATES"] : []),
     ...(columns.balances ? ["BALANCE (ETH)"] : []),
     ...(columns.checkSign ? ["SIGN"] : []),
@@ -555,6 +571,7 @@ function printTable(
     entry.source,
     entry.address ?? "FAILED",
     entry.pinStatus === null ? "-" : PIN_LABELS[entry.pinStatus],
+    ...(columns.protection ? [entry.protectionLevel ?? "-"] : []),
     ...(columns.delegates ? [delegatesCell(entry)] : []),
     ...(columns.balances
       ? [
