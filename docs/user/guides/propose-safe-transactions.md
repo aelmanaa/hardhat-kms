@@ -70,7 +70,7 @@ export default defineConfig({
 
 The task signs with a KMS account of the network it runs on. With one KMS account, it uses that one. With several, pass `--key` with the one that owns the Safe.
 
-The plugin picks the service from the chain: `https://api.safe.global/tx-service/sep` for Sepolia, and the chains Safe's own client, `@safe-global/api-kit` 5.0.4, lists. For a chain Safe does not serve, or for a self-hosted service, set its root per chain id. A self-hosted service needs no API key:
+The plugin picks the service from the chain: `https://api.safe.global/tx-service/sep` for Sepolia, and the chains Safe's own client, `@safe-global/api-kit` 5.0.4, lists. For a chain Safe does not serve, or for a self-hosted service, set its root per chain id. The plugin sends the API key only to Safe's hosted service, never to a self-hosted one, so a self-hosted service that requires a key is not supported:
 
 <!-- docs-check: skip -->
 
@@ -97,7 +97,7 @@ Or pass the encoded call with `--data`, and wei with `--value`:
 npx hardhat --network sepolia kms safe propose <safe> <recipient> --value 1000000000000000
 ```
 
-Before the key signs, the task prints on standard error what it is about to sign: the Safe and its version, the threshold and owners, the signer, the target, value, data and operation, the nonce and the SafeTx hash. After the service stores the proposal, it prints the result on standard output:
+Before the key signs, the task prints on standard error what it is about to sign: the Safe and its version, the threshold and owners, the signer, the target, value, data and operation, the function and each argument when `--function` encoded the call, the nonce and the SafeTx hash. Pass an integer above 2^53 - 1 in `--args` as a string, such as `"123456789012345678901"`: JSON rounds larger numbers, so the task refuses them. After the service stores the proposal, it prints the result on standard output:
 
 ```text
 Proposed SafeTx 0x56d0c8521d3e248f74c1dd600311b5b2809fef7b70666a5badbebd5abbe91500
@@ -109,7 +109,7 @@ https://app.safe.global/transactions/tx?safe=sep:0xfFDBcab93921F1967577E66cc5E73
 
 Open the link to see the transaction in the Safe app. The other owners confirm it there, and any of them executes it once the threshold is met.
 
-The nonce is the next free one: one above the highest transaction already queued, or the Safe's own nonce when nothing is queued. Pass `--nonce` to choose it, for example to replace a queued transaction with another at the same nonce. [`kms safe propose`](../reference/tasks.md#kms-safe-propose) lists every option.
+The nonce is the next free one: one above the highest transaction already queued, or the Safe's own nonce when nothing is queued. The task takes at most 50 above the Safe's nonce from the service's queue; beyond that it refuses and asks for `--nonce`. Pass `--nonce` to choose it, for example to replace a queued transaction with another at the same nonce. [`kms safe propose`](../reference/tasks.md#kms-safe-propose) lists every option.
 
 ## What the task checks and refuses
 

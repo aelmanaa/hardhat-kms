@@ -33,8 +33,8 @@ export const OWNER_SECRET: Uint8Array = new Uint8Array(32).fill(7);
 /** A second KMS key's secret, for networks with two KMS accounts. */
 export const OTHER_SECRET: Uint8Array = new Uint8Array(32).fill(9);
 
-/** The URLs the fence refused, in order. */
-export const REFUSED: string[] = [];
+/** The requests the fence refused, in order, with their Authorization header. */
+export const REFUSED: { url: string; authorization: string | null }[] = [];
 
 /**
  * Replaces the global fetch with one that refuses every host but 127.0.0.1 and localhost.
@@ -46,7 +46,10 @@ export function fenceNetwork(): () => void {
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
     if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
-      REFUSED.push(url.href);
+      REFUSED.push({
+        url: url.href,
+        authorization: new Headers(init?.headers).get("authorization"),
+      });
       throw new Error(`network fence: refused ${url.hostname}`);
     }
     return await realFetch(input, init);
@@ -150,7 +153,8 @@ export async function createProject(
   extra: Partial<HardhatUserConfig> = {},
 ): Promise<Project> {
   process.env[API_KEY_VARIABLE] = FAKE_API_KEY;
-  const service = await startFakeService(node.chain.publicClient, FAKE_API_KEY);
+  // A self-hosted service: the plugin sends it no API key, so the fake requires none.
+  const service = await startFakeService(node.chain.publicClient);
   const hre = await createHardhatRuntimeEnvironment({
     plugins: [hardhatKms, hardhatKmsSafe],
     kms: {

@@ -63,7 +63,7 @@
     "test:unit": "node ../../scripts/node-test.ts unit \"test/unit/**/*.test.ts\"",
     "test:integration": "node ../../scripts/node-test.ts integration --test-concurrency=1 \"test/integration/**/*.test.ts\"",
     "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
-    "test:localstack": "node --test --test-concurrency=1 --test-timeout=300000 \"test/localstack/**/*.test.ts\""
+    "test:localstack": "pnpm --filter hardhat-kms --filter @hardhat-kms/aws --filter @hardhat-kms/safe run build && node --test --test-concurrency=1 --test-timeout=300000 \"test/localstack/**/*.test.ts\""
   },
   "devDependencies": {
     "@aws-sdk/client-kms": "^3.1143.0",

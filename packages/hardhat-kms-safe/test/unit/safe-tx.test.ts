@@ -136,7 +136,10 @@ describe("safeTransaction", () => {
     refuses(() => safeTransaction({ to, data: "0x1" }, 0n), /not 0x-prefixed/);
     refuses(() => safeTransaction({ to, data: "1234" }, 0n), /not 0x-prefixed/);
     refuses(() => safeTransaction({ to, data: "0xzz" }, 0n), /not 0x-prefixed/);
-    refuses(() => safeTransaction({ to, value: -1n }, 0n), /value cannot be negative/);
+    refuses(
+      () => safeTransaction({ to, value: -1n }, 0n),
+      /value must be a bigint from 0 to 2\^256 - 1/,
+    );
     refuses(() => safeTransaction({ to }, -1n), /nonce cannot be negative/);
     refuses(() => safeTransaction({ to }, MAX_NONCE + 1n), /above 2\^53 - 1/);
     assert.equal(safeTransaction({ to }, MAX_NONCE).nonce, MAX_NONCE);

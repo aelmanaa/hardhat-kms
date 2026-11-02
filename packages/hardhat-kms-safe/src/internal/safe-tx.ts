@@ -51,6 +51,26 @@ export interface SafeCall {
 /** The zero address. */
 const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
 
+/** The largest uint256. */
+const MAX_UINT256 = 2n ** 256n - 1n;
+
+/**
+ * Reads a call's operation at run time, since JavaScript callers can pass any value: the number 0
+ * (the default) or 1, and nothing else.
+ *
+ * @param operation - `call.operation`.
+ * @returns The operation.
+ */
+function parseOperation(operation: unknown): Operation {
+  if (operation === undefined || operation === 0) {
+    return 0;
+  }
+  if (operation === 1) {
+    return 1;
+  }
+  throw catalogError(ERRORS.operation, {});
+}
+
 /** The largest nonce the plugin proposes: api-kit sends the nonce as a JSON number. */
 export const MAX_NONCE: bigint = BigInt(Number.MAX_SAFE_INTEGER);
 
@@ -86,7 +106,7 @@ export const SAFE_TX_TYPES = {
  * @returns The checksummed address.
  */
 export function parseAddress(value: string, field: string): Address {
-  if (!isAddress(value)) {
+  if (typeof value !== "string" || !isAddress(value)) {
     throw catalogError(ERRORS.badAddress, { field });
   }
   return getAddress(value);
@@ -112,13 +132,14 @@ export function supportedVersion(version: string): SupportedVersion | undefined 
  */
 export function safeTransaction(call: SafeCall, nonce: bigint): SafeTransaction {
   const to = parseAddress(call.to, "to");
+  const operation = parseOperation(call.operation);
   const data = call.data ?? "0x";
   if (!isHex(data, { strict: true }) || data.length % 2 !== 0) {
     throw catalogError(ERRORS.badData, {});
   }
   const value = call.value ?? 0n;
-  if (value < 0n) {
-    throw catalogError(ERRORS.negative, { field: "value" });
+  if (typeof value !== "bigint" || value < 0n || value > MAX_UINT256) {
+    throw catalogError(ERRORS.valueRange, {});
   }
   if (nonce < 0n) {
     throw catalogError(ERRORS.negative, { field: "nonce" });
@@ -130,7 +151,7 @@ export function safeTransaction(call: SafeCall, nonce: bigint): SafeTransaction 
     to,
     value,
     data: `0x${data.slice(2).toLowerCase()}`,
-    operation: call.operation ?? 0,
+    operation,
     safeTxGas: 0n,
     baseGas: 0n,
     gasPrice: 0n,

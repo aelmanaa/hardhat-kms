@@ -73,7 +73,7 @@ A Turnkey key signs with a P-256 API key of a Turnkey user. The key's `apiPrivat
 
 `@hardhat-kms/safe` reads one secret: the Safe Transaction Service API key, for proposals to Safe's hosted service ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)). The config names it only as a configuration variable, `kmsSafe.apiKey: configVariable("SAFE_TRANSACTION_SERVICE_API_KEY")`, and validation refuses a string. Hardhat resolves the variable from the environment, or from `hardhat-keystore` when the config loads the keystore plugin (`npx hardhat keystore set SAFE_TRANSACTION_SERVICE_API_KEY`).
 
-The plugin reads the value only when `kms safe propose` runs, sends it only as `Authorization: Bearer` to the service the chain resolves to, and never puts it in an error or the debug output. It never follows a redirect, so the key cannot reach another host. A self-hosted service set in `kmsSafe.services` needs no key. Create and revoke keys at [developer.safe.global](https://developer.safe.global).
+The plugin reads the value only when `kms safe propose` runs, sends it only as `Authorization: Bearer` to the service the chain resolves to, and never puts it in an error or the debug output. It never follows a redirect, so the key cannot reach another host. A self-hosted service set in `kmsSafe.services` gets no key, and the variable is not read for it. Create and revoke keys at [developer.safe.global](https://developer.safe.global).
 
 ## One identity per run on Google Cloud and Azure
 

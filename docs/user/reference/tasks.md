@@ -612,24 +612,24 @@ npx hardhat --network <network> kms safe propose <safe> <to> [--value <wei>] [--
 npx hardhat --network sepolia kms safe propose 0xfFDBcab93921F1967577E66cc5E739571eB56F19 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 --value 1000
 ```
 
-| Option           | Meaning                                                                                                                                                                              |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `<safe>`         | The Safe's address on the network's chain. Added in next.                                                                                                                            |
-| `<to>`           | The address the Safe calls. Added in next.                                                                                                                                           |
-| `--value`        | Wei the Safe sends with the call. Default 0. Added in next.                                                                                                                          |
-| `--data`         | The call data, `0x`-prefixed hex. Default none. Added in next.                                                                                                                       |
-| `--function`     | A function signature, such as `"transferOwnership(address)"`, to encode the call data from. Cannot be combined with `--data`. Added in next.                                         |
-| `--args`         | The function's arguments as a JSON array, such as `'["0x…", "1000"]'`. Integers may be strings, so large values stay exact. Needs `--function`. Added in next.                       |
-| `--key`          | The owner's key, named as the other tasks name a key ([Naming a key](#naming-a-key)). Default: the network's only KMS account; required when the network has several. Added in next. |
-| `--nonce`        | The Safe nonce, in decimal. Default: one above the highest queued transaction, or the Safe's nonce when none is queued. Must be at least the Safe's nonce. Added in next.            |
-| `--delegatecall` | Propose operation 1, a delegatecall: the target's code runs with the Safe's storage and funds. Without it, the task proposes a call only. Added in next.                             |
-| `--yes`          | For a Safe whose threshold is 1, propose without asking. Added in next.                                                                                                              |
+| Option           | Meaning                                                                                                                                                                                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<safe>`         | The Safe's address on the network's chain. Added in next.                                                                                                                                                                                    |
+| `<to>`           | The address the Safe calls. Added in next.                                                                                                                                                                                                   |
+| `--value`        | Wei the Safe sends with the call. Default 0. Added in next.                                                                                                                                                                                  |
+| `--data`         | The call data, `0x`-prefixed hex. Default none. Added in next.                                                                                                                                                                               |
+| `--function`     | A function signature, such as `"transferOwnership(address)"`, to encode the call data from. Cannot be combined with `--data`. Added in next.                                                                                                 |
+| `--args`         | The function's arguments as a JSON array, such as `'["0x…", "1000"]'`. Pass an integer above 2^53 - 1 as a string, decimal or `0x` hex, since JSON rounds larger numbers; the task refuses such a number. Needs `--function`. Added in next. |
+| `--key`          | The owner's key, named as the other tasks name a key ([Naming a key](#naming-a-key)). Default: the network's only KMS account; required when the network has several. Added in next.                                                         |
+| `--nonce`        | The Safe nonce, in decimal. Default: one above the highest queued transaction, or the Safe's nonce when none is queued. Must be at least the Safe's nonce. Added in next.                                                                    |
+| `--delegatecall` | Propose operation 1, a delegatecall: the target's code runs with the Safe's storage and funds. Without it, the task proposes a call only. Added in next.                                                                                     |
+| `--yes`          | For a Safe whose threshold is 1, propose without asking. Added in next.                                                                                                                                                                      |
 
 The gas refund fields of the Safe transaction (`safeTxGas`, `baseGas`, `gasPrice`, `gasToken`, `refundReceiver`) are always zero.
 
 **Output**
 
-Before the key signs, the task prints the Safe and its version, the threshold and owners, the signer, the target, value, data and operation, the nonce and the SafeTx hash on standard error, each line after `[hardhat-kms]`. After the service stores the proposal, it prints on standard output:
+Before the key signs, the task prints the Safe and its version, the threshold and owners, the signer, the target, value, data and operation, the function and each argument when `--function` encoded the call, the nonce and the SafeTx hash on standard error, each line after `[hardhat-kms]`. After the service stores the proposal, it prints on standard output:
 
 ```text
 Proposed SafeTx 0x56d0c8521d3e248f74c1dd600311b5b2809fef7b70666a5badbebd5abbe91500
@@ -653,12 +653,12 @@ Run it with `--network` set to the Safe's network: without it, the task uses Har
 - The node's chain id differs from the network's `chainId`.
 - Safe's hosted service does not serve the chain and `kmsSafe.services` names no service for it, or the hosted service is used without `kmsSafe.apiKey`.
 - The Safe's address has no code, its `VERSION()` is not 1.3.0, 1.4.1 or 1.5.0, or the key is not one of its owners.
-- `--nonce` is below the Safe's nonce.
+- `--nonce` is below the Safe's nonce, or, without `--nonce`, the service's queue puts the next nonce more than 50 above the Safe's.
 - The call is a delegatecall without `--delegatecall`.
 - The Safe's `getTransactionHash` differs from the hash the plugin computed.
 - The service refuses the lookup of queued transactions, for example with 401 for a wrong API key.
 
-After the key signs, the task posts nothing when the signature does not recover to the key or the Safe's `checkNSignatures` refuses it. A refusal from the service after signing says whether it may have stored the proposal. The [errors reference](errors.md) lists every `safe.` error.
+After the key signs, the task posts nothing when the signature does not recover to the key, the Safe's `checkNSignatures` refuses it, or the node cannot run that check. A refusal from the service after signing says whether it may have stored the proposal. The [errors reference](errors.md) lists every `safe.` error.
 
 ## `kms history`
 

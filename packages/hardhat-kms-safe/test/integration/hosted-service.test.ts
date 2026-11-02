@@ -11,6 +11,7 @@ import { NO_TERMINAL } from "../../../hardhat-kms/test/helpers/terminal.ts";
 import { proposeTask, type ProposeArguments } from "../../src/internal/tasks/propose.ts";
 import {
   API_KEY_VARIABLE,
+  FAKE_API_KEY,
   createProject,
   fenceNetwork,
   REFUSED,
@@ -96,10 +97,10 @@ describe("Safe's hosted service, and the canonical Safe code", { timeout: 120_00
         /did not answer the list of queued transactions\. Nothing was signed/,
       );
       assert.equal(p.signCalls(), 0);
-      assert.equal(
-        REFUSED.at(-1),
-        `https://api.safe.global/tx-service/sep/api/v2/safes/${safe}/multisig-transactions/?executed=false&nonce__gte=0&ordering=-nonce&limit=1`,
-      );
+      assert.deepEqual(REFUSED.at(-1), {
+        url: `https://api.safe.global/tx-service/sep/api/v2/safes/${safe}/multisig-transactions/?executed=false&nonce__gte=0&ordering=-nonce&limit=1`,
+        authorization: `Bearer ${FAKE_API_KEY}`,
+      });
     } finally {
       await p.close();
     }

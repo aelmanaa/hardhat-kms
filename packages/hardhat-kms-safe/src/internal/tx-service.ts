@@ -94,7 +94,7 @@ export function isServiceUrl(url: string): boolean {
   } catch {
     return false;
   }
-  const local = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
   return (
     (parsed.protocol === "https:" || (parsed.protocol === "http:" && local)) &&
     parsed.username === "" &&
@@ -222,7 +222,7 @@ export class TransactionServiceClient {
         signal: signal === undefined ? timeout : AbortSignal.any([timeout, signal]),
         ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
       });
-      text = await response.text();
+      text = await readCapped(response);
     } catch (error) {
       throw catalogError(ERRORS.unreachable, {
         request: request.what,
@@ -256,10 +256,13 @@ export class TransactionServiceClient {
       } catch {
         parsed = undefined;
       }
+      const reasons = refusalReasons(parsed);
       throw catalogError(ERRORS.rejected, {
         status,
         request: request.what,
-        reasons: refusalReasons(parsed),
+        // A service that echoes the request's key does not get it printed.
+        reasons:
+          this.#apiKey === undefined ? reasons : reasons.split(this.#apiKey).join("<redacted>"),
         signed: signedNote(request, false),
       });
     }
@@ -343,6 +346,43 @@ export class TransactionServiceClient {
       signal,
     );
   }
+}
+
+/** The most of an answer the client reads: the queue page and the errors are far smaller. */
+const MAX_BODY_BYTES = 1024 * 1024;
+
+/**
+ * Reads an answer's body as text, at most {@link MAX_BODY_BYTES} of it. A longer body reads as an
+ * empty string, which parses as no answer.
+ *
+ * @param response - The answer.
+ * @returns The text, or an empty string when the body is too long.
+ */
+async function readCapped(response: Response): Promise<string> {
+  if (response.body === null) {
+    return "";
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  for (;;) {
+    const result: { done: boolean; value?: unknown } = await reader.read();
+    if (result.done) {
+      break;
+    }
+    const value = result.value;
+    if (!(value instanceof Uint8Array)) {
+      await reader.cancel();
+      return "";
+    }
+    length += value.byteLength;
+    if (length > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return "";
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 /**

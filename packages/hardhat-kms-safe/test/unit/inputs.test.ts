@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { encodeFunctionData, parseAbi } from "viem";
 
 import { serviceFor, safeAppLink, SERVICE_CHAINS } from "../../src/internal/chains.ts";
-import { callData, encodeCall } from "../../src/internal/tasks/inputs.ts";
+import { callData, describeCall, encodeCall } from "../../src/internal/tasks/inputs.ts";
 
 const OWNER = "0x79613FD49472C3C7a32188e45ff00e7bdC8a897d";
 
@@ -33,6 +33,39 @@ describe("call data from the task's options", () => {
       ),
       `0x27ea6f2b${"f".repeat(64)}`,
     );
+  });
+
+  it("refuses JSON numbers above 2^53 - 1 and blank integers, and keeps large strings exact", () => {
+    assert.throws(
+      () => encodeCall("set(uint256)", "[123456789012345678901]"),
+      /argument 1 is a JSON number above 2\^53 - 1, which JSON rounds: pass it as a string/,
+    );
+    assert.equal(
+      encodeCall("set(uint256)", '["123456789012345678901"]'),
+      encodeFunctionData({
+        abi: parseAbi(["function set(uint256 v)"]),
+        args: [123456789012345678901n],
+      }),
+    );
+    assert.equal(
+      encodeCall("set(uint256)", '["0xff"]'),
+      encodeFunctionData({ abi: parseAbi(["function set(uint256 v)"]), args: [255n] }),
+    );
+    for (const blank of ['""', '" "', '"1e3"', '"1.5"', "1.5"]) {
+      assert.throws(() => encodeCall("set(uint256)", `[${blank}]`), /argument 1 is not an integer/);
+    }
+  });
+
+  it("describes the call it encoded, for the summary before signing", () => {
+    assert.deepEqual(
+      describeCall("transferOwnership(address)", `["${OWNER}"]`),
+      `transferOwnership(address) with ${OWNER}`,
+    );
+    assert.deepEqual(
+      describeCall("set(uint256,bool)", '["123456789012345678901", true]'),
+      "set(uint256,bool) with 123456789012345678901, true",
+    );
+    assert.equal(describeCall("pause()", undefined), "pause()");
   });
 
   it("refuses what it cannot encode", () => {

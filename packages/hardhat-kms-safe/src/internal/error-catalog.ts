@@ -46,7 +46,7 @@ export const ERRORS = {
     kind: "validation",
     group: "Configuration",
     template:
-      "must be an https URL without a user name, password, query or fragment; http is accepted only for localhost and 127.0.0.1",
+      "must be an https URL without a user name, password, query or fragment; http is accepted only for localhost, 127.0.0.1 and [::1]",
     cause:
       "A URL of `kmsSafe.services` is not a URL, uses another scheme, uses http for a remote host, or carries credentials, a query or a fragment. The plugin sends the API key and signed proposals to it.",
     fix: "Set the root of the Transaction Service, such as `https://safe-transaction.example.com`, without `/api`.",
@@ -101,6 +101,24 @@ export const ERRORS = {
     cause:
       "`--function` is not a function signature, `--args` is not a JSON array, or an argument does not fit its parameter's type.",
     fix: "Check the signature against the contract's ABI, and pass one JSON value per parameter. Pass integers as strings or numbers.",
+  },
+  operation: {
+    id: "safe.input.operation",
+    kind: "error",
+    group: "Inputs",
+    template: "operation must be the number 0 (a call) or 1 (a delegatecall)",
+    cause:
+      '`call.operation` of `proposeSafeTransaction` is another value, such as the string "1" or 2. Safes execute only these two operations, and the plugin checks the delegatecall opt-in against the number 1.',
+    fix: "Pass `operation: 0`, or `operation: 1` with `allowDelegateCall: true`.",
+  },
+  valueRange: {
+    id: "safe.input.value-range",
+    kind: "error",
+    group: "Inputs",
+    template: "value must be a bigint from 0 to 2^256 - 1, in wei",
+    cause:
+      "`call.value` of `proposeSafeTransaction` is not a bigint, or is outside the range of a uint256.",
+    fix: "Pass the amount in wei as a bigint, such as `10n ** 18n` for one ether.",
   },
   negative: {
     id: "safe.input.negative",
@@ -235,6 +253,16 @@ export const ERRORS = {
       "`--nonce` is below the Safe's on-chain `nonce()`. The Safe executes each nonce once, so the transaction could never run. The Transaction Service checks this only against transactions it indexed.",
     fix: "Leave out `--nonce` to take the next one, or pass a nonce of at least the Safe's nonce. To replace a queued transaction, pass its nonce.",
   },
+  nonceAhead: {
+    id: "safe.check.nonce-ahead",
+    kind: "error",
+    group: "Checks before signing",
+    template:
+      "the Transaction Service's queue puts the next nonce at {nonce}, {ahead} above the Safe's nonce {safeNonce}; the plugin takes at most 50 above it from the service. Nothing was signed",
+    cause:
+      "The plugin trusts the service's queue only to raise the nonce, and only by up to 50. A queue that far ahead is unusual, and a service that lies could make the key sign for a nonce that runs much later.",
+    fix: "Check the queued transactions in the Safe app. To propose at that nonce anyway, pass it with `--nonce`.",
+  },
   delegatecall: {
     id: "safe.check.delegatecall",
     kind: "error",
@@ -307,10 +335,20 @@ export const ERRORS = {
     kind: "error",
     group: "Transaction Service",
     template:
-      "the Transaction Service URL must be an https URL without a user name, password, query or fragment; http is accepted only for localhost and 127.0.0.1",
+      "the Transaction Service URL must be an https URL without a user name, password, query or fragment; http is accepted only for localhost, 127.0.0.1 and [::1]",
     cause:
       "`TransactionServiceClient` got a URL that is not https, or that carries credentials, a query or a fragment. The client sends the API key and signed proposals to it.",
     fix: "Pass the root of the Transaction Service, such as `https://api.safe.global/tx-service/sep`, without `/api`.",
+  },
+  checkFailed: {
+    id: "safe.sign.check-failed",
+    kind: "error",
+    group: "Checks after signing",
+    template:
+      "the node could not run the Safe's checkNSignatures, so the plugin cannot tell whether the Safe accepts the signature. Nothing was posted",
+    cause:
+      "The `eth_call` of `checkNSignatures` failed without a revert, for example because the node was unreachable or returned something other than hex.",
+    fix: "Check the network's RPC endpoint and run the task again.",
   },
   unknownChain: {
     id: "safe.service.unknown-chain",
@@ -329,7 +367,7 @@ export const ERRORS = {
     template:
       'Safe\'s Transaction Service needs an API key. Set kmsSafe.apiKey to configVariable("SAFE_TRANSACTION_SERVICE_API_KEY"). Nothing was signed',
     cause:
-      "`api.safe.global` refuses requests without an API key, and `kmsSafe.apiKey` is not set. A self-hosted service from `kmsSafe.services` needs no key.",
+      "`api.safe.global` refuses requests without an API key, and `kmsSafe.apiKey` is not set. A self-hosted service from `kmsSafe.services` gets no key, and the variable is not read for it.",
     fix: "Create a key at developer.safe.global, store it with `npx hardhat keystore set SAFE_TRANSACTION_SERVICE_API_KEY` or in the environment, and set `kmsSafe.apiKey`.",
   },
   unauthorized: {

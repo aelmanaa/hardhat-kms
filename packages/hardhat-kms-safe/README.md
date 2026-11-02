@@ -46,7 +46,7 @@ export default defineConfig({
 });
 ```
 
-Config validation refuses an API key written as a string. Set the variable in the environment, or with `npx hardhat keystore set SAFE_TRANSACTION_SERVICE_API_KEY`. `kmsSafe.services` sets a self-hosted service per chain id, which needs no key.
+Config validation refuses an API key written as a string. Set the variable in the environment, or with `npx hardhat keystore set SAFE_TRANSACTION_SERVICE_API_KEY`. `kmsSafe.services` sets a self-hosted service per chain id; the plugin sends it no key.
 
 ## Propose
 

@@ -177,24 +177,50 @@ export async function contractSafeTxHash(
  * @param safe - The Safe.
  * @param hash - The SafeTx hash.
  * @param signature - The owner's 65-byte signature.
- * @returns Whether the Safe accepts the signature.
+ * @returns `accepted`, `refused` when the call reverted, or `failed` when the node could not run
+ *   it.
  */
 export async function safeAcceptsSignature(
   provider: Eip1193Provider,
   safe: Address,
   hash: Hex,
   signature: Hex,
-): Promise<boolean> {
-  const result = await call(
-    provider,
-    safe,
-    encodeFunctionData({
-      abi: SAFE_ABI,
-      functionName: "checkNSignatures",
-      args: [hash, "0x", signature, 1n],
-    }),
+): Promise<"accepted" | "refused" | "failed"> {
+  const data = encodeFunctionData({
+    abi: SAFE_ABI,
+    functionName: "checkNSignatures",
+    args: [hash, "0x", signature, 1n],
+  });
+  try {
+    const result = await provider.request({
+      method: "eth_call",
+      params: [{ to: safe, data }, "latest"],
+    });
+    return isHex(result) ? "accepted" : "failed";
+  } catch (error) {
+    return isRevert(error) ? "refused" : "failed";
+  }
+}
+
+/**
+ * Whether an `eth_call` failed because the contract reverted, rather than because the node could
+ * not run it: a JSON-RPC error with code 3, revert data, or a message that says it reverted.
+ *
+ * @param error - What the provider threw.
+ * @returns Whether it is a revert.
+ */
+function isRevert(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const code: unknown = Reflect.get(error, "code");
+  const data: unknown = Reflect.get(error, "data");
+  const message: unknown = Reflect.get(error, "message");
+  return (
+    code === 3 ||
+    (typeof data === "string" && isHex(data)) ||
+    (typeof message === "string" && /revert/i.test(message))
   );
-  return result !== undefined;
 }
 
 /**

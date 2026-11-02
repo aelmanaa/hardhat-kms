@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
+import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 import { concatHex, encodeFunctionData, getAddress, parseAbi, type Address, type Hex } from "viem";
@@ -194,7 +195,7 @@ describe("kms safe propose", { timeout: 120_000 }, () => {
     });
   }
 
-  it("sends the API key as a bearer token on every request, and the body api-kit sends", async () => {
+  it("sends a self-hosted service no API key, and the body api-kit sends", async () => {
     const safe = await safeOf("1.4.1", [project.owner, SECOND_OWNER.address], 2n);
     const count = project.service.requests.length;
     const proposal = await propose({ safe, to: SECOND_OWNER.address, value: 5n });
@@ -203,7 +204,7 @@ describe("kms safe propose", { timeout: 120_000 }, () => {
       requests.map((r) => r.method),
       ["GET", "POST"],
     );
-    assert.ok(requests.every((r) => r.authorized));
+    assert.ok(requests.every((r) => !r.hasAuthorization));
     assert.equal(
       requests[0]?.path,
       `/api/v2/safes/${safe}/multisig-transactions/?executed=false&nonce__gte=0&ordering=-nonce&limit=1`,
@@ -353,7 +354,7 @@ describe("kms safe propose", { timeout: 120_000 }, () => {
       );
       await refuses(
         async () => await propose({ safe, to: safe, value: -1n }),
-        /value cannot be negative/,
+        /value must be a bigint from 0 to 2\^256 - 1/,
       );
     });
 
@@ -407,11 +408,46 @@ describe("kms safe propose", { timeout: 120_000 }, () => {
     });
   });
 
+  it("proposes to a self-hosted service with the API key variable unset", async () => {
+    const other = await createProject(node, (service) => ({
+      apiKey: configVariable("HHKMS_TEST_SAFE_UNSET_KEY"),
+      services: { [String(CHAIN_ID)]: service.url },
+    }));
+    try {
+      Reflect.deleteProperty(process.env, "HHKMS_TEST_SAFE_UNSET_KEY");
+      const safe = await safeOf("1.4.1", [other.owner, SECOND_OWNER.address], 2n);
+      const proposal = await proposeTask(
+        { ...defaults, safe, to: SECOND_OWNER.address },
+        other.hre,
+        NO_TERMINAL,
+      );
+      assert.equal(proposal.safe, safe);
+      assert.ok(other.service.requests.every((r) => !r.hasAuthorization));
+    } finally {
+      await other.close();
+    }
+  });
+
   describe("threshold 1", () => {
     it("asks at a terminal and proposes on yes", async () => {
       const safe = await safeOf("1.5.0", [project.owner], 1n);
       const { terminal, asked } = answering("y\n");
-      const proposal = await propose({ safe, to: SECOND_OWNER.address, yes: false }, terminal);
+      const proposal = await propose(
+        {
+          safe,
+          to: SECOND_OWNER.address,
+          yes: false,
+          function: "approve(address,uint256)",
+          args: `["${SECOND_OWNER.address}", "123456789012345678901"]`,
+        },
+        terminal,
+      );
+      assert.match(
+        asked(),
+        new RegExp(
+          `Function:   approve\\(address,uint256\\) with ${SECOND_OWNER.address}, 123456789012345678901`,
+        ),
+      );
       assert.equal(proposal.threshold, 1n);
       assert.match(asked(), /Threshold:  1 of 1/);
       assert.match(asked(), /this signature alone lets anyone execute the transaction/);
@@ -487,21 +523,24 @@ describe("kms safe propose", { timeout: 120_000 }, () => {
     });
   });
 
-  it("never puts the API key in an error", async () => {
+  it("shows nothing of an error body beyond the allow-listed reasons", async () => {
     const safe = await safeOf("1.4.1", [project.owner], 1n);
     for (const status of [400, 401, 403, 404, 422, 429, 500, 503]) {
       project.service.canned.push({
         status,
-        body: JSON.stringify({ detail: process.env.HHKMS_TEST_SAFE_API_KEY }),
+        body: JSON.stringify({ detail: "detail-from-service", data: "data-from-service" }),
       });
       await assert.rejects(
         async () => await propose({ safe, to: safe }),
         (error: unknown) => {
           assert.ok(error instanceof Error);
-          assert.doesNotMatch(error.message, /test-api-key-not-a-secret/);
+          assert.doesNotMatch(error.message, /from-service/);
           return true;
         },
       );
     }
+    // The key never reaches a self-hosted service, so it cannot echo it; the client also redacts
+    // an echoed key (test/unit/tx-service.test.ts).
+    assert.ok(project.service.requests.every((r) => !r.hasAuthorization));
   });
 });

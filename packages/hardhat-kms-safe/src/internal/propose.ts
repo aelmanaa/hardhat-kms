@@ -28,6 +28,12 @@ import {
 } from "./safe-tx.ts";
 import { proposalBody, type TransactionServiceClient } from "./tx-service.ts";
 
+/**
+ * How far above the Safe's on-chain nonce the default nonce may go, from the service's queue. A
+ * caller who passes `nonce` is not bounded.
+ */
+const MAX_QUEUE_AHEAD = 50n;
+
 /** What the key is about to sign, after every check before signing passed. */
 export interface SafeTransactionReview {
   /** The connection's chain. */
@@ -121,7 +127,10 @@ export async function proposeSafeTransaction(
   const sender = getAddress(options.sender);
   const safe = parseAddress(options.safe, "safe");
   const to = parseAddress(options.call.to, "to");
-  if (options.call.operation === 1 && options.allowDelegateCall !== true) {
+  // Builds the transaction once with a placeholder nonce, so every field of the call is checked,
+  // its operation included, before the delegatecall gate and before anything is read.
+  const { operation } = safeTransaction(options.call, 0n);
+  if (operation === 1 && options.allowDelegateCall !== true) {
     throw catalogError(ERRORS.delegatecall, { to });
   }
 
@@ -152,6 +161,14 @@ export async function proposeSafeTransaction(
   if (nonce === undefined) {
     const queued = await service.highestQueuedNonce(safe, state.nonce, options.signal);
     nonce = queued !== undefined && queued + 1n > state.nonce ? queued + 1n : state.nonce;
+    // The service is trusted to raise the nonce, by a bounded amount only.
+    if (nonce - state.nonce > MAX_QUEUE_AHEAD) {
+      throw catalogError(ERRORS.nonceAhead, {
+        nonce,
+        ahead: nonce - state.nonce,
+        safeNonce: state.nonce,
+      });
+    }
   } else if (nonce < state.nonce) {
     throw catalogError(ERRORS.nonceUsed, { nonce, safeNonce: state.nonce });
   }
@@ -199,7 +216,11 @@ export async function proposeSafeTransaction(
   if (recovered !== sender) {
     throw catalogError(ERRORS.signatureSigner, { recovered, sender });
   }
-  if (!(await safeAcceptsSignature(provider, safe, hash, signature))) {
+  const check = await safeAcceptsSignature(provider, safe, hash, signature);
+  if (check === "failed") {
+    throw catalogError(ERRORS.checkFailed, {});
+  }
+  if (check === "refused") {
     throw catalogError(ERRORS.signatureRefused, {});
   }
 

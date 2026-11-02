@@ -86,7 +86,7 @@ describe("kms safe propose with a LocalStack AWS KMS key", { timeout: 300_000 },
     const keyId = created.KeyMetadata?.KeyId;
     assert.ok(keyId !== undefined);
     node = await startNode();
-    service = await startFakeService(node.chain.publicClient, FAKE_API_KEY);
+    service = await startFakeService(node.chain.publicClient);
     hre = await createHardhatRuntimeEnvironment({
       plugins: [hardhatKmsAws, hardhatKmsSafe],
       kms: {
@@ -124,7 +124,7 @@ describe("kms safe propose with a LocalStack AWS KMS key", { timeout: 300_000 },
       assert.equal(proposal.version, version);
       const stored = service.proposals.find((p) => p.safeTxHash === proposal.safeTxHash);
       assert.equal(stored?.confirmations[0]?.owner, owner);
-      assert.ok(service.requests.every((r) => r.authorized));
+      assert.ok(service.requests.every((r) => !r.hasAuthorization));
       assert.equal(await execute(node.chain, proposal, proposal.signature), true);
       assert.equal(
         await node.chain.publicClient.getBalance({ address: recipient }),

@@ -16,7 +16,11 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 
 import { proposeSafeTransaction } from "../../src/internal/propose.ts";
-import { safeTxTypedData, type SafeTransaction } from "../../src/internal/safe-tx.ts";
+import {
+  safeTxTypedData,
+  type SafeCall,
+  type SafeTransaction,
+} from "../../src/internal/safe-tx.ts";
 import { TransactionServiceClient } from "../../src/internal/tx-service.ts";
 
 const ABI = parseAbi([
@@ -44,6 +48,13 @@ interface Script {
   /** Replaces the signature the node returns. */
   signature?: (good: Hex) => unknown;
   refuseSignature?: boolean;
+  /** The node fails `checkNSignatures` with an RPC error, not a revert. */
+  checkFails?: boolean;
+  /** What the node throws, or answers when `checkAnswer` is set, for `checkNSignatures`. */
+  checkThrows?: unknown;
+  checkAnswer?: unknown;
+  /** eth_chainId answers, in order; the last one repeats. */
+  chainIds?: string[];
 }
 
 /** A node that serves one 1.4.1 Safe owned by OWNER, and counts sign requests. */
@@ -56,6 +67,9 @@ function scriptedNode(script: Script): {
     async request({ method, params }: { method: string; params?: unknown[] }): Promise<unknown> {
       switch (method) {
         case "eth_chainId":
+          if (script.chainIds !== undefined) {
+            return script.chainIds.length > 1 ? script.chainIds.shift() : script.chainIds[0];
+          }
           return script.chainId ?? "0xaa36a7";
         case "eth_getCode":
           return "0x6080";
@@ -115,7 +129,16 @@ function scriptedNode(script: Script): {
             }
             case "checkNSignatures":
               if (script.refuseSignature === true) {
-                throw new Error("execution reverted: GS026");
+                throw Object.assign(new Error("execution reverted: GS026"), { data: "0x08c379a0" });
+              }
+              if (script.checkFails === true) {
+                throw new Error("socket hang up");
+              }
+              if ("checkThrows" in script) {
+                throw script.checkThrows;
+              }
+              if ("checkAnswer" in script) {
+                return script.checkAnswer;
               }
               return "0x";
           }
@@ -169,7 +192,7 @@ function scriptedNode(script: Script): {
 }
 
 /** A service that answers the list with nothing queued and records proposals. */
-function service(): { client: TransactionServiceClient; posts: () => number } {
+function service(queued?: number): { client: TransactionServiceClient; posts: () => number } {
   let posts = 0;
   const client = new TransactionServiceClient({
     url: "https://service.test",
@@ -178,7 +201,10 @@ function service(): { client: TransactionServiceClient; posts: () => number } {
         posts++;
         return new Response(null, { status: 201 });
       }
-      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+      return new Response(
+        JSON.stringify({ results: queued === undefined ? [] : [{ nonce: String(queued) }] }),
+        { status: 200 },
+      );
     },
   });
   return { client, posts: () => posts };
@@ -186,19 +212,37 @@ function service(): { client: TransactionServiceClient; posts: () => number } {
 
 async function run(
   script: Script,
-  extra: { sender?: string; approve?: () => Promise<boolean> } = {},
+  extra: {
+    sender?: string;
+    approve?: () => Promise<boolean>;
+    call?: SafeCall;
+    queued?: number;
+    nonce?: bigint;
+    allowDelegateCall?: boolean;
+    expectedChainId?: bigint;
+  } = {},
 ) {
   const node = scriptedNode(script);
-  const target = service();
+  const target = service(extra.queued);
   const result = proposeSafeTransaction({
     provider: node.provider,
     sender: extra.sender ?? OWNER.address,
     safe: SAFE,
-    call: { to: TO, value: 1n },
+    call: extra.call ?? { to: TO, value: 1n },
     service: target.client,
+    nonce: extra.nonce,
+    allowDelegateCall: extra.allowDelegateCall,
+    expectedChainId: extra.expectedChainId,
     ...(extra.approve === undefined ? {} : { approve: extra.approve }),
   });
   return { result, node, target };
+}
+
+/** A call with one field set to a value its type does not allow, as JavaScript callers can. */
+function callWith(field: string, value: unknown): SafeCall {
+  const call: SafeCall = { to: TO };
+  Reflect.set(call, field, value);
+  return call;
 }
 
 describe("proposeSafeTransaction", () => {
@@ -288,5 +332,65 @@ describe("proposeSafeTransaction", () => {
     const { result, target } = await run({ signature: () => other });
     await assert.rejects(result, /the signature recovers to 0x[0-9a-fA-F]{40}, not to 0x/);
     assert.equal(target.posts(), 0);
+  });
+
+  for (const [name, call, message] of [
+    ['operation as the string "1"', callWith("operation", "1"), /operation must be the number 0/],
+    ["operation 2 (CREATE)", callWith("operation", 2), /operation must be the number 0/],
+    ["a value as a number", callWith("value", 1), /value must be a bigint from 0 to 2\^256 - 1/],
+    [
+      "a value above 2^256 - 1",
+      callWith("value", 2n ** 256n),
+      /value must be a bigint from 0 to 2\^256 - 1/,
+    ],
+    ["a target that is not a string", callWith("to", 7), /to is not an address/],
+  ] as const) {
+    it(`refuses ${name} before reading the chain or signing`, async () => {
+      const { result, node, target } = await run({}, { call, allowDelegateCall: true });
+      await assert.rejects(result, message);
+      assert.equal(node.signs(), 0);
+      assert.equal(target.posts(), 0);
+    });
+  }
+
+  it("refuses a queued nonce more than 50 above the Safe's, and takes one 50 above", async () => {
+    const far = await run({}, { queued: 4 + 50 });
+    await assert.rejects(
+      far.result,
+      /queue puts the next nonce at 55, 51 above the Safe's nonce 4; the plugin takes at most 50/,
+    );
+    assert.equal(far.node.signs(), 0);
+    const near = await run({}, { queued: 4 + 49 });
+    assert.equal((await near.result).transaction.nonce, 54n);
+    // An explicit nonce is the caller's choice and is not bounded.
+    const explicit = await run({}, { queued: 1000, nonce: 500n });
+    assert.equal((await explicit.result).transaction.nonce, 500n);
+  });
+
+  it("refuses when the chain changes between the caller's read and the signing", async () => {
+    const { result, node } = await run(
+      { chainIds: ["0x1", "0xaa36a7"] },
+      { expectedChainId: 11155111n },
+    );
+    await assert.rejects(
+      result,
+      /the node answers chain 1, but the network is configured for chain 11155111/,
+    );
+    assert.equal(node.signs(), 0);
+  });
+
+  it("tells an RPC failure of checkNSignatures from the Safe's refusal", async () => {
+    const failed = await run({ checkFails: true });
+    await assert.rejects(failed.result, /the node could not run the Safe's checkNSignatures/);
+    assert.equal(failed.target.posts(), 0);
+    const refused = await run({ refuseSignature: true });
+    await assert.rejects(refused.result, /the Safe's checkNSignatures refused the signature/);
+    for (const thrown of [{ code: 3 }, { data: "0x08c379a0" }]) {
+      await assert.rejects((await run({ checkThrows: thrown })).result, /refused the signature/);
+    }
+    for (const thrown of ["text", null, { code: -32000, message: "timeout" }]) {
+      await assert.rejects((await run({ checkThrows: thrown })).result, /could not run/);
+    }
+    await assert.rejects((await run({ checkAnswer: 7 })).result, /could not run/);
   });
 });

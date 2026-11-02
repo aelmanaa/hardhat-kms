@@ -311,6 +311,7 @@ describe("TransactionServiceClient", () => {
       "https://api.safe.global/tx-service/sep",
       "http://127.0.0.1:8000",
       "http://localhost",
+      "http://[::1]:8000",
     ]) {
       assert.equal(isServiceUrl(url), true, url);
     }
@@ -326,6 +327,33 @@ describe("TransactionServiceClient", () => {
       assert.equal(isServiceUrl(url), false, url);
       assert.throws(() => new TransactionServiceClient({ url }), /must be an https URL/);
     }
+  });
+
+  it("redacts the API key if the service echoes it in a reason", async () => {
+    const { fetch } = recorder([
+      json(422, { nonFieldErrors: [`bad key ${KEY}`], message: `key=${KEY}` }),
+    ]);
+    const client = new TransactionServiceClient({
+      url: "https://service.test",
+      apiKey: KEY,
+      fetch,
+    });
+    await assert.rejects(client.propose(SAFE, body), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.doesNotMatch(error.message, new RegExp(KEY));
+      assert.match(error.message, /bad key <redacted>; key=<redacted>/);
+      return true;
+    });
+  });
+
+  it("reads at most 1 MiB of an answer", async () => {
+    const big = JSON.stringify({ results: [{ nonce: "1" }], pad: "x".repeat(1024 * 1024) });
+    const { fetch } = recorder([new Response(big, { status: 200 })]);
+    const client = new TransactionServiceClient({ url: "https://service.test", fetch });
+    await assert.rejects(
+      client.highestQueuedNonce(SAFE, 0n),
+      /answered the list of queued transactions with a body the plugin cannot read/,
+    );
   });
 
   it("lists allow-listed reasons only", () => {

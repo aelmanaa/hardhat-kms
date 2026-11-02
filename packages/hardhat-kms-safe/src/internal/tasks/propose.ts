@@ -21,7 +21,7 @@ import {
   type SafeTransactionReview,
 } from "../propose.ts";
 import { TransactionServiceClient } from "../tx-service.ts";
-import { callData } from "./inputs.ts";
+import { callData, describeCall } from "./inputs.ts";
 
 /** The npm name this package checks its version under; it must equal the manifest name. */
 export const PACKAGE_NAME = "@hardhat-kms/safe";
@@ -73,7 +73,11 @@ function note(line: string): void {
  * @param key - The key's name.
  * @returns The lines.
  */
-function reviewLines(review: SafeTransactionReview, key: string): string[] {
+function reviewLines(
+  review: SafeTransactionReview,
+  key: string,
+  call: string | undefined,
+): string[] {
   const tx = review.transaction;
   const lines = [
     `Safe:       ${review.safe} (Safe ${review.version}, chain ${review.chainId})`,
@@ -83,6 +87,7 @@ function reviewLines(review: SafeTransactionReview, key: string): string[] {
     `To:         ${tx.to}`,
     `Value:      ${tx.value} wei (${formatEther(tx.value)} of the native token)`,
     `Data:       ${tx.data === "0x" ? "none" : `${(tx.data.length - 2) / 2} bytes, selector ${tx.data.slice(0, 10)}`}`,
+    ...(call === undefined ? [] : [`Function:   ${call}`]),
     `Operation:  ${tx.operation === 1 ? "DELEGATECALL: the target's code runs with the Safe's storage and funds" : "call"}`,
     `Nonce:      ${tx.nonce} (the Safe's nonce is ${review.safeNonce})`,
     `SafeTx:     ${review.safeTxHash}`,
@@ -143,6 +148,7 @@ export async function proposeTask(
     nonce = BigInt(args.nonce);
   }
   const data = callData(args.data, args.function, args.args);
+  const call = args.function === undefined ? undefined : describeCall(args.function, args.args);
 
   const connection = await hre.network.create();
   try {
@@ -157,10 +163,20 @@ export async function proposeTask(
     if (target === undefined) {
       throw catalogError(ERRORS.unknownChain, { chainId });
     }
-    if (target.hosted && kmsSafe.apiKey === undefined) {
-      throw catalogError(ERRORS.apiKeyMissing, {});
+    if (networkConfig.chainId !== undefined && BigInt(networkConfig.chainId) !== chainId) {
+      throw catalogError(ERRORS.chainMismatch, {
+        actual: chainId,
+        expected: BigInt(networkConfig.chainId),
+      });
     }
-    const apiKey = await kmsSafe.apiKey?.get();
+    // The API key is Safe's: it goes to Safe's hosted service only, never to a self-hosted one.
+    let apiKey: string | undefined;
+    if (target.hosted) {
+      if (kmsSafe.apiKey === undefined) {
+        throw catalogError(ERRORS.apiKeyMissing, {});
+      }
+      apiKey = await kmsSafe.apiKey.get();
+    }
     const service = new TransactionServiceClient({
       url: target.url,
       apiKey,
@@ -192,11 +208,11 @@ export async function proposeTask(
       service,
       nonce,
       allowDelegateCall: args.delegatecall,
-      expectedChainId:
-        networkConfig.chainId === undefined ? undefined : BigInt(networkConfig.chainId),
+      // The chain the service was chosen for: the signing refuses a node that changed since.
+      expectedChainId: chainId,
       origin: ORIGIN,
       approve: async (review) => {
-        const lines = reviewLines(review, key);
+        const lines = reviewLines(review, key, call);
         if (review.threshold !== 1n || args.yes) {
           for (const line of lines) {
             note(line);

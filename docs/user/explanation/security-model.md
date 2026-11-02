@@ -206,6 +206,7 @@ What the task protects against:
 
 - **A signature for another Safe or chain.** It reads the Safe on the network's node and refuses a Safe without code, a version other than 1.3.0, 1.4.1 or 1.5.0, and a key that is not an owner. Safes before 1.3.0 sign without the chain id, so they are refused. The Safe's own `getTransactionHash` must equal the hash the plugin computed.
 - **A transaction that cannot run, or pays someone.** It refuses a nonce below the Safe's, and always sets the gas refund fields to zero.
+- **A service that pushes the nonce far ahead.** The plugin trusts the Transaction Service only to raise the default nonce above the Safe's, and by at most 50; beyond that it refuses and asks for `--nonce`.
 - **A delegatecall by mistake.** A delegatecall runs the target's code with the Safe's storage, so it can change the owners and move the funds. The task proposes one only with `--delegatecall`.
 - **A proposal no Safe would accept.** After signing, the signature must recover to the key and pass the Safe's `checkNSignatures` before anything is posted.
 - **A signature that executes on its own.** For a Safe whose threshold is 1, the key's signature is enough to execute, and the service makes it public. The task asks a person at a terminal first, as [`kms sign-auth`](#the-kms-sign-auth-question) does, and refuses without one unless `--yes` is passed.
@@ -214,7 +215,8 @@ What the task protects against:
 What it does not protect against:
 
 - **What the call does.** The task checks that the Safe can run the call, not that you should. The other owners review it in the Safe app.
-- **A node or a service that lies.** The checks read the node you configured. A node that lies about the Safe can hide a change of owners until the service or the Safe refuses the signature. The service sees every proposal; anyone with its URL can read queued transactions and their signatures.
+- **A node or a service that lies.** The checks read the node you configured. A node that lies about the Safe can hide a change of owners until the service or the Safe refuses the signature. A service that hides a queued transaction can make the key sign another at the same nonce; the other owners see both in the Safe app, and only one can run. The service sees every proposal; anyone with its URL can read queued transactions and their signatures.
+- **A later change of threshold.** Owners, threshold and nonce are read at `latest` before signing. If the owners later lower the threshold, a proposal the key signed can become executable with fewer signatures. That holds for any signed SafeTx.
 - **Code in the same process.** Like the other tasks, `kms safe propose` and `proposeSafeTransaction` can be run from code, with `yes` or without `approve`, as [What the plugin does not protect against](#what-the-plugin-does-not-protect-against) says.
 
 ## Audit logs
