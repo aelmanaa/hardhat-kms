@@ -40,7 +40,8 @@ const AZURE_DEVELOPER_CLI = {
 
 /**
  * The start of `ManagedIdentityCredential`'s message when its endpoint gave no token: MSAL's
- * `network_error`, for a request that failed and for an answer it could not use alike.
+ * `network_error`, for a request that failed, and for an answer labelled JSON whose body is not
+ * (Azure/azure-sdk-for-js#40602). Other answers, even an error status, give an AuthenticationError.
  */
 const MANAGED_IDENTITY_NO_TOKEN = "ManagedIdentityCredential: Network unreachable.";
 
