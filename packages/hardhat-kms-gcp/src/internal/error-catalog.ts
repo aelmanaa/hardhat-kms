@@ -156,8 +156,39 @@ export const ERRORS = {
     group: "Google Cloud KMS answers",
     template:
       "the key version cannot be used (FAILED_PRECONDITION). It may be disabled, destroyed or scheduled for destruction; enable it or configure another version",
-    cause: "The key version is disabled, scheduled for destruction or destroyed.",
-    fix: "Enable it with `gcloud kms keys versions enable`, restore it first with `gcloud kms keys versions restore`, or configure another version.",
+    cause:
+      "The key version is not `ENABLED`, and Cloud KMS's message names no state this plugin reads: it may be disabled, scheduled for destruction or destroyed.",
+    fix: "See its state with `gcloud kms keys versions describe`. Enable it with `gcloud kms keys versions enable`, restore it first with `gcloud kms keys versions restore`, or configure another version.",
+  },
+  keyVersionState: {
+    id: "gcp.status.key-version-state",
+    kind: "error",
+    group: "Google Cloud KMS answers",
+    template:
+      "the key version cannot be used: its state is {state}, and only an ENABLED version signs (FAILED_PRECONDITION). Enable or restore it, or configure another version",
+    cause:
+      "Cloud KMS refused the call because the key version is not `ENABLED`, and named its state, such as `DISABLED`, `DESTROY_SCHEDULED` or `DESTROYED`. Only the state name is shown.",
+    fix: "`DISABLED`: enable it with `gcloud kms keys versions enable`. `DESTROY_SCHEDULED`: restore it with `gcloud kms keys versions restore`, then enable it. `DESTROYED`, `GENERATION_FAILED` and the other states: configure another version.",
+  },
+  keyVersionPending: {
+    id: "gcp.status.key-version-pending",
+    kind: "error",
+    group: "Google Cloud KMS answers",
+    template:
+      "the key version is still being generated (FAILED_PRECONDITION, PENDING_GENERATION). Retry in a minute",
+    cause:
+      "The key version was created moments ago, and Cloud KMS is still generating its key material: an HSM key version can take a minute or so.",
+    fix: "Wait, then run again. `gcloud kms keys versions describe` shows `ENABLED` once it is ready.",
+  },
+  nonGoogleAnswer: {
+    id: "gcp.status.not-google",
+    kind: "error",
+    group: "Google Cloud KMS answers",
+    template:
+      "the request was refused with HTTP {status}, by something other than Google Cloud KMS: the answer is not a Google error. Check any proxy or firewall between this machine and Google Cloud",
+    cause:
+      "A 4xx answer whose body is not a Google API error, such as a proxy's or firewall's HTML page. The SDK reports such an answer as FAILED_PRECONDITION, which would read as a disabled key version. The answer's body is not shown.",
+    fix: "Check `HTTPS_PROXY` and any proxy, firewall or TLS-inspecting gateway in front of `cloudkms.googleapis.com`.",
   },
   unauthenticated: {
     id: "gcp.status.unauthenticated",
