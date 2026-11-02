@@ -2,6 +2,7 @@ import { HardhatError } from "@nomicfoundation/hardhat-errors";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import { PLUGIN_ID } from "./constants.ts";
+import { warn } from "./warnings.ts";
 
 /**
  * The only details an error may carry. Everything here is safe to print: no credentials, no
@@ -58,8 +59,10 @@ export function errorName(error: unknown): string {
  *   Built with {@link catalogMessage}.
  * - `internal`: a plain `Error` that only a bug or a broken install can cause, built with
  *   {@link internalError}.
+ * - `warning`: a warning printed on standard error while the command goes on, printed with
+ *   {@link catalogWarning}.
  */
-export type ErrorKind = "error" | "reason" | "validation" | "internal";
+export type ErrorKind = "error" | "reason" | "validation" | "internal" | "warning";
 
 /** A value a message template placeholder takes. */
 export type TemplateValue = string | number | bigint;
@@ -220,6 +223,22 @@ export function internalError<Template extends string>(
   params: TemplateParams<Template>,
 ): Error {
   return new Error(fillTemplate(entry.template, params));
+}
+
+/**
+ * Prints the warning a `warning` entry describes on standard error, prefixed with the plugin name,
+ * as the plugin prints its other warnings.
+ *
+ * For hardhat-kms and its first-party provider packages.
+ *
+ * @param entry - A `warning` entry.
+ * @param params - A value for each placeholder of its template.
+ */
+export function catalogWarning<Template extends string>(
+  entry: ErrorEntry<Template, "warning">,
+  params: TemplateParams<Template>,
+): void {
+  warn(fillTemplate(entry.template, params));
 }
 
 /** A configuration variable's name as Hardhat's keystore accepts it: no spaces, quotes or text. */

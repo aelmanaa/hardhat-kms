@@ -7,6 +7,7 @@ import { PLUGIN_ID } from "../../src/internal/constants.ts";
 import {
   catalogError,
   catalogMessage,
+  catalogWarning,
   fillTemplate,
   internalError,
   kmsError,
@@ -69,5 +70,14 @@ describe("catalogue helpers", () => {
     );
     assert.ok(!(error instanceof HardhatPluginError));
     assert.equal(error.message, "no value for AWS_KMS_KEY_ID");
+  });
+
+  it("prints a warning entry on standard error, after the plugin name", (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    catalogWarning({ ...entry, kind: "warning" }, { address: "0xabc", count: 3 });
+    assert.deepEqual(
+      warn.mock.calls.map((call) => call.arguments),
+      [["hardhat-kms: the key derives to 0xabc, a list of {name, type} for 3 keys"]],
+    );
   });
 });
