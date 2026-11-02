@@ -167,6 +167,13 @@ function posingError(number: number, flagged: boolean, messageArguments?: unknow
   return error;
 }
 
+/** A signer whose adapter has this `protectionLevel` property, of any type, as third-party code may. */
+function withLevel(protectionLevel: unknown): KmsSigner {
+  const adapter = fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) });
+  Reflect.set(adapter, "protectionLevel", protectionLevel);
+  return new KmsSigner(adapter, baseOptions);
+}
+
 describe("KmsSigner", () => {
   describe("byte equivalence with Hardhat's local accounts", () => {
     for (const format of ["der", "compact", "rs"] as const) {
@@ -189,6 +196,46 @@ describe("KmsSigner", () => {
         assert.equal(await kms.signPersonalMessage(hex(vector.message)), vector.signature);
       });
     }
+  });
+
+  describe("protection level (#637)", () => {
+    it("passes on the level the adapter reports, called on the adapter", () => {
+      const adapter = Object.assign(fakeAdapter({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) }), {
+        level: "HSM_SINGLE_TENANT",
+        protectionLevel(this: { level: string }): string {
+          return this.level;
+        },
+      });
+      assert.equal(new KmsSigner(adapter, baseOptions).protectionLevel(), "HSM_SINGLE_TENANT");
+      assert.equal(withLevel(() => "A".repeat(32)).protectionLevel(), "A".repeat(32));
+    });
+
+    it("gives nothing for an adapter without the method, or one that is not a method", () => {
+      assert.equal(
+        signer({ secretKey: hex(HARDHAT_ACCOUNT_0.secretKey) }).signer.protectionLevel(),
+        undefined,
+      );
+      assert.equal(withLevel("HSM").protectionLevel(), undefined);
+    });
+
+    it("gives nothing for a level in another form, or a method that throws", () => {
+      for (const level of [
+        undefined,
+        "",
+        "hsm",
+        "HSM ",
+        "HSM\nerror",
+        "A".repeat(33),
+        2,
+        { toString: () => "HSM" },
+      ]) {
+        assert.equal(withLevel(() => level).protectionLevel(), undefined, String(level));
+      }
+      const throwing = withLevel(() => {
+        throw new Error("no level");
+      });
+      assert.equal(throwing.protectionLevel(), undefined);
+    });
   });
 
   describe("key identity", () => {

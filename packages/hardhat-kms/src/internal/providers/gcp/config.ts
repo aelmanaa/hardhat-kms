@@ -8,6 +8,7 @@ import { z } from "zod";
 import type {
   GcpKmsKeyConfig,
   GcpKmsKeyUserConfig,
+  GcpProtectionLevel,
   KmsIdentifier,
   KmsIdentifierUserConfig,
 } from "../../../types.ts";
@@ -26,10 +27,26 @@ import {
 const COMPONENTS = ["projectId", "location", "keyRing", "keyName", "keyVersion"] as const;
 const EITHER_FORM = catalogMessage(ERRORS.gcpEitherForm, {});
 
+/** Cloud KMS's protection levels, as `protectionLevel` takes them. */
+const PROTECTION_LEVELS = [
+  "SOFTWARE",
+  "HSM",
+  "HSM_SINGLE_TENANT",
+  "EXTERNAL",
+  "EXTERNAL_VPC",
+] as const satisfies readonly GcpProtectionLevel[];
+
+const protectionLevelSchema = z
+  .enum(PROTECTION_LEVELS, {
+    errorMap: () => ({ message: catalogMessage(ERRORS.gcpProtectionLevel, {}) }),
+  })
+  .optional();
+
 const keyVersionNameSchema = z
   .object({
     provider: z.literal("gcp"),
     keyVersionName: identifierSchema,
+    protectionLevel: protectionLevelSchema,
     ...Object.fromEntries(COMPONENTS.map((field) => [field, incompatibleFieldType(EITHER_FORM)])),
     ...commonKeyFields,
   })
@@ -59,6 +76,7 @@ const componentsSchema = z
       [identifierSchema, z.number().int().positive().max(Number.MAX_SAFE_INTEGER)],
       catalogMessage(ERRORS.gcpKeyVersionType, {}),
     ),
+    protectionLevel: protectionLevelSchema,
     ...commonKeyFields,
   })
   .strict()
@@ -149,5 +167,6 @@ export function resolveGcpKey(
     provider: "gcp",
     ...resolveCommonKeyConfig(key, context, `gcp:${keyVersionName.display}`),
     keyVersionName,
+    ...(key.protectionLevel === undefined ? {} : { protectionLevel: key.protectionLevel }),
   };
 }

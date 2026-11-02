@@ -63,6 +63,12 @@ async function runtime(plugins: HardhatPlugin[] = [hardhatKmsGcp], local = true)
           keyVersion: 1,
         },
         amazon: { provider: "aws", keyId: "alias/deployer", region: "eu-west-1" },
+        hsm: { provider: "gcp", keyVersionName: KEY_VERSION_NAME, protectionLevel: "HSM" },
+        software: {
+          provider: "gcp",
+          keyVersionName: KEY_VERSION_NAME,
+          protectionLevel: "SOFTWARE",
+        },
       },
     },
   });
@@ -309,6 +315,31 @@ describe("@hardhat-kms/gcp plugin", () => {
         assert.match(String(headers["user-agent"]), / google-api-nodejs-client\//);
       }
     }
+  });
+
+  it("reads the protection level through the real SDK, and refuses another one before signing (#637)", async () => {
+    const hre = await runtime();
+    const digest = new Uint8Array(32).fill(5);
+    // The server sends the level as the number 2, as Cloud KMS does for `enum-encoding=int`.
+    for (const name of ["deployer", "hsm"]) {
+      const adapter = await createAdapter(hre, name);
+      await adapter.getPublicKey?.(signContext());
+      assert.equal(adapter.protectionLevel?.(), "HSM");
+      assert.ok((await adapter.signDigest?.({ digest }, signContext())) !== undefined);
+      await adapter.close?.();
+    }
+
+    const adapter = await createAdapter(hre, "software");
+    server.requests.length = 0;
+    await assert.rejects(
+      adapter.signDigest?.({ digest }, signContext()) ?? Promise.resolve(),
+      /the key version's protection level is HSM, not SOFTWARE as the key's protectionLevel requires/,
+    );
+    await adapter.close?.();
+    assert.deepEqual(
+      server.requests.map(({ method }) => method),
+      ["GET"],
+    );
   });
 
   it("asks again after a corrupted signature checksum from the real SDK", async () => {

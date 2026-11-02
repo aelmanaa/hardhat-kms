@@ -13,6 +13,8 @@ import { type FakeAdapter, fakeAdapter, type FakeAdapterOptions } from "../helpe
 import { vaultKey } from "../helpers/vault-key.ts";
 import { COW_ACCOUNT, HARDHAT_ACCOUNT_0 } from "../helpers/vectors.ts";
 
+const GCP_NAME = "projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1";
+
 const hex = (value: string) => new Uint8Array(Buffer.from(value, "hex"));
 
 const VARIABLES = [
@@ -156,6 +158,10 @@ function countConnections(hre: Awaited<ReturnType<typeof runtime>>["hre"]) {
   });
   return counts;
 }
+
+/** A fake adapter that reports a protection level. */
+const reporting = (level: () => string | undefined) => (): ClosableAdapter =>
+  Object.assign(closableAdapter(), { protectionLevel: level });
 
 /** A fake adapter whose KMS refuses to sign. */
 function refusing(): ClosableAdapter {
@@ -731,6 +737,58 @@ describe("kms accounts", () => {
     assert.equal(Object.hasOwn(json.accounts[0] ?? {}, "allowRawDigests"), false);
   });
 
+  it("shows the protection level each key's provider reports, and only a well-formed one (#637)", async () => {
+    const { hre } = await runtime({
+      keys: {
+        hsm: { provider: "gcp", keyVersionName: GCP_NAME, protectionLevel: "HSM" },
+        soft: { provider: "gcp", keyVersionName: `${GCP_NAME}0` },
+        forged: vaultKey("forged"),
+        throwing: vaultKey("throwing"),
+        silent: vaultKey("silent"),
+      },
+      adapters: {
+        hsm: reporting(() => "HSM"),
+        soft: reporting(() => "SOFTWARE"),
+        forged: reporting(() => "HSM\n  error: none"),
+        throwing: reporting(() => {
+          throw new Error("no level");
+        }),
+        silent: () => closableAdapter(),
+      },
+    });
+
+    const run = await accounts(hre);
+
+    assert.equal(run.success, true);
+    assert.deepEqual(
+      run.accounts.map(({ name, protectionLevel }) => ({ name, protectionLevel })),
+      [
+        { name: "hsm", protectionLevel: "HSM" },
+        { name: "soft", protectionLevel: "SOFTWARE" },
+        { name: "forged", protectionLevel: undefined },
+        { name: "throwing", protectionLevel: undefined },
+        { name: "silent", protectionLevel: undefined },
+      ],
+    );
+    assert.deepEqual(
+      lines(run.printed)
+        .slice(0, 6)
+        .map((line) => line.split(/ {2,}/).slice(0, 6)),
+      [
+        ["NAME", "PROVIDER", "SOURCE", "ADDRESS", "PIN", "PROTECTION"],
+        ["hsm", "gcp", "kms.keys", HARDHAT_ACCOUNT_0.address, "none", "HSM"],
+        ["soft", "gcp", "kms.keys", HARDHAT_ACCOUNT_0.address, "none", "SOFTWARE"],
+        ["forged", "myvault", "kms.keys", HARDHAT_ACCOUNT_0.address, "none", "-"],
+        ["throwing", "myvault", "kms.keys", HARDHAT_ACCOUNT_0.address, "none", "-"],
+        ["silent", "myvault", "kms.keys", HARDHAT_ACCOUNT_0.address, "none", "-"],
+      ],
+    );
+
+    const json = await accounts(hre, { json: true });
+    assert.equal(json.accounts[0]?.protectionLevel, "HSM");
+    assert.equal(Object.hasOwn(json.accounts[2] ?? {}, "protectionLevel"), false);
+  });
+
   it("prints JSON with --json and nothing else on standard output", async () => {
     const { hre } = await runtime({
       keys: { deployer: vaultKey("deployer"), broken: vaultKey("broken") },
@@ -810,6 +868,12 @@ describe("kms accounts", () => {
           rawDigests: { provider: "aws", keyId: "alias/deployer", allowRawDigests: true },
           vaultA: vaultKey("same"),
           vaultB: vaultKey("same"),
+          // A Google Cloud key's protectionLevel decides what it refuses (#637).
+          gcpAny: { provider: "gcp", keyVersionName: GCP_NAME },
+          gcpAnyAgain: { provider: "gcp", keyVersionName: GCP_NAME },
+          gcpHsm: { provider: "gcp", keyVersionName: GCP_NAME, protectionLevel: "HSM" },
+          gcpHsmAgain: { provider: "gcp", keyVersionName: GCP_NAME, protectionLevel: "HSM" },
+          gcpSoftware: { provider: "gcp", keyVersionName: GCP_NAME, protectionLevel: "SOFTWARE" },
         },
         adapters: {
           plain: () => closableAdapter(),
@@ -821,6 +885,9 @@ describe("kms accounts", () => {
           rawDigests: () => closableAdapter(),
           vaultA: () => closableAdapter(),
           vaultB: () => closableAdapter(),
+          gcpAny: () => closableAdapter(),
+          gcpHsm: () => closableAdapter(),
+          gcpSoftware: () => closableAdapter(),
         },
       });
 
@@ -838,7 +905,14 @@ describe("kms accounts", () => {
           "rawDigests",
           "vaultA",
           "vaultB",
+          "gcpAny",
+          "gcpHsm",
+          "gcpSoftware",
         ],
+      );
+      assert.deepEqual(
+        run.accounts.slice(-3).map((entry) => entry.otherNames.map(({ name }) => name)),
+        [["gcpAnyAgain"], ["gcpHsmAgain"], []],
       );
     });
   });

@@ -85,16 +85,36 @@ export interface AwsKmsKeyUserConfig extends KmsKeyCommonUserConfig {
   endpoint?: string;
 }
 
-/** A Google Cloud KMS key version, given as its full resource name. */
-export interface GcpKmsKeyVersionNameUserConfig extends KmsKeyCommonUserConfig {
+/**
+ * A Google Cloud KMS protection level, as Cloud KMS names it: where the key version's private key
+ * is kept and used.
+ */
+export type GcpProtectionLevel =
+  | "SOFTWARE"
+  | "HSM"
+  | "HSM_SINGLE_TENANT"
+  | "EXTERNAL"
+  | "EXTERNAL_VPC";
+
+/** Settings shared by both forms of a Google Cloud KMS key. */
+export interface GcpKmsKeySettingsUserConfig extends KmsKeyCommonUserConfig {
   provider: "gcp";
+  /**
+   * The protection level the key version must have, such as `"HSM"`. Optional: when set, the
+   * plugin reads the level from the key's public key response and refuses to sign with a key
+   * version whose level differs. Without it, every level passes.
+   */
+  protectionLevel?: GcpProtectionLevel;
+}
+
+/** A Google Cloud KMS key version, given as its full resource name. */
+export interface GcpKmsKeyVersionNameUserConfig extends GcpKmsKeySettingsUserConfig {
   /** `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<v>`. */
   keyVersionName: KmsIdentifierUserConfig;
 }
 
 /** A Google Cloud KMS key version, given as its components. */
-export interface GcpKmsKeyComponentsUserConfig extends KmsKeyCommonUserConfig {
-  provider: "gcp";
+export interface GcpKmsKeyComponentsUserConfig extends GcpKmsKeySettingsUserConfig {
   projectId: KmsIdentifierUserConfig;
   location: KmsIdentifierUserConfig;
   keyRing: KmsIdentifierUserConfig;
@@ -277,6 +297,8 @@ export interface GcpKmsKeyConfig extends KmsKeyCommonConfig {
   provider: "gcp";
   /** The full key version resource name. */
   keyVersionName: KmsIdentifier;
+  /** The protection level the key version must have, when the config sets one. */
+  protectionLevel?: GcpProtectionLevel;
 }
 
 /** A resolved Azure Key Vault or Managed HSM key. */

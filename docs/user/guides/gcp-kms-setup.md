@@ -119,6 +119,8 @@ export default defineConfig({
         // the `address` line it prints for this key. The plugin then refuses to sign if the key
         // derives to another address.
         // address: "0x…",
+        // Optional: refuse to sign if the key version is not an HSM key.
+        protectionLevel: "HSM",
       },
     },
   },
@@ -134,6 +136,8 @@ export default defineConfig({
 ```
 
 Instead of `keyVersionName`, a key can list its parts: `projectId`, `location`, `keyRing`, `keyName` and `keyVersion`. The version is always required. The [configuration reference](../reference/configuration.md#key-forms-per-provider) lists every option.
+
+`protectionLevel` is optional. Set it to the level the key must have, here `"HSM"`, and the plugin refuses to sign with a key version at any other level, such as a `SOFTWARE` key that a typo in `keyVersionName` or a changed configuration variable points to. It takes the names Cloud KMS uses: `SOFTWARE`, `HSM`, `HSM_SINGLE_TENANT`, `EXTERNAL` or `EXTERNAL_VPC`. A key version's level is fixed when it is created, so a mismatch means the config names another key. `npx hardhat kms accounts` shows each Google Cloud key's level in its `PROTECTION` column, with or without the setting. Added in 1.5.0.
 
 To pin the key's address, run `npx hardhat kms accounts`. For a key without a pin it prints an `address` line; paste it into the key in place of the commented-out line ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
@@ -196,7 +200,7 @@ The client library uses that second copy only for its debug logger and to decode
 
 ## How the plugin uses the key
 
-- It calls `GetPublicKey` once, checks that the response names the configured version and that its algorithm is `EC_SIGN_SECP256K1_SHA256`, and reads the PEM public key.
+- It calls `GetPublicKey` once, checks that the response names the configured version and that its algorithm is `EC_SIGN_SECP256K1_SHA256`, and reads the PEM public key. It reads the version's protection level from the same response, logs it under `hardhat:kms:gcp`, and, when the key sets `protectionLevel`, refuses a version at another level or one whose response names none.
 - It signs with `AsymmetricSign` on that version, sending the 32-byte digest as `digest.sha256`, and checks that the response names the same version.
 - It checks every request and response with CRC32C. It sends `digestCrc32c` with the digest, requires `verifiedDigestCrc32c` to be true in the response, and checks `signatureCrc32c` against the signature and `pemCrc32c` against the public key. A missing checksum counts as a mismatch, and so does a digest that Cloud KMS refuses because its checksum does not match (INVALID_ARGUMENT).
 - After a checksum mismatch, or when Cloud KMS is unavailable or cannot be reached, it repeats the call, at most three more times, then fails. Before repeating an unavailable call it waits 100 ms, then 200 ms, then 400 ms. The SDK's own retries are off, so this is the only retry loop, and it starts no new attempt once the call has timed out.
@@ -320,6 +324,7 @@ Each message starts with the provider, the operation and the key, for example `g
 | `Google Cloud KMS keys need the @hardhat-kms/gcp plugin`                                                          | Run `npm install --save-dev @hardhat-kms/gcp` in the Hardhat project, and add `hardhatKmsGcp` to `plugins` in the config.                                                                                                 |
 | `@hardhat-kms/gcp … needs hardhat-kms …, but hardhat-kms … is installed`                                          | The two packages are released together and must be the same version. Run the install command the error prints.                                                                                                            |
 | `the key version's algorithm is …, not EC_SIGN_SECP256K1_SHA256 (secp256k1)`                                      | The key is not a secp256k1 key. A key's algorithm cannot be changed, so create a new key as in step 1.                                                                                                                    |
+| `the key version's protection level is …, not … as the key's protectionLevel requires`                            | The key version's protection level differs from the key's `protectionLevel`. Nothing was signed. A level cannot be changed: check that the config names the key you meant, or change `protectionLevel`.                   |
 | `the key derives to 0x…, but the configured address is 0x…`                                                       | The configuration names another key or version, or the pin is wrong. Nothing was signed. Find out why before you change the pin; see [When the pin fails](key-rotation.md#when-the-pin-fails).                            |
 | `could not reach Google Cloud KMS (ECONNREFUSED), after 4 attempts`                                               | The request never reached Cloud KMS. The code says why: `ENOTFOUND` or `EAI_AGAIN` for DNS, `ECONNREFUSED` or `ECONNRESET` for the connection. Check the network, DNS and any `HTTPS_PROXY`.                              |
 | `Google Cloud KMS is unavailable (UNAVAILABLE), after 4 attempts`                                                 | Cloud KMS answered that it is unavailable. Try again later.                                                                                                                                                               |
