@@ -96,9 +96,17 @@ export function fakeAwsKmsSdk(options: FakeKmsOptions): FakeAwsKms {
 
   class KMSClient {
     readonly #record: RecordedClient;
+    /** The resolved config the adapter reads: only the region, from the client's settings. */
+    public readonly config: { region: () => Promise<unknown> };
     public constructor(config: Record<string, unknown>) {
       this.#record = { config, destroyed: false };
       clients.push(this.#record);
+      this.config = {
+        region: async () =>
+          await (typeof config.region === "string"
+            ? Promise.resolve(config.region)
+            : Promise.reject(new Error("Region is missing"))),
+      };
     }
     public async send(
       command: GetPublicKeyCommand | SignCommand,
