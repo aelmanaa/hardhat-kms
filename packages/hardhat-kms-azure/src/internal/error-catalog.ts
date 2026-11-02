@@ -106,10 +106,40 @@ export const ERRORS = {
     kind: "error",
     group: "Key Vault answers",
     template:
-      "Key Vault answered {status}: the identity may not use this key. It needs to read the key and sign with it: on an RBAC vault, a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User; in an access policy, the `get` and `sign` key permissions. See step 2 of the Azure setup guide. A disabled key or a firewall rule also gives 403",
+      'Key Vault answered {status}: the identity may not use this key. It needs to read the key and sign with it: on an RBAC vault, a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User; in an access policy, the `get` and `sign` key permissions. See step 2 of the Azure setup guide. A disabled key, a firewall rule or a suspended subscription also gives 403. Check the subscription\'s state with `az rest --method get --url "/subscriptions/<subscription-id>?api-version=2022-12-01" --query state`',
     cause:
-      "The identity may not read the key or sign with it, the role assignment has not taken effect yet (it can take a few minutes), the key is disabled, or the vault firewall blocks the network.",
-    fix: "Grant read and sign on the key, as step 2 of the Azure setup guide shows: on an RBAC vault, a custom role with the data actions `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action`, assigned on the key, or the built-in Key Vault Crypto User role, which also holds actions the plugin does not use; in an access policy, the `get` and `sign` key permissions; on a Managed HSM, a local role with `Microsoft.KeyVault/managedHsm/keys/read/action` and `Microsoft.KeyVault/managedHsm/keys/sign/action`. Then wait a few minutes, and check that the key is enabled and the vault's network rules.",
+      "The identity may not read the key or sign with it, the role assignment has not taken effect yet (it can take a few minutes), the key is disabled, the vault firewall blocks the network, or the vault's subscription is suspended or disabled, for example a free trial past its spending limit. Key Vault's inner error code, when it sends a safe one, follows the status, as in `403 Forbidden/ForbiddenByRbac`.",
+    fix: "Grant read and sign on the key, as step 2 of the Azure setup guide shows: on an RBAC vault, a custom role with the data actions `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action`, assigned on the key, or the built-in Key Vault Crypto User role, which also holds actions the plugin does not use; in an access policy, the `get` and `sign` key permissions; on a Managed HSM, a local role with `Microsoft.KeyVault/managedHsm/keys/read/action` and `Microsoft.KeyVault/managedHsm/keys/sign/action`. Then wait a few minutes, and check that the key is enabled and the vault's network rules. Then check the subscription's state with the command the message gives, which reads it from Azure Resource Manager: it should be `Enabled`. `az account show` reads the cache of the last `az login` and can still say `Enabled` for a suspended subscription.",
+  },
+  forbiddenByRbac: {
+    id: "azure.service.403-rbac",
+    kind: "error",
+    group: "Key Vault answers",
+    template:
+      "Key Vault answered {status}: the vault uses Azure RBAC and no role of the identity allows this. Assign it a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User, then wait a few minutes. See step 2 of the Azure setup guide",
+    cause:
+      "Key Vault's inner error code is `ForbiddenByRbac`: the vault uses Azure RBAC, and no role assignment of the identity holds the data action the call needs, or the assignment has not taken effect yet.",
+    fix: "Assign the identity a role with the data actions `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action`, on the key, as step 2 of the Azure setup guide shows: a custom role with only these two, or the built-in Key Vault Crypto User role, which also holds actions the plugin does not use. Check that it is assigned to the identity that signs, such as the service principal in CI. A new assignment can take a few minutes to take effect.",
+  },
+  forbiddenByAccessPolicy: {
+    id: "azure.service.403-access-policy",
+    kind: "error",
+    group: "Key Vault answers",
+    template:
+      "Key Vault answered {status}: the vault uses access policies and the identity's policy does not allow this. Give it the `get` and `sign` key permissions. See step 2 of the Azure setup guide",
+    cause:
+      "Key Vault's inner error code is `AccessDenied`: the vault uses access policies, and the identity has no policy or its policy lacks the `get` or `sign` key permission.",
+    fix: "Add an access policy for the identity with the `get` and `sign` key permissions, as step 2 of the Azure setup guide shows, for example `az keyvault set-policy --name <vault-name> --object-id <principal object id> --key-permissions get sign`.",
+  },
+  forbiddenByFirewall: {
+    id: "azure.service.403-firewall",
+    kind: "error",
+    group: "Key Vault answers",
+    template:
+      "Key Vault answered {status}: the vault firewall does not allow this network. Add the caller's public IP address or virtual network to the vault's network rules, or reach the vault through its private endpoint",
+    cause:
+      "Key Vault's inner error code is `ForbiddenByFirewall`: the vault's network rules deny the address the request came from.",
+    fix: "Add the caller's public IP address with `az keyvault network-rule add --name <vault-name> --ip-address <address>`, or its virtual network, or run from a network that reaches the vault's private endpoint. A CI runner's address changes between runs, so a private endpoint or a self-hosted runner in an allowed network suits CI better than an IP rule.",
   },
   notFound: {
     id: "azure.service.404",

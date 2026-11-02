@@ -673,7 +673,7 @@ describe("Azure Key Vault adapter", () => {
       [
         "403",
         restError(403, "Forbidden"),
-        "Key Vault answered 403 Forbidden: the identity may not use this key. It needs to read the key and sign with it: on an RBAC vault, a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User; in an access policy, the `get` and `sign` key permissions. See step 2 of the Azure setup guide. A disabled key or a firewall rule also gives 403",
+        "Key Vault answered 403 Forbidden: the identity may not use this key. It needs to read the key and sign with it: on an RBAC vault, a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User; in an access policy, the `get` and `sign` key permissions. See step 2 of the Azure setup guide. A disabled key, a firewall rule or a suspended subscription also gives 403",
       ],
       [
         "404",
