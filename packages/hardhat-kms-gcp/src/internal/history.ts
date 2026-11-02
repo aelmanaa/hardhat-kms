@@ -18,7 +18,7 @@ import type {
 } from "hardhat-kms/types";
 
 import { ERRORS } from "./error-catalog.ts";
-import { authFailure, credentialFailure, statusName } from "./wire.ts";
+import { authFailure, credentialFailure, errorInfoReason, statusName } from "./wire.ts";
 
 /** The body of an `entries.list` request. */
 export interface ListEntriesRequest {
@@ -400,11 +400,7 @@ function apiStatus(error: unknown): string | undefined {
 
 /** Whether a Google API error answer gives `SERVICE_DISABLED` as its reason. */
 function serviceDisabled(error: unknown): boolean {
-  const details = field(apiError(error), "details");
-  return (
-    Array.isArray(details) &&
-    details.some((detail: unknown) => field(detail, "reason") === "SERVICE_DISABLED")
-  );
+  return errorInfoReason(apiError(error)) === "SERVICE_DISABLED";
 }
 
 /** The errno code of a request that never got an answer, such as `ECONNREFUSED`. */
