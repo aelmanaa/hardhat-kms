@@ -128,24 +128,25 @@ Where things are:
 - `tools/docs-site`: a private package, never published, that builds the docs site from `docs/` with VitePress; see [Documentation](docs/contributor/documentation.md#the-docs-site).
 - `examples/`: Hardhat projects that deploy and call a contract from a KMS account with viem, ethers and Ignition. They are workspace members, and `pnpm run test:examples` runs them against LocalStack.
 
-| Topic                                                       | Page                                                                                             |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Module map, code map, request flows                         | [docs/contributor/architecture.md](docs/contributor/architecture.md)                             |
-| Signature checks, key pinning, threat model                 | [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md)                     |
-| Security checklist for signing, sending and release changes | [docs/contributor/security-review.md](docs/contributor/security-review.md)                       |
-| Adapter interface, provider packages                        | [docs/contributor/providers.md](docs/contributor/providers.md)                                   |
-| Transaction filling, nonces, send lock                      | [docs/contributor/transactions.md](docs/contributor/transactions.md)                             |
-| Test layers and conventions                                 | [docs/contributor/testing.md](docs/contributor/testing.md)                                       |
-| Transactions of the latest live run on Sepolia              | [docs/live-proof.md](docs/live-proof.md)                                                         |
-| Quality gates, hooks, CI                                    | [docs/contributor/tooling.md](docs/contributor/tooling.md)                                       |
-| Who releases, the signed tag, staging and promotion         | [docs/contributor/releasing.md](docs/contributor/releasing.md)                                   |
-| How the docs are organised                                  | [docs/contributor/documentation.md](docs/contributor/documentation.md)                           |
-| Why the main decisions were made                            | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                     |
-| How other signers compare, and why each check exists        | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md) |
-| The Turnkey provider's research, design and Foundry parity  | [docs/contributor/research/turnkey.md](docs/contributor/research/turnkey.md)                     |
-| Roadmap                                                     | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                       |
-| The 1.0.0 announcement text                                 | [docs/contributor/launch-notes/1.0.0.md](docs/contributor/launch-notes/1.0.0.md)                 |
-| Adoption metrics, the monthly check                         | [docs/contributor/adoption-metrics.md](docs/contributor/adoption-metrics.md)                     |
+| Topic                                                             | Page                                                                                                 |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Module map, code map, request flows                               | [docs/contributor/architecture.md](docs/contributor/architecture.md)                                 |
+| Signature checks, key pinning, threat model                       | [docs/contributor/signing-pipeline.md](docs/contributor/signing-pipeline.md)                         |
+| Security checklist for signing, sending and release changes       | [docs/contributor/security-review.md](docs/contributor/security-review.md)                           |
+| Adapter interface, provider packages                              | [docs/contributor/providers.md](docs/contributor/providers.md)                                       |
+| Transaction filling, nonces, send lock                            | [docs/contributor/transactions.md](docs/contributor/transactions.md)                                 |
+| Test layers and conventions                                       | [docs/contributor/testing.md](docs/contributor/testing.md)                                           |
+| Transactions of the latest live run on Sepolia                    | [docs/live-proof.md](docs/live-proof.md)                                                             |
+| Quality gates, hooks, CI                                          | [docs/contributor/tooling.md](docs/contributor/tooling.md)                                           |
+| Who releases, the signed tag, staging and promotion               | [docs/contributor/releasing.md](docs/contributor/releasing.md)                                       |
+| How the docs are organised                                        | [docs/contributor/documentation.md](docs/contributor/documentation.md)                               |
+| Why the main decisions were made                                  | [docs/contributor/decisions/README.md](docs/contributor/decisions/README.md)                         |
+| How other signers compare, and why each check exists              | [docs/contributor/research/signing-prior-art.md](docs/contributor/research/signing-prior-art.md)     |
+| The Turnkey provider's research, design and Foundry parity        | [docs/contributor/research/turnkey.md](docs/contributor/research/turnkey.md)                         |
+| Safe and smart-account sends: tools, demand, Safe proposals first | [docs/contributor/research/smart-account-sends.md](docs/contributor/research/smart-account-sends.md) |
+| Roadmap                                                           | [docs/contributor/roadmap.md](docs/contributor/roadmap.md)                                           |
+| The 1.0.0 announcement text                                       | [docs/contributor/launch-notes/1.0.0.md](docs/contributor/launch-notes/1.0.0.md)                     |
+| Adoption metrics, the monthly check                               | [docs/contributor/adoption-metrics.md](docs/contributor/adoption-metrics.md)                         |
 
 Decision records:
 
