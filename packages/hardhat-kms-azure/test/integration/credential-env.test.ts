@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -94,4 +97,48 @@ describe("username and password in the environment", () => {
     assert.ok(!output.includes(REFUSAL), output);
     assertNoCanary(output);
   });
+});
+
+describe("no source returns a token", () => {
+  it(
+    "fails kms history with the reason of each source, and none of their output",
+    { skip: process.platform === "win32" ? "the fake az is a shell script" : false },
+    async () => {
+      // An `az` that is installed but not signed in, and prints a tenant that must not show.
+      const tools = mkdtempSync(path.join(tmpdir(), "hhkms-fake-az-"));
+      writeFileSync(
+        path.join(tools, "az"),
+        "#!/bin/sh\necho \"ERROR: Please run 'az login' to setup account for canary-tenant-31c4.\" >&2\nexit 1\n",
+      );
+      chmodSync(path.join(tools, "az"), 0o755);
+      // A port nothing listens on, for the managed identity endpoint.
+      const server = createServer();
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      assert.ok(address !== null && typeof address === "object");
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      try {
+        const { code, stdout, stderr } = await run("history", {
+          PATH: [tools, path.dirname(process.execPath)].join(path.delimiter),
+          AZURE_POD_IDENTITY_AUTHORITY_HOST: `http://127.0.0.1:${address.port}`,
+        });
+        const output = `${stdout}\n${stderr}`;
+        assert.equal(code, 0, output);
+        assert.ok(
+          stdout.includes(
+            "no Azure credential returned a token (AggregateAuthenticationError). By source: " +
+              "service principal from the environment: not set up, it needs AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET or AZURE_CLIENT_CERTIFICATE_PATH; " +
+              "workload identity: not set up, it needs AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_FEDERATED_TOKEN_FILE; " +
+              "Azure CLI: not signed in, run `az login`; " +
+              "Azure Developer CLI: not installed; " +
+              "managed identity: its endpoint gave no token, as happens outside Azure. Run `az login`",
+          ),
+          output,
+        );
+        assert.ok(!output.includes("canary-tenant-31c4"), output);
+      } finally {
+        rmSync(tools, { recursive: true, force: true });
+      }
+    },
+  );
 });

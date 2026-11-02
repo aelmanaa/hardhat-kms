@@ -19,6 +19,7 @@ import type {
   KmsHistoryResult,
 } from "hardhat-kms/types";
 
+import { credentialReasons } from "./credential-reasons.ts";
 import { ERRORS } from "./error-catalog.ts";
 import { errorCodes, field, SAFE_CODE } from "./error-codes.ts";
 
@@ -606,7 +607,7 @@ function explainThrown(error: unknown, fail: Fail): unknown {
     return error;
   }
   if (NO_CREDENTIAL.has(name)) {
-    return fail(ERRORS.noCredential, { errorName: name });
+    return fail(ERRORS.noCredential, { errorName: name, reasons: credentialReasons(error) });
   }
   if (FAILED_CREDENTIAL.has(name)) {
     return fail(ERRORS.credentialFailed, { errorName: name });

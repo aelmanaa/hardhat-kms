@@ -8,6 +8,7 @@ import type { AzureKmsKeyConfig } from "hardhat-kms/types";
 import { HardhatPluginError } from "hardhat/plugins";
 
 import { createAzureKeyAdapter } from "../../src/internal/adapter.ts";
+import { noteChainReasons } from "../../src/internal/credential-reasons.ts";
 import {
   fakeKeyVaultSdk,
   type FakeKeyVaultOptions,
@@ -732,6 +733,16 @@ describe("Azure Key Vault adapter", () => {
         ]);
       });
     }
+
+    it("no credential, with the reason of each source the chain noted", async () => {
+      const error = new Error("ChainedTokenCredential authentication failed: details");
+      error.name = "AggregateAuthenticationError";
+      noteChainReasons(error, ["Azure CLI: not signed in, run `az login`"], []);
+      const { adapter } = await adapterFor(VERSIONED_KEY_URL, { error });
+      await assertAzureError(adapter.getPublicKey?.(context()) ?? Promise.resolve(), [
+        "no Azure credential returned a token (AggregateAuthenticationError). By source: Azure CLI: not signed in, run `az login`. Run `az login`",
+      ]);
+    });
 
     it("passes other errors on unchanged", async () => {
       for (const error of [new Error("socket hang up"), new TypeError("bad")]) {

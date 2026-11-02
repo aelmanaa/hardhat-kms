@@ -19,6 +19,7 @@ import type {
   SignContext,
 } from "hardhat-kms/types";
 
+import { credentialReasons } from "./credential-reasons.ts";
 import { ERRORS } from "./error-catalog.ts";
 import { errorCodes, field, SAFE_CODE } from "./error-codes.ts";
 
@@ -337,7 +338,10 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
       return undefined;
     }
     if (NO_CREDENTIAL.has(error.name)) {
-      return this.#error(operation, ERRORS.noCredential, { errorName: error.name });
+      return this.#error(operation, ERRORS.noCredential, {
+        errorName: error.name,
+        reasons: credentialReasons(error),
+      });
     }
     if (FAILED_CREDENTIAL.has(error.name)) {
       return this.#error(operation, ERRORS.credentialFailed, { errorName: error.name });

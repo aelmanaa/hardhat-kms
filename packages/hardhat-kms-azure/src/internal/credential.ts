@@ -7,6 +7,15 @@ import {
   type KmsDebugLogger,
 } from "hardhat-kms/provider-utils";
 
+import {
+  cliReason,
+  managedIdentityReason,
+  noteChainReasons,
+  noteSourceReason,
+  SERVICE_PRINCIPAL_VARIABLES,
+  SOURCE,
+  WORKLOAD_IDENTITY_VARIABLES,
+} from "./credential-reasons.ts";
 import { ERRORS } from "./error-catalog.ts";
 
 /**
@@ -91,6 +100,9 @@ export interface AzureIdentitySdk {
   CredentialUnavailableError: new (message: string) => Error;
 }
 
+/** The errors {@link TimeoutCredential} threw when its time was over. */
+const timedOut = new WeakSet<Error>();
+
 /**
  * Fails a credential that does not return a token in time, with `CredentialUnavailableError`, so
  * a chain reports it with the other sources that had no token.
@@ -125,11 +137,11 @@ class TimeoutCredential implements TokenCredential {
       controller.signal.addEventListener(
         "abort",
         () => {
-          reject(
-            new this.#unavailable(
-              catalogMessage(ERRORS.managedIdentityTimeout, { seconds: this.#timeoutMs / 1000 }),
-            ),
+          const error = new this.#unavailable(
+            catalogMessage(ERRORS.managedIdentityTimeout, { seconds: this.#timeoutMs / 1000 }),
           );
+          timedOut.add(error);
+          reject(error);
         },
         { once: true },
       );
@@ -144,6 +156,70 @@ class TimeoutCredential implements TokenCredential {
       ]);
     } finally {
       cancel();
+    }
+  }
+}
+
+/** Gives the reason a source failed, from its error and the token request. */
+type Explain = (
+  error: unknown,
+  scopes: string | string[],
+  options: GetTokenOptions | undefined,
+) => string;
+
+/**
+ * Notes the reason a source failed, with its error, and throws the error on unchanged, so the
+ * chain treats it as before and `azure.credential.none` can name the reason.
+ */
+class ExplainedSource implements TokenCredential {
+  /** The source's name in a reason. */
+  public readonly source: string;
+  readonly #inner: TokenCredential;
+  readonly #explain: Explain;
+
+  public constructor(source: string, inner: TokenCredential, explain: Explain) {
+    this.source = source;
+    this.#inner = inner;
+    this.#explain = explain;
+  }
+
+  public async getToken(
+    scopes: string | string[],
+    options?: GetTokenOptions,
+  ): Promise<AccessToken | null> {
+    try {
+      return await this.#inner.getToken(scopes, options);
+    } catch (error) {
+      noteSourceReason(error, this.#explain(error, scopes, options));
+      throw error;
+    }
+  }
+}
+
+/**
+ * Notes the reasons of a chain that fails: those of the sources left out of it, and those its
+ * sources noted, in the order of the chain.
+ */
+class ExplainedChain implements TokenCredential {
+  readonly #inner: TokenCredential;
+  readonly #before: readonly string[];
+  readonly #after: readonly string[];
+
+  public constructor(inner: TokenCredential, before: readonly string[], after: readonly string[]) {
+    this.#inner = inner;
+    this.#before = before;
+    this.#after = after;
+  }
+
+  public async getToken(
+    scopes: string | string[],
+    options?: GetTokenOptions,
+  ): Promise<AccessToken | null> {
+    try {
+      return await this.#inner.getToken(scopes, options);
+    } catch (error) {
+      noteChainReasons(error, this.#before, this.#after);
+      throw error;
     }
   }
 }
@@ -426,6 +502,9 @@ export interface ManagedIdentitySettings {
  *    and a timeout on each of its HTTP requests. Where it cannot be used with a client id (Cloud
  *    Shell, Service Fabric), it is left out, as the proposed Foundry signer does.
  *
+ * When no source returns a token, the chain notes one fixed reason per source, those left out
+ * included, in this order, for `azure.credential.none` (see credential-reasons.ts).
+ *
  * This is the order of the Azure Key Vault signer proposed for Foundry in foundry-rs/foundry#17120,
  * which no Foundry release includes yet: developer tools come before the managed identity, so a
  * local login is not delayed by the managed identity endpoint.
@@ -447,16 +526,48 @@ export function createAzureCredential(
   debug: KmsDebugLogger = log,
 ): TokenCredential {
   const sources: TokenCredential[] = [];
+  // The reasons of the sources left out, before and after those in the chain.
+  const before: string[] = [];
+  const after: string[] = [];
   const environment = servicePrincipal(identity, env, debug);
-  if (environment !== undefined) {
+  if (environment === undefined) {
+    before.push(
+      catalogMessage(ERRORS.sourceNotSetUp, {
+        source: SOURCE.servicePrincipal,
+        variables: SERVICE_PRINCIPAL_VARIABLES,
+      }),
+    );
+  } else {
     sources.push(environment);
   }
   // Its constructor fails when its variables are not set: then it is not part of the chain.
   const workload = unlessUnavailable(identity, () => new identity.WorkloadIdentityCredential());
-  if (workload !== undefined) {
-    sources.push(workload);
+  if (workload === undefined) {
+    before.push(
+      catalogMessage(ERRORS.sourceNotSetUp, {
+        source: SOURCE.workloadIdentity,
+        variables: WORKLOAD_IDENTITY_VARIABLES,
+      }),
+    );
+  } else {
+    sources.push(
+      new ExplainedSource(SOURCE.workloadIdentity, workload, () =>
+        catalogMessage(ERRORS.sourceUnknown, { source: SOURCE.workloadIdentity }),
+      ),
+    );
   }
-  sources.push(new identity.AzureCliCredential(), new identity.AzureDeveloperCliCredential());
+  sources.push(
+    new ExplainedSource(
+      SOURCE.azureCli,
+      new identity.AzureCliCredential(),
+      (error, scopes, options) => cliReason(SOURCE.azureCli, error, scopes, options),
+    ),
+    new ExplainedSource(
+      SOURCE.azureDeveloperCli,
+      new identity.AzureDeveloperCliCredential(),
+      (error, scopes, options) => cliReason(SOURCE.azureDeveloperCli, error, scopes, options),
+    ),
+  );
   const id = env.AZURE_CLIENT_ID?.trim() ?? "";
   const httpClient = withRequestTimeout(
     managedIdentity.httpClient ?? createDefaultHttpClient(),
@@ -470,15 +581,23 @@ export function createAzureCredential(
         id === "" ? { httpClient } : { clientId: id, httpClient },
       ),
   );
-  if (managed !== undefined) {
+  if (managed === undefined) {
+    after.push(catalogMessage(ERRORS.sourceLeftOut, { source: SOURCE.managedIdentity }));
+  } else {
     sources.push(
-      new TimeoutCredential(
-        managed,
-        managedIdentity.timeoutMs ?? MANAGED_IDENTITY_TIMEOUT_MS,
-        identity.CredentialUnavailableError,
-        managedIdentity.timers ?? systemTimers,
+      new ExplainedSource(
+        SOURCE.managedIdentity,
+        new TimeoutCredential(
+          managed,
+          managedIdentity.timeoutMs ?? MANAGED_IDENTITY_TIMEOUT_MS,
+          identity.CredentialUnavailableError,
+          managedIdentity.timers ?? systemTimers,
+        ),
+        (error) => managedIdentityReason(error, error instanceof Error && timedOut.has(error)),
       ),
     );
   }
-  return new SharedTokenCredential(new identity.ChainedTokenCredential(...sources));
+  return new SharedTokenCredential(
+    new ExplainedChain(new identity.ChainedTokenCredential(...sources), before, after),
+  );
 }
