@@ -63,6 +63,20 @@ async function createAdapter(
   );
 }
 
+/** Key Vault's 403 body, with these nested inner codes and messages that name the caller. */
+function forbidden(...inner: string[]) {
+  return {
+    error: {
+      code: "Forbidden",
+      message: "Caller secret-caller-id is not authorized on vault secret-vault",
+      ...inner.reduceRight<Record<string, unknown>>(
+        (nested, code) => ({ innererror: { code, message: "secret inner", ...nested } }),
+        {},
+      ),
+    },
+  };
+}
+
 describe("@hardhat-kms/azure plugin", () => {
   it("loads hardhat-kms through its plugin dependency", async () => {
     const hre = await runtime();
@@ -170,6 +184,90 @@ describe("@hardhat-kms/azure plugin", () => {
     );
   });
 
+  for (const [name, options, message] of [
+    [
+      "an exportable key",
+      { exportable: true },
+      "the key version is exportable, so Key Vault can release its private key outside the vault",
+    ],
+    [
+      "a key with a release policy",
+      {
+        exportable: true,
+        releasePolicy: {
+          contentType: "application/json; charset=utf-8",
+          data: Buffer.from('{"version":"1.0.0","anyOf":[]}').toString("base64url"),
+          immutable: false,
+        },
+      },
+      "the key version is exportable",
+    ],
+    [
+      "a release policy without the exportable attribute",
+      { releasePolicy: { data: Buffer.from("{}").toString("base64url") } },
+      "the key version has a release policy, so Key Vault can release its private key",
+    ],
+  ] satisfies Array<[string, Partial<Parameters<typeof keyVaultHttp>[0]>, string]>) {
+    it(`refuses ${name} that the real SDK reads, before any signature`, async () => {
+      const vault = keyVaultHttp({
+        secretKey,
+        vaultUrl: VAULT_URL,
+        keyName: KEY_NAME,
+        currentVersion: KEY_VERSION,
+        ...options,
+      });
+      const hre = await runtime();
+      hre.hooks.registerHandlers(
+        "kms",
+        kmsHandlers(
+          ownVersion,
+          loaderFor(keyVault, staticCredential(), { httpClient: vault.httpClient }),
+        ),
+      );
+      const adapter = await createAdapter(hre, "deployer");
+
+      await assert.rejects(
+        adapter.signDigest?.({ digest: new Uint8Array(32) }, signContext()) ?? Promise.resolve(),
+        (error) => {
+          assert.ok(error instanceof Error);
+          assert.ok(error.message.includes(message), error.message);
+          return true;
+        },
+      );
+      assert.ok(vault.requests.every((request) => request.method === "GET"));
+    });
+  }
+
+  it("signs with a key whose attributes say it is not exportable", async () => {
+    const vault = keyVaultHttp({
+      secretKey,
+      vaultUrl: VAULT_URL,
+      keyName: KEY_NAME,
+      currentVersion: KEY_VERSION,
+      exportable: false,
+      releasePolicy: null,
+    });
+    const hre = await runtime();
+    hre.hooks.registerHandlers(
+      "kms",
+      kmsHandlers(
+        ownVersion,
+        loaderFor(keyVault, staticCredential(), { httpClient: vault.httpClient }),
+      ),
+    );
+    const adapter = await createAdapter(hre, "pinned");
+    const digest = new Uint8Array(32).fill(7);
+
+    const signature = await adapter.signDigest?.({ digest }, signContext());
+
+    assert.ok(signature !== undefined && "format" in signature && signature.format === "compact");
+    assert.ok(
+      secp256k1.verify(signature.bytes, digest, secp256k1.getPublicKey(secretKey), {
+        prehash: false,
+      }),
+    );
+  });
+
   it("explains a missing key that the real SDK reports", async () => {
     const vault = keyVaultHttp({
       secretKey,
@@ -192,6 +290,92 @@ describe("@hardhat-kms/azure plugin", () => {
       assert.match(error.message, /Key Vault answered 404 KeyNotFound: the key or key version/);
       return true;
     });
+  });
+
+  describe("shows Key Vault's inner error code on a 403 that the real SDK reports", () => {
+    const cases: Array<[string, unknown, "GET" | "POST", RegExp]> = [
+      [
+        "RBAC, on a read",
+        forbidden("ForbiddenByRbac"),
+        "GET",
+        /Key Vault answered 403 Forbidden\/ForbiddenByRbac: the vault uses Azure RBAC and no role/,
+      ],
+      [
+        "RBAC, on a signature",
+        forbidden("ForbiddenByRbac"),
+        "POST",
+        /Key Vault answered 403 Forbidden\/ForbiddenByRbac: the vault uses Azure RBAC and no role/,
+      ],
+      [
+        "an access policy",
+        forbidden("AccessDenied"),
+        "GET",
+        /Key Vault answered 403 Forbidden\/AccessDenied: the vault uses access policies and/,
+      ],
+      [
+        "the firewall",
+        forbidden("ForbiddenByFirewall"),
+        "POST",
+        /Key Vault answered 403 Forbidden\/ForbiddenByFirewall: the vault firewall does not allow/,
+      ],
+      [
+        "nested inner errors",
+        forbidden("Unknown", "ForbiddenByRbac"),
+        "GET",
+        /Key Vault answered 403 Forbidden\/Unknown\/ForbiddenByRbac: the vault uses Azure RBAC/,
+      ],
+      [
+        "an unknown inner code, with the subscription check",
+        forbidden("SomethingNew"),
+        "GET",
+        /Key Vault answered 403 Forbidden\/SomethingNew: the identity may not use this key\..*a suspended subscription also gives 403\. Check the subscription's state with `az rest --method get --url "\/subscriptions\/<subscription-id>\?api-version=2022-12-01" --query state`/,
+      ],
+      [
+        "no inner error",
+        forbidden(),
+        "GET",
+        /Key Vault answered 403 Forbidden: the identity may not use this key\./,
+      ],
+      [
+        "an unsafe inner code, without it or any code under it",
+        forbidden("<script>", "ForbiddenByRbac"),
+        "GET",
+        /Key Vault answered 403 Forbidden: the identity may not use this key\./,
+      ],
+    ];
+    for (const [name, body, method, expected] of cases) {
+      it(name, async () => {
+        const vault = keyVaultHttp({
+          secretKey,
+          vaultUrl: VAULT_URL,
+          keyName: KEY_NAME,
+          currentVersion: KEY_VERSION,
+          failWith: { status: 403, body, method },
+        });
+        const hre = await runtime();
+        hre.hooks.registerHandlers(
+          "kms",
+          kmsHandlers(
+            ownVersion,
+            loaderFor(keyVault, staticCredential(), { httpClient: vault.httpClient }),
+          ),
+        );
+        const adapter = await createAdapter(hre, "deployer");
+        const ctx = signContext();
+        const call =
+          method === "GET"
+            ? adapter.getPublicKey?.(ctx)
+            : adapter.signDigest?.({ digest: new Uint8Array(32).fill(5) }, ctx);
+
+        await assert.rejects(call ?? Promise.resolve(), (error) => {
+          assert.ok(error instanceof Error);
+          assert.match(error.message, expected);
+          assert.ok(!error.message.includes("secret"), error.message);
+          assert.ok(!error.message.includes("<script>"), error.message);
+          return true;
+        });
+      });
+    }
   });
 
   it("loads the SDK once per runtime, and again after a failed load", async () => {

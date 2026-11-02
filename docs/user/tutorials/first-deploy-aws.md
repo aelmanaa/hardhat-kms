@@ -269,7 +269,7 @@ deployer  aws       kms.keys  <deployer address>                          matche
 ```text
 NAME      PROVIDER  SOURCE    ADDRESS                                     PIN      SIGN    KEY ID
 deployer  aws       kms.keys  <deployer address>                          matches  FAILED  aws:alias/hardhat-kms-tutorial
-  error: the sign check failed: aws, sign, key aws:alias/hardhat-kms-tutorial: the provider call failed (AccessDeniedException)
+  error: the sign check failed: aws, sign, key aws:alias/hardhat-kms-tutorial: AWS KMS refused the call in region us-east-1 (AccessDeniedException). Grant kms:GetPublicKey and kms:Sign on the key to the identity the credentials belong to, and check that the region is the key's
 ```
 
 Fix the cause before step 5. An `AccessDeniedException` here means your credentials are not allowed `kms:Sign` on the key; check the permissions of the identity you signed in with.

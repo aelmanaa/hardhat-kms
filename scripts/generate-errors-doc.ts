@@ -186,7 +186,7 @@ export function renderErrorsDoc(catalogues: Catalogue[]): string {
     "Every error that hardhat-kms and its provider packages can raise has an entry here, with a stable id. The page is generated from their source, so it matches this version. Find an error by searching for a fixed part of its message.",
     "",
     "- `{name}` in a message stands for a value, such as an address or a file name.",
-    "- Most errors start with the provider, the operation and the key, for example `aws, sign, key aws:alias/deployer: the provider call failed (AccessDeniedException)`. The tables list the part after that prefix.",
+    "- Most errors start with the provider, the operation and the key, for example `aws, sign, key aws:alias/deployer: the key is disabled (DisabledException)`. The tables list the part after that prefix.",
     "- Kind `config`: a config validation message. Hardhat shows it in its `Invalid config` error, after the config path, for example `* Config error in config.kms.keys.deployer.address: …`.",
     "- Kind `reason`: text that another error includes, such as the reason in `the provider returned an invalid signature ({reason})`.",
     "- Kind `internal`: a plain `Error` that only a bug or a broken install can cause.",

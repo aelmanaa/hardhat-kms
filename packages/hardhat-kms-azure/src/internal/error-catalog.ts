@@ -169,10 +169,40 @@ export const ERRORS = {
     kind: "error",
     group: "Key Vault answers",
     template:
-      "Key Vault answered {status}: the identity may not use this key. It needs to read the key and sign with it: on an RBAC vault, a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User; in an access policy, the `get` and `sign` key permissions. See step 2 of the Azure setup guide. A disabled key or a firewall rule also gives 403",
+      'Key Vault answered {status}: the identity may not use this key. It needs to read the key and sign with it: on an RBAC vault, a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User; in an access policy, the `get` and `sign` key permissions. See step 2 of the Azure setup guide. A disabled key, a firewall rule or a suspended subscription also gives 403. Check the subscription\'s state with `az rest --method get --url "/subscriptions/<subscription-id>?api-version=2022-12-01" --query state`',
     cause:
-      "The identity may not read the key or sign with it, the role assignment has not taken effect yet (it can take a few minutes), the key is disabled, or the vault firewall blocks the network.",
-    fix: "Grant read and sign on the key, as step 2 of the Azure setup guide shows: on an RBAC vault, a custom role with the data actions `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action`, assigned on the key, or the built-in Key Vault Crypto User role, which also holds actions the plugin does not use; in an access policy, the `get` and `sign` key permissions; on a Managed HSM, a local role with `Microsoft.KeyVault/managedHsm/keys/read/action` and `Microsoft.KeyVault/managedHsm/keys/sign/action`. Then wait a few minutes, and check that the key is enabled and the vault's network rules.",
+      "The identity may not read the key or sign with it, the role assignment has not taken effect yet (it can take a few minutes), the key is disabled, the vault firewall blocks the network, or the vault's subscription is suspended or disabled, for example a free trial past its spending limit. Key Vault's inner error code, when it sends a safe one, follows the status, as in `403 Forbidden/ForbiddenByRbac`.",
+    fix: "Grant read and sign on the key, as step 2 of the Azure setup guide shows: on an RBAC vault, a custom role with the data actions `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action`, assigned on the key, or the built-in Key Vault Crypto User role, which also holds actions the plugin does not use; in an access policy, the `get` and `sign` key permissions; on a Managed HSM, a local role with `Microsoft.KeyVault/managedHsm/keys/read/action` and `Microsoft.KeyVault/managedHsm/keys/sign/action`. Then wait a few minutes, and check that the key is enabled and the vault's network rules. Then check the subscription's state with the command the message gives, which reads it from Azure Resource Manager: it should be `Enabled`. `az account show` reads the cache of the last `az login` and can still say `Enabled` for a suspended subscription.",
+  },
+  forbiddenByRbac: {
+    id: "azure.service.403-rbac",
+    kind: "error",
+    group: "Key Vault answers",
+    template:
+      "Key Vault answered {status}: the vault uses Azure RBAC and no role of the identity allows this. Assign it a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User, then wait a few minutes. See step 2 of the Azure setup guide",
+    cause:
+      "Key Vault's inner error code is `ForbiddenByRbac`: the vault uses Azure RBAC, and no role assignment of the identity holds the data action the call needs, or the assignment has not taken effect yet.",
+    fix: "Assign the identity a role with the data actions `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action`, on the key, as step 2 of the Azure setup guide shows: a custom role with only these two, or the built-in Key Vault Crypto User role, which also holds actions the plugin does not use. Check that it is assigned to the identity that signs, such as the service principal in CI. A new assignment can take a few minutes to take effect.",
+  },
+  forbiddenByAccessPolicy: {
+    id: "azure.service.403-access-policy",
+    kind: "error",
+    group: "Key Vault answers",
+    template:
+      "Key Vault answered {status}: the vault uses access policies and the identity's policy does not allow this. Give it the `get` and `sign` key permissions. See step 2 of the Azure setup guide",
+    cause:
+      "Key Vault's inner error code is `AccessDenied`: the vault uses access policies, and the identity has no policy or its policy lacks the `get` or `sign` key permission.",
+    fix: "Add an access policy for the identity with the `get` and `sign` key permissions, as step 2 of the Azure setup guide shows, for example `az keyvault set-policy --name <vault-name> --object-id <principal object id> --key-permissions get sign`.",
+  },
+  forbiddenByFirewall: {
+    id: "azure.service.403-firewall",
+    kind: "error",
+    group: "Key Vault answers",
+    template:
+      "Key Vault answered {status}: the vault firewall does not allow this network. Add the caller's public IP address or virtual network to the vault's network rules, or reach the vault through its private endpoint",
+    cause:
+      "Key Vault's inner error code is `ForbiddenByFirewall`: the vault's network rules deny the address the request came from.",
+    fix: "Add the caller's public IP address with `az keyvault network-rule add --name <vault-name> --ip-address <address>`, or its virtual network, or run from a network that reaches the vault's private endpoint. A CI runner's address changes between runs, so a private endpoint or a self-hosted runner in an allowed network suits CI better than an IP rule.",
   },
   notFound: {
     id: "azure.service.404",
@@ -284,6 +314,26 @@ export const ERRORS = {
       "the key's permitted operations do not include sign. Set them with `az keyvault key set-attributes {vaultOption} {vaultName} --name {keyName} --version {keyVersion} --ops sign verify`",
     cause: "The key was created without `sign` in `--ops`.",
     fix: "Run the command the message gives. It names the vault (`--vault-name`, or `--hsm-name` for a Managed HSM), the key and the version, because without `--version` the command changes the latest version. A part of the key id that comes from a configuration variable is shown as `<vault-name>`, `<key-name>` or `<version>`; fill it in from that variable. Run it as an identity with the keys/update permission, such as a key administrator with Key Vault Crypto Officer, or Managed HSM Crypto Officer on a Managed HSM: the two-action signing role cannot. `--vault-name` and `--hsm-name` build the vault URL from the cloud `az` is set to, so for a vault in another Azure cloud, run `az cloud set` first.",
+  },
+  exportable: {
+    id: "azure.key.exportable",
+    kind: "error",
+    group: "Keys",
+    template:
+      "the key version is exportable, so Key Vault can release its private key outside the vault. hardhat-kms signs only with a key whose private key cannot leave Key Vault. Create a new key without --exportable or --policy, as in step 1 of the Azure setup guide",
+    cause:
+      "The key was created with `--exportable true`. Key Vault can release an exportable key's private key with the release operation, to an environment that its release policy accepts. The plugin refuses such a key before it signs anything with it.",
+    fix: "A key's exportable flag cannot be changed after the key is created. Create a new key without `--exportable` or `--policy`, as step 1 of the Azure setup guide shows, configure it, and move any funds from the old address.",
+  },
+  releasePolicy: {
+    id: "azure.key.release-policy",
+    kind: "error",
+    group: "Keys",
+    template:
+      "the key version has a release policy, so Key Vault can release its private key to an environment the policy accepts. hardhat-kms signs only with a key whose private key cannot leave Key Vault. Create a new key without --exportable or --policy, as in step 1 of the Azure setup guide",
+    cause:
+      "The key carries a release policy (`--policy`), which Key Vault accepts only on an exportable key. The release operation hands the private key to an environment the policy accepts. The plugin refuses such a key before it signs anything with it.",
+    fix: "Create a new key without `--exportable` or `--policy`, as step 1 of the Azure setup guide shows, configure it, and move any funds from the old address.",
   },
   lookupUnfinished: {
     id: "azure.sign.lookup-unfinished",

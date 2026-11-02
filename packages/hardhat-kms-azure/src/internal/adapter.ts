@@ -21,6 +21,7 @@ import type {
 
 import { credentialReasons } from "./credential-reasons.ts";
 import { ERRORS } from "./error-catalog.ts";
+import { errorCodes, field, SAFE_CODE } from "./error-codes.ts";
 
 /** Key Vault's name for ECDSA over secp256k1 on a pre-hashed 32-byte digest. */
 const ALGORITHM = "ES256K";
@@ -45,6 +46,10 @@ export interface KeyVaultKeyLike {
     enabled?: boolean | undefined;
     notBefore?: Date | undefined;
     expiresOn?: Date | undefined;
+    /** Whether Key Vault may release the private key, from the service's `attributes.exportable`. */
+    exportable?: boolean | undefined;
+    /** The rules under which Key Vault releases the private key, from the service's `release_policy`. */
+    releasePolicy?: unknown;
   };
 }
 
@@ -91,7 +96,6 @@ type CryptographyClient<Key extends KeyVaultKeyLike> = InstanceType<
 const NO_CREDENTIAL = new Set(["CredentialUnavailableError", "AggregateAuthenticationError"]);
 /** Error names of @azure/identity when a configured credential source could not sign in. */
 const FAILED_CREDENTIAL = new Set(["AuthenticationError", "AuthenticationRequiredError"]);
-const SAFE_CODE = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
 
 /** A short value from a response, or a placeholder when it is missing or looks unusual. */
 function shown(value: unknown): string {
@@ -145,7 +149,8 @@ function setAttributesTarget(
 /**
  * The Azure Key Vault (and Managed HSM) adapter for one key.
  *
- * It reads the key's JWK once, checks that it is an enabled secp256k1 key that may sign, and pins
+ * It reads the key's JWK once, checks that it is an enabled secp256k1 key that may sign and that
+ * Key Vault cannot release, and pins
  * the key version from the response: an unversioned key id is resolved to the current version
  * once, and every signature uses that version. Each response must name the configured vault and
  * key in its `kid`, and each sign response the pinned version. alloy's Azure signer
@@ -281,9 +286,21 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     return parsed.keyVersion;
   }
 
-  /** Checks the key's attributes, as Key Vault would before signing, to fail with a clear error. */
+  /**
+   * Checks the key's attributes, as Key Vault would before signing, to fail with a clear error.
+   * It also refuses a key whose private key Key Vault can release (`releaseKey`): an exportable
+   * key, or one with a release policy, which Key Vault accepts only on an exportable key. Both come
+   * from the key read, so the check costs no request, and it runs before the version is pinned and
+   * again before each signature.
+   */
   #checkUsable(response: KeyVaultKeyLike, operation: string, version: string): void {
-    const { enabled, notBefore, expiresOn } = response.properties;
+    const { enabled, notBefore, expiresOn, exportable, releasePolicy } = response.properties;
+    if (exportable === true) {
+      throw this.#error(operation, ERRORS.exportable, {});
+    }
+    if (releasePolicy !== undefined && releasePolicy !== null) {
+      throw this.#error(operation, ERRORS.releasePolicy, {});
+    }
     const now = Date.now();
     if (enabled === false) {
       throw this.#error(operation, ERRORS.disabled, this.#target(version));
@@ -341,18 +358,42 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
         ? this.#error(operation, ERRORS.unreachable, {})
         : this.#error(operation, ERRORS.unreachableCode, { code: shownCode });
     }
-    // The status, then Key Vault's error code when it has a safe one, such as "403 Forbidden".
-    const answer = { status: `${status}${shownCode === undefined ? "" : ` ${shownCode}`}` };
+    // Key Vault's inner error codes, which @azure/keyvault-keys puts in `details.error.innerError`.
+    const innerCodes =
+      shownCode === undefined
+        ? []
+        : errorCodes(
+            field(field(Reflect.get(error, "details"), "error"), "innerError"),
+            "innerError",
+          );
+    // The status, then Key Vault's error codes as far as they are safe, such as "403 Forbidden" or
+    // "403 Forbidden/ForbiddenByRbac".
+    const codes = shownCode === undefined ? "" : ` ${[shownCode, ...innerCodes].join("/")}`;
+    const answer = { status: `${status}${codes}` };
     if (status === 401) {
       return this.#error(operation, ERRORS.unauthorized, answer);
     }
     if (status === 403) {
-      return this.#error(operation, ERRORS.forbidden, answer);
+      return this.#forbidden(operation, innerCodes, answer);
     }
     if (status === 404) {
       return this.#error(operation, ERRORS.notFound, answer);
     }
     return this.#error(operation, ERRORS.answered, answer);
+  }
+
+  /** Explains a 403 by Key Vault's inner error code where the fix differs from the generic one. */
+  #forbidden(operation: string, innerCodes: string[], answer: { status: string }): Error {
+    if (innerCodes.includes("ForbiddenByRbac")) {
+      return this.#error(operation, ERRORS.forbiddenByRbac, answer);
+    }
+    if (innerCodes.includes("AccessDenied")) {
+      return this.#error(operation, ERRORS.forbiddenByAccessPolicy, answer);
+    }
+    if (innerCodes.includes("ForbiddenByFirewall")) {
+      return this.#error(operation, ERRORS.forbiddenByFirewall, answer);
+    }
+    return this.#error(operation, ERRORS.forbidden, answer);
   }
 
   #error<Template extends string>(

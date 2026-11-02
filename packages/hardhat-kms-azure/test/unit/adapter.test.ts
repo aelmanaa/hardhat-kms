@@ -247,6 +247,31 @@ describe("Azure Key Vault adapter", () => {
         { keyOperations: ["verify"] },
         `the key's permitted operations do not include sign. Set them with \`az keyvault key set-attributes --vault-name test-vault --name ${KEY_NAME} --version ${KEY_VERSION} --ops sign verify\``,
       ],
+      [
+        "an exportable key",
+        { exportable: true },
+        "the key version is exportable, so Key Vault can release its private key outside the vault. hardhat-kms signs only with a key whose private key cannot leave Key Vault. Create a new key without --exportable or --policy",
+      ],
+      [
+        "a key with a release policy",
+        { releasePolicy: { contentType: "application/json; charset=utf-8", immutable: false } },
+        "the key version has a release policy, so Key Vault can release its private key to an environment the policy accepts",
+      ],
+      [
+        "an exportable key with a release policy",
+        { exportable: true, releasePolicy: { immutable: true } },
+        "the key version is exportable",
+      ],
+      [
+        "a release policy on a key that does not say it is exportable",
+        { exportable: false, releasePolicy: {} },
+        "the key version has a release policy",
+      ],
+      [
+        "an exportable key that is also disabled",
+        { exportable: true, enabled: false },
+        "the key version is exportable",
+      ],
       ["no key id", { keyId: undefined }, "the response has no versioned key id"],
       ["an unversioned key id", { keyId: KEY_URL }, "the response has no versioned key id"],
       [
@@ -321,6 +346,37 @@ describe("Azure Key Vault adapter", () => {
         InvalidPublicKeyError,
       );
     });
+
+    for (const [name, options] of [
+      ["exportable: true", { exportable: true }],
+      ["a release policy", { releasePolicy: { immutable: false } }],
+    ] satisfies Array<[string, Partial<FakeKeyVaultOptions>]>) {
+      it(`signs nothing with a key that Key Vault can release (${name})`, async () => {
+        const { adapter, calls, cryptographyKeys } = await adapterFor(KEY_URL, options);
+        await assertAzureError(adapter.signDigest?.({ digest }, context()) ?? Promise.resolve(), [
+          `azure, get public key, key azure:${KEY_URL}:`,
+          "Key Vault can release its private key",
+        ]);
+        assert.deepEqual(
+          calls.map((call) => call.method),
+          ["getKey"],
+        );
+        // No version was pinned and no signing client was built from the refused key.
+        assert.deepEqual(cryptographyKeys, []);
+      });
+    }
+
+    for (const [name, options] of [
+      ["exportable: false", { exportable: false }],
+      ["a null release policy", { releasePolicy: null }],
+      ["an undefined release policy", { releasePolicy: undefined }],
+    ] satisfies Array<[string, Partial<FakeKeyVaultOptions>]>) {
+      it(`signs with a key that Key Vault cannot release (${name})`, async () => {
+        const { adapter } = await adapterFor(VERSIONED_KEY_URL, options);
+        const output = await adapter.signDigest?.({ digest }, context());
+        assert.ok(output !== undefined && "format" in output && output.format === "compact");
+      });
+    }
 
     it("accepts versions that differ only in case, as Key Vault does", async () => {
       const { adapter } = await adapterFor(VERSIONED_KEY_URL, {
@@ -618,7 +674,7 @@ describe("Azure Key Vault adapter", () => {
       [
         "403",
         restError(403, "Forbidden"),
-        "Key Vault answered 403 Forbidden: the identity may not use this key. It needs to read the key and sign with it: on an RBAC vault, a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User; in an access policy, the `get` and `sign` key permissions. See step 2 of the Azure setup guide. A disabled key or a firewall rule also gives 403",
+        "Key Vault answered 403 Forbidden: the identity may not use this key. It needs to read the key and sign with it: on an RBAC vault, a role with `Microsoft.KeyVault/vaults/keys/read` and `Microsoft.KeyVault/vaults/keys/sign/action` on the key, such as a custom role or the built-in Key Vault Crypto User; in an access policy, the `get` and `sign` key permissions. See step 2 of the Azure setup guide. A disabled key, a firewall rule or a suspended subscription also gives 403",
       ],
       [
         "404",
