@@ -249,6 +249,33 @@ A parsed Azure key identifier.
 
 `https://<host>`, without a trailing slash.
 
+---
+
+### Terminal
+
+Where a task asks a person a question.
+
+#### Properties
+
+##### input
+
+> `readonly` **input**: `Readable`
+
+Where the answer is read from: standard input.
+
+##### interactive
+
+> `readonly` **interactive**: `boolean`
+
+Whether a person can answer: standard input and standard error are both terminals. Without
+one, a task never asks and decides from its options alone.
+
+##### output
+
+> `readonly` **output**: `Writable`
+
+Where the question is written: standard error, since standard output holds the result.
+
 ## Type Aliases
 
 ### DebugValue
@@ -471,6 +498,35 @@ A `HardhatPluginError` that names both versions and the install command.
 
 ---
 
+### confirm()
+
+> **confirm**(`terminal`: [`Terminal`](#terminal), `lines`: readonly `string`[], `prompt?`: `string`): `Promise`\<`boolean`\>
+
+Writes `lines` and the prompt to the terminal's output and reads one line of answer. The default
+is no: only [isYes](#isyes) answers agree. Input that is closed, or closes or fails before a line
+arrives, declines, so the question always settles.
+
+Input the stream already holds when the question is shown is discarded, so a line typed or
+piped before the question, or left over from an earlier question in the same process, cannot
+answer it. Keystrokes still in the terminal driver's own buffer are not reachable from Node.js
+and are not discarded.
+
+#### Parameters
+
+| Parameter  | Type                    | Description                                         |
+| ---------- | ----------------------- | --------------------------------------------------- |
+| `terminal` | [`Terminal`](#terminal) | Where to ask; it must be interactive.               |
+| `lines`    | readonly `string`[]     | What to show before the prompt, one entry per line. |
+| `prompt?`  | `string`                | The prompt, on the line the answer is typed on.     |
+
+#### Returns
+
+`Promise`\<`boolean`\>
+
+Whether the person agreed.
+
+---
+
 ### crc32c()
 
 > **crc32c**(`bytes`: `Uint8Array`): `number`
@@ -519,6 +575,27 @@ For hardhat-kms and its first-party provider packages; a third-party provider us
 `Error`
 
 The error to throw.
+
+---
+
+### isYes()
+
+> **isYes**(`answer`: `string`): `boolean`
+
+Whether an answer agrees: `y` or `yes`, in any case, with surrounding spaces ignored. Anything
+else, including an empty line, declines.
+
+#### Parameters
+
+| Parameter | Type     | Description                                     |
+| --------- | -------- | ----------------------------------------------- |
+| `answer`  | `string` | The line the person typed, without its newline. |
+
+#### Returns
+
+`boolean`
+
+Whether the answer is yes.
 
 ---
 
@@ -582,6 +659,35 @@ The error to throw.
 
 ---
 
+### kmsKeyAddress()
+
+> **kmsKeyAddress**(`hre`: `HardhatRuntimeEnvironment`, `name`: `string`): `Promise`\<`string`\>
+
+The address of a key a task names, as `kms address` prints it, without printing it. The address
+comes from the KMS, and a configured `address` pin must match it; a provider that can report
+neither a public key nor an address leaves only the pin. The signer it opens is closed before it
+returns.
+
+#### Parameters
+
+| Parameter | Type                        | Description                                                                                                                 |
+| --------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `hre`     | `HardhatRuntimeEnvironment` | The Hardhat runtime.                                                                                                        |
+| `name`    | `string`                    | The key: a name from `kms.keys`, an inline key such as `sepolia.kmsAccounts[0]`, or a `--kms` key such as `AWS_KMS_KEY_ID`. |
+
+#### Returns
+
+`Promise`\<`string`\>
+
+The key's EIP-55 checksummed address.
+
+#### Throws
+
+The `kms` tasks' error for a name that is not a key, or the signer's error when the KMS
+cannot be reached or the pin does not match.
+
+---
+
 ### parseAwsKeyId()
 
 > **parseAwsKeyId**(`value`: `string`): [`ParsedAwsKeyId`](#parsedawskeyid) \| `undefined`
@@ -619,6 +725,27 @@ Parses a key identifier such as `https://my-vault.vault.azure.net/keys/deployer/
 [`ParsedAzureKeyId`](#parsedazurekeyid) \| `undefined`
 
 Its parts, or `undefined` if it is not an Azure key identifier.
+
+---
+
+### processTerminal()
+
+> **processTerminal**(`isTerminal?`: (`fd`: `number`) => `boolean`): [`Terminal`](#terminal)
+
+The process's terminal. Standard input is opened only when a question reads it. A
+pseudo-terminal passes the check: a program that drives one can answer.
+
+#### Parameters
+
+| Parameter     | Type                          | Description                                                 |
+| ------------- | ----------------------------- | ----------------------------------------------------------- |
+| `isTerminal?` | (`fd`: `number`) => `boolean` | Whether a file descriptor is a terminal; tests pass a stub. |
+
+#### Returns
+
+[`Terminal`](#terminal)
+
+The terminal of this process.
 
 ---
 

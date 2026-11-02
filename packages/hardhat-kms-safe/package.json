@@ -1,0 +1,85 @@
+{
+  "name": "@hardhat-kms/safe",
+  "version": "1.4.0",
+  "description": "Hardhat 3 plugin that signs Safe multisig transactions with a hardhat-kms key and proposes them to the Safe Transaction Service, for the other owners to confirm.",
+  "keywords": [
+    "hardhat-plugin",
+    "hardhat",
+    "hardhat3",
+    "ethereum",
+    "smart-contracts",
+    "hardhat-kms",
+    "kms",
+    "safe",
+    "multisig",
+    "safe-wallet",
+    "gnosis-safe",
+    "safe-transaction-service",
+    "signer",
+    "viem"
+  ],
+  "homepage": "https://aelmanaa.github.io/hardhat-kms/",
+  "bugs": {
+    "url": "https://github.com/aelmanaa/hardhat-kms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aelmanaa/hardhat-kms.git",
+    "directory": "packages/hardhat-kms-safe"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Amine El Manaa",
+    "url": "https://github.com/aelmanaa"
+  },
+  "type": "module",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/src/",
+    "src/",
+    "!**/*.test.*",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "clean": "node -e \"for (const p of ['dist','coverage']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
+    "test": "pnpm run test:unit && pnpm run test:integration",
+    "test:unit": "node ../../scripts/node-test.ts unit \"test/unit/**/*.test.ts\"",
+    "test:integration": "node ../../scripts/node-test.ts integration --test-concurrency=1 \"test/integration/**/*.test.ts\"",
+    "coverage": "c8 --check-coverage node --test --test-concurrency=1 \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
+    "test:localstack": "node --test --test-concurrency=1 --test-timeout=300000 \"test/localstack/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@aws-sdk/client-kms": "^3.1143.0",
+    "@hardhat-kms/aws": "workspace:*",
+    "@safe-global/api-kit": "5.0.4",
+    "@types/node": "catalog:",
+    "c8": "catalog:",
+    "hardhat": "catalog:",
+    "hardhat-kms": "workspace:*",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "viem": "catalog:"
+  },
+  "peerDependencies": {
+    "hardhat": "^3.18.0",
+    "hardhat-kms": "workspace:*",
+    "viem": "^2.55.13"
+  }
+}

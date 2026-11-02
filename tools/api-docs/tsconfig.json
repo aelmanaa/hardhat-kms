@@ -10,5 +10,8 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["../../packages/hardhat-kms/dist/src/*.d.ts"]
+  "include": [
+    "../../packages/hardhat-kms/dist/src/*.d.ts",
+    "../../packages/hardhat-kms-safe/dist/src/index.d.ts"
+  ]
 }

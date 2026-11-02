@@ -13,7 +13,8 @@
         "@nomicfoundation/hardhat-ignition-viem",
         "@nomicfoundation/hardhat-ledger",
         "@nomicfoundation/hardhat-toolbox-viem",
-        "@hardhat-kms/turnkey"
+        "@hardhat-kms/turnkey",
+        "@hardhat-kms/safe"
       ]
     },
     "packages/hardhat-kms": {
@@ -40,6 +41,11 @@
     },
     "packages/hardhat-kms-gcp": {
       "entry": ["test/**/*.test.ts", "test/fixtures/*.ts", "test/helpers/*.mjs"],
+      "project": ["src/**/*.ts", "test/**/*.ts"],
+      "ignoreDependencies": ["tsx"]
+    },
+    "packages/hardhat-kms-safe": {
+      "entry": ["test/**/*.test.ts", "test/fixtures/*.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"],
       "ignoreDependencies": ["tsx"]
     },
