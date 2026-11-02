@@ -100,6 +100,68 @@ export function statusOf(error: unknown): StatusName | undefined {
 }
 
 /**
+ * The states of a key version other than ENABLED, as `CryptoKeyVersionState` in the
+ * `resources.proto` of `@google-cloud/kms` names them. Only these names are read from a message.
+ */
+const UNUSABLE_STATES = [
+  "PENDING_GENERATION",
+  "DISABLED",
+  "DESTROYED",
+  "DESTROY_SCHEDULED",
+  "PENDING_IMPORT",
+  "IMPORT_FAILED",
+  "GENERATION_FAILED",
+  "PENDING_EXTERNAL_DESTRUCTION",
+  "EXTERNAL_DESTRUCTION_FAILED",
+] as const;
+
+/** A key version state in which the version cannot sign. */
+export type KeyVersionState = (typeof UNUSABLE_STATES)[number];
+
+/**
+ * Where Cloud KMS states a key version's state in a FAILED_PRECONDITION message, in the forms it
+ * has used: "has value DISABLED in field crypto_key_version.state", "has
+ * crypto_key_version.state: DESTROYED, but ENABLED is required" and "current state is:
+ * DESTROY_SCHEDULED".
+ */
+const KEY_VERSION_STATE =
+  /has value ([A-Z_]{1,40}) in field crypto_key_version\.state|crypto_key_version\.state: ([A-Z_]{1,40})\b|current state is: ([A-Z_]{1,40})\b/;
+
+/**
+ * Reads the state of the key version a FAILED_PRECONDITION error from Cloud KMS names. The
+ * message names the project and the key, so only a state name from the allow-list is returned.
+ *
+ * @param error - Anything thrown.
+ * @returns The state, or `undefined` if the message states none this plugin knows.
+ */
+export function keyVersionState(error: unknown): KeyVersionState | undefined {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  const match = KEY_VERSION_STATE.exec(error.message);
+  const found = match?.[1] ?? match?.[2] ?? match?.[3];
+  return UNUSABLE_STATES.find((state) => state === found);
+}
+
+/**
+ * Reads the HTTP status of an error whose body was not a Google API error, such as a proxy's HTML
+ * page. Over REST, google-gax maps the status of such an answer to a gRPC status, every 4xx it has
+ * no mapping for to FAILED_PRECONDITION, and keeps the status as `httpStatusCode`. An answer whose
+ * body it decoded as a Google error also has a `details` array, empty when the body has none.
+ *
+ * @param error - Anything thrown.
+ * @returns The HTTP status, or `undefined` if the error carries a decoded Google error body or no
+ * HTTP status.
+ */
+export function nonGoogleStatus(error: unknown): number | undefined {
+  if (!(error instanceof Error) || Array.isArray(Reflect.get(error, "details"))) {
+    return undefined;
+  }
+  const status: unknown = Reflect.get(error, "httpStatusCode");
+  return typeof status === "number" && Number.isInteger(status) ? status : undefined;
+}
+
+/**
  * Reads the network error under a Google Cloud SDK error, such as `ECONNREFUSED` or `ENOTFOUND`.
  * Over REST, a request that never reached the service fails with UNAVAILABLE and keeps the
  * network error as its `cause`.

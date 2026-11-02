@@ -8,7 +8,9 @@ import {
   errorInfoReason,
   int64Value,
   keyProject,
+  keyVersionState,
   networkErrorCode,
+  nonGoogleStatus,
   sdkErrorReason,
   statusOf,
 } from "../../src/internal/wire.ts";
@@ -21,6 +23,7 @@ import {
 
 const withCode = (code: unknown) => Object.assign(new Error("x"), { code });
 const withCause = (cause: unknown) => Object.assign(new Error("x"), { cause });
+const answer = (fields: object) => Object.assign(new Error("x"), { code: 9 }, fields);
 
 /** A Google API error answer whose ErrorInfo gives `reason`, after another detail. */
 const info = (reason: unknown): unknown => ({
@@ -72,6 +75,51 @@ describe("Google Cloud KMS wire formats", () => {
     assert.equal(statusOf(withCode(1.5)), undefined);
     assert.equal(statusOf(new Error("x")), undefined);
     assert.equal(statusOf({ code: 9 }), undefined);
+  });
+
+  it("reads the key version state from Cloud KMS's FAILED_PRECONDITION messages", () => {
+    const name = "projects/secret-project/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1";
+    for (const state of [
+      "PENDING_GENERATION",
+      "DISABLED",
+      "DESTROYED",
+      "DESTROY_SCHEDULED",
+      "PENDING_IMPORT",
+      "IMPORT_FAILED",
+      "GENERATION_FAILED",
+      "PENDING_EXTERNAL_DESTRUCTION",
+      "EXTERNAL_DESTRUCTION_FAILED",
+    ]) {
+      // The three forms Cloud KMS has used.
+      for (const message of [
+        `The request cannot be fulfilled. Resource ${name} has value ${state} in field crypto_key_version.state.`,
+        `The request cannot be fulfilled. Resource ${name} has crypto_key_version.state: ${state}, but ENABLED is required.`,
+        `${name} is not enabled, current state is: ${state}.`,
+      ]) {
+        assert.equal(keyVersionState(new Error(message)), state, message);
+      }
+    }
+    for (const bad of [
+      new Error(`Resource ${name} has value ENABLED in field crypto_key_version.state.`),
+      new Error(`Resource ${name} has value SECRET_PROJECT in field crypto_key_version.state.`),
+      new Error(`current state is: DISABLEDX`),
+      new Error(`the key ring ${name} is DISABLED`),
+      new Error("Error response from RPC AsymmetricSign with status 412 could not be decoded"),
+      { message: "current state is: DISABLED" },
+    ]) {
+      assert.equal(keyVersionState(bad), undefined, bad.message);
+    }
+  });
+
+  it("reads the HTTP status of an answer whose body is not a Google error", () => {
+    assert.equal(nonGoogleStatus(answer({ httpStatusCode: 412 })), 412);
+    // gax decoded a Google error body: it has a `details` array, empty or not.
+    assert.equal(nonGoogleStatus(answer({ httpStatusCode: 400, details: [] })), undefined);
+    assert.equal(nonGoogleStatus(answer({ httpStatusCode: 400, details: [{}] })), undefined);
+    // No HTTP status: not an answer gax got over REST.
+    assert.equal(nonGoogleStatus(answer({})), undefined);
+    assert.equal(nonGoogleStatus(answer({ httpStatusCode: "412" })), undefined);
+    assert.equal(nonGoogleStatus({ httpStatusCode: 412 }), undefined);
   });
 
   it("reads the network error code under an SDK error, and nothing else", () => {

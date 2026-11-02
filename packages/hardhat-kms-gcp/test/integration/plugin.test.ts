@@ -452,6 +452,81 @@ describe("@hardhat-kms/gcp plugin", () => {
     }
   });
 
+  it("names the key version state Cloud KMS gives with FAILED_PRECONDITION", async () => {
+    const hre = await runtime();
+    const name = "projects/secret-project/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1";
+    const cases: Array<[string, string]> = [
+      [
+        `The request cannot be fulfilled. Resource ${name} has value PENDING_GENERATION in field crypto_key_version.state.`,
+        "the key version is still being generated (FAILED_PRECONDITION, PENDING_GENERATION). Retry in a minute",
+      ],
+      [
+        `The request cannot be fulfilled. Resource ${name} has value DISABLED in field crypto_key_version.state.`,
+        "its state is DISABLED, and only an ENABLED version signs (FAILED_PRECONDITION)",
+      ],
+      [
+        `${name} is not enabled, current state is: DESTROY_SCHEDULED.`,
+        "its state is DESTROY_SCHEDULED, and only an ENABLED version signs (FAILED_PRECONDITION)",
+      ],
+      [
+        `Resource ${name} has crypto_key_version.state: DESTROYED, but ENABLED is required.`,
+        "its state is DESTROYED, and only an ENABLED version signs (FAILED_PRECONDITION)",
+      ],
+      [`${name} cannot be used`, "may be disabled, destroyed or scheduled for destruction"],
+    ];
+    try {
+      for (const [serverMessage, message] of cases) {
+        server.faults.error = { http: 400, status: "FAILED_PRECONDITION", message: serverMessage };
+        const adapter = await createAdapter(hre, "deployer");
+        await assert.rejects(
+          adapter.getPublicKey?.(signContext()) ?? Promise.resolve(),
+          (error) => {
+            assert.ok(error instanceof Error);
+            assert.ok(error.message.includes(message), error.message);
+            assert.ok(!error.message.includes("secret-project"), error.message);
+            return true;
+          },
+        );
+        await adapter.close?.();
+      }
+    } finally {
+      server.faults.error = undefined;
+    }
+  });
+
+  it("does not take a proxy's 4xx page for Cloud KMS's FAILED_PRECONDITION", async () => {
+    const hre = await runtime();
+    const cases = [
+      { http: 412, contentType: "text/html", body: "<html>secret-proxy blocked DISABLED</html>" },
+      { http: 407, contentType: "text/html", body: "<html>secret-proxy needs a login</html>" },
+      { http: 418, contentType: "text/plain", body: "" },
+    ];
+    try {
+      for (const page of cases) {
+        server.faults.page = page;
+        const adapter = await createAdapter(hre, "deployer");
+        await assert.rejects(
+          adapter.getPublicKey?.(signContext()) ?? Promise.resolve(),
+          (error) => {
+            assert.ok(error instanceof Error);
+            assert.ok(
+              error.message.includes(
+                `the request was refused with HTTP ${page.http}, by something other than Google Cloud KMS`,
+              ),
+              error.message,
+            );
+            assert.ok(!error.message.includes("secret-proxy"), error.message);
+            assert.ok(!error.message.includes("FAILED_PRECONDITION"), error.message);
+            return true;
+          },
+        );
+        await adapter.close?.();
+      }
+    } finally {
+      server.faults.page = undefined;
+    }
+  });
+
   it("names a disabled API or an unusable quota project from the 403's ErrorInfo reason", async () => {
     const hre = await runtime();
     const cases: Array<[unknown[] | undefined, string]> = [

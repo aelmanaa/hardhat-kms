@@ -20,7 +20,9 @@ import {
   crc32cMatches,
   credentialFailure,
   keyProject,
+  keyVersionState,
   networkErrorCode,
+  nonGoogleStatus,
   sdkErrorReason,
   type StatusName,
   statusOf,
@@ -358,6 +360,22 @@ class GcpKeyAdapter implements KmsKeyAdapter {
         /digest_?crc32c/i.test(error.message)
       ) {
         throw new RetryableFailure("checksum", catalogMessage(ERRORS.digestChecksumRefused, {}));
+      }
+      // Over REST the SDK turns every 4xx it has no mapping for into FAILED_PRECONDITION, a proxy's
+      // HTML page too, so only an answer with a Google error body is Cloud KMS's. Its message is
+      // read only for the key version's state, a name from an allow-list.
+      if (status === "FAILED_PRECONDITION") {
+        const httpStatus = nonGoogleStatus(error);
+        if (httpStatus !== undefined) {
+          throw this.#error(operation, ERRORS.nonGoogleAnswer, { status: httpStatus });
+        }
+        const state = keyVersionState(error);
+        if (state === "PENDING_GENERATION") {
+          throw this.#error(operation, ERRORS.keyVersionPending, {});
+        }
+        if (state !== undefined) {
+          throw this.#error(operation, ERRORS.keyVersionState, { state });
+        }
       }
       if (status === "PERMISSION_DENIED") {
         // A disabled API and an unusable quota project arrive as PERMISSION_DENIED too, told
