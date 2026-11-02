@@ -5,9 +5,13 @@ import {
   authFailure,
   crc32cMatches,
   credentialFailure,
+  errorInfoReason,
   int64Value,
   keyProject,
+  keyVersionState,
   networkErrorCode,
+  nonGoogleStatus,
+  sdkErrorReason,
   statusOf,
 } from "../../src/internal/wire.ts";
 import {
@@ -19,6 +23,15 @@ import {
 
 const withCode = (code: unknown) => Object.assign(new Error("x"), { code });
 const withCause = (cause: unknown) => Object.assign(new Error("x"), { cause });
+const answer = (fields: object) => Object.assign(new Error("x"), { code: 9 }, fields);
+
+/** A Google API error answer whose ErrorInfo gives `reason`, after another detail. */
+const info = (reason: unknown): unknown => ({
+  details: [
+    { "@type": "type.googleapis.com/google.rpc.Help", links: [] },
+    { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason, metadata: {} },
+  ],
+});
 
 describe("Google Cloud KMS wire formats", () => {
   it("reads Int64Value checksums in every form the SDK uses", () => {
@@ -62,6 +75,51 @@ describe("Google Cloud KMS wire formats", () => {
     assert.equal(statusOf(withCode(1.5)), undefined);
     assert.equal(statusOf(new Error("x")), undefined);
     assert.equal(statusOf({ code: 9 }), undefined);
+  });
+
+  it("reads the key version state from Cloud KMS's FAILED_PRECONDITION messages", () => {
+    const name = "projects/secret-project/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1";
+    for (const state of [
+      "PENDING_GENERATION",
+      "DISABLED",
+      "DESTROYED",
+      "DESTROY_SCHEDULED",
+      "PENDING_IMPORT",
+      "IMPORT_FAILED",
+      "GENERATION_FAILED",
+      "PENDING_EXTERNAL_DESTRUCTION",
+      "EXTERNAL_DESTRUCTION_FAILED",
+    ]) {
+      // The three forms Cloud KMS has used.
+      for (const message of [
+        `The request cannot be fulfilled. Resource ${name} has value ${state} in field crypto_key_version.state.`,
+        `The request cannot be fulfilled. Resource ${name} has crypto_key_version.state: ${state}, but ENABLED is required.`,
+        `${name} is not enabled, current state is: ${state}.`,
+      ]) {
+        assert.equal(keyVersionState(new Error(message)), state, message);
+      }
+    }
+    for (const bad of [
+      new Error(`Resource ${name} has value ENABLED in field crypto_key_version.state.`),
+      new Error(`Resource ${name} has value SECRET_PROJECT in field crypto_key_version.state.`),
+      new Error(`current state is: DISABLEDX`),
+      new Error(`the key ring ${name} is DISABLED`),
+      new Error("Error response from RPC AsymmetricSign with status 412 could not be decoded"),
+      { message: "current state is: DISABLED" },
+    ]) {
+      assert.equal(keyVersionState(bad), undefined, bad.message);
+    }
+  });
+
+  it("reads the HTTP status of an answer whose body is not a Google error", () => {
+    assert.equal(nonGoogleStatus(answer({ httpStatusCode: 412 })), 412);
+    // gax decoded a Google error body: it has a `details` array, empty or not.
+    assert.equal(nonGoogleStatus(answer({ httpStatusCode: 400, details: [] })), undefined);
+    assert.equal(nonGoogleStatus(answer({ httpStatusCode: 400, details: [{}] })), undefined);
+    // No HTTP status: not an answer gax got over REST.
+    assert.equal(nonGoogleStatus(answer({})), undefined);
+    assert.equal(nonGoogleStatus(answer({ httpStatusCode: "412" })), undefined);
+    assert.equal(nonGoogleStatus({ httpStatusCode: 412 }), undefined);
   });
 
   it("reads the network error code under an SDK error, and nothing else", () => {
@@ -263,5 +321,76 @@ describe("Google Cloud KMS wire formats", () => {
       deep = Object.assign(new Error("x"), { cause: deep });
     }
     assert.equal(authFailure(deep), undefined);
+  });
+
+  it("reads only allow-listed ErrorInfo reasons from a Google API error answer", () => {
+    for (const reason of ["SERVICE_DISABLED", "USER_PROJECT_DENIED", "CONSUMER_INVALID"]) {
+      assert.equal(errorInfoReason(info(reason)), reason);
+    }
+    for (const other of [
+      info("IAM_PERMISSION_DENIED"),
+      info("service_disabled"),
+      info(undefined),
+      { details: "SERVICE_DISABLED" },
+      { details: [null, "SERVICE_DISABLED"] },
+      {},
+      null,
+      "SERVICE_DISABLED",
+    ]) {
+      assert.equal(errorInfoReason(other), undefined);
+    }
+  });
+
+  it("reads the reason of an SDK error from gax, the 403 body or the gaxios response", () => {
+    const body = JSON.stringify({
+      error: {
+        code: 403,
+        status: "PERMISSION_DENIED",
+        details: [
+          { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "SERVICE_DISABLED" },
+        ],
+      },
+    });
+    // As google-gax wraps a 403 over REST: the body is the message of both errors.
+    const gaxios = Object.assign(new Error(body), { status: 403 });
+    assert.equal(
+      sdkErrorReason(Object.assign(new Error(body), { code: 7, cause: gaxios })),
+      "SERVICE_DISABLED",
+    );
+    assert.equal(
+      sdkErrorReason(Object.assign(new Error("x"), { code: 7, cause: gaxios })),
+      "SERVICE_DISABLED",
+    );
+    // gax's decoded reason, and a gaxios response that kept the body, as text or parsed.
+    assert.equal(
+      sdkErrorReason(Object.assign(new Error("x"), { reason: "USER_PROJECT_DENIED" })),
+      "USER_PROJECT_DENIED",
+    );
+    for (const data of [body, JSON.parse(body)]) {
+      const kept = Object.assign(new Error("x"), { response: { data } });
+      assert.equal(
+        sdkErrorReason(Object.assign(new Error("x"), { cause: kept })),
+        "SERVICE_DISABLED",
+      );
+    }
+    for (const other of [
+      Object.assign(new Error("x"), { reason: "IAM_PERMISSION_DENIED" }),
+      new Error(body.replace("SERVICE_DISABLED", "BILLING_DISABLED")),
+      new Error(`${body} `.padEnd(70_000)),
+      new Error(` ${body}`),
+      new Error("{not json"),
+      new Error("null"),
+      Object.assign(new Error("x"), { response: { data: 42 } }),
+      body,
+      undefined,
+    ]) {
+      assert.equal(sdkErrorReason(other), undefined);
+    }
+    // A cause chain is followed only so far.
+    let deep = new Error(body);
+    for (let depth = 0; depth < 4; depth++) {
+      deep = Object.assign(new Error("x"), { cause: deep });
+    }
+    assert.equal(sdkErrorReason(deep), undefined);
   });
 });

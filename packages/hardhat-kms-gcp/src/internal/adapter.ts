@@ -20,7 +20,10 @@ import {
   crc32cMatches,
   credentialFailure,
   keyProject,
+  keyVersionState,
   networkErrorCode,
+  nonGoogleStatus,
+  sdkErrorReason,
   type StatusName,
   statusOf,
 } from "./wire.ts";
@@ -157,6 +160,8 @@ class GcpKeyAdapter implements KmsKeyAdapter {
   /** The client, created by the first call, and again by the call after one failed to initialize. */
   #client: GcpKmsClient | undefined;
   readonly #userAgent: string;
+  /** The key's project, for the command that enables the Cloud KMS API. */
+  readonly #project: string;
   #checked = false;
 
   public constructor(
@@ -167,6 +172,7 @@ class GcpKeyAdapter implements KmsKeyAdapter {
   ) {
     this.#key = key;
     this.#name = name;
+    this.#project = keyProject(name) ?? "<the key's project>";
     this.#createClient = createClient;
     this.#userAgent = userAgent;
   }
@@ -354,6 +360,33 @@ class GcpKeyAdapter implements KmsKeyAdapter {
         /digest_?crc32c/i.test(error.message)
       ) {
         throw new RetryableFailure("checksum", catalogMessage(ERRORS.digestChecksumRefused, {}));
+      }
+      // Over REST the SDK turns every 4xx it has no mapping for into FAILED_PRECONDITION, a proxy's
+      // HTML page too, so only an answer with a Google error body is Cloud KMS's. Its message is
+      // read only for the key version's state, a name from an allow-list.
+      if (status === "FAILED_PRECONDITION") {
+        const httpStatus = nonGoogleStatus(error);
+        if (httpStatus !== undefined) {
+          throw this.#error(operation, ERRORS.nonGoogleAnswer, { status: httpStatus });
+        }
+        const state = keyVersionState(error);
+        if (state === "PENDING_GENERATION") {
+          throw this.#error(operation, ERRORS.keyVersionPending, {});
+        }
+        if (state !== undefined) {
+          throw this.#error(operation, ERRORS.keyVersionState, { state });
+        }
+      }
+      if (status === "PERMISSION_DENIED") {
+        // A disabled API and an unusable quota project arrive as PERMISSION_DENIED too, told
+        // apart only by the answer's ErrorInfo reason. Any other reason keeps the IAM hint.
+        const reason = sdkErrorReason(error);
+        if (reason === "SERVICE_DISABLED") {
+          throw this.#error(operation, ERRORS.serviceDisabled, { project: this.#project });
+        }
+        if (reason !== undefined) {
+          throw this.#error(operation, ERRORS.quotaProject, { reason });
+        }
       }
       if (status !== undefined) {
         // Only the status: the server's message names the project and the key.
