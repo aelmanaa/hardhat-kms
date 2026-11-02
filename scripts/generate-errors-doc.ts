@@ -20,7 +20,7 @@ export const ERRORS_DOC = "docs/user/reference/errors.md";
 /** The command that regenerates the page. */
 export const ERRORS_DOC_COMMAND = "pnpm run docs:errors";
 
-const KINDS = ["error", "validation", "reason", "internal"] as const;
+const KINDS = ["error", "validation", "reason", "internal", "warning"] as const;
 type Kind = (typeof KINDS)[number];
 
 /** A catalogue entry, as read from a built package. */
@@ -44,6 +44,7 @@ const KIND_NAMES: Record<Kind, string> = {
   validation: "config",
   reason: "reason",
   internal: "internal",
+  warning: "warning",
 };
 
 function parseKind(value: unknown): Kind | undefined {
@@ -190,6 +191,7 @@ export function renderErrorsDoc(catalogues: Catalogue[]): string {
     "- Kind `config`: a config validation message. Hardhat shows it in its `Invalid config` error, after the config path, for example `* Config error in config.kms.keys.deployer.address: …`.",
     "- Kind `reason`: text that another error includes, such as the reason in `the provider returned an invalid signature ({reason})`.",
     "- Kind `internal`: a plain `Error` that only a bug or a broken install can cause.",
+    "- Kind `warning`: a warning printed on standard error, after `hardhat-kms: `. The command goes on.",
     "",
     "Errors never include credentials or the text of an SDK error, which can carry request details. Run with `DEBUG=hardhat:kms:*` to see each step; see [Debug output](../guides/debug-output.md).",
   ];

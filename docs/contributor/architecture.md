@@ -458,11 +458,12 @@ Where each step is:
 
 Every error that first-party code builds has an entry in its package's error catalogue, `src/internal/error-catalog.ts`: a stable id (`<package>.<area>.<name>`), a kind, a group, a message template with `{name}` placeholders, a cause and a fix. The catalogue is an `as const` object, so each template keeps its literal type, and `TemplateParams<Template>` in `packages/hardhat-kms/src/internal/errors.ts` turns its placeholders into required parameters: a missing or misspelt value does not compile. A `{` that does not start a `{name}` placeholder, as in `{name, type}`, is literal text, for the type and for `fillTemplate` alike.
 
-Code builds errors with three helpers from `errors.ts`, which `hardhat-kms/provider-utils` also exports:
+Code builds errors with three helpers from `errors.ts`, which `hardhat-kms/provider-utils` also exports, and prints warnings with a fourth:
 
 - `catalogError(entry, params, details)` for an `error` entry: a `HardhatPluginError` with `kmsError`'s prefix (provider, operation, key).
 - `catalogMessage(entry, params)` for text: a `reason` that another error includes (the messages of `InvalidSignatureError`, `InvalidPublicKeyError`, `InvalidAddressError` and `InvalidTypedDataError`, and the problems an identifier check returns), a `validation` message for the zod schemas, or an `error` entry that has a class of its own (`SendOutcomeUnknownError`).
 - `internalError(entry, params)` for an `internal` entry: a plain `Error` for a state that only a bug or a broken install reaches, such as a config resolved without validation or a `package.json` without a version. These throws keep the `Error` class they always had, and each has its own entry, whose fix is to report it.
+- `catalogWarning(entry, params)` for a `warning` entry: prints it on standard error through `warn` in `warnings.ts`, after `hardhat-kms: `, and the command goes on. The core's own warnings are still plain strings; `gcp.debug.sdk-logging` is the first entry of this kind.
 
 A placeholder holds a value: a name, a number, an address or a list. Where the wording around a value changes, the catalogue has one entry per wording, such as `core.task.unknown-key` and `core.task.unknown-key-suggested`. Messages do not print the id yet; the ids appear in the catalogue and in the [errors reference](../user/reference/errors.md).
 

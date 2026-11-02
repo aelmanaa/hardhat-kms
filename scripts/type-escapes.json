@@ -66,6 +66,12 @@
       "rule": "node/no-process-env",
       "count": 1,
       "reason": "The explicit credential chain reads the environment once, here, and passes it on. The plugin selects the service principal from AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET or AZURE_CLIENT_CERTIFICATE_PATH itself, in place of EnvironmentCredential, so that it never signs in with AZURE_USERNAME and AZURE_PASSWORD. AZURE_CLIENT_ID also selects a user-assigned managed identity, which ManagedIdentityCredential does not read itself; only DefaultAzureCredential does, and it tries its sources in another order than Foundry's."
+    },
+    {
+      "file": "packages/hardhat-kms-gcp/src/internal/sdk-logging.ts",
+      "rule": "node/no-process-env",
+      "count": 1,
+      "reason": "Reads GOOGLE_SDK_NODE_LOGGING, which Google's client libraries read from process.env themselves, only to warn that they log key names and tokens. The plugin never changes it."
     }
   ]
 }

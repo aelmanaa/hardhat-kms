@@ -19,6 +19,7 @@ export { crc32c } from "./internal/crypto/crc32c.ts";
 export {
   catalogError,
   catalogMessage,
+  catalogWarning,
   internalError,
   kmsError,
   type ErrorDetails,

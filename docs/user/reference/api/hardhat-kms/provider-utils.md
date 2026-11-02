@@ -261,7 +261,7 @@ A value a debug line may contain. Objects and errors are refused: they print who
 
 ### ErrorKind
 
-> **ErrorKind** = `"error"` \| `"reason"` \| `"validation"` \| `"internal"`
+> **ErrorKind** = `"error"` \| `"reason"` \| `"validation"` \| `"internal"` \| `"warning"`
 
 What an error catalogue entry describes:
 
@@ -273,6 +273,8 @@ What an error catalogue entry describes:
   Built with [catalogMessage](#catalogmessage).
 - `internal`: a plain `Error` that only a bug or a broken install can cause, built with
   [internalError](#internalerror).
+- `warning`: a warning printed on standard error while the command goes on, printed with
+  [catalogWarning](#catalogwarning).
 
 ---
 
@@ -414,6 +416,34 @@ The text.
 
 ---
 
+### catalogWarning()
+
+> **catalogWarning**\<`Template` _extends_ `string`\>(`entry`: [`ErrorEntry`](#errorentry)\<`Template`, `"warning"`\>, `params`: [`TemplateParams`](#templateparams)\<`Template`\>): `void`
+
+Prints the warning a `warning` entry describes on standard error, prefixed with the plugin name,
+as the plugin prints its other warnings.
+
+For hardhat-kms and its first-party provider packages.
+
+#### Type Parameters
+
+| Type Parameter                                                       |
+| -------------------------------------------------------------------- |
+| <a id="type-parameter-template-4"></a> `Template` _extends_ `string` |
+
+#### Parameters
+
+| Parameter | Type                                                   | Description                                   |
+| --------- | ------------------------------------------------------ | --------------------------------------------- |
+| `entry`   | [`ErrorEntry`](#errorentry)\<`Template`, `"warning"`\> | A `warning` entry.                            |
+| `params`  | [`TemplateParams`](#templateparams)\<`Template`\>      | A value for each placeholder of its template. |
+
+#### Returns
+
+`void`
+
+---
+
 ### checkProviderVersion()
 
 > **checkProviderVersion**(`packageName`: `string`, `version`: `string`, `details?`: [`ErrorDetails`](#errordetails)): `void`
@@ -475,7 +505,7 @@ For hardhat-kms and its first-party provider packages; a third-party provider us
 
 | Type Parameter                                                       |
 | -------------------------------------------------------------------- |
-| <a id="type-parameter-template-4"></a> `Template` _extends_ `string` |
+| <a id="type-parameter-template-5"></a> `Template` _extends_ `string` |
 
 #### Parameters
 

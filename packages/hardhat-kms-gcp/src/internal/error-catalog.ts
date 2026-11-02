@@ -291,6 +291,16 @@ export const ERRORS = {
       "The `entries.list` answer, or an `AsymmetricSign` entry in it, lacks a field such an answer always has. The reader fails rather than show part of the history as if it were all of it.",
     fix: "Run again; if it repeats, report it with the problem the message names.",
   },
+  sdkLogging: {
+    id: "gcp.debug.sdk-logging",
+    kind: "warning",
+    group: "Debug output",
+    template:
+      "GOOGLE_SDK_NODE_LOGGING is set, so Google's client libraries print every request and response on standard error: Cloud KMS calls with the full key version name, the Cloud Logging entries kms history reads, and access tokens. Unset it outside a local debugging session; DEBUG=hardhat:kms:* shows the plugin's own steps without them",
+    cause:
+      "`GOOGLE_SDK_NODE_LOGGING` turns on the logs of @google-cloud/kms (namespace `kms`) and google-auth-library (namespace `auth`). Its value is a comma-separated list of namespaces, in which `*` matches any text and `all` alone matches every namespace. The warning is printed once per process: when a Google Cloud key's adapter is created and the value matches `kms` or `auth`, or when `kms history` reads a Google Cloud key and the value matches `auth`. `kms` logs each `getPublicKey` and `asymmetricSign` request and response; `auth` logs the body of every response google-auth-library receives, the access token of each token refresh or exchange included. The plugin does not change the variable.",
+    fix: "Unset `GOOGLE_SDK_NODE_LOGGING` outside a local debugging session, and never set it in CI, whose logs others can read. To see what the plugin does, use `DEBUG=hardhat:kms:*`, which prints no tokens and hides configuration-variable values.",
+  },
   noPackageVersion: {
     id: "gcp.internal.no-package-version",
     kind: "internal",

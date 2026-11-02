@@ -30,6 +30,7 @@ describe("plugin definition", () => {
       "auditLogThrottled",
       "catalogError",
       "catalogMessage",
+      "catalogWarning",
       "checkProviderVersion",
       "crc32c",
       "internalError",
