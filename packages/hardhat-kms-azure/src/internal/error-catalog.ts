@@ -70,7 +70,7 @@ export const ERRORS = {
     group: "Credentials",
     template: "{source}: its endpoint gave no token, as happens outside Azure",
     cause:
-      "The managed identity endpoint gave no token: the request failed on the network, as where there is no such endpoint, the endpoint gave an answer @azure/identity could not use, or no token came within the time limit (`azure.credential.managed-identity-timeout`). This is the usual reason on a laptop or in CI outside Azure.",
+      "The managed identity endpoint gave no token: the request failed on the network, as where there is no such endpoint, the endpoint answered with a body that its JSON content type does not match, or no token came within the time limit (`azure.credential.managed-identity-timeout`). This is the usual reason on a laptop or in CI outside Azure.",
     fix: "Outside Azure, use another source. On Azure, check that a managed identity is assigned to the resource.",
   },
   sourceUnknown: {
