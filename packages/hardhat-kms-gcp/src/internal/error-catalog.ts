@@ -147,8 +147,29 @@ export const ERRORS = {
     group: "Google Cloud KMS answers",
     template:
       "permission denied (PERMISSION_DENIED). The caller needs cloudkms.cryptoKeyVersions.viewPublicKey and cloudkms.cryptoKeyVersions.useToSign on the key, for example through roles/cloudkms.signer and roles/cloudkms.publicKeyViewer",
-    cause: "The identity lacks `viewPublicKey` or `useToSign` on this key.",
+    cause:
+      "The identity lacks `viewPublicKey` or `useToSign` on this key. A disabled Cloud KMS API or an unusable quota project has its own error, `gcp.status.service-disabled` or `gcp.status.quota-project`.",
     fix: "Grant the roles the message names on the key, as in the setup guide.",
+  },
+  serviceDisabled: {
+    id: "gcp.status.service-disabled",
+    kind: "error",
+    group: "Google Cloud KMS answers",
+    template:
+      "the Cloud KMS API is not enabled in the project the request is billed to (PERMISSION_DENIED, SERVICE_DISABLED). Enable it with `gcloud services enable cloudkms.googleapis.com --project {project}`, or in the quota project of the credentials if they set one",
+    cause:
+      "Cloud KMS refused the call because its API is not enabled in the project the request is billed to: the key's project, or the quota project the credentials name, such as the one `gcloud auth application-default login` writes. Only the reason is read from the answer: its metadata names that project.",
+    fix: "Run the `gcloud services enable` command the message gives. If the credentials name a quota project, enable the API there, or pick another one with `gcloud auth application-default set-quota-project`.",
+  },
+  quotaProject: {
+    id: "gcp.status.quota-project",
+    kind: "error",
+    group: "Google Cloud KMS answers",
+    template:
+      "the quota project of the Google Cloud credentials cannot be used (PERMISSION_DENIED, {reason}). Pick another with `gcloud auth application-default set-quota-project`, or grant the caller roles/serviceusage.serviceUsageConsumer on it",
+    cause:
+      "The credentials name a quota project, the project the request is billed to, that Cloud KMS cannot use: the caller lacks `serviceusage.services.use` on it (`USER_PROJECT_DENIED`), or it does not exist or was deleted (`CONSUMER_INVALID`). `gcloud auth application-default login` writes the quota project into the credentials file; `GOOGLE_CLOUD_QUOTA_PROJECT` overrides it. Only the reason is read from the answer: its metadata names that project.",
+    fix: "Run `gcloud auth application-default set-quota-project` with a project the caller can use, sign in again with `gcloud auth application-default login --disable-quota-project` to name none, or grant the caller `roles/serviceusage.serviceUsageConsumer` on the quota project. Check that `GOOGLE_CLOUD_QUOTA_PROJECT` is not set to another project.",
   },
   failedPrecondition: {
     id: "gcp.status.failed-precondition",

@@ -41,6 +41,15 @@ export interface KeyVaultHttpOptions {
   highS?: boolean;
   /** Return this many bytes instead of the 64-byte signature. */
   signatureLength?: number;
+  /**
+   * Answer authenticated requests with this status and JSON body: all of them, or only reads
+   * (`GET`) or only signatures (`POST`).
+   */
+  failWith?: { status: number; body: unknown; method?: "GET" | "POST" };
+  /** The key's `attributes.exportable`, which the service sends only for some keys. */
+  exportable?: boolean;
+  /** The key's `release_policy`, as the service sends it. */
+  releasePolicy?: { contentType?: string; data?: string; immutable?: boolean } | null;
 }
 
 /** The fake vault and what it received. */
@@ -117,6 +126,12 @@ export function keyVaultHttp(options: KeyVaultHttpOptions): KeyVaultHttp {
       if (authorization !== `Bearer ${TOKEN}`) {
         return respond(request, 401, { error: { code: "Unauthorized", message: "bad token" } });
       }
+      if (
+        options.failWith !== undefined &&
+        (options.failWith.method === undefined || options.failWith.method === request.method)
+      ) {
+        return respond(request, options.failWith.status, options.failWith.body);
+      }
       const [, collection, name, version, action] = url.pathname.split("/");
       if (collection !== "keys" || name !== options.keyName) {
         return respond(request, 404, { error: { code: "KeyNotFound", message: "no such key" } });
@@ -140,7 +155,9 @@ export function keyVaultHttp(options: KeyVaultHttpOptions): KeyVaultHttp {
             created: 1_700_000_000,
             updated: 1_700_000_000,
             recoveryLevel: "Recoverable+Purgeable",
+            ...(options.exportable === undefined ? {} : { exportable: options.exportable }),
           },
+          ...("releasePolicy" in options ? { release_policy: options.releasePolicy } : {}),
         });
       }
       if (request.method === "POST" && action === "sign" && version !== undefined) {

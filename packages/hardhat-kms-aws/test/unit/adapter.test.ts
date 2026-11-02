@@ -262,6 +262,36 @@ describe("AWS KMS adapter", () => {
     ]);
   });
 
+  it("passes a credential error it does not recognise on unchanged", async () => {
+    const error = Object.assign(new Error("Profile p is configured with something new"), {
+      name: "CredentialsProviderError",
+    });
+    const { adapter } = await adapterFor(awsKey("alias/deployer"), { sendError: error });
+    await assert.rejects(
+      adapter.getPublicKey?.(context()) ?? Promise.resolve(),
+      (thrown) => thrown === error,
+    );
+  });
+
+  it("names the client's region on NotFoundException, and only a value shaped like a region", async () => {
+    const cases: Array<[AwsKmsKeyConfig, string]> = [
+      [awsKey("alias/a", { region: setting("us-gov-west-1") }), "in region us-gov-west-1 "],
+      [awsKey("alias/a", { region: setting("eu west 1; x") }), "in region (unknown) "],
+      // The SDK could not resolve a region: the message still explains the error.
+      [awsKey("alias/a"), "in region (unknown) "],
+    ];
+    for (const [key, text] of cases) {
+      const sendError = Object.assign(new Error("Key 'arn:aws:kms:...' does not exist"), {
+        name: "NotFoundException",
+      });
+      const { adapter } = await adapterFor(key, { sendError });
+      await assertAwsError(adapter.getPublicKey?.(context()) ?? Promise.resolve(), [
+        "aws, get public key, key aws:alias/a: AWS KMS has no such key",
+        text,
+      ]);
+    }
+  });
+
   it("passes other SDK errors on unchanged", async () => {
     const error = new Error("AccessDeniedException");
     const { adapter } = await adapterFor(awsKey("alias/deployer"), { sendError: error });

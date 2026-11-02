@@ -330,3 +330,94 @@ export function authFailure(error: unknown): AuthFailure | undefined {
   }
   return undefined;
 }
+
+/**
+ * The `google.rpc.ErrorInfo` reasons an error message names, each for a cause the rest of the
+ * answer would hide behind PERMISSION_DENIED. Any other reason is never read.
+ */
+const ERROR_INFO_REASONS = ["SERVICE_DISABLED", "USER_PROJECT_DENIED", "CONSUMER_INVALID"] as const;
+
+/** A `google.rpc.ErrorInfo` reason that an error message names. */
+export type ErrorInfoReason = (typeof ERROR_INFO_REASONS)[number];
+
+/** The reason a value is, if it is one an error message names. */
+function knownReason(value: unknown): ErrorInfoReason | undefined {
+  return ERROR_INFO_REASONS.find((reason) => reason === value);
+}
+
+/** Reads a property of a value that may not be an object. */
+function property(value: unknown, name: string): unknown {
+  return typeof value === "object" && value !== null ? Reflect.get(value, name) : undefined;
+}
+
+/**
+ * Reads the `google.rpc.ErrorInfo` reason of a Google API error answer, from its `details`.
+ *
+ * @param apiError - The `error` object of the answer's JSON body.
+ * @returns The reason, or `undefined` if it gives none of the allow-listed reasons. The rest of
+ * the `ErrorInfo`, whose metadata names the consumer project, is never read.
+ */
+export function errorInfoReason(apiError: unknown): ErrorInfoReason | undefined {
+  const details = property(apiError, "details");
+  if (!Array.isArray(details)) {
+    return undefined;
+  }
+  for (const detail of details) {
+    const reason = knownReason(property(detail, "reason"));
+    if (reason !== undefined) {
+      return reason;
+    }
+  }
+  return undefined;
+}
+
+/** The longest error body parsed for its reason; a Google API error answer is far shorter. */
+const MAX_BODY_LENGTH = 65_536;
+
+/** A Google API error answer's JSON body, an object or its text, as an object. */
+function errorBody(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+  if (value.length > MAX_BODY_LENGTH || !value.startsWith("{")) {
+    return undefined;
+  }
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Reads the `google.rpc.ErrorInfo` reason of an error thrown by the Google Cloud SDK.
+ *
+ * google-gax gives the reason as `reason` when it decodes the answer. Over REST it never decodes
+ * a 401 or 403: it wraps the gaxios error in its own, with the answer's body as the message of
+ * both (google-gax 6.5.0 to 6.13, gaxios 7 and 8). The body is also read from the gaxios
+ * response's `data`, where a gaxios that keeps it puts it. Only the reason is taken from it.
+ *
+ * @param error - Anything thrown.
+ * @returns The reason, or `undefined` if the error gives none of the allow-listed reasons.
+ */
+export function sdkErrorReason(error: unknown): ErrorInfoReason | undefined {
+  const chain: Error[] = [];
+  for (let current: unknown = error; chain.length < MAX_CAUSES && current instanceof Error;) {
+    chain.push(current);
+    current = Reflect.get(current, "cause");
+  }
+  for (const current of chain) {
+    const decoded = knownReason(Reflect.get(current, "reason"));
+    if (decoded !== undefined) {
+      return decoded;
+    }
+    for (const body of [property(Reflect.get(current, "response"), "data"), current.message]) {
+      const reason = errorInfoReason(property(errorBody(body), "error"));
+      if (reason !== undefined) {
+        return reason;
+      }
+    }
+  }
+  return undefined;
+}

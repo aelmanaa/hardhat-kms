@@ -23,6 +23,7 @@ import {
   keyVersionState,
   networkErrorCode,
   nonGoogleStatus,
+  sdkErrorReason,
   type StatusName,
   statusOf,
 } from "./wire.ts";
@@ -159,6 +160,8 @@ class GcpKeyAdapter implements KmsKeyAdapter {
   /** The client, created by the first call, and again by the call after one failed to initialize. */
   #client: GcpKmsClient | undefined;
   readonly #userAgent: string;
+  /** The key's project, for the command that enables the Cloud KMS API. */
+  readonly #project: string;
   #checked = false;
 
   public constructor(
@@ -169,6 +172,7 @@ class GcpKeyAdapter implements KmsKeyAdapter {
   ) {
     this.#key = key;
     this.#name = name;
+    this.#project = keyProject(name) ?? "<the key's project>";
     this.#createClient = createClient;
     this.#userAgent = userAgent;
   }
@@ -371,6 +375,17 @@ class GcpKeyAdapter implements KmsKeyAdapter {
         }
         if (state !== undefined) {
           throw this.#error(operation, ERRORS.keyVersionState, { state });
+        }
+      }
+      if (status === "PERMISSION_DENIED") {
+        // A disabled API and an unusable quota project arrive as PERMISSION_DENIED too, told
+        // apart only by the answer's ErrorInfo reason. Any other reason keeps the IAM hint.
+        const reason = sdkErrorReason(error);
+        if (reason === "SERVICE_DISABLED") {
+          throw this.#error(operation, ERRORS.serviceDisabled, { project: this.#project });
+        }
+        if (reason !== undefined) {
+          throw this.#error(operation, ERRORS.quotaProject, { reason });
         }
       }
       if (status !== undefined) {
