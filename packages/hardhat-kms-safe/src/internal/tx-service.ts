@@ -187,7 +187,11 @@ export class TransactionServiceClient {
     if (!isServiceUrl(options.url)) {
       throw catalogError(ERRORS.badServiceUrl, {});
     }
-    this.#url = options.url.replace(/\/+$/, "");
+    let url = options.url;
+    while (url.endsWith("/")) {
+      url = url.slice(0, -1);
+    }
+    this.#url = url;
     this.#apiKey = options.apiKey === "" ? undefined : options.apiKey;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#fetch = options.fetch ?? globalThis.fetch;

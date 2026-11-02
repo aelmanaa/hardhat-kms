@@ -74,7 +74,7 @@ describe("TransactionServiceClient", () => {
   it("asks for the highest queued nonce as api-kit's getPendingTransactions does", async () => {
     const { fetch, calls } = recorder([json(200, { count: 1, results: [{ nonce: "12" }] })]);
     const client = new TransactionServiceClient({
-      url: "https://service.test/",
+      url: "https://service.test//",
       apiKey: KEY,
       fetch,
     });
