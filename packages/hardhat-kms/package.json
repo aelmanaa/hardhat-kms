@@ -1,7 +1,7 @@
 {
   "name": "hardhat-kms",
   "version": "1.4.0",
-  "description": "Hardhat 3 plugin signing transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey; works with viem, ethers, Ignition and a Foundry-style --kms option.",
+  "description": "Hardhat 3 plugin signing with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey; works with viem, ethers and Ignition, and proposes Safe multisig transactions with @hardhat-kms/safe.",
   "keywords": [
     "hardhat-plugin",
     "hardhat",
@@ -17,6 +17,10 @@
     "google-cloud-kms",
     "azure-key-vault",
     "turnkey",
+    "safe",
+    "multisig",
+    "safe-wallet",
+    "gnosis-safe",
     "viem",
     "ethers",
     "hardhat-ignition",

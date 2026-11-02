@@ -151,6 +151,28 @@ export async function withNamedSigner<T>(
 }
 
 /**
+ * The address of a key a task names, as `kms address` prints it, without printing it. The address
+ * comes from the KMS, and a configured `address` pin must match it; a provider that can report
+ * neither a public key nor an address leaves only the pin. The signer it opens is closed before it
+ * returns.
+ *
+ * @param hre - The Hardhat runtime.
+ * @param name - The key: a name from `kms.keys`, an inline key such as `sepolia.kmsAccounts[0]`,
+ *   or a `--kms` key such as `AWS_KMS_KEY_ID`.
+ * @returns The key's EIP-55 checksummed address.
+ * @throws The `kms` tasks' error for a name that is not a key, or the signer's error when the KMS
+ *   cannot be reached or the pin does not match.
+ */
+export async function kmsKeyAddress(hre: HardhatRuntimeEnvironment, name: string): Promise<string> {
+  const { address } = await withNamedSigner(
+    hre,
+    name,
+    async (signer) => await signer.confirmedAddress(),
+  );
+  return address;
+}
+
+/**
  * Prints one line of a task's result to standard output, where scripts can read it.
  *
  * @param line - The text, without the newline.

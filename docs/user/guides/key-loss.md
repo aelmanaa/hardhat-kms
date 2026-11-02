@@ -166,6 +166,8 @@ To hear about a deletion, turn on Key Vault logging and alert on the `KeyDelete`
 
 A key can also be lost while it still exists, when nobody left has the right to use or manage it.
 
+A role held by one key is lost with it. Give contract ownership and admin roles to a Safe multisig with several owners instead, such as the KMS key and Ledger addresses held by different people. If one owner's key is lost, the others still meet the threshold, and they can replace that seat with the Safe's `swapOwner`. The KMS key can still propose the routine calls with [`kms safe propose`](propose-safe-transactions.md).
+
 ### Keep access to an AWS KMS key
 
 A key policy does not give the account or its administrators any access unless it says so. The default policy's first statement gives the account principal (`arn:aws:iam::<account id>:root`) full access and lets IAM policies grant access to the key. Without it, a key whose policy names one user becomes unmanageable when that user is deleted, and you must contact AWS Support to regain access ([Default key policy](https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-default.html#key-policy-default-allow-root-enable-iam)). Keep that statement when you write your own key policy.

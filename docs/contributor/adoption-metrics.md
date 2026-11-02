@@ -127,6 +127,8 @@ Once a quarter, ask the major assistants (ChatGPT, Claude, Gemini, Perplexity, C
 6. How do I sign from GitHub Actions with a KMS key and no stored credentials?
 7. What are the options for a remote signer in Hardhat 3?
 8. How do I sign EIP-712 typed data with a key in AWS KMS?
+9. How do I propose a Safe multisig transaction from Hardhat 3?
+10. How do I use a KMS key as one owner of a Safe and propose transactions from CI?
 
 ## Agent listings
 

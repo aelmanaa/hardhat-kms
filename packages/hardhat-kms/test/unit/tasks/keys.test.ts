@@ -7,6 +7,7 @@ import { HardhatPluginError } from "hardhat/plugins";
 import hardhatKms from "../../../src/index.ts";
 import {
   findTaskKey,
+  kmsKeyAddress,
   type TaskKey,
   taskKeys,
   withTaskSigners,
@@ -94,6 +95,24 @@ describe("task keys", () => {
           'unknown key "Deployer". Did you mean "deployer"? Known keys: deployer, ops, first.kmsAccounts[1], AWS_KMS_KEY_ID.',
         ),
     );
+  });
+
+  it("gives a named key's address without printing it, and closes its signer", async () => {
+    const { hre, closed } = await runtime();
+    const written: string[] = [];
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: string | Uint8Array): boolean => {
+      written.push(String(chunk));
+      return true;
+    };
+    try {
+      assert.equal(await kmsKeyAddress(hre, "deployer"), HARDHAT_ACCOUNT_0.address);
+    } finally {
+      process.stdout.write = write;
+    }
+    assert.deepEqual(written, []);
+    assert.deepEqual(closed, ["deployer"]);
+    await assert.rejects(kmsKeyAddress(hre, "missing"), HardhatPluginError);
   });
 
   it("opens one signer per key and closes them all, also when the task fails", async () => {

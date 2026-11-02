@@ -187,7 +187,7 @@ describe("the release guards", () => {
     });
     assert.throws(() => assertPublished(views, "1.0.2"), {
       message:
-        "1.0.2 is not published for hardhat-kms, @hardhat-kms/aws, @hardhat-kms/azure, @hardhat-kms/gcp, @hardhat-kms/turnkey",
+        "1.0.2 is not published for hardhat-kms, @hardhat-kms/aws, @hardhat-kms/azure, @hardhat-kms/gcp, @hardhat-kms/safe, @hardhat-kms/turnkey",
     });
   });
 
@@ -339,12 +339,12 @@ describe("the release guards", () => {
 
   it("require a verified provenance attestation for each package at the version", () => {
     const verified = parseVerified(fixture("audit-signatures.json"));
-    assert.equal(verified.length, 6);
-    assert.deepEqual(verified[5], { name: "some-dependency", version: "2.0.0", provenance: false });
+    assert.equal(verified.length, 7);
+    assert.deepEqual(verified[6], { name: "some-dependency", version: "2.0.0", provenance: false });
     assertAttestations(verified, "1.0.1");
     assert.throws(() => assertAttestations(verified, "1.0.0"), {
       message:
-        "npm audit signatures verified no provenance attestation for hardhat-kms@1.0.0, @hardhat-kms/aws@1.0.0, @hardhat-kms/azure@1.0.0, @hardhat-kms/gcp@1.0.0, @hardhat-kms/turnkey@1.0.0",
+        "npm audit signatures verified no provenance attestation for hardhat-kms@1.0.0, @hardhat-kms/aws@1.0.0, @hardhat-kms/azure@1.0.0, @hardhat-kms/gcp@1.0.0, @hardhat-kms/safe@1.0.0, @hardhat-kms/turnkey@1.0.0",
     });
     // Turnkey is published with the others, so its attestation is required too.
     assert.throws(

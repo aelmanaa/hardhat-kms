@@ -56,7 +56,7 @@ export const UNRELEASED_BANNER =
 
 /** The description of a page that has none of its own. */
 export const SITE_DESCRIPTION =
-  "Sign Hardhat 3 transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey.";
+  "Sign Hardhat 3 transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey, and propose Safe multisig transactions.";
 
 /**
  * The social preview, `docs/public/og-image.png`, served at the site root; `docs/public/og-image.svg`

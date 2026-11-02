@@ -5,7 +5,8 @@
 // come from a stale build. scripts/check-docs.ts calls it and fails when a page differs.
 //
 // The provider packages are not documented here: each exports only its plugin, a `HardhatPlugin`,
-// and checkProviderExports() fails if one starts to export anything else.
+// and checkProviderExports() fails if one starts to export anything else. @hardhat-kms/safe is not
+// a provider: it exports its plugin and a library API (proposeSafeTransaction), documented here.
 //
 // Each page starts with frontmatter (scripts/frontmatter.ts): its H1 as `title`, and the
 // description from API_DESCRIPTIONS, which a new module's page needs before it can be generated.
@@ -43,6 +44,8 @@ export const API_DOCS_COMMAND = "pnpm run docs:api";
 
 const TOOLS = path.join(root, "tools/api-docs");
 const CORE = "packages/hardhat-kms";
+/** The packages documented here besides the core, which export more than a plugin. */
+const DOCUMENTED = ["packages/hardhat-kms-safe"];
 
 /** Reads a field of a parsed JSON value. */
 function field(value: unknown, name: string): unknown {
@@ -72,9 +75,11 @@ function typesFile(packageDirectory: string, key: string): string {
   return path.posix.join(packageDirectory, types);
 }
 
-/** The built `.d.ts` file of each export of hardhat-kms, from its package.json. */
+/** The built `.d.ts` file of each export of hardhat-kms and of each documented package. */
 function entryPoints(): string[] {
-  return exportKeys(CORE).map((key) => path.join(root, typesFile(CORE, key)));
+  return [CORE, ...DOCUMENTED].flatMap((directory) =>
+    exportKeys(directory).map((key) => path.join(root, typesFile(directory, key))),
+  );
 }
 
 /** The workspace packages under packages/, relative to the repository root. */
@@ -89,7 +94,9 @@ function workspacePackages(): string[] {
  * a named export from its entry point. Such an export would need a page here.
  */
 export function checkProviderExports(): void {
-  const providers = workspacePackages().filter((directory) => directory !== CORE);
+  const providers = workspacePackages().filter(
+    (directory) => directory !== CORE && !DOCUMENTED.includes(directory),
+  );
   const problems: string[] = [];
   for (const directory of providers) {
     const keys = exportKeys(directory);
@@ -121,8 +128,10 @@ export function checkProviderExports(): void {
  * sentence for the docs site's meta description and search index.
  */
 const API_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  "@hardhat-kms/safe.md":
+    "The @hardhat-kms/safe entry point: the plugin that adds kms safe propose, and proposeSafeTransaction, which proposes a Safe transaction from code.",
   "README.md":
-    "The TypeScript API of hardhat-kms: the plugin export, the config types, the helpers for provider plugins and the Alchemy prepared-call check.",
+    "The TypeScript API of hardhat-kms: the plugin export, the config types, the helpers for provider plugins, the Alchemy prepared-call check and @hardhat-kms/safe.",
   "hardhat-kms.md":
     "The hardhat-kms entry point: the plugin as its default export, which adds the kms config section and each network's kmsAccounts.",
   "hardhat-kms/alchemy.md":
@@ -153,7 +162,7 @@ const INTRO = [
   "",
   "These pages are generated from the documentation comments of the published type declarations, so they describe the code of this version. Anything marked `Experimental` is outside the public API and may change in a minor.",
   "",
-  "The plugin is configured, not called: [Configuration](../configuration.md) describes each config field. The provider packages export only their plugin, so they have no page here.",
+  "The plugin is configured, not called: [Configuration](../configuration.md) describes each config field. The provider packages export only their plugin, so they have no page here. `@hardhat-kms/safe` exports its plugin and `proposeSafeTransaction`, which proposes Safe transactions from code.",
 ].join("\n");
 
 function formatMarkdown(file: string, markdown: string): string {

@@ -36,3 +36,8 @@ export { auditLogAccessDenied, auditLogThrottled } from "./internal/history/erro
 // For provider plugins: a logger under `hardhat:kms:<provider id>` that prints plain values only.
 // The core's own namespaces are refused.
 export { kmsDebug, type DebugValue, type KmsDebugLogger } from "./internal/debug.ts";
+// For first-party packages whose tasks name a key as the core's `kms` tasks do, such as
+// @hardhat-kms/safe: the key's address, checked against its pin, without printing it.
+export { kmsKeyAddress } from "./internal/tasks/keys.ts";
+// For first-party packages whose tasks ask a person before a key signs (decisions 0021 and 0023).
+export { confirm, isYes, processTerminal, type Terminal } from "./internal/tasks/confirm.ts";

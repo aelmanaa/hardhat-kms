@@ -1,5 +1,5 @@
 // Tests each provider package against the lowest version of its cloud SDK that its range allows,
-// and hardhat-kms against the lowest viem its optional peer range allows. CI tests the lockfile
+// and hardhat-kms and @hardhat-kms/safe against the lowest viem their peer ranges allow. CI tests the lockfile
 // version everywhere else; once Dependabot moves the lockfile forward, this is the only check that
 // the declared floor still works.
 //
@@ -42,25 +42,39 @@ import { floorOf } from "./version-range.ts";
  */
 const CLOUD_SDK = /^(@(aws-sdk|google-cloud|azure)\/|google-gax$|google-auth-library$)/;
 
-/** Optional peer dependencies whose floor is tested, with the test files that cover them. */
-const PEER_FLOOR_TESTS: Readonly<Record<string, readonly string[]>> = {
-  viem: [
-    "test/unit/viem/account.test.ts",
-    "test/unit/viem/refusals.test.ts",
-    "test/unit/viem/types.test.ts",
-    "test/unit/viem/nonce-manager.test.ts",
-    "test/integration/get-account.test.ts",
-    "test/integration/raw-send.test.ts",
-    "test/integration/library-send-cli.test.ts",
-  ],
+/**
+ * Peer dependencies whose floor is tested, per package, with the test files that cover them. For
+ * hardhat-kms, viem is an optional peer that only getAccount loads. @hardhat-kms/safe needs viem
+ * everywhere, so its whole unit and integration suite runs at the floor.
+ */
+const PEER_FLOOR_TESTS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  "hardhat-kms": {
+    viem: [
+      "test/unit/viem/account.test.ts",
+      "test/unit/viem/refusals.test.ts",
+      "test/unit/viem/types.test.ts",
+      "test/unit/viem/nonce-manager.test.ts",
+      "test/integration/get-account.test.ts",
+      "test/integration/raw-send.test.ts",
+      "test/integration/library-send-cli.test.ts",
+    ],
+  },
+  "@hardhat-kms/safe": {
+    viem: ["test/unit/**/*.test.ts", "test/integration/**/*.test.ts"],
+  },
 };
 
 /**
- * Optional peer dependencies with a run-time version check: a release below the floor, and the test
- * file that expects the plugin to refuse it.
+ * Peer dependencies with a run-time version check, per package: a release below the floor, and the
+ * test file that expects the plugin to refuse it. pnpm and Yarn install a viem below the core's
+ * optional peer range, so getAccount checks it; npm refuses a required peer's mismatch.
  */
-const PEER_BELOW_FLOOR: Readonly<Record<string, { version: string; file: string }>> = {
-  viem: { version: "2.55.11", file: "test/floors/viem-below-floor.test.ts" },
+const PEER_BELOW_FLOOR: Readonly<
+  Record<string, Readonly<Record<string, { version: string; file: string }>>>
+> = {
+  "hardhat-kms": {
+    viem: { version: "2.55.11", file: "test/floors/viem-below-floor.test.ts" },
+  },
 };
 
 interface Floor {
@@ -103,7 +117,7 @@ function floors(): Floor[] {
           kind: "dependency" as const,
         }));
       const peers = Object.entries(stringRecord(manifest.peerDependencies))
-        .filter(([sdk]) => Object.hasOwn(PEER_FLOOR_TESTS, sdk))
+        .filter(([sdk]) => PEER_FLOOR_TESTS[packageName]?.[sdk] !== undefined)
         .map(([sdk, range]) => ({
           packageName,
           directory,
@@ -178,7 +192,7 @@ const passed = await withRestoredFiles(restorable, async () => {
     args: ["--fail-if-no-match", "--filter", packageName, "run", "test"],
   }));
   for (const floor of found.filter((candidate) => candidate.kind === "peer")) {
-    const files = PEER_FLOOR_TESTS[floor.sdk] ?? [];
+    const files = PEER_FLOOR_TESTS[floor.packageName]?.[floor.sdk] ?? [];
     testRuns.push({
       packageName: `${floor.packageName} (${floor.sdk} ${floor.version})`,
       args: [
@@ -209,7 +223,8 @@ const passed = await withRestoredFiles(restorable, async () => {
   }
   // Last, since it replaces the floor overrides: a release below each checked peer's floor.
   const below = found.flatMap((floor) => {
-    const check = floor.kind === "peer" ? PEER_BELOW_FLOOR[floor.sdk] : undefined;
+    const check =
+      floor.kind === "peer" ? PEER_BELOW_FLOOR[floor.packageName]?.[floor.sdk] : undefined;
     return check === undefined ? [] : [{ floor, check }];
   });
   if (below.length > 0) {
@@ -268,6 +283,8 @@ process.stdout.write(
 );
 process.stdout.write(
   `Refused below the floor: ${Object.entries(PEER_BELOW_FLOOR)
-    .map(([sdk, check]) => `${sdk}@${check.version}`)
+    .flatMap(([packageName, checks]) =>
+      Object.entries(checks).map(([sdk, check]) => `${packageName} ${sdk}@${check.version}`),
+    )
     .join(", ")}\n`,
 );

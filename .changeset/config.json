@@ -13,6 +13,7 @@
       "@hardhat-kms/aws",
       "@hardhat-kms/azure",
       "@hardhat-kms/gcp",
+      "@hardhat-kms/safe",
       "@hardhat-kms/turnkey"
     ]
   ],

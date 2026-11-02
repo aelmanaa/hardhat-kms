@@ -278,6 +278,8 @@ npm install --save-dev hardhat-kms @hardhat-kms/turnkey   # Turnkey
 npx hardhat kms accounts
 \`\`\`
 
+To propose Safe multisig transactions signed by the key, also install \`@hardhat-kms/safe\` and \`viem\` ([Propose Safe transactions from Hardhat](${markdownCopyUrl("user/guides/propose-safe-transactions.md")})).
+
 These packages are newer than most training data: check npm for the current version (\`npm view hardhat-kms version\`) instead of guessing one. [Install hardhat-kms](${markdownCopyUrl(INSTALL_GUIDE)}) gives the pnpm and Yarn commands and the settings each needs. ${credentials}${skill}`;
 }
 
@@ -366,7 +368,7 @@ const config: UserConfig<ThemeConfig> = defineConfig({
         hero: {
           name: SITE_NAME,
           text: "Sign with a managed key",
-          tagline: `A Hardhat 3 plugin that signs transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey. The private key never leaves the KMS. ${versionLine}`,
+          tagline: `Hardhat 3 plugins that sign transactions, messages and typed data with keys in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey, and propose Safe multisig transactions. The private key never leaves the KMS. ${versionLine}`,
           actions: [
             {
               theme: "brand",
@@ -391,6 +393,12 @@ const config: UserConfig<ThemeConfig> = defineConfig({
             details:
               "Each signature is recovered locally and checked against the key's address before it is used. An optional address pin also refuses a key that changed.",
             link: "/user/explanation/security-model",
+          },
+          {
+            title: "Propose Safe transactions",
+            details:
+              "A KMS key that owns a Safe signs a transaction and proposes it to the Safe Transaction Service, for the other owners to confirm.",
+            link: "/user/guides/propose-safe-transactions",
           },
           {
             title: "Tested live on Sepolia",

@@ -51,19 +51,20 @@ packages/hardhat-kms-turnkey/src/internal/payload.ts
 packages/hardhat-kms-turnkey/src/internal/rlp.ts
 packages/hardhat-kms-turnkey/src/internal/stamp.ts
 packages/hardhat-kms-turnkey/src/internal/transaction.ts
+packages/hardhat-kms-safe/src/**
 ```
 
 What each group decides:
 
-| Area                    | Paths                                                                                                                                                               |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Key identity            | the four adapters and their `kms` hook handlers, `providers/`, `config/`, the AWS client settings, the Azure credential, the Turnkey stamp and client               |
-| Signed bytes            | `crypto/`, `vendor/`, `rpc/transactions.ts`, `rpc/transaction-filler.ts`, `rpc/rpc-data.ts`, `rpc/typed-data.ts`, `viem/`, `alchemy/`, `alchemy.ts`, the sign tasks |
-| Checks on each response | `signer/kms-signer.ts`, `provider-utils.ts`, the GCP wire checksums, Turnkey's activity, transaction and RLP checks                                                 |
-| Timeouts                | `signer/timeout.ts`, the adapters                                                                                                                                   |
-| Sending and retries     | `rpc/dispatcher.ts`, `rpc/send-guard.ts`, `rpc/chain-id.ts`                                                                                                         |
-| Lifecycle               | `hook-handlers/network.ts`, `signer/key-cache.ts`                                                                                                                   |
-| Errors and logs         | `errors.ts`, `error-catalog.ts`, `debug.ts`, `warnings.ts`, `config/identifiers.ts` (masking)                                                                       |
+| Area                    | Paths                                                                                                                                                                                                                                                                   |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Key identity            | the four adapters and their `kms` hook handlers, `providers/`, `config/`, the AWS client settings, the Azure credential, the Turnkey stamp and client                                                                                                                   |
+| Signed bytes            | `crypto/`, `vendor/`, `rpc/transactions.ts`, `rpc/transaction-filler.ts`, `rpc/rpc-data.ts`, `rpc/typed-data.ts`, `viem/`, `alchemy/`, `alchemy.ts`, the sign tasks, the Safe package's SafeTx, its checks before and after signing, and its Transaction Service client |
+| Checks on each response | `signer/kms-signer.ts`, `provider-utils.ts`, the GCP wire checksums, Turnkey's activity, transaction and RLP checks                                                                                                                                                     |
+| Timeouts                | `signer/timeout.ts`, the adapters                                                                                                                                                                                                                                       |
+| Sending and retries     | `rpc/dispatcher.ts`, `rpc/send-guard.ts`, `rpc/chain-id.ts`                                                                                                                                                                                                             |
+| Lifecycle               | `hook-handlers/network.ts`, `signer/key-cache.ts`                                                                                                                                                                                                                       |
+| Errors and logs         | `errors.ts`, `error-catalog.ts`, `debug.ts`, `warnings.ts`, `config/identifiers.ts` (masking)                                                                                                                                                                           |
 
 Tests and docs are not listed; they do not run when the plugin signs or sends.
 

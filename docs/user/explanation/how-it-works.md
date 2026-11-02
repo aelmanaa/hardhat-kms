@@ -68,6 +68,8 @@ The other requests take shorter paths through the same parts:
 
 No RPC method signs a bare 32-byte digest that the caller supplies; the [security model](security-model.md#guarantees) explains why.
 
+`kms safe propose`, from `@hardhat-kms/safe`, uses the same path: it signs a Safe transaction as EIP-712 typed data with `eth_signTypedData_v4` on the connection, so the chain check and the signature check above apply, then posts the signature to the Safe Transaction Service ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)).
+
 ## Keys, connections and the KMS client
 
 The plugin talks to the KMS only when a request needs it. Loading the config makes no KMS call and loads no cloud SDK; a provider's SDK loads when the plugin first sets up one of its keys. On a simulated network with `kms.simulatedBalance`, a new connection funds the KMS accounts, so it looks up their addresses.

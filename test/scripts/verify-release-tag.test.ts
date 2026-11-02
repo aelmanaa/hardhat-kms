@@ -873,7 +873,7 @@ describe("verify-release-tag", { skip }, () => {
         assert.equal(readFileSync(output, "utf8"), "earlier=line\ndist-tag=beta\n");
         assert.match(
           passed.stdout,
-          /^v1\.2\.3 passes: signed by Release Maintainer <[^>]+> \([0-9A-F]+\), version 1\.2\.3 in 5 manifests, commit [0-9a-f]{40} on origin\/main, staged under beta\n$/,
+          /^v1\.2\.3 passes: signed by Release Maintainer <[^>]+> \([0-9A-F]+\), version 1\.2\.3 in 6 manifests, commit [0-9a-f]{40} on origin\/main, staged under beta\n$/,
         );
         const failed = run(
           process.execPath,
@@ -906,7 +906,7 @@ describe("verify-release-tag", { skip }, () => {
           assert.equal(readFileSync(nextOutput, "utf8"), "dist-tag=next\n");
           assert.match(
             passed.stdout,
-            /^v2\.0\.0-next\.0 passes: .* version 2\.0\.0-next\.0 in 5 manifests, commit [0-9a-f]{40} on origin\/next, staged under next\n$/,
+            /^v2\.0\.0-next\.0 passes: .* version 2\.0\.0-next\.0 in 6 manifests, commit [0-9a-f]{40} on origin\/next, staged under next\n$/,
           );
           const stable = run(
             process.execPath,

@@ -53,7 +53,7 @@ hardhat-kms is a Hardhat 3 plugin. Its packages declare `hardhat` `^3.18.0` as a
 | Signature checks           | Every signature is recovered locally and checked against the key's address before it is used; an optional `address` pin also refuses a key that derives to another address ([Every signature is verified](security-model.md#every-signature-is-verified)) |
 | Keys from the command line | `--kms aws`, `--kms gcp` or `--kms azure` reads a key from Foundry's environment variables, without a config entry ([Move KMS signing from Foundry to Hardhat](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry))                    |
 | Signing history            | `kms history` lists a key's sign events from CloudTrail, Cloud Audit Logs or the Key Vault audit log ([`kms history`](../reference/tasks.md#kms-history))                                                                                                 |
-| Tasks                      | Eight `kms` tasks, such as `kms accounts`, which checks each key's address and sign permission ([Hardhat KMS tasks reference](../reference/tasks.md))                                                                                                     |
+| Tasks                      | Eight `kms` tasks, such as `kms accounts`, which checks each key's address and sign permission, and `kms safe propose` with `@hardhat-kms/safe` ([Hardhat KMS tasks reference](../reference/tasks.md))                                                    |
 
 The contributor page [Signing prior art](../../contributor/research/signing-prior-art.md) (optional reading) compares the signature checks of Foundry and of the JavaScript KMS signer libraries that some of these plugins build on, check by check.
 
@@ -62,6 +62,7 @@ The contributor page [Signing prior art](../../contributor/research/signing-prio
 - A Hardhat 3 project: hardhat-kms. The seven packages above target Hardhat 2.
 - A Hardhat 2 project that you are not moving to Hardhat 3: one of the packages above, for its cloud. hardhat-kms does not run on Hardhat 2.
 - An Azure Key Vault key: hardhat-kms. None of the seven supports Azure.
+- A key that owns a Safe, whose transactions you propose from Hardhat 3: hardhat-kms with `@hardhat-kms/safe` ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)).
 - Moving a Hardhat 2 project to Hardhat 3: remove the Hardhat 2 signer, as [Migrate from Hardhat 2](https://hardhat.org/docs/migrate-from-hardhat2) says for every Hardhat 2 plugin, then name the same key under `kms.keys` ([Configuration](../reference/configuration.md)). The key and its address stay the same.
 
 Signing from a Foundry project instead: [Comparison with Foundry](foundry-comparison.md). Choosing between a KMS key and other places to keep a key: [A KMS key or a private key in .env](kms-or-env-key.md) and [A KMS key or a Ledger](kms-or-ledger.md).

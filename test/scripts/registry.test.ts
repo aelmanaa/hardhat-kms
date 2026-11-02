@@ -137,7 +137,7 @@ describe("--commit", () => {
       rmSync(repo, { recursive: true, force: true });
     });
 
-    it("asks only for those four, while the checkout has five", () => {
+    it("asks only for those four, while the checkout has more", () => {
       assert.ok(PACKAGES.includes("@hardhat-kms/turnkey"));
       const packages = registryPackages({ version: "1.1.2", commit: tag, rest: [] }, repo);
       assert.deepEqual(packages, four);
@@ -180,6 +180,7 @@ describe("registrySpecs and registryArguments", () => {
       "@hardhat-kms/aws",
       "@hardhat-kms/azure",
       "@hardhat-kms/gcp",
+      "@hardhat-kms/safe",
       "@hardhat-kms/turnkey",
     ]);
     assert.deepEqual(registrySpecs("1.2.3"), [
@@ -187,6 +188,7 @@ describe("registrySpecs and registryArguments", () => {
       "@hardhat-kms/aws@1.2.3",
       "@hardhat-kms/azure@1.2.3",
       "@hardhat-kms/gcp@1.2.3",
+      "@hardhat-kms/safe@1.2.3",
       "@hardhat-kms/turnkey@1.2.3",
     ]);
     assert.throws(() => registrySpecs("^1.2.3"), { message: /is not an exact version/ });

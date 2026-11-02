@@ -59,12 +59,13 @@ describe("the release package list", () => {
     }
   });
 
-  it("is the five packages, Turnkey included, with the core first", () => {
+  it("is the six packages, Turnkey and Safe included, with the core first", () => {
     assert.deepEqual(PACKAGES, [
       "hardhat-kms",
       "@hardhat-kms/aws",
       "@hardhat-kms/azure",
       "@hardhat-kms/gcp",
+      "@hardhat-kms/safe",
       "@hardhat-kms/turnkey",
     ]);
     assert.equal(PACKAGES[0], CORE);

@@ -1,6 +1,6 @@
 ---
 title: Credentials reference
-description: "Where hardhat-kms gets credentials: the sources AWS, Google Cloud and Azure try, in order, every variable they read, and the Turnkey API key."
+description: "Where hardhat-kms gets credentials: the sources AWS, Google Cloud and Azure try, in order, every variable they read, and the Turnkey and Safe API keys."
 ---
 
 # Credentials reference
@@ -68,6 +68,12 @@ A Turnkey key signs with a P-256 API key of a Turnkey user. The key's `apiPrivat
 - Foundry's `cast --turnkey` reads `TURNKEY_API_PRIVATE_KEY` and `TURNKEY_ORGANIZATION_ID`. Name the variables the same way and one environment serves both tools; the address goes in the config, not in `TURNKEY_ADDRESS`.
 - Each Turnkey key names its own variable, so the keys of one run can belong to different Turnkey users and organizations.
 - In CI the key is a stored secret: the plugin signs only with an API key from a variable, not with the expiring keys Turnkey issues on an email, SMS, OAuth or wallet login ([Credentials](https://docs.turnkey.com/features/users/credentials#types)). Use the key of a non-root user that a policy denies credential changes, give it an expiry and rotate it ([Set up a Turnkey wallet account](../guides/turnkey-setup.md#give-the-key-an-expiry-and-rotate-it)). A root user's API key bypasses every Turnkey policy.
+
+## Safe Transaction Service
+
+`@hardhat-kms/safe` reads one secret: the Safe Transaction Service API key, for proposals to Safe's hosted service ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)). The config names it only as a configuration variable, `kmsSafe.apiKey: configVariable("SAFE_TRANSACTION_SERVICE_API_KEY")`, and validation refuses a string. Hardhat resolves the variable from the environment, or from `hardhat-keystore` when the config loads the keystore plugin (`npx hardhat keystore set SAFE_TRANSACTION_SERVICE_API_KEY`).
+
+The plugin reads the value only when `kms safe propose` runs, sends it only as `Authorization: Bearer` to the service the chain resolves to, and never puts it in an error or the debug output. It never follows a redirect, so the key cannot reach another host. A self-hosted service set in `kmsSafe.services` gets no key, and the variable is not read for it. Create and revoke keys at [developer.safe.global](https://developer.safe.global).
 
 ## One identity per run on Google Cloud and Azure
 
