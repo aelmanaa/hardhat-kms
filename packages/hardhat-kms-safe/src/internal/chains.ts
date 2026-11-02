@@ -1,7 +1,7 @@
 import type { Address, Hex } from "viem";
 
 /** The root of Safe's hosted Transaction Service; each chain has its own path under it. */
-export const SAFE_GATEWAY = "https://api.safe.global/tx-service";
+const SAFE_GATEWAY = "https://api.safe.global/tx-service";
 
 /**
  * The chains Safe's hosted Transaction Service serves, with the short name of each, as

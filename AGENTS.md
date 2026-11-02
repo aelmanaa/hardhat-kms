@@ -36,6 +36,15 @@ npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/azure
 npx hardhat kms accounts
 ```
 
+Safe proposals, with the provider package of the key:
+
+```sh
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws @hardhat-kms/safe viem
+# add hardhatKmsSafe to plugins and kmsSafe.apiKey: configVariable("SAFE_TRANSACTION_SERVICE_API_KEY");
+# the network's KMS account must be an owner of the Safe
+npx hardhat --network sepolia kms safe propose <safe> <to>
+```
+
 Turnkey:
 
 ```sh
@@ -58,7 +67,7 @@ Pages:
 - The `kms` tasks (list accounts, sign, verify, read a key's sign events from the provider's audit log): [docs/user/reference/tasks.md](docs/user/reference/tasks.md)
 - What an error message means and how to fix it, by message text or id: [docs/user/reference/errors.md](docs/user/reference/errors.md)
 - A viem account for a KMS key in library code (`connection.kms.getAccount`, for viem's `signAuthorization`, smart-account owners and scripts), what it refuses, and why its sends bypass the send lock: [docs/user/reference/library-accounts.md](docs/user/reference/library-accounts.md)
-- The TypeScript API of `hardhat-kms`, `hardhat-kms/types`, `hardhat-kms/provider-utils` and `hardhat-kms/alchemy`, generated from TSDoc: [docs/user/reference/api/README.md](docs/user/reference/api/README.md)
+- The TypeScript API of `hardhat-kms`, `hardhat-kms/types`, `hardhat-kms/provider-utils`, `hardhat-kms/alchemy` and `@hardhat-kms/safe`, generated from TSDoc: [docs/user/reference/api/README.md](docs/user/reference/api/README.md)
 - Which Node.js versions the published packages run on, and when a line is dropped: [docs/user/reference/support.md](docs/user/reference/support.md)
 - Install the packages with npm, pnpm or Yarn (each one's settings, the google-gax override, registering the plugin, a build from the repository for testers): [docs/user/guides/install-before-release.md](docs/user/guides/install-before-release.md)
 - Set up an AWS KMS key (key spec, IAM policy, the `@hardhat-kms/aws` package, config): [docs/user/guides/aws-kms-setup.md](docs/user/guides/aws-kms-setup.md)
@@ -76,6 +85,7 @@ Pages:
 - A send failed with no clear answer (`-32000`, a gateway timeout), a transaction is not mined, or a nonce gap: look it up, compare the pending and latest counts, fill or replace a nonce: [docs/user/guides/uncertain-sends.md](docs/user/guides/uncertain-sends.md)
 - Complete projects to copy, which deploy and call a contract with viem, ethers or Ignition: [examples/README.md](examples/README.md)
 - Use a KMS key as the signer of an Alchemy Wallet APIs smart wallet (`connection.kms.getAccount` as the `@alchemy/wallet-apis` signer, what the key signs for EIP-7702 and user operations, a check script that sends nothing, a sponsored send that runs `checkPreparedCalls` from `hardhat-kms/alchemy` before signing): [docs/user/guides/alchemy-wallet-apis.md](docs/user/guides/alchemy-wallet-apis.md)
+- Propose a Safe multisig transaction signed by a KMS key to the Safe Transaction Service (install `@hardhat-kms/safe`, the API key in `configVariable("SAFE_TRANSACTION_SERVICE_API_KEY")`, `kms safe propose`, what it checks and refuses, threshold 1, CI, handing ownership to a Safe after an Ignition deploy): [docs/user/guides/propose-safe-transactions.md](docs/user/guides/propose-safe-transactions.md)
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - How hardhat-kms compares with the Hardhat 2 `hardhat-kms-signer` packages and their forks (last release, Hardhat major, cloud, how each plugs in): [docs/user/explanation/other-kms-signers.md](docs/user/explanation/other-kms-signers.md)
 - A KMS key or a private key in `.env` or the Hardhat keystore (what each protects against, what neither does, cost and latency per signature): [docs/user/explanation/kms-or-env-key.md](docs/user/explanation/kms-or-env-key.md)
@@ -119,10 +129,11 @@ pnpm run docs:site:check        # build the docs site from docs/ and check its o
 
 Where things are:
 
-- `packages/hardhat-kms`: the core plugin. Its public entry points are `hardhat-kms`, `hardhat-kms/types` (config and provider types), `hardhat-kms/provider-utils` (helpers for provider plugins, `@experimental`) and `hardhat-kms/alchemy` (`checkPreparedCalls`, which checks an Alchemy Wallet APIs prepared call before the key signs it; needs viem).
+- `packages/hardhat-kms`: the core plugin. Its public entry points are `hardhat-kms`, `hardhat-kms/types` (config and provider types), `hardhat-kms/provider-utils` (helpers for provider plugins and the first-party packages, such as `kmsKeyAddress` and the terminal question `confirm`, `@experimental`) and `hardhat-kms/alchemy` (`checkPreparedCalls`, which checks an Alchemy Wallet APIs prepared call before the key signs it; needs viem).
 - `packages/hardhat-kms-aws`: the AWS KMS provider plugin, which depends on `@aws-sdk/client-kms`.
 - `packages/hardhat-kms-azure`: the Azure Key Vault provider plugin, which depends on `@azure/keyvault-keys` and `@azure/identity`.
 - `packages/hardhat-kms-gcp`: the Google Cloud KMS provider plugin, which depends on `@google-cloud/kms`.
+- `packages/hardhat-kms-safe`: `@hardhat-kms/safe`, not a provider: it adds `kms safe propose` and `proposeSafeTransaction`, which sign a Safe transaction through the connection and propose it to the Safe Transaction Service. It has its own Transaction Service client and no Safe SDK; `viem` is a peer dependency ([decision 0025](docs/contributor/decisions/0025-safe-proposals-without-safe-sdk.md)).
 - `packages/hardhat-kms-turnkey`: the Turnkey provider plugin, which depends on no SDK: it calls Turnkey's API with its own request stamp ([decision 0019](docs/contributor/decisions/0019-turnkey-without-sdk.md)).
 - `tools/api-docs`: a private package, never published, that runs TypeDoc on TypeScript 6 for the API reference ([decision 0012](docs/contributor/decisions/0012-api-reference-generator.md)).
 - `tools/docs-site`: a private package, never published, that builds the docs site from `docs/` with VitePress; see [Documentation](docs/contributor/documentation.md#the-docs-site).
@@ -174,7 +185,7 @@ Decision records:
 - [0022: Each key can limit its EIP-7702 delegates, per chain](docs/contributor/decisions/0022-per-key-delegate-allowlist.md)
 - [0023: Confirm EIP-7702 authorizations at a terminal, and refuse ones that cannot apply](docs/contributor/decisions/0023-confirm-authorizations-at-a-terminal.md)
 - [0024: The docs site root follows npm `latest`, and main's docs are under `next/`](docs/contributor/decisions/0024-docs-site-follows-npm-latest.md)
-- [0025: Propose Safe transactions from a separate package, without a Safe SDK](docs/contributor/decisions/0025-safe-proposals-without-safe-sdk.md) (proposed)
+- [0025: Propose Safe transactions from a separate package, without a Safe SDK](docs/contributor/decisions/0025-safe-proposals-without-safe-sdk.md)
 
 Rules for every change:
 

@@ -198,6 +198,25 @@ A Turnkey key adds five things to the model, because Turnkey decides through its
 
 The plugin's own checks apply to Turnkey as to every provider: each signature is normalized to low-S and must recover to the `address` pin before it is used, and the API private key never appears in output, logs or errors.
 
+## Safe proposals
+
+`kms safe propose`, from `@hardhat-kms/safe`, signs a Safe transaction with a KMS key that owns the Safe and posts it to the Safe Transaction Service ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)). The key signs EIP-712 typed data through the connection, so the [typed-data chain check](#typed-data-checks-its-chain) and the [signature check](#every-signature-is-verified) apply as for any typed data.
+
+What the task protects against:
+
+- **A signature for another Safe or chain.** It reads the Safe on the network's node and refuses a Safe without code, a version other than 1.3.0, 1.4.1 or 1.5.0, and a key that is not an owner. Safes before 1.3.0 sign without the chain id, so they are refused. The Safe's own `getTransactionHash` must equal the hash the plugin computed.
+- **A transaction that cannot run, or pays someone.** It refuses a nonce below the Safe's, and always sets the gas refund fields to zero.
+- **A delegatecall by mistake.** A delegatecall runs the target's code with the Safe's storage, so it can change the owners and move the funds. The task proposes one only with `--delegatecall`.
+- **A proposal no Safe would accept.** After signing, the signature must recover to the key and pass the Safe's `checkNSignatures` before anything is posted.
+- **A signature that executes on its own.** For a Safe whose threshold is 1, the key's signature is enough to execute, and the service makes it public. The task asks a person at a terminal first, as [`kms sign-auth`](#the-kms-sign-auth-question) does, and refuses without one unless `--yes` is passed.
+- **A leaked API key.** `kmsSafe.apiKey` is a configuration variable only. The key goes only to the configured service as a bearer token, never into an error or a log, and the client never follows a redirect, so neither the key nor a signed proposal reaches another host.
+
+What it does not protect against:
+
+- **What the call does.** The task checks that the Safe can run the call, not that you should. The other owners review it in the Safe app.
+- **A node or a service that lies.** The checks read the node you configured. A node that lies about the Safe can hide a change of owners until the service or the Safe refuses the signature. The service sees every proposal; anyone with its URL can read queued transactions and their signatures.
+- **Code in the same process.** Like the other tasks, `kms safe propose` and `proposeSafeTransaction` can be run from code, with `yes` or without `approve`, as [What the plugin does not protect against](#what-the-plugin-does-not-protect-against) says.
+
 ## Audit logs
 
 Each cloud provider records sign requests in its own audit log, whoever makes them. [`kms history`](../reference/tasks.md#kms-history) reads that log for one key. It shows only what the log holds: the plugin keeps no record of its own signatures, and it fills in nothing. So the history can show who signed with a key, when, from where and with which tool, including signatures made outside the plugin. It cannot show what was signed: no provider logs the message, the typed data, the transaction or the signature. Google Cloud logs the digest; AWS and Azure do not. [Find who signed with a key](../guides/who-signed.md) shows how to read the log after an incident and match its events to transactions.
@@ -233,6 +252,7 @@ What this means for you:
 
 - Optional, for contributors and security reviewers: the [threat model summary](../../contributor/signing-pipeline.md#threat-model-summary) in the contributor docs, with the code that enforces each control.
 - [Prevent and recover from losing a key](../guides/key-loss.md).
+- [Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md): a KMS key as one owner of a Safe.
 - [Comparison with Foundry](foundry-comparison.md): the checks hardhat-kms adds over Foundry's KMS signers.
 - [A KMS key or a private key in .env](kms-or-env-key.md) and [A KMS key or a Ledger](kms-or-ledger.md): what a KMS key changes compared with the other places a key can live.
 - [Compared with other KMS signers](other-kms-signers.md): the Hardhat 2 KMS signer packages and what differs here.

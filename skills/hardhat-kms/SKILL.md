@@ -1,6 +1,6 @@
 ---
 name: hardhat-kms
-description: Sign Hardhat 3 transactions, messages and typed data with a cloud key in AWS KMS, Google Cloud KMS, Azure Key Vault, Azure Managed HSM or a Turnkey wallet account, through the hardhat-kms plugin. Use it to deploy without a private key, sign with a cloud key from viem, ethers, Ignition or scripts, configure kms.keys and kmsAccounts, pick the provider package (@hardhat-kms/aws, @hardhat-kms/gcp, @hardhat-kms/azure, @hardhat-kms/turnkey), pin a key's address, migrate from Foundry's --aws or --gcp, or read who signed with kms history from CloudTrail, Cloud Audit Logs or the Key Vault audit log.
+description: Sign Hardhat 3 transactions, messages and typed data with a cloud key in AWS KMS, Google Cloud KMS, Azure Key Vault, Azure Managed HSM or a Turnkey wallet account, through the hardhat-kms plugin. Use it to deploy without a private key, sign with a cloud key from viem, ethers, Ignition or scripts, configure kms.keys and kmsAccounts, pick the provider package (@hardhat-kms/aws, @hardhat-kms/gcp, @hardhat-kms/azure, @hardhat-kms/turnkey), pin a key's address, migrate from Foundry's --aws or --gcp, propose a Safe multisig transaction signed by a KMS key to the Safe Transaction Service with @hardhat-kms/safe and kms safe propose, or read who signed with kms history from CloudTrail, Cloud Audit Logs or the Key Vault audit log.
 license: MIT
 ---
 
@@ -119,6 +119,8 @@ Run as `npx hardhat kms <task>`. A task takes a key by its name in `kms.keys` as
 | `kms verify`     | Checks a signature against an address or a key, locally.                                |
 | `kms history`    | Lists a key's sign events from CloudTrail, Cloud Audit Logs or the Key Vault audit log. |
 
+With `@hardhat-kms/safe` in `plugins`, `npx hardhat --network sepolia kms safe propose <safe> <to>` signs a Safe transaction with the network's KMS account, which must own the Safe, and proposes it to the Safe Transaction Service. It needs `viem` and `kmsSafe.apiKey: configVariable("SAFE_TRANSACTION_SERVICE_API_KEY")`; never ask the user for the key's value. `--function "f(address)" --args '["0x…"]'` encodes the call, and `--key` picks the owner on a network with several KMS accounts.
+
 Coming from Foundry: `--kms aws`, `--kms gcp` and `--kms azure` read Foundry's variables (`AWS_KMS_KEY_ID`, `GCP_PROJECT_ID` and the other `GCP_*` parts, `AZURE_KEY_VAULT_KEY_ID`) without a config entry, for example `AWS_KMS_KEY_ID=alias/deployer npx hardhat run scripts/deploy.ts --network sepolia --kms aws`.
 
 ## What the plugin refuses
@@ -132,6 +134,7 @@ Explain these to the user rather than working around them:
 - EIP-4844 blob transactions, which Hardhat does not support either. Legacy (EIP-155), EIP-2930, EIP-1559 and EIP-7702 transactions are supported.
 - `connection.kms.getAccount` with a viem older than 2.55.13.
 - A key whose provider package is not in `plugins`: the error names the package to install.
+- With `kms safe propose`: a Safe version other than 1.3.0, 1.4.1 or 1.5.0, a key that is not an owner, a nonce below the Safe's, a delegatecall without `--delegatecall`, a chain Safe's service does not serve without `kmsSafe.services`, and an API key written as a string. For a Safe whose threshold is 1 it asks at a terminal, and without one needs `--yes`; do not answer that question for the user or add `--yes` without asking them.
 
 ## Reference
 
@@ -142,5 +145,6 @@ Explain these to the user rather than working around them:
 - An error message, by its text or id: [errors reference](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/reference/errors.md)
 - Which credentials sign on a laptop, in CI and on a server: [cloud access](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/explanation/cloud-access.md)
 - Ignition, several keys, key rotation, Foundry: [deploy with Ignition](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/deploy-with-ignition.md), [several keys](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/multiple-keys.md), [key rotation](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/key-rotation.md), [migrate from Foundry](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/migrate-from-foundry.md)
+- Propose Safe multisig transactions: [Safe proposals guide](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/guides/propose-safe-transactions.md)
 - Which version to install, and what the `latest` and `beta` tags mean: [release channels and versioning](https://github.com/aelmanaa/hardhat-kms/blob/main/docs/user/explanation/versioning.md)
 - Complete projects for viem, ethers and Ignition: [examples](https://github.com/aelmanaa/hardhat-kms/blob/main/examples/README.md)

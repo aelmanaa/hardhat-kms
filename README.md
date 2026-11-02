@@ -14,6 +14,7 @@ Hardhat 3 only. A community plugin, built in a personal capacity; not affiliated
 - Every signature is recovered locally and checked against the key's address before it is used. An optional `address` pin also refuses a key that derives to another address. See the [security model](docs/user/explanation/security-model.md).
 - Install the provider package for each cloud you use, and configure its keys under `kms.keys`. No credentials go in the Hardhat config: AWS and Google Cloud keys use their SDK's credential discovery, Azure keys use the plugin's own credential chain, and a Turnkey key's API private key is a configuration variable, read from the environment or `hardhat-keystore`.
 - Eight [`kms` tasks](docs/user/reference/tasks.md), from `accounts` to `history`, which reads your cloud audit log, and a `--kms` option that reads Foundry's key variables.
+- Safe multisig proposals: `@hardhat-kms/safe` adds a ninth task, `kms safe propose`, which signs a Safe transaction with a KMS key that owns the Safe and proposes it to the Safe Transaction Service for the other owners to confirm ([guide](docs/user/guides/propose-safe-transactions.md)).
 - Legacy, EIP-2930, EIP-1559 and EIP-7702 transactions, EIP-191 and EIP-712 signing, all run on Sepolia in a [live proof](docs/live-proof.md) with block ranges and on-chain `ecrecover` checks.
 
 ## Release status
@@ -36,6 +37,8 @@ npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws
 ```
 
 The command names every required peer dependency, so the same list works with yarn, which does not install peers. `connection.kms.getAccount` also needs `viem` ^2.55.13; ethers and Ignition projects can skip it.
+
+To propose Safe multisig transactions, add `@hardhat-kms/safe` and `viem` ([Propose Safe transactions from Hardhat](docs/user/guides/propose-safe-transactions.md)).
 
 [Install hardhat-kms](docs/user/guides/install-before-release.md) gives the pnpm and Yarn commands, the settings each package manager needs, and the check that the plugin is registered.
 

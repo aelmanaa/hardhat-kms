@@ -1,6 +1,6 @@
 ---
 title: "@hardhat-kms/safe"
-description: "The @hardhat-kms/safe entry point: the plugin that adds kms safe propose, and proposeSafeTransaction, which proposes a Safe transaction signed by a KMS key from code."
+description: "The @hardhat-kms/safe entry point: the plugin that adds kms safe propose, and proposeSafeTransaction, which proposes a Safe transaction from code."
 ---
 
 # @hardhat-kms/safe

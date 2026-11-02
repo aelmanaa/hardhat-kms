@@ -49,7 +49,7 @@ export interface SafeCall {
 }
 
 /** The zero address. */
-export const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
+const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
 
 /** The largest nonce the plugin proposes: api-kit sends the nonce as a JSON number. */
 export const MAX_NONCE: bigint = BigInt(Number.MAX_SAFE_INTEGER);

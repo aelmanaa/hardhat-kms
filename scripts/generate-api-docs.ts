@@ -129,7 +129,7 @@ export function checkProviderExports(): void {
  */
 const API_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "@hardhat-kms/safe.md":
-    "The @hardhat-kms/safe entry point: the plugin that adds kms safe propose, and proposeSafeTransaction, which proposes a Safe transaction signed by a KMS key from code.",
+    "The @hardhat-kms/safe entry point: the plugin that adds kms safe propose, and proposeSafeTransaction, which proposes a Safe transaction from code.",
   "README.md":
     "The TypeScript API of hardhat-kms: the plugin export, the config types, the helpers for provider plugins, the Alchemy prepared-call check and @hardhat-kms/safe.",
   "hardhat-kms.md":

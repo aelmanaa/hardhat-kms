@@ -6,6 +6,11 @@
 // With --from-registry the consumer installs the published packages at that version from the registry,
 // with no build and no pack here, and the install is followed by a check that the project
 // resolves that version. The run without viem is unchanged.
+//
+// The project first installs every published package except those with viem as a required peer
+// (VIEM_PEER: @hardhat-kms/safe), since npm would install viem for them and the run without viem
+// would have nothing to check. Those packages and viem are installed afterwards, and a config that
+// uses them is type-checked with the same TypeScript.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -34,6 +39,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pluginPackage = path.join(root, "packages", "hardhat-kms");
 // The published packages' directories, in release order (scripts/release-packages.ts).
 const packages = RELEASE_PACKAGES.map((entry) => path.join(root, "packages", entry.directory));
+/** The published packages that need viem: the project without viem leaves them out. */
+const VIEM_PEER: ReadonlySet<string> = new Set(["@hardhat-kms/safe"]);
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 // .cmd files need a shell on Windows (CVE-2024-27980 hardening in child_process).
@@ -48,10 +55,16 @@ if (options.version === undefined) {
 // The tarballs and the consumer project share one directory per run, removed when the run ends.
 withPackDirectory((work) => {
   // pnpm pack replaces workspace: ranges with real versions, as publishing does.
-  const specs =
+  const names =
+    options.version === undefined
+      ? RELEASE_PACKAGES.map((entry) => entry.name)
+      : [...registryPackages(options)];
+  const allSpecs =
     options.version === undefined
       ? packages.map((directory) => pack(directory, work))
-      : registrySpecs(options.version, registryPackages(options));
+      : registrySpecs(options.version, names);
+  const specs = allSpecs.filter((_spec, index) => !VIEM_PEER.has(names[index] ?? ""));
+  const viemSpecs = allSpecs.filter((_spec, index) => VIEM_PEER.has(names[index] ?? ""));
   const consumer = path.join(work, "consumer");
   mkdirSync(consumer);
   writeFileSync(
@@ -436,6 +449,67 @@ withPackDirectory((work) => {
   );
   if (!runtime.includes("connection.kms.getAccount needs the viem package")) {
     throw new Error(`getAccount without viem did not name the package:\n${runtime}`);
+  }
+  // The packages that need viem, with viem: a user of @hardhat-kms/safe, whose apiKey must be a
+  // configuration variable, and its library API.
+  if (viemSpecs.length > 0) {
+    run(
+      npm,
+      [
+        "install",
+        "--no-audit",
+        "--no-fund",
+        "--ignore-scripts",
+        ...registryArguments(options.registry),
+        ...viemSpecs,
+        "viem@^2.55.13",
+      ],
+      consumer,
+    );
+    writeFileSync(
+      path.join(consumer, "tsconfig.safe.json"),
+      JSON.stringify({ extends: "./tsconfig.json", include: ["safe.config.ts"] }, null, 2),
+    );
+    writeFileSync(
+      path.join(consumer, "safe.config.ts"),
+      [
+        'import { configVariable, defineConfig } from "hardhat/config";',
+        'import hardhatKmsSafe, { proposeSafeTransaction, TransactionServiceClient } from "@hardhat-kms/safe";',
+        'import type { NetworkConnection } from "hardhat/types/network";',
+        "",
+        "export default defineConfig({",
+        "  plugins: [hardhatKmsSafe],",
+        '  kms: { keys: { owner: { provider: "aws", keyId: "alias/owner", region: "eu-west-1" } } },',
+        "  kmsSafe: {",
+        '    apiKey: configVariable("SAFE_TRANSACTION_SERVICE_API_KEY"),',
+        '    services: { "11155111": "https://safe-transaction.example.com" },',
+        "    timeoutMs: 30_000,",
+        "  },",
+        "  networks: {",
+        '    sepolia: { type: "http", url: configVariable("SEPOLIA_RPC_URL"), kmsAccounts: ["owner"] },',
+        "  },",
+        "});",
+        "",
+        "export const literalKey = defineConfig({",
+        "  plugins: [hardhatKmsSafe],",
+        "  // @ts-expect-error -- the API key must be a configuration variable, never the key itself.",
+        '  kmsSafe: { apiKey: "sk-not-a-variable" },',
+        "});",
+        "",
+        "export async function propose(connection: NetworkConnection, owner: string): Promise<string> {",
+        "  const proposal = await proposeSafeTransaction({",
+        "    provider: connection.provider,",
+        "    sender: owner,",
+        '    safe: "0x2B0b9cBDA3D7b0F760187c52A8FFB18C48E5d96A",',
+        "    call: { to: owner, value: 1n },",
+        '    service: new TransactionServiceClient({ url: "https://api.safe.global/tx-service/sep" }),',
+        "  });",
+        "  return proposal.safeTxHash;",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    execFileSync(tsc, ["-p", "tsconfig.safe.json"], { cwd: consumer, stdio: "inherit", shell });
   }
   process.stdout.write(
     `consumer typecheck passed with TypeScript ${typescriptVersion}${options.version === undefined ? "" : ` and hardhat-kms ${options.version} from the registry`}\n`,

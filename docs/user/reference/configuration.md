@@ -255,6 +255,28 @@ The list is checked before any KMS sign request in [`kms sign-auth`](tasks.md#km
 
 The list lives in the Hardhat config, so whoever can edit the config can widen it. The plugin freezes each resolved key and its list, but code in the same process can still replace the config's `kms` section or a network's `kmsAccounts`. The list guards against mistakes and driven signing, not against a leaked key: see [EIP-7702 delegates](../explanation/security-model.md#eip-7702-delegates) in the security model. The errors are in the [errors reference](errors.md#eip-7702-delegates).
 
+## Safe proposals
+
+`@hardhat-kms/safe` adds `kms safe propose`, which signs a Safe transaction with a KMS key and proposes it to the Safe Transaction Service ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)). Add it to `plugins` next to the provider package. Its settings live in a `kmsSafe` section at the top of the config:
+
+<!-- docs-check: skip -->
+
+```ts
+kmsSafe: {
+  apiKey: configVariable("SAFE_TRANSACTION_SERVICE_API_KEY"),
+  services: { "43113": "https://safe-transaction.example.com" },
+  timeoutMs: 30_000,
+},
+```
+
+| Field               | Meaning                                                                                                                                                                                                                                                                                                    |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kmsSafe.apiKey`    | The Safe Transaction Service API key from developer.safe.global, as a configuration variable only: validation refuses a string. Safe's hosted service needs it; a proposal to it without one fails before the key signs. Read only when the task runs. Added in next.                                      |
+| `kmsSafe.services`  | The root URL of a Transaction Service per decimal chain id, without `/api`, for a self-hosted service or a chain Safe does not serve. It replaces Safe's hosted service for that chain. https only, or http on `localhost` and `127.0.0.1`, with no user name, password, query or fragment. Added in next. |
+| `kmsSafe.timeoutMs` | How long each request to the service may take, from 1000 to 300000 ms. Default 30000. The plugin never retries a request. Added in next.                                                                                                                                                                   |
+
+Without `kmsSafe.services`, the plugin uses `https://api.safe.global/tx-service/<shortName>` for the chains that Safe's `@safe-global/api-kit` 5.0.4 lists, such as `eth` for Ethereum, `sep` for Sepolia and `basesep` for Base Sepolia. For any other chain, such as Avalanche Fuji (43113), the task fails with `safe.service.unknown-chain` before the key signs.
+
 ## Keys from the command line
 
 Keys can also come from Foundry's environment variables with `--kms aws`, `--kms gcp`, `--kms azure` or a comma-separated list, without a config entry. Foundry has not released an Azure signer: the `azure` variable names follow the proposal in [foundry-rs/foundry#17120](https://github.com/foundry-rs/foundry/pull/17120) and may change before it ships. These keys inherit `kms.defaults` and pass the same checks as config keys. They are added to the selected network only (the `--network` value, or `default` without one), after the network's `kmsAccounts`. A command-line key that names the same KMS key as a config key on that network is an error that names both, without the value. A command-line key has no config, so it cannot set `allowRawDigests`: `kms sign --no-hash` signs with it only after a person answers at a terminal, and `getAccount` refuses `rawSign` for it. See [Move KMS signing from Foundry to Hardhat](../guides/migrate-from-foundry.md#from-the-command-line-as-in-foundry).
@@ -285,7 +307,7 @@ In this order, hardhat-kms gives a raw `eth_sendTransaction` request without `fr
 
 ## Credentials
 
-No secrets live in the Hardhat config. The [credentials reference](credentials.md) lists the sources each cloud tries, in order, and every variable they read, and where a Turnkey key's API key comes from.
+No secrets live in the Hardhat config. The [credentials reference](credentials.md) lists the sources each cloud tries, in order, and every variable they read, and where a Turnkey key's API key and the Safe Transaction Service API key come from.
 
 ### AWS
 
@@ -302,3 +324,7 @@ Azure keys use a chain the plugin builds, which refuses username and password si
 ### Turnkey
 
 A Turnkey key's credential is its API private key, which the config names only as a configuration variable: see [Credentials reference: Turnkey](credentials.md#turnkey).
+
+### Safe Transaction Service
+
+`kmsSafe.apiKey` is a configuration variable only: see [Credentials reference: Safe Transaction Service](credentials.md#safe-transaction-service).

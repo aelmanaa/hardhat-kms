@@ -180,7 +180,7 @@ A new key starts with an empty address, and the old key must keep signing until 
 5. **Fund the new address** on every chain it will use.
 6. **Transfer control**, signing each transfer with the old key:
    - Two-step transfers, such as [`Ownable2Step`](https://docs.openzeppelin.com/contracts/5.x/api/access#Ownable2Step) and [`AccessControlDefaultAdminRules`](https://docs.openzeppelin.com/contracts/5.x/api/access#AccessControlDefaultAdminRules) with its delay, proxy admins and timelocks, finish only when the new key accepts. Keep the old key enabled until every transfer is accepted.
-   - Multisig seats, timelock roles, allowlists and service configs change through their own admins.
+   - Multisig seats, timelock roles, allowlists and service configs change through their own admins. To move a Safe seat, propose the Safe's `swapOwner` call with the old key, which is still an owner ([Propose Safe transactions from Hardhat](propose-safe-transactions.md)), and have the other owners confirm it.
    - Roles that cannot move, such as an address hard-coded or set as immutable in a contract, stay with the old address. Keep the old key for them.
    - Update ENS records to the new address.
 7. **Clean up the old address** while its key can still sign:

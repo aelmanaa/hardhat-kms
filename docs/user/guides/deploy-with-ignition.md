@@ -310,3 +310,17 @@ When this verifies the contract, Blockscout's part of the output ends like this:
 ```
 
 If it fails with `HHE80022` and says the contract `is already verified`, the contract is verified, and there is nothing left to do. Blockscout limits how often it answers requests without an API key. If the command fails with `Response status code 429: Too Many Requests`, wait a few minutes and run it again.
+
+## Hand ownership to a Safe
+
+Ignition cannot deploy through a Safe multisig: it has no `safe` strategy, and a plugin cannot add one. The common practice is to deploy from the KMS account, then hand each contract's ownership or admin roles to the Safe:
+
+1. Deploy with Ignition as above, from the KMS account.
+2. Transfer ownership to the Safe from the KMS account, for example with a module call to `transferOwnership(<safe>)`. With a two-step transfer such as `Ownable2Step`, the Safe still has to accept.
+3. Propose the accept call, and every later admin or upgrade call, from the Safe with `kms safe propose`. A KMS key that is one of the Safe's owners signs the proposal, and the other owners confirm it in the Safe app.
+
+```sh
+npx hardhat --network sepolia kms safe propose <safe> <contract> --function "acceptOwnership()"
+```
+
+[Propose Safe transactions from Hardhat](propose-safe-transactions.md) sets up `@hardhat-kms/safe` and lists what the task checks.

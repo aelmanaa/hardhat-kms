@@ -27,7 +27,7 @@ import { callData } from "./inputs.ts";
 export const PACKAGE_NAME = "@hardhat-kms/safe";
 
 /** The label the Safe app shows next to a transaction this task proposed. */
-export const ORIGIN = "hardhat-kms";
+const ORIGIN = "hardhat-kms";
 
 /** The arguments of `kms safe propose`. */
 export interface ProposeArguments {
@@ -63,7 +63,7 @@ function out(line: string): void {
 
 /** Writes a line for the person running the task to standard error. */
 function note(line: string): void {
-  process.stderr.write(`hardhat-kms: ${line}\n`);
+  process.stderr.write(`[hardhat-kms] ${line}\n`);
 }
 
 /**
@@ -73,7 +73,7 @@ function note(line: string): void {
  * @param key - The key's name.
  * @returns The lines.
  */
-export function reviewLines(review: SafeTransactionReview, key: string): string[] {
+function reviewLines(review: SafeTransactionReview, key: string): string[] {
   const tx = review.transaction;
   const lines = [
     `Safe:       ${review.safe} (Safe ${review.version}, chain ${review.chainId})`,

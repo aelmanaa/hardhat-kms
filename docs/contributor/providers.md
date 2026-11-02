@@ -2,7 +2,7 @@
 
 Audience: Contributors adding or changing a KMS or HSM provider.
 
-Status: the adapter contract is in `packages/hardhat-kms/src/internal/signer/types.ts`, and `hardhat-kms/types` exports it (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). The built-in providers' descriptors and the registry are internal code (see [Built-in descriptors](#built-in-descriptors)). `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure` and `@hardhat-kms/turnkey` are the first-party provider packages (see [First-party provider packages](#first-party-provider-packages)). Transactions are signed through the adapter's `signTransaction` when it has one, and through `signDigest` otherwise ([#514](https://github.com/aelmanaa/hardhat-kms/issues/514)). `sendTransaction` is planned and arrives with Fireblocks ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)).
+Status: the adapter contract is in `packages/hardhat-kms/src/internal/signer/types.ts`, and `hardhat-kms/types` exports it (see [Adding a provider from another plugin](#adding-a-provider-from-another-plugin)). The built-in providers' descriptors and the registry are internal code (see [Built-in descriptors](#built-in-descriptors)). `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure` and `@hardhat-kms/turnkey` are the first-party provider packages (see [First-party provider packages](#first-party-provider-packages)). `@hardhat-kms/safe` is released with them but is not a provider (see [The Safe package](#the-safe-package)). Transactions are signed through the adapter's `signTransaction` when it has one, and through `signDigest` otherwise ([#514](https://github.com/aelmanaa/hardhat-kms/issues/514)). `sendTransaction` is planned and arrives with Fireblocks ([#55](https://github.com/aelmanaa/hardhat-kms/issues/55)).
 
 ## Provider contract
 
@@ -331,6 +331,17 @@ To add another first-party provider package:
 6. Register the package with the tooling: the `fixed` group in `.changeset/config.json`, a workspace entry in `knip.json`, a reference in the root `tsconfig.json`, a root devDependency so doc snippets can import it, the directory lists in `scripts/consumer-typecheck.ts` and in `CATALOGUED_DIRECTORIES` of `scripts/generate-errors-doc.ts`, and `--fail-if-no-match` on any root script that filters to it.
 7. Test it as `@hardhat-kms/aws` is tested: adapter unit tests with a fake SDK, an integration test with the real SDK against a local endpoint, and an import test that loads a config without loading the SDK (see [Testing](testing.md)). The package's `.c8rc.json` holds it to 95% coverage. A test that runs the Hardhat CLI calls `runHardhat` from `packages/hardhat-kms/test/helpers/hardhat-cli.ts`, imported by relative path, never `spawnSync`. That import needs the tsconfig changes described under [Testing](testing.md): the package's `tsconfig.json` references `../hardhat-kms` and sets `emitDeclarationOnly: true` and `rewriteRelativeImportExtensions: false`, and its `tsconfig.build.json` sets both back, as `packages/hardhat-kms-gcp` does.
 8. Add a row to [Deprecated credential paths](#deprecated-credential-paths) for each credential path of the SDK's default that its vendor deprecates, or write there that it has none.
+
+## The Safe package
+
+`@hardhat-kms/safe` (`packages/hardhat-kms-safe`) is released with the core like the provider packages, but it is not a provider: it declares no key type and has no `kms` hook handler. It adds `kms safe propose` under the core's `kms` task, the `kmsSafe` config section, and the library helper `proposeSafeTransaction`. [Decision 0025](decisions/0025-safe-proposals-without-safe-sdk.md) records why it is a package of its own and why it has no Safe SDK.
+
+- It signs only through a connection: the SafeTx goes to `eth_signTypedData_v4`, so the core's typed-data chain check and signature verification apply, and the package never sees an adapter.
+- From `hardhat-kms/provider-utils` it uses the catalogue helpers, `checkProviderVersion`, `kmsKeyAddress` to read the address of the key `--key` names, and `confirm` with `processTerminal` for the question it asks when the Safe's threshold is 1 ([decision 0023](decisions/0023-confirm-authorizations-at-a-terminal.md)).
+- `viem` is a required peer dependency, for ABI encoding and an independent `hashTypedData`. `scripts/consumer-typecheck.ts` therefore installs it after the run without viem.
+- `@safe-global/api-kit` is a devDependency only, for the conformance test (`test/unit/conformance.test.ts`), which compares the client's requests with api-kit's byte for byte and its chain table with api-kit's.
+- Its tests run on Hardhat's own node, started in the test process with `hre.network.createServer`, with Safe 1.3.0, 1.4.1 and 1.5.0 from their canonical bytecode, and a fake Transaction Service that applies the real one's checks. `test/localstack` signs with a LocalStack AWS KMS key through `@hardhat-kms/aws`.
+- Its paths are on the [signing and sending list](security-review.md#signing-and-sending) of the security review.
 
 ## Deprecated credential paths
 
