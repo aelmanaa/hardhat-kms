@@ -222,6 +222,26 @@ export const ERRORS = {
     cause: "The key was created without `sign` in `--ops`.",
     fix: "Run the command the message gives. It names the vault (`--vault-name`, or `--hsm-name` for a Managed HSM), the key and the version, because without `--version` the command changes the latest version. A part of the key id that comes from a configuration variable is shown as `<vault-name>`, `<key-name>` or `<version>`; fill it in from that variable. Run it as an identity with the keys/update permission, such as a key administrator with Key Vault Crypto Officer, or Managed HSM Crypto Officer on a Managed HSM: the two-action signing role cannot. `--vault-name` and `--hsm-name` build the vault URL from the cloud `az` is set to, so for a vault in another Azure cloud, run `az cloud set` first.",
   },
+  exportable: {
+    id: "azure.key.exportable",
+    kind: "error",
+    group: "Keys",
+    template:
+      "the key version is exportable, so Key Vault can release its private key outside the vault. hardhat-kms signs only with a key whose private key cannot leave Key Vault. Create a new key without --exportable or --policy, as in step 1 of the Azure setup guide",
+    cause:
+      "The key was created with `--exportable true`. Key Vault can release an exportable key's private key with the release operation, to an environment that its release policy accepts. The plugin refuses such a key before it signs anything with it.",
+    fix: "A key's exportable flag cannot be changed after the key is created. Create a new key without `--exportable` or `--policy`, as step 1 of the Azure setup guide shows, configure it, and move any funds from the old address.",
+  },
+  releasePolicy: {
+    id: "azure.key.release-policy",
+    kind: "error",
+    group: "Keys",
+    template:
+      "the key version has a release policy, so Key Vault can release its private key to an environment the policy accepts. hardhat-kms signs only with a key whose private key cannot leave Key Vault. Create a new key without --exportable or --policy, as in step 1 of the Azure setup guide",
+    cause:
+      "The key carries a release policy (`--policy`), which Key Vault accepts only on an exportable key. The release operation hands the private key to an environment the policy accepts. The plugin refuses such a key before it signs anything with it.",
+    fix: "Create a new key without `--exportable` or `--policy`, as step 1 of the Azure setup guide shows, configure it, and move any funds from the old address.",
+  },
   lookupUnfinished: {
     id: "azure.sign.lookup-unfinished",
     kind: "error",

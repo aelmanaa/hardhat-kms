@@ -170,6 +170,90 @@ describe("@hardhat-kms/azure plugin", () => {
     );
   });
 
+  for (const [name, options, message] of [
+    [
+      "an exportable key",
+      { exportable: true },
+      "the key version is exportable, so Key Vault can release its private key outside the vault",
+    ],
+    [
+      "a key with a release policy",
+      {
+        exportable: true,
+        releasePolicy: {
+          contentType: "application/json; charset=utf-8",
+          data: Buffer.from('{"version":"1.0.0","anyOf":[]}').toString("base64url"),
+          immutable: false,
+        },
+      },
+      "the key version is exportable",
+    ],
+    [
+      "a release policy without the exportable attribute",
+      { releasePolicy: { data: Buffer.from("{}").toString("base64url") } },
+      "the key version has a release policy, so Key Vault can release its private key",
+    ],
+  ] satisfies Array<[string, Partial<Parameters<typeof keyVaultHttp>[0]>, string]>) {
+    it(`refuses ${name} that the real SDK reads, before any signature`, async () => {
+      const vault = keyVaultHttp({
+        secretKey,
+        vaultUrl: VAULT_URL,
+        keyName: KEY_NAME,
+        currentVersion: KEY_VERSION,
+        ...options,
+      });
+      const hre = await runtime();
+      hre.hooks.registerHandlers(
+        "kms",
+        kmsHandlers(
+          ownVersion,
+          loaderFor(keyVault, staticCredential(), { httpClient: vault.httpClient }),
+        ),
+      );
+      const adapter = await createAdapter(hre, "deployer");
+
+      await assert.rejects(
+        adapter.signDigest?.({ digest: new Uint8Array(32) }, signContext()) ?? Promise.resolve(),
+        (error) => {
+          assert.ok(error instanceof Error);
+          assert.ok(error.message.includes(message), error.message);
+          return true;
+        },
+      );
+      assert.ok(vault.requests.every((request) => request.method === "GET"));
+    });
+  }
+
+  it("signs with a key whose attributes say it is not exportable", async () => {
+    const vault = keyVaultHttp({
+      secretKey,
+      vaultUrl: VAULT_URL,
+      keyName: KEY_NAME,
+      currentVersion: KEY_VERSION,
+      exportable: false,
+      releasePolicy: null,
+    });
+    const hre = await runtime();
+    hre.hooks.registerHandlers(
+      "kms",
+      kmsHandlers(
+        ownVersion,
+        loaderFor(keyVault, staticCredential(), { httpClient: vault.httpClient }),
+      ),
+    );
+    const adapter = await createAdapter(hre, "pinned");
+    const digest = new Uint8Array(32).fill(7);
+
+    const signature = await adapter.signDigest?.({ digest }, signContext());
+
+    assert.ok(signature !== undefined && "format" in signature && signature.format === "compact");
+    assert.ok(
+      secp256k1.verify(signature.bytes, digest, secp256k1.getPublicKey(secretKey), {
+        prehash: false,
+      }),
+    );
+  });
+
   it("explains a missing key that the real SDK reports", async () => {
     const vault = keyVaultHttp({
       secretKey,

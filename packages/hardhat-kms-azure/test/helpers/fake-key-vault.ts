@@ -27,6 +27,10 @@ export interface FakeKeyVaultOptions {
   notBefore?: Date;
   expiresOn?: Date;
   keyOperations?: string[] | undefined;
+  /** The key's `exportable` property. */
+  exportable?: boolean;
+  /** The key's release policy, as the SDK returns it. */
+  releasePolicy?: unknown;
   omitJwk?: boolean;
   /** The key id getKey returns; by default the requested (or current) version's. */
   keyId?: string | undefined;
@@ -151,6 +155,8 @@ export function fakeKeyVaultSdk(options: FakeKeyVaultOptions): FakeKeyVault {
           enabled: "enabled" in options ? options.enabled : true,
           ...(options.notBefore === undefined ? {} : { notBefore: options.notBefore }),
           ...(options.expiresOn === undefined ? {} : { expiresOn: options.expiresOn }),
+          ...(options.exportable === undefined ? {} : { exportable: options.exportable }),
+          ...("releasePolicy" in options ? { releasePolicy: options.releasePolicy } : {}),
         },
       };
     }

@@ -44,6 +44,10 @@ export interface KeyVaultKeyLike {
     enabled?: boolean | undefined;
     notBefore?: Date | undefined;
     expiresOn?: Date | undefined;
+    /** Whether Key Vault may release the private key, from the service's `attributes.exportable`. */
+    exportable?: boolean | undefined;
+    /** The rules under which Key Vault releases the private key, from the service's `release_policy`. */
+    releasePolicy?: unknown;
   };
 }
 
@@ -144,7 +148,8 @@ function setAttributesTarget(
 /**
  * The Azure Key Vault (and Managed HSM) adapter for one key.
  *
- * It reads the key's JWK once, checks that it is an enabled secp256k1 key that may sign, and pins
+ * It reads the key's JWK once, checks that it is an enabled secp256k1 key that may sign and that
+ * Key Vault cannot release, and pins
  * the key version from the response: an unversioned key id is resolved to the current version
  * once, and every signature uses that version. Each response must name the configured vault and
  * key in its `kid`, and each sign response the pinned version. alloy's Azure signer
@@ -280,9 +285,21 @@ class AzureKeyAdapter<Key extends KeyVaultKeyLike> implements KmsKeyAdapter {
     return parsed.keyVersion;
   }
 
-  /** Checks the key's attributes, as Key Vault would before signing, to fail with a clear error. */
+  /**
+   * Checks the key's attributes, as Key Vault would before signing, to fail with a clear error.
+   * It also refuses a key whose private key Key Vault can release (`releaseKey`): an exportable
+   * key, or one with a release policy, which Key Vault accepts only on an exportable key. Both come
+   * from the key read, so the check costs no request, and it runs before the version is pinned and
+   * again before each signature.
+   */
   #checkUsable(response: KeyVaultKeyLike, operation: string, version: string): void {
-    const { enabled, notBefore, expiresOn } = response.properties;
+    const { enabled, notBefore, expiresOn, exportable, releasePolicy } = response.properties;
+    if (exportable === true) {
+      throw this.#error(operation, ERRORS.exportable, {});
+    }
+    if (releasePolicy !== undefined && releasePolicy !== null) {
+      throw this.#error(operation, ERRORS.releasePolicy, {});
+    }
     const now = Date.now();
     if (enabled === false) {
       throw this.#error(operation, ERRORS.disabled, this.#target(version));

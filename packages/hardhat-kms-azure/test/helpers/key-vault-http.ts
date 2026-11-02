@@ -41,6 +41,10 @@ export interface KeyVaultHttpOptions {
   highS?: boolean;
   /** Return this many bytes instead of the 64-byte signature. */
   signatureLength?: number;
+  /** The key's `attributes.exportable`, which the service sends only for some keys. */
+  exportable?: boolean;
+  /** The key's `release_policy`, as the service sends it. */
+  releasePolicy?: { contentType?: string; data?: string; immutable?: boolean } | null;
 }
 
 /** The fake vault and what it received. */
@@ -140,7 +144,9 @@ export function keyVaultHttp(options: KeyVaultHttpOptions): KeyVaultHttp {
             created: 1_700_000_000,
             updated: 1_700_000_000,
             recoveryLevel: "Recoverable+Purgeable",
+            ...(options.exportable === undefined ? {} : { exportable: options.exportable }),
           },
+          ...("releasePolicy" in options ? { release_policy: options.releasePolicy } : {}),
         });
       }
       if (request.method === "POST" && action === "sign" && version !== undefined) {
