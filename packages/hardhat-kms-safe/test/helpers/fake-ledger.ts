@@ -1,4 +1,4 @@
-// A stand-in for @nomicfoundation/hardhat-ledger 3.1.1, with a fixed test key in place of the
+// A stand-in for @nomicfoundation/hardhat-ledger 3.1.0, with a fixed test key in place of the
 // device. It does what that plugin does on a connection: it adds `ledgerAccounts` to the
 // network's resolved config, appends those addresses to the node's `eth_accounts`, and answers
 // `eth_signTypedData_v4` for them in this process (with v 27 or 28, as the plugin's `#toRpcSig`

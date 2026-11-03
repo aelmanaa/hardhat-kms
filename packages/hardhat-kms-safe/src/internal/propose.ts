@@ -21,6 +21,7 @@ import {
   parseAddress,
   safeTransaction,
   safeTxHash,
+  safeTxParts,
   safeTxTypedData,
   type SafeCall,
   type SafeTransaction,
@@ -54,6 +55,13 @@ export interface SafeTransactionReview {
   transaction: SafeTransaction;
   /** Its SafeTx hash, which the Safe's `getTransactionHash` returned too. */
   safeTxHash: Hex;
+  /**
+   * The EIP-712 domain separator of the Safe on this chain: the "Domain hash" a Ledger shows when
+   * it signs blind, and the Safe app shows.
+   */
+  domainHash: Hex;
+  /** The hash of the SafeTx struct: the "Message hash" a Ledger and the Safe app show. */
+  messageHash: Hex;
 }
 
 /** A proposal the service stored. */
@@ -198,6 +206,7 @@ export async function proposeSafeTransaction(
     sender,
     transaction,
     safeTxHash: hash,
+    ...safeTxParts(chainId, safe, transaction),
   };
   if (options.approve !== undefined && !(await options.approve(review))) {
     throw catalogError(ERRORS.declined, {});

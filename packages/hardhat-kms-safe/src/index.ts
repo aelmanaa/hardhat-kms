@@ -108,6 +108,7 @@ export {
   type SafeProposal,
   type SafeTransactionReview,
 } from "./internal/propose.ts";
+export { assertProposerSignsInProcess } from "./internal/proposer.ts";
 export { TransactionServiceClient, type TransactionServiceOptions } from "./internal/tx-service.ts";
 export { SERVICE_CHAINS, safeAppLink, serviceFor } from "./internal/chains.ts";
 export {

@@ -206,7 +206,7 @@ A local key is on disk: encrypted by `hardhat-keystore`, or in plain text in an 
 
 What the task protects against:
 
-- **A signature by the node.** On an `http` network whose `accounts` is `"remote"`, `eth_accounts` lists the node's own accounts, and Hardhat would forward a signing request for one of them to the node. The task refuses a `--from` address there unless it is a KMS or Ledger account of the network, and refuses any address the connection does not list, before anything signs.
+- **A signature by the node.** On an `http` network whose `accounts` is `"remote"`, `eth_accounts` lists the node's own accounts, and Hardhat would forward a signing request for one of them to the node. The task refuses a `--from` address there, and on any network config it does not recognise, unless it is a KMS or Ledger account of the network, and refuses any address the connection does not list, before anything signs.
 - **A signature for another Safe or chain.** It reads the Safe on the network's node and refuses a Safe without code, a version other than 1.3.0, 1.4.1 or 1.5.0, and a proposer that is not an owner. Safes before 1.3.0 sign without the chain id, so they are refused. The Safe's own `getTransactionHash` must equal the hash the plugin computed.
 - **A transaction that cannot run, or pays someone.** It refuses a nonce below the Safe's, and always sets the gas refund fields to zero.
 - **A service that pushes the nonce far ahead.** The plugin trusts the Transaction Service only to raise the default nonce above the Safe's, and by at most 50; beyond that it refuses and asks for `--nonce`.
@@ -221,7 +221,8 @@ What it does not protect against:
 - **A node or a service that lies.** The checks read the node you configured. A node that lies about the Safe can hide a change of owners until the service or the Safe refuses the signature. A service that hides a queued transaction can make the proposer sign another at the same nonce; the other owners see both in the Safe app, and only one can run. The service sees every proposal; anyone with its URL can read queued transactions and their signatures.
 - **A later change of threshold.** Owners, threshold and nonce are read at `latest` before signing. If the owners later lower the threshold, a proposal the owner signed can become executable with fewer signatures. That holds for any signed SafeTx.
 - **A leaked local key.** The task's checks decide what the plugin signs, not what someone else can sign with a copy of the key.
-- **`proposeSafeTransaction` on a remote node.** The library function sends the request for `sender` as it is and cannot see the network config: on a network with `accounts: "remote"`, a `sender` that is not a KMS, Ledger or local account is signed by the node.
+- **`proposeSafeTransaction` on a remote node.** The library function sends the request for `sender` as it is and cannot see the network config: on a network with `accounts: "remote"`, a `sender` that is not a KMS, Ledger or local account is signed by the node, unless the script calls `assertProposerSignsInProcess` first.
+- **A Ledger's hash screen.** hardhat-ledger falls back to signing the domain hash and message hash after any failure of the typed-data screen, a rejection included. Compare both with the task's summary, or reject them.
 - **Code in the same process.** Like the other tasks, `kms safe propose` and `proposeSafeTransaction` can be run from code, with `yes` or without `approve`, as [What the plugin does not protect against](#what-the-plugin-does-not-protect-against) says.
 
 ## Audit logs

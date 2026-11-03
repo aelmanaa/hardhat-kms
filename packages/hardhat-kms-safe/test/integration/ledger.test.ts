@@ -87,7 +87,7 @@ describe("kms safe propose --from a hardhat-ledger account", { timeout: 120_000 
     restoreFetch?.();
   });
 
-  it("sends the SafeTx to hardhat-ledger, which opens the device, and posts nothing", async () => {
+  it("sends the SafeTx to hardhat-ledger, which reaches its Connecting to Ledger step, and posts nothing", async () => {
     const singleton = await deploySingleton(node.chain, "1.5.0");
     const safe = await createSafe(node.chain, singleton, [LEDGER_ACCOUNT, node.chain.deployer], 2n);
     const posted = project.service.proposals.length;

@@ -8,11 +8,21 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
-import { concatHex, encodeFunctionData, getAddress, parseAbi, type Address, type Hex } from "viem";
+import {
+  concatHex,
+  encodeAbiParameters,
+  encodeFunctionData,
+  getAddress,
+  keccak256,
+  parseAbi,
+  toHex,
+  type Address,
+  type Hex,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 import { NO_TERMINAL, answering } from "../../../hardhat-kms/test/helpers/terminal.ts";
-import hardhatKmsSafe from "../../src/index.ts";
+import hardhatKmsSafe, { assertProposerSignsInProcess } from "../../src/index.ts";
 import { proposeSafeTransaction, type SafeProposal } from "../../src/internal/propose.ts";
 import { safeTxTypedData } from "../../src/internal/safe-tx.ts";
 import { proposeTask, type ProposeArguments } from "../../src/internal/tasks/propose.ts";
@@ -22,6 +32,7 @@ import {
   CHAIN_ID,
   createProject,
   fenceNetwork,
+  HD_ADDRESS,
   KEYSTORE_ADDRESS,
   KEYSTORE_VARIABLE,
   LOCAL_ADDRESS,
@@ -30,6 +41,7 @@ import {
   startNode,
   type Node,
   type Project,
+  UNREACHABLE_KEYS,
 } from "../helpers/harness.ts";
 import {
   createSafe,
@@ -151,6 +163,17 @@ async function proposeOn(
   const proposal = await propose(args, NO_TERMINAL, hre);
   assert.equal(project.signCalls(), kms, "the KMS was asked to sign");
   return { proposal, requests: project.signing.slice(start) };
+}
+
+/** Runs assertProposerSignsInProcess on a fresh connection to `network`. */
+async function check(network: string, address: string): Promise<void> {
+  const hre = await withNetwork(network);
+  const connection = await hre.network.create();
+  try {
+    await assertProposerSignsInProcess(hre, connection, address);
+  } finally {
+    await connection.close();
+  }
 }
 
 describe("kms safe propose", { timeout: 120_000 }, () => {
@@ -494,7 +517,183 @@ describe("kms safe propose", { timeout: 120_000 }, () => {
         terminal,
         await withNetwork("local"),
       );
-      assert.match(asked(), new RegExp(`Signer:     ${LOCAL_ADDRESS} \\(--from\\)`));
+      assert.match(asked(), new RegExp(`Signer:     ${LOCAL_ADDRESS} \\(local account\\)`));
+    });
+
+    it("names the KMS key when --from is its address on a network with local accounts", async () => {
+      const safe = await safeOf("1.3.0", [project.owner], 1n);
+      const { terminal, asked } = answering("y\n");
+      await propose(
+        { safe, to: SECOND_OWNER.address, from: project.owner, yes: false },
+        terminal,
+        await withNetwork("mixed"),
+      );
+      assert.match(asked(), new RegExp(`Signer:     ${project.owner} \\(key owner\\)`));
+    });
+
+    it("shows the domain and message hashes a Ledger shows when it signs blind", async () => {
+      const safe = await safeOf("1.5.0", [LOCAL_ADDRESS], 1n);
+      const { terminal, asked } = answering("y\n");
+      const proposal = await propose(
+        {
+          safe,
+          to: SECOND_OWNER.address,
+          value: 5n,
+          data: "0xabcd",
+          from: LOCAL_ADDRESS,
+          yes: false,
+        },
+        terminal,
+        await withNetwork("local"),
+      );
+      // Computed here from the EIP-712 definitions, apart from the plugin's viem calls.
+      const domainHash = keccak256(
+        encodeAbiParameters(
+          [{ type: "bytes32" }, { type: "uint256" }, { type: "address" }],
+          [
+            keccak256(toHex("EIP712Domain(uint256 chainId,address verifyingContract)")),
+            BigInt(CHAIN_ID),
+            safe,
+          ],
+        ),
+      );
+      const tx = proposal.transaction;
+      const messageHash = keccak256(
+        encodeAbiParameters(
+          [
+            { type: "bytes32" },
+            { type: "address" },
+            { type: "uint256" },
+            { type: "bytes32" },
+            { type: "uint8" },
+            { type: "uint256" },
+            { type: "uint256" },
+            { type: "uint256" },
+            { type: "address" },
+            { type: "address" },
+            { type: "uint256" },
+          ],
+          [
+            keccak256(
+              toHex(
+                "SafeTx(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,uint256 nonce)",
+              ),
+            ),
+            tx.to,
+            tx.value,
+            keccak256(tx.data),
+            tx.operation,
+            tx.safeTxGas,
+            tx.baseGas,
+            tx.gasPrice,
+            tx.gasToken,
+            tx.refundReceiver,
+            tx.nonce,
+          ],
+        ),
+      );
+      assert.equal(proposal.domainHash, domainHash);
+      assert.equal(proposal.messageHash, messageHash);
+      assert.equal(keccak256(concatHex(["0x1901", domainHash, messageHash])), proposal.safeTxHash);
+      assert.match(asked(), new RegExp(`Domain hash:  ${domainHash}`));
+      assert.match(asked(), new RegExp(`Message hash: ${messageHash}`));
+    });
+
+    it("--from an HD wallet account of the network", async () => {
+      const safe = await safeOf("1.4.1", [HD_ADDRESS, SECOND_OWNER.address], 2n);
+      const { proposal, requests } = await proposeOn("hd", {
+        safe,
+        to: SECOND_OWNER.address,
+        from: HD_ADDRESS,
+      });
+      assert.equal(proposal.sender, HD_ADDRESS);
+      assert.equal(requests.length, 1);
+      assert.equal(await execute(node.chain, proposal, await packed(proposal)), true);
+    });
+
+    it("--from an account Hardhat's simulated network holds", async () => {
+      // The node's own account: refused over http with accounts: "remote", but on an
+      // edr-simulated network EDR holds the same genesis key. The fresh simulated chain has no
+      // Safe, so the task gets past the choice of proposer and stops at the Safe's code.
+      const account = node.chain.deployer;
+      await refuses(
+        async () =>
+          await propose(
+            { safe: SECOND_OWNER.address, to: SECOND_OWNER.address, from: account },
+            NO_TERMINAL,
+            await withNetwork("simulated"),
+          ),
+        /there is no contract at 0x[0-9a-fA-F]{40} on chain 31337/,
+      );
+      await refuses(
+        async () =>
+          await propose(
+            { safe: SECOND_OWNER.address, to: SECOND_OWNER.address, from: LOCAL_ADDRESS },
+            NO_TERMINAL,
+            await withNetwork("simulated"),
+          ),
+        /is not an account of the network simulated/,
+      );
+    });
+
+    it("skips a KMS key that cannot be read and proposes with the one that matches", async () => {
+      const safe = await safeOf("1.4.1", [project.other, SECOND_OWNER.address], 2n);
+      UNREACHABLE_KEYS.add("owner");
+      try {
+        // With an address pin, the connection lists the key without asking the KMS, but its
+        // address check still asks, and fails.
+        const config = project.hre.userConfig;
+        const hre = await createHardhatRuntimeEnvironment(
+          {
+            ...config,
+            kms: {
+              ...config.kms,
+              keys: {
+                ...config.kms?.keys,
+                owner: {
+                  provider: "aws",
+                  keyId: "alias/safe-owner",
+                  region: "eu-west-1",
+                  address: project.owner,
+                },
+              },
+            },
+          },
+          { network: "two" },
+        );
+        registerFakeKms(hre, project.adapters, project.signing);
+        const proposal = await propose(
+          { safe, to: SECOND_OWNER.address, from: project.other },
+          NO_TERMINAL,
+          hre,
+        );
+        assert.equal(proposal.sender, project.other);
+        // With no key matching, the KMS's own error says more than the refusal.
+        await refuses(
+          async () =>
+            await propose({ safe, to: safe, from: node.chain.deployer }, NO_TERMINAL, hre),
+          /get public key, key aws:alias\/safe-owner: the provider call failed/,
+        );
+      } finally {
+        UNREACHABLE_KEYS.delete("owner");
+      }
+    });
+
+    it("assertProposerSignsInProcess applies the same rule for scripts", async () => {
+      const requests = project.signing.length;
+      await check("local", LOCAL_ADDRESS);
+      await check("default", project.owner);
+      await check("simulated", node.chain.deployer);
+      await assert.rejects(
+        check("none", node.chain.deployer),
+        /safe\.key|one of the node's own accounts/,
+      );
+      await assert.rejects(
+        check("local", KEYSTORE_ADDRESS),
+        /is not an account of the network local/,
+      );
+      await assert.rejects(check("local", "0x12"), /the sender is not an address/);
+      assert.equal(project.signing.length, requests);
     });
 
     it("keeps the KMS key as the default on a network that also has local accounts", async () => {

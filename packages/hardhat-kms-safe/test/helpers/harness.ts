@@ -20,7 +20,7 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts";
 
 import { fakeAdapter, type FakeAdapter } from "../../../hardhat-kms/test/helpers/fake-adapter.ts";
 import hardhatKmsSafe, { type KmsSafeUserConfig } from "../../src/index.ts";
@@ -60,6 +60,16 @@ export const KEYSTORE_SECRET: Hex = `0x${"22".repeat(32)}`;
 
 /** The `keystore` network's account. */
 export const KEYSTORE_ADDRESS: Address = privateKeyToAccount(KEYSTORE_SECRET).address;
+
+/** The `hd` network's mnemonic: a fixed test value (BIP-39 test vector), never a real wallet. */
+export const HD_MNEMONIC: string =
+  "legal winner thank year wave sausage worth useful legal winner thank yellow";
+
+/** The `hd` network's first account, at Hardhat's default path m/44'/60'/0'/0/0. */
+export const HD_ADDRESS: Address = mnemonicToAccount(HD_MNEMONIC).address;
+
+/** KMS keys whose adapter fails every call, as an unreachable KMS does; tests add names. */
+export const UNREACHABLE_KEYS: Set<string> = new Set<string>();
 
 /** The JSON-RPC methods that ask a connection to sign. */
 const SIGNING_METHODS = new Set([
@@ -165,6 +175,7 @@ export function registerFakeKms(
     createKeyAdapter: async (_context, key) => {
       const adapter = fakeAdapter({
         secretKey: key.name === "other" ? OTHER_SECRET : OWNER_SECRET,
+        ...(UNREACHABLE_KEYS.has(key.name) ? { throwError: new Error("KMS unreachable") } : {}),
       });
       adapters.push(adapter);
       return await Promise.resolve(adapter);
@@ -224,7 +235,8 @@ export interface Project {
  * Creates the project. Its `default` network is the node over http with the `owner` key; `two`
  * has two KMS keys and `none` has none. `local` has the key {@link LOCAL_SECRET} in its `accounts`,
  * `keystore` a key read through a configuration variable, `mixed` both a local key and `owner`,
- * and `ledger` a fake Ledger; `none` and `ledger` keep Hardhat's default `accounts: "remote"`.
+ * `ledger` a fake Ledger, `hd` an HD wallet, and `simulated` is an edr-simulated network;
+ * `none` and `ledger` keep Hardhat's default `accounts: "remote"`.
  *
  * @param node - The node.
  * @param kmsSafe - `kmsSafe` of the config; the fake service on chain 31337 by default.
@@ -274,6 +286,10 @@ export async function createProject(
         kmsAccounts: ["owner"],
       },
       ledger: { type: "http", url: node.url, chainId: CHAIN_ID, kmsAccounts: ["other"] },
+      hd: { type: "http", url: node.url, chainId: CHAIN_ID, accounts: { mnemonic: HD_MNEMONIC } },
+      // Hardhat's simulated network: a fresh chain per connection, with no Safe on it. EDR holds
+      // its genesis accounts (the node's accounts too) and signs for them in this process.
+      simulated: { type: "edr-simulated", chainId: CHAIN_ID, kmsAccounts: ["owner"] },
       wrongChain: { type: "http", url: node.url, chainId: 1, kmsAccounts: ["owner"] },
     },
     ...extra,

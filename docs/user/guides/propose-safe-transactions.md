@@ -116,9 +116,18 @@ networks: {
 },
 ```
 
-hardhat-ledger signs the Safe transaction on the device as EIP-712 typed data. Check the Safe, the call and the nonce on the device's screen against the summary the task prints before you approve. A device that cannot show the typed data asks you to sign its hash instead, which needs blind signing turned on in the Ethereum app; compare the hash with the task's `SafeTx` line.
+hardhat-ledger first asks the device to show the Safe transaction as EIP-712 typed data. Check the Safe, the call and the nonce on the device's screen against the summary the task prints before you approve.
 
-This path is checked against hardhat-ledger 3.1.1: the repository's tests show that the signing request goes to hardhat-ledger in Hardhat's process, which opens the device, and a stand-in for the device that answers as hardhat-ledger does produces a proposal the Safe accepts. It has not been run on a device yet.
+When that fails, hardhat-ledger asks the device to sign the transaction's two hashes instead, which needs blind signing turned on in the Ethereum app. The device then shows a domain hash and a message hash, not the SafeTx hash. Compare them with the task's lines of the same names, which the Safe app also shows for the transaction:
+
+| On the device | In the task's summary |
+| ------------- | --------------------- |
+| Domain hash   | `Domain hash:`        |
+| Message hash  | `Message hash:`       |
+
+hardhat-ledger 3.1.0 falls back to that hash screen after any failure of the typed-data screen, your rejection included. If you reject the typed data on the device, it then shows the hash screen: reject that too, or the transaction is signed after all.
+
+This path is checked against hardhat-ledger 3.1.0: the repository's tests show that the signing request goes to hardhat-ledger in Hardhat's process and reaches its "Connecting to Ledger..." step, and a stand-in for the device that answers as hardhat-ledger does produces a proposal the Safe accepts. It has not been run on a device yet.
 
 ### Propose from a KMS key
 
@@ -154,10 +163,10 @@ Without `--from`, the task signs with the network's KMS account. With several KM
 
 ### Which proposers are refused
 
-`--from` takes an address the network signs for in Hardhat's process: a key in its `accounts`, a Ledger in its `ledgerAccounts`, or a KMS account. The task refuses, before anything signs:
+`--from` takes an address the network signs for in Hardhat's process: a key in its `accounts` (a list of keys or a mnemonic), an account of an `edr-simulated` network, a Ledger in its `ledgerAccounts`, or a KMS account. The task refuses, before anything signs:
 
 - an address the connection does not list in `eth_accounts`;
-- on an `http` network whose `accounts` is `"remote"`, which is the default, an address that is not a KMS or Ledger account. Such a network lists the node's own accounts, and Hardhat would send the signing request to the node, which signs with a key it holds. The task never asks a node to sign;
+- on an `http` network whose `accounts` is `"remote"`, which is the default, an address that is not a KMS or Ledger account. Such a network lists the node's own accounts, and Hardhat would send the signing request to the node, which signs with a key it holds. The task never asks a node to sign. A network config the task does not recognise is treated the same way;
 - `--from` together with `--key` when the key's address is another one.
 
 On such a network, put the owner's key in `accounts` instead.
@@ -198,7 +207,7 @@ Or pass the encoded call with `--data`, and wei with `--value`:
 npx hardhat --network sepolia kms safe propose <safe> <recipient> --value 1000000000000000
 ```
 
-Before the proposer signs, the task prints on standard error what it is about to sign: the Safe and its version, the threshold and owners, the signer, the target, value, data and operation, the function and each argument when `--function` encoded the call, the nonce and the SafeTx hash. Pass an integer above 2^53 - 1 in `--args` as a string, such as `"123456789012345678901"`: JSON rounds larger numbers, so the task refuses them. After the service stores the proposal, it prints the result on standard output:
+Before the proposer signs, the task prints on standard error what it is about to sign: the Safe and its version, the threshold and owners, the signer, the target, value, data and operation, the function and each argument when `--function` encoded the call, the nonce, the SafeTx hash, and the domain hash and message hash it is built from. Pass an integer above 2^53 - 1 in `--args` as a string, such as `"123456789012345678901"`: JSON rounds larger numbers, so the task refuses them. After the service stores the proposal, it prints the result on standard output:
 
 ```text
 Proposed SafeTx 0x56d0c8521d3e248f74c1dd600311b5b2809fef7b70666a5badbebd5abbe91500
@@ -248,17 +257,23 @@ A job that proposes to a 1-of-N Safe must pass `--yes`, which shows in the workf
 
 ## From code
 
-`proposeSafeTransaction` runs the same checks from a script, with any EIP-1193 connection. `sender` is the proposer, any account the connection signs for:
+`proposeSafeTransaction` runs the same checks from a script, with any EIP-1193 connection. `sender` is the proposer, any account the connection signs for. `assertProposerSignsInProcess` applies the task's rule for `--from` first, so a node never signs:
 
 ```ts
-import { proposeSafeTransaction, TransactionServiceClient } from "@hardhat-kms/safe";
-import { network } from "hardhat";
+import {
+  assertProposerSignsInProcess,
+  proposeSafeTransaction,
+  TransactionServiceClient,
+} from "@hardhat-kms/safe";
+import hre from "hardhat";
 
-const connection = await network.create("sepolia");
+const sender = "0x4a62316623ad457F02cDC5D997deD67a383EC569"; // an owner the connection signs for
+const connection = await hre.network.create("sepolia");
 try {
+  await assertProposerSignsInProcess(hre, connection, sender);
   const proposal = await proposeSafeTransaction({
     provider: connection.provider,
-    sender: "0x4a62316623ad457F02cDC5D997deD67a383EC569", // an owner the connection signs for
+    sender,
     safe: "0xfFDBcab93921F1967577E66cc5E739571eB56F19",
     call: { to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", value: 1n },
     service: new TransactionServiceClient({
@@ -272,13 +287,13 @@ try {
 }
 ```
 
-The function does not ask anyone before it signs, and it does not check where the connection signs: it sends the request for `sender` as it is. On an `http` network whose `accounts` is `"remote"`, Hardhat forwards a request for an address it does not hold to the node, so pass only a KMS, Ledger or local account there. Pass `approve` to decide, for a Safe whose threshold is 1. The [API reference](../reference/api/@hardhat-kms/safe.md) lists its options.
+The function does not ask anyone before it signs, and it does not check where the connection signs: it sends the request for `sender` as it is. On an `http` network whose `accounts` is `"remote"`, Hardhat forwards a request for an address it does not hold to the node. Call `assertProposerSignsInProcess` before it, as above, to refuse that. Pass `approve` to decide, for a Safe whose threshold is 1. The [API reference](../reference/api/@hardhat-kms/safe.md) lists its options.
 
 ## What it does not do
 
 - It does not execute the transaction. The owners do that in the Safe app, or with any tool once the threshold is met.
 - It does not confirm a transaction another owner proposed. It proposes; confirm others' proposals in the Safe app.
-- It does not sign with an account the node holds, on a network whose `accounts` is `"remote"`.
+- `kms safe propose` does not sign with an account the node holds, on a network whose `accounts` is `"remote"`. `proposeSafeTransaction` checks this only when you call `assertProposerSignsInProcess` first.
 - Hardhat Ignition cannot deploy through a Safe: Ignition has no `safe` strategy, and a plugin cannot add one. Deploy with Ignition from your account, then hand ownership to the Safe and propose later calls with this task, as [Deploy with Hardhat Ignition](deploy-with-ignition.md#hand-ownership-to-a-safe) shows.
 - It supports Safe 1.3.0, 1.4.1 and 1.5.0 only.
 - Where Safe's service does not run and you run none, there is nothing to propose to. Collect the owners' signatures another way and execute the transaction from the Safe directly.

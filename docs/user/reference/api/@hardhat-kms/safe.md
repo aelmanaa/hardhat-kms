@@ -319,11 +319,32 @@ The connection's chain.
 
 [`SafeTransactionReview`](#safetransactionreview).[`chainId`](#chainid-1)
 
+##### domainHash
+
+> **domainHash**: `` `0x${string}` ``
+
+The EIP-712 domain separator of the Safe on this chain: the "Domain hash" a Ledger shows when
+it signs blind, and the Safe app shows.
+
+###### Inherited from
+
+[`SafeTransactionReview`](#safetransactionreview).[`domainHash`](#domainhash-1)
+
 ##### link
 
 > **link**: `string` \| `undefined`
 
 The Safe app's page for the transaction, for a chain Safe's hosted service serves.
+
+##### messageHash
+
+> **messageHash**: `` `0x${string}` ``
+
+The hash of the SafeTx struct: the "Message hash" a Ledger and the Safe app show.
+
+###### Inherited from
+
+[`SafeTransactionReview`](#safetransactionreview).[`messageHash`](#messagehash-1)
 
 ##### owners
 
@@ -497,6 +518,19 @@ What the key is about to sign, after every check before signing passed.
 
 The connection's chain.
 
+##### domainHash
+
+> **domainHash**: `` `0x${string}` ``
+
+The EIP-712 domain separator of the Safe on this chain: the "Domain hash" a Ledger shows when
+it signs blind, and the Safe app shows.
+
+##### messageHash
+
+> **messageHash**: `` `0x${string}` ``
+
+The hash of the SafeTx struct: the "Message hash" a Ledger and the Safe app show.
+
 ##### owners
 
 > **owners**: `` `0x${string}` ``[]
@@ -638,6 +672,42 @@ a chain is `https://api.safe.global/tx-service/<shortName>`, and the Safe app na
 The Safe versions the plugin proposes for. Older Safes have no `chainId` in their domain.
 
 ## Functions
+
+### assertProposerSignsInProcess()
+
+> **assertProposerSignsInProcess**(`hre`: `HardhatRuntimeEnvironment`, `connection`: `NetworkConnection`, `address`: `string`): `Promise`\<`void`\>
+
+Checks that a Hardhat network connection signs for `address` in this process, the rule
+`kms safe propose --from` applies, so that a script can apply it before
+[proposeSafeTransaction](#proposesafetransaction), which sends the signing request for its `sender` as it is.
+
+The address must be in the connection's `eth_accounts`. It is then accepted when it is a Ledger
+address of the network's `ledgerAccounts`, the address of one of its `kmsAccounts`, or any
+account of a network where Hardhat signs every listed account itself: `edr-simulated`, or `http`
+with `accounts` set to a list of keys or an HD config. On an `http` network with
+`accounts: "remote"`, the default, or a network config this package does not recognise, the
+other listed accounts are the node's, which the node would sign for, and they are refused.
+Nothing is signed.
+
+#### Parameters
+
+| Parameter    | Type                        | Description                                               |
+| ------------ | --------------------------- | --------------------------------------------------------- |
+| `hre`        | `HardhatRuntimeEnvironment` | The Hardhat runtime, which reads the KMS keys' addresses. |
+| `connection` | `NetworkConnection`         | A connection from `hre.network.create()`.                 |
+| `address`    | `string`                    | The proposer.                                             |
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Throws
+
+`safe.key.sender` for an address that is not one, `safe.key.not-an-account` when the
+connection does not list it, `safe.key.node-account` when the node would sign for it, or the
+KMS's error when no key matched and one could not be read.
+
+---
 
 ### proposeSafeTransaction()
 
