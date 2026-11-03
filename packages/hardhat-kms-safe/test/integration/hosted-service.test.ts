@@ -34,6 +34,7 @@ const args = (safe: string): ProposeArguments => ({
   function: undefined,
   args: undefined,
   key: undefined,
+  from: undefined,
   nonce: undefined,
   delegatecall: false,
   yes: true,
@@ -144,6 +145,22 @@ describe("kms safe propose through Hardhat's task runner", { timeout: 120_000 },
       assert.equal(Reflect.get(result, "safe"), safe);
       assert.equal(p.service.proposals.length, 1);
       assert.equal(p.service.proposals[0]?.nonce, 0n);
+      // --from reaches the action: the KMS account's own address proposes the next nonce.
+      await p.hre.tasks
+        .getTask(["kms", "safe", "propose"])
+        .run({ safe, to: local.chain.deployer, from: p.owner.toLowerCase() });
+      assert.equal(p.service.proposals[1]?.proposer, p.owner);
+      await assert.rejects(
+        p.hre.tasks
+          .getTask(["kms", "safe", "propose"])
+          .run({ safe, to: local.chain.deployer, from: local.chain.deployer }),
+        /has accounts: "remote", so 0x[0-9a-fA-F]{40} is one of the node's own accounts/,
+      );
+      assert.equal(p.signCalls(), 2);
+      assert.deepEqual(
+        p.signing.map((request) => request.method),
+        ["eth_signTypedData_v4", "eth_signTypedData_v4"],
+      );
     } finally {
       await p.close();
       await local.close();

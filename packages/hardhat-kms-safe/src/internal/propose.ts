@@ -68,10 +68,17 @@ export interface SafeProposal extends SafeTransactionReview {
 export interface ProposeSafeTransactionOptions {
   /**
    * A connection that signs for `sender` with `eth_signTypedData_v4`, such as a Hardhat network
-   * connection's `provider` whose network lists the key in `kmsAccounts`.
+   * connection's `provider`.
    */
   provider: Eip1193Provider;
-  /** The owner that signs: the address of a KMS account of the connection. */
+  /**
+   * The owner that signs: an address the connection signs for, such as a KMS account, a key in
+   * the network's `accounts` or a Ledger address in its `ledgerAccounts`. The function sends the
+   * signing request for this address to `provider` as it is: on a Hardhat `http` network whose
+   * `accounts` is `"remote"`, Hardhat forwards a request for an address it does not hold to the
+   * node, which signs with its own key. The `kms safe propose` task refuses that; this function
+   * cannot tell, so pass only an address the connection signs for in this process.
+   */
   sender: string;
   /** The Safe. */
   safe: string;
@@ -101,14 +108,15 @@ export interface ProposeSafeTransactionOptions {
 }
 
 /**
- * Proposes a Safe transaction signed by a KMS key. It reads the Safe on the connection's chain and
- * refuses, before anything is signed: a Safe with no code, a version other than 1.3.0, 1.4.1 or
- * 1.5.0, a sender that is not an owner, a nonce below the Safe's, a delegatecall without
- * `allowDelegateCall`, and a hash that differs from the Safe's own `getTransactionHash`. The key
- * signs the SafeTx as EIP-712 typed data through the connection's `eth_signTypedData_v4`, so
- * hardhat-kms checks the typed data's chain and verifies the signature. The signature must then
- * have v 27 or 28, recover to the sender and pass the Safe's `checkNSignatures`. Only then is it
- * posted to the service. Gas refund fields are always zero.
+ * Proposes a Safe transaction signed by `sender`, an account the connection signs for, such as a
+ * KMS key, a key in the network's `accounts` or a Ledger. It reads the Safe on the connection's
+ * chain and refuses, before anything is signed: a Safe with no code, a version other than 1.3.0,
+ * 1.4.1 or 1.5.0, a sender that is not an owner, a nonce below the Safe's, a delegatecall without
+ * `allowDelegateCall`, and a hash that differs from the Safe's own `getTransactionHash`. The
+ * sender signs the SafeTx as EIP-712 typed data through the connection's `eth_signTypedData_v4`;
+ * for a KMS account, hardhat-kms also checks the typed data's chain and verifies the signature.
+ * The signature must then have v 27 or 28, recover to the sender and pass the Safe's
+ * `checkNSignatures`. Only then is it posted to the service. Gas refund fields are always zero.
  *
  * This function does not ask anyone before it signs. A Safe whose threshold is 1 can execute the
  * transaction with this signature alone; pass `approve` to decide.
@@ -195,7 +203,8 @@ export async function proposeSafeTransaction(
     throw catalogError(ERRORS.declined, {});
   }
 
-  // The key signs here, through hardhat-kms: typed data whose domain names this chain.
+  // The owner signs here, through the connection: hardhat-kms for a KMS account, Hardhat for a key
+  // in the network's accounts, hardhat-ledger for a Ledger. The domain names this chain.
   const signature = await provider.request({
     method: "eth_signTypedData_v4",
     params: [sender, JSON.stringify(safeTxTypedData(chainId, safe, transaction))],

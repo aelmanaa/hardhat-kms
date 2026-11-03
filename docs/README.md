@@ -12,7 +12,7 @@ The [docs site](https://aelmanaa.github.io/hardhat-kms/) documents the version o
 - I already have a secp256k1 key in a KMS: start at step 2 of the setup guide for [AWS KMS](user/guides/aws-kms-setup.md#2-allow-signing-and-nothing-else), [Google Cloud KMS](user/guides/gcp-kms-setup.md#2-allow-signing-and-nothing-else) or [Azure Key Vault](user/guides/azure-key-vault-setup.md#2-allow-get-and-sign-and-nothing-else).
 - I keep the key in Turnkey: [Set up a Turnkey wallet account](user/guides/turnkey-setup.md), with a non-root API user and a least-privilege policy.
 - I want to deploy my contracts: [Deploy with Hardhat Ignition](user/guides/deploy-with-ignition.md).
-- My contracts are owned by a Safe and a KMS key is one of its owners: [Propose Safe transactions from Hardhat](user/guides/propose-safe-transactions.md).
+- My contracts are owned by a Safe and I want to propose its transactions from Hardhat, with a KMS key, a local key or a Ledger: [Propose Safe transactions from Hardhat](user/guides/propose-safe-transactions.md).
 - I want CI to sign with no stored credentials: [Sign from GitHub Actions with OIDC](user/guides/github-actions-oidc.md).
 - A command or script failed: [Errors](user/reference/errors.md) has every error with its cause and fix. Search the page for a fixed part of the message.
 - I sent a transaction and do not know what happened: [Recover from an uncertain transaction send](user/guides/uncertain-sends.md).

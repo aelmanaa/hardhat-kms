@@ -150,19 +150,19 @@ export const ERRORS = {
     kind: "error",
     group: "Signer",
     template:
-      "the network {network} has no KMS account. Add the owner's key to its kmsAccounts, or pass --key",
+      "the network {network} has no KMS account. Pass --from with the address of the owner that signs, or --key",
     cause:
-      "The task signs with a KMS account of the network it runs on, and this network's `kmsAccounts` is empty.",
-    fix: "Add the key to the network's `kmsAccounts`, or name it with `--key`.",
+      "Without `--from` or `--key`, the task signs with the network's only KMS account, and this network's `kmsAccounts` is empty.",
+    fix: "Pass `--from <address>` with an owner the network signs for: a key in its `accounts`, a Ledger in its `ledgerAccounts`, or a KMS key. Or name a KMS key with `--key`.",
   },
   severalKmsAccounts: {
     id: "safe.key.several",
     kind: "error",
     group: "Signer",
     template:
-      "the network {network} has {count} KMS accounts. Pass --key with the one that owns the Safe: {names}",
+      "the network {network} has {count} KMS accounts. Pass --key with the one that owns the Safe, or --from with its address: {names}",
     cause: "The task does not guess which of several KMS accounts is the Safe's owner.",
-    fix: "Pass `--key <name>`.",
+    fix: "Pass `--key <name>` or `--from <address>`.",
   },
   notOnNetwork: {
     id: "safe.key.not-on-network",
@@ -174,6 +174,36 @@ export const ERRORS = {
       "The key `--key` names is not among the connection's accounts, so the connection cannot sign with it.",
     fix: "Add the key to the network's `kmsAccounts`, or choose the network the key is configured for.",
   },
+  fromAndKey: {
+    id: "safe.key.from-and-key",
+    kind: "error",
+    group: "Signer",
+    template:
+      "--from {from} and --key {key} name different accounts: the key's address is {address}. Pass one of them. Nothing was signed",
+    cause:
+      "`--from` and `--key` were both given, and the address of the KMS key `--key` names is not the `--from` address.",
+    fix: "Pass only `--from` with the owner's address, or only `--key` with its KMS key.",
+  },
+  notAnAccount: {
+    id: "safe.key.not-an-account",
+    kind: "error",
+    group: "Signer",
+    template:
+      "{address} is not an account of the network {network}, so the connection cannot sign for it. Nothing was signed",
+    cause:
+      "The `--from` address is not in the connection's `eth_accounts`: it is not a key in the network's `accounts`, a Ledger address in its `ledgerAccounts`, or one of its KMS accounts.",
+    fix: "Add the owner's private key to the network's `accounts`, as `configVariable(\"...\")` read from the environment or `hardhat-keystore`; or its Ledger address to `ledgerAccounts` with `@nomicfoundation/hardhat-ledger`; or its KMS key to `kmsAccounts`. Or choose the network where it is configured.",
+  },
+  nodeAccount: {
+    id: "safe.key.node-account",
+    kind: "error",
+    group: "Signer",
+    template:
+      "the network {network} has accounts: \"remote\", so {address} is one of the node's own accounts and the node would sign for it. Nothing was sent to sign. Configure the owner's key in the network instead",
+    cause:
+      "On an `http` network whose `accounts` is `\"remote\"` (the default), `eth_accounts` lists the node's own accounts, and Hardhat forwards a signing request for them to the node, which signs with a key it holds. The task signs only with keys the project configures: a KMS account, a Ledger address in `ledgerAccounts`, or a key in the network's `accounts`.",
+    fix: "Put the owner's private key in the network's `accounts`, as `configVariable(\"...\")` read from the environment or `hardhat-keystore`; or use a Ledger through `ledgerAccounts`, or a KMS key through `kmsAccounts`. For a key from `--kms` on the command line, which is not in `kmsAccounts`, pass `--key` with its name instead of `--from`.",
+  },
   badSender: {
     id: "safe.key.sender",
     kind: "error",
@@ -181,7 +211,7 @@ export const ERRORS = {
     template: "the sender is not an address: expected 0x and 40 hexadecimal characters",
     cause:
       "`proposeSafeTransaction` got a `sender` that is not a 20-byte hexadecimal address with a valid checksum.",
-    fix: "Pass the address of one of the connection's KMS accounts.",
+    fix: "Pass the address of an account the connection signs for: a KMS account, a key in the network's `accounts` or a Ledger address in its `ledgerAccounts`.",
   },
   chainMismatch: {
     id: "safe.check.chain-mismatch",
@@ -240,8 +270,8 @@ export const ERRORS = {
     template:
       "{sender} is not an owner of the Safe {safe} on chain {chainId}. Its owners are {owners}. Nothing was signed",
     cause:
-      "The key's address is not in the Safe's `getOwners()` at the latest block, so its signature would not count and the service would refuse the proposal.",
-    fix: "Add the key's address as an owner from the Safe app, or use the key of an owner.",
+      "The proposer's address is not in the Safe's `getOwners()` at the latest block, so its signature would not count and the service would refuse the proposal.",
+    fix: "Add the address as an owner from the Safe app, or propose from an owner with `--from` or `--key`.",
   },
   nonceUsed: {
     id: "safe.check.nonce-used",
@@ -289,7 +319,7 @@ export const ERRORS = {
     group: "Threshold 1",
     template: "not proposed: the answer was not yes. Nothing was signed",
     cause:
-      "The Safe's threshold is 1, so the key's signature alone lets anyone execute the transaction once the service publishes it. The task asked at the terminal and got another answer than `y` or `yes`, or its input closed.",
+      "The Safe's threshold is 1, so the proposer's signature alone lets anyone execute the transaction once the service publishes it. The task asked at the terminal and got another answer than `y` or `yes`, or its input closed.",
     fix: "Run it again and answer `y`, or pass `--yes` when no person can answer.",
   },
   noTerminal: {
@@ -310,7 +340,7 @@ export const ERRORS = {
       "the connection returned a signature that is not 65 bytes, or whose v is not 27 or 28. Nothing was posted",
     cause:
       "The Safe reads a 65-byte signature with v 27 or 28 as an EIP-712 owner signature. Other v values mean another signature type.",
-    fix: "Check that the sender is a KMS account of the connection. If it is, report it.",
+    fix: "Check which plugin signs for the sender: hardhat-kms for a KMS account, Hardhat for a key in the network's `accounts`, hardhat-ledger for a Ledger. If it is one of these, report it.",
   },
   signatureSigner: {
     id: "safe.sign.signer",
@@ -318,8 +348,8 @@ export const ERRORS = {
     group: "Checks after signing",
     template: "the signature recovers to {recovered}, not to {sender}. Nothing was posted",
     cause:
-      "The signature does not recover to the key's address over the SafeTx hash. hardhat-kms checks every signature, so this means the connection signed with another account or other data.",
-    fix: "Check that the sender is a KMS account of the connection and that no other plugin handles `eth_signTypedData_v4` for it.",
+      "The signature does not recover to the proposer's address over the SafeTx hash: the connection signed with another account or other data. hardhat-kms checks every KMS signature, so for a KMS account this means another plugin answered; a Ledger or another signer plugin may have signed with another key or path.",
+    fix: "Check that the proposer is an account of the connection, that no other plugin handles `eth_signTypedData_v4` for it, and for a Ledger that its `ledgerAccounts` entry matches the device's address.",
   },
   signatureRefused: {
     id: "safe.sign.refused-by-safe",

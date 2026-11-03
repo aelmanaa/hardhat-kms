@@ -492,6 +492,9 @@ importers:
       '@hardhat-kms/aws':
         specifier: workspace:*
         version: link:../hardhat-kms-aws
+      '@nomicfoundation/hardhat-ledger':
+        specifier: 'catalog:'
+        version: 3.1.0(debug@4.4.3(supports-color@7.2.0))(hardhat@3.20.0)(react@19.3.0)(supports-color@7.2.0)
       '@safe-global/api-kit':
         specifier: 5.0.4
         version: 5.0.4(typescript@7.0.2)(zod@3.25.76)

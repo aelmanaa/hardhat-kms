@@ -1,7 +1,7 @@
 {
   "name": "@hardhat-kms/safe",
   "version": "1.4.0",
-  "description": "Hardhat 3 plugin that signs Safe multisig transactions with a hardhat-kms key and proposes them to the Safe Transaction Service, for the other owners to confirm.",
+  "description": "Hardhat 3 plugin that proposes Safe multisig transactions to the Safe Transaction Service, signed by any Hardhat account: a local or hardhat-keystore key, a Ledger, or a KMS key through hardhat-kms.",
   "keywords": [
     "hardhat-plugin",
     "hardhat",
@@ -15,6 +15,8 @@
     "safe-wallet",
     "gnosis-safe",
     "safe-transaction-service",
+    "safe-proposer",
+    "ledger",
     "signer",
     "viem"
   ],
@@ -68,6 +70,7 @@
   "devDependencies": {
     "@aws-sdk/client-kms": "^3.1143.0",
     "@hardhat-kms/aws": "workspace:*",
+    "@nomicfoundation/hardhat-ledger": "catalog:",
     "@safe-global/api-kit": "5.0.4",
     "@types/node": "catalog:",
     "c8": "catalog:",

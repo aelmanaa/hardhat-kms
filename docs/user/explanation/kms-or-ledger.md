@@ -40,6 +40,6 @@ In that setup, name the sender by address in every script. With hardhat-ledger f
 
 ## Both as Safe owners
 
-A Safe multisig can have both as owners. A KMS key proposes the routine admin and upgrade calls from CI with [`kms safe propose`](../guides/propose-safe-transactions.md), and the Ledger owners review each one in the Safe app and confirm it on their devices. With a threshold of 2 or more, the KMS key alone cannot execute anything: every call still needs a person at a Ledger. hardhat-ledger has no Safe task, so the Ledger owners confirm in the Safe app, which supports Ledger.
+A Safe multisig can have both as owners. A KMS key proposes the routine admin and upgrade calls from CI with [`kms safe propose`](../guides/propose-safe-transactions.md), and the Ledger owners review each one in the Safe app and confirm it on their devices. With a threshold of 2 or more, the KMS key alone cannot execute anything: every call still needs a person at a Ledger. A Ledger owner can propose too, with `kms safe propose --from`, and confirms others' proposals in the Safe app, which supports Ledger.
 
 For a private key in `.env` or the Hardhat keystore, read [A KMS key or a private key in .env](kms-or-env-key.md). For other KMS signers, read [Compared with other KMS signers](other-kms-signers.md).

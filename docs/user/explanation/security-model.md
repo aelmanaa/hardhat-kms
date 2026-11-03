@@ -200,23 +200,28 @@ The plugin's own checks apply to Turnkey as to every provider: each signature is
 
 ## Safe proposals
 
-`kms safe propose`, from `@hardhat-kms/safe`, signs a Safe transaction with a KMS key that owns the Safe and posts it to the Safe Transaction Service ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)). The key signs EIP-712 typed data through the connection, so the [typed-data chain check](#typed-data-checks-its-chain) and the [signature check](#every-signature-is-verified) apply as for any typed data.
+`kms safe propose`, from `@hardhat-kms/safe`, signs a Safe transaction with an owner of the Safe and posts it to the Safe Transaction Service ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)). The owner is the network's KMS key by default, or with `--from` a key in the network's `accounts` or a Ledger. It signs EIP-712 typed data through the connection. For a KMS key, the [typed-data chain check](#typed-data-checks-its-chain) and the [signature check](#every-signature-is-verified) apply as for any typed data; for every proposer, the task's own checks below apply.
+
+A local key is on disk: encrypted by `hardhat-keystore`, or in plain text in an environment variable or a `.env` file, and in Hardhat's memory while the task runs. Anyone who can read it can sign as that owner, propose, and with a threshold of 1 execute; nothing records its signatures. A KMS key never leaves the KMS, the cloud's IAM decides who may sign, and its audit log records each signature, so it is the recommended proposer for CI and long-lived owners. A Ledger keeps the key on the device and asks a person to approve each signature. [A KMS key or a private key in .env](kms-or-env-key.md) compares them.
 
 What the task protects against:
 
-- **A signature for another Safe or chain.** It reads the Safe on the network's node and refuses a Safe without code, a version other than 1.3.0, 1.4.1 or 1.5.0, and a key that is not an owner. Safes before 1.3.0 sign without the chain id, so they are refused. The Safe's own `getTransactionHash` must equal the hash the plugin computed.
+- **A signature by the node.** On an `http` network whose `accounts` is `"remote"`, `eth_accounts` lists the node's own accounts, and Hardhat would forward a signing request for one of them to the node. The task refuses a `--from` address there unless it is a KMS or Ledger account of the network, and refuses any address the connection does not list, before anything signs.
+- **A signature for another Safe or chain.** It reads the Safe on the network's node and refuses a Safe without code, a version other than 1.3.0, 1.4.1 or 1.5.0, and a proposer that is not an owner. Safes before 1.3.0 sign without the chain id, so they are refused. The Safe's own `getTransactionHash` must equal the hash the plugin computed.
 - **A transaction that cannot run, or pays someone.** It refuses a nonce below the Safe's, and always sets the gas refund fields to zero.
 - **A service that pushes the nonce far ahead.** The plugin trusts the Transaction Service only to raise the default nonce above the Safe's, and by at most 50; beyond that it refuses and asks for `--nonce`.
 - **A delegatecall by mistake.** A delegatecall runs the target's code with the Safe's storage, so it can change the owners and move the funds. The task proposes one only with `--delegatecall`.
-- **A proposal no Safe would accept.** After signing, the signature must recover to the key and pass the Safe's `checkNSignatures` before anything is posted.
-- **A signature that executes on its own.** For a Safe whose threshold is 1, the key's signature is enough to execute, and the service makes it public. The task asks a person at a terminal first, as [`kms sign-auth`](#the-kms-sign-auth-question) does, and refuses without one unless `--yes` is passed.
+- **A proposal no Safe would accept.** After signing, the signature must recover to the proposer's address and pass the Safe's `checkNSignatures` before anything is posted, whichever plugin signed.
+- **A signature that executes on its own.** For a Safe whose threshold is 1, the proposer's signature is enough to execute, and the service makes it public. The task asks a person at a terminal first, as [`kms sign-auth`](#the-kms-sign-auth-question) does, and refuses without one unless `--yes` is passed.
 - **A leaked API key.** `kmsSafe.apiKey` is a configuration variable only. The key goes only to the configured service as a bearer token, never into an error or a log, and the client never follows a redirect, so neither the key nor a signed proposal reaches another host.
 
 What it does not protect against:
 
 - **What the call does.** The task checks that the Safe can run the call, not that you should. The other owners review it in the Safe app.
-- **A node or a service that lies.** The checks read the node you configured. A node that lies about the Safe can hide a change of owners until the service or the Safe refuses the signature. A service that hides a queued transaction can make the key sign another at the same nonce; the other owners see both in the Safe app, and only one can run. The service sees every proposal; anyone with its URL can read queued transactions and their signatures.
-- **A later change of threshold.** Owners, threshold and nonce are read at `latest` before signing. If the owners later lower the threshold, a proposal the key signed can become executable with fewer signatures. That holds for any signed SafeTx.
+- **A node or a service that lies.** The checks read the node you configured. A node that lies about the Safe can hide a change of owners until the service or the Safe refuses the signature. A service that hides a queued transaction can make the proposer sign another at the same nonce; the other owners see both in the Safe app, and only one can run. The service sees every proposal; anyone with its URL can read queued transactions and their signatures.
+- **A later change of threshold.** Owners, threshold and nonce are read at `latest` before signing. If the owners later lower the threshold, a proposal the owner signed can become executable with fewer signatures. That holds for any signed SafeTx.
+- **A leaked local key.** The task's checks decide what the plugin signs, not what someone else can sign with a copy of the key.
+- **`proposeSafeTransaction` on a remote node.** The library function sends the request for `sender` as it is and cannot see the network config: on a network with `accounts: "remote"`, a `sender` that is not a KMS, Ledger or local account is signed by the node.
 - **Code in the same process.** Like the other tasks, `kms safe propose` and `proposeSafeTransaction` can be run from code, with `yes` or without `approve`, as [What the plugin does not protect against](#what-the-plugin-does-not-protect-against) says.
 
 ## Audit logs

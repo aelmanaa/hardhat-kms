@@ -10,8 +10,9 @@ import {
   type Terminal,
 } from "hardhat-kms/provider-utils";
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
+import type { NetworkConnection } from "hardhat/types/network";
 import type { NewTaskActionFunction } from "hardhat/types/tasks";
-import { formatEther, hexToBigInt, isHex } from "viem";
+import { formatEther, getAddress, hexToBigInt, isAddress, isHex, type Address } from "viem";
 
 import { serviceFor } from "../chains.ts";
 import { ERRORS } from "../error-catalog.ts";
@@ -20,6 +21,7 @@ import {
   type SafeProposal,
   type SafeTransactionReview,
 } from "../propose.ts";
+import { parseAddress } from "../safe-tx.ts";
 import { TransactionServiceClient } from "../tx-service.ts";
 import { callData, describeCall } from "./inputs.ts";
 
@@ -38,6 +40,7 @@ export interface ProposeArguments {
   function: string | undefined;
   args: string | undefined;
   key: string | undefined;
+  from: string | undefined;
   nonce: string | undefined;
   delegatecall: boolean;
   yes: boolean;
@@ -70,12 +73,13 @@ function note(line: string): void {
  * What the task shows before the key signs.
  *
  * @param review - What is about to be signed.
- * @param key - The key's name.
+ * @param signer - What signs, such as `key owner` or `Ledger`.
+ * @param call - The function and its arguments, when `--function` encoded the call.
  * @returns The lines.
  */
 function reviewLines(
   review: SafeTransactionReview,
-  key: string,
+  signer: string,
   call: string | undefined,
 ): string[] {
   const tx = review.transaction;
@@ -83,7 +87,7 @@ function reviewLines(
     `Safe:       ${review.safe} (Safe ${review.version}, chain ${review.chainId})`,
     `Threshold:  ${review.threshold} of ${review.owners.length}`,
     `Owners:     ${review.owners.join(", ")}`,
-    `Signer:     ${review.sender} (key ${key})`,
+    `Signer:     ${review.sender} (${signer})`,
     `To:         ${tx.to}`,
     `Value:      ${tx.value} wei (${formatEther(tx.value)} of the native token)`,
     `Data:       ${tx.data === "0x" ? "none" : `${(tx.data.length - 2) / 2} bytes, selector ${tx.data.slice(0, 10)}`}`,
@@ -100,18 +104,22 @@ function reviewLines(
   return lines;
 }
 
+/** The account that signs, and how the review names it. */
+interface Proposer {
+  address: Address;
+  /** Such as `key owner`, `Ledger` or `local account`. */
+  label: string;
+}
+
 /**
- * The name of the key that signs: `--key`, else the network's only KMS account.
+ * The name of the KMS key that signs when neither `--from` nor `--key` is given: the network's
+ * only KMS account.
  *
  * @param network - The network's name.
  * @param names - The names of the network's KMS accounts.
- * @param key - `--key`.
  * @returns The key's name.
  */
-function keyName(network: string, names: readonly string[], key: string | undefined): string {
-  if (key !== undefined) {
-    return key;
-  }
+function onlyKey(network: string, names: readonly string[]): string {
   const [only, ...others] = names;
   if (only === undefined) {
     throw catalogError(ERRORS.noKmsAccount, { network });
@@ -124,6 +132,102 @@ function keyName(network: string, names: readonly string[], key: string | undefi
     });
   }
   return only;
+}
+
+/**
+ * The connection's `eth_accounts`, checksummed.
+ *
+ * @param connection - The connection.
+ * @returns The addresses; an answer that is not a list of addresses gives none.
+ */
+async function connectionAccounts(connection: NetworkConnection): Promise<Address[]> {
+  const accounts: unknown = await connection.provider.request({ method: "eth_accounts" });
+  return Array.isArray(accounts) ? addresses(accounts) : [];
+}
+
+/**
+ * The addresses in a list, checksummed; anything else in it is dropped.
+ *
+ * @param list - Such as an `eth_accounts` answer.
+ * @returns The addresses.
+ */
+function addresses(list: readonly unknown[]): Address[] {
+  return list.flatMap((item: unknown) =>
+    typeof item === "string" && isAddress(item, { strict: false }) ? [getAddress(item)] : [],
+  );
+}
+
+/**
+ * The network's `ledgerAccounts`, which `@nomicfoundation/hardhat-ledger` adds to the network
+ * config and whose signing requests it answers in this process, with the device. Read without a
+ * dependency on that plugin: absent, or not a list of addresses, it is empty.
+ *
+ * @param connection - The connection.
+ * @returns The Ledger addresses, checksummed.
+ */
+function ledgerAccounts(connection: NetworkConnection): Address[] {
+  const configured: unknown = Reflect.get(connection.networkConfig, "ledgerAccounts");
+  return Array.isArray(configured) ? addresses(configured) : [];
+}
+
+/**
+ * The owner that signs, chosen before anything is read from the Safe.
+ *
+ * - `--key` names a KMS key, and the connection must list its address.
+ * - `--from` names an address the connection must list in `eth_accounts`. On an `http` network
+ *   whose `accounts` is `"remote"`, Hardhat forwards a signing request for an address it does not
+ *   hold to the node, which signs with its own key; there `--from` must be a KMS account or a
+ *   Ledger address of the network. Elsewhere Hardhat answers `eth_accounts` itself, with the keys
+ *   in the network's `accounts` (or the simulated network's), the Ledger addresses and the KMS
+ *   accounts, and signs for each in this process.
+ * - Both: they must name the same address.
+ * - Neither: the network's only KMS account.
+ *
+ * @param hre - The Hardhat runtime.
+ * @param connection - The connection.
+ * @param from - `--from`.
+ * @param key - `--key`.
+ * @returns The proposer.
+ */
+async function chooseProposer(
+  hre: HardhatRuntimeEnvironment,
+  connection: NetworkConnection,
+  from: string | undefined,
+  key: string | undefined,
+): Promise<Proposer> {
+  const { networkConfig, networkName } = connection;
+  const fromAddress = from === undefined ? undefined : parseAddress(from, "--from");
+  const kmsNames = networkConfig.kmsAccounts.map((account) => account.name);
+
+  if (fromAddress === undefined || key !== undefined) {
+    const name = key ?? onlyKey(networkName, kmsNames);
+    const address = getAddress(await kmsKeyAddress(hre, name));
+    if (fromAddress !== undefined && fromAddress !== address) {
+      throw catalogError(ERRORS.fromAndKey, { from: fromAddress, key: name, address });
+    }
+    if (!(await connectionAccounts(connection)).includes(address)) {
+      throw catalogError(ERRORS.notOnNetwork, { address, key: name, network: networkName });
+    }
+    return { address, label: `key ${name}` };
+  }
+
+  if (!(await connectionAccounts(connection)).includes(fromAddress)) {
+    throw catalogError(ERRORS.notAnAccount, { address: fromAddress, network: networkName });
+  }
+  if (ledgerAccounts(connection).includes(fromAddress)) {
+    return { address: fromAddress, label: "Ledger" };
+  }
+  if (networkConfig.type === "http" && networkConfig.accounts === "remote") {
+    // The node's own accounts and the KMS accounts look alike in eth_accounts: only a KMS key of
+    // the network may sign here. Its address comes from the KMS, not from the node.
+    for (const name of kmsNames) {
+      if (getAddress(await kmsKeyAddress(hre, name)) === fromAddress) {
+        return { address: fromAddress, label: `key ${name}` };
+      }
+    }
+    throw catalogError(ERRORS.nodeAccount, { address: fromAddress, network: networkName });
+  }
+  return { address: fromAddress, label: "--from" };
 }
 
 /**
@@ -152,7 +256,7 @@ export async function proposeTask(
 
   const connection = await hre.network.create();
   try {
-    const { networkConfig, networkName, provider } = connection;
+    const { networkConfig, provider } = connection;
     const chainIdAnswer: unknown = await provider.request({ method: "eth_chainId" });
     if (!isHex(chainIdAnswer, { strict: true }) || chainIdAnswer === "0x") {
       throw catalogError(ERRORS.chainUnreadable, {});
@@ -183,26 +287,11 @@ export async function proposeTask(
       timeoutMs: kmsSafe.timeoutMs,
     });
 
-    const names =
-      networkConfig.type === "http" || networkConfig.type === "edr-simulated"
-        ? networkConfig.kmsAccounts.map((account) => account.name)
-        : [];
-    const key = keyName(networkName, names, args.key);
-    const sender = await kmsKeyAddress(hre, key);
-    const accounts: unknown = await provider.request({ method: "eth_accounts" });
-    if (
-      !Array.isArray(accounts) ||
-      !accounts.some(
-        (account: unknown) =>
-          typeof account === "string" && account.toLowerCase() === sender.toLowerCase(),
-      )
-    ) {
-      throw catalogError(ERRORS.notOnNetwork, { address: sender, key, network: networkName });
-    }
+    const proposer = await chooseProposer(hre, connection, args.from, args.key);
 
     const proposal = await proposeSafeTransaction({
       provider,
-      sender,
+      sender: proposer.address,
       safe: args.safe,
       call: { to: args.to, value: args.value, data, operation: args.delegatecall ? 1 : 0 },
       service,
@@ -212,7 +301,7 @@ export async function proposeTask(
       expectedChainId: chainId,
       origin: ORIGIN,
       approve: async (review) => {
-        const lines = reviewLines(review, key, call);
+        const lines = reviewLines(review, proposer.label, call);
         if (review.threshold !== 1n || args.yes) {
           for (const line of lines) {
             note(line);
@@ -245,8 +334,8 @@ export async function proposeTask(
 }
 
 /**
- * `kms safe propose <safe> <to>`: signs a Safe transaction with a KMS owner and proposes it to the
- * Safe Transaction Service.
+ * `kms safe propose <safe> <to>`: signs a Safe transaction with an owner the network signs for, and
+ * proposes it to the Safe Transaction Service.
  *
  * @param args - The task's arguments.
  * @param hre - The Hardhat runtime.

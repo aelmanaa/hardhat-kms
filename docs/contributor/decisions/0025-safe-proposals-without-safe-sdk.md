@@ -1,6 +1,6 @@
 # 0025: Propose Safe transactions from a separate package, without a Safe SDK
 
-Status: Accepted (2026-11-02)
+Status: Accepted (2026-11-02), amended 2026-11-02 by [#658](https://github.com/aelmanaa/hardhat-kms/issues/658): proposals from any Hardhat account
 
 Issue: [#653](https://github.com/aelmanaa/hardhat-kms/issues/653)
 
@@ -66,8 +66,23 @@ The SDK option: `@safe-global/api-kit` 5.0.4 with `protocol-kit` 8.0.11 installs
 - The chain table follows api-kit 5.0.4. A chain Safe adds later needs a table update or `kmsSafe.services`.
 - Revisit if the package needs much more of the API, such as confirming other owners' proposals, delegates, messages or multi-send batches, where typed SDK bodies would pay for the dependency. Revisit too if Safe changes the `SafeTx` type or makes proposals require something the client does not send.
 
+## Amendment: proposals from any Hardhat account
+
+Amended on 2026-11-02 by [#658](https://github.com/aelmanaa/hardhat-kms/issues/658), before the package's first release.
+
+Most people who would propose to a Safe from Hardhat do not have a KMS key: they have a burner wallet, a key in a network's `accounts` or in `hardhat-keystore`, or a Ledger through `@nomicfoundation/hardhat-ledger`. The task signs through the connection's `eth_signTypedData_v4`, which Hardhat 3 answers for local accounts and hardhat-ledger answers for Ledgers, so the signing path needed no change. Only the choice of the signer did.
+
+- **`--from <address>`** names the proposer. Without `--from` or `--key`, the task still uses the network's only KMS account, so a KMS project sees no change; a network with no KMS account, or several, needs `--from` or `--key`. With both, the key's address must equal `--from`, or the task refuses with `safe.key.from-and-key` before anything signs.
+- **What `--from` may be.** The address must be in the connection's `eth_accounts` (`safe.key.not-an-account` otherwise). That is not enough on an `http` network whose `accounts` is `"remote"`, Hardhat's default: there `eth_accounts` comes from the node, and Hardhat 3.20 forwards a signing request for an address no handler holds to the node, which signs with its own key. Hardhat answers `eth_accounts` itself only when `accounts` is a list of keys or an HD config (`LocalAccountsHandler` and `HDWalletHandler` return their own addresses and nothing from the node), and an `edr-simulated` network signs for its accounts in the process. So on an `http` network with `accounts: "remote"`, `--from` must be a Ledger address of the network's `ledgerAccounts` or the address of one of its `kmsAccounts`, read from the KMS; anything else is refused with `safe.key.node-account` and no signing request is sent. On any other network, every `eth_accounts` address is signed for in the process. The rule reads the network config, not the answer, so a node cannot widen it.
+- **hardhat-ledger.** Version 3.1.1 adds `ledgerAccounts` to the network config, appends those addresses to `eth_accounts`, and answers `eth_signTypedData_v4` for them: it parses the JSON string, which needs `types`, `primaryType`, `domain` and `message` (the task sends all four, with `EIP712Domain` in `types`), signs with `signEIP712Message` or, on a device that cannot show typed data, `signEIP712HashedMessage`, and returns `v` 27 or 28. The task reads `ledgerAccounts` with `Reflect.get`, without a dependency on the plugin. A test with the real plugin shows the request reaches its device step in the process; a stand-in that answers as it does proves the request's shape and a proposal the Safe accepts. No device has signed yet.
+- **Every check stays.** The checks before signing do not depend on the signer. After signing, the signature must recover to the chosen proposer, which matters more now: hardhat-kms verifies every KMS signature, but nothing in between checks a Ledger's or another plugin's.
+- **The library keeps `sender`.** `proposeSafeTransaction` already took any address; it takes an EIP-1193 provider and cannot see the network config, so it cannot apply the rule above. Its TSDoc and the guide say so. A second name for the same field (`from`) would add nothing.
+- **A KMS key stays the recommended proposer** for CI and long-lived owners: no key on disk, IAM decides who signs, CI signs through OpenID Connect, and the cloud's audit log records each signature. The guide and the security model say what a local key exposes.
+- **The package description** names any Hardhat account, so a search for a Hardhat Safe proposer finds it, and the keywords add `safe-proposer` and `ledger`. The package name and the task name stay: the task lives under the core's `kms` scope, and renaming either before 1.5.0 would cost more than it gives.
+
 ## Still open
 
-- One real proposal on Sepolia, which needs a Safe owned by the test KMS key and a Safe API key in the owner's environment. The issue's acceptance criteria require it; the owner runs it.
+- One real proposal on Sepolia, which needs a Safe owned by the test KMS key and a Safe API key in the owner's environment. The issue's acceptance criteria require it; the owner runs it. [#658](https://github.com/aelmanaa/hardhat-kms/issues/658) adds one from a plain key.
+- A proposal signed on a Ledger device, through hardhat-ledger.
 - Whether an unkeyed POST is accepted. Until it is measured, the hosted service needs an API key, as api-kit requires.
 - Whether the Safe app's chain prefix equals the service's short name on every chain. The link is not checked against the live app; the Sepolia proposal checks it for `sep`.

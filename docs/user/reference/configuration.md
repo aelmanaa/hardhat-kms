@@ -257,7 +257,7 @@ The list lives in the Hardhat config, so whoever can edit the config can widen i
 
 ## Safe proposals
 
-`@hardhat-kms/safe` adds `kms safe propose`, which signs a Safe transaction with a KMS key and proposes it to the Safe Transaction Service ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)). Add it to `plugins` next to the provider package. Its settings live in a `kmsSafe` section at the top of the config:
+`@hardhat-kms/safe` adds `kms safe propose`, which signs a Safe transaction with a KMS key, a key in the network's `accounts` or a Ledger, and proposes it to the Safe Transaction Service ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)). Add it to `plugins`, next to the provider package of a KMS key if one proposes. Its settings live in a `kmsSafe` section at the top of the config:
 
 <!-- docs-check: skip -->
 

@@ -16,10 +16,12 @@ import type { HardhatPlugin } from "hardhat/types/plugins";
 export type * from "./type-extensions.ts";
 
 /**
- * The @hardhat-kms/safe plugin: `kms safe propose` signs a Safe transaction with a KMS account that
- * owns the Safe and proposes it to the Safe Transaction Service. It loads hardhat-kms itself.
+ * The @hardhat-kms/safe plugin: `kms safe propose` signs a Safe transaction with an owner the
+ * network signs for, a KMS account by default or the `--from` address, and proposes it to the Safe
+ * Transaction Service. It loads hardhat-kms itself.
  *
- * Add it to the `plugins` array of your Hardhat config, next to the provider package of your key.
+ * Add it to the `plugins` array of your Hardhat config, next to the provider package of a KMS key
+ * if one signs.
  */
 const hardhatKmsSafePlugin: HardhatPlugin = definePlugin({
   id: "@hardhat-kms/safe",
@@ -29,8 +31,8 @@ const hardhatKmsSafePlugin: HardhatPlugin = definePlugin({
     config: () => import("./internal/hook-handlers/config.ts"),
   },
   tasks: [
-    emptyTask(["kms", "safe"], "Propose Safe multisig transactions signed by a KMS key").build(),
-    task(["kms", "safe", "propose"], "Sign a Safe transaction with a KMS owner and propose it")
+    emptyTask(["kms", "safe"], "Propose Safe multisig transactions from a Hardhat account").build(),
+    task(["kms", "safe", "propose"], "Sign a Safe transaction with an owner and propose it")
       .addPositionalArgument({
         name: "safe",
         type: ArgumentType.STRING,
@@ -71,7 +73,14 @@ const hardhatKmsSafePlugin: HardhatPlugin = definePlugin({
         type: ArgumentType.STRING_WITHOUT_DEFAULT,
         defaultValue: undefined,
         description:
-          "The owner's key, as the kms tasks take it; the network's only KMS account by default",
+          "The owner's KMS key, as the kms tasks take it; the network's only KMS account by default",
+      })
+      .addOption({
+        name: "from",
+        type: ArgumentType.STRING_WITHOUT_DEFAULT,
+        defaultValue: undefined,
+        description:
+          "The owner's address: a key in the network's accounts, a Ledger or a KMS account",
       })
       .addOption({
         name: "nonce",
