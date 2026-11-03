@@ -7,7 +7,7 @@ description: "What a hardhat-kms version promises: the latest and beta npm tags,
 
 Audience: users choosing which version of hardhat-kms and a provider package to install, and plugin authors who build on its exported types. Explains what a version number promises, what the `latest` and `beta` tags mean, which Hardhat, Node.js and viem versions a release supports, and how long an old major gets security fixes.
 
-The five packages, `hardhat-kms`, `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure` and `@hardhat-kms/turnkey`, are released together at one version. A provider package pins the core to that exact version, so a project always has all of its hardhat-kms packages at one version. The first published version is 0.9.0, the candidate for 1.0.0; until 1.0.0 is out, use it with test keys on testnets.
+The six packages, `hardhat-kms`, `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure`, `@hardhat-kms/turnkey` and `@hardhat-kms/safe`, are released together at one version. A provider package and `@hardhat-kms/safe` pin the core to that exact version, so a project always has all of its hardhat-kms packages at one version. The first published version was 0.9.0, the candidate for 1.0.0; the packages are stable since 1.0.0.
 
 ## Semver and the public API
 
@@ -57,7 +57,7 @@ yarn add --dev hardhat-kms @hardhat-kms/aws
 
 :::
 
-To test a version before it is promoted, install both packages from `beta`. `@hardhat-kms/gcp`, `@hardhat-kms/azure` and `@hardhat-kms/turnkey` install the same way.
+To test a version before it is promoted, install both packages from `beta`. `@hardhat-kms/gcp`, `@hardhat-kms/azure`, `@hardhat-kms/turnkey` and `@hardhat-kms/safe` install the same way.
 
 ::: code-group
 
@@ -108,7 +108,7 @@ One row per plugin major, with the ranges the package manifests declare at that 
 | -------- | --------- | ----------- | ------------------------------------- |
 | 0.9, 1.x | `^3.18.0` | `>=22.13.0` | `^2.55.13`                            |
 
-viem is needed only by `connection.kms.getAccount`; the plugin signs through Hardhat's network connection without it. [Library accounts](../reference/library-accounts.md#package-managers-and-the-peer-ranges) shows what each package manager does when a project asks for a viem outside the range.
+The core needs viem only for `connection.kms.getAccount`, and signs through Hardhat's network connection without it. `@hardhat-kms/safe` always needs viem, in the same range. [Library accounts](../reference/library-accounts.md#package-managers-and-the-peer-ranges) shows what each package manager does when a project asks for a viem outside the range.
 
 ### Previous major
 
