@@ -1,5 +1,31 @@
 # hardhat-kms
 
+## 1.5.0
+
+### Minor Changes
+
+- [#650](https://github.com/aelmanaa/hardhat-kms/pull/650) [`4cd3846`](https://github.com/aelmanaa/hardhat-kms/commit/4cd38463309557d32dec5b981bba700365560189) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A Google Cloud key takes an optional `protectionLevel`, such as `"HSM"`. The plugin then refuses to sign with a key version at another protection level, or one whose public key response names no level. The check runs before the first signature and fails with `gcp.key.protection-level`. Accepted values are `SOFTWARE`, `HSM`, `HSM_SINGLE_TENANT`, `EXTERNAL` and `EXTERNAL_VPC`. Any other value fails when the config loads with `core.config.gcp-protection-level`.
+  
+  `kms accounts` shows the level that Cloud KMS reports for each Google Cloud key in a new `PROTECTION` column, and in `protectionLevel` in its JSON output, with or without the setting. The `hardhat:kms:gcp` debug namespace logs it too. Provider adapters can report a level through a new optional `protectionLevel()` method.
+  
+  Issue: [#637](https://github.com/aelmanaa/hardhat-kms/issues/637)
+
+### Patch Changes
+
+- [#647](https://github.com/aelmanaa/hardhat-kms/pull/647) [`ad09100`](https://github.com/aelmanaa/hardhat-kms/commit/ad09100ef0f838f46a229b520d91752f365ef231) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `hardhat-kms/provider-utils` exports `catalogWarning`, which prints a `warning` entry of an error catalogue on standard error after `hardhat-kms: `. The errors reference lists warnings with the kind `warning`. The helper is for the first-party provider packages.
+  
+  Issue: [#635](https://github.com/aelmanaa/hardhat-kms/issues/635)
+
+- [#633](https://github.com/aelmanaa/hardhat-kms/pull/633) [`4609f97`](https://github.com/aelmanaa/hardhat-kms/commit/4609f9754b9f30200ed2eb9cc6ff416872f5f460) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The README on npm shows the Hardhat plugin badge: hardhat-kms is listed on Hardhat's community plugins page.
+
+- [#657](https://github.com/aelmanaa/hardhat-kms/pull/657) [`6dd5a48`](https://github.com/aelmanaa/hardhat-kms/commit/6dd5a4827c7bdad9823379c306ec282d595e93e0) Thanks [@aelmanaa](https://github.com/aelmanaa)! - `hardhat-kms/provider-utils` exports `kmsKeyAddress`, which returns the address of a key a task names without printing it, and `confirm`, `isYes`, `processTerminal` and the `Terminal` type, which ask a person at the terminal before a key signs. They are experimental and are for the first-party packages, such as `@hardhat-kms/safe`. The package description and keywords now mention Safe proposals.
+  
+  Issue: [#653](https://github.com/aelmanaa/hardhat-kms/issues/653)
+
+- [#656](https://github.com/aelmanaa/hardhat-kms/pull/656) [`88675d7`](https://github.com/aelmanaa/hardhat-kms/commit/88675d7696625c9f9d4fa3fea140803f3e926c8b) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The READMEs on npm no longer call 0.9.0 the release candidate for 1.0.0. They say the packages are stable since 1.0.0, and that `latest` holds the current release.
+  
+  Issue: [#655](https://github.com/aelmanaa/hardhat-kms/issues/655)
+
 ## 1.4.0
 
 ### Minor Changes

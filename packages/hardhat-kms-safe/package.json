@@ -1,6 +1,6 @@
 {
   "name": "@hardhat-kms/safe",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Hardhat 3 plugin that proposes Safe multisig transactions to the Safe Transaction Service, signed by any Hardhat account: a local or hardhat-keystore key, a Ledger, or a KMS key through hardhat-kms.",
   "keywords": [
     "hardhat-plugin",

@@ -1,5 +1,37 @@
 # @hardhat-kms/gcp
 
+## 1.5.0
+
+### Minor Changes
+
+- [#650](https://github.com/aelmanaa/hardhat-kms/pull/650) [`4cd3846`](https://github.com/aelmanaa/hardhat-kms/commit/4cd38463309557d32dec5b981bba700365560189) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A Google Cloud key takes an optional `protectionLevel`, such as `"HSM"`. The plugin then refuses to sign with a key version at another protection level, or one whose public key response names no level. The check runs before the first signature and fails with `gcp.key.protection-level`. Accepted values are `SOFTWARE`, `HSM`, `HSM_SINGLE_TENANT`, `EXTERNAL` and `EXTERNAL_VPC`. Any other value fails when the config loads with `core.config.gcp-protection-level`.
+  
+  `kms accounts` shows the level that Cloud KMS reports for each Google Cloud key in a new `PROTECTION` column, and in `protectionLevel` in its JSON output, with or without the setting. The `hardhat:kms:gcp` debug namespace logs it too. Provider adapters can report a level through a new optional `protectionLevel()` method.
+  
+  Issue: [#637](https://github.com/aelmanaa/hardhat-kms/issues/637)
+
+### Patch Changes
+
+- [#646](https://github.com/aelmanaa/hardhat-kms/pull/646) [`5b159b4`](https://github.com/aelmanaa/hardhat-kms/commit/5b159b481e9392554778abde5aa9d4f505e2351e) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A Google Cloud KMS call refused with PERMISSION_DENIED now says when the Cloud KMS API is not enabled. The error `gcp.status.service-disabled` gives the `gcloud services enable cloudkms.googleapis.com` command for the key's project. A quota project the credentials cannot use now fails with `gcp.status.quota-project`, which names the reason, `USER_PROJECT_DENIED` or `CONSUMER_INVALID`, and how to change the quota project. The plugin reads only the reason from Google's answer. Every other PERMISSION_DENIED keeps the hint to grant the key's roles.
+  
+  Issue: [#639](https://github.com/aelmanaa/hardhat-kms/issues/639)
+
+- [#648](https://github.com/aelmanaa/hardhat-kms/pull/648) [`dd17448`](https://github.com/aelmanaa/hardhat-kms/commit/dd17448b911e47caf9a40aee8988912b0f95676e) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A Google Cloud key version that Cloud KMS refuses with FAILED_PRECONDITION now shows its state, such as `DISABLED`, `DESTROY_SCHEDULED` or `DESTROYED`. A version still in `PENDING_GENERATION` gets its own message, which says to retry in a minute. A 4xx answer that is not a Google error, such as a proxy's HTML page, now shows its HTTP status and says something other than Google Cloud KMS refused the request. Both used to read as a disabled, destroyed or scheduled-for-destruction key version.
+  
+  Issue: [#642](https://github.com/aelmanaa/hardhat-kms/issues/642)
+
+- [#647](https://github.com/aelmanaa/hardhat-kms/pull/647) [`ad09100`](https://github.com/aelmanaa/hardhat-kms/commit/ad09100ef0f838f46a229b520d91752f365ef231) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The plugin now prints a warning on standard error, once per process, when `GOOGLE_SDK_NODE_LOGGING` turns on the logs of Google's client libraries. With the variable set to `kms`, `auth`, `*` or `all`, those libraries print every Cloud KMS request and response with the full key version name. google-auth-library also prints the access token of each token refresh and the log entries `kms history` reads. The warning appears when a Google Cloud key is first used or `kms history` reads one. The plugin does not change the variable. The warning's id is `gcp.debug.sdk-logging`.
+  
+  What should I do? Unset `GOOGLE_SDK_NODE_LOGGING` outside a local debugging session, and never set it in CI. Use `DEBUG=hardhat:kms:*` to see what the plugin does.
+  
+  Issue: [#635](https://github.com/aelmanaa/hardhat-kms/issues/635)
+
+- [#656](https://github.com/aelmanaa/hardhat-kms/pull/656) [`88675d7`](https://github.com/aelmanaa/hardhat-kms/commit/88675d7696625c9f9d4fa3fea140803f3e926c8b) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The READMEs on npm no longer call 0.9.0 the release candidate for 1.0.0. They say the packages are stable since 1.0.0, and that `latest` holds the current release.
+  
+  Issue: [#655](https://github.com/aelmanaa/hardhat-kms/issues/655)
+- Updated dependencies [[`ad09100`](https://github.com/aelmanaa/hardhat-kms/commit/ad09100ef0f838f46a229b520d91752f365ef231), [`4cd3846`](https://github.com/aelmanaa/hardhat-kms/commit/4cd38463309557d32dec5b981bba700365560189), [`4609f97`](https://github.com/aelmanaa/hardhat-kms/commit/4609f9754b9f30200ed2eb9cc6ff416872f5f460), [`6dd5a48`](https://github.com/aelmanaa/hardhat-kms/commit/6dd5a4827c7bdad9823379c306ec282d595e93e0), [`88675d7`](https://github.com/aelmanaa/hardhat-kms/commit/88675d7696625c9f9d4fa3fea140803f3e926c8b)]:
+  - hardhat-kms@1.5.0
+
 ## 1.4.0
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @hardhat-kms/turnkey
 
+## 1.5.0
+
+### Patch Changes
+
+- Updated dependencies [[`ad09100`](https://github.com/aelmanaa/hardhat-kms/commit/ad09100ef0f838f46a229b520d91752f365ef231), [`4cd3846`](https://github.com/aelmanaa/hardhat-kms/commit/4cd38463309557d32dec5b981bba700365560189), [`4609f97`](https://github.com/aelmanaa/hardhat-kms/commit/4609f9754b9f30200ed2eb9cc6ff416872f5f460), [`6dd5a48`](https://github.com/aelmanaa/hardhat-kms/commit/6dd5a4827c7bdad9823379c306ec282d595e93e0), [`88675d7`](https://github.com/aelmanaa/hardhat-kms/commit/88675d7696625c9f9d4fa3fea140803f3e926c8b)]:
+  - hardhat-kms@1.5.0
+
 ## 1.4.0
 
 ### Patch Changes
