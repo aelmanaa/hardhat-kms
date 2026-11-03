@@ -19,6 +19,8 @@ You need a Safe on the network's chain with the proposer's address among its own
 > Audience: users whose contracts are owned by a Safe, who want to propose admin and upgrade calls from Hardhat or CI.
 >
 > Checked on this repository's tests: Safes 1.3.0, 1.4.1 and 1.5.0 from their canonical bytecode, on Hardhat's own node, with a LocalStack AWS KMS key, a key in a network's `accounts`, a key read through a configuration variable, and a local service that applies the Transaction Service's checks. Each proposal's signature passed the Safe's `checkNSignatures`, and each Safe executed the transaction, with a second owner's signature where the threshold was 2. A proposal to Safe's hosted service on Sepolia has not been run yet, and the Ledger path has not been run on a device: see [Propose from a Ledger](#propose-from-a-ledger).
+>
+> Checked on Sepolia on 2026-11-03 against Safe's hosted Transaction Service, with `@hardhat-kms/safe` packed from `main`: a 2-of-3 Safe 1.4.1 ([`0x2564…24eE`](https://sepolia.etherscan.io/address/0x256437Bf9031765071Ea3EBdFF1061D6bf6424eE)) took three proposals, one from a key in an environment variable, one from a key in the development keystore of `hardhat-keystore`, and one from an AWS KMS key. Each is queued with the proposer's signature, 1 of 2 confirmations.
 
 ## Why propose from Hardhat
 

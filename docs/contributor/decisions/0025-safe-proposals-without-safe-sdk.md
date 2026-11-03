@@ -80,9 +80,20 @@ Most people who would propose to a Safe from Hardhat do not have a KMS key: they
 - **A KMS key stays the recommended proposer** for CI and long-lived owners: no key on disk, IAM decides who signs, CI signs through OpenID Connect, and the cloud's audit log records each signature. The guide and the security model say what a local key exposes.
 - **The package description** names any Hardhat account, so a search for a Hardhat Safe proposer finds it, and the keywords add `safe-proposer` and `ledger`. The package name and the task name stay: the task lives under the core's `kms` scope, and renaming either before 1.5.0 would cost more than it gives.
 
+## Proven on Sepolia
+
+On 2026-11-03, Safe's hosted Transaction Service on Sepolia accepted three proposals to a 2-of-3 Safe 1.4.1, [`0x256437Bf9031765071Ea3EBdFF1061D6bf6424eE`](https://sepolia.etherscan.io/address/0x256437Bf9031765071Ea3EBdFF1061D6bf6424eE), sent with the packages packed from `main` at `20028463`:
+
+| Nonce | SafeTx                                                               | Proposer                                                                        |
+| ----- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 0     | `0x1ba5b5ddb6798ebb1d33ebc7ff3504a099e08ea655c92c571b41784cb6f52fc6` | a key in an environment variable, through the network's `accounts`              |
+| 1     | `0x2a62a90d2a9da19c42e987e7d8a32e8cb5da8a4078548a5cd119b84b2bec0e89` | a key in the development keystore of `hardhat-keystore`                         |
+| 2     | `0xcd79045e32b8ca7628035018a216f915e915c911db657dae9c7b418a23aa5add` | the live suite's AWS KMS test key, `0x0b545a5a4cA04252184A7813D0D4D3fBA31Af2fd` |
+
+The service's queue lists each with one `EOA` confirmation from its proposer, so it accepted the request body as the client sends it. The task picked nonces 1 and 2 from the queued transactions.
+
 ## Still open
 
-- One real proposal on Sepolia, which needs a Safe owned by the test KMS key and a Safe API key in the owner's environment. The issue's acceptance criteria require it; the owner runs it. [#658](https://github.com/aelmanaa/hardhat-kms/issues/658) adds one from a plain key.
 - A proposal signed on a Ledger device, through hardhat-ledger.
 - Whether an unkeyed POST is accepted. Until it is measured, the hosted service needs an API key, as api-kit requires.
 - Whether the Safe app's chain prefix equals the service's short name on every chain. The link is not checked against the live app; the Sepolia proposal checks it for `sep`.
