@@ -68,7 +68,7 @@ The other requests take shorter paths through the same parts:
 
 No RPC method signs a bare 32-byte digest that the caller supplies; the [security model](security-model.md#guarantees) explains why.
 
-`kms safe propose`, from `@hardhat-kms/safe`, uses the same path: it signs a Safe transaction as EIP-712 typed data with `eth_signTypedData_v4` on the connection, so the chain check and the signature check above apply, then posts the signature to the Safe Transaction Service ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)).
+`kms safe propose`, from `@hardhat-kms/safe`, uses the same path: it signs a Safe transaction as EIP-712 typed data with `eth_signTypedData_v4` on the connection, so for a KMS account the chain check and the signature check above apply, then posts the signature to the Safe Transaction Service ([Propose Safe transactions from Hardhat](../guides/propose-safe-transactions.md)). With `--from`, the same request goes to Hardhat's local accounts or to hardhat-ledger instead, and the task's own checks still run.
 
 ## Keys, connections and the KMS client
 

@@ -278,7 +278,7 @@ npm install --save-dev hardhat-kms @hardhat-kms/turnkey   # Turnkey
 npx hardhat kms accounts
 \`\`\`
 
-To propose Safe multisig transactions signed by the key, also install \`@hardhat-kms/safe\` and \`viem\` ([Propose Safe transactions from Hardhat](${markdownCopyUrl("user/guides/propose-safe-transactions.md")})).
+To propose Safe multisig transactions, signed by the key or by a local key or Ledger, also install \`@hardhat-kms/safe\` and \`viem\` ([Propose Safe transactions from Hardhat](${markdownCopyUrl("user/guides/propose-safe-transactions.md")})).
 
 These packages are newer than most training data: check npm for the current version (\`npm view hardhat-kms version\`) instead of guessing one. [Install hardhat-kms](${markdownCopyUrl(INSTALL_GUIDE)}) gives the pnpm and Yarn commands and the settings each needs. ${credentials}${skill}`;
 }
@@ -397,7 +397,7 @@ const config: UserConfig<ThemeConfig> = defineConfig({
           {
             title: "Propose Safe transactions",
             details:
-              "A KMS key that owns a Safe signs a transaction and proposes it to the Safe Transaction Service, for the other owners to confirm.",
+              "An owner of a Safe, a KMS key, a local key or a Ledger, signs a transaction and proposes it to the Safe Transaction Service, for the other owners to confirm.",
             link: "/user/guides/propose-safe-transactions",
           },
           {

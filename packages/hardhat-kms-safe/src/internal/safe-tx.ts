@@ -1,5 +1,14 @@
 import { catalogError } from "hardhat-kms/provider-utils";
-import { getAddress, hashTypedData, isAddress, isHex, type Address, type Hex } from "viem";
+import {
+  getAddress,
+  hashDomain,
+  hashStruct,
+  hashTypedData,
+  isAddress,
+  isHex,
+  type Address,
+  type Hex,
+} from "viem";
 
 import { ERRORS } from "./error-catalog.ts";
 
@@ -229,4 +238,28 @@ export function safeTxHash(chainId: bigint, safe: Address, tx: SafeTransaction):
     domain: { chainId, verifyingContract: getAddress(safe) },
     message: tx,
   });
+}
+
+/**
+ * The two hashes a Ledger shows when it signs the SafeTx blind, and the Safe app shows next to a
+ * transaction: the EIP-712 domain separator and the hash of the SafeTx struct. The SafeTx hash is
+ * `keccak256(0x1901 ‖ domainHash ‖ messageHash)`.
+ *
+ * @param chainId - The Safe's chain.
+ * @param safe - The Safe.
+ * @param tx - The transaction.
+ * @returns The domain hash and the message hash.
+ */
+export function safeTxParts(
+  chainId: bigint,
+  safe: Address,
+  tx: SafeTransaction,
+): { domainHash: Hex; messageHash: Hex } {
+  return {
+    domainHash: hashDomain({
+      domain: { chainId, verifyingContract: getAddress(safe) },
+      types: { EIP712Domain: SAFE_TX_TYPES.EIP712Domain },
+    }),
+    messageHash: hashStruct({ data: tx, primaryType: "SafeTx", types: SAFE_TX_TYPES }),
+  };
 }

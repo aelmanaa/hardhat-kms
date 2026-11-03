@@ -9,12 +9,22 @@ import type { KmsHooks } from "hardhat-kms/types";
 import { configVariable } from "hardhat/config";
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import type { HardhatUserConfig } from "hardhat/types/config";
+import type { ConfigurationVariableHooks, NetworkHooks } from "hardhat/types/hooks";
 import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 import type { JsonRpcServer } from "hardhat/types/network";
-import { createPublicClient, createWalletClient, getAddress, http, type Address } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  getAddress,
+  http,
+  type Address,
+  type Hex,
+} from "viem";
+import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts";
 
 import { fakeAdapter, type FakeAdapter } from "../../../hardhat-kms/test/helpers/fake-adapter.ts";
 import hardhatKmsSafe, { type KmsSafeUserConfig } from "../../src/index.ts";
+import { fakeLedger, type FakeLedger } from "./fake-ledger.ts";
 import { startFakeService, type FakeService } from "./fake-tx-service.ts";
 import type { Chain } from "./safe-chain.ts";
 
@@ -32,6 +42,49 @@ export const OWNER_SECRET: Uint8Array = new Uint8Array(32).fill(7);
 
 /** A second KMS key's secret, for networks with two KMS accounts. */
 export const OTHER_SECRET: Uint8Array = new Uint8Array(32).fill(9);
+
+/** A key in the `local` and `mixed` networks' `accounts`: a fixed test value, never a real key. */
+export const LOCAL_SECRET: Hex = `0x${"11".repeat(32)}`;
+
+/** The `local` network's account. */
+export const LOCAL_ADDRESS: Address = privateKeyToAccount(LOCAL_SECRET).address;
+
+/**
+ * The configuration variable of the `keystore` network's account. The test serves it from a
+ * `fetchValue` hook, as hardhat-keystore does, and never from the environment.
+ */
+export const KEYSTORE_VARIABLE = "HHKMS_TEST_SAFE_PROPOSER_KEY";
+
+/** The key the fake keystore holds: a fixed test value, never a real key. */
+export const KEYSTORE_SECRET: Hex = `0x${"22".repeat(32)}`;
+
+/** The `keystore` network's account. */
+export const KEYSTORE_ADDRESS: Address = privateKeyToAccount(KEYSTORE_SECRET).address;
+
+/** The `hd` network's mnemonic: a fixed test value (BIP-39 test vector), never a real wallet. */
+export const HD_MNEMONIC: string =
+  "legal winner thank year wave sausage worth useful legal winner thank yellow";
+
+/** The `hd` network's first account, at Hardhat's default path m/44'/60'/0'/0/0. */
+export const HD_ADDRESS: Address = mnemonicToAccount(HD_MNEMONIC).address;
+
+/** KMS keys whose adapter fails every call, as an unreachable KMS does; tests add names. */
+export const UNREACHABLE_KEYS: Set<string> = new Set<string>();
+
+/** The JSON-RPC methods that ask a connection to sign. */
+const SIGNING_METHODS = new Set([
+  "eth_sign",
+  "personal_sign",
+  "eth_signTypedData_v4",
+  "eth_sendTransaction",
+]);
+
+/** A signing request a task sent on a connection. */
+export interface SigningRequest {
+  network: string;
+  method: string;
+  address: string;
+}
 
 /** The requests the fence refused, in order, with their Authorization header. */
 export const REFUSED: { url: string; authorization: string | null }[] = [];
@@ -105,22 +158,58 @@ export async function startNode(chainId: number = CHAIN_ID): Promise<Node> {
 
 /**
  * Serves the project's `owner` and `other` keys with fake adapters that sign with fixed test keys,
- * in place of AWS KMS, and keeps each adapter so that tests can count its sign requests.
+ * in place of AWS KMS, and keeps each adapter so that tests can count its sign requests. It also
+ * serves {@link KEYSTORE_VARIABLE} as hardhat-keystore would, and records every signing request
+ * sent on a connection, before any plugin answers it.
  *
  * @param hre - The runtime.
  * @param adapters - Where to keep the adapters.
+ * @param signing - Where to record signing requests.
  */
-export function registerFakeKms(hre: HardhatRuntimeEnvironment, adapters: FakeAdapter[]): void {
+export function registerFakeKms(
+  hre: HardhatRuntimeEnvironment,
+  adapters: FakeAdapter[],
+  signing: SigningRequest[] = [],
+): void {
   const handlers: Partial<KmsHooks> = {
     createKeyAdapter: async (_context, key) => {
       const adapter = fakeAdapter({
         secretKey: key.name === "other" ? OTHER_SECRET : OWNER_SECRET,
+        ...(UNREACHABLE_KEYS.has(key.name) ? { throwError: new Error("KMS unreachable") } : {}),
       });
       adapters.push(adapter);
       return await Promise.resolve(adapter);
     },
   };
   hre.hooks.registerHandlers("kms", handlers);
+  const keystore: Partial<ConfigurationVariableHooks> = {
+    fetchValue: async (context, variable, next) =>
+      variable.name === KEYSTORE_VARIABLE ? KEYSTORE_SECRET : await next(context, variable),
+  };
+  hre.hooks.registerHandlers("configurationVariables", keystore);
+  const network: Partial<NetworkHooks> = {
+    onRequest: async (context, connection, request, next) => {
+      if (SIGNING_METHODS.has(request.method)) {
+        const params: unknown = request.params;
+        const first: unknown = Array.isArray(params) ? params[0] : undefined;
+        const second: unknown = Array.isArray(params) ? params[1] : undefined;
+        // personal_sign puts the address second; eth_sendTransaction puts it in `from`.
+        const address =
+          request.method === "personal_sign"
+            ? second
+            : typeof first === "object" && first !== null
+              ? Reflect.get(first, "from")
+              : first;
+        signing.push({
+          network: connection.networkName,
+          method: request.method,
+          address: typeof address === "string" ? address : "",
+        });
+      }
+      return await next(context, connection, request);
+    },
+  };
+  hre.hooks.registerHandlers("network", network);
 }
 
 /** A project, its KMS key and the fake service. */
@@ -132,6 +221,10 @@ export interface Project {
   other: Address;
   /** Counts the adapters' KMS calls; `signDigest` is the only signing method. */
   adapters: FakeAdapter[];
+  /** Every signing request sent on a connection of the project, KMS or not. */
+  signing: SigningRequest[];
+  /** The fake Ledger on the `ledger` network. */
+  ledger: FakeLedger;
   service: FakeService;
   /** Sign requests made to every adapter so far. */
   signCalls(): number;
@@ -140,7 +233,10 @@ export interface Project {
 
 /**
  * Creates the project. Its `default` network is the node over http with the `owner` key; `two`
- * has two KMS keys and `none` has none.
+ * has two KMS keys and `none` has none. `local` has the key {@link LOCAL_SECRET} in its `accounts`,
+ * `keystore` a key read through a configuration variable, `mixed` both a local key and `owner`,
+ * `ledger` a fake Ledger, `hd` an HD wallet, and `simulated` is an edr-simulated network;
+ * `none` and `ledger` keep Hardhat's default `accounts: "remote"`.
  *
  * @param node - The node.
  * @param kmsSafe - `kmsSafe` of the config; the fake service on chain 31337 by default.
@@ -155,8 +251,9 @@ export async function createProject(
   process.env[API_KEY_VARIABLE] = FAKE_API_KEY;
   // A self-hosted service: the plugin sends it no API key, so the fake requires none.
   const service = await startFakeService(node.chain.publicClient);
+  const ledger = fakeLedger(["ledger"]);
   const hre = await createHardhatRuntimeEnvironment({
-    plugins: [hardhatKms, hardhatKmsSafe],
+    plugins: [hardhatKms, hardhatKmsSafe, ledger.plugin],
     kms: {
       keys: {
         owner: { provider: "aws", keyId: "alias/safe-owner", region: "eu-west-1" },
@@ -174,12 +271,32 @@ export async function createProject(
       default: { type: "http", url: node.url, chainId: CHAIN_ID, kmsAccounts: ["owner"] },
       two: { type: "http", url: node.url, chainId: CHAIN_ID, kmsAccounts: ["owner", "other"] },
       none: { type: "http", url: node.url, chainId: CHAIN_ID },
+      local: { type: "http", url: node.url, chainId: CHAIN_ID, accounts: [LOCAL_SECRET] },
+      keystore: {
+        type: "http",
+        url: node.url,
+        chainId: CHAIN_ID,
+        accounts: [configVariable(KEYSTORE_VARIABLE)],
+      },
+      mixed: {
+        type: "http",
+        url: node.url,
+        chainId: CHAIN_ID,
+        accounts: [LOCAL_SECRET],
+        kmsAccounts: ["owner"],
+      },
+      ledger: { type: "http", url: node.url, chainId: CHAIN_ID, kmsAccounts: ["other"] },
+      hd: { type: "http", url: node.url, chainId: CHAIN_ID, accounts: { mnemonic: HD_MNEMONIC } },
+      // Hardhat's simulated network: a fresh chain per connection, with no Safe on it. EDR holds
+      // its genesis accounts (the node's accounts too) and signs for them in this process.
+      simulated: { type: "edr-simulated", chainId: CHAIN_ID, kmsAccounts: ["owner"] },
       wrongChain: { type: "http", url: node.url, chainId: 1, kmsAccounts: ["owner"] },
     },
     ...extra,
   });
   const adapters: FakeAdapter[] = [];
-  registerFakeKms(hre, adapters);
+  const signing: SigningRequest[] = [];
+  registerFakeKms(hre, adapters, signing);
   const owner = getAddress(await kmsKeyAddress(hre, "owner"));
   const other = getAddress(await kmsKeyAddress(hre, "other"));
   return {
@@ -187,6 +304,8 @@ export async function createProject(
     owner,
     other,
     adapters,
+    signing,
+    ledger,
     service,
     signCalls: () => adapters.reduce((total, adapter) => total + adapter.calls.signDigest, 0),
     close: async () => {

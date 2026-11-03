@@ -62,6 +62,7 @@ async function propose(args: Partial<ProposeArguments>): Promise<SafeProposal> {
       function: undefined,
       args: undefined,
       key: undefined,
+      from: undefined,
       nonce: undefined,
       delegatecall: false,
       yes: true,

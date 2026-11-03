@@ -36,13 +36,14 @@ npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/azure
 npx hardhat kms accounts
 ```
 
-Safe proposals, with the provider package of the key:
+Safe proposals, from any Hardhat account (no KMS key needed; add the provider package for a KMS key, such as `@hardhat-kms/aws`):
 
 ```sh
-npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws @hardhat-kms/safe viem
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/safe viem
 # add hardhatKmsSafe to plugins and kmsSafe.apiKey: configVariable("SAFE_TRANSACTION_SERVICE_API_KEY");
-# the network's KMS account must be an owner of the Safe
-npx hardhat --network sepolia kms safe propose <safe> <to>
+# the proposer must be an owner of the Safe: the network's KMS account by default, or with --from
+# a key in the network's accounts (a configVariable, e.g. from hardhat-keystore) or a Ledger in ledgerAccounts
+npx hardhat --network sepolia kms safe propose <safe> <to> --from <owner>
 ```
 
 Turnkey:
@@ -85,7 +86,7 @@ Pages:
 - A send failed with no clear answer (`-32000`, a gateway timeout), a transaction is not mined, or a nonce gap: look it up, compare the pending and latest counts, fill or replace a nonce: [docs/user/guides/uncertain-sends.md](docs/user/guides/uncertain-sends.md)
 - Complete projects to copy, which deploy and call a contract with viem, ethers or Ignition: [examples/README.md](examples/README.md)
 - Use a KMS key as the signer of an Alchemy Wallet APIs smart wallet (`connection.kms.getAccount` as the `@alchemy/wallet-apis` signer, what the key signs for EIP-7702 and user operations, a check script that sends nothing, a sponsored send that runs `checkPreparedCalls` from `hardhat-kms/alchemy` before signing): [docs/user/guides/alchemy-wallet-apis.md](docs/user/guides/alchemy-wallet-apis.md)
-- Propose a Safe multisig transaction signed by a KMS key to the Safe Transaction Service (install `@hardhat-kms/safe`, the API key in `configVariable("SAFE_TRANSACTION_SERVICE_API_KEY")`, `kms safe propose`, what it checks and refuses, threshold 1, CI, handing ownership to a Safe after an Ignition deploy): [docs/user/guides/propose-safe-transactions.md](docs/user/guides/propose-safe-transactions.md)
+- Propose a Safe multisig transaction to the Safe Transaction Service from a local or `hardhat-keystore` key, a Ledger or a KMS key (install `@hardhat-kms/safe`, the API key in `configVariable("SAFE_TRANSACTION_SERVICE_API_KEY")`, `kms safe propose` and `--from`, why a KMS key is recommended for CI, what it checks and refuses, a node's own account refused, threshold 1, CI, handing ownership to a Safe after an Ignition deploy): [docs/user/guides/propose-safe-transactions.md](docs/user/guides/propose-safe-transactions.md)
 - Coming from Foundry: [docs/user/guides/migrate-from-foundry.md](docs/user/guides/migrate-from-foundry.md) and [docs/user/explanation/foundry-comparison.md](docs/user/explanation/foundry-comparison.md)
 - How hardhat-kms compares with the Hardhat 2 `hardhat-kms-signer` packages and their forks (last release, Hardhat major, cloud, how each plugs in): [docs/user/explanation/other-kms-signers.md](docs/user/explanation/other-kms-signers.md)
 - A KMS key or a private key in `.env` or the Hardhat keystore (what each protects against, what neither does, cost and latency per signature): [docs/user/explanation/kms-or-env-key.md](docs/user/explanation/kms-or-env-key.md)
@@ -133,7 +134,7 @@ Where things are:
 - `packages/hardhat-kms-aws`: the AWS KMS provider plugin, which depends on `@aws-sdk/client-kms`.
 - `packages/hardhat-kms-azure`: the Azure Key Vault provider plugin, which depends on `@azure/keyvault-keys` and `@azure/identity`.
 - `packages/hardhat-kms-gcp`: the Google Cloud KMS provider plugin, which depends on `@google-cloud/kms`.
-- `packages/hardhat-kms-safe`: `@hardhat-kms/safe`, not a provider: it adds `kms safe propose` and `proposeSafeTransaction`, which sign a Safe transaction through the connection and propose it to the Safe Transaction Service. It has its own Transaction Service client and no Safe SDK; `viem` is a peer dependency ([decision 0025](docs/contributor/decisions/0025-safe-proposals-without-safe-sdk.md)).
+- `packages/hardhat-kms-safe`: `@hardhat-kms/safe`, not a provider: it adds `kms safe propose` and `proposeSafeTransaction`, which sign a Safe transaction through the connection, with a KMS, local or Ledger account, and propose it to the Safe Transaction Service. It has its own Transaction Service client and no Safe SDK; `viem` is a peer dependency ([decision 0025](docs/contributor/decisions/0025-safe-proposals-without-safe-sdk.md)).
 - `packages/hardhat-kms-turnkey`: the Turnkey provider plugin, which depends on no SDK: it calls Turnkey's API with its own request stamp ([decision 0019](docs/contributor/decisions/0019-turnkey-without-sdk.md)).
 - `tools/api-docs`: a private package, never published, that runs TypeDoc on TypeScript 6 for the API reference ([decision 0012](docs/contributor/decisions/0012-api-reference-generator.md)).
 - `tools/docs-site`: a private package, never published, that builds the docs site from `docs/` with VitePress; see [Documentation](docs/contributor/documentation.md#the-docs-site).

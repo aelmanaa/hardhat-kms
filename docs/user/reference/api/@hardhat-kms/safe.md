@@ -234,7 +234,7 @@ A label the Safe app shows next to the transaction.
 > **provider**: [`Eip1193Provider`](#eip1193provider)
 
 A connection that signs for `sender` with `eth_signTypedData_v4`, such as a Hardhat network
-connection's `provider` whose network lists the key in `kmsAccounts`.
+connection's `provider`.
 
 ##### safe
 
@@ -246,7 +246,12 @@ The Safe.
 
 > **sender**: `string`
 
-The owner that signs: the address of a KMS account of the connection.
+The owner that signs: an address the connection signs for, such as a KMS account, a key in
+the network's `accounts` or a Ledger address in its `ledgerAccounts`. The function sends the
+signing request for this address to `provider` as it is: on a Hardhat `http` network whose
+`accounts` is `"remote"`, Hardhat forwards a request for an address it does not hold to the
+node, which signs with its own key. The `kms safe propose` task refuses that; this function
+cannot tell, so pass only an address the connection signs for in this process.
 
 ##### service
 
@@ -314,11 +319,32 @@ The connection's chain.
 
 [`SafeTransactionReview`](#safetransactionreview).[`chainId`](#chainid-1)
 
+##### domainHash
+
+> **domainHash**: `` `0x${string}` ``
+
+The EIP-712 domain separator of the Safe on this chain: the "Domain hash" a Ledger shows when
+it signs blind, and the Safe app shows.
+
+###### Inherited from
+
+[`SafeTransactionReview`](#safetransactionreview).[`domainHash`](#domainhash-1)
+
 ##### link
 
 > **link**: `string` \| `undefined`
 
 The Safe app's page for the transaction, for a chain Safe's hosted service serves.
+
+##### messageHash
+
+> **messageHash**: `` `0x${string}` ``
+
+The hash of the SafeTx struct: the "Message hash" a Ledger and the Safe app show.
+
+###### Inherited from
+
+[`SafeTransactionReview`](#safetransactionreview).[`messageHash`](#messagehash-1)
 
 ##### owners
 
@@ -492,6 +518,19 @@ What the key is about to sign, after every check before signing passed.
 
 The connection's chain.
 
+##### domainHash
+
+> **domainHash**: `` `0x${string}` ``
+
+The EIP-712 domain separator of the Safe on this chain: the "Domain hash" a Ledger shows when
+it signs blind, and the Safe app shows.
+
+##### messageHash
+
+> **messageHash**: `` `0x${string}` ``
+
+The hash of the SafeTx struct: the "Message hash" a Ledger and the Safe app show.
+
 ##### owners
 
 > **owners**: `` `0x${string}` ``[]
@@ -606,10 +645,12 @@ A Safe version the plugin proposes for.
 
 > `const` **default**: `HardhatPlugin`
 
-The @hardhat-kms/safe plugin: `kms safe propose` signs a Safe transaction with a KMS account that
-owns the Safe and proposes it to the Safe Transaction Service. It loads hardhat-kms itself.
+The @hardhat-kms/safe plugin: `kms safe propose` signs a Safe transaction with an owner the
+network signs for, a KMS account by default or the `--from` address, and proposes it to the Safe
+Transaction Service. It loads hardhat-kms itself.
 
-Add it to the `plugins` array of your Hardhat config, next to the provider package of your key.
+Add it to the `plugins` array of your Hardhat config, next to the provider package of a KMS key
+if one signs.
 
 ---
 
@@ -632,18 +673,55 @@ The Safe versions the plugin proposes for. Older Safes have no `chainId` in thei
 
 ## Functions
 
+### assertProposerSignsInProcess()
+
+> **assertProposerSignsInProcess**(`hre`: `HardhatRuntimeEnvironment`, `connection`: `NetworkConnection`, `address`: `string`): `Promise`\<`void`\>
+
+Checks that a Hardhat network connection signs for `address` in this process, the rule
+`kms safe propose --from` applies, so that a script can apply it before
+[proposeSafeTransaction](#proposesafetransaction), which sends the signing request for its `sender` as it is.
+
+The address must be in the connection's `eth_accounts`. It is then accepted when it is a Ledger
+address of the network's `ledgerAccounts`, the address of one of its `kmsAccounts`, or any
+account of a network where Hardhat signs every listed account itself: `edr-simulated`, or `http`
+with `accounts` set to a list of keys or an HD config. On an `http` network with
+`accounts: "remote"`, the default, or a network config this package does not recognise, the
+other listed accounts are the node's, which the node would sign for, and they are refused.
+Nothing is signed.
+
+#### Parameters
+
+| Parameter    | Type                        | Description                                               |
+| ------------ | --------------------------- | --------------------------------------------------------- |
+| `hre`        | `HardhatRuntimeEnvironment` | The Hardhat runtime, which reads the KMS keys' addresses. |
+| `connection` | `NetworkConnection`         | A connection from `hre.network.create()`.                 |
+| `address`    | `string`                    | The proposer.                                             |
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Throws
+
+`safe.key.sender` for an address that is not one, `safe.key.not-an-account` when the
+connection does not list it, `safe.key.node-account` when the node would sign for it, or the
+KMS's error when no key matched and one could not be read.
+
+---
+
 ### proposeSafeTransaction()
 
 > **proposeSafeTransaction**(`options`: [`ProposeSafeTransactionOptions`](#proposesafetransactionoptions)): `Promise`\<[`SafeProposal`](#safeproposal)\>
 
-Proposes a Safe transaction signed by a KMS key. It reads the Safe on the connection's chain and
-refuses, before anything is signed: a Safe with no code, a version other than 1.3.0, 1.4.1 or
-1.5.0, a sender that is not an owner, a nonce below the Safe's, a delegatecall without
-`allowDelegateCall`, and a hash that differs from the Safe's own `getTransactionHash`. The key
-signs the SafeTx as EIP-712 typed data through the connection's `eth_signTypedData_v4`, so
-hardhat-kms checks the typed data's chain and verifies the signature. The signature must then
-have v 27 or 28, recover to the sender and pass the Safe's `checkNSignatures`. Only then is it
-posted to the service. Gas refund fields are always zero.
+Proposes a Safe transaction signed by `sender`, an account the connection signs for, such as a
+KMS key, a key in the network's `accounts` or a Ledger. It reads the Safe on the connection's
+chain and refuses, before anything is signed: a Safe with no code, a version other than 1.3.0,
+1.4.1 or 1.5.0, a sender that is not an owner, a nonce below the Safe's, a delegatecall without
+`allowDelegateCall`, and a hash that differs from the Safe's own `getTransactionHash`. The
+sender signs the SafeTx as EIP-712 typed data through the connection's `eth_signTypedData_v4`;
+for a KMS account, hardhat-kms also checks the typed data's chain and verifies the signature.
+The signature must then have v 27 or 28, recover to the sender and pass the Safe's
+`checkNSignatures`. Only then is it posted to the service. Gas refund fields are always zero.
 
 This function does not ask anyone before it signs. A Safe whose threshold is 1 can execute the
 transaction with this signature alone; pass `approve` to decide.

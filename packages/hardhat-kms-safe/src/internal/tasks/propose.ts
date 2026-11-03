@@ -5,7 +5,6 @@ import {
   checkProviderVersion,
   confirm,
   internalError,
-  kmsKeyAddress,
   processTerminal,
   type Terminal,
 } from "hardhat-kms/provider-utils";
@@ -20,6 +19,7 @@ import {
   type SafeProposal,
   type SafeTransactionReview,
 } from "../propose.ts";
+import { chooseProposer } from "../proposer.ts";
 import { TransactionServiceClient } from "../tx-service.ts";
 import { callData, describeCall } from "./inputs.ts";
 
@@ -38,6 +38,7 @@ export interface ProposeArguments {
   function: string | undefined;
   args: string | undefined;
   key: string | undefined;
+  from: string | undefined;
   nonce: string | undefined;
   delegatecall: boolean;
   yes: boolean;
@@ -70,12 +71,13 @@ function note(line: string): void {
  * What the task shows before the key signs.
  *
  * @param review - What is about to be signed.
- * @param key - The key's name.
+ * @param signer - What signs, such as `key owner` or `Ledger`.
+ * @param call - The function and its arguments, when `--function` encoded the call.
  * @returns The lines.
  */
 function reviewLines(
   review: SafeTransactionReview,
-  key: string,
+  signer: string,
   call: string | undefined,
 ): string[] {
   const tx = review.transaction;
@@ -83,7 +85,7 @@ function reviewLines(
     `Safe:       ${review.safe} (Safe ${review.version}, chain ${review.chainId})`,
     `Threshold:  ${review.threshold} of ${review.owners.length}`,
     `Owners:     ${review.owners.join(", ")}`,
-    `Signer:     ${review.sender} (key ${key})`,
+    `Signer:     ${review.sender} (${signer})`,
     `To:         ${tx.to}`,
     `Value:      ${tx.value} wei (${formatEther(tx.value)} of the native token)`,
     `Data:       ${tx.data === "0x" ? "none" : `${(tx.data.length - 2) / 2} bytes, selector ${tx.data.slice(0, 10)}`}`,
@@ -91,6 +93,8 @@ function reviewLines(
     `Operation:  ${tx.operation === 1 ? "DELEGATECALL: the target's code runs with the Safe's storage and funds" : "call"}`,
     `Nonce:      ${tx.nonce} (the Safe's nonce is ${review.safeNonce})`,
     `SafeTx:     ${review.safeTxHash}`,
+    `Domain hash:  ${review.domainHash}`,
+    `Message hash: ${review.messageHash}`,
   ];
   if (review.threshold === 1n) {
     lines.push(
@@ -98,32 +102,6 @@ function reviewLines(
     );
   }
   return lines;
-}
-
-/**
- * The name of the key that signs: `--key`, else the network's only KMS account.
- *
- * @param network - The network's name.
- * @param names - The names of the network's KMS accounts.
- * @param key - `--key`.
- * @returns The key's name.
- */
-function keyName(network: string, names: readonly string[], key: string | undefined): string {
-  if (key !== undefined) {
-    return key;
-  }
-  const [only, ...others] = names;
-  if (only === undefined) {
-    throw catalogError(ERRORS.noKmsAccount, { network });
-  }
-  if (others.length > 0) {
-    throw catalogError(ERRORS.severalKmsAccounts, {
-      network,
-      count: names.length,
-      names: names.join(", "),
-    });
-  }
-  return only;
 }
 
 /**
@@ -152,7 +130,7 @@ export async function proposeTask(
 
   const connection = await hre.network.create();
   try {
-    const { networkConfig, networkName, provider } = connection;
+    const { networkConfig, provider } = connection;
     const chainIdAnswer: unknown = await provider.request({ method: "eth_chainId" });
     if (!isHex(chainIdAnswer, { strict: true }) || chainIdAnswer === "0x") {
       throw catalogError(ERRORS.chainUnreadable, {});
@@ -183,26 +161,11 @@ export async function proposeTask(
       timeoutMs: kmsSafe.timeoutMs,
     });
 
-    const names =
-      networkConfig.type === "http" || networkConfig.type === "edr-simulated"
-        ? networkConfig.kmsAccounts.map((account) => account.name)
-        : [];
-    const key = keyName(networkName, names, args.key);
-    const sender = await kmsKeyAddress(hre, key);
-    const accounts: unknown = await provider.request({ method: "eth_accounts" });
-    if (
-      !Array.isArray(accounts) ||
-      !accounts.some(
-        (account: unknown) =>
-          typeof account === "string" && account.toLowerCase() === sender.toLowerCase(),
-      )
-    ) {
-      throw catalogError(ERRORS.notOnNetwork, { address: sender, key, network: networkName });
-    }
+    const proposer = await chooseProposer(hre, connection, args.from, args.key);
 
     const proposal = await proposeSafeTransaction({
       provider,
-      sender,
+      sender: proposer.address,
       safe: args.safe,
       call: { to: args.to, value: args.value, data, operation: args.delegatecall ? 1 : 0 },
       service,
@@ -212,7 +175,7 @@ export async function proposeTask(
       expectedChainId: chainId,
       origin: ORIGIN,
       approve: async (review) => {
-        const lines = reviewLines(review, key, call);
+        const lines = reviewLines(review, proposer.label, call);
         if (review.threshold !== 1n || args.yes) {
           for (const line of lines) {
             note(line);
@@ -245,8 +208,8 @@ export async function proposeTask(
 }
 
 /**
- * `kms safe propose <safe> <to>`: signs a Safe transaction with a KMS owner and proposes it to the
- * Safe Transaction Service.
+ * `kms safe propose <safe> <to>`: signs a Safe transaction with an owner the network signs for, and
+ * proposes it to the Safe Transaction Service.
  *
  * @param args - The task's arguments.
  * @param hre - The Hardhat runtime.

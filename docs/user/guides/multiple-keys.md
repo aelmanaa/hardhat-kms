@@ -138,7 +138,7 @@ await ops.sendTransaction({ to: "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826", va
 
 Pass the same wallet client to `viem.deployContract` as `{ client: { wallet: ops } }`. With hardhat-ethers, `await ethers.getSigner("0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB")` returns the signer for the address; pass it to `deployContract` or `getContractFactory`. With Ignition, pass the address as `--default-sender`, or as `defaultSender` from a script ([Deploy with Hardhat Ignition](deploy-with-ignition.md)).
 
-`kms safe propose` ([Propose Safe transactions from Hardhat](propose-safe-transactions.md)) does not pick a sender by position. It signs with the network's only KMS account, and on a network with several it needs `--key` with the one that owns the Safe.
+`kms safe propose` ([Propose Safe transactions from Hardhat](propose-safe-transactions.md)) does not pick a sender by position. It signs with the network's only KMS account, and on a network with several it needs `--key` with the one that owns the Safe. `--from` picks any other account of the network, such as a local key or a Ledger.
 
 ## Add local or Ledger accounts
 
