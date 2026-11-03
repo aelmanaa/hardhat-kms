@@ -10,7 +10,9 @@
 //
 // Each example's deploy script prints `Deployer:`, `Counter:`, `Owner:` and `Count:` lines. The
 // test checks that the deployer and the contract's owner are the address of the LocalStack key,
-// computed here from its public key, and that the count read back from the contract is 7 + 5.
+// computed here from its public key, and that the count read back from the contract is 7 + 5. It
+// does so on the simulated `rehearsal` network, and on `sepolia` pointed at a Hardhat node that
+// manages accounts of its own, where the script must still pick the KMS key by its address.
 import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -40,6 +42,8 @@ const EXPECTED_COUNT = 12n;
 const IGNITION_GUIDE = path.join(ROOT, "docs", "user", "guides", "deploy-with-ignition.md");
 /** Hardhat's built-in `localhost` network, where `hardhat node` listens by default. */
 const NODE_URL = "http://127.0.0.1:8545";
+/** The chain id of the examples' `sepolia` network, which checks the node's against it. */
+const SEPOLIA_CHAIN_ID = 11_155_111;
 /** The selectors of `owner()` and `count()` in contracts/Counter.sol. */
 const OWNER_SELECTOR = "0x8da5cb5b";
 const COUNT_SELECTOR = "0x06661abd";
@@ -169,11 +173,12 @@ async function callWord(to: string, data: string): Promise<string> {
 
 /**
  * Starts `hardhat node` in an example's directory and waits until it answers on the `localhost`
- * network's URL.
+ * network's URL. The node manages Hardhat's 20 default accounts.
  *
+ * @param chainId - The node's chain id; Hardhat's default when omitted.
  * @returns The node's process.
  */
-async function startNode(example: string): Promise<ChildProcess> {
+async function startNode(example: string, chainId?: number): Promise<ChildProcess> {
   const alreadyRunning = await rpc("eth_chainId", []).then(
     () => true,
     () => false,
@@ -182,7 +187,8 @@ async function startNode(example: string): Promise<ChildProcess> {
   // Node runs Hardhat's CLI directly, without pnpm in between, so that kill() stops the server.
   const directory = path.join(examplesDirectory, example);
   const cli = path.join(directory, "node_modules", "hardhat", "dist", "src", "cli.js");
-  const node = spawn(process.execPath, [cli, "node"], {
+  const chainIdArguments = chainId === undefined ? [] : ["--chain-id", String(chainId)];
+  const node = spawn(process.execPath, [cli, "node", ...chainIdArguments], {
     cwd: directory,
     env: environment,
     stdio: "ignore",
@@ -203,6 +209,16 @@ async function startNode(example: string): Promise<ChildProcess> {
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
+}
+
+/** Stops a node that startNode started, and waits until its process has exited. */
+async function stopNode(node: ChildProcess): Promise<void> {
+  if (node.exitCode !== null || node.signalCode !== null) {
+    return;
+  }
+  const exited = new Promise((resolve) => node.once("exit", resolve));
+  node.kill();
+  await exited;
 }
 
 describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
@@ -290,6 +306,50 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
       assert.equal(BigInt(printed(output, "Count")), EXPECTED_COUNT);
     });
 
+    // A node that manages accounts of its own, such as anvil, `hardhat node` or a fork, lists them
+    // before the KMS account in eth_accounts (#663). Here the `sepolia` network points at a Hardhat
+    // node with Sepolia's chain id, as a fork rehearsal does: the script must still deploy from the
+    // KMS key, not from the node's first account. On `localhost`, which lists no KMS keys, the
+    // script must stop before anything is sent.
+    it(`${example}: deploys from the KMS key on a node that manages its own accounts`, async () => {
+      const node = await startNode(example, SEPOLIA_CHAIN_ID);
+      const saved = environment;
+      environment = { ...environment, SEPOLIA_RPC_URL: NODE_URL };
+      try {
+        const accounts = await rpc("eth_accounts", []);
+        assert.ok(Array.isArray(accounts) && accounts.length > 0, "the node manages no accounts");
+        assert.ok(!accounts.some((account) => String(account).toLowerCase() === kmsAddress));
+        const blockBefore = await rpc("eth_blockNumber", []);
+
+        await assert.rejects(
+          runIn(example, ["run", "deploy", "--network", "localhost"]),
+          new RegExp(`${kmsAddress} is not an account of the localhost network`, "i"),
+        );
+        assert.equal(
+          await rpc("eth_blockNumber", []),
+          blockBefore,
+          "the refused run sent a transaction",
+        );
+
+        await rpc("hardhat_setBalance", [kmsAddress, "0xde0b6b3a7640000"]);
+        const output = await runIn(example, ["run", "deploy", "--network", "sepolia"]);
+        assert.equal(printed(output, "Deployer").toLowerCase(), kmsAddress);
+        const counter = printed(output, "Counter");
+        assert.equal(printed(output, "Owner").toLowerCase(), kmsAddress);
+        assert.equal(BigInt(printed(output, "Count")), EXPECTED_COUNT);
+        // Read back from the node itself, not only from the script's output.
+        const owner = await callWord(counter, OWNER_SELECTOR);
+        assert.equal(`0x${owner.slice(-40)}`, kmsAddress);
+      } finally {
+        environment = saved;
+        await stopNode(node);
+        rmSync(path.join(examplesDirectory, example, "ignition", "deployments"), {
+          recursive: true,
+          force: true,
+        });
+      }
+    });
+
     const modules = path.join(SOURCE_DIRECTORY, example, "ignition", "modules");
     if (existsSync(modules)) {
       for (const file of readdirSync(modules).filter((name) => name.endsWith(".ts"))) {
@@ -320,7 +380,7 @@ describe("examples on LocalStack KMS", { timeout: 600_000 }, () => {
             assert.equal(`0x${owner.slice(-40)}`, kmsAddress);
             assert.equal(BigInt(await callWord(address, COUNT_SELECTOR)), EXPECTED_COUNT);
           } finally {
-            node.kill();
+            await stopNode(node);
             rmSync(path.join(examplesDirectory, example, "ignition", "deployments"), {
               recursive: true,
               force: true,
