@@ -1,5 +1,19 @@
 # @hardhat-kms/aws
 
+## 1.5.0
+
+### Patch Changes
+
+- [#645](https://github.com/aelmanaa/hardhat-kms/pull/645) [`71811b1`](https://github.com/aelmanaa/hardhat-kms/commit/71811b1ee7b058344ef95a9228d7e4a0eb80e9fe) Thanks [@aelmanaa](https://github.com/aelmanaa)! - AWS KMS keys now explain the common credential and key failures. A missing credential, an expired IAM Identity Center (SSO) session, an `aws login` session without a usable token, a role profile that needs an MFA code and an expired session token each get a message that says what to run. `NotFoundException`, `AccessDeniedException`, `DisabledException`, `KMSInvalidStateException` and `KeyUnavailableException` get one too. The `NotFoundException` and `AccessDeniedException` messages name the region the AWS SDK sent the call to. Before, each of these showed only `the provider call failed (<class name>)`. The SDK's own messages are still never shown.
+  
+  Issue: [#640](https://github.com/aelmanaa/hardhat-kms/issues/640)
+
+- [#656](https://github.com/aelmanaa/hardhat-kms/pull/656) [`88675d7`](https://github.com/aelmanaa/hardhat-kms/commit/88675d7696625c9f9d4fa3fea140803f3e926c8b) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The READMEs on npm no longer call 0.9.0 the release candidate for 1.0.0. They say the packages are stable since 1.0.0, and that `latest` holds the current release.
+  
+  Issue: [#655](https://github.com/aelmanaa/hardhat-kms/issues/655)
+- Updated dependencies [[`ad09100`](https://github.com/aelmanaa/hardhat-kms/commit/ad09100ef0f838f46a229b520d91752f365ef231), [`4cd3846`](https://github.com/aelmanaa/hardhat-kms/commit/4cd38463309557d32dec5b981bba700365560189), [`4609f97`](https://github.com/aelmanaa/hardhat-kms/commit/4609f9754b9f30200ed2eb9cc6ff416872f5f460), [`6dd5a48`](https://github.com/aelmanaa/hardhat-kms/commit/6dd5a4827c7bdad9823379c306ec282d595e93e0), [`88675d7`](https://github.com/aelmanaa/hardhat-kms/commit/88675d7696625c9f9d4fa3fea140803f3e926c8b)]:
+  - hardhat-kms@1.5.0
+
 ## 1.4.0
 
 ### Patch Changes

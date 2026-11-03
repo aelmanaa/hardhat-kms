@@ -1,5 +1,29 @@
 # @hardhat-kms/azure
 
+## 1.5.0
+
+### Minor Changes
+
+- [#643](https://github.com/aelmanaa/hardhat-kms/pull/643) [`b9dfc6d`](https://github.com/aelmanaa/hardhat-kms/commit/b9dfc6d41fb0c572a32757ebf0db9d885a31e844) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The Azure adapter now refuses a Key Vault or Managed HSM key that is exportable or has a release policy. It fails before any signature with `azure.key.exportable` or `azure.key.release-policy`. Key Vault's release operation can hand the private key of such a key to an environment the policy accepts. The check reads the key the adapter already fetches and sends no extra request.
+  
+  What should I do? Nothing, unless your key was created with `--exportable` or `--policy`. Such a key cannot be made non-exportable. Create a new key without those options, as step 1 of the Azure setup guide shows, configure it, and move any funds from the old address.
+  
+  Issue: [#636](https://github.com/aelmanaa/hardhat-kms/issues/636)
+
+### Patch Changes
+
+- [#644](https://github.com/aelmanaa/hardhat-kms/pull/644) [`2909be1`](https://github.com/aelmanaa/hardhat-kms/commit/2909be13d62fabee6feed992ffba2421240723d7) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A 403 from Key Vault shows Key Vault's inner error code after the status when it has one, for example `Key Vault answered 403 Forbidden/ForbiddenByRbac`, and the message's hint follows it: `ForbiddenByRbac` asks for a role assignment, `AccessDenied` for the access policy's `get` and `sign` permissions, and `ForbiddenByFirewall` for the vault's network rules. The other 403 messages also name a suspended or disabled subscription and give the `az rest` command that reads the subscription's live state, since `az account show` reads a cache. The error messages from Key Vault are still never shown.
+
+- [#649](https://github.com/aelmanaa/hardhat-kms/pull/649) [`385e507`](https://github.com/aelmanaa/hardhat-kms/commit/385e5079d0b1d59912cc499f059255b8bd71476c) Thanks [@aelmanaa](https://github.com/aelmanaa)! - When no Azure credential returns a token, the `azure.credential.none` error now gives one reason per source of the chain, in the order the plugin tries them. A source can be not set up, not installed, not signed in, or blocked by a claims challenge. The managed identity can also report that its endpoint gave no token. For a claims challenge, the reason gives the `az login --claims-challenge` or `azd auth login` command to run. A failure the plugin does not recognise is reported without its text, because that text can name the tenant. The error used to give only a class name.
+  
+  Issue: [#641](https://github.com/aelmanaa/hardhat-kms/issues/641)
+
+- [#656](https://github.com/aelmanaa/hardhat-kms/pull/656) [`88675d7`](https://github.com/aelmanaa/hardhat-kms/commit/88675d7696625c9f9d4fa3fea140803f3e926c8b) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The READMEs on npm no longer call 0.9.0 the release candidate for 1.0.0. They say the packages are stable since 1.0.0, and that `latest` holds the current release.
+  
+  Issue: [#655](https://github.com/aelmanaa/hardhat-kms/issues/655)
+- Updated dependencies [[`ad09100`](https://github.com/aelmanaa/hardhat-kms/commit/ad09100ef0f838f46a229b520d91752f365ef231), [`4cd3846`](https://github.com/aelmanaa/hardhat-kms/commit/4cd38463309557d32dec5b981bba700365560189), [`4609f97`](https://github.com/aelmanaa/hardhat-kms/commit/4609f9754b9f30200ed2eb9cc6ff416872f5f460), [`6dd5a48`](https://github.com/aelmanaa/hardhat-kms/commit/6dd5a4827c7bdad9823379c306ec282d595e93e0), [`88675d7`](https://github.com/aelmanaa/hardhat-kms/commit/88675d7696625c9f9d4fa3fea140803f3e926c8b)]:
+  - hardhat-kms@1.5.0
+
 ## 1.4.0
 
 ### Patch Changes
