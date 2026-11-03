@@ -34,7 +34,7 @@ Then open an issue with the [Tester report form](https://github.com/aelmanaa/har
 
 - the cloud you tested;
 - whether you finished the tutorial;
-- the hardhat-kms and provider package versions, and the Hardhat, Node.js and package manager versions. `npm ls hardhat hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure @hardhat-kms/turnkey` (or `pnpm ls` with the same arguments) and `node --version` print them;
+- the hardhat-kms and provider package versions, and the Hardhat, Node.js and package manager versions. `npm ls hardhat hardhat-kms @hardhat-kms/aws @hardhat-kms/gcp @hardhat-kms/azure @hardhat-kms/turnkey @hardhat-kms/safe` (or `pnpm ls` with the same arguments) and `node --version` print them;
 - your operating system;
 - the step where you got stuck or that confused you, by its heading in the tutorial;
 - the command you ran and the full error text.

@@ -13,12 +13,12 @@ The proposer can be any owner the Hardhat network signs for in your project, and
 - a Ledger in the network's `ledgerAccounts`, with `@nomicfoundation/hardhat-ledger`;
 - a KMS key in the network's `kmsAccounts`, in AWS KMS, Google Cloud KMS, Azure Key Vault or Turnkey.
 
-You need a Safe on the network's chain with the proposer's address among its owners.
+You need a Safe on the network's chain with the proposer's address among its owners. For a first try, create a test Safe on Sepolia in the [Safe app](https://app.safe.global), with the proposer among its owners and a threshold of 2.
 
 > [!NOTE]
 > Audience: users whose contracts are owned by a Safe, who want to propose admin and upgrade calls from Hardhat or CI.
 >
-> Checked on this repository's tests: Safes 1.3.0, 1.4.1 and 1.5.0 from their canonical bytecode, on Hardhat's own node, with a LocalStack AWS KMS key, a key in a network's `accounts`, a key read through a configuration variable, and a local service that applies the Transaction Service's checks. Each proposal's signature passed the Safe's `checkNSignatures`, and each Safe executed the transaction, with a second owner's signature where the threshold was 2. A proposal to Safe's hosted service on Sepolia has not been run yet, and the Ledger path has not been run on a device: see [Propose from a Ledger](#propose-from-a-ledger).
+> Checked on this repository's tests: Safes 1.3.0, 1.4.1 and 1.5.0 from their canonical bytecode, on Hardhat's own node, with a LocalStack AWS KMS key, a key in a network's `accounts`, a key read through a configuration variable, and a local service that applies the Transaction Service's checks. Each proposal's signature passed the Safe's `checkNSignatures`, and each Safe executed the transaction, with a second owner's signature where the threshold was 2. The Ledger path has not been run on a device: see [Propose from a Ledger](#propose-from-a-ledger).
 >
 > Checked on Sepolia on 2026-11-03 against Safe's hosted Transaction Service, with `@hardhat-kms/safe` packed from `main`: a 2-of-3 Safe 1.4.1 ([`0x2564…24eE`](https://sepolia.etherscan.io/address/0x256437Bf9031765071Ea3EBdFF1061D6bf6424eE)) took three proposals, one from a key in an environment variable, one from a key in the development keystore of `hardhat-keystore`, and one from an AWS KMS key. Each is queued with the proposer's signature, 1 of 2 confirmations.
 
@@ -43,20 +43,20 @@ A KMS key is the recommended proposer for CI and for an owner that stays for yea
 For a local key or a Ledger:
 
 ```sh
-npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/safe viem
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/safe viem @nomicfoundation/hardhat-keystore
 ```
 
 For a KMS key, add the provider package of your key: `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure` or `@hardhat-kms/turnkey`:
 
 ```sh
-npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws @hardhat-kms/safe viem
+npm install --save-dev "hardhat@^3.18.0" hardhat-kms @hardhat-kms/aws @hardhat-kms/safe viem @nomicfoundation/hardhat-keystore
 ```
 
-`@hardhat-kms/safe` needs `hardhat-kms` at the same version, and `viem` 2.55.13 or later; it loads hardhat-kms itself, and works without a `kms` section in the config. [Install hardhat-kms](install-before-release.md) gives the pnpm and Yarn commands.
+`@hardhat-kms/safe` needs `hardhat-kms` at the same version, and `viem` 2.55.13 or later; it loads hardhat-kms itself, and works without a `kms` section in the config. `@nomicfoundation/hardhat-keystore` holds the API key and a local key in steps 2 and 3. Hardhat's toolboxes include it, so a project that loads one can leave it out. [Install hardhat-kms](install-before-release.md) gives the pnpm and Yarn commands.
 
 ## 2. Store the Safe API key
 
-Safe's hosted Transaction Service needs an API key. Create one at [developer.safe.global](https://developer.safe.global), then store it in Hardhat's keystore, which needs `@nomicfoundation/hardhat-keystore` in `plugins` (Hardhat's toolboxes include it):
+Safe's hosted Transaction Service needs an API key. Create one at [developer.safe.global](https://developer.safe.global), then store it in Hardhat's keystore. The keystore needs `@nomicfoundation/hardhat-keystore` in `plugins`, as the configs in step 3 show:
 
 ```sh
 npx hardhat keystore set SAFE_TRANSACTION_SERVICE_API_KEY
@@ -66,7 +66,7 @@ You can also set `SAFE_TRANSACTION_SERVICE_API_KEY` in the environment, for exam
 
 ## 3. Configure
 
-Add `@hardhat-kms/safe` to `plugins` and set `kmsSafe.apiKey`. The network names the proposer: the sections below show a local key, a Ledger and a KMS key.
+Add `@hardhat-kms/safe` and `@nomicfoundation/hardhat-keystore` to `plugins` and set `kmsSafe.apiKey`. The network names the proposer: the sections below show a local key, a Ledger and a KMS key.
 
 ### Propose from a local key or a burner wallet
 
@@ -78,10 +78,11 @@ npx hardhat keystore set SAFE_PROPOSER_KEY
 
 ```ts
 import hardhatKmsSafe from "@hardhat-kms/safe";
+import hardhatKeystore from "@nomicfoundation/hardhat-keystore";
 import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
-  plugins: [hardhatKmsSafe],
+  plugins: [hardhatKeystore, hardhatKmsSafe],
   kmsSafe: {
     apiKey: configVariable("SAFE_TRANSACTION_SERVICE_API_KEY"),
   },
@@ -96,7 +97,7 @@ export default defineConfig({
 });
 ```
 
-The keystore needs `@nomicfoundation/hardhat-keystore` in `plugins`; Hardhat's toolboxes include it. Pass the account's address with `--from` ([4. Propose a call](#4-propose-a-call)). A burner wallet that only proposes needs no ether: proposing sends no transaction.
+Pass the account's address with `--from` ([4. Propose a call](#4-propose-a-call)). It is the address the wallet that made the key shows. Foundry's `cast wallet address --interactive` also prints it, from the key you paste at its prompt. A burner wallet that only proposes needs no ether: proposing sends no transaction.
 
 The key is on disk, encrypted with the keystore's password, and Hardhat holds it in memory while the task runs. Give the burner wallet nothing to lose: no funds, no role in a contract, and a Safe threshold of 2 or more, so its signature alone executes nothing.
 
@@ -107,7 +108,7 @@ With `@nomicfoundation/hardhat-ledger` in `plugins`, list the Ledger address in 
 <!-- docs-check: skip -->
 
 ```ts
-plugins: [hardhatLedger, hardhatKmsSafe],
+plugins: [hardhatLedger, hardhatKeystore, hardhatKmsSafe],
 networks: {
   sepolia: {
     type: "http",
@@ -138,10 +139,11 @@ Add the provider package to `plugins` and the key to the network's `kmsAccounts`
 ```ts
 import hardhatKmsAws from "@hardhat-kms/aws";
 import hardhatKmsSafe from "@hardhat-kms/safe";
+import hardhatKeystore from "@nomicfoundation/hardhat-keystore";
 import { configVariable, defineConfig } from "hardhat/config";
 
 export default defineConfig({
-  plugins: [hardhatKmsAws, hardhatKmsSafe],
+  plugins: [hardhatKeystore, hardhatKmsAws, hardhatKmsSafe],
   kms: {
     keys: {
       owner: { provider: "aws", keyId: "alias/safe-owner", region: "eu-west-1" },
@@ -175,7 +177,7 @@ On such a network, put the owner's key in `accounts` instead.
 
 ### The service
 
-The plugin picks the service from the chain: `https://api.safe.global/tx-service/sep` for Sepolia, and the chains Safe's own client, `@safe-global/api-kit` 5.0.4, lists. For a chain Safe does not serve, or for a self-hosted service, set its root per chain id. The plugin sends the API key only to Safe's hosted service, never to a self-hosted one, so a self-hosted service that requires a key is not supported:
+The plugin picks the service from the chain: `https://api.safe.global/tx-service/sep` for Sepolia, and the chains Safe's own client, `@safe-global/api-kit` 5.0.4, lists. For a chain Safe does not serve, or for a self-hosted service, set its root per chain id. The plugin sends the API key only to Safe's hosted service, never to a self-hosted one, so a self-hosted service that requires a key is not supported. For a chain listed in `services`, the task does not read `kmsSafe.apiKey`, so its variable need not be set:
 
 <!-- docs-check: skip -->
 
@@ -203,7 +205,7 @@ npx hardhat --network sepolia kms safe propose <safe> <target> --from <owner> \
   --function "transferOwnership(address)" --args '["0x70997970C51812dc3A010C7d01b50e0d17dc79C8"]'
 ```
 
-Or pass the encoded call with `--data`, and wei with `--value`:
+Or pass the encoded call with `--data`, and wei with `--value`. This example signs with the network's KMS account. From a local key or a Ledger, add `--from <owner>`:
 
 ```sh
 npx hardhat --network sepolia kms safe propose <safe> <recipient> --value 1000000000000000

@@ -332,8 +332,8 @@ yarn hardhat kms accounts --check-sign
 It prints a table with one row for the key, with your address in place of `<deployer address>`:
 
 ```text
-NAME      PROVIDER  SOURCE    ADDRESS                                     PIN      SIGN  KEY ID
-deployer  gcp       kms.keys  <deployer address>                          matches  ok    gcp:projects/<GCP_PROJECT_ID>/locations/<GCP_LOCATION>/keyRings/hardhat-kms-tutorial/cryptoKeys/deployer/cryptoKeyVersions/1
+NAME      PROVIDER  SOURCE    ADDRESS                                     PIN      PROTECTION  SIGN  KEY ID
+deployer  gcp       kms.keys  <deployer address>                          matches  HSM         ok    gcp:projects/<GCP_PROJECT_ID>/locations/<GCP_LOCATION>/keyRings/hardhat-kms-tutorial/cryptoKeys/deployer/cryptoKeyVersions/1
 ```
 
 `matches` under `PIN` and `ok` under `SIGN` prove that your credentials may sign with the key and that its signatures recover to the pinned address. The check signs a random message, not a transaction, so it needs no funds. On `FAILED`, read the `error:` line under the row and fix the cause before step 5.

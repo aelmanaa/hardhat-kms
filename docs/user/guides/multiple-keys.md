@@ -15,12 +15,12 @@ This guide covers:
 - [List each key once per network](#list-each-key-once-per-network).
 - [Check the setup](#check-the-setup) with `kms accounts`.
 
-You need a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md)).
+You need a key set up as in one of the setup guides ([AWS](aws-kms-setup.md), [Google Cloud](gcp-kms-setup.md), [Azure](azure-key-vault-setup.md), [Turnkey](turnkey-setup.md)).
 
 > [!NOTE]
 > Audience: users who sign with more than one KMS key, on more than one network, or next to local or Ledger accounts.
 >
-> The `kms accounts` output below has the shape of a run on 2026-10-02 with a Google Cloud KMS key and an Azure Key Vault key, with the addresses replaced by test addresses.
+> The `kms accounts` output below has the shape of a run on 2026-10-02 with a Google Cloud KMS key and an Azure Key Vault key, with the addresses replaced by test addresses. The `PROTECTION` column, added in 1.5.0, shows the Google Cloud key version's protection level.
 
 ## Name each key once
 
@@ -265,8 +265,8 @@ yarn hardhat --network baseSepolia kms accounts
 :::
 
 ```text
-NAME      PROVIDER  SOURCE    ADDRESS                                     PIN   KEY ID
-treasury  gcp       kms.keys  0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826  none  gcp:<TREASURY_KEY_VERSION>
+NAME      PROVIDER  SOURCE    ADDRESS                                     PIN   PROTECTION  KEY ID
+treasury  gcp       kms.keys  0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826  none  HSM         gcp:<TREASURY_KEY_VERSION>
 
 Address pins to add to each key's config:
   kms.keys.treasury: address: "0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826",
@@ -297,9 +297,9 @@ yarn hardhat --kms azure kms accounts
 :::
 
 ```text
-NAME      PROVIDER  SOURCE    ADDRESS                                     PIN   KEY ID
-treasury  gcp       kms.keys  0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826  none  gcp:<TREASURY_KEY_VERSION>
-ops       azure     kms.keys  0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB  none  azure:<OPS_KEY_ID>
+NAME      PROVIDER  SOURCE    ADDRESS                                     PIN   PROTECTION  KEY ID
+treasury  gcp       kms.keys  0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826  none  HSM         gcp:<TREASURY_KEY_VERSION>
+ops       azure     kms.keys  0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB  none  -           azure:<OPS_KEY_ID>
   also: AZURE_KEY_VAULT_KEY_ID
 
 Address pins to add to each key's config:
