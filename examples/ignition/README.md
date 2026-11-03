@@ -58,4 +58,6 @@ export SEPOLIA_RPC_URL=https://…
 npx hardhat ignition deploy ignition/modules/Counter.ts --network sepolia --default-sender 0x…
 ```
 
+If you point `sepolia` at a fork or a local node to rehearse, delete `ignition/deployments/chain-11155111` afterwards. Ignition keys its journal by chain id, so a later run on the real Sepolia would resume the fork's deployment.
+
 Credentials come from the AWS SDK's default chain. [Set up an AWS KMS key](../../docs/user/guides/aws-kms-setup.md) covers the key, its permissions and the address pin.

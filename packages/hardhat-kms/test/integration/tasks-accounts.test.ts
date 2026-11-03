@@ -1397,3 +1397,25 @@ describe("kms accounts", () => {
     });
   });
 });
+
+describe("kms address from a script", () => {
+  it("returns the key's address, so a script can choose its sender by it (#663)", async () => {
+    const { hre } = await runtime({
+      keys: { ops: vaultKey("ops") },
+      adapters: { ops: () => closableAdapter({ secretKey: hex(COW_ACCOUNT.secretKey) }) },
+    });
+    let printed = "";
+    const write = mock.method(process.stdout, "write", (chunk: unknown) => {
+      printed += String(chunk);
+      return true;
+    });
+    let result: unknown;
+    try {
+      result = await hre.tasks.getTask(["kms", "address"]).run({ key: "ops" });
+    } finally {
+      write.mock.restore();
+    }
+    assert.equal(result, COW_ACCOUNT.address);
+    assert.equal(printed, `${COW_ACCOUNT.address}\n`);
+  });
+});

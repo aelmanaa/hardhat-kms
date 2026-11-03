@@ -1,10 +1,10 @@
-import type { ContractTransactionResponse } from "ethers";
+import { type ContractTransactionResponse, isAddress } from "ethers";
 import { network, tasks } from "hardhat";
 
 // The address of the `deployer` key in hardhat.config.ts, read from the KMS. The `kms address`
 // task also prints it, on a line of its own.
 const address: unknown = await tasks.getTask(["kms", "address"]).run({ key: "deployer" });
-if (typeof address !== "string") {
+if (typeof address !== "string" || !isAddress(address)) {
   throw new Error(`kms address returned ${String(address)}, not an address`);
 }
 
