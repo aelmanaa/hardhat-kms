@@ -269,7 +269,13 @@ describe("TransactionServiceClient", () => {
     );
   });
 
-  it("stops a request at timeoutMs, and when the caller's signal aborts", async () => {
+  it("stops a request at timeoutMs, and when the caller's signal aborts", async (t) => {
+    // AbortSignal.timeout's timer does not keep Node's event loop alive, and the fake fetch that
+    // hangs holds no socket, so without this timer the loop can empty before the timeout fires.
+    const keepAlive = setInterval(() => undefined, 1000);
+    t.after(() => {
+      clearInterval(keepAlive);
+    });
     const { fetch } = recorder([hang, hang]);
     const client = new TransactionServiceClient({
       url: "https://service.test",
