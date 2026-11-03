@@ -7,7 +7,7 @@ description: Install hardhat-kms and a provider package with npm, pnpm or Yarn, 
 
 This page installs hardhat-kms and the provider package for your cloud with npm, pnpm or Yarn, registers the plugin in `hardhat.config.ts` and checks that Hardhat lists its tasks.
 
-hardhat-kms is two packages: the core, `hardhat-kms`, and the provider package for the service that holds your key. Install both at the same version:
+hardhat-kms is the core package, `hardhat-kms`, and a provider package for the service that holds your key. Install them at the same version:
 
 | Keys in                        | Provider package       | Plugin export       |
 | ------------------------------ | ---------------------- | ------------------- |
@@ -15,6 +15,8 @@ hardhat-kms is two packages: the core, `hardhat-kms`, and the provider package f
 | Google Cloud KMS               | `@hardhat-kms/gcp`     | `hardhatKmsGcp`     |
 | Azure Key Vault or Managed HSM | `@hardhat-kms/azure`   | `hardhatKmsAzure`   |
 | Turnkey                        | `@hardhat-kms/turnkey` | `hardhatKmsTurnkey` |
+
+`@hardhat-kms/safe` proposes Safe multisig transactions from any Hardhat account, with or without a KMS key ([Propose Safe transactions from Hardhat](propose-safe-transactions.md)). It is not a provider package, and its plugin export is `hardhatKmsSafe`. Install it at the same version as `hardhat-kms`, with `viem` 2.55.13 or later.
 
 The packages need Hardhat ^3.18.0 and one of the [supported Node.js versions](../reference/support.md). Run the steps in a Hardhat 3 project. If you have none yet, `npx hardhat --init` (`pnpm dlx hardhat --init`, `yarn dlx hardhat --init`) creates one in a new directory.
 
@@ -46,7 +48,7 @@ npm pkg set type=module
 
 ## 1. Install the packages
 
-The commands below install the AWS provider. For another cloud, replace `@hardhat-kms/aws` with the package from the table.
+The commands below install the AWS provider. For another cloud, replace `@hardhat-kms/aws` with the package from the table. For Safe proposals, add `@hardhat-kms/safe viem` to the command, or replace the provider package with them when no KMS key proposes.
 
 ::: code-group
 
@@ -166,6 +168,26 @@ export default defineConfig({
 });
 ```
 
+```ts [Turnkey]
+import hardhatKmsTurnkey from "@hardhat-kms/turnkey";
+import { defineConfig } from "hardhat/config";
+
+export default defineConfig({
+  plugins: [hardhatKmsTurnkey],
+});
+```
+
+```ts [Safe proposals]
+import hardhatKmsAws from "@hardhat-kms/aws";
+import hardhatKmsSafe from "@hardhat-kms/safe";
+import { defineConfig } from "hardhat/config";
+
+export default defineConfig({
+  // Leave out the provider package when no KMS key proposes.
+  plugins: [hardhatKmsAws, hardhatKmsSafe],
+});
+```
+
 :::
 
 In a project from `npx hardhat --init`, add the import and append the plugin to the existing `plugins` list. In an empty directory, save the block as `hardhat.config.ts`.
@@ -188,9 +210,9 @@ yarn hardhat kms --help
 
 :::
 
-Hardhat lists the plugin's tasks: `kms accounts`, `kms address`, `kms history`, `kms public-key`, `kms sign`, `kms sign-auth`, `kms sign-tx` and `kms verify`. If it answers `Error HHE404: Task "kms" not found`, the packages are installed but the plugin is not in `plugins`: go back to step 2.
+Hardhat lists the plugin's tasks: `kms accounts`, `kms address`, `kms history`, `kms public-key`, `kms sign`, `kms sign-auth`, `kms sign-tx` and `kms verify`. With `@hardhat-kms/safe`, it also lists `kms safe`. If it answers `Error HHE404: Task "kms" not found`, the packages are installed but the plugin is not in `plugins`: go back to step 2.
 
-Next, create a key and add it to the config: [Set up an AWS KMS key](aws-kms-setup.md), [Set up a Google Cloud KMS key](gcp-kms-setup.md) or [Set up an Azure Key Vault key](azure-key-vault-setup.md). The [Configuration](../reference/configuration.md) reference lists every option.
+Next, create a key and add it to the config: [Set up an AWS KMS key](aws-kms-setup.md), [Set up a Google Cloud KMS key](gcp-kms-setup.md), [Set up an Azure Key Vault key](azure-key-vault-setup.md) or [Set up a Turnkey wallet account](turnkey-setup.md). For Safe proposals, continue with [Propose Safe transactions from Hardhat](propose-safe-transactions.md). The [Configuration](../reference/configuration.md) reference lists every option.
 
 ## Install a build from the repository
 
@@ -213,9 +235,9 @@ pnpm build
 (cd packages/hardhat-kms-aws && pnpm pack)
 ```
 
-For another cloud, pack `packages/hardhat-kms-gcp` or `packages/hardhat-kms-azure` instead of `packages/hardhat-kms-aws`. Each `pnpm pack` writes a `.tgz` file into its package directory, named after the package and the version in its `package.json`: `hardhat-kms-<version>.tgz` and `hardhat-kms-aws-<version>.tgz`. The provider's file name has no `@` or `/`.
+For another provider, pack `packages/hardhat-kms-gcp`, `packages/hardhat-kms-azure` or `packages/hardhat-kms-turnkey` instead of `packages/hardhat-kms-aws`. For Safe proposals, also pack `packages/hardhat-kms-safe`, which writes `hardhat-kms-safe-<version>.tgz`, and install it with the others. Each `pnpm pack` writes a `.tgz` file into its package directory, named after the package and the version in its `package.json`: `hardhat-kms-<version>.tgz` and `hardhat-kms-aws-<version>.tgz`. The provider's file name has no `@` or `/`.
 
-Copy the two files into your Hardhat project and install them by path. `<clone>` is the path to your clone, and `<version>` the version in the file names. The install records the path in `package.json`, so a copy inside the project keeps working after the clone moves:
+Copy the files into your Hardhat project and install them by path. The commands below show the core and the AWS provider; add the others the same way. `<clone>` is the path to your clone, and `<version>` the version in the file names. The install records the path in `package.json`, so a copy inside the project keeps working after the clone moves:
 
 ::: code-group
 
