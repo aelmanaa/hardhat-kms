@@ -12,6 +12,24 @@ With `@hardhat-kms/gcp`, a connection lists the key's account, signs messages an
 > [!NOTE]
 > Audience: users who sign with a key in Google Cloud KMS.
 
+## Before you start
+
+You need:
+
+- The gcloud CLI, signed in, with a project set: `gcloud config get-value project` prints it.
+- Billing on that project. Cloud KMS is a paid service, and a project without an open billing account cannot use it. `gcloud billing projects describe "$(gcloud config get-value project)"` prints `billingEnabled: true` when billing is on ([`ProjectBillingInfo`](https://docs.cloud.google.com/billing/docs/reference/rest/v1/ProjectBillingInfo)).
+- The Cloud KMS API turned on in the project. Turning it on again does no harm ([Enable and disable services](https://docs.cloud.google.com/service-usage/docs/enable-disable)):
+
+  ```sh
+  gcloud services enable cloudkms.googleapis.com
+  ```
+
+  Without it, signing fails with `the Cloud KMS API is not enabled in the project the request is billed to (PERMISSION_DENIED, SERVICE_DISABLED)`.
+
+- A role that can create key rings and keys and grant roles on them, for the account the gcloud CLI is signed in with. Cloud KMS Admin (`roles/cloudkms.admin`) holds `cloudkms.keyRings.create`, `cloudkms.cryptoKeys.create` and `cloudkms.cryptoKeys.setIamPolicy`, and so does the project Owner role ([Cloud KMS permissions and roles](https://docs.cloud.google.com/kms/docs/reference/permissions-and-roles)). Neither role is needed to sign: [step 2](#2-allow-signing-and-nothing-else) grants the identity that signs two narrower roles.
+
+For the same setup from an empty directory, ending with a contract deployed on Sepolia, follow [Deploy a Hardhat contract to Sepolia with Google Cloud KMS](../tutorials/first-deploy-gcp.md).
+
 ## 1. Create a secp256k1 signing key
 
 Ethereum uses the secp256k1 curve, which Cloud KMS calls `EC_SIGN_SECP256K1_SHA256`. Create a key ring, then an asymmetric signing key in it, at protection level HSM.
@@ -97,7 +115,7 @@ yarn add --dev hardhat-kms @hardhat-kms/gcp
 
 pnpm 11 and later need an `allowBuilds` entry, and Yarn 4 needs `nodeLinker: node-modules`: [Install hardhat-kms](install-before-release.md) gives the settings for each package manager.
 
-`@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later, except 6.11.0, to run it on) with it, so there is nothing else to install. npm prints `npm warn deprecated node-domexception@1.0.0` during the install. The warning comes from Google's libraries: `gaxios` and `google-gax` depend on `node-fetch` 3, which pulls in `node-domexception` through `fetch-blob`, and the latest `gaxios`, 8.1.0, still does. It is harmless and needs no action.
+`@hardhat-kms/gcp` brings the Google Cloud SDK (`@google-cloud/kms`, and `google-gax` 6.5.0 or later, except 6.11.0, to run it on) with it, so there is nothing else to install. npm prints `npm warn deprecated node-domexception@1.0.0` during the install. The warning comes from Google's libraries: `gaxios` and `google-gax` depend on `node-fetch` 3, which pulls in `node-domexception` through `fetch-blob`, and the latest `gaxios`, 8.3.2 on 2026-11-03, still does. It is harmless and needs no action.
 
 `@hardhat-kms/gcp` never runs its requests on `google-gax` 6.11.0, which npm marks as deprecated; if your install still shows a 6.11.0 copy, see [Keep google-gax off 6.11.0](#keep-google-gax-off-6110).
 

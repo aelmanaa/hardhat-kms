@@ -16,6 +16,27 @@ With `@hardhat-kms/azure`, a connection lists the key's account and signs transa
 >
 > The plugin's live tests on Sepolia ran against a real vault, with the developer's own identity, not with the roles in [step 2](#2-allow-get-and-sign-and-nothing-else).
 
+## Before you start
+
+You need a vault, and the right to create keys in it:
+
+- If you have no vault yet, create one as in [step 2 of the Azure tutorial](../tutorials/first-deploy-azure.md#2-create-a-vault-and-a-key): it registers the `Microsoft.KeyVault` provider, creates a resource group and an RBAC vault, and gives you a role on it. Pass `--retention-days 90` to `az keyvault create` instead of the tutorial's `7` for a key that will hold value; step 1 below says why.
+- In a vault that uses Azure RBAC, creating a key needs a role such as **Key Vault Crypto Officer** on the vault. Being the subscription's Owner is not enough: without the role, `az keyvault key create` fails with `Forbidden`. Give the role to yourself:
+
+  ```sh
+  VAULT_ID=$(az keyvault show --name my-vault --query id --output tsv)
+
+  az role assignment create --role "Key Vault Crypto Officer" \
+    --assignee-object-id "$(az ad signed-in-user show --query id --output tsv)" \
+    --assignee-principal-type User \
+    --scope "${VAULT_ID:?is empty: check the vault name}"
+  ```
+
+  `${VAULT_ID:?…}` stops the command when `VAULT_ID` is empty, which would otherwise assign the role on the whole subscription. A new assignment can take a few minutes to take effect; if `az keyvault key create` still fails with `Forbidden`, wait and run it again. Keep this role away from the identity that only signs: [step 2](#2-allow-get-and-sign-and-nothing-else) gives that one a narrower role.
+
+- In a vault that uses access policies, your access policy needs the `create` key permission.
+- In a Managed HSM, you need a local role that can create keys, such as Managed HSM Crypto User ([Managed HSM](#managed-hsm)).
+
 ## 1. Create a secp256k1 signing key
 
 Ethereum signs with secp256k1, the curve Key Vault calls `P-256K`, so the key must be an elliptic-curve key on it.
@@ -113,7 +134,7 @@ If you cannot create a custom role, the built-in role with the fewest permission
 
 The [0.10.1 acceptance run](https://github.com/aelmanaa/hardhat-kms/issues/466#issuecomment-6101797837) on 2026-10-10 signed and deployed on Sepolia with a fresh service principal holding only Key Vault Crypto User on the key.
 
-Creating the key in step 1 needs a broader role, such as Key Vault Crypto Officer, which the identity that only signs should not have.
+Creating the key in step 1 needs a broader role, such as Key Vault Crypto Officer ([Before you start](#before-you-start)), which the identity that only signs should not have.
 
 ### Vaults that use access policies
 
