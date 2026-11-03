@@ -179,6 +179,8 @@ Error in community plugin hardhat-kms: aws, check address, key aws:alias/deploye
 
 AWS, Google Cloud and Azure keys all return a public key. A third-party provider may return only an address; the task then asks it for the address and checks the pin the same way. A provider that can return neither, such as Turnkey, leaves only the pin: the task prints the pin and writes a note on standard error that it is not checked yet. The first signature checks it.
 
+From a script, `hre.tasks.getTask(["kms", "address"]).run({ key: "deployer" })` returns the address as a string, and prints it as the command does. The scripts in [the examples](../../../examples/README.md) use it to send from the key by its address, not from the network's first account ([Choose the sender by address](../guides/multiple-keys.md#choose-the-sender-by-address)).
+
 ## `kms public-key`
 
 Prints a key's uncompressed secp256k1 public key, 65 bytes: `0x04` followed by 128 lowercase hex digits.

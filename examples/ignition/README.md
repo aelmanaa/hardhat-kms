@@ -11,7 +11,7 @@ This project's Ignition module deploys `contracts/Counter.sol` and calls `add(5)
 | `hardhat.config.ts`           | The `@hardhat-kms/aws` and `hardhat-ignition-viem` plugins, the `deployer` key, and the `rehearsal`, `sepolia` and `rehearsalCli` networks |
 | `contracts/Counter.sol`       | A counter that only its deployer can change                                                                                                |
 | `ignition/modules/Counter.ts` | The Ignition module                                                                                                                        |
-| `scripts/deploy.ts`           | Deploys the module with `ignition.deploy` from the KMS account, then reads the counter's state back                                        |
+| `scripts/deploy.ts`           | Deploys the module with `ignition.deploy` from the `deployer` key's address, then reads the counter's state back                           |
 
 ## Run it
 
@@ -23,7 +23,7 @@ export AWS_KMS_KEY_ID=alias/deployer   # a key id, alias or ARN
 export AWS_REGION=eu-west-1            # the key's region, unless AWS_KMS_KEY_ID is an ARN
 ```
 
-Deploy the module with the `ignition deploy` task on the simulated `rehearsal` network. `kms.simulatedBalance` funds the KMS account there, and the key in AWS KMS still signs every transaction. Pass the key's address as the default sender. The script below prints it on its `Deployer:` line, and [Set up an AWS KMS key](../../docs/user/guides/aws-kms-setup.md#4-check-that-the-key-signs) shows another way to read it:
+Deploy the module with the `ignition deploy` task on the simulated `rehearsal` network. `kms.simulatedBalance` funds the KMS account there, and the key in AWS KMS still signs every transaction. Pass the key's address as the default sender: without it, Ignition sends from the network's first account, which on a node that manages accounts of its own, such as anvil, `hardhat node` or a fork, is the node's account and not the key. `npx hardhat kms address deployer` prints the address:
 
 ```sh
 npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsal --default-sender 0x…
@@ -35,13 +35,14 @@ To deploy with a key passed by `--kms aws` instead of a config entry, use `rehea
 npx hardhat ignition deploy ignition/modules/Counter.ts --network rehearsalCli --kms aws --default-sender 0x…
 ```
 
-Or run the script, which deploys the same module from the network's first account, the KMS account, and reads the result back:
+Or run the script, which deploys the same module and reads the result back. It asks the plugin for the `deployer` key's address with the `kms address` task, which prints it on the first line, and passes that address to Ignition as `defaultSender`. If the key is not one of the network's accounts, the script stops with an error before it sends anything:
 
 ```sh
 npx hardhat run scripts/deploy.ts --network rehearsal
 ```
 
 ```text
+0x…
 Deployer: 0x…
 Counter: 0x…
 Owner: 0x…

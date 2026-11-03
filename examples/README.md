@@ -4,7 +4,7 @@ Audience: Hardhat 3 users who want a working project to copy, with a contract de
 
 Status: CI runs every example on each pull request.
 
-Each folder is a small Hardhat 3 project with one contract, `Counter`, and a script that deploys it from a KMS account, calls it once and reads its state back:
+Each folder is a small Hardhat 3 project with one contract, `Counter`, and a script that deploys it from a KMS account, calls it once and reads its state back. The script picks the sender by the key's address, never by its position in the network's accounts:
 
 | Example               | Deploys with                                                          |
 | --------------------- | --------------------------------------------------------------------- |
@@ -32,4 +32,4 @@ Run `pnpm install` and `pnpm run build` at the repository root, then run the com
 
 ## How CI runs the examples
 
-The `Examples (LocalStack)` CI job runs `pnpm run test:examples`. It starts LocalStack's KMS emulator in Docker, creates a secp256k1 key there, and runs each example unchanged: the standard AWS variables `AWS_ENDPOINT_URL_KMS`, `AWS_REGION` and test credentials point the AWS SDK at LocalStack, and `AWS_KMS_KEY_ID` names the new key. For each example it runs `hardhat build`, `tsc`, a type-aware lint with the repository's rules, and the deploy script on the `rehearsal` network, then checks that the deployer and the contract's owner are the key's address and that the count read back is 12. The Ignition example also runs `hardhat ignition deploy` against a Hardhat node and reads the counter back from it. [Testing](../docs/contributor/testing.md) describes the test in more detail.
+The `Examples (LocalStack)` CI job runs `pnpm run test:examples`. It starts LocalStack's KMS emulator in Docker, creates a secp256k1 key there, and runs each example unchanged: the standard AWS variables `AWS_ENDPOINT_URL_KMS`, `AWS_REGION` and test credentials point the AWS SDK at LocalStack, and `AWS_KMS_KEY_ID` names the new key. For each example it runs `hardhat build`, `tsc`, a type-aware lint with the repository's rules, and the deploy script on the `rehearsal` network, then checks that the deployer and the contract's owner are the key's address and that the count read back is 12. It also points the `sepolia` network at a `hardhat node` with Sepolia's chain id, whose 20 accounts come before the KMS account, and checks the same there, and that the script stops without sending anything on `localhost`, which lists no KMS key. The Ignition example also runs `hardhat ignition deploy` against a Hardhat node and reads the counter back from it. [Testing](../docs/contributor/testing.md) describes the test in more detail.

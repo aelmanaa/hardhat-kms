@@ -112,7 +112,7 @@ export default buildModule("Counter", (m) => {
 
 ## 2. Choose the deployer
 
-Ignition sends from its default sender, the first address of `eth_accounts`. The plugin lists the network's own accounts first and the KMS accounts after them ([RPC methods](../reference/rpc-methods.md)), so a KMS account is the default sender only when the network has no accounts of its own. That is the case for an http network whose node lists no accounts, as public RPC endpoints do, and for a network with `accounts: []`.
+Ignition sends from its default sender, the first address of `eth_accounts`. The plugin lists the network's own accounts first and the KMS accounts after them ([RPC methods](../reference/rpc-methods.md)), so a KMS account is the default sender only when the network has no accounts of its own. That is the case for an http network whose node lists no accounts, as public RPC endpoints do, and for a network with `accounts: []`. An http network pointed at a node that manages accounts, such as anvil, `hardhat node` or a fork of Sepolia, lists the node's accounts first: without a sender named by address, Ignition sends from the node's first account there, the node signs, and no KMS key does.
 
 The KMS account's position in `eth_accounts` therefore differs between networks. On `sepolia` above it is index 0; on `rehearsal` and `sepoliaFork`, which have EDR's 20 default accounts, it is index 20. Choose the deployer by address with `--default-sender`, which works on every network the key is listed on. `npx hardhat kms accounts` prints the key's address:
 
@@ -162,6 +162,8 @@ const CounterModule = buildModule("Counter", (m) => {
 const { ignition } = await network.create("sepolia");
 await ignition.deploy(CounterModule, { defaultSender: "0x…" });
 ```
+
+The [example's script](../../../examples/ignition/scripts/deploy.ts) reads the address with `hre.tasks.getTask(["kms", "address"]).run({ key: "deployer" })` instead of a literal ([`kms address`](../reference/tasks.md#kms-address)).
 
 Ignition refuses a `defaultSender` that is not in `eth_accounts`. If it reports an invalid default sender, check that the network lists the key in `kmsAccounts`, or that you passed `--kms`.
 
