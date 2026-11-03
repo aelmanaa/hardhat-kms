@@ -11,6 +11,7 @@
         "verdaccio",
         "@nomicfoundation/hardhat-ignition",
         "@nomicfoundation/hardhat-ignition-viem",
+        "@nomicfoundation/hardhat-keystore",
         "@nomicfoundation/hardhat-ledger",
         "@nomicfoundation/hardhat-toolbox-viem",
         "@hardhat-kms/turnkey",

@@ -221,6 +221,12 @@ On a laptop, keep it in the keystore, which encrypts it with a password. Add `im
 npx hardhat keystore set TURNKEY_API_PRIVATE_KEY
 ```
 
+The config in [step 6](#6-install-the-plugin-and-configure-the-key) also reads the organization id from `TURNKEY_ORGANIZATION_ID`. It is not a secret, so export it in the shell where you run Hardhat, from the variable of step 1:
+
+```sh
+export TURNKEY_ORGANIZATION_ID="$ORGANIZATION_ID"
+```
+
 In CI, store it as a secret and expose it to the job as `TURNKEY_API_PRIVATE_KEY`. In GitHub Actions:
 
 ```yaml
