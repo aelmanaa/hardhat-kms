@@ -247,7 +247,13 @@ The plugin never prints, logs or puts the key in an error, even with `--show-ids
 
 ### Give the key an expiry, and rotate it
 
-Turnkey's API takes an expiry for each API key, `expirationSeconds` on `create_api_keys` ([Create API keys](https://docs.turnkey.com/api-reference/activities/create-api-keys)); Turnkey's docs do not say whether the dashboard's form sets one. Rotation follows Turnkey's steps: create a new key for the user, update the integration and check it, then delete the old key ([Rotate API keys](https://docs.turnkey.com/features/users/credentials#rotate-api-keys)). The deny policy of step 4 stops the API user from adding or deleting its own keys, so run these steps with a root user's key, here `admin`, or as a user that a policy allows to manage this user's keys. To give the user a key that expires in 90 days, generate a new key pair as in step 3, then add its public key:
+Turnkey's API takes an expiry for each API key, `expirationSeconds` on `create_api_keys` ([Create API keys](https://docs.turnkey.com/api-reference/activities/create-api-keys)); Turnkey's docs do not say whether the dashboard's form sets one. Rotation follows Turnkey's steps: create a new key for the user, update the integration and check it, then delete the old key ([Rotate API keys](https://docs.turnkey.com/features/users/credentials#rotate-api-keys)). The deny policy of step 4 stops the API user from adding or deleting its own keys, so run these steps with a root user's key, here `admin`, or as a user that a policy allows to manage this user's keys. To give the user a key that expires in 90 days, generate a new key pair under a new name. The CLI refuses a name it already holds, with `a keypair named "hardhat-deployer" already exists; exiting` (`tkhq/go-sdk` `crypto/store.go` at `a90b446`), so do not reuse step 3's name:
+
+```sh
+turnkey generate api-key --organization "$ORGANIZATION_ID" --key-name hardhat-deployer-2027-01
+```
+
+Then add the printed public key to the API user:
 
 ```sh
 turnkey request --path /public/v1/submit/create_api_keys --body '{
@@ -360,7 +366,59 @@ npx hardhat kms accounts --check-sign
 
 The key signs a random EIP-191 message, sent with `HASH_FUNCTION_KECCAK256`, so this one signature checks the first policy's message clause. Success shows `matches` in the `PIN` column and `ok` in the `SIGN` column: Turnkey accepted the API key, a policy allowed the request, and the signature recovers to the pinned address. It spends one signature of the quota for each Turnkey row it lists: keys that name the same organization and address are listed, and checked, once when they also use the same API keys and the same `transactionSigning`. Keys with another API key or mode get rows of their own, and each is checked ([`kms accounts`](../reference/tasks.md#kms-accounts)).
 
-To check the typed-data and digest clauses as well, sign one of each, for example `npx hardhat kms sign --data --from-file --network sepolia deployer permit.json` and `npx hardhat kms sign --no-hash deployer <digest>`, answering `y` at the question ([`kms sign`](../reference/tasks.md#raw-digests)). To check the second policy, sign a transaction without sending it, for example `npx hardhat --network sepolia kms sign-tx deployer tx.json` ([`kms sign-tx`](../reference/tasks.md#kms-sign-tx)). That is three more signatures.
+To check the first policy's typed-data and digest clauses, and the second policy, sign typed data, a digest and a transaction. That is three more signatures of the quota.
+
+For typed data, save this as `check.json`. It is EIP-712 typed data in the format `eth_signTypedData_v4` takes, for Sepolia, and it authorizes nothing:
+
+```json
+{
+  "types": {
+    "EIP712Domain": [
+      { "name": "name", "type": "string" },
+      { "name": "version", "type": "string" },
+      { "name": "chainId", "type": "uint256" }
+    ],
+    "Check": [{ "name": "note", "type": "string" }]
+  },
+  "primaryType": "Check",
+  "domain": { "name": "hardhat-kms check", "version": "1", "chainId": 11155111 },
+  "message": { "note": "Turnkey policy check" }
+}
+```
+
+Then sign it. `--network sepolia` gives the chain to check the typed data against, from the network's `chainId` in the config, so this command does not call the node ([`kms sign`](../reference/tasks.md#typed-data-and-chains)):
+
+```sh
+npx hardhat kms sign --data --from-file --network sepolia deployer check.json
+```
+
+For the digest clause, sign a 32-byte digest you computed yourself, such as the hash of a fixed text. `cast keccak` prints it as `0x` and 64 hex digits:
+
+```sh
+npx hardhat kms sign --no-hash deployer "$(cast keccak 'hardhat-kms Turnkey policy check')"
+```
+
+Answer `y` at the question ([Raw digests](../reference/tasks.md#raw-digests)). If the key needs no raw digests and you removed the `NO_OP` digest clause from the first policy, this command fails with `turnkey.service.forbidden`, which is the check.
+
+To check the second policy, sign a transaction without sending it. [`kms sign-tx`](../reference/tasks.md#kms-sign-tx) fills the transaction on the network's node, so set `SEPOLIA_RPC_URL`, which the config of [step 6](#6-install-the-plugin-and-configure-the-key) reads, in the keystore or the environment. A URL with an API key belongs in the keystore:
+
+```sh
+npx hardhat keystore set SEPOLIA_RPC_URL
+```
+
+Save the transaction as `tx.json`, with the fields of `eth_sendTransaction`. This one sends no value to the account itself. `gas` is set, so the node does not estimate it for an account that may hold no ETH yet:
+
+```json
+{ "to": "<WALLET_ACCOUNT_ADDRESS>", "value": "0x0", "gas": "0x5208" }
+```
+
+Then sign it:
+
+```sh
+npx hardhat --network sepolia kms sign-tx deployer tx.json
+```
+
+The task prints the signed transaction and never sends it. Turnkey keeps a copy of a transaction it signed, which anyone who can read the activity can broadcast; this one moves no value, and costs at most its gas fee if it is sent ([What Turnkey records](#what-turnkey-records)).
 
 ## How the plugin uses the key
 
