@@ -137,8 +137,9 @@ describe("Google Cloud KMS adapter", () => {
 
   it("signs the digest with the configured version, its CRC32C and the key's timeout", async () => {
     const { adapter, calls, clients } = await adapterFor();
-    await lookUp(adapter);
-    await sign(adapter);
+    const ctx = context();
+    await adapter.getPublicKey?.(ctx);
+    await adapter.signDigest?.({ digest }, ctx);
 
     // The key's project, so that google-auth-library never looks it up.
     assert.deepEqual(clients[0]?.options, { fallback: true, projectId: "p" });
@@ -153,14 +154,16 @@ describe("Google Cloud KMS adapter", () => {
     );
     assert.deepEqual(calls[1]?.request.digest, { sha256: digest });
     assert.deepEqual(calls[1]?.request.digestCrc32c, { value: crc32c(digest) });
-    // The key's timeout as gax's deadline, no SDK retries (the adapter's loop is the only one), and
-    // the plugin's user agent.
+    // The key's timeout as gax's deadline, no SDK retries (the adapter's loop is the only one), the
+    // plugin's user agent, and the call's signal, which cancels the request (#651).
     for (const call of calls) {
       assert.deepEqual(call.options, {
         timeout: 1234,
         retry: null,
         otherArgs: { headers: { "User-Agent": USER_AGENT } },
+        signal: ctx.signal,
       });
+      assert.equal(call.options.signal, ctx.signal);
     }
   });
 
