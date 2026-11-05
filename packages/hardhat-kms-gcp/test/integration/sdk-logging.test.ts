@@ -3,6 +3,8 @@
 // and when a client is built. The plugin's warning must appear exactly when a library logs.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -27,6 +29,24 @@ const fixture = path.join(
 /** The access token of the fixture's token endpoint. */
 const ACCESS_TOKEN = "fixture-access-token";
 
+/**
+ * Whether the google-logging-utils that `library` logs through turns every log on with `true`, as
+ * 2.1.0 and later do. google-gax 6.16 brings 2.1, and the google-gax floor an older release.
+ */
+function trueLogsAll(library: "google-gax" | "google-auth-library"): boolean {
+  const own = createRequire(import.meta.url);
+  const utils = createRequire(own.resolve(library)).resolve("google-logging-utils");
+  let directory = path.dirname(utils);
+  while (path.basename(directory) !== "google-logging-utils") {
+    directory = path.dirname(directory);
+  }
+  const manifest: unknown = JSON.parse(readFileSync(path.join(directory, "package.json"), "utf8"));
+  const [major = 0, minor = 0] = String(Reflect.get(Object(manifest), "version"))
+    .split(".")
+    .map(Number);
+  return major > 2 || (major === 2 && minor >= 1);
+}
+
 /** Runs the fixture with the variable set to `value`, or unset, and returns its standard error. */
 function run(value: string | undefined): string {
   const env: NodeJS.ProcessEnv = { ...process.env, NODE_V8_COVERAGE: "" };
@@ -47,8 +67,9 @@ function run(value: string | undefined): string {
 }
 
 describe(`${SDK_LOGGING_VARIABLE} and the installed Google Cloud libraries`, () => {
-  // Off, on for both, on for one, and values that turn on nothing: `ALL` is not `all`, and the
-  // value is a list of namespaces, which `true` does not match. [value, kms logs, auth logs]
+  // Off, on for both, on for one, and values that turn on nothing: `ALL` is not `all`. `true`
+  // turns every log on from google-logging-utils 2.1.0, and nothing before; the plugin warns
+  // either way. [value, kms logs, auth logs]
   const cases: [string | undefined, boolean, boolean][] = [
     [undefined, false, false],
     ["", false, false],
@@ -58,13 +79,15 @@ describe(`${SDK_LOGGING_VARIABLE} and the installed Google Cloud libraries`, () 
     ["auth", false, true],
     ["pubsub,a*", false, true],
     ["ALL", false, false],
-    ["true", false, false],
+    ["true", trueLogsAll("google-gax"), trueLogsAll("google-auth-library")],
   ];
   for (const [value, kms, auth] of cases) {
     const name = value === undefined ? "unset" : JSON.stringify(value);
     it(`warns exactly when a library logs, with the variable ${name}`, () => {
-      assert.equal(sdkLogs(value, "kms"), kms);
-      assert.equal(sdkLogs(value, "auth"), auth);
+      // The plugin counts `true` as on whatever the installed release does with it.
+      const warns = value === "true" || kms || auth;
+      assert.equal(sdkLogs(value, "kms"), value === "true" || kms);
+      assert.equal(sdkLogs(value, "auth"), value === "true" || auth);
       const stderr = run(value);
       // Each library prints its namespace on each line.
       assert.equal(stderr.includes("[kms|"), kms, stderr);
@@ -77,7 +100,7 @@ describe(`${SDK_LOGGING_VARIABLE} and the installed Google Cloud libraries`, () 
       const warnings = stderr
         .split("\n")
         .filter((line) => line.startsWith(`hardhat-kms: ${SDK_LOGGING_VARIABLE} is set`));
-      assert.equal(warnings.length, kms || auth ? 1 : 0, stderr);
+      assert.equal(warnings.length, warns ? 1 : 0, stderr);
     });
   }
 });

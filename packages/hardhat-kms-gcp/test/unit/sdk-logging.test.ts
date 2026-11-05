@@ -32,7 +32,9 @@ describe("sdkLogs", () => {
       ["kms|auth", false, false],
       ["k.s", false, false],
       ["1", false, false],
-      ["true", false, false],
+      // google-logging-utils 2.1.0 turns every log on with `true`; earlier releases none.
+      ["true", true, true],
+      ["TRUE", false, false],
     ];
     for (const [value, kms, auth] of cases) {
       assert.deepEqual(
@@ -61,7 +63,7 @@ describe("sdkLoggingWarning", () => {
     const warn = t.mock.method(console, "warn", () => undefined);
     sdkLoggingWarning(() => undefined)(["kms", "auth"]);
     sdkLoggingWarning(() => "")(["kms", "auth"]);
-    sdkLoggingWarning(() => "true")(["kms", "auth"]);
+    sdkLoggingWarning(() => "1")(["kms", "auth"]);
     sdkLoggingWarning(() => "kms")(["auth"]);
     assert.equal(warn.mock.callCount(), 0);
   });

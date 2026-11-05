@@ -1,5 +1,19 @@
 # @hardhat-kms/gcp
 
+## 1.5.1
+
+### Patch Changes
+
+- [#681](https://github.com/aelmanaa/hardhat-kms/pull/681) [`b528e0d`](https://github.com/aelmanaa/hardhat-kms/commit/b528e0de9199bccb3e51b24773e376c8d73ca7a3) Thanks [@aelmanaa](https://github.com/aelmanaa)! - A Google Cloud KMS call that times out or is abandoned now cancels its request, as the AWS and Azure plugins do, instead of leaving it to run until its deadline. The plugin passes the call's abort signal to the Cloud KMS client, which cancels with google-gax 6.15.0 or later; a new install resolves it, and an older google-gax ignores the signal as before.
+  
+  Issue: [#651](https://github.com/aelmanaa/hardhat-kms/issues/651)
+
+- [#681](https://github.com/aelmanaa/hardhat-kms/pull/681) [`b528e0d`](https://github.com/aelmanaa/hardhat-kms/commit/b528e0de9199bccb3e51b24773e376c8d73ca7a3) Thanks [@aelmanaa](https://github.com/aelmanaa)! - The warning about `GOOGLE_SDK_NODE_LOGGING` now also appears when the variable is `true`. From google-logging-utils 2.1.0, which a new install resolves through google-gax 6.16, `true` turns on every log of Google's client libraries, including the access token of each token refresh; before, the plugin warned only for the values that turned them on in 2.0.
+  
+  Issue: [#680](https://github.com/aelmanaa/hardhat-kms/issues/680)
+- Updated dependencies []:
+  - hardhat-kms@1.5.1
+
 ## 1.5.0
 
 ### Minor Changes

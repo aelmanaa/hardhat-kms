@@ -65,14 +65,16 @@ export type GcpClientOptions = NonNullable<
 >;
 
 /**
- * The per-call options the adapter passes: gax's deadline for the request, no SDK retries, and the
- * plugin's `User-Agent` header. google-gax 6.5.0 is the first 6.x release that enforces the
- * deadline over REST.
+ * The per-call options the adapter passes: gax's deadline for the request, no SDK retries, the
+ * plugin's `User-Agent` header, and the call's abort signal. google-gax 6.5.0 is the first 6.x
+ * release that enforces the deadline over REST, and 6.15.0 the first that cancels the request
+ * when `signal` aborts; earlier releases ignore `signal`, and the request runs until its deadline.
  */
 export interface GcpCallOptions {
   timeout: number;
   retry: null;
   otherArgs: { headers: { "User-Agent": string } };
+  signal: AbortSignal;
 }
 
 /** The parts of a `KeyManagementServiceClient` the adapter uses. */
@@ -214,7 +216,7 @@ class GcpKeyAdapter implements KmsKeyAdapter {
     const response = await this.#withRetries(operation, ctx, async () => {
       const [key] = await this.#call(
         operation,
-        async (client) => await client.getPublicKey({ name: this.#name }, this.#options()),
+        async (client) => await client.getPublicKey({ name: this.#name }, this.#options(ctx)),
       );
       // The checks below do not trust the SDK's types: every field of a response is optional.
       if (key.name !== this.#name) {
@@ -277,7 +279,7 @@ class GcpKeyAdapter implements KmsKeyAdapter {
               digest: { sha256: request.digest },
               digestCrc32c: { value: digestCrc32c },
             },
-            this.#options(),
+            this.#options(ctx),
           ),
       );
       if (response.name !== this.#name) {
@@ -303,7 +305,7 @@ class GcpKeyAdapter implements KmsKeyAdapter {
     await this.#client?.close();
   }
 
-  #options(): GcpCallOptions {
+  #options(ctx: SignContext): GcpCallOptions {
     return {
       timeout: this.#key.timeoutMs,
       retry: null,
@@ -311,6 +313,9 @@ class GcpKeyAdapter implements KmsKeyAdapter {
       // the header as `callerSuppliedUserAgent`. The `libName` client option would only reach
       // `x-goog-api-client`, which the audit log does not show.
       otherArgs: { headers: { "User-Agent": this.#userAgent } },
+      // An abandoned call closes its request, so Cloud KMS stops working on it if it has not
+      // answered yet (google-gax 6.15.0 and later).
+      signal: ctx.signal,
     };
   }
 

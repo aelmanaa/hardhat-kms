@@ -14,12 +14,14 @@ export const SDK_LOGGING_VARIABLE = "GOOGLE_SDK_NODE_LOGGING";
 export type SdkLogNamespace = "kms" | "auth";
 
 /**
- * Whether Google's client libraries log under `namespace` with the variable set to `setting`. This
- * follows google-logging-utils 2.0.1 (`build/src/logging-utils.js`), which google-gax and
+ * Whether Google's client libraries may log under `namespace` with the variable set to `setting`.
+ * This follows google-logging-utils (`build/src/logging-utils.js`), which google-gax and
  * google-auth-library log through: an unset or empty variable turns logging off, and any other
  * value is a comma-separated list of namespaces, matched whole and ignoring case, in which `*`
- * matches any text and a value of exactly `all` matches every namespace. So `1` or `true` turns on
- * nothing. A test checks this against the installed libraries.
+ * matches any text and a value of exactly `all` matches every namespace. From 2.1.0 a value of
+ * exactly `true` also matches every namespace; it counts as on whatever the installed version, so
+ * the warning never misses it (#651). `1` turns on nothing. A test checks this against the
+ * installed libraries.
  *
  * @param setting - The variable's value.
  * @param namespace - The library's log namespace.
@@ -29,7 +31,7 @@ export function sdkLogs(setting: string | undefined, namespace: SdkLogNamespace)
   if (setting === undefined || setting === "") {
     return false;
   }
-  const filters = setting === "all" ? "*" : setting;
+  const filters = setting === "all" || setting === "true" ? "*" : setting;
   const pattern = filters
     .replace(/[|\\{}()[\]^$+?.]/g, "\\$&")
     .replace(/\*/g, ".*")

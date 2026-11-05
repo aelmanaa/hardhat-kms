@@ -35,6 +35,8 @@ export interface ServerFaults {
     | undefined;
   /** Answer every request with this body, not a Google error, as a proxy or firewall would. */
   page?: { http: number; contentType: string; body: string } | undefined;
+  /** Never answer sign requests, as a service that is slow to sign. */
+  holdSign?: boolean | undefined;
 }
 
 /** A running local KMS endpoint. */
@@ -42,6 +44,8 @@ export interface KmsServer {
   port: number;
   requests: KmsRequest[];
   faults: ServerFaults;
+  /** How many held sign requests the client closed before the server answered. */
+  closedUnanswered: () => number;
   close(): Promise<void>;
 }
 
@@ -67,6 +71,7 @@ const SIGN = /^\/v1\/(projects\/.+\/cryptoKeyVersions\/\d+):asymmetricSign$/;
 export async function startKmsServer(secretKey: Uint8Array): Promise<KmsServer> {
   const requests: KmsRequest[] = [];
   const faults: ServerFaults = { corruptSignatureCrc32c: 0, corruptDigest: 0 };
+  let closedUnanswered = 0;
   const server = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -103,6 +108,12 @@ export async function startKmsServer(secretKey: Uint8Array): Promise<KmsServer> 
         return;
       }
       const sign = SIGN.exec(path);
+      if (request.method === "POST" && sign !== null && faults.holdSign === true) {
+        response.on("close", () => {
+          closedUnanswered += response.writableEnded ? 0 : 1;
+        });
+        return;
+      }
       if (request.method === "POST" && sign !== null) {
         const encoded: unknown = Reflect.get(Object(Reflect.get(body, "digest")), "sha256");
         const digest = Buffer.from(typeof encoded === "string" ? encoded : "", "base64");
@@ -147,6 +158,7 @@ export async function startKmsServer(secretKey: Uint8Array): Promise<KmsServer> 
     port: address.port,
     requests,
     faults,
+    closedUnanswered: () => closedUnanswered,
     close: async () => {
       server.closeAllConnections();
       server.close();
