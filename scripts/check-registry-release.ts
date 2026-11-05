@@ -36,6 +36,7 @@ import {
   assertInstalledVersion,
   parseRegistryOptions,
   registryPackages,
+  jsonOutput,
   registryArguments,
   type RegistryOptions,
 } from "./registry.ts";
@@ -70,20 +71,7 @@ const version = String(options.version);
 
 /** Runs npm and returns its standard output; a failing `npm view` still prints JSON. */
 function npmJson(args: string[], cwd: string = root): string {
-  try {
-    return execFileSync(npm, [...args, "--json", ...registryArguments(registry)], {
-      cwd,
-      shell,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch (error) {
-    const stdout: unknown = Reflect.get(Object(error), "stdout");
-    if (typeof stdout === "string" && stdout.trim() !== "") {
-      return stdout;
-    }
-    throw error;
-  }
+  return jsonOutput(npm, [...args, "--json", ...registryArguments(registry)], { cwd, shell });
 }
 
 const ok = (what: string): void => {
