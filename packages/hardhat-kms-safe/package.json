@@ -72,6 +72,7 @@
     "@hardhat-kms/aws": "workspace:*",
     "@nomicfoundation/hardhat-ledger": "catalog:",
     "@safe-global/api-kit": "5.0.4",
+    "@safe-global/types-kit": "4.0.1",
     "@types/node": "catalog:",
     "c8": "catalog:",
     "hardhat": "catalog:",

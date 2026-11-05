@@ -67,7 +67,8 @@ export interface FakeKmsOptions {
   secretKey: Uint8Array;
   algorithm?: protos.google.cloud.kms.v1.IPublicKey["algorithm"];
   /** The public key's protection level; `HSM` by default, and `null` for none. */
-  protectionLevel?: protos.google.cloud.kms.v1.IPublicKey["protectionLevel"];
+  /** The level to report: one the SDK names, or a number for a level newer than the SDK. */
+  protectionLevel?: protos.google.cloud.kms.v1.IPublicKey["protectionLevel"] | number;
   /** The `name` getPublicKey returns instead of the one requested; `null` for none. */
   publicKeyName?: string | null;
   /** The `name` asymmetricSign returns instead of the one requested; `null` for none. */
