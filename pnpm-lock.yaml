@@ -62,8 +62,8 @@ catalogs:
       specifier: ^4.10.2
       version: 4.10.2
     hardhat:
-      specifier: 3.20.0
-      version: 3.20.0
+      specifier: 3.21.1
+      version: 3.21.1
     knip:
       specifier: 6.42.1
       version: 6.42.1
@@ -160,22 +160,22 @@ importers:
         version: link:packages/hardhat-kms-turnkey
       '@nomicfoundation/hardhat-ignition':
         specifier: 'catalog:'
-        version: 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(hardhat@3.20.0)
+        version: 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(hardhat@3.21.1)
       '@nomicfoundation/hardhat-ignition-viem':
         specifier: 'catalog:'
-        version: 3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(hardhat@3.20.0))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+        version: 3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(hardhat@3.21.1))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@nomicfoundation/hardhat-keystore':
         specifier: 'catalog:'
-        version: 3.1.0(hardhat@3.20.0)
+        version: 3.1.0(hardhat@3.21.1)
       '@nomicfoundation/hardhat-ledger':
         specifier: 'catalog:'
-        version: 3.1.0(debug@4.4.3(supports-color@7.2.0))(hardhat@3.20.0)(react@19.3.0)(supports-color@7.2.0)
+        version: 3.1.0(debug@4.4.3(supports-color@7.2.0))(hardhat@3.21.1)(react@19.3.0)(supports-color@7.2.0)
       '@nomicfoundation/hardhat-toolbox-viem':
         specifier: 'catalog:'
-        version: 5.0.7(e3c09b3598fd957f4422e7873d463c77)
+        version: 5.0.7(9118a981f8c873e4bc7349089c238451)
       '@nomicfoundation/hardhat-viem':
         specifier: 'catalog:'
-        version: 3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+        version: 3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@resvg/resvg-js':
         specifier: 'catalog:'
         version: 2.6.2
@@ -190,7 +190,7 @@ importers:
         version: 65.4.0(eslint@10.11.0(jiti@2.7.0)(supports-color@7.2.0))(supports-color@7.2.0)(typescript@7.0.2)
       hardhat:
         specifier: 'catalog:'
-        version: 3.20.0
+        version: 3.21.1
       hardhat-kms:
         specifier: workspace:*
         version: link:packages/hardhat-kms
@@ -241,7 +241,7 @@ importers:
         version: link:../../packages/hardhat-kms-aws
       '@nomicfoundation/hardhat-ethers':
         specifier: ^4.2.0
-        version: 4.2.1(hardhat@3.20.0)
+        version: 4.2.1(hardhat@3.21.1)
       '@types/node':
         specifier: ^22.18.0
         version: 22.20.4
@@ -250,7 +250,7 @@ importers:
         version: 6.17.0
       hardhat:
         specifier: ^3.18.0
-        version: 3.20.0
+        version: 3.21.1
       hardhat-kms:
         specifier: ^1.5.1
         version: link:../../packages/hardhat-kms
@@ -265,19 +265,19 @@ importers:
         version: link:../../packages/hardhat-kms-aws
       '@nomicfoundation/hardhat-ignition':
         specifier: ^3.1.8
-        version: 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(hardhat@3.20.0)
+        version: 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(hardhat@3.21.1)
       '@nomicfoundation/hardhat-ignition-viem':
         specifier: ^3.1.6
-        version: 3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(hardhat@3.20.0))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+        version: 3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(hardhat@3.21.1))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@nomicfoundation/hardhat-viem':
         specifier: ^3.0.9
-        version: 3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+        version: 3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@types/node':
         specifier: ^22.18.0
         version: 22.20.4
       hardhat:
         specifier: ^3.18.0
-        version: 3.20.0
+        version: 3.21.1
       hardhat-kms:
         specifier: ^1.5.1
         version: link:../../packages/hardhat-kms
@@ -295,13 +295,13 @@ importers:
         version: link:../../packages/hardhat-kms-aws
       '@nomicfoundation/hardhat-viem':
         specifier: ^3.0.9
-        version: 3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+        version: 3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@types/node':
         specifier: ^22.18.0
         version: 22.20.4
       hardhat:
         specifier: ^3.18.0
-        version: 3.20.0
+        version: 3.21.1
       hardhat-kms:
         specifier: ^1.5.1
         version: link:../../packages/hardhat-kms
@@ -341,19 +341,19 @@ importers:
     devDependencies:
       '@nomicfoundation/hardhat-ethers':
         specifier: ^4.2.0
-        version: 4.2.1(hardhat@3.20.0)
+        version: 4.2.1(hardhat@3.21.1)
       '@nomicfoundation/hardhat-ignition':
         specifier: 'catalog:'
-        version: 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(hardhat@3.20.0)
+        version: 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(hardhat@3.21.1)
       '@nomicfoundation/hardhat-ignition-viem':
         specifier: 'catalog:'
-        version: 3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(hardhat@3.20.0))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+        version: 3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(hardhat@3.21.1))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@nomicfoundation/hardhat-ledger':
         specifier: 'catalog:'
-        version: 3.1.0(debug@4.4.3(supports-color@7.2.0))(hardhat@3.20.0)(react@19.3.0)(supports-color@7.2.0)
+        version: 3.1.0(debug@4.4.3(supports-color@7.2.0))(hardhat@3.21.1)(react@19.3.0)(supports-color@7.2.0)
       '@nomicfoundation/hardhat-viem':
         specifier: 'catalog:'
-        version: 3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+        version: 3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@stryker-mutator/core':
         specifier: 'catalog:'
         version: 10.0.0(@types/node@22.20.4)
@@ -371,7 +371,7 @@ importers:
         version: 4.10.2
       hardhat:
         specifier: 'catalog:'
-        version: 3.20.0
+        version: 3.21.1
       tsx:
         specifier: 'catalog:'
         version: 4.23.15
@@ -386,13 +386,13 @@ importers:
     dependencies:
       '@aws-sdk/client-cloudtrail':
         specifier: ^3.1143.0
-        version: 3.1161.0
+        version: 3.1159.0
       '@aws-sdk/client-kms':
         specifier: ^3.1143.0
-        version: 3.1161.0
+        version: 3.1159.0
       '@aws-sdk/client-sts':
         specifier: ^3.1143.0
-        version: 3.1161.0
+        version: 3.1159.0
     devDependencies:
       '@noble/curves':
         specifier: ^2.4.0
@@ -408,7 +408,7 @@ importers:
         version: 12.0.0
       hardhat:
         specifier: 'catalog:'
-        version: 3.20.0
+        version: 3.21.1
       hardhat-kms:
         specifier: workspace:*
         version: link:../hardhat-kms
@@ -426,7 +426,7 @@ importers:
         version: 1.25.0(supports-color@7.2.0)
       '@azure/identity':
         specifier: ^4.13.3
-        version: 4.14.1(supports-color@7.2.0)
+        version: 4.14.0(supports-color@7.2.0)
       '@azure/keyvault-keys':
         specifier: ^4.10.2
         version: 4.10.2(supports-color@7.2.0)
@@ -445,7 +445,7 @@ importers:
         version: 12.0.0
       hardhat:
         specifier: 'catalog:'
-        version: 3.20.0
+        version: 3.21.1
       hardhat-kms:
         specifier: workspace:*
         version: link:../hardhat-kms
@@ -466,7 +466,7 @@ importers:
         version: 11.3.1(supports-color@7.2.0)
       google-gax:
         specifier: ^6.5.0 <6.11.0 || ^6.11.1
-        version: 6.16.0(supports-color@7.2.0)
+        version: 6.14.0(supports-color@7.2.0)
     devDependencies:
       '@noble/curves':
         specifier: ^2.4.0
@@ -479,7 +479,7 @@ importers:
         version: 12.0.0
       hardhat:
         specifier: 'catalog:'
-        version: 3.20.0
+        version: 3.21.1
       hardhat-kms:
         specifier: workspace:*
         version: link:../hardhat-kms
@@ -494,13 +494,13 @@ importers:
     devDependencies:
       '@aws-sdk/client-kms':
         specifier: ^3.1143.0
-        version: 3.1161.0
+        version: 3.1159.0
       '@hardhat-kms/aws':
         specifier: workspace:*
         version: link:../hardhat-kms-aws
       '@nomicfoundation/hardhat-ledger':
         specifier: 'catalog:'
-        version: 3.1.0(debug@4.4.3(supports-color@7.2.0))(hardhat@3.20.0)(react@19.3.0)(supports-color@7.2.0)
+        version: 3.1.0(debug@4.4.3(supports-color@7.2.0))(hardhat@3.21.1)(react@19.3.0)(supports-color@7.2.0)
       '@safe-global/api-kit':
         specifier: 5.0.4
         version: 5.0.4(typescript@7.0.2)(zod@3.25.76)
@@ -512,7 +512,7 @@ importers:
         version: 12.0.0
       hardhat:
         specifier: 'catalog:'
-        version: 3.20.0
+        version: 3.21.1
       hardhat-kms:
         specifier: workspace:*
         version: link:../hardhat-kms
@@ -536,10 +536,10 @@ importers:
         version: 2.4.0
       '@nomicfoundation/hardhat-ethers':
         specifier: ^4.2.0
-        version: 4.2.1(hardhat@3.20.0)
+        version: 4.2.1(hardhat@3.21.1)
       '@nomicfoundation/hardhat-viem':
         specifier: 'catalog:'
-        version: 3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+        version: 3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@turnkey/api-key-stamper':
         specifier: ^0.6.18
         version: 0.6.18
@@ -557,7 +557,7 @@ importers:
         version: 6.17.0
       hardhat:
         specifier: 'catalog:'
-        version: 3.20.0
+        version: 3.21.1
       hardhat-kms:
         specifier: workspace:*
         version: link:../hardhat-kms
@@ -710,64 +710,64 @@ packages:
     resolution: {integrity: sha512-9ytjzGwxjm9Uz7I9avfbt5vlQt6uk9uRRESzJjqrznl6WKvI6dwYTo+vJ3U02Wrq/mR3iql/PzhvHhKdJIAjDQ==}
     engines: {node: '>=20'}
 
-  '@aws-sdk/client-cloudtrail@3.1161.0':
-    resolution: {integrity: sha512-Rx8omGUXL8sSnSvykxEyXZ40RgA1mEPx0/aYM/VPkFz8H1cLxHmlTOrPa0dmCz4BSNA8oWr4YZYV1gbcNPXBRA==}
+  '@aws-sdk/client-cloudtrail@3.1159.0':
+    resolution: {integrity: sha512-1mhio+gSw1wvy8c0e8OAFvBdUEq8jUS2uvnv7r4Bh9ZO4St1jB3a091ZiNa+fiAQt3SNMboIEotm4kgJi+/rhg==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/client-kms@3.1161.0':
-    resolution: {integrity: sha512-KtE6C+CFeqz+f3+Q7XJ5o3Hp0hXulaRNYxJSm27DCv0NHagcgHqeR1w629gMOV2CXhG2sEZzEuKkUl7Rmh7jrw==}
+  '@aws-sdk/client-kms@3.1159.0':
+    resolution: {integrity: sha512-XEquVsc1uBPjrYfe4xUKE6p75zp7DfcS4EPjoFHx8m8i0AryCMJCx3TLX6BeEo/1QM4lhal620jpIARIz4dMGg==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/client-sts@3.1161.0':
-    resolution: {integrity: sha512-UTGvZMX/37aV/AF4I53lyaXt4oK7Emf01AKbgD+Yrx8DAqB1jJCn9EY8ov6/wh198uTcXnDmyg+tDHbSE+OxfQ==}
+  '@aws-sdk/client-sts@3.1159.0':
+    resolution: {integrity: sha512-mKdDVs2lsx13Zx/rmysS4jY9uXViQ62tKe3aYE4U3oZFDF1Fnxt9MWVw7HFyE2BzPdZvTbHrlrGremiffxqpnQ==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/core@3.979.1':
-    resolution: {integrity: sha512-ayOlV1VhLNMiq8PW9ZkVobG4gkldnUoHjG69yy2b8j+VYFlhz/uAL7ZdYQAoQ+eShtGUdNDnnG5rxDg6yUJrOg==}
+  '@aws-sdk/core@3.978.7':
+    resolution: {integrity: sha512-QsYdn5xhvEBzcDC6bgKuvPv87kFtXK/3f5NqKfR+eok5AAn7RaZnkgBKncX+UW3ZMcjSELyAMATN0iqgZmvWVg==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/credential-provider-env@3.972.80':
-    resolution: {integrity: sha512-uO5TiSvb6j1w9RTe5z28OaOmsrOxVQUPaC5+wZl50RfOXcrYD/KgnS8I9lfyGXc7sGbkCopK6VnhNIAoLqfewQ==}
+  '@aws-sdk/credential-provider-env@3.972.78':
+    resolution: {integrity: sha512-d8V47OxkM/FKe7bVfk5Rga4aNGUaQNk3ip1PFIYhxtup9r8SuNIHLs4HfBAmHT25ZbzowluMHp833UXfFMQbhA==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/credential-provider-http@3.972.82':
-    resolution: {integrity: sha512-vQzlDHlC24Yz42p+rT4NBoP/5VdetkBoujbOLq9h6QYWC8THuZSPYnXIR9OP3XcOrdMgPBBipOrdssfxnIiWUg==}
+  '@aws-sdk/credential-provider-http@3.972.80':
+    resolution: {integrity: sha512-OQqanXiRhnl/wBIJc3TtA7TYmnN7VO0mP95eVoHsLXtPwHz6HeccMpi7cqtnhHw+K7p6VIoAt2IK4M9Ixd9uGg==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/credential-provider-ini@3.973.25':
-    resolution: {integrity: sha512-b5xl71uCRdWsu7P1VeGpiGuCf6zfYETsSNOv8AmYVTrsgbvTJRXdmmOPVfxkvGGVNsiKkGctClQW3jAn0SZLug==}
+  '@aws-sdk/credential-provider-ini@3.973.23':
+    resolution: {integrity: sha512-pTTRK7xoi8NNbrcjVUSd9YdMTUxiWEPfk8newBQCzV+VS5STh5sDPAy3iO29fSqipqNuCpILJcD6wAawxHvG+w==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/credential-provider-login@3.972.87':
-    resolution: {integrity: sha512-C4ZFmcwM+Zj14Z8huVUk54Gv4uzT1ZdzG9cY3Gdh8FePakq7Bss1OFsgZjAhWFOkFOGpBvFBeu0OWjWf8HNKRQ==}
+  '@aws-sdk/credential-provider-login@3.972.85':
+    resolution: {integrity: sha512-UHjnTeS+5OBFfRL+BQwCGJPJvnzjhGD6dIwncBJDa+ziyQjPUte9Q0I4BCkybGrHotnyiiluXj13bgelP14J5Q==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/credential-provider-node@3.972.92':
-    resolution: {integrity: sha512-jC3zmOo7Qxlk+oBivvSsS1Ph7sFGm0QfuhqDGbqgRXi4cxUYMG+dWtBwS2XYYXgc8TIVXJiwgQ65sbNpbYupTA==}
+  '@aws-sdk/credential-provider-node@3.972.90':
+    resolution: {integrity: sha512-+McgOQuAUze95AumVmoOBRp++Z8IjsZ0qOASb6+igHdKNzA0FiIf5kbTFaZ64txfd9KTBDpgvlEDGQE41lSq/A==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/credential-provider-process@3.972.80':
-    resolution: {integrity: sha512-xqfixO5aclje7tbQJDias+iNND5wp/3QZixCdZcVQpgWPTZ0V5DfTW9A804A5Z7ezu7sH3WRO+vzUjtiJBA8yg==}
+  '@aws-sdk/credential-provider-process@3.972.78':
+    resolution: {integrity: sha512-bzB92SriflYf6LVRJcDv/a9I87tmkdmdE8hAqT1oRGKFkEH2rxxHeHZVK/4vsiRsFi44cUj0J9+bUSmqYX+26w==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/credential-provider-sso@3.973.24':
-    resolution: {integrity: sha512-nlg3BKG03Cgzvv/dMnhxvDJPhAhQSpaN0RUdwgU7ziwkasoev7iI8el8Xy4Rd5sqzgaDUbV269fOXck5SargqA==}
+  '@aws-sdk/credential-provider-sso@3.973.22':
+    resolution: {integrity: sha512-MXUkWHgcf6G+TowL+QPvn4kJTEYKd9qHKMV6eNGXSA5lilDgGRrP3EXPHChZ3eZ7z+oprn/ZvOovLoS2WR3D8g==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/credential-provider-web-identity@3.972.86':
-    resolution: {integrity: sha512-zKTyLJBEyfQBVlYqT6Jt+mYV4r8kGbWM7dn6v4Y4MRARizhYafjDXP/iMu76UMRhToSPNmIKX1XAb24gtpBFIA==}
+  '@aws-sdk/credential-provider-web-identity@3.972.84':
+    resolution: {integrity: sha512-6I3zYcDHt5ZM0J4gEuRgCHgN505k5haUiiPM46iIQgrHm2p70zpnssHFVYqHYfgJe3Mf+a5+nsF3BZmW4xcZNg==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/nested-clients@3.997.54':
-    resolution: {integrity: sha512-/OczlavsS7U5sOodRO10Ug4R/AKFVZiXTstKipWe68EfjPkmdDFNXNl9FCJyXWkg1DG6RBm3qAuVB8FNW9O8KQ==}
+  '@aws-sdk/nested-clients@3.997.52':
+    resolution: {integrity: sha512-/bNl6b3VEoWQg3Z8yHt3gzYjSFoOOv7+eUglzITmGP8H7jovN8c9NoOI+6bU25+lSLvyRpJOs4n8YSaX+BcUPg==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/signature-v4-multi-region@3.996.51':
-    resolution: {integrity: sha512-+aHvUugVBuMPXxgkPfWnTMyGdE/yWS8GHi5+qQ37HowS0YqzrbuaDLznj+Dtmtu5jgCdqz36gXmujOToUhNNWw==}
+  '@aws-sdk/signature-v4-multi-region@3.996.50':
+    resolution: {integrity: sha512-Ob9GCZ3YnGPws696zTYW/rLFYHa9QLh6DgTCnkHb+0jhHNBgHWM8Ui2b+yrIjkfDsRVsglyrOey6tOOG/VWxMA==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/token-providers@3.1161.0':
-    resolution: {integrity: sha512-ypbXSofNcSHwf/KA40bFCXJb0MLaAKrfT7sot4dFaA+2lsuXNah4zLRJIAU7Qmvs9PFJ6rnY0bZFEC+mE7attA==}
+  '@aws-sdk/token-providers@3.1159.0':
+    resolution: {integrity: sha512-IJvghXXcEpqTWGjrjJwxBdEecHeXp+t9FaybRf8Zf0wYW84KN1snXBsYOdfDBBx78ChwfJxH8KIHqmhNZuDLcw==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/types@3.975.0':
@@ -822,8 +822,8 @@ packages:
     resolution: {integrity: sha512-9n2pWK61veAuN0V20t9lOuoV4CFMdyAZ1ygZzvBGk/pBBJRib/PjL9PLXa/aI2CcPpyHfqVsxxqLCYl6uZlfDw==}
     engines: {node: '>=22.0.0'}
 
-  '@azure/identity@4.14.1':
-    resolution: {integrity: sha512-HHuuFrmN1uuF9D5A6aAo5eHzNFNX4Q+P4SksZqDKse5YaJFFy/zDLG3wXHEV2FVGgetZ3QM8jGURNBtnQYf1NQ==}
+  '@azure/identity@4.14.0':
+    resolution: {integrity: sha512-8utCLdTZn14CiAe0HW4JbtzUMsc0mdDwnjUvStFMrR4IxQP8S2eL9zVAdplpfORVJGYmidZElpeXRYjJQ4UyUw==}
     engines: {node: '>=22.0.0'}
 
   '@azure/keyvault-common@2.1.0':
@@ -846,12 +846,8 @@ packages:
     resolution: {integrity: sha512-Or6xhPNyi4zHW25158yxBoyxuCqNSPa5YBVqfF1J5Ks4MJWBo/USXdp05DQIPu1Zli00YZu6t0+h6KvHJealxQ==}
     engines: {node: '>=0.8.0'}
 
-  '@azure/msal-common@16.15.0':
-    resolution: {integrity: sha512-lwdLb1B9Q5nEhPLVIKe78XH5wFMN15fCiDkY7ylPDSWZuWcD93G3jpJajrKhO3CQld8SLKz0sHiOi24mxdvtsg==}
-    engines: {node: '>=0.8.0'}
-
-  '@azure/msal-node@7.1.2':
-    resolution: {integrity: sha512-52hKQLGpEQzwNufIXG1SPVU+wQ3RIe7Rp2+g+VdAmZojCAZ6yCdGEffzQEQ6RnBZGBEs40nl14rWBmfJpCoHsg==}
+  '@azure/msal-node@6.0.1':
+    resolution: {integrity: sha512-ixSO1Y/kCVRthRs+hSx/5qkwaunX1/RAePhlMN0wIpIQ4WEZ6AREGGnGd1AP0qspHVsAwzWQKGubpjh50JyJIQ==}
     engines: {node: '>=20'}
 
   '@babel/code-frame@8.0.6':
@@ -1978,54 +1974,54 @@ packages:
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
 
-  '@nomicfoundation/edr-darwin-arm64@0.23.0':
-    resolution: {integrity: sha512-XB0Wpvj21Cn0FCwMyafKRTSUGLLBCOSunURvTZpOloptS5gTd8ERUOz8bth0ZqToWNjjqfF4HYuekJX/gCrdKw==}
+  '@nomicfoundation/edr-darwin-arm64@0.25.0':
+    resolution: {integrity: sha512-k5jOQ4430lNIRPeDMmgDMeoCp0iqY8bjO5ZYBg93sH2FEDvyS08e6stBvmm9j91+VkAj24DIdjwq3b0AEKfutw==}
     engines: {node: '>= 22'}
     cpu: [arm64]
     os: [darwin]
 
-  '@nomicfoundation/edr-darwin-x64@0.23.0':
-    resolution: {integrity: sha512-SlKLi1rrp4hxHMJ+lZCv9jho4Mb9uD1Y65hXg2CHGP3MiA/ITxLp4FmbIwmng6HOtQVrl2bBHJ1QQIlfhb5ICA==}
+  '@nomicfoundation/edr-darwin-x64@0.25.0':
+    resolution: {integrity: sha512-V26jWmq2qsm6Aywh0MbSEBCkB5o1EAym9KFNi3dsbAi7sNFiyFYf5tQZ7HWpttVRNOGTXnyX6GhIpb90jbLPrQ==}
     engines: {node: '>= 22'}
     cpu: [x64]
     os: [darwin]
 
-  '@nomicfoundation/edr-linux-arm64-gnu@0.23.0':
-    resolution: {integrity: sha512-1zaY7l0ZFvGpIM67AgiA9p2CBCSuz77VMO07N9UU+yP9EQk7xGA/y7A1PdmelVmxoFAfNJukZfdda53I+FfbvQ==}
+  '@nomicfoundation/edr-linux-arm64-gnu@0.25.0':
+    resolution: {integrity: sha512-1QRVSdq4YNS+r7f6MmWS8J/K0A9JlrzIjeV/BVEM5gTe7KyxJ0NwX4ErUAMbizl2JCmDwuD1SAak8X6YjZDMJA==}
     engines: {node: '>= 22'}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@nomicfoundation/edr-linux-arm64-musl@0.23.0':
-    resolution: {integrity: sha512-MVyvWuuN93Le7Y4SuAhzhJJaHkP1cfdzIl/rIWR/iXwRc4TOaVY//wHJjW+a3vX7lOxPaKOawTL5N784KUHbKQ==}
+  '@nomicfoundation/edr-linux-arm64-musl@0.25.0':
+    resolution: {integrity: sha512-uNim6ggISggh9nRAtwhVgDQ4cmkypM1kpqP757DL9q8DremHMGdK8BgPMx8J2VNMfjYwC7Ohuyszztau6obkLg==}
     engines: {node: '>= 22'}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
-  '@nomicfoundation/edr-linux-x64-gnu@0.23.0':
-    resolution: {integrity: sha512-SABJqlOsEC/aLxxc6crBse5g09Ee1YtYfDGGGR7wEb36ZXMRpC+YQXWz5y8JnD8C0Xm6wkO40J/tQamaFvfWEA==}
+  '@nomicfoundation/edr-linux-x64-gnu@0.25.0':
+    resolution: {integrity: sha512-V0/Zjsd7WlRpwxtbtI1YFRaV0lF/+EtOHf5H01riCAZixK16N67PGY4QPwrZ/FQrk15bCzu/fFtgR5WpmFAuPg==}
     engines: {node: '>= 22'}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@nomicfoundation/edr-linux-x64-musl@0.23.0':
-    resolution: {integrity: sha512-TIgZjPrHhS+L1+CPv99QrGBpRXrazC3Iox3f6XvNEd2aZX1L9a6BLVG1XmS+3OyMb+Qd+vjMIhB3qi7HawbfUA==}
+  '@nomicfoundation/edr-linux-x64-musl@0.25.0':
+    resolution: {integrity: sha512-oZHb4vFOeloPwXS9pJpf3z5/QSIaTMzxObbQ6OZXqg+oK1BNxk86wmgsaMlq/4kfcWVYcYQ6m57HCUWlzU1MZw==}
     engines: {node: '>= 22'}
     cpu: [x64]
     os: [linux]
     libc: [musl]
 
-  '@nomicfoundation/edr-win32-x64-msvc@0.23.0':
-    resolution: {integrity: sha512-vMEZMPk+GbvLHfbS3lCVr+ufJvKhOwtKM0UuZxjnAllBaiojh+v7LRoTc/RN50puzz3WpbyHuvgwqDkEIIj8Lg==}
+  '@nomicfoundation/edr-win32-x64-msvc@0.25.0':
+    resolution: {integrity: sha512-uB0GT6iWOJu7qHEo4vNbr0yRedzuRCmOF+YkxXrQHaY2oKGcHpqZ0UnS1ak1NMZ2iyQWc2y5y8WYySNcwPq04g==}
     engines: {node: '>= 22'}
     cpu: [x64]
     os: [win32]
 
-  '@nomicfoundation/edr@0.23.0':
-    resolution: {integrity: sha512-fgFHg55qJPsT7EKtL3OEkcSprplXRbzGOegCtQwaHERpHihWf0Wlyhsdj1S4FIW48rkxklTit3kWTZDUpOmyNw==}
+  '@nomicfoundation/edr@0.25.0':
+    resolution: {integrity: sha512-aO9XbrBwhKoP7O8fXVDJZR+4DJRGC1as2nsQ1V4MxnwxiZD5XfhrPSX3DE918O/1oLZ5HQ+n9e0d8D5P/JiHig==}
     engines: {node: '>= 22'}
 
   '@nomicfoundation/hardhat-errors@3.1.4':
@@ -3183,9 +3179,10 @@ packages:
     resolution: {integrity: sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ==}
     engines: {node: '>=18'}
 
-  '@smithy/core@3.38.1':
-    resolution: {integrity: sha512-U/mB2XiwTLaf+NSgLSWwJfptsMT/H8aBi0aTAA/E5e2/TagFeGCqAyhKGG0w0A9IWTkm4qYEmLoD/HB6aYfnRA==}
+  '@smithy/core@3.38.0':
+    resolution: {integrity: sha512-aLyyCnK2p4yvNA2TaM+5owXqb+rZGSiUKEsNP329AzeYnERtAz7NrlTbRsaxqmZ0ooxwoID8LMm959UGQQDIsg==}
     engines: {node: '>=18.0.0'}
+    deprecated: Deprecated due to a bug in custom logger data redaction. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
 
   '@smithy/credential-provider-imds@4.5.2':
     resolution: {integrity: sha512-A9uSdn72ozbRUSit0eib0TW7nXuNPlaeM0zcGkJ+nE6tFcSDbnmtwoxbTCFBukVQcszDAyvsd7+rTduPTXpygg==}
@@ -3195,8 +3192,8 @@ packages:
     resolution: {integrity: sha512-ycSJu3tFAQ4v04CBB0agqFMVsSQ1iG3yw+SpgxRqKfaURpQD4CZ8Wn0zPMmSnOuTpTh65Vz+EA0rMrw089wvkA==}
     engines: {node: '>=18.0.0'}
 
-  '@smithy/node-http-handler@4.14.1':
-    resolution: {integrity: sha512-/T6E1jzCL0fErS9uq8JqES/5yYQQ4ppVmmYHwXw2nlov8KFzLb+3QqHR5iAun1BsuAB50IPxZliV8YMgghLwhA==}
+  '@smithy/node-http-handler@4.14.0':
+    resolution: {integrity: sha512-j24RS5V9J52u0z81RpgF7H55p4bS6UCEIxF4ZYzTYh6M9hzXvjAIAYwgLobqf7vJq3xib5VXc7nX3YesV8Rx4A==}
     engines: {node: '>=18.0.0'}
 
   '@smithy/signature-v4@5.7.5':
@@ -4979,8 +4976,8 @@ packages:
     resolution: {integrity: sha512-mQS0R2Ev/DKkzuWSYtDeq15uhDeaWuT2qzLYqJ41LmooxVKHmn5ut3pc6dlHY6wfHW/D7FBmOYjAtkjaD1A7qA==}
     engines: {node: '>=22'}
 
-  google-gax@6.16.0:
-    resolution: {integrity: sha512-qJz0RSuLgaPhiZDStTv04Q5MryjBNX6DJk7t3RlcOTHkLm3R3XxRhSjcSp1eDtU415IuBlV/bncyD5vnBFje1w==}
+  google-gax@6.14.0:
+    resolution: {integrity: sha512-C6By4tAdiSoY+4S1Y8phpJkIqELIu0kPtUIcVacScAKhi4LwR6w9dbZI3JHnIfMBvWyvxgPZS2Y7hryBwTNJBQ==}
     engines: {node: '>=22'}
 
   google-logging-utils@2.1.1:
@@ -5010,8 +5007,8 @@ packages:
     engines: {node: '>=0.4.7'}
     hasBin: true
 
-  hardhat@3.20.0:
-    resolution: {integrity: sha512-zB9s0z0TS0UDPrb4oaRuYufZNfQ9RgOE67x89iVZl7QAYUnEBdPHv63ZWrx3bA/vVigdzgEYREs4jEU/cMsrrQ==}
+  hardhat@3.21.1:
+    resolution: {integrity: sha512-UFp02oiVq9B3M+FBo3MixVFQMdaHO04ZkpDvPM0Il7UXg8AO64CFsKLWbX54h+aCp2wonmyuO+Y/9svOjwZTmg==}
     hasBin: true
 
   has-flag@4.0.0:
@@ -7276,159 +7273,159 @@ snapshots:
       typescript: 5.6.1-rc
       validate-npm-package-name: 5.0.1
 
-  '@aws-sdk/client-cloudtrail@3.1161.0':
+  '@aws-sdk/client-cloudtrail@3.1159.0':
     dependencies:
-      '@aws-sdk/core': 3.979.1
-      '@aws-sdk/credential-provider-node': 3.972.92
+      '@aws-sdk/core': 3.978.7
+      '@aws-sdk/credential-provider-node': 3.972.90
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/fetch-http-handler': 5.8.0
-      '@smithy/node-http-handler': 4.14.1
+      '@smithy/node-http-handler': 4.14.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/client-kms@3.1161.0':
+  '@aws-sdk/client-kms@3.1159.0':
     dependencies:
-      '@aws-sdk/core': 3.979.1
-      '@aws-sdk/credential-provider-node': 3.972.92
+      '@aws-sdk/core': 3.978.7
+      '@aws-sdk/credential-provider-node': 3.972.90
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/fetch-http-handler': 5.8.0
-      '@smithy/node-http-handler': 4.14.1
+      '@smithy/node-http-handler': 4.14.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/client-sts@3.1161.0':
+  '@aws-sdk/client-sts@3.1159.0':
     dependencies:
-      '@aws-sdk/core': 3.979.1
-      '@aws-sdk/credential-provider-node': 3.972.92
-      '@aws-sdk/signature-v4-multi-region': 3.996.51
+      '@aws-sdk/core': 3.978.7
+      '@aws-sdk/credential-provider-node': 3.972.90
+      '@aws-sdk/signature-v4-multi-region': 3.996.50
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/fetch-http-handler': 5.8.0
-      '@smithy/node-http-handler': 4.14.1
+      '@smithy/node-http-handler': 4.14.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/core@3.979.1':
+  '@aws-sdk/core@3.978.7':
     dependencies:
       '@aws-sdk/types': 3.975.0
       '@aws-sdk/xml-builder': 3.972.42
       '@aws/lambda-invoke-store': 0.3.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/signature-v4': 5.7.5
       '@smithy/types': 4.19.0
       bowser: 2.14.1
       tslib: 2.8.1
 
-  '@aws-sdk/credential-provider-env@3.972.80':
+  '@aws-sdk/credential-provider-env@3.972.78':
     dependencies:
-      '@aws-sdk/core': 3.979.1
+      '@aws-sdk/core': 3.978.7
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/credential-provider-http@3.972.82':
+  '@aws-sdk/credential-provider-http@3.972.80':
     dependencies:
-      '@aws-sdk/core': 3.979.1
+      '@aws-sdk/core': 3.978.7
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/fetch-http-handler': 5.8.0
-      '@smithy/node-http-handler': 4.14.1
+      '@smithy/node-http-handler': 4.14.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/credential-provider-ini@3.973.25':
+  '@aws-sdk/credential-provider-ini@3.973.23':
     dependencies:
-      '@aws-sdk/core': 3.979.1
-      '@aws-sdk/credential-provider-env': 3.972.80
-      '@aws-sdk/credential-provider-http': 3.972.82
-      '@aws-sdk/credential-provider-login': 3.972.87
-      '@aws-sdk/credential-provider-process': 3.972.80
-      '@aws-sdk/credential-provider-sso': 3.973.24
-      '@aws-sdk/credential-provider-web-identity': 3.972.86
-      '@aws-sdk/nested-clients': 3.997.54
+      '@aws-sdk/core': 3.978.7
+      '@aws-sdk/credential-provider-env': 3.972.78
+      '@aws-sdk/credential-provider-http': 3.972.80
+      '@aws-sdk/credential-provider-login': 3.972.85
+      '@aws-sdk/credential-provider-process': 3.972.78
+      '@aws-sdk/credential-provider-sso': 3.973.22
+      '@aws-sdk/credential-provider-web-identity': 3.972.84
+      '@aws-sdk/nested-clients': 3.997.52
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/credential-provider-imds': 4.5.2
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/credential-provider-login@3.972.87':
+  '@aws-sdk/credential-provider-login@3.972.85':
     dependencies:
-      '@aws-sdk/core': 3.979.1
-      '@aws-sdk/nested-clients': 3.997.54
+      '@aws-sdk/core': 3.978.7
+      '@aws-sdk/nested-clients': 3.997.52
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/credential-provider-node@3.972.92':
+  '@aws-sdk/credential-provider-node@3.972.90':
     dependencies:
-      '@aws-sdk/credential-provider-env': 3.972.80
-      '@aws-sdk/credential-provider-http': 3.972.82
-      '@aws-sdk/credential-provider-ini': 3.973.25
-      '@aws-sdk/credential-provider-process': 3.972.80
-      '@aws-sdk/credential-provider-sso': 3.973.24
-      '@aws-sdk/credential-provider-web-identity': 3.972.86
+      '@aws-sdk/credential-provider-env': 3.972.78
+      '@aws-sdk/credential-provider-http': 3.972.80
+      '@aws-sdk/credential-provider-ini': 3.973.23
+      '@aws-sdk/credential-provider-process': 3.972.78
+      '@aws-sdk/credential-provider-sso': 3.973.22
+      '@aws-sdk/credential-provider-web-identity': 3.972.84
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/credential-provider-imds': 4.5.2
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/credential-provider-process@3.972.80':
+  '@aws-sdk/credential-provider-process@3.972.78':
     dependencies:
-      '@aws-sdk/core': 3.979.1
+      '@aws-sdk/core': 3.978.7
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/credential-provider-sso@3.973.24':
+  '@aws-sdk/credential-provider-sso@3.973.22':
     dependencies:
-      '@aws-sdk/core': 3.979.1
-      '@aws-sdk/nested-clients': 3.997.54
-      '@aws-sdk/token-providers': 3.1161.0
+      '@aws-sdk/core': 3.978.7
+      '@aws-sdk/nested-clients': 3.997.52
+      '@aws-sdk/token-providers': 3.1159.0
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/credential-provider-web-identity@3.972.86':
+  '@aws-sdk/credential-provider-web-identity@3.972.84':
     dependencies:
-      '@aws-sdk/core': 3.979.1
-      '@aws-sdk/nested-clients': 3.997.54
+      '@aws-sdk/core': 3.978.7
+      '@aws-sdk/nested-clients': 3.997.52
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/nested-clients@3.997.54':
+  '@aws-sdk/nested-clients@3.997.52':
     dependencies:
-      '@aws-sdk/core': 3.979.1
-      '@aws-sdk/signature-v4-multi-region': 3.996.51
+      '@aws-sdk/core': 3.978.7
+      '@aws-sdk/signature-v4-multi-region': 3.996.50
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/fetch-http-handler': 5.8.0
-      '@smithy/node-http-handler': 4.14.1
+      '@smithy/node-http-handler': 4.14.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/signature-v4-multi-region@3.996.51':
+  '@aws-sdk/signature-v4-multi-region@3.996.50':
     dependencies:
       '@aws-sdk/types': 3.975.0
       '@smithy/signature-v4': 5.7.5
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws-sdk/token-providers@3.1161.0':
+  '@aws-sdk/token-providers@3.1159.0':
     dependencies:
-      '@aws-sdk/core': 3.979.1
-      '@aws-sdk/nested-clients': 3.997.54
+      '@aws-sdk/core': 3.978.7
+      '@aws-sdk/nested-clients': 3.997.52
       '@aws-sdk/types': 3.975.0
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
@@ -7518,7 +7515,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@azure/identity@4.14.1(supports-color@7.2.0)':
+  '@azure/identity@4.14.0(supports-color@7.2.0)':
     dependencies:
       '@azure/abort-controller': 2.2.0
       '@azure/core-auth': 1.11.0(supports-color@7.2.0)
@@ -7529,7 +7526,7 @@ snapshots:
       '@azure/core-util': 1.14.0(supports-color@7.2.0)
       '@azure/logger': 1.4.0(supports-color@7.2.0)
       '@azure/msal-browser': 5.23.0
-      '@azure/msal-node': 7.1.2
+      '@azure/msal-node': 6.0.1
       open: 11.0.4
       tslib: 2.8.1
     transitivePeerDependencies:
@@ -7577,11 +7574,9 @@ snapshots:
 
   '@azure/msal-common@16.14.1': {}
 
-  '@azure/msal-common@16.15.0': {}
-
-  '@azure/msal-node@7.1.2':
+  '@azure/msal-node@6.0.1':
     dependencies:
-      '@azure/msal-common': 16.15.0
+      '@azure/msal-common': 16.14.1
       jsonwebtoken: 9.0.3
 
   '@babel/code-frame@8.0.6':
@@ -8386,7 +8381,7 @@ snapshots:
 
   '@google-cloud/kms@6.3.0(supports-color@7.2.0)':
     dependencies:
-      google-gax: 6.16.0(supports-color@7.2.0)
+      google-gax: 6.14.0(supports-color@7.2.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -8770,89 +8765,89 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.3
 
-  '@nomicfoundation/edr-darwin-arm64@0.23.0':
+  '@nomicfoundation/edr-darwin-arm64@0.25.0':
     optional: true
 
-  '@nomicfoundation/edr-darwin-x64@0.23.0':
+  '@nomicfoundation/edr-darwin-x64@0.25.0':
     optional: true
 
-  '@nomicfoundation/edr-linux-arm64-gnu@0.23.0':
+  '@nomicfoundation/edr-linux-arm64-gnu@0.25.0':
     optional: true
 
-  '@nomicfoundation/edr-linux-arm64-musl@0.23.0':
+  '@nomicfoundation/edr-linux-arm64-musl@0.25.0':
     optional: true
 
-  '@nomicfoundation/edr-linux-x64-gnu@0.23.0':
+  '@nomicfoundation/edr-linux-x64-gnu@0.25.0':
     optional: true
 
-  '@nomicfoundation/edr-linux-x64-musl@0.23.0':
+  '@nomicfoundation/edr-linux-x64-musl@0.25.0':
     optional: true
 
-  '@nomicfoundation/edr-win32-x64-msvc@0.23.0':
+  '@nomicfoundation/edr-win32-x64-msvc@0.25.0':
     optional: true
 
-  '@nomicfoundation/edr@0.23.0':
+  '@nomicfoundation/edr@0.25.0':
     optionalDependencies:
-      '@nomicfoundation/edr-darwin-arm64': 0.23.0
-      '@nomicfoundation/edr-darwin-x64': 0.23.0
-      '@nomicfoundation/edr-linux-arm64-gnu': 0.23.0
-      '@nomicfoundation/edr-linux-arm64-musl': 0.23.0
-      '@nomicfoundation/edr-linux-x64-gnu': 0.23.0
-      '@nomicfoundation/edr-linux-x64-musl': 0.23.0
-      '@nomicfoundation/edr-win32-x64-msvc': 0.23.0
+      '@nomicfoundation/edr-darwin-arm64': 0.25.0
+      '@nomicfoundation/edr-darwin-x64': 0.25.0
+      '@nomicfoundation/edr-linux-arm64-gnu': 0.25.0
+      '@nomicfoundation/edr-linux-arm64-musl': 0.25.0
+      '@nomicfoundation/edr-linux-x64-gnu': 0.25.0
+      '@nomicfoundation/edr-linux-x64-musl': 0.25.0
+      '@nomicfoundation/edr-win32-x64-msvc': 0.25.0
 
   '@nomicfoundation/hardhat-errors@3.1.4':
     dependencies:
       '@nomicfoundation/hardhat-utils': 5.1.1
 
-  '@nomicfoundation/hardhat-ethers@4.2.1(hardhat@3.20.0)':
+  '@nomicfoundation/hardhat-ethers@4.2.1(hardhat@3.21.1)':
     dependencies:
       '@nomicfoundation/hardhat-errors': 3.1.4
       '@nomicfoundation/hardhat-utils': 5.1.1
       '@nomicfoundation/hardhat-zod-utils': 3.0.8(zod@3.25.76)
       ethereum-cryptography: 3.2.0
       ethers: 6.17.0
-      hardhat: 3.20.0
+      hardhat: 3.21.1
       zod: 3.25.76
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@nomicfoundation/hardhat-ignition-viem@3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(hardhat@3.20.0))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))':
+  '@nomicfoundation/hardhat-ignition-viem@3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(hardhat@3.21.1))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))':
     dependencies:
       '@nomicfoundation/hardhat-errors': 3.1.4
-      '@nomicfoundation/hardhat-ignition': 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(hardhat@3.20.0)
-      '@nomicfoundation/hardhat-verify': 3.1.1(hardhat@3.20.0)
-      '@nomicfoundation/hardhat-viem': 3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+      '@nomicfoundation/hardhat-ignition': 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(hardhat@3.21.1)
+      '@nomicfoundation/hardhat-verify': 3.1.1(hardhat@3.21.1)
+      '@nomicfoundation/hardhat-viem': 3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@nomicfoundation/ignition-core': 3.1.9
-      hardhat: 3.20.0
+      hardhat: 3.21.1
       viem: 2.57.1(typescript@7.0.2)(zod@3.25.76)
 
-  '@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(hardhat@3.20.0)':
+  '@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(hardhat@3.21.1)':
     dependencies:
       '@nomicfoundation/hardhat-errors': 3.1.4
       '@nomicfoundation/hardhat-utils': 4.4.0
-      '@nomicfoundation/hardhat-verify': 3.1.1(hardhat@3.20.0)
+      '@nomicfoundation/hardhat-verify': 3.1.1(hardhat@3.21.1)
       '@nomicfoundation/ignition-core': 3.1.9
       '@nomicfoundation/ignition-ui': 3.2.0
-      hardhat: 3.20.0
+      hardhat: 3.21.1
       json5: 2.2.3
       prompts: 2.4.2
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@nomicfoundation/hardhat-keystore@3.1.0(hardhat@3.20.0)':
+  '@nomicfoundation/hardhat-keystore@3.1.0(hardhat@3.21.1)':
     dependencies:
       '@noble/ciphers': 2.2.0
       '@noble/hashes': 2.3.0
       '@nomicfoundation/hardhat-errors': 3.1.4
       '@nomicfoundation/hardhat-utils': 4.4.0
       '@nomicfoundation/hardhat-zod-utils': 3.0.8(zod@3.25.76)
-      hardhat: 3.20.0
+      hardhat: 3.21.1
       zod: 3.25.76
 
-  '@nomicfoundation/hardhat-ledger@3.1.0(debug@4.4.3(supports-color@7.2.0))(hardhat@3.20.0)(react@19.3.0)(supports-color@7.2.0)':
+  '@nomicfoundation/hardhat-ledger@3.1.0(debug@4.4.3(supports-color@7.2.0))(hardhat@3.21.1)(react@19.3.0)(supports-color@7.2.0)':
     dependencies:
       '@ledgerhq/errors': 6.37.0
       '@ledgerhq/evm-tools': 1.15.0(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)
@@ -8863,7 +8858,7 @@ snapshots:
       '@nomicfoundation/hardhat-errors': 3.1.4
       '@nomicfoundation/hardhat-utils': 4.4.0
       '@nomicfoundation/hardhat-zod-utils': 3.0.8(zod@3.25.76)
-      hardhat: 3.20.0
+      hardhat: 3.21.1
       micro-eth-signer: 0.14.0
       node-gyp: 12.4.0
       zod: 3.25.76
@@ -8872,39 +8867,39 @@ snapshots:
       - react
       - supports-color
 
-  '@nomicfoundation/hardhat-network-helpers@3.0.11(hardhat@3.20.0)':
+  '@nomicfoundation/hardhat-network-helpers@3.0.11(hardhat@3.21.1)':
     dependencies:
       '@nomicfoundation/hardhat-errors': 3.1.4
       '@nomicfoundation/hardhat-utils': 4.4.0
-      hardhat: 3.20.0
+      hardhat: 3.21.1
 
   '@nomicfoundation/hardhat-node-test-reporter@3.1.1':
     dependencies:
       '@actions/core': 3.0.1
       jest-diff: 30.5.2
 
-  '@nomicfoundation/hardhat-node-test-runner@3.1.0(hardhat@3.20.0)':
+  '@nomicfoundation/hardhat-node-test-runner@3.1.0(hardhat@3.21.1)':
     dependencies:
       '@nomicfoundation/hardhat-errors': 3.1.4
       '@nomicfoundation/hardhat-node-test-reporter': 3.1.1
       '@nomicfoundation/hardhat-utils': 4.4.0
       '@nomicfoundation/hardhat-zod-utils': 3.0.8(zod@3.25.76)
-      hardhat: 3.20.0
+      hardhat: 3.21.1
       tsx: 4.23.15
       zod: 3.25.76
 
-  '@nomicfoundation/hardhat-toolbox-viem@5.0.7(e3c09b3598fd957f4422e7873d463c77)':
+  '@nomicfoundation/hardhat-toolbox-viem@5.0.7(9118a981f8c873e4bc7349089c238451)':
     dependencies:
-      '@nomicfoundation/hardhat-ignition': 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(hardhat@3.20.0)
-      '@nomicfoundation/hardhat-ignition-viem': 3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(hardhat@3.20.0))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
-      '@nomicfoundation/hardhat-keystore': 3.1.0(hardhat@3.20.0)
-      '@nomicfoundation/hardhat-network-helpers': 3.0.11(hardhat@3.20.0)
-      '@nomicfoundation/hardhat-node-test-runner': 3.1.0(hardhat@3.20.0)
-      '@nomicfoundation/hardhat-verify': 3.1.1(hardhat@3.20.0)
-      '@nomicfoundation/hardhat-viem': 3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
-      '@nomicfoundation/hardhat-viem-assertions': 3.1.3(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+      '@nomicfoundation/hardhat-ignition': 3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(hardhat@3.21.1)
+      '@nomicfoundation/hardhat-ignition-viem': 3.1.6(@nomicfoundation/hardhat-ignition@3.1.8(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(hardhat@3.21.1))(@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1))(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.9)(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+      '@nomicfoundation/hardhat-keystore': 3.1.0(hardhat@3.21.1)
+      '@nomicfoundation/hardhat-network-helpers': 3.0.11(hardhat@3.21.1)
+      '@nomicfoundation/hardhat-node-test-runner': 3.1.0(hardhat@3.21.1)
+      '@nomicfoundation/hardhat-verify': 3.1.1(hardhat@3.21.1)
+      '@nomicfoundation/hardhat-viem': 3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+      '@nomicfoundation/hardhat-viem-assertions': 3.1.3(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@nomicfoundation/ignition-core': 3.1.9
-      hardhat: 3.20.0
+      hardhat: 3.21.1
       viem: 2.57.1(typescript@7.0.2)(zod@3.25.76)
 
   '@nomicfoundation/hardhat-utils@4.4.0':
@@ -8931,29 +8926,29 @@ snapshots:
 
   '@nomicfoundation/hardhat-vendored@3.0.4': {}
 
-  '@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.20.0)':
+  '@nomicfoundation/hardhat-verify@3.1.1(hardhat@3.21.1)':
     dependencies:
       '@ethersproject/abi': 5.8.0
       '@nomicfoundation/hardhat-errors': 3.1.4
       '@nomicfoundation/hardhat-utils': 4.4.0
       '@nomicfoundation/hardhat-zod-utils': 3.0.8(zod@3.25.76)
       cbor2: 2.3.0
-      hardhat: 3.20.0
+      hardhat: 3.21.1
       zod: 3.25.76
 
-  '@nomicfoundation/hardhat-viem-assertions@3.1.3(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))':
+  '@nomicfoundation/hardhat-viem-assertions@3.1.3(@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76)))(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))':
     dependencies:
       '@nomicfoundation/hardhat-errors': 3.1.4
       '@nomicfoundation/hardhat-utils': 4.4.0
-      '@nomicfoundation/hardhat-viem': 3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
-      hardhat: 3.20.0
+      '@nomicfoundation/hardhat-viem': 3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
+      hardhat: 3.21.1
       viem: 2.57.1(typescript@7.0.2)(zod@3.25.76)
 
-  '@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.20.0)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))':
+  '@nomicfoundation/hardhat-viem@3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))':
     dependencies:
       '@nomicfoundation/hardhat-errors': 3.1.4
       '@nomicfoundation/hardhat-utils': 4.4.0
-      hardhat: 3.20.0
+      hardhat: 3.21.1
       viem: 2.57.1(typescript@7.0.2)(zod@3.25.76)
 
   '@nomicfoundation/hardhat-zod-utils@3.0.8(zod@3.25.76)':
@@ -9701,32 +9696,32 @@ snapshots:
 
   '@sindresorhus/merge-streams@4.0.0': {}
 
-  '@smithy/core@3.38.1':
+  '@smithy/core@3.38.0':
     dependencies:
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
   '@smithy/credential-provider-imds@4.5.2':
     dependencies:
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
   '@smithy/fetch-http-handler@5.8.0':
     dependencies:
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@smithy/node-http-handler@4.14.1':
+  '@smithy/node-http-handler@4.14.0':
     dependencies:
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
   '@smithy/signature-v4@5.7.5':
     dependencies:
-      '@smithy/core': 3.38.1
+      '@smithy/core': 3.38.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
@@ -11762,7 +11757,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  google-gax@6.16.0(supports-color@7.2.0):
+  google-gax@6.14.0(supports-color@7.2.0):
     dependencies:
       '@grpc/grpc-js': 1.14.5
       '@grpc/proto-loader': 0.8.1
@@ -11819,9 +11814,9 @@ snapshots:
     optionalDependencies:
       uglify-js: 3.19.3
 
-  hardhat@3.20.0:
+  hardhat@3.21.1:
     dependencies:
-      '@nomicfoundation/edr': 0.23.0
+      '@nomicfoundation/edr': 0.25.0
       '@nomicfoundation/hardhat-errors': 3.1.4
       '@nomicfoundation/hardhat-utils': 5.1.1
       '@nomicfoundation/hardhat-vendored': 3.0.4
