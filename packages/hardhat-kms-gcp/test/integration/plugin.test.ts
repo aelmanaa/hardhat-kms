@@ -455,6 +455,37 @@ describe("@hardhat-kms/gcp plugin", () => {
     }
   });
 
+  it("closes a sign request the call abandoned, before its deadline (#651)", async () => {
+    const hre = await runtime();
+    const adapter = await createAdapter(hre, "deployer");
+    try {
+      await adapter.getPublicKey?.(signContext());
+      server.requests.length = 0;
+      server.faults.holdSign = true;
+      const controller = new AbortController();
+      const started = Date.now();
+      const pending = adapter.signDigest?.(
+        { digest: new Uint8Array(32).fill(7) },
+        { ...signContext(), signal: controller.signal },
+      );
+      while (server.requests.length === 0) {
+        await sleep(5);
+      }
+      controller.abort();
+      await assert.rejects(pending ?? Promise.resolve());
+      // The key's timeoutMs is the default 30 s: the request is closed long before its deadline.
+      while (server.closedUnanswered() === 0 && Date.now() - started < 5000) {
+        await sleep(5);
+      }
+      assert.equal(server.closedUnanswered(), 1);
+      assert.ok(Date.now() - started < 5000);
+      assert.equal(server.requests.length, 1);
+    } finally {
+      server.faults.holdSign = undefined;
+      await adapter.close?.();
+    }
+  });
+
   it("explains the errors the real SDK reports, without the server's message", async () => {
     const hre = await runtime();
     const cases: Array<[number, string, string]> = [
