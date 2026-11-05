@@ -12,8 +12,8 @@ There are no targets, no dashboards and no analytics on the docs site. This page
 
 Run these in the first week of the month and write one entry.
 
-1. [Downloads](#downloads): last month for the core and each provider.
-2. [npm listing](#npm-listing): position for "hardhat kms", keywords, description, the TypeScript and provenance badges.
+1. [Downloads](#downloads): last month for the core, each provider and `@hardhat-kms/safe`.
+2. [npm listing](#npm-listing): position for "hardhat kms" and "hardhat safe", keywords, description, the TypeScript and provenance badges.
 3. [Package health](#package-health): Socket and Snyk.
 4. [GitHub](#github): stars, forks, referrers, popular paths, dependents.
 5. [Docs site search](#docs-site-search): indexed pages against the sitemap, impressions, clicks, queries.
@@ -21,7 +21,7 @@ Run these in the first week of the month and write one entry.
 
 ## Downloads
 
-The npm downloads API counts registry downloads per package. It does not tell installs from CI runs or mirrors, so read the trend, not the number. The provider packages show the split between clouds.
+The npm downloads API counts registry downloads per package. It does not tell installs from CI runs or mirrors, so read the trend, not the number. The provider packages show the split between clouds, and `@hardhat-kms/safe` how many projects propose Safe transactions. `@hardhat-kms/safe` was first published on `latest` with 1.5.0 on 2026-11-05.
 
 ```sh
 curl -s https://api.npmjs.org/downloads/point/last-month/hardhat-kms
@@ -29,6 +29,7 @@ curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/aws
 curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/gcp
 curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/azure
 curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/turnkey
+curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/safe
 ```
 
 Each answer is `{"downloads":N,"start":"YYYY-MM-DD","end":"YYYY-MM-DD","package":"..."}`. For a calendar month, put the dates in the path, for example `point/2026-11-01:2026-11-30/hardhat-kms`. Swap `point` for `range` to get one count per day. The bulk form (`hardhat-kms,@hardhat-kms/aws`) does not accept scoped packages, so query each one on its own.
@@ -39,10 +40,12 @@ The API lags a few days. On 2026-10-08 its `last-month` window ended on 2026-10-
 
 ```sh
 npm search "hardhat kms" --searchlimit=20 --parseable | cut -f1 | grep -n -x -e hardhat-kms -e '@hardhat-kms/.*'
+npm search "hardhat safe" --searchlimit=20 --parseable | cut -f1 | grep -n -x -e '@hardhat-kms/safe'
 npm view hardhat-kms keywords description
+npm view @hardhat-kms/safe keywords description
 ```
 
-The first command prints the position of each published package in the first 20 results, or nothing if none is listed. To see the same results, open <https://www.npmjs.com/search?q=hardhat%20kms> in a browser. The npm website blocks scripted requests such as curl. On 2026-10-08 the search did not list any of the packages yet.
+The first two commands print the position of each published package in the first 20 results, or nothing if none is listed. To see the same results, open <https://www.npmjs.com/search?q=hardhat%20kms> in a browser. The npm website blocks scripted requests such as curl. On 2026-10-08 the search did not list any of the packages yet.
 
 On the package page, <https://www.npmjs.com/package/hardhat-kms>, in a browser, check that the TypeScript badge sits next to the name and that the Provenance section links the release workflow run. The provenance attestation is also in the registry:
 
@@ -56,7 +59,7 @@ It prints `https://slsa.dev/provenance/v1` for a release published from CI.
 
 Open these in a browser. Socket blocks scripted requests such as curl.
 
-- Socket: <https://socket.dev/npm/package/hardhat-kms>, and the same path for `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure` and `@hardhat-kms/turnkey`. Read the supply chain, vulnerability, quality, maintenance and license scores and every alert.
+- Socket: <https://socket.dev/npm/package/hardhat-kms>, and the same path for `@hardhat-kms/aws`, `@hardhat-kms/gcp`, `@hardhat-kms/azure`, `@hardhat-kms/turnkey` and `@hardhat-kms/safe`. Read the supply chain, vulnerability, quality, maintenance and license scores and every alert.
 - Snyk: <https://security.snyk.io/package/npm/hardhat-kms>. Read the known vulnerabilities for the latest version and the package health score. On 2026-10-08 it showed 0 vulnerabilities for 0.9.0 and no health score yet.
 
 Open an issue for every alert, vulnerability or score that is not green, with a link to the page.
@@ -114,6 +117,8 @@ Then search each target phrase below in a private window, in Google and Bing, an
 10. ethers google cloud kms signer
 11. ethereum signer azure key vault
 12. hardhat deploy without private key
+13. hardhat safe propose transaction
+14. hardhat 3 multisig
 
 ## Answer engines
 
@@ -146,6 +151,6 @@ Once skills.sh lists the skill, its page, <https://skills.sh/aelmanaa/hardhat-km
 
 One row per month, newest at the bottom. Write the month the numbers cover, not the day they were read, and "n/a" for a source with no data yet.
 
-| Month | Downloads (core, aws, gcp, azure) | Stars | Top referrers | npm position | Indexed / sitemap (Google, Bing) | Impressions, clicks (Google) | Notes |
-| ----- | --------------------------------- | ----- | ------------- | ------------ | -------------------------------- | ---------------------------- | ----- |
-|       |                                   |       |               |              |                                  |                              |       |
+| Month | Downloads (core, aws, gcp, azure, turnkey, safe) | Stars | Top referrers | npm position | Indexed / sitemap (Google, Bing) | Impressions, clicks (Google) | Notes |
+| ----- | ------------------------------------------------ | ----- | ------------- | ------------ | -------------------------------- | ---------------------------- | ----- |
+|       |                                                  |       |               |              |                                  |                              |       |

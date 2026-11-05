@@ -5,6 +5,8 @@
 // call at another registry, for a rehearsal against a local one before a release. `--commit <ref>`
 // takes the package list from that commit instead of the checkout: promote.yml runs main's scripts
 // against a version whose tag may predate a package, such as a hotfix of a line before Turnkey.
+import { execFileSync } from "node:child_process";
+
 import { PACKAGES, releasePackagesAt, runGit } from "./release-packages.ts";
 import { resolvedVersion } from "./temporary-install.ts";
 
@@ -171,6 +173,46 @@ export function yarnBerrySettings(registryMode: boolean): string {
  */
 export function registryArguments(registry: string | undefined): string[] {
   return registry === undefined ? [] : ["--registry", registry];
+}
+
+/**
+ * The output buffer of a `--json` command: `npm audit signatures --include-attestations` prints
+ * over 1 MiB, Node's default, for the published packages and their dependencies (#676).
+ */
+export const JSON_OUTPUT_BUFFER: number = 64 * 1024 * 1024;
+
+/**
+ * Runs a command that prints JSON and returns its stdout. npm prints its JSON answer and exits
+ * with a status when a check fails, so stdout is returned for a nonzero exit too. An error with no
+ * exit status, such as `ENOBUFS` when the output passes `JSON_OUTPUT_BUFFER` or a failed spawn,
+ * is rethrown: the stdout it carries is partial.
+ *
+ * @param file - The command.
+ * @param args - Its arguments.
+ * @param options - The working directory, and whether to run it in a shell (`.cmd` on Windows).
+ * @returns The command's stdout.
+ * @throws When the command printed nothing, or did not exit with a status.
+ */
+export function jsonOutput(
+  file: string,
+  args: readonly string[],
+  options: { cwd: string; shell: boolean },
+): string {
+  try {
+    return execFileSync(file, [...args], {
+      ...options,
+      encoding: "utf8",
+      maxBuffer: JSON_OUTPUT_BUFFER,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const status: unknown = Reflect.get(Object(error), "status");
+    const stdout: unknown = Reflect.get(Object(error), "stdout");
+    if (typeof status === "number" && typeof stdout === "string" && stdout.trim() !== "") {
+      return stdout;
+    }
+    throw error;
+  }
 }
 
 /**
