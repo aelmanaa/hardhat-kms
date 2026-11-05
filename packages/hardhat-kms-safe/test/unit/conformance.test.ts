@@ -9,6 +9,7 @@ import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import apiKit from "@safe-global/api-kit";
+import { OperationType } from "@safe-global/types-kit";
 import type { Address, Hex } from "viem";
 
 import { SERVICE_CHAINS } from "../../src/internal/chains.ts";
@@ -112,7 +113,7 @@ describe("conformance with @safe-global/api-kit 5.0.4", () => {
           to: tx.to,
           value: tx.value.toString(),
           data: tx.data,
-          operation: tx.operation,
+          operation: tx.operation === 1 ? OperationType.DelegateCall : OperationType.Call,
           baseGas: "0",
           gasPrice: "0",
           gasToken: "0x0000000000000000000000000000000000000000",
