@@ -1,5 +1,12 @@
 # @hardhat-kms/turnkey
 
+## 1.5.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - hardhat-kms@1.5.1
+
 ## 1.5.0
 
 ### Patch Changes
