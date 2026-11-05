@@ -218,8 +218,12 @@ function project(version: string): string {
   return directory;
 }
 
+// From the repository, where a loader in NODE_OPTIONS (tsx on Node 22.13) resolves.
 const node = (script: string): string =>
-  jsonOutput(process.execPath, ["-e", script], { cwd: tmpdir(), shell: false });
+  jsonOutput(process.execPath, ["-e", script], {
+    cwd: fileURLToPath(new URL("../..", import.meta.url)),
+    shell: false,
+  });
 
 describe("jsonOutput", () => {
   it("reads output over Node's default 1 MiB buffer whole (#676)", () => {
