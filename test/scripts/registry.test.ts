@@ -14,6 +14,8 @@ import { assertAttestations, parseVerified } from "../../scripts/registry-releas
 import {
   assertInstalledVersion,
   exactVersion,
+  JSON_OUTPUT_BUFFER,
+  jsonOutput,
   PACKAGES,
   parseRegistryOptions,
   registryArguments,
@@ -215,6 +217,38 @@ function project(version: string): string {
   );
   return directory;
 }
+
+// From the repository, where a loader in NODE_OPTIONS (tsx on Node 22.13) resolves.
+const node = (script: string): string =>
+  jsonOutput(process.execPath, ["-e", script], {
+    cwd: fileURLToPath(new URL("../..", import.meta.url)),
+    shell: false,
+  });
+
+describe("jsonOutput", () => {
+  it("reads output over Node's default 1 MiB buffer whole (#676)", () => {
+    // npm audit signatures printed 1,131,801 bytes for the six packages at 1.5.0.
+    const out = node(
+      'process.stdout.write(JSON.stringify({ verified: [{ pad: "x".repeat(2 * 1024 * 1024) }] }))',
+    );
+    assert.ok(out.length > 2 * 1024 * 1024);
+    assert.deepEqual(JSON.parse(out), { verified: [{ pad: "x".repeat(2 * 1024 * 1024) }] });
+    assert.ok(JSON_OUTPUT_BUFFER >= 64 * 1024 * 1024);
+  });
+
+  it("returns npm's JSON answer when the command exits with a status", () => {
+    const out = node("process.stdout.write('{\"invalid\":[1]}'); process.exit(1)");
+    assert.deepEqual(JSON.parse(out), { invalid: [1] });
+  });
+
+  it("throws when the command prints nothing or cannot start", () => {
+    assert.throws(() => node("process.exit(1)"), { status: 1 });
+    assert.throws(
+      () => jsonOutput("hardhat-kms-no-such-command", [], { cwd: tmpdir(), shell: false }),
+      { code: "ENOENT" },
+    );
+  });
+});
 
 describe("assertInstalledVersion", () => {
   // The test removes the project it makes, so it runs under a temp directory of its own.
