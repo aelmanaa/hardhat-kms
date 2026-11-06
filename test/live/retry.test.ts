@@ -1,8 +1,14 @@
-// The live tests' retry for reads that reach a lagging node. Runs offline, in `pnpm test`.
+// The live tests' retries for reads that reach a lagging node and for sends the pool refuses while
+// it still holds another transaction for the account. Runs offline, in `pnpm test`.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { isLaggingBlockError, retryLagging } from "./helpers/retry.ts";
+import {
+  isLaggingBlockError,
+  isPoolRefusal,
+  retryLagging,
+  retryPoolRefusal,
+} from "./helpers/retry.ts";
 
 /** An error shaped like viem's, with the node's message in `details` and a cause. */
 class FakeRpcError extends Error {
@@ -81,5 +87,58 @@ describe("live test retry for lagging nodes", () => {
     );
     await assert.rejects(retryLagging(read.read, { tries: 10, sleep: async () => {} }), lagging);
     assert.equal(read.calls(), 10);
+  });
+});
+
+describe("live test retry for sends the pool refuses (#685)", () => {
+  // As Sepolia's geth answered the v1.5.1 run, wrapped the way viem wraps a send's error.
+  const inFlight = new FakeRpcError("in-flight transaction limit reached for delegated accounts");
+  const reserved = new Error("Missing or invalid parameters.", {
+    cause: new FakeRpcError("authority already reserved"),
+  });
+
+  it("recognizes geth's two refusals, also in details and causes, and nothing else", () => {
+    assert.ok(isPoolRefusal(inFlight));
+    assert.ok(isPoolRefusal(reserved));
+    assert.ok(isPoolRefusal("In-flight transaction limit reached for delegated accounts"));
+    assert.ok(!isPoolRefusal(new FakeRpcError("replacement transaction underpriced")));
+    assert.ok(!isPoolRefusal(new FakeRpcError("nonce too low")));
+    assert.ok(!isPoolRefusal(new Error("header not found")));
+    assert.ok(!isPoolRefusal(undefined));
+  });
+
+  it("sends again after each refusal, pausing, and reports each retry", async () => {
+    const pauses: number[] = [];
+    const retries: number[] = [];
+    const send = flaky([inFlight, reserved], "0xhash");
+    const hash = await retryPoolRefusal(send.read, {
+      delayMs: 6000,
+      sleep: async (ms) => {
+        pauses.push(ms);
+        await Promise.resolve();
+      },
+      onRetry: (_error, attempt) => retries.push(attempt),
+    });
+    assert.equal(hash, "0xhash");
+    assert.equal(send.calls(), 3);
+    assert.deepEqual(pauses, [6000, 6000]);
+    assert.deepEqual(retries, [1, 2]);
+  });
+
+  it("throws any other refusal at once, and the last pool refusal after the last attempt", async () => {
+    const underpriced = new FakeRpcError("replacement transaction underpriced");
+    const once = flaky([underpriced], "0xhash");
+    await assert.rejects(retryPoolRefusal(once.read, { sleep: async () => {} }), underpriced);
+    assert.equal(once.calls(), 1);
+
+    const always = flaky(
+      Array.from({ length: 20 }, () => inFlight),
+      "0xhash",
+    );
+    await assert.rejects(
+      retryPoolRefusal(always.read, { tries: 4, sleep: async () => {} }),
+      inFlight,
+    );
+    assert.equal(always.calls(), 4);
   });
 });

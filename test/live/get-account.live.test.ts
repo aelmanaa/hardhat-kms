@@ -33,14 +33,17 @@ import {
   recoverTypedDataAddress,
   toHex,
   WaitForTransactionReceiptTimeoutError,
+  zeroAddress,
 } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 import { SEPOLIA_CHAIN_ID } from "./cases.ts";
 import { type AnvilFork, findAnvil, startAnvilFork } from "./helpers/anvil.ts";
+import { clearLeftoverDelegation } from "./helpers/delegation.ts";
 import { liveMode, MODE_VARIABLE } from "./helpers/mode.ts";
 import { livePackages, registryCheck } from "./helpers/packages.ts";
 import { redact } from "./helpers/redact.ts";
+import { retryPoolRefusal } from "./helpers/retry.ts";
 import { type RecordingProxy, startRecordingProxy } from "./helpers/rpc-proxy.ts";
 
 const mode = liveMode(process.env);
@@ -237,13 +240,24 @@ describe(
                 );
               }
 
-              if (!onFork) {
-                // On Sepolia the transfer goes to the account itself, which would run a
-                // delegation's code; a delegation left by an earlier run must be cleared first.
-                const code = await publicClient.getCode({ address });
-                assert.ok(
-                  code === undefined || code === "0x",
-                  `${address} has code (${code}), such as an EIP-7702 delegation: clear the delegation first, with an authorization to the zero address`,
+              // On Sepolia the transfer goes to the account itself, which would run a
+              // delegation's code, so a delegation an earlier run left is cleared first (#685).
+              const cleared = await clearLeftoverDelegation({
+                account: address,
+                publicClient,
+                authorize: async (authorizationNonce) =>
+                  await account.signAuthorization({
+                    contractAddress: zeroAddress,
+                    chainId: SEPOLIA_CHAIN_ID,
+                    nonce: authorizationNonce,
+                  }),
+                send: async (request) =>
+                  await retryPoolRefusal(async () => await wallet.sendTransaction(request)),
+                timeoutMs: RECEIPT_TIMEOUT_MS,
+              });
+              if (cleared !== undefined) {
+                t.diagnostic(
+                  `${provider.name}: cleared a delegation an earlier run left on ${address}, block ${cleared}`,
                 );
               }
 
@@ -254,11 +268,14 @@ describe(
                 address,
                 blockTag: "pending",
               });
-              const hash = await wallet.sendTransaction({
-                to: onFork ? SPONSOR.address : address,
-                value: onFork ? 1n : 0n,
-                nonce,
-              });
+              const hash = await retryPoolRefusal(
+                async () =>
+                  await wallet.sendTransaction({
+                    to: onFork ? SPONSOR.address : address,
+                    value: onFork ? 1n : 0n,
+                    nonce,
+                  }),
+              );
               const receipt = await receiptOf(publicClient, hash, nonce);
               assert.equal(receipt.status, "success");
               assert.equal(getAddress(receipt.from), address);
