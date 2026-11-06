@@ -303,8 +303,12 @@ async function runProvider(
         nudges++;
       },
     });
-    // An account left delegated by an earlier run is cleared at the end too.
+    // An account left delegated by an earlier run is cleared before the first case (#685): on
+    // Sepolia the delegation would make geth refuse the cases that keep two transactions pending.
     run.delegated = !NO_CODE.includes(await publicClient.getCode({ address: account }));
+    if (run.delegated) {
+      await run.clearLeftover();
+    }
 
     let failure: Error | undefined;
     try {

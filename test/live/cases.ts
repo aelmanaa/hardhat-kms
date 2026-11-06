@@ -31,8 +31,9 @@ import {
 } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
+import { clearLeftoverDelegation } from "./helpers/delegation.ts";
 import type { ProofRecord } from "./helpers/proof.ts";
-import { retryLagging } from "./helpers/retry.ts";
+import { retryLagging, retryPoolRefusal } from "./helpers/retry.ts";
 import { type Case, CASES, type CaseId } from "./matrix.ts";
 
 export const SEPOLIA_CHAIN_ID = 11_155_111;
@@ -190,9 +191,47 @@ export class ProviderRun {
     return this.#lastBlock;
   }
 
+  /**
+   * Runs one send, and runs it again while the node's pool refuses it because it still holds
+   * another transaction for the account: a backend that has not seen the latest receipt counts its
+   * transaction as pending (#685). A refused send broadcast nothing.
+   */
+  async send<T>(send: () => Promise<T>): Promise<T> {
+    const { t, provider } = this.#options;
+    return await retryPoolRefusal(send, {
+      onRetry: (_error, attempt) => {
+        t.diagnostic(
+          `${provider}: the node's pool refused a send while it held another transaction of the account (attempt ${attempt}); sending again`,
+        );
+      },
+    });
+  }
+
   /** Runs one case. */
   async run(id: CaseId): Promise<void> {
     await STEPS[id](this);
+  }
+
+  /**
+   * Before the first case, clears a delegation an earlier run left on the account (#685). The
+   * transaction is not a proof record; a diagnostic names it.
+   */
+  async clearLeftover(): Promise<void> {
+    const { wallet, publicClient, account, t, provider } = this.#options;
+    const block = await clearLeftoverDelegation({
+      account,
+      publicClient,
+      authorize: async (nonce) => await this.authorize(zeroAddress, nonce),
+      send: async (request) => await this.send(async () => await wallet.sendTransaction(request)),
+      timeoutMs: this.#options.receiptTimeoutMs,
+    });
+    if (block !== undefined) {
+      this.#lastBlock = block;
+      t.diagnostic(
+        `${provider}: cleared a delegation an earlier run left on ${account}, block ${block}`,
+      );
+    }
+    this.delegated = false;
   }
 
   /** Clears whatever the run left delegated: the throwaway key, then the account. */
@@ -427,7 +466,7 @@ export class ProviderRun {
     const receipt = await this.mined(
       "deploy-live-check",
       "deploy LiveCheck",
-      await wallet.deployContract({ abi: LIVE_CHECK_ABI, bytecode }),
+      await this.send(async () => await wallet.deployContract({ abi: LIVE_CHECK_ABI, bytecode })),
       { value: 0n },
     );
     const contract = receipt.contractAddress;
@@ -455,13 +494,16 @@ export class ProviderRun {
     const to = this.#recipient;
     const hash =
       type === "eip1559"
-        ? await wallet.sendTransaction({ to, value: 1n })
-        : await wallet.sendTransaction({
-            to,
-            value: 1n,
-            gasPrice,
-            ...(type === "eip2930" ? { accessList: [{ address: to, storageKeys: [] }] } : {}),
-          });
+        ? await this.send(async () => await wallet.sendTransaction({ to, value: 1n }))
+        : await this.send(
+            async () =>
+              await wallet.sendTransaction({
+                to,
+                value: 1n,
+                gasPrice,
+                ...(type === "eip2930" ? { accessList: [{ address: to, storageKeys: [] }] } : {}),
+              }),
+          );
     const receipt = await this.mined(id, "1 wei to a fresh address", hash, { value: 1n });
     await this.#checkRecipient(receipt.blockNumber);
   }
@@ -480,25 +522,33 @@ export class ProviderRun {
     const { wallet, gasPrice, account } = this.#options;
     const hash =
       type === "eip1559"
-        ? await wallet.sendTransaction({ to: account, value: 1n })
-        : await wallet.sendTransaction({
-            to: account,
-            value: 1n,
-            gasPrice,
-            ...(type === "eip2930" ? { accessList: [{ address: account, storageKeys: [] }] } : {}),
-          });
+        ? await this.send(async () => await wallet.sendTransaction({ to: account, value: 1n }))
+        : await this.send(
+            async () =>
+              await wallet.sendTransaction({
+                to: account,
+                value: 1n,
+                gasPrice,
+                ...(type === "eip2930"
+                  ? { accessList: [{ address: account, storageKeys: [] }] }
+                  : {}),
+              }),
+          );
     await this.mined(id, "1 wei to itself", hash, { value: 1n });
   }
 
   /** Deploys the 3-byte contract and checks its code. */
   async deployMinimal(id: CaseId, type: "legacy" | "eip2930"): Promise<void> {
     const { wallet, gasPrice, account } = this.#options;
-    const hash = await wallet.sendTransaction({
-      to: null,
-      data: MINIMAL_INIT,
-      gasPrice,
-      ...(type === "eip2930" ? { accessList: [{ address: account, storageKeys: [] }] } : {}),
-    });
+    const hash = await this.send(
+      async () =>
+        await wallet.sendTransaction({
+          to: null,
+          data: MINIMAL_INIT,
+          gasPrice,
+          ...(type === "eip2930" ? { accessList: [{ address: account, storageKeys: [] }] } : {}),
+        }),
+    );
     const receipt = await this.mined(id, "deploy a 3-byte contract", hash, { value: 0n });
     const created = receipt.contractAddress;
     assert.ok(created !== null && created !== undefined, "the deployment created no contract");
@@ -522,13 +572,16 @@ export class ProviderRun {
       args: [1n],
       value: 1n,
     } as const;
-    const hash = await wallet.writeContract({
-      ...add,
-      gasPrice,
-      ...(type === "eip2930"
-        ? { accessList: [{ address: contract, storageKeys: [COUNT_SLOT] }] }
-        : {}),
-    });
+    const hash = await this.send(
+      async () =>
+        await wallet.writeContract({
+          ...add,
+          gasPrice,
+          ...(type === "eip2930"
+            ? { accessList: [{ address: contract, storageKeys: [COUNT_SLOT] }] }
+            : {}),
+        }),
+    );
     const receipt = await this.mined(id, "add(1) with 1 wei", hash, { value: 1n });
     if (type === "legacy") {
       // EIP-155: a legacy transaction signs over the chain id, which its v carries as
@@ -582,7 +635,10 @@ export class ProviderRun {
       await rpc.request({ method: "evm_setAutomine", params: [false] });
     }
     try {
-      hashes.push(await wallet.writeContract(add), await wallet.writeContract(add));
+      hashes.push(
+        await this.send(async () => await wallet.writeContract(add)),
+        await this.send(async () => await wallet.writeContract(add)),
+      );
       if (onFork) {
         await rpc.request({ method: "evm_mine" });
       }
@@ -627,12 +683,17 @@ export class ProviderRun {
     const request = { to: contract, data: UNKNOWN_SELECTOR, gas: 50_000n } as const;
     const hash =
       type === "eip1559"
-        ? await wallet.sendTransaction(request)
-        : await wallet.sendTransaction({
-            ...request,
-            gasPrice,
-            ...(type === "eip2930" ? { accessList: [{ address: contract, storageKeys: [] }] } : {}),
-          });
+        ? await this.send(async () => await wallet.sendTransaction(request))
+        : await this.send(
+            async () =>
+              await wallet.sendTransaction({
+                ...request,
+                gasPrice,
+                ...(type === "eip2930"
+                  ? { accessList: [{ address: contract, storageKeys: [] }] }
+                  : {}),
+              }),
+          );
     await this.mined(id, "an unknown selector to LiveCheck", hash, { value: 0n });
   }
 
@@ -648,28 +709,39 @@ export class ProviderRun {
     const send = async (factor: bigint): Promise<Hash> => {
       const base = { to: account, value: 1n, nonce } as const;
       if (type === "legacy") {
-        return await wallet.sendTransaction({ ...base, gas: 21_000n, gasPrice: gasPrice * factor });
+        return await this.send(
+          async () =>
+            await wallet.sendTransaction({ ...base, gas: 21_000n, gasPrice: gasPrice * factor }),
+        );
       }
       if (type === "eip2930") {
-        return await wallet.sendTransaction({
-          ...base,
-          gas: 30_000n,
-          gasPrice: gasPrice * factor,
-          accessList: [{ address: account, storageKeys: [] }],
-        });
+        return await this.send(
+          async () =>
+            await wallet.sendTransaction({
+              ...base,
+              gas: 30_000n,
+              gasPrice: gasPrice * factor,
+              accessList: [{ address: account, storageKeys: [] }],
+            }),
+        );
       }
       const fees = { maxFeePerGas: (gasPrice + tip) * factor, maxPriorityFeePerGas: tip * factor };
       if (type === "eip1559") {
-        return await wallet.sendTransaction({ ...base, ...fees, gas: 21_000n });
+        return await this.send(
+          async () => await wallet.sendTransaction({ ...base, ...fees, gas: 21_000n }),
+        );
       }
       const contract = this.#need(this.#contract, "LiveCheck");
       this.delegated = true;
-      return await wallet.sendTransaction({
-        ...base,
-        ...fees,
-        gas: 80_000n,
-        authorizationList: [await this.authorize(contract, nonce + 1)],
-      });
+      return await this.send(
+        async () =>
+          await wallet.sendTransaction({
+            ...base,
+            ...fees,
+            gas: 80_000n,
+            authorizationList: [await this.authorize(contract, nonce + 1)],
+          }),
+      );
     };
     let first: Hash | undefined;
     let second: Hash | undefined;
@@ -726,17 +798,20 @@ export class ProviderRun {
     const receipt = await this.mined(
       "delegate-and-call",
       "delegate to LiveCheck and add(1) with 1 wei",
-      await wallet.sendTransaction({
-        to: account,
-        nonce,
-        // Explicit, like every self-sponsored authorization here: a backend a block behind would
-        // estimate with the account's older nonce, skip the authorization and give too little gas
-        // (#492). 71897 was the estimate on Sepolia.
-        gas: AUTHORIZATION_NONCE_GAS.delegateAndCall,
-        value: 1n,
-        data: encodeFunctionData({ abi: LIVE_CHECK_ABI, functionName: "add", args: [1n] }),
-        authorizationList: [authorization],
-      }),
+      await this.send(
+        async () =>
+          await wallet.sendTransaction({
+            to: account,
+            nonce,
+            // Explicit, like every self-sponsored authorization here: a backend a block behind would
+            // estimate with the account's older nonce, skip the authorization and give too little gas
+            // (#492). 71897 was the estimate on Sepolia.
+            gas: AUTHORIZATION_NONCE_GAS.delegateAndCall,
+            value: 1n,
+            data: encodeFunctionData({ abi: LIVE_CHECK_ABI, functionName: "add", args: [1n] }),
+            authorizationList: [authorization],
+          }),
+      ),
       { value: 1n, explicitNonce: true },
     );
     assert.equal(
@@ -863,11 +938,14 @@ export class ProviderRun {
     const receipt = await this.mined(
       "sponsor-other",
       "1 wei to a fresh address, with a throwaway key's authorization",
-      await wallet.sendTransaction({
-        to: this.#recipient,
-        value: 1n,
-        authorizationList: [authorization],
-      }),
+      await this.send(
+        async () =>
+          await wallet.sendTransaction({
+            to: this.#recipient,
+            value: 1n,
+            authorizationList: [authorization],
+          }),
+      ),
       { value: 1n },
     );
     await this.#checkRecipient(receipt.blockNumber);
@@ -890,18 +968,21 @@ export class ProviderRun {
     const receipt = await this.mined(
       "sponsor-other",
       "clear the throwaway key's delegation",
-      await wallet.sendTransaction({
-        to: throwaway.address,
-        // The throwaway's nonce was read at the latest receipt; a lagging backend would skip it.
-        gas: AUTHORIZATION_NONCE_GAS.clear,
-        authorizationList: [
-          await throwaway.signAuthorization({
-            chainId: SEPOLIA_CHAIN_ID,
-            address: zeroAddress,
-            nonce,
+      await this.send(
+        async () =>
+          await wallet.sendTransaction({
+            to: throwaway.address,
+            // The throwaway's nonce was read at the latest receipt; a lagging backend would skip it.
+            gas: AUTHORIZATION_NONCE_GAS.clear,
+            authorizationList: [
+              await throwaway.signAuthorization({
+                chainId: SEPOLIA_CHAIN_ID,
+                address: zeroAddress,
+                nonce,
+              }),
+            ],
           }),
-        ],
-      }),
+      ),
       { value: 0n },
     );
     assert.ok(
@@ -935,7 +1016,10 @@ export class ProviderRun {
     const receipt = await this.mined(
       "sponsored-by-other",
       "a local account sends the KMS key's authorization",
-      await client.sendTransaction({ to: this.#recipient, authorizationList: [authorization] }),
+      await this.send(
+        async () =>
+          await client.sendTransaction({ to: this.#recipient, authorizationList: [authorization] }),
+      ),
       { value: 0n, sender: sender.address },
     );
     assert.equal(
@@ -958,13 +1042,16 @@ export class ProviderRun {
     const receipt = await this.mined(
       "revert-eip7702",
       "delegate back to LiveCheck and call an unknown selector",
-      await wallet.sendTransaction({
-        to: account,
-        nonce,
-        gas: 100_000n,
-        data: UNKNOWN_SELECTOR,
-        authorizationList: [authorization],
-      }),
+      await this.send(
+        async () =>
+          await wallet.sendTransaction({
+            to: account,
+            nonce,
+            gas: 100_000n,
+            data: UNKNOWN_SELECTOR,
+            authorizationList: [authorization],
+          }),
+      ),
       { value: 0n, explicitNonce: true },
     );
     assert.equal(
@@ -984,13 +1071,16 @@ export class ProviderRun {
     const receipt = await this.mined(
       "clear-delegation",
       "clear the delegation, with 1 wei to itself",
-      await wallet.sendTransaction({
-        to: account,
-        nonce,
-        gas: AUTHORIZATION_NONCE_GAS.clear,
-        value: 1n,
-        authorizationList: [await this.authorize(zeroAddress, nonce + 1)],
-      }),
+      await this.send(
+        async () =>
+          await wallet.sendTransaction({
+            to: account,
+            nonce,
+            gas: AUTHORIZATION_NONCE_GAS.clear,
+            value: 1n,
+            authorizationList: [await this.authorize(zeroAddress, nonce + 1)],
+          }),
+      ),
       { value: 1n, explicitNonce: true },
     );
     assert.ok(
