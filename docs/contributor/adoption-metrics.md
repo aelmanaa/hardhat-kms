@@ -87,21 +87,45 @@ Dependents:
 
 ## Docs site search
 
-The docs site, <https://aelmanaa.github.io/hardhat-kms/>, publishes its pages in <https://aelmanaa.github.io/hardhat-kms/sitemap.xml>. Count the pages it lists:
+The docs site, <https://aelmanaa.github.io/hardhat-kms/>, publishes its pages in <https://aelmanaa.github.io/hardhat-kms/sitemap.xml>. `scripts/adoption-search.ts` reads both consoles through their APIs for one month:
 
 ```sh
-curl -s https://aelmanaa.github.io/hardhat-kms/sitemap.xml | grep -o '<loc>' | wc -l
+ADOPTION_GSC_SERVICE_ACCOUNT=<service account email> node scripts/adoption-search.ts --month 2026-10
 ```
 
-On 2026-10-08 it listed 40 pages.
+It prints:
 
-In Google Search Console, in the property for the docs URL, read for the last 28 days:
+- The number of pages in the sitemap today.
+- Google: the month's impressions and clicks, the top queries and pages, when Google last read each submitted sitemap, and the index state of every sitemap URL, read today with the URL Inspection API, with the URLs that are not indexed.
+- Bing: the month's impressions and clicks, the top queries of recent weeks, the indexed pages on the last day of the month, and the state of each submitted sitemap.
+- Context7's index state; see [Agent listings](#agent-listings).
 
-- Pages (Indexing): indexed and not indexed, against the sitemap count. Note each reason Google gives for a page that is not indexed, such as "Duplicate without user-selected canonical" or "Crawled - currently not indexed".
-- Sitemaps: the last read date and the number of discovered pages.
-- Performance (Search results): total clicks, total impressions, and the top queries and pages.
+`--skip-inspection` leaves out the URL inspections, which take most of the minute the script runs. A source without credentials is skipped. The script reads only: it submits nothing to either console.
 
-In Bing Webmaster Tools, in the same site, read the indexed pages under Site Explorer or URL Inspection, and clicks, impressions and top queries under Search Performance.
+### One-time setup
+
+Google: a service account with no key, which the maintainer impersonates. In a Google Cloud project of the maintainer's, not the live-test project:
+
+```sh
+gcloud services enable searchconsole.googleapis.com iamcredentials.googleapis.com --project <project>
+gcloud iam service-accounts create adoption-reader --project <project>
+gcloud iam service-accounts add-iam-policy-binding adoption-reader@<project>.iam.gserviceaccount.com \
+  --project <project> --member "user:<maintainer's Google account>" --role roles/iam.serviceAccountTokenCreator
+```
+
+Then, in Search Console, under Settings, Users and permissions, add the service account to the docs property with the Restricted permission. The script gets a short-lived token with `gcloud auth print-access-token --impersonate-service-account`.
+
+Bing: in Bing Webmaster Tools, under Settings, API access, generate an API key. Keep it in `BING_WEBMASTER_API_KEY`, or on macOS in the login Keychain, where the script reads it without a prompt:
+
+```sh
+security add-generic-password -a "$USER" -s bing-webmaster-api -w
+```
+
+The command asks for the key, so it stays out of the shell history.
+
+### Pages that are not indexed
+
+On 2026-11-10 Google had indexed only the home page, and the other 43 sitemap URLs were unknown to it: Search Console showed "Couldn't fetch" for the sitemap and had never read it, though the file was valid and every URL answered 200. Google says this status on a valid sitemap comes from host load or low crawl demand, not from the file ([Search Engine Journal, 2026-10-06](https://www.searchenginejournal.com/google-explains-couldnt-fetch-sitemap-errors/)), and other `github.io` project sites report the same. Resubmitting the sitemap does not help. What does: in Search Console, URL Inspection, request indexing for the pages the script lists as not indexed, about ten a day, the pages that link to many others first. Bing read the same sitemap the day it was submitted.
 
 Then search each target phrase below in a private window, in Google and Bing, and note the position of the first result on the docs site, the repository or the npm page, or "none" if it is not in the first page:
 
@@ -145,12 +169,14 @@ curl -s "https://context7.com/api/v1/search?query=hardhat-kms" | jq '.results[] 
 
 On 2026-10-08 it returned `"state": "finalized"`, last updated 2026-10-07, with 1431 snippets.
 
+Context7 did not pick up later releases on its own. `node scripts/adoption-search.ts --month <month> --refresh-context7` prints the same state and asks Context7 to index the docs again, with an API key from <https://context7.com/dashboard> in `CONTEXT7_API_KEY` or in the macOS login Keychain item `context7-api` (`security add-generic-password -a "$USER" -s context7-api -w`). Refresh after each minor release. The refresh on 2026-11-10 took about ten minutes and raised the count to 2333 snippets.
+
 Once skills.sh lists the skill, its page, <https://skills.sh/aelmanaa/hardhat-kms/hardhat-kms>, shows how many times `npx skills add aelmanaa/hardhat-kms` installed it. On 2026-10-08 the page said the skill was not available and a search on skills.sh found nothing, so the skill is not listed yet.
 
 ## Monthly entries
 
 One row per month, newest at the bottom. Write the month the numbers cover, not the day they were read, and "n/a" for a source with no data yet.
 
-| Month   | Downloads (core, aws, gcp, azure, turnkey, safe) | Stars | Top referrers                                                           | npm position                                                                                  | Indexed / sitemap (Google, Bing)                             | Impressions, clicks (Google)        | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------- | ------------------------------------------------ | ----- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 2026-10 | 1879, 1606, 1684, 1707, 299, 0                   | 0     | github.com 6 (4 unique), Google 3 (2 unique), the 14 days to 2026-11-10 | "hardhat kms": all six in the first six, the core third; "hardhat safe": none in the first 20 | n/a / 44 pages in the sitemap: the owner reads both consoles | n/a: the owner reads Search Console | Read on 2026-11-10. Downloads are mostly this repository's own checks: the days of a release or promotion count 200 to 390 for the core (7, 8, 10, 11, 16 and 26 October; 1 and 5 November) and the other days 0 to 72, while October ran 21 Registry mode, 15 Peer installs and 12 Fresh install workflows that install from npm. `@hardhat-kms/safe` was first published on 2026-11-04. Context7 is `finalized` with 1431 snippets but last updated 2026-10-07, before Turnkey and Safe. skills.sh does not list the skill yet. Socket, Snyk and npm dependents are browser-only and not read. |
+| Month   | Downloads (core, aws, gcp, azure, turnkey, safe) | Stars | Top referrers                                                           | npm position                                                                                  | Indexed / sitemap (Google, Bing)                                   | Impressions, clicks (Google)             | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------- | ------------------------------------------------ | ----- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-10 | 1879, 1606, 1684, 1707, 299, 0                   | 0     | github.com 6 (4 unique), Google 3 (2 unique), the 14 days to 2026-11-10 | "hardhat kms": all six in the first six, the core third; "hardhat safe": none in the first 20 | Google 1 / 44, Bing 1 / 44: the home page only, read on 2026-11-10 | 12, 2: all on the home page (Bing: 0, 0) | Read on 2026-11-10. Downloads are mostly this repository's own checks: the days of a release or promotion count 200 to 390 for the core (7, 8, 10, 11, 16 and 26 October; 1 and 5 November) and the other days 0 to 72, while October ran 21 Registry mode, 15 Peer installs and 12 Fresh install workflows that install from npm. `@hardhat-kms/safe` was first published on 2026-11-04. Context7 was last updated 2026-10-07, before Turnkey and Safe, with 1431 snippets; refreshed on 2026-11-10 to 2333. Google had never read the sitemap ("Couldn't fetch") and none had been submitted to Bing; it was submitted to Bing on 2026-11-10, and pages are requested for indexing in Google by hand (#690). skills.sh does not list the skill yet. Socket, Snyk and npm dependents are browser-only and not read. |
