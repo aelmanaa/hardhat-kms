@@ -4,7 +4,7 @@
     ".": {
       "entry": ["scripts/*.ts", "test/live/*.test.ts", "test/scripts/*.test.ts"],
       "project": ["scripts/*.ts", "test/live/**/*.ts", "test/scripts/**/*.ts"],
-      "ignoreBinaries": ["gpg", "gpgconf"],
+      "ignoreBinaries": ["gpg", "gpgconf", "gcloud"],
       "ignoreDependencies": [
         "publint",
         "@arethetypeswrong/cli",
