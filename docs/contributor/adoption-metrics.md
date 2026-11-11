@@ -34,13 +34,13 @@ It prints, in order:
 - npm: each package's downloads in the month, the median day, the busiest day and the days it published a version; each package's position in the registry search for "hardhat kms" and "hardhat safe" today; the version on `latest`.
 - GitHub: stars, forks and watchers, the last 14 days' views, clones, referrers and popular paths, and the month's views and clones from the traffic log.
 - Google: the month's impressions and clicks, the top queries and pages, when Google last read each submitted sitemap, and the index state of every sitemap URL, read today with the URL Inspection API, with the URLs Google does not know.
-- Bing: the month's impressions and clicks, the top queries of recent weeks, the indexed pages on the last day of the month, and the state of each submitted sitemap.
+- Bing: the month's impressions and clicks, the top queries of recent weeks, the indexed pages on the last day of the month that Bing's daily stats reach, how many sitemap URLs Bing has crawled, read per URL today, and the state of each submitted sitemap. Bing's daily stats run about a week behind, so the crawled count is the current one; the per-URL reads go one every two seconds, since Bing throttles faster calls.
 - Context7's index state.
 - Problems, such as:
   - a sitemap URL that does not answer 200;
   - a sitemap a console has not read;
   - pages Google crawled but did not index;
-  - Bing indexing fewer than half the sitemap;
+  - Bing crawling fewer than all the sitemap URLs, or indexing fewer than half, with the day its stats reach;
   - Context7 older than the release on `latest`;
   - a package with no downloads;
   - a gap of more than 14 days in the traffic log.

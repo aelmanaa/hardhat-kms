@@ -8,6 +8,7 @@ import {
   analyticsRows,
   bingDay,
   bingIndexed,
+  bingLastCrawled,
   bingMonthTraffic,
   bingQueries,
   daysBetween,
@@ -69,6 +70,11 @@ describe("redactKey", () => {
     );
     assert.equal(redactKey("https://h/x?APIKEY=abc"), "https://h/x?APIKEY=<redacted>");
     assert.equal(redactKey("https://h/x?siteUrl=s"), "https://h/x?siteUrl=s");
+    // In an error message, the text after the URL stays.
+    assert.equal(
+      redactKey("GET https://h/x?apikey=abc answered 400: bad"),
+      "GET https://h/x?apikey=<redacted> answered 400: bad",
+    );
   });
 });
 
@@ -77,7 +83,20 @@ describe("bingDay", () => {
     assert.equal(bingDay("/Date(1791676800000)/"), "2026-10-11");
     assert.equal(bingDay("/Date(1791676800000-0700)/"), "2026-10-11");
     assert.equal(bingDay("2026-10-11"), undefined);
+    // The year 1: no date, such as a page never crawled.
+    assert.equal(bingDay("/Date(-62135596800000)/"), undefined);
     assert.equal(bingDay(undefined), undefined);
+  });
+});
+
+describe("bingLastCrawled", () => {
+  it("reads a crawled page's day, and nothing for a page never crawled", () => {
+    assert.equal(
+      bingLastCrawled({ d: { LastCrawledDate: "/Date(1792145179000)/" } }),
+      "2026-10-16",
+    );
+    assert.equal(bingLastCrawled({ d: { LastCrawledDate: "/Date(-62135596800000)/" } }), undefined);
+    assert.equal(bingLastCrawled({}), undefined);
   });
 });
 
@@ -351,7 +370,7 @@ describe("findProblems", () => {
           indexed: 11,
           crawledNotIndexed: ["https://a.example/safe"],
         },
-        bing: { inIndex: 1, sitemaps: [] },
+        bing: { inIndex: 1, crawled: 2, sitemaps: [] },
         context7: { lastUpdate: "2026-10-07T20:18:06.262Z" },
         downloads: [
           { name: "hardhat-kms", total: 10 },
@@ -367,6 +386,7 @@ describe("findProblems", () => {
       "Google indexes 11 of the 44 sitemap URLs.",
       "Google crawled but did not index https://a.example/safe; another request does not help, a link from an indexed page or more content may.",
       "No sitemap is submitted to Bing.",
+      "Bing has crawled 2 of the 44 sitemap URLs.",
       "Bing indexes 1 of the 44 sitemap URLs.",
       "Context7 was last updated on 2026-10-07, before 1.5.1 (2026-11-05); run with --refresh-context7.",
       "@hardhat-kms/safe had no downloads in 2026-11.",
@@ -396,6 +416,23 @@ describe("findProblems", () => {
       "The traffic log's previous run was on 2026-11-01, more than 14 days ago; the days in between are lost.",
       "The traffic log holds 20 of the 30 days of 2026-11.",
     ]);
+    assert.deepEqual(
+      findProblems(
+        {
+          ...healthy,
+          bing: {
+            inIndex: 1,
+            inIndexDay: "2026-11-03",
+            crawled: 44,
+            sitemaps: [{ url: "s", status: "Success", lastRead: "2026-11-10" }],
+          },
+        },
+        "2026-11-11",
+      ),
+      [
+        "Bing indexes 1 of the 44 sitemap URLs as of 2026-11-03, before Bing read the sitemap on 2026-11-10; its daily stats run about a week behind.",
+      ],
+    );
     assert.deepEqual(
       findProblems(
         { ...healthy, google: { ...healthyGoogle, sitemapsLastRead: ["2026-11-01T00:00:00Z"] } },
