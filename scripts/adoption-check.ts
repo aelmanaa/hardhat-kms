@@ -107,7 +107,7 @@ export function sitemapUrls(xml: string): string[] {
  * @returns The URL with `apikey=<redacted>`.
  */
 export function redactKey(url: string): string {
-  return url.replace(/([?&]apikey=)[^&]*/gi, "$1<redacted>");
+  return url.replace(/([?&]apikey=)[^&\s]*/gi, "$1<redacted>");
 }
 
 /** One property of a parsed JSON value, or undefined. */
@@ -135,14 +135,26 @@ function str(value: unknown, fallback = ""): string {
 }
 
 /**
- * The day of a Bing date, which the JSON API writes as `/Date(<ms>)/` or `/Date(<ms>-0700)/`.
+ * The day of a Bing date, which the JSON API writes as `/Date(<ms>)/` or `/Date(<ms>-0700)/`. Bing
+ * writes the year 1, a negative number, for a date it does not have, such as a page never crawled.
  *
  * @param value - The date as Bing wrote it.
- * @returns The UTC day as `YYYY-MM-DD`, or undefined for anything else.
+ * @returns The UTC day as `YYYY-MM-DD`, or undefined for no date or anything else.
  */
 export function bingDay(value: unknown): string | undefined {
   const match = /^\/Date\((-?\d+)(?:[+-]\d{4})?\)\/$/.exec(str(value));
-  return match === null ? undefined : new Date(Number(match[1])).toISOString().slice(0, 10);
+  const ms = match === null ? Number.NaN : Number(match[1]);
+  return Number.isFinite(ms) && ms >= 0 ? new Date(ms).toISOString().slice(0, 10) : undefined;
+}
+
+/**
+ * When Bing last crawled a URL.
+ *
+ * @param response - The parsed answer of `GetUrlInfo`.
+ * @returns The day, or undefined when Bing has not crawled it.
+ */
+export function bingLastCrawled(response: unknown): string | undefined {
+  return bingDay(get(get(response, "d"), "LastCrawledDate"));
 }
 
 /** Clicks and impressions. */
@@ -573,6 +585,10 @@ export interface Facts {
   };
   bing?: {
     inIndex?: number;
+    /** The day of `inIndex`: Bing's daily stats run about a week behind. */
+    inIndexDay?: string;
+    /** How many sitemap URLs Bing has crawled, from its per-URL information, which is current. */
+    crawled?: number;
     sitemaps: readonly { url: string; status: string; lastRead?: string }[];
   };
   context7?: { lastUpdate?: string };
@@ -628,7 +644,7 @@ export function findProblems(facts: Facts, today: string): string[] {
     }
   }
   if (facts.bing !== undefined) {
-    const { inIndex, sitemaps } = facts.bing;
+    const { inIndex, inIndexDay, crawled, sitemaps } = facts.bing;
     if (sitemaps.length === 0) {
       problems.push("No sitemap is submitted to Bing.");
     }
@@ -639,8 +655,22 @@ export function findProblems(facts: Facts, today: string): string[] {
         problems.push(`Bing last read ${sitemap.url} on ${sitemap.lastRead} (${sitemap.status}).`);
       }
     }
+    if (crawled !== undefined && crawled < facts.sitemapUrls) {
+      problems.push(`Bing has crawled ${crawled} of the ${facts.sitemapUrls} sitemap URLs.`);
+    }
     if (inIndex !== undefined && inIndex * 2 < facts.sitemapUrls) {
-      problems.push(`Bing indexes ${inIndex} of the ${facts.sitemapUrls} sitemap URLs.`);
+      const asOf = inIndexDay === undefined ? "" : ` as of ${inIndexDay}`;
+      const read = sitemaps
+        .flatMap((sitemap) => (sitemap.lastRead === undefined ? [] : [sitemap.lastRead]))
+        .toSorted()
+        .at(-1);
+      const stale =
+        inIndexDay !== undefined && read !== undefined && read > inIndexDay
+          ? `, before Bing read the sitemap on ${read}; its daily stats run about a week behind`
+          : "";
+      problems.push(
+        `Bing indexes ${inIndex} of the ${facts.sitemapUrls} sitemap URLs${asOf}${stale}.`,
+      );
     }
   }
   const lastUpdate = facts.context7?.lastUpdate;
@@ -733,8 +763,27 @@ function write(text: string): void {
   process.stdout.write(text);
 }
 
+const sleep = async (ms: number): Promise<void> =>
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+/** Tries of a request that answers 429, and the pause before the next when it gives no Retry-After. */
+const RATE_LIMIT_TRIES = 4;
+const RATE_LIMIT_PAUSE_MS = 10_000;
+
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
-  const response = await fetch(url, init);
+  let response = await fetch(url, init);
+  for (let attempt = 1; response.status === 429 && attempt < RATE_LIMIT_TRIES; attempt += 1) {
+    const retryAfter = Number(response.headers.get("retry-after"));
+    await response.body?.cancel();
+    await sleep(
+      Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(retryAfter, 120) * 1000
+        : RATE_LIMIT_PAUSE_MS * attempt,
+    );
+    response = await fetch(url, init);
+  }
   const text = await response.text();
   if (!response.ok) {
     throw new Error(
@@ -1011,10 +1060,42 @@ async function google(
 interface BingResult {
   impressions: number;
   inIndex?: number;
+  inIndexDay?: string;
+  crawled?: number;
   sitemaps: { url: string; status: string; lastRead?: string }[];
 }
 
-async function bing(range: MonthRange): Promise<BingResult | undefined> {
+/** The pause between Bing's per-URL calls, and after a throttled one, which Bing answers with ThrottleHost. */
+const BING_URL_PAUSE_MS = 2000;
+const BING_THROTTLE_PAUSE_MS = 5000;
+const BING_URL_TRIES = 6;
+
+/** When Bing last crawled each URL, one call at a time; undefined when Bing kept throttling. */
+async function bingCrawlDays(
+  urls: readonly string[],
+  key: string,
+): Promise<(string | undefined)[] | undefined> {
+  const days: (string | undefined)[] = [];
+  for (const url of urls) {
+    const request = `${BING}/GetUrlInfo?siteUrl=${encodeURIComponent(SITE)}&url=${encodeURIComponent(url)}&apikey=${encodeURIComponent(key)}`;
+    let answer: unknown;
+    for (let attempt = 1; answer === undefined; attempt += 1) {
+      try {
+        answer = await fetchJson(request);
+      } catch (error: unknown) {
+        if (!String(error).includes("ThrottleHost") || attempt === BING_URL_TRIES) {
+          return undefined;
+        }
+        await sleep(BING_THROTTLE_PAUSE_MS * attempt);
+      }
+    }
+    days.push(bingLastCrawled(answer));
+    await sleep(BING_URL_PAUSE_MS);
+  }
+  return days;
+}
+
+async function bing(range: MonthRange, urls: readonly string[]): Promise<BingResult | undefined> {
   write("\n== Bing Webmaster Tools\n");
   const key = secret("BING_WEBMASTER_API_KEY", "bing-webmaster-api");
   if (key === undefined) {
@@ -1035,7 +1116,14 @@ async function bing(range: MonthRange): Promise<BingResult | undefined> {
   write(
     indexed === undefined
       ? "  indexed: no crawl data up to the end of the month\n"
-      : `  indexed: ${indexed.inIndex} pages on ${indexed.day}\n`,
+      : `  indexed: ${indexed.inIndex} pages on ${indexed.day} (the daily stats run about a week behind)\n`,
+  );
+  const crawledDays = await bingCrawlDays(urls, key);
+  const crawled = crawledDays?.filter((day) => day !== undefined).length;
+  write(
+    crawled === undefined
+      ? "  crawled: not read, Bing throttled the per-URL calls\n"
+      : `  crawled: ${crawled} / ${urls.length} sitemap URLs (per URL, read today)\n`,
   );
   const sitemaps = list(get(await call("GetFeeds"), "d")).map((feed) => {
     const lastRead = bingDay(get(feed, "LastCrawled"));
@@ -1056,7 +1144,8 @@ async function bing(range: MonthRange): Promise<BingResult | undefined> {
   }
   return {
     impressions: traffic.impressions,
-    ...(indexed === undefined ? {} : { inIndex: indexed.inIndex }),
+    ...(indexed === undefined ? {} : { inIndex: indexed.inIndex, inIndexDay: indexed.day }),
+    ...(crawled === undefined ? {} : { crawled }),
     sitemaps,
   };
 }
@@ -1119,7 +1208,7 @@ async function main(argv: readonly string[]): Promise<void> {
   const npmResult = await npm(range);
   const githubResult = github(range, today, values["traffic-log"]);
   const googleResult = await google(range, urls, values["skip-inspection"] !== true);
-  const bingResult = await bing(range);
+  const bingResult = await bing(range, urls);
   const context7Result = await context7(values["refresh-context7"] === true);
 
   const problems = findProblems(
