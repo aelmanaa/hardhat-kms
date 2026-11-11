@@ -10,42 +10,68 @@ There are no targets, no dashboards and no analytics on the docs site. This page
 
 ## Monthly checklist
 
-Run these in the first week of the month and write one entry.
+In the first week of the month, run the [adoption check](#the-adoption-check) for the month before, then the checks it cannot make, and write one entry:
 
-1. [Downloads](#downloads): last month for the core, each provider and `@hardhat-kms/safe`.
-2. [npm listing](#npm-listing): position for "hardhat kms" and "hardhat safe", keywords, description, the TypeScript and provenance badges.
-3. [Package health](#package-health): Socket and Snyk.
-4. [GitHub](#github): stars, forks, referrers, popular paths, dependents.
-5. [Docs site search](#docs-site-search): indexed pages against the sitemap, impressions, clicks, queries.
-6. Quarterly, in January, April, July and October: [answer engines](#answer-engines) and the [agent listings](#agent-listings).
+1. `node scripts/adoption-check.ts --month <YYYY-MM> --traffic-log <file>`: [downloads](#downloads), the [npm search](#npm-listing), [GitHub](#github), [docs site search](#docs-site-search) and Context7. It prints the month's row; add the notes.
+2. Fix or open an issue for each line under Problems.
+3. In a browser: the [npm package page](#npm-listing) badges, [package health](#package-health) on Socket and Snyk, and the dependents tabs under [GitHub](#github).
+4. Quarterly, in January, April, July and October: the target-phrase searches under [docs site search](#docs-site-search), the [answer engines](#answer-engines) and the [agent listings](#agent-listings).
+
+Every week, run the check again with the same `--traffic-log`, so no day of GitHub traffic is lost.
+
+## The adoption check
+
+`scripts/adoption-check.ts` reads npm, GitHub, Google Search Console, Bing Webmaster Tools and Context7 for one month through their APIs, lists what looks wrong, and prints the month's row:
+
+```sh
+ADOPTION_GSC_SERVICE_ACCOUNT=<service account email> node scripts/adoption-check.ts --month 2026-10 \
+  --traffic-log ~/.local/share/hardhat-kms/adoption-traffic.json
+```
+
+It prints, in order:
+
+- The pages in the sitemap today, and how many answer 200.
+- npm: each package's downloads in the month, the median day, the busiest day and the days it published a version; each package's position in the registry search for "hardhat kms" and "hardhat safe" today; the version on `latest`.
+- GitHub: stars, forks and watchers, the last 14 days' views, clones, referrers and popular paths, and the month's views and clones from the traffic log.
+- Google: the month's impressions and clicks, the top queries and pages, when Google last read each submitted sitemap, and the index state of every sitemap URL, read today with the URL Inspection API, with the URLs Google does not know.
+- Bing: the month's impressions and clicks, the top queries of recent weeks, the indexed pages on the last day of the month, and the state of each submitted sitemap.
+- Context7's index state.
+- Problems, such as:
+  - a sitemap URL that does not answer 200;
+  - a sitemap a console has not read;
+  - pages Google crawled but did not index;
+  - Bing indexing fewer than half the sitemap;
+  - Context7 older than the release on `latest`;
+  - a package with no downloads;
+  - a gap of more than 14 days in the traffic log.
+- The row for [Monthly entries](#monthly-entries), with the Notes cell empty.
+
+Options:
+
+- `--traffic-log <file>` merges GitHub's daily views and clones into a JSON file and keeps a dated copy of the 14-day referrers and paths. Keep the file outside the repository; it holds no secret.
+- `--refresh-context7` asks Context7 to index the docs again; see [Agent listings](#agent-listings).
+- `--skip-inspection` leaves out the URL inspections, which take most of the minute the check runs.
+
+A source without credentials is skipped, and Problems names what it could not check. The check writes nothing to npm, GitHub or the search consoles. Its setup is under [One-time setup](#one-time-setup).
 
 ## Downloads
 
 The npm downloads API counts registry downloads per package. It does not tell installs from CI runs or mirrors, so read the trend, not the number. The provider packages show the split between clouds, and `@hardhat-kms/safe` how many projects propose Safe transactions. `@hardhat-kms/safe` was first published on `latest` with 1.5.0 on 2026-11-05.
 
-```sh
-curl -s https://api.npmjs.org/downloads/point/last-month/hardhat-kms
-curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/aws
-curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/gcp
-curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/azure
-curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/turnkey
-curl -s https://api.npmjs.org/downloads/point/last-month/@hardhat-kms/safe
-```
-
-Each answer is `{"downloads":N,"start":"YYYY-MM-DD","end":"YYYY-MM-DD","package":"..."}`. For a calendar month, put the dates in the path, for example `point/2026-11-01:2026-11-30/hardhat-kms`. Swap `point` for `range` to get one count per day. The bulk form (`hardhat-kms,@hardhat-kms/aws`) does not accept scoped packages, so query each one on its own.
+The check reads one count per day from `https://api.npmjs.org/downloads/range/<start>:<end>/<package>`, one package at a time: the bulk form does not accept scoped packages. This repository's own workflows install from npm on the days of a release or promotion and on their schedules, so the busiest day is usually a release day. The median day moves less with them and is the better trend.
 
 The API lags a few days. On 2026-10-08 its `last-month` window ended on 2026-10-04, before 0.9.0 was published on 2026-10-07, and all four queries returned `{"error":"package ... not found"}`.
 
 ## npm listing
 
+The check reads the position of each package in the first 20 results of the registry search, `https://registry.npmjs.org/-/v1/search`, the one `npm search` uses. The npm website ranks with the same index but blocks scripted requests; to see its results, open <https://www.npmjs.com/search?q=hardhat%20kms> in a browser. On 2026-10-08 the search did not list any of the packages yet; on 2026-11-11 the six packages held the first six places for "hardhat kms", and none was in the first 20 for "hardhat safe".
+
+Keywords and description:
+
 ```sh
-npm search "hardhat kms" --searchlimit=20 --parseable | cut -f1 | grep -n -x -e hardhat-kms -e '@hardhat-kms/.*'
-npm search "hardhat safe" --searchlimit=20 --parseable | cut -f1 | grep -n -x -e '@hardhat-kms/safe'
 npm view hardhat-kms keywords description
 npm view @hardhat-kms/safe keywords description
 ```
-
-The first two commands print the position of each published package in the first 20 results, or nothing if none is listed. To see the same results, open <https://www.npmjs.com/search?q=hardhat%20kms> in a browser. The npm website blocks scripted requests such as curl. On 2026-10-08 the search did not list any of the packages yet.
 
 On the package page, <https://www.npmjs.com/package/hardhat-kms>, in a browser, check that the TypeScript badge sits next to the name and that the Provenance section links the release workflow run. The provenance attestation is also in the registry:
 
@@ -66,17 +92,9 @@ Open an issue for every alert, vulnerability or score that is not green, with a 
 
 ## GitHub
 
-The traffic endpoints need push access to the repository and cover only the last 14 days. After each release, run them once a week for four weeks so no week is lost.
+The check reads the repository and its traffic with `gh api`. The traffic endpoints need push access to the repository and cover only the last 14 days, so the check keeps them in the traffic log: run it every week with the same `--traffic-log`, and Problems names a gap of more than 14 days. October 2026 has no log, so its referrers cover only the 14 days to 2026-11-10.
 
-```sh
-gh api repos/aelmanaa/hardhat-kms --jq '{stars: .stargazers_count, forks: .forks_count, watchers: .subscribers_count}'
-gh api repos/aelmanaa/hardhat-kms/traffic/views --jq '{count, uniques}'
-gh api repos/aelmanaa/hardhat-kms/traffic/clones --jq '{count, uniques}'
-gh api repos/aelmanaa/hardhat-kms/traffic/popular/referrers --jq '.[] | "\(.referrer) \(.count) \(.uniques)"'
-gh api repos/aelmanaa/hardhat-kms/traffic/popular/paths --jq '.[] | "\(.path) \(.count) \(.uniques)"'
-```
-
-On 2026-10-08 the repository had 0 stars, 0 forks and 0 watchers.
+On 2026-10-08 the repository had 0 stars, 0 forks and 0 watchers. In the 14 days to 2026-11-11 it had 99 views from 82 unique visitors.
 
 The same numbers are under Insights, Traffic at <https://github.com/aelmanaa/hardhat-kms/graphs/traffic>. Clones include every CI checkout, so they say little about users. Referrers are the useful line: they name the sites that sent people to the repository.
 
@@ -87,22 +105,11 @@ Dependents:
 
 ## Docs site search
 
-The docs site, <https://aelmanaa.github.io/hardhat-kms/>, publishes its pages in <https://aelmanaa.github.io/hardhat-kms/sitemap.xml>. `scripts/adoption-search.ts` reads both consoles through their APIs for one month:
-
-```sh
-ADOPTION_GSC_SERVICE_ACCOUNT=<service account email> node scripts/adoption-search.ts --month 2026-10
-```
-
-It prints:
-
-- The number of pages in the sitemap today.
-- Google: the month's impressions and clicks, the top queries and pages, when Google last read each submitted sitemap, and the index state of every sitemap URL, read today with the URL Inspection API, with the URLs that are not indexed.
-- Bing: the month's impressions and clicks, the top queries of recent weeks, the indexed pages on the last day of the month, and the state of each submitted sitemap.
-- Context7's index state; see [Agent listings](#agent-listings).
-
-`--skip-inspection` leaves out the URL inspections, which take most of the minute the script runs. A source without credentials is skipped. The script reads only: it submits nothing to either console.
+The docs site, <https://aelmanaa.github.io/hardhat-kms/>, publishes its pages in <https://aelmanaa.github.io/hardhat-kms/sitemap.xml>. The check reads both search consoles through their APIs.
 
 ### One-time setup
+
+GitHub: `gh auth login` with an account that has push access to the repository.
 
 Google: a service account with no key, which the maintainer impersonates. In a Google Cloud project of the maintainer's, not the live-test project:
 
@@ -113,9 +120,9 @@ gcloud iam service-accounts add-iam-policy-binding adoption-reader@<project>.iam
   --project <project> --member "user:<maintainer's Google account>" --role roles/iam.serviceAccountTokenCreator
 ```
 
-Then, in Search Console, under Settings, Users and permissions, add the service account to the docs property with the Restricted permission. The script gets a short-lived token with `gcloud auth print-access-token --impersonate-service-account`.
+Then, in Search Console, under Settings, Users and permissions, add the service account to the docs property with the Restricted permission. The check gets a short-lived token with `gcloud auth print-access-token --impersonate-service-account`.
 
-Bing: in Bing Webmaster Tools, under Settings, API access, generate an API key. Keep it in `BING_WEBMASTER_API_KEY`, or on macOS in the login Keychain, where the script reads it without a prompt:
+Bing: in Bing Webmaster Tools, under Settings, API access, generate an API key. Keep it in `BING_WEBMASTER_API_KEY`, or on macOS in the login Keychain, where the check reads it without a prompt:
 
 ```sh
 security add-generic-password -a "$USER" -s bing-webmaster-api -w
@@ -125,9 +132,9 @@ The command asks for the key, so it stays out of the shell history.
 
 ### Pages that are not indexed
 
-On 2026-11-10 Google had indexed only the home page, and the other 43 sitemap URLs were unknown to it: Search Console showed "Couldn't fetch" for the sitemap and had never read it, though the file was valid and every URL answered 200. Google says this status on a valid sitemap comes from host load or low crawl demand, not from the file ([Search Engine Journal, 2026-10-06](https://www.searchenginejournal.com/google-explains-couldnt-fetch-sitemap-errors/)), and other `github.io` project sites report the same. Resubmitting the sitemap does not help. What does: in Search Console, URL Inspection, request indexing for the pages the script lists as not indexed, about ten a day, the pages that link to many others first. Bing read the same sitemap the day it was submitted.
+On 2026-11-10 Google had indexed only the home page, and the other 43 sitemap URLs were unknown to it: Search Console showed "Couldn't fetch" for the sitemap and had never read it, though the file was valid and every URL answered 200. Google says this status on a valid sitemap comes from host load or low crawl demand, not from the file ([Search Engine Journal, 2026-10-06](https://www.searchenginejournal.com/google-explains-couldnt-fetch-sitemap-errors/)), and other `github.io` project sites report the same. Resubmitting the sitemap does not help. What does: in Search Console, URL Inspection, request indexing for the pages the check lists as unknown to Google, about ten a day, the pages that link to many others first. Bing read the same sitemap the day it was submitted.
 
-Then search each target phrase below in a private window, in Google and Bing, and note the position of the first result on the docs site, the repository or the npm page, or "none" if it is not in the first page:
+Once a quarter, search each target phrase below in a private window, in Google and Bing, and note the position of the first result on the docs site, the repository or the npm page, or "none" if it is not in the first page:
 
 1. hardhat kms
 2. hardhat aws kms
@@ -169,7 +176,7 @@ curl -s "https://context7.com/api/v1/search?query=hardhat-kms" | jq '.results[] 
 
 On 2026-10-08 it returned `"state": "finalized"`, last updated 2026-10-07, with 1431 snippets.
 
-Context7 did not pick up later releases on its own. `node scripts/adoption-search.ts --month <month> --refresh-context7` prints the same state and asks Context7 to index the docs again, with an API key from <https://context7.com/dashboard> in `CONTEXT7_API_KEY` or in the macOS login Keychain item `context7-api` (`security add-generic-password -a "$USER" -s context7-api -w`). Refresh after each minor release. The refresh on 2026-11-10 took about ten minutes and raised the count to 2333 snippets.
+Context7 did not pick up later releases on its own. `node scripts/adoption-check.ts --month <month> --refresh-context7` prints the same state and asks Context7 to index the docs again, with an API key from <https://context7.com/dashboard> in `CONTEXT7_API_KEY` or in the macOS login Keychain item `context7-api` (`security add-generic-password -a "$USER" -s context7-api -w`). Refresh after each minor release. The refresh on 2026-11-10 took about ten minutes and raised the count to 2333 snippets.
 
 Once skills.sh lists the skill, its page, <https://skills.sh/aelmanaa/hardhat-kms/hardhat-kms>, shows how many times `npx skills add aelmanaa/hardhat-kms` installed it. On 2026-10-08 the page said the skill was not available and a search on skills.sh found nothing, so the skill is not listed yet.
 
