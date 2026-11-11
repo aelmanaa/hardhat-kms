@@ -815,7 +815,7 @@ async function npm(range: MonthRange): Promise<NpmResult> {
     const stats = downloadStats(
       await fetchJson(`${NPM_DOWNLOADS}/range/${range.start}:${range.end}/${name}`),
     );
-    const registry = await fetchJson(`${NPM_REGISTRY}/${name.replace("/", "%2f")}`);
+    const registry = await fetchJson(`${NPM_REGISTRY}/${name.replaceAll("/", "%2f")}`);
     if (name === "hardhat-kms") {
       latest = latestRelease(registry);
     }
