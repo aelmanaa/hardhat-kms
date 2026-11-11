@@ -545,10 +545,10 @@ importers:
         version: 3.0.9(hardhat@3.21.1)(viem@2.57.1(typescript@7.0.2)(zod@3.25.76))
       '@turnkey/api-key-stamper':
         specifier: ^0.6.18
-        version: 0.6.18
+        version: 0.6.19
       '@turnkey/crypto':
         specifier: ^2.13.3
-        version: 2.13.3
+        version: 2.13.4
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.4
@@ -3238,20 +3238,20 @@ packages:
   '@stryker-mutator/util@10.1.1':
     resolution: {integrity: sha512-Z0zDzsmhoSykE1gT3DvD1knFxySgNMfBlpSSs1j87kWvjEMfeMqfLOk0bqEPRg/rTFIUNSEXLZapxePUhZmfZA==}
 
-  '@turnkey/api-key-stamper@0.6.18':
-    resolution: {integrity: sha512-qKfufzArRpuBtO+iLy90+gjYmsXr86kK2dVsY3YhXUU6qeO3LJVMyc6HIIq1ZVTCsH8fFpXRfi8btHXf9jxhbA==}
+  '@turnkey/api-key-stamper@0.6.19':
+    resolution: {integrity: sha512-PGUXp4x3jl7EqUabwrbWwl/fnlOEoyFhAMYAEiqL404UKRrNLK7fn2k9dSBfNXB4ERZ2ZUb6RCXNzRmVyOCj6A==}
     engines: {node: '>=18.0.0'}
 
-  '@turnkey/crypto@2.13.3':
-    resolution: {integrity: sha512-hFiV+xxPGNw6wMs1jO0xROVv90dAZjzZqNUlmxPhLc+57Ro6IAcoSraIfiVOpdDdyk8tKJ7QduwZcV2QjVz/Dw==}
+  '@turnkey/crypto@2.13.4':
+    resolution: {integrity: sha512-0zYFQuXQ6hxiok3XnzhpKEnQyDkSIIVJuddFtSXDN+CdyhTo/AsNDfndaNJNm4JH2+XKZyw3H2eaW93o885L7w==}
     engines: {node: '>=18.0.0'}
 
   '@turnkey/encoding@0.6.0':
     resolution: {integrity: sha512-IC8qXvy36+iGAeiaVIuJvB35uU2Ld/RAWI/DRTKS+ttBej0GXhOn48Ouu5mlca4jt8ZEuwXmDVv74A8uBQclsA==}
     engines: {node: '>=18.0.0'}
 
-  '@turnkey/sdk-types@1.11.0':
-    resolution: {integrity: sha512-gTzMBMfaEdyqAYF4CO3byJ+QiG5BPilmCgWXJVGb8LwIWUaavAkxo6xyoXVbjNi//TJMD0K97z02Qfx6nP8whw==}
+  '@turnkey/sdk-types@1.12.0':
+    resolution: {integrity: sha512-uITUqc/IdSn2ixBQOu6P93hJYttBAwQ0YdNj0QTXeCbXzTe5gxMRGnxmGdYDNT+IXZTq1LmVJ8QXnvQBmEGeEQ==}
     engines: {node: '>=18.0.0'}
 
   '@tybys/wasm-util@0.10.4':
@@ -9809,21 +9809,21 @@ snapshots:
 
   '@stryker-mutator/util@10.1.1': {}
 
-  '@turnkey/api-key-stamper@0.6.18':
+  '@turnkey/api-key-stamper@0.6.19':
     dependencies:
       '@noble/curves': 1.9.1
-      '@turnkey/crypto': 2.13.3
+      '@turnkey/crypto': 2.13.4
       '@turnkey/encoding': 0.6.0
       sha256-uint8array: 0.10.7
 
-  '@turnkey/crypto@2.13.3':
+  '@turnkey/crypto@2.13.4':
     dependencies:
       '@noble/ciphers': 1.3.0
       '@noble/curves': 1.9.0
       '@noble/hashes': 1.8.0
       '@peculiar/x509': 1.12.3
       '@turnkey/encoding': 0.6.0
-      '@turnkey/sdk-types': 1.11.0
+      '@turnkey/sdk-types': 1.12.0
       borsh: 2.0.0
       cbor-js: 0.1.0
 
@@ -9832,7 +9832,7 @@ snapshots:
       bs58: 6.0.0
       bs58check: 4.0.0
 
-  '@turnkey/sdk-types@1.11.0': {}
+  '@turnkey/sdk-types@1.12.0': {}
 
   '@tybys/wasm-util@0.10.4':
     dependencies:
